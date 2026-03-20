@@ -37,11 +37,9 @@ export class DryRunPreviewService {
     console.log(chalk.gray(`     ↳ ${preview.description}`));
     if (preview.estimatedResponse) {
       const lines = preview.estimatedResponse.split('\n');
-      const responseLabel = '↳ Response: ';
-      const responsePad = ' '.repeat(responseLabel.length);
       lines.forEach((line, i) =>
         console.log(
-          chalk.gray(`     ${i === 0 ? responseLabel : responsePad}${line}`),
+          chalk.gray(`     ${i === 0 ? '↳ Response: ' : ''}${line}`),
         ),
       );
     }
