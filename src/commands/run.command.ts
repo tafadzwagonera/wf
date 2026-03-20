@@ -1,9 +1,11 @@
+import { Injectable } from '@nestjs/common';
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { WorkflowParserService } from '../core/workflow-parser/workflow-parser.service';
 import { StageEngineService } from '../core/stage-engine/stage-engine.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { ExecutionStep } from '../common/interfaces/workflow.interface';
 import chalk from 'chalk';
 
 interface RunCommandOptions {
@@ -12,6 +14,7 @@ interface RunCommandOptions {
   dryRun?: boolean;
 }
 
+@Injectable()
 @Command({
   name: 'run',
   description: 'Execute a workflow',
@@ -49,6 +52,47 @@ export class RunCommand extends CommandRunner {
       // Parse workflow
       const workflow = await this.workflowParser.findWorkflow(workflowName);
 
+      // Parse parameters from command line or --params option
+      const parameters = this.parseParameters(
+        passedParams.slice(1),
+        options?.params,
+      );
+
+      // Dry run mode
+      if (options?.dryRun) {
+        this.dryRunPreview.showHeader('run', workflowName);
+
+        const stepLines: string[] = [];
+        workflow.steps.forEach((step: ExecutionStep, index: number) => {
+          stepLines.push(
+            `${index + 1}. ${step.title}` +
+              (step.requiresApproval ? '  [Approval Required]' : '') +
+              (step.retryable ? '  [Retryable]' : ''),
+          );
+          step.instructions.forEach((instruction) => {
+            stepLines.push(`   - ${instruction}`);
+          });
+        });
+
+        this.dryRunPreview.showSummary({
+          apiCallCount: 0,
+          fileCreatedCount: 0,
+          fileModifiedCount: 0,
+          gitOperationCount: 0,
+          terminalOutputLines: [
+            `Workflow: ${workflow.metadata.name}`,
+            `Description: ${workflow.metadata.description}`,
+            `Steps: ${workflow.steps.length}`,
+            `Auto Execution: ${workflow.metadata.autoExecutionMode ? 'Yes' : 'No'}`,
+            '',
+            ...stepLines,
+          ],
+        });
+
+        this.dryRunPreview.showValidationResult();
+        return;
+      }
+
       console.log(chalk.bold.cyan('\n📋 Workflow Details'));
       console.log(chalk.gray('━'.repeat(60)));
       console.log(chalk.bold('Name:'), chalk.white(workflow.metadata.name));
@@ -65,12 +109,6 @@ export class RunCommand extends CommandRunner {
       );
       console.log(chalk.gray('━'.repeat(60)) + '\n');
 
-      // Parse parameters from command line or --params option
-      const parameters = this.parseParameters(
-        passedParams.slice(1),
-        options?.params,
-      );
-
       // Show parameters
       if (Object.keys(parameters).length > 0) {
         console.log(chalk.bold('Parameters:'));
@@ -78,41 +116,6 @@ export class RunCommand extends CommandRunner {
           console.log(chalk.gray(`  ${key}:`), chalk.white(value));
         }
         console.log();
-      }
-
-      // Dry run mode
-      if (options?.dryRun) {
-        this.dryRunPreview.showHeader('run', workflowName);
-
-        workflow.steps.forEach((step: any, index: number) => {
-          const stepLines: string[] = [
-            `${index + 1}. ${step.title}` +
-              (step.requiresApproval ? '  [Approval Required]' : '') +
-              (step.retryable ? '  [Retryable]' : ''),
-          ];
-          if (step.instructions && step.instructions.length > 0) {
-            step.instructions.forEach((instruction: string) => {
-              stepLines.push(`   - ${instruction}`);
-            });
-          }
-          this.dryRunPreview.showTerminalOutput(stepLines);
-        });
-
-        this.dryRunPreview.showSummary({
-          apiCallCount: 0,
-          fileCreatedCount: 0,
-          fileModifiedCount: 0,
-          gitOperationCount: 0,
-          terminalOutputLines: [
-            `Workflow: ${workflow.metadata.name}`,
-            `Description: ${workflow.metadata.description}`,
-            `Steps: ${workflow.steps.length}`,
-            `Auto Execution: ${workflow.metadata.autoExecutionMode ? 'Yes' : 'No'}`,
-          ],
-        });
-
-        this.dryRunPreview.showValidationResult();
-        return;
       }
 
       // Execute workflow
