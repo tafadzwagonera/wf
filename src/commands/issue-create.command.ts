@@ -1,3 +1,4 @@
+import { Injectable } from '@nestjs/common';
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { FormatConverterService } from '../common/converters/format-converter.service';
@@ -21,6 +22,7 @@ interface IssueCreateOptions {
  * Command to create tickets on various platforms from standardized input
  * Supports multiple platforms and formats
  */
+@Injectable()
 @Command({
   name: 'issue:create',
   description: 'Create tickets on various platforms from standardized input',
@@ -95,8 +97,6 @@ export class IssueCreateCommand extends CommandRunner {
 
       console.log(chalk.gray(`  Target platform: ${platformName}\n`));
 
-      const adapter = this.platformService.getAdapter(platformName);
-
       // Dry run mode - just validate
       if (options?.dryRun) {
         this.dryRunPreview.showHeader(
@@ -138,6 +138,7 @@ export class IssueCreateCommand extends CommandRunner {
       }
 
       // Create ticket on platform
+      const adapter = this.platformService.getAdapter(platformName);
       console.log(chalk.cyan('🚀 Creating ticket on platform...\n'));
       const reference = await adapter.createTicket(ticket);
 
