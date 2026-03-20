@@ -393,7 +393,7 @@ export class IssueAllCommand extends CommandRunner {
               ),
             );
             // Optimistic preview — live path may emit 'No changes to commit' if diff is empty
-            terminalLines.push(`✓ Commit message generated`);
+            terminalLines.push('✓ Commit message generated');
             terminalLines.push(`  Message: ${ticketKey}: <AI-generated>`);
           }
         }
