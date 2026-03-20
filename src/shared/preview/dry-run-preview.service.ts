@@ -37,18 +37,20 @@ export class DryRunPreviewService {
     console.log(chalk.gray(`     ↳ ${preview.description}`));
     if (preview.estimatedResponse) {
       const lines = preview.estimatedResponse.split('\n');
+      const responseLabel = '↳ Response: ';
+      const responsePad = ' '.repeat(responseLabel.length);
       lines.forEach((line, i) =>
         console.log(
-          chalk.gray(`     ${i === 0 ? '↳ Response: ' : '           '}${line}`),
+          chalk.gray(`     ${i === 0 ? responseLabel : responsePad}${line}`),
         ),
       );
     }
     if (preview.payload && Object.keys(preview.payload).length > 0) {
-      console.log(
-        chalk.gray(
-          `     ↳ Payload: ${JSON.stringify(preview.payload, null, 0).substring(0, 120)}`,
-        ),
-      );
+      const payloadJson = JSON.stringify(preview.payload, null, 0);
+      const payloadDisplay = payloadJson.length > 120
+        ? `${payloadJson.substring(0, 120)}...`
+        : payloadJson;
+      console.log(chalk.gray(`     ↳ Payload: ${payloadDisplay}`));
     }
   }
 
@@ -63,9 +65,9 @@ export class DryRunPreviewService {
         : chalk.green('create');
     console.log(`  📝 ${opLabel} ${preview.filePath}`);
     if (preview.contentPreview) {
-      const lines = preview.contentPreview.split('\n').slice(0, 10);
-      lines.forEach((line) => console.log(chalk.dim(`       ${line}`)));
-      if (preview.contentPreview.split('\n').length > 10) {
+      const allLines = preview.contentPreview.split('\n');
+      allLines.slice(0, 10).forEach((line) => console.log(chalk.dim(`       ${line}`)));
+      if (allLines.length > 10) {
         console.log(chalk.dim('       ...'));
       }
     }
@@ -134,16 +136,6 @@ export class DryRunPreviewService {
   }
 
   /**
-   * Display a dim indented preview of what the live command would print on success
-   * @param lines Lines the live command would emit
-   */
-  showTerminalOutput(lines: string[]): void {
-    if (lines.length === 0) return;
-    console.log(chalk.gray('\n  Terminal output preview:'));
-    lines.forEach((line) => console.log(chalk.dim(`  │ ${line}`)));
-  }
-
-  /**
    * Display a final validation success message
    * @param hint Optional action hint (e.g., "remove --dry-run to execute")
    */
@@ -172,5 +164,15 @@ export class DryRunPreviewService {
    */
   showNoSideEffects(): void {
     console.log(chalk.gray('     Display-only stage — no side effects'));
+  }
+
+  /**
+   * Display a dim indented preview of what the live command would print on success
+   * @param lines Lines the live command would emit
+   */
+  showTerminalOutput(lines: string[]): void {
+    if (lines.length === 0) return;
+    console.log(chalk.gray('\n  Terminal output preview:'));
+    lines.forEach((line) => console.log(chalk.dim(`  │ ${line}`)));
   }
 }
