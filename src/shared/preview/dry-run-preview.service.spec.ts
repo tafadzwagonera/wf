@@ -5,11 +5,26 @@ jest.mock('chalk', () => {
   const makeChain = () => {
     const chain: any = identity;
     const colorNames = [
-      'bold', 'dim', 'italic', 'underline', 'inverse', 'strikethrough',
-      'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan',
-      'white', 'gray', 'grey',
+      'bold',
+      'dim',
+      'italic',
+      'underline',
+      'inverse',
+      'strikethrough',
+      'black',
+      'red',
+      'green',
+      'yellow',
+      'blue',
+      'magenta',
+      'cyan',
+      'white',
+      'gray',
+      'grey',
     ];
-    colorNames.forEach((name) => { chain[name] = identity; });
+    colorNames.forEach((name) => {
+      chain[name] = identity;
+    });
     return chain;
   };
 
@@ -129,7 +144,9 @@ describe('DryRunPreviewService', () => {
     });
 
     it('truncates contentPreview at 10 lines and appends ellipsis', () => {
-      const preview = Array.from({ length: 15 }, (_, i) => `line${i}`).join('\n');
+      const preview = Array.from({ length: 15 }, (_, i) => `line${i}`).join(
+        '\n',
+      );
       service.previewFileWrite({
         filePath: '/x',
         operation: 'create',
@@ -170,7 +187,9 @@ describe('DryRunPreviewService', () => {
     it('renders each line with │ prefix', () => {
       service.showTerminalOutput(['line A', 'line B']);
       const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
-      expect(calls.some((c) => c.includes('Terminal output preview:'))).toBe(true);
+      expect(calls.some((c) => c.includes('Terminal output preview:'))).toBe(
+        true,
+      );
       expect(calls.some((c) => c.includes('│ line A'))).toBe(true);
       expect(calls.some((c) => c.includes('│ line B'))).toBe(true);
     });

@@ -47,9 +47,10 @@ export class DryRunPreviewService {
     }
     if (preview.payload && Object.keys(preview.payload).length > 0) {
       const payloadJson = JSON.stringify(preview.payload, null, 0);
-      const payloadDisplay = payloadJson.length > 120
-        ? `${payloadJson.substring(0, 120)}...`
-        : payloadJson;
+      const payloadDisplay =
+        payloadJson.length > 120
+          ? `${payloadJson.substring(0, 120)}...`
+          : payloadJson;
       console.log(chalk.gray(`     ↳ Payload: ${payloadDisplay}`));
     }
   }
@@ -66,7 +67,9 @@ export class DryRunPreviewService {
     console.log(`  📝 ${opLabel} ${preview.filePath}`);
     if (preview.contentPreview) {
       const allLines = preview.contentPreview.split('\n');
-      allLines.slice(0, 10).forEach((line) => console.log(chalk.dim(`       ${line}`)));
+      allLines
+        .slice(0, 10)
+        .forEach((line) => console.log(chalk.dim(`       ${line}`)));
       if (allLines.length > 10) {
         console.log(chalk.dim('       ...'));
       }
