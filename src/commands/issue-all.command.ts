@@ -10,6 +10,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { GitService } from '../integrations/git/git.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
@@ -279,18 +280,7 @@ export class IssueAllCommand extends CommandRunner {
                 operation: artifactExists ? 'overwrite' : 'create',
                 sizeEstimate: '1–5 KB',
                 format: 'markdown',
-                contentPreview: [
-                  `# ${ticketKey}: <title>`,
-                  '',
-                  `**Ticket:** ${ticketKey}`,
-                  '**Type:** <type>',
-                  '**Status:** <status>',
-                  '**Priority:** <priority>',
-                  '',
-                  '## Description',
-                  '',
-                  '<description>',
-                ].join('\n'),
+                contentPreview: buildTicketMarkdownPreview(ticketKey),
               });
               totalApiCalls++;
               totalFilesCreated++;
@@ -402,7 +392,8 @@ export class IssueAllCommand extends CommandRunner {
                 '     Displays: commit commands — user confirms before execution',
               ),
             );
-            terminalLines.push('✓ Commit message generated');
+            // Optimistic preview — live path may emit 'No changes to commit' if diff is empty
+            terminalLines.push(`✓ Commit message generated`);
             terminalLines.push(`  Message: ${ticketKey}: <AI-generated>`);
           }
         }

@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -285,18 +286,7 @@ export class IssueFetchCommand extends CommandRunner {
       ].join('\n');
     }
     // markdown (default)
-    return [
-      '# <title>',
-      '',
-      `**Ticket:** ${ticketKey}`,
-      '**Type:** <type>',
-      '**Status:** <status>',
-      '**Priority:** <priority>',
-      '**Assignee:** <assignee>',
-      '',
-      '## Description',
-      '<description>',
-    ].join('\n');
+    return buildTicketMarkdownPreview(ticketKey);
   }
 
   /**

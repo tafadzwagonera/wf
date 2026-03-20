@@ -198,6 +198,7 @@ export class IssueReviewCommand extends CommandRunner {
           fileCreatedCount,
           fileModifiedCount: 0,
           gitOperationCount: 0,
+          // Optimistic preview — actual approval status depends on AI response at runtime
           terminalOutputLines: [
             '✓ Code review complete',
             '',

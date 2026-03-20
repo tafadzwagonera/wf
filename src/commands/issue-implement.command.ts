@@ -5,6 +5,7 @@ import { ClaudeService } from '../integrations/ai/claude.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -138,18 +139,7 @@ export class IssueImplementCommand extends CommandRunner {
             operation: ticketExists ? 'overwrite' : 'create',
             sizeEstimate: '1–5 KB',
             format: 'markdown',
-            contentPreview: [
-              `# ${ticketKey}: <title>`,
-              '',
-              `**Ticket:** ${ticketKey}`,
-              '**Type:** <type>',
-              '**Status:** <status>',
-              '**Priority:** <priority>',
-              '',
-              '## Description',
-              '',
-              '<description>',
-            ].join('\n'),
+            contentPreview: buildTicketMarkdownPreview(ticketKey),
           });
         } else {
           this.dryRunPreview.previewFileRead({
