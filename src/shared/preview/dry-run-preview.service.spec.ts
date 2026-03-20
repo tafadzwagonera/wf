@@ -122,7 +122,10 @@ describe('DryRunPreviewService', () => {
         sizeEstimate: '1 KB',
         contentPreview: 'line1\nline2\nline3',
       });
-      expect(mockConsoleLog).toHaveBeenCalledTimes(4); // filepath + 3 lines
+      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
+      expect(calls.some((c) => c.includes('line1'))).toBe(true);
+      expect(calls.some((c) => c.includes('line2'))).toBe(true);
+      expect(calls.some((c) => c.includes('line3'))).toBe(true);
     });
 
     it('truncates contentPreview at 10 lines and appends ellipsis', () => {
@@ -133,10 +136,24 @@ describe('DryRunPreviewService', () => {
         sizeEstimate: '1 KB',
         contentPreview: preview,
       });
-      // 1 filepath + 10 content lines + 1 ellipsis = 12 calls
-      expect(mockConsoleLog).toHaveBeenCalledTimes(12);
-      const lastCall = mockConsoleLog.mock.calls[11][0] as string;
-      expect(lastCall).toContain('...');
+      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
+      // First 10 lines should appear
+      expect(calls.some((c) => c.includes('line0'))).toBe(true);
+      expect(calls.some((c) => c.includes('line9'))).toBe(true);
+      // 11th line (line10) should NOT appear
+      expect(calls.every((c) => !c.includes('line10'))).toBe(true);
+      // Ellipsis must appear
+      expect(calls.some((c) => c.includes('...'))).toBe(true);
+    });
+
+    it('renders overwrite operation label', () => {
+      service.previewFileWrite({
+        filePath: '/a/b/file.md',
+        operation: 'overwrite',
+        sizeEstimate: '1 KB',
+      });
+      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
+      expect(calls.some((c) => c.includes('overwrite'))).toBe(true);
     });
 
     it('omits contentPreview block when absent', () => {
@@ -153,6 +170,7 @@ describe('DryRunPreviewService', () => {
     it('renders each line with │ prefix', () => {
       service.showTerminalOutput(['line A', 'line B']);
       const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
+      expect(calls.some((c) => c.includes('Terminal output preview:'))).toBe(true);
       expect(calls.some((c) => c.includes('│ line A'))).toBe(true);
       expect(calls.some((c) => c.includes('│ line B'))).toBe(true);
     });
@@ -195,6 +213,18 @@ describe('DryRunPreviewService', () => {
         fileCreatedCount: 0,
         fileModifiedCount: 0,
         gitOperationCount: 0,
+      });
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('does not call showTerminalOutput when terminalOutputLines is empty', () => {
+      const spy = jest.spyOn(service, 'showTerminalOutput');
+      service.showSummary({
+        apiCallCount: 0,
+        fileCreatedCount: 0,
+        fileModifiedCount: 0,
+        gitOperationCount: 0,
+        terminalOutputLines: [],
       });
       expect(spy).not.toHaveBeenCalled();
     });
