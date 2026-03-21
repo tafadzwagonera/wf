@@ -15,6 +15,13 @@ export class FetcherAgent {
     private configService: ConfigService,
   ) {}
 
+  /**
+   * Fetch a ticket from the platform and save it as a markdown artifact.
+   *
+   * @param ticketKey - The ticket identifier (e.g. WBP-1234)
+   * @param options - Fetch options including platformName, optional repo override, and skipExisting flag
+   * @returns The TicketArtifact with key, markdown content, and file path
+   */
   async execute(
     ticketKey: string,
     options: FetcherOptions,
@@ -49,9 +56,7 @@ export class FetcherAgent {
     console.log(chalk.bold('  Type:'), chalk.white(ticket.type || 'N/A'));
     console.log(chalk.bold('  Status:'), chalk.white(ticket.status || 'N/A'));
 
-    if (!fs.existsSync(platformDir)) {
-      fs.mkdirSync(platformDir, { recursive: true });
-    }
+    fs.mkdirSync(platformDir, { recursive: true });
 
     const content = this.formatTicketMarkdown(ticket, ticketKey);
     fs.writeFileSync(ticketPath, content);
@@ -60,6 +65,14 @@ export class FetcherAgent {
     return { ticketKey, content, path: ticketPath };
   }
 
+  /**
+   * Load an existing ticket artifact from disk.
+   *
+   * @param ticketKey - The ticket identifier (e.g. WBP-1234)
+   * @param platformName - The platform directory name (e.g. 'jira', 'bitbucket')
+   * @returns The TicketArtifact with key, markdown content, and file path
+   * @throws Error if the ticket file does not exist on disk
+   */
   loadFromDisk(ticketKey: string, platformName: string): TicketArtifact {
     const ticketPath = path.join(
       process.cwd(),
@@ -97,7 +110,7 @@ export class FetcherAgent {
 
 ## Description
 
-${ticket.description}
+${ticket.description ?? ''}
 `;
   }
 
