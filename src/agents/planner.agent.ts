@@ -36,11 +36,15 @@ export class PlannerAgent {
       console.log(
         chalk.gray(`🤖 Skipping PLAN - artifact exists: ${planPath}`),
       );
-      return {
-        plan: JSON.parse(fs.readFileSync(planPath, 'utf-8')) as ResolutionPlan,
-        action: options.action,
-        path: planPath,
-      };
+      let plan: ResolutionPlan;
+      try {
+        plan = JSON.parse(fs.readFileSync(planPath, 'utf-8')) as ResolutionPlan;
+      } catch {
+        throw new Error(
+          `Plan file is not valid JSON: ${path.basename(planPath)}`,
+        );
+      }
+      return { plan, action: options.action, path: planPath };
     }
 
     console.log(
