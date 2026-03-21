@@ -19,6 +19,13 @@ import { extractSummary } from './utils';
 export class PlannerAgent {
   constructor(private claudeService: ClaudeService) {}
 
+  /**
+   * Generate an implementation plan for a ticket and save it as a JSON artifact.
+   *
+   * @param ticket - The ticket artifact containing the ticket key, content, and file path
+   * @param options - Planner options including action type, affected repositories, and skipExisting flag
+   * @returns The PlanArtifact with the generated plan, resolved action, and file path
+   */
   async execute(
     ticket: TicketArtifact,
     options: PlannerOptions,
@@ -66,6 +73,14 @@ export class PlannerAgent {
     return { plan, action: options.action, path: planPath };
   }
 
+  /**
+   * Load an existing plan artifact from disk, optionally scoped to a specific action.
+   *
+   * @param ticketPath - The file path to the ticket markdown artifact
+   * @param action - Optional action type to load a specific plan; if omitted, the most recent plan is auto-discovered
+   * @returns The PlanArtifact with the loaded plan, resolved action, and file path
+   * @throws Error if the specified plan file does not exist or contains invalid JSON
+   */
   loadFromDisk(ticketPath: string, action?: ResolutionAction): PlanArtifact {
     if (action) {
       const planPath = ticketPath.replace('.md', `-plan-${action}.json`);
@@ -74,10 +89,14 @@ export class PlannerAgent {
           `Plan file not found: ${path.basename(planPath)}\nRun with --from plan --action ${action} first.`,
         );
       }
-      const plan = JSON.parse(
-        fs.readFileSync(planPath, 'utf-8'),
-      ) as ResolutionPlan;
-      const resolvedAction = (plan.action as ResolutionAction) || action;
+      let plan: ResolutionPlan;
+      try {
+        plan = JSON.parse(fs.readFileSync(planPath, 'utf-8')) as ResolutionPlan;
+      } catch {
+        throw new Error(
+          `Plan file is not valid JSON: ${path.basename(planPath)}`,
+        );
+      }
       if (plan.action && action !== plan.action) {
         console.log(
           chalk.yellow(
@@ -86,6 +105,7 @@ export class PlannerAgent {
         );
         console.log(chalk.yellow(`  Using plan's action: ${plan.action}`));
       }
+      const resolvedAction = (plan.action as ResolutionAction) || action;
       console.log(chalk.gray(`🤖 Using plan: ${path.basename(planPath)}`));
       return { plan, action: resolvedAction, path: planPath };
     }
@@ -128,9 +148,16 @@ export class PlannerAgent {
     }
 
     const selected = found[0];
-    const plan = JSON.parse(
-      fs.readFileSync(selected.path, 'utf-8'),
-    ) as ResolutionPlan;
+    let plan: ResolutionPlan;
+    try {
+      plan = JSON.parse(
+        fs.readFileSync(selected.path, 'utf-8'),
+      ) as ResolutionPlan;
+    } catch {
+      throw new Error(
+        `Plan file is not valid JSON: ${path.basename(selected.path)}`,
+      );
+    }
     console.log(
       chalk.gray(
         `🤖 Auto-discovered plan: ${path.basename(selected.path)} (action: ${selected.action})`,
