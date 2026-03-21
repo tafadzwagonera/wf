@@ -63,6 +63,7 @@ Every `path.join(..., platformName)` that constructs an artifact directory must 
 | `src/commands/issue-generate.command.ts` | `saveTicketLocally()` | `path.join(process.cwd(), platformName)` | `resolveArtifactDir(process.cwd(), platformName)` |
 | `src/commands/issue-generate.command.ts` | `run()` dry-run block | `path.join(process.cwd(), platformName, ...)` in `filePath` construction | `resolveArtifactDir(process.cwd(), platformName)` |
 | `src/commands/issue-all.command.ts` | `run()` dry-run block | `path.join(repoBaseDir, platformName)` (and all derived `ticketPath`/`planPath`/`reviewPath` in the dry-run preview) | `resolveArtifactDir(repoBaseDir, platformName)` |
+| `src/commands/issue-all.command.ts` | `checkArtifactExists()` | `path.join(baseDir, platformName)` | `resolveArtifactDir(baseDir, platformName)` — note: this method is currently dead code (no call sites), but must be updated for internal consistency |
 
 **Note:** `PlannerAgent` and `ReviewerAgent` derive their artifact paths via `ticket.path.replace(...)`, so they inherit the new path automatically once `FetcherAgent` uses the updated helper. No direct changes needed in those agents.
 
@@ -104,7 +105,7 @@ interface IssuePlanOptions {
   platform?: string;
   forceRecreate?: boolean;
   format?: OutputFormat;
-  repos: string[];
+  repos?: string[];           // now optional: required only for Bitbucket ticket-key path
   dryRun?: boolean;
 }
 ```
@@ -115,6 +116,14 @@ interface IssuePlanOptions {
 arguments: '[ticket-key]'       # was '<ticket-key>'
 -a, --action <action>           # required: true (was optional)
 --prompt <text>                 # new
+-r, --repos <repos>             # required: false (was required: true); Bitbucket guard in run()
+```
+
+The same Bitbucket-guard pattern used for `issue:implement` applies here:
+
+```
+if ticketKey && platformName === 'bitbucket' && !options.repos?.length
+  → error: "--repos is required for Bitbucket ticket fetching"
 ```
 
 ### Mutual Exclusion
