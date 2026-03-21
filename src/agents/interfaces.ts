@@ -1,4 +1,6 @@
 // src/agents/interfaces.ts
+import { ResolutionPlan } from '../integrations/ai/claude.service';
+
 export type ResolutionAction = 'implement' | 'fix' | 'investigate';
 
 export interface TicketArtifact {
@@ -8,7 +10,7 @@ export interface TicketArtifact {
 }
 
 export interface PlanArtifact {
-  plan: any;
+  plan: ResolutionPlan;
   action: ResolutionAction;
   path: string;
 }

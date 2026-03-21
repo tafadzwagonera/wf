@@ -2,7 +2,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
-import { ResolutionPlan } from '../integrations/ai/claude.service';
 import { GitService } from '../integrations/git/git.service';
 import {
   TicketArtifact,
@@ -25,6 +24,16 @@ export class ImplementerAgent {
     private gitService: GitService,
   ) {}
 
+  /**
+   * Displays the implementation guide for the given ticket and plan.
+   * Generates a branch name, checks the current git branch, and logs
+   * the implementation steps from the plan.
+   *
+   * @param ticket - The fetched ticket artifact containing key and content
+   * @param planArtifact - The generated plan artifact with steps and metadata
+   * @param options - Implementation options including the platform name
+   * @returns The generated git branch name for this ticket
+   */
   async execute(
     ticket: TicketArtifact,
     planArtifact: PlanArtifact,
@@ -52,26 +61,23 @@ export class ImplementerAgent {
       console.log(chalk.cyan(`    git checkout -b ${branchName}`));
     }
 
-    const plan = planArtifact.plan as ResolutionPlan;
-    if (plan) {
-      console.log(chalk.bold('\n  Steps:'));
-      plan.steps.forEach((step: string, i: number) => {
-        console.log(chalk.white(`    ${i + 1}. ${step}`));
-      });
+    console.log(chalk.bold('\n  Steps:'));
+    planArtifact.plan.steps.forEach((step: string, i: number) => {
+      console.log(chalk.white(`    ${i + 1}. ${step}`));
+    });
 
-      if (plan.filesAffected?.length > 0) {
-        console.log(chalk.bold('\n  Files to modify:'));
-        plan.filesAffected.forEach((file: string) =>
-          console.log(chalk.gray(`    - ${file}`)),
-        );
-      }
+    if (planArtifact.plan.filesAffected?.length > 0) {
+      console.log(chalk.bold('\n  Files to modify:'));
+      planArtifact.plan.filesAffected.forEach((file: string) =>
+        console.log(chalk.gray(`    - ${file}`)),
+      );
+    }
 
-      if (plan.repositoriesAffected?.length > 0) {
-        console.log(chalk.bold('\n  Repositories affected:'));
-        plan.repositoriesAffected.forEach((repo: string) =>
-          console.log(chalk.gray(`    - ${repo}`)),
-        );
-      }
+    if (planArtifact.plan.repositoriesAffected?.length > 0) {
+      console.log(chalk.bold('\n  Repositories affected:'));
+      planArtifact.plan.repositoriesAffected.forEach((repo: string) =>
+        console.log(chalk.gray(`    - ${repo}`)),
+      );
     }
 
     console.log(chalk.bold('\n  Status:'));
