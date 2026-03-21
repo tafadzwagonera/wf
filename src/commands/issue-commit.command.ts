@@ -195,7 +195,7 @@ export class IssueCommitCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--conventional',
+    flags: '-c, --conventional',
     description: 'Force conventional commits format',
   })
   parseConventional(): boolean {
