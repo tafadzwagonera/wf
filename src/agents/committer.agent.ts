@@ -11,6 +11,15 @@ export class CommitterAgent {
     private gitService: GitService,
   ) {}
 
+  /**
+   * Generate a commit message for uncommitted changes and print the git commands
+   * needed to stage, commit, and push. Does not execute any git commands itself.
+   *
+   * Returns early with a warning if the working tree has no modified or untracked files.
+   *
+   * @param ticketKey - The ticket identifier prepended to the commit message (e.g. WBP-1234)
+   * @returns A promise that resolves when guidance has been printed
+   */
   async execute(ticketKey: string): Promise<void> {
     console.log(chalk.bold.yellow('\n💾 STAGE 5: Commit Changes'));
     console.log(chalk.gray('─'.repeat(70)));
@@ -23,7 +32,7 @@ export class CommitterAgent {
 
     console.log(chalk.bold('  Generating commit message...'));
 
-    const diff = await this.gitService.getDiff();
+    const diff = await this.gitService.getDiff(true);
     const commits = await this.gitService.getRecentCommits(10);
     const commitHistory = commits.map((c) => c.message);
 
@@ -39,7 +48,8 @@ export class CommitterAgent {
     console.log(chalk.white(`    ${finalMsg}`));
     console.log(chalk.bold('\n  Commands:'));
     console.log(chalk.cyan('    git add .'));
-    console.log(chalk.cyan(`    git commit -m "${finalMsg}"`));
+    const escapedMsg = finalMsg.replace(/"/g, '\\"');
+    console.log(chalk.cyan(`    git commit -m "${escapedMsg}"`));
     console.log(chalk.cyan('    git push'));
   }
 }
