@@ -2,6 +2,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
+import { ResolutionPlan } from '../integrations/ai/claude.service';
 import { GitService } from '../integrations/git/git.service';
 import {
   TicketArtifact,
@@ -10,6 +11,12 @@ import {
   ResolutionAction,
 } from './interfaces';
 import { extractSummary, slugify } from './utils';
+
+const DEFAULT_PREFIX_MAPPING: Record<ResolutionAction, string> = {
+  implement: 'feature',
+  fix: 'bugfix',
+  investigate: 'chore',
+};
 
 @Injectable()
 export class ImplementerAgent {
@@ -45,29 +52,23 @@ export class ImplementerAgent {
       console.log(chalk.cyan(`    git checkout -b ${branchName}`));
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const { plan } = planArtifact;
+    const plan = planArtifact.plan as ResolutionPlan;
     if (plan) {
       console.log(chalk.bold('\n  Steps:'));
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      (plan.steps as string[]).forEach((step: string, i: number) => {
+      plan.steps.forEach((step: string, i: number) => {
         console.log(chalk.white(`    ${i + 1}. ${step}`));
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      if ((plan.filesAffected as string[] | undefined)?.length > 0) {
+      if (plan.filesAffected?.length > 0) {
         console.log(chalk.bold('\n  Files to modify:'));
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        (plan.filesAffected as string[]).forEach((file: string) =>
+        plan.filesAffected.forEach((file: string) =>
           console.log(chalk.gray(`    - ${file}`)),
         );
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      if ((plan.repositoriesAffected as string[] | undefined)?.length > 0) {
+      if (plan.repositoriesAffected?.length > 0) {
         console.log(chalk.bold('\n  Repositories affected:'));
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        (plan.repositoriesAffected as string[]).forEach((repo: string) =>
+        plan.repositoriesAffected.forEach((repo: string) =>
           console.log(chalk.gray(`    - ${repo}`)),
         );
       }
@@ -94,11 +95,7 @@ export class ImplementerAgent {
   ): string {
     const prefixMapping = this.configService.get<
       Record<ResolutionAction, string>
-    >('branching.prefixMapping', {
-      implement: 'feature',
-      fix: 'bugfix',
-      investigate: 'chore',
-    });
+    >('branching.prefixMapping', DEFAULT_PREFIX_MAPPING);
     const prefix = prefixMapping[action] || 'feature';
 
     // Atlassian platforms (jira, bitbucket) use uppercase ticket keys
@@ -112,12 +109,22 @@ export class ImplementerAgent {
       ? 'branching.atlassianPattern'
       : 'branching.githubPattern';
     const pattern = this.configService.get<string>(patternKey);
-    if (pattern && !new RegExp(pattern).test(branchName)) {
-      console.log(
-        chalk.yellow(
-          `⚠ Generated branch name "${branchName}" does not match platform pattern: ${pattern}`,
-        ),
-      );
+    if (pattern) {
+      try {
+        if (!new RegExp(pattern).test(branchName)) {
+          console.log(
+            chalk.yellow(
+              `⚠ Generated branch name "${branchName}" does not match platform pattern: ${pattern}`,
+            ),
+          );
+        }
+      } catch {
+        console.log(
+          chalk.yellow(
+            `⚠ Invalid branch pattern in config (${patternKey}): ${pattern}`,
+          ),
+        );
+      }
     }
 
     return branchName;
