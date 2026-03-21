@@ -47,6 +47,10 @@ export class ReviewerAgent {
       );
       const content = fs.readFileSync(reviewPath, 'utf-8');
       const approved = content.includes('✓ Approved');
+      // Partial stub: full review text is in the markdown file on disk.
+      // Only `approved` is meaningful here; `summary`, `issues`, and
+      // `suggestions` are empty because we do not re-parse the markdown.
+      // Callers must not rely on those fields for a skip-path artifact.
       return {
         review: {
           summary: '',
