@@ -22,7 +22,7 @@ export class DryRunPreviewService {
   showHeader(commandName: string, label?: string): void {
     const suffix = label ? ` ${label}` : '';
     console.log(chalk.bold.blue(`\n🔍 Dry Run  ${commandName}${suffix}`));
-    console.log(chalk.gray('   no changes will be made\n'));
+    console.log(chalk.black('   no changes will be made\n'));
   }
 
   /**
@@ -31,16 +31,14 @@ export class DryRunPreviewService {
    */
   previewApiCall(preview: ApiCallPreview): void {
     console.log(
-      `  📡 ${chalk.dim(preview.method)} ${preview.endpoint}` +
-        chalk.gray(`  [${preview.platform}]`),
+      `  📡 ${chalk.black(preview.method)} ${preview.endpoint}` +
+        chalk.black(`  [${preview.platform}]`),
     );
-    console.log(chalk.gray(`     ↳ ${preview.description}`));
+    console.log(chalk.black(`     ↳ ${preview.description}`));
     if (preview.estimatedResponse) {
       const lines = preview.estimatedResponse.split('\n');
       lines.forEach((line, i) =>
-        console.log(
-          chalk.gray(`     ${i === 0 ? '↳ Response: ' : ''}${line}`),
-        ),
+        console.log(chalk.black(`     ${i === 0 ? '↳ Response: ' : ''}${line}`)),
       );
     }
     if (preview.payload && Object.keys(preview.payload).length > 0) {
@@ -49,7 +47,7 @@ export class DryRunPreviewService {
         payloadJson.length > 120
           ? `${payloadJson.substring(0, 120)}...`
           : payloadJson;
-      console.log(chalk.gray(`     ↳ Payload: ${payloadDisplay}`));
+      console.log(chalk.black(`     ↳ Payload: ${payloadDisplay}`));
     }
   }
 
@@ -67,9 +65,9 @@ export class DryRunPreviewService {
       const allLines = preview.contentPreview.split('\n');
       allLines
         .slice(0, 10)
-        .forEach((line) => console.log(chalk.dim(`       ${line}`)));
+        .forEach((line) => console.log(chalk.black(`       ${line}`)));
       if (allLines.length > 10) {
-        console.log(chalk.dim('       ...'));
+        console.log(chalk.black('       ...'));
       }
     }
   }
@@ -82,7 +80,7 @@ export class DryRunPreviewService {
     const status = preview.exists
       ? chalk.green('exists')
       : chalk.red('not found — will be fetched');
-    console.log(`  📖 ${preview.filePath}` + chalk.gray(`  [${status}]`));
+    console.log(`  📖 ${preview.filePath}` + chalk.black(`  [${status}]`));
   }
 
   /**
@@ -98,7 +96,7 @@ export class DryRunPreviewService {
     };
     console.log(
       `  ${icons[preview.operation]} git ${preview.operation}` +
-        chalk.gray(`  ${preview.description}`),
+        chalk.black(`  ${preview.description}`),
     );
   }
 
@@ -129,7 +127,7 @@ export class DryRunPreviewService {
       );
     }
     if (parts.length > 0) {
-      console.log(chalk.gray(`\n  ${parts.join(' · ')}`));
+      console.log(chalk.black(`\n  ${parts.join(' · ')}`));
     }
     if (summary.terminalOutputLines && summary.terminalOutputLines.length > 0) {
       this.showTerminalOutput(summary.terminalOutputLines);
@@ -157,14 +155,14 @@ export class DryRunPreviewService {
    * @param reason Why the stage is skipped
    */
   showSkipped(reason: string): void {
-    console.log(chalk.gray(`     ↷ Skipped — ${reason}`));
+    console.log(chalk.black(`     ↷ Skipped — ${reason}`));
   }
 
   /**
    * Display a note that a stage has no side effects
    */
   showNoSideEffects(): void {
-    console.log(chalk.gray('     Display-only stage — no side effects'));
+    console.log(chalk.black('     Display-only stage — no side effects'));
   }
 
   /**
@@ -173,7 +171,7 @@ export class DryRunPreviewService {
    */
   showTerminalOutput(lines: string[]): void {
     if (lines.length === 0) return;
-    console.log(chalk.gray('\n  Terminal output preview:'));
-    lines.forEach((line) => console.log(chalk.dim(`  │ ${line}`)));
+    console.log(chalk.black('\n  Terminal output preview:'));
+    lines.forEach((line) => console.log(chalk.black(`  │ ${line}`)));
   }
 }
