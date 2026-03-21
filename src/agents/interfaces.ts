@@ -1,5 +1,5 @@
 // src/agents/interfaces.ts
-import { ResolutionPlan } from '../integrations/ai/claude.service';
+import { CodeReview, ResolutionPlan } from '../integrations/ai/claude.service';
 
 export type ResolutionAction = 'implement' | 'fix' | 'investigate';
 
@@ -16,7 +16,7 @@ export interface PlanArtifact {
 }
 
 export interface ReviewArtifact {
-  review: any;
+  review: CodeReview;
   path: string;
   approved: boolean;
 }
