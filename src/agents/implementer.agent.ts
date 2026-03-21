@@ -66,16 +66,16 @@ export class ImplementerAgent {
       console.log(chalk.white(`    ${i + 1}. ${step}`));
     });
 
-    if (planArtifact.plan.filesAffected?.length > 0) {
+    if ((planArtifact.plan.filesAffected?.length ?? 0) > 0) {
       console.log(chalk.bold('\n  Files to modify:'));
-      planArtifact.plan.filesAffected.forEach((file: string) =>
+      planArtifact.plan.filesAffected!.forEach((file: string) =>
         console.log(chalk.gray(`    - ${file}`)),
       );
     }
 
-    if (planArtifact.plan.repositoriesAffected?.length > 0) {
+    if ((planArtifact.plan.repositoriesAffected?.length ?? 0) > 0) {
       console.log(chalk.bold('\n  Repositories affected:'));
-      planArtifact.plan.repositoriesAffected.forEach((repo: string) =>
+      planArtifact.plan.repositoriesAffected!.forEach((repo: string) =>
         console.log(chalk.gray(`    - ${repo}`)),
       );
     }
