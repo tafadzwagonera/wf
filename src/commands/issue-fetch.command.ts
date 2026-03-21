@@ -15,7 +15,7 @@ type OutputFormat = 'json' | 'md' | 'yaml' | 'xml';
 interface IssueFetchOptions {
   format?: OutputFormat;
   platform?: string;
-  repo?: string;
+  repos: string[];
   dryRun?: boolean;
 }
 
@@ -66,11 +66,13 @@ export class IssueFetchCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--repo <repo>',
-    description: 'Repository for Bitbucket (workspace/repo or repo-name)',
+    flags: '-r, --repos <repos>',
+    description:
+      'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+    required: true,
   })
-  parseRepo(val: string): string {
-    return val;
+  parseRepos(val: string): string[] {
+    return val.split(',').map((s) => s.trim()).filter(Boolean);
   }
 
   @Option({
@@ -141,12 +143,12 @@ export class IssueFetchCommand extends CommandRunner {
 
       this.logger.info(`Fetching ticket ${ticketKey} from ${platformName}...`);
 
-      // Format reference for Bitbucket if repo override provided
+      // Format reference for Bitbucket
       const ticketReference =
-        platformName === 'bitbucket' && options?.repo
+        platformName === 'bitbucket'
           ? this.formatBitbucketReference(
               ticketKey,
-              options.repo,
+              options!.repos[0],
               this.configService,
             )
           : ticketKey;
@@ -318,21 +320,17 @@ export class IssueFetchCommand extends CommandRunner {
   }
 
   /**
-   * Format Bitbucket issue reference with optional repo override
+   * Format Bitbucket issue reference
    * @param issueId Issue ID (number or string)
-   * @param repo Optional repository override
+   * @param repo Repository (workspace/repo or repo-name)
    * @param configService NestJS ConfigService instance
-   * @returns Formatted reference (workspace/repo#123 or 123)
+   * @returns Formatted reference (workspace/repo#123)
    */
   private formatBitbucketReference(
     issueId: string,
-    repo: string | undefined,
+    repo: string,
     configService: ConfigService,
   ): string {
-    if (!repo) {
-      return issueId; // Use default repo
-    }
-
     const formattedRepo = this.formatBitbucketRepo(repo, configService);
     return `${formattedRepo}#${issueId}`;
   }

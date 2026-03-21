@@ -17,9 +17,8 @@ interface IssueImplementOptions {
   platform?: string;
   forceRecreate?: boolean;
   format?: OutputFormat;
-  repo?: string;
+  repos: string[];
   dryRun?: boolean;
-  affectedRepositories?: string[];
 }
 
 @Injectable()
@@ -79,11 +78,13 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--repo <repo>',
-    description: 'Repository for Bitbucket (workspace/repo or repo-name)',
+    flags: '-r, --repos <repos>',
+    description:
+      'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+    required: true,
   })
-  parseRepo(val: string): string {
-    return val;
+  parseRepos(val: string): string[] {
+    return val.split(',').map((s) => s.trim()).filter(Boolean);
   }
 
   @Option({
@@ -92,14 +93,6 @@ export class IssueImplementCommand extends CommandRunner {
   })
   parseDryRun(): boolean {
     return true;
-  }
-
-  @Option({
-    flags: '--affected-repositories <repos>',
-    description: 'Comma-separated list of repositories affected by this ticket',
-  })
-  parseAffectedRepositories(val: string): string[] {
-    return val.split(',').map((s) => s.trim());
   }
 
   async run(
@@ -233,10 +226,10 @@ export class IssueImplementCommand extends CommandRunner {
         }
 
         const ticketReference =
-          platformName === 'bitbucket' && options?.repo
+          platformName === 'bitbucket'
             ? this.formatBitbucketReference(
                 ticketKey,
-                options.repo,
+                options!.repos[0],
                 this.configService,
               )
             : ticketKey;
@@ -266,7 +259,7 @@ export class IssueImplementCommand extends CommandRunner {
         {
           ticketKey,
           summary,
-          affectedRepositories: options?.affectedRepositories,
+          affectedRepositories: options!.repos,
         },
       );
 
@@ -369,21 +362,17 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   /**
-   * Format Bitbucket issue reference with optional repo override
+   * Format Bitbucket issue reference
    * @param issueId Issue ID (number or string)
-   * @param repo Optional repository override
+   * @param repo Repository (workspace/repo or repo-name)
    * @param configService NestJS ConfigService instance
-   * @returns Formatted reference (workspace/repo#123 or 123)
+   * @returns Formatted reference (workspace/repo#123)
    */
   private formatBitbucketReference(
     issueId: string,
-    repo: string | undefined,
+    repo: string,
     configService: ConfigService,
   ): string {
-    if (!repo) {
-      return issueId;
-    }
-
     const formattedRepo = this.formatBitbucketRepo(repo, configService);
     return `${formattedRepo}#${issueId}`;
   }

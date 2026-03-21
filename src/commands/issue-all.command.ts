@@ -46,9 +46,8 @@ interface IssueAllOptions {
   platform?: string;
   interactive?: boolean;
   skipExisting?: boolean;
-  repo?: string;
+  repos: string[];
   dryRun?: boolean;
-  affectedRepositories?: string[];
 }
 
 @Command({
@@ -126,12 +125,13 @@ export class IssueAllCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--repo <repo>',
+    flags: '-r, --repos <repos>',
     description:
-      'Repository for Bitbucket operations (workspace/repo or repo-name)',
+      'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+    required: true,
   })
-  parseRepo(val: string): string {
-    return val;
+  parseRepos(val: string): string[] {
+    return val.split(',').map((s) => s.trim()).filter(Boolean);
   }
 
   @Option({
@@ -140,14 +140,6 @@ export class IssueAllCommand extends CommandRunner {
   })
   parseDryRun(): boolean {
     return true;
-  }
-
-  @Option({
-    flags: '--affected-repositories <repos>',
-    description: 'Comma-separated list of repositories affected by this ticket',
-  })
-  parseAffectedRepositories(val: string): string[] {
-    return val.split(',').map((s) => s.trim());
   }
 
   async run(passedParams: string[], options?: IssueAllOptions): Promise<void> {
@@ -244,8 +236,12 @@ export class IssueAllCommand extends CommandRunner {
       }
       // If action not provided and PLAN stage not running, it will be auto-discovered later
 
+      // Resolve base directory: use the first repo when provided,
+      // otherwise fall back to the current working directory.
+      const repoBaseDir = this.resolveRepoBasePath(options!.repos[0]);
+
       if (options?.dryRun) {
-        const platformDir = path.join(process.cwd(), platformName);
+        const platformDir = path.join(repoBaseDir, platformName);
 
         this.dryRunPreview.showHeader('issue:all', ticketKey);
         console.log(
@@ -432,6 +428,8 @@ export class IssueAllCommand extends CommandRunner {
           WorkflowStage.FETCH,
           ticketKey,
           platformName,
+          undefined,
+          repoBaseDir,
         );
         if (options.skipExisting && artifact.exists) {
           console.log(
@@ -443,12 +441,12 @@ export class IssueAllCommand extends CommandRunner {
           console.log(chalk.bold.yellow('📋 STAGE 1: Fetch Ticket'));
           console.log(chalk.gray('─'.repeat(70)));
 
-          // Format reference for Bitbucket if repo override provided
+          // Format reference for Bitbucket
           const ticketReference =
-            platformName === 'bitbucket' && options?.repo
+            platformName === 'bitbucket'
               ? this.formatBitbucketReference(
                   ticketKey,
-                  options.repo,
+                  options!.repos[0],
                   this.configService,
                 )
               : ticketKey;
@@ -465,7 +463,7 @@ export class IssueAllCommand extends CommandRunner {
           );
 
           // Save ticket to platform directory
-          const platformDir = path.join(process.cwd(), platformName);
+          const platformDir = path.join(repoBaseDir, platformName);
           if (!fs.existsSync(platformDir)) {
             fs.mkdirSync(platformDir, { recursive: true });
           }
@@ -494,7 +492,7 @@ ${ticket.description}
         }
       } else {
         // Load ticket from file if skipping fetch
-        const platformDir = path.join(process.cwd(), platformName);
+        const platformDir = path.join(repoBaseDir, platformName);
         ticketPath = path.join(platformDir, `${ticketKey}.md`);
         if (fs.existsSync(ticketPath)) {
           ticketContent = fs.readFileSync(ticketPath, 'utf-8');
@@ -514,6 +512,7 @@ ${ticket.description}
           ticketKey,
           platformName,
           action,
+          repoBaseDir,
         );
         if (options.skipExisting && artifact.exists) {
           console.log(
@@ -536,7 +535,7 @@ ${ticket.description}
           plan = await this.claudeService.generatePlan(action, ticketContent, {
             ticketKey,
             summary: this.extractSummary(ticketContent),
-            affectedRepositories: options?.affectedRepositories,
+            affectedRepositories: options!.repos,
           });
 
           console.log(chalk.green('✓ Plan generated'));
@@ -619,6 +618,17 @@ ${ticket.description}
         }
       }
 
+      // Resolve effective affected repositories:
+      // explicit CLI flag takes precedence; AI-inferred from ticket is the fallback.
+      const planRepos: string[] =
+        Array.isArray(plan?.repositoriesAffected)
+          ? (plan.repositoriesAffected as string[])
+          : [];
+      const resolvedRepos: string[] = [
+        ...options!.repos,
+        ...planRepos,
+      ].filter((v, i, a) => v.trim() && a.indexOf(v) === i);
+
       // STAGE 3: IMPLEMENT
       if (stagesToRun.includes(WorkflowStage.IMPLEMENT)) {
         console.log(chalk.bold.yellow('\n🔧 STAGE 3: Implementation Guide'));
@@ -663,12 +673,9 @@ ${ticket.description}
             });
           }
 
-          if (
-            plan.repositoriesAffected &&
-            plan.repositoriesAffected.length > 0
-          ) {
+          if (resolvedRepos.length > 0) {
             console.log(chalk.bold('\n  Repositories affected:'));
-            plan.repositoriesAffected.forEach((repo: string) => {
+            resolvedRepos.forEach((repo: string) => {
               console.log(chalk.gray(`    - ${repo}`));
             });
           }
@@ -692,6 +699,8 @@ ${ticket.description}
           WorkflowStage.REVIEW,
           ticketKey,
           platformName,
+          undefined,
+          repoBaseDir,
         );
         if (options.skipExisting && artifact.exists) {
           console.log(
@@ -703,6 +712,13 @@ ${ticket.description}
         } else {
           console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
           console.log(chalk.gray('─'.repeat(70)));
+
+          if (resolvedRepos.length > 0) {
+            console.log(chalk.bold('  Repositories in scope:'));
+            resolvedRepos.forEach((repo) =>
+              console.log(chalk.gray(`    - ${repo}`)),
+            );
+          }
 
           try {
             const { stdout: diff } = await execAsync('git diff HEAD');
@@ -868,6 +884,13 @@ ${review.approved ? '✓ Approved' : '✗ Changes needed'}
             console.log(chalk.cyan('    git add .'));
             console.log(chalk.cyan(`    git commit -m "${finalMsg}"`));
             console.log(chalk.cyan('    git push'));
+
+            if (resolvedRepos.length > 0) {
+              console.log(chalk.bold('\n  Repositories:'));
+              resolvedRepos.forEach((repo) =>
+                console.log(chalk.gray(`    - ${repo}`)),
+              );
+            }
           }
         } catch (error) {
           console.log(
@@ -982,8 +1005,9 @@ ${review.approved ? '✓ Approved' : '✗ Changes needed'}
     ticketKey: string,
     platformName: string,
     action?: ResolutionAction,
+    baseDir: string = process.cwd(),
   ): { exists: boolean; path: string } {
-    const platformDir = path.join(process.cwd(), platformName);
+    const platformDir = path.join(baseDir, platformName);
 
     switch (stage) {
       case WorkflowStage.FETCH:
@@ -1249,22 +1273,49 @@ Help the developer understand the review feedback, discuss issues, or suggest fi
   }
 
   /**
-   * Format Bitbucket issue reference with optional repo override
+   * Format Bitbucket issue reference
    * @param issueId Issue ID (number or string)
-   * @param repo Optional repository override
+   * @param repo Repository (workspace/repo or repo-name)
    * @param configService NestJS ConfigService instance
-   * @returns Formatted reference (workspace/repo#123 or 123)
+   * @returns Formatted reference (workspace/repo#123)
    */
   private formatBitbucketReference(
     issueId: string,
-    repo: string | undefined,
+    repo: string,
     configService: ConfigService,
   ): string {
-    if (!repo) {
-      return issueId; // Use default repo
-    }
-
     const formattedRepo = this.formatBitbucketRepo(repo, configService);
     return `${formattedRepo}#${issueId}`;
+  }
+
+  /**
+   * Resolve a repository name to a filesystem base path.
+   *
+   * Resolution order:
+   *   1. Absolute path that exists on disk — used as-is
+   *   2. Path relative to cwd that exists — resolved to absolute
+   *   3. Sibling directory of cwd (../repo) that exists
+   *   4. Falls back to cwd with a warning
+   *
+   * @param repo Repository name or path (e.g. "bar", "../bar", "/abs/path/bar")
+   * @returns Absolute base path to use for artifact storage
+   */
+  private resolveRepoBasePath(repo?: string): string {
+    if (!repo) return process.cwd();
+
+    if (path.isAbsolute(repo) && fs.existsSync(repo)) return repo;
+
+    const relPath = path.resolve(process.cwd(), repo);
+    if (fs.existsSync(relPath)) return relPath;
+
+    const siblingPath = path.resolve(process.cwd(), '..', repo);
+    if (fs.existsSync(siblingPath)) return siblingPath;
+
+    console.log(
+      chalk.yellow(
+        `⚠  Repository '${repo}' not found as a path or sibling directory. Using current directory.`,
+      ),
+    );
+    return process.cwd();
   }
 }

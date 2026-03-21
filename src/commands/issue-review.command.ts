@@ -15,7 +15,7 @@ interface IssueReviewOptions {
   output?: string;
   dryRun?: boolean;
   comment?: boolean;
-  repo?: string;
+  repos: string[];
   criteria?: string;
   replaceCriteria?: string;
 }
@@ -246,7 +246,7 @@ export class IssueReviewCommand extends CommandRunner {
           .getTicket(source);
         context = this.buildTicketContext(ticket);
 
-        const prUrl = await this.findBitbucketPr(source, options?.repo);
+        const prUrl = await this.findBitbucketPr(source, options!.repos[0]);
         if (prUrl) {
           console.log(chalk.gray(`  Found PR: ${prUrl}\n`));
           diff = await this.reviewPullRequest(prUrl);
@@ -359,12 +359,13 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--repo <repo>',
+    flags: '-r, --repos <repos>',
     description:
-      'Bitbucket repo to search for the associated PR (format: workspace/repo)',
+      'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+    required: true,
   })
-  parseRepo(val: string): string {
-    return val;
+  parseRepos(val: string): string[] {
+    return val.split(',').map((s) => s.trim()).filter(Boolean);
   }
 
   @Option({
@@ -388,12 +389,12 @@ export class IssueReviewCommand extends CommandRunner {
   /**
    * Search Bitbucket for an open PR whose source branch contains the ticket key.
    * @param ticketKey Jira-style ticket key (e.g. "WBP-2955")
-   * @param repo Optional repo override in "workspace/repo" format
+   * @param repo Repo in "workspace/repo" format
    * @returns PR URL if found, null otherwise
    */
   private async findBitbucketPr(
     ticketKey: string,
-    repo?: string,
+    repo: string,
   ): Promise<string | null> {
     const adapter = this.platformService.getAdapter('bitbucket');
     return adapter.findPullRequestByTicketKey?.(ticketKey, repo) ?? null;

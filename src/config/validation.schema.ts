@@ -1,0 +1,55 @@
+import * as Joi from '@hapi/joi';
+
+export const validationSchema = Joi.object({
+  // Platform Configuration
+  PRIMARY_PLATFORM: Joi.string()
+    .valid('jira', 'github', 'bitbucket')
+    .default('jira'),
+  ENABLED_PLATFORMS: Joi.string()
+    .optional()
+    .pattern(/^(jira|github|bitbucket)(,(jira|github|bitbucket))*$/),
+
+  // AI Configuration
+  ANTHROPIC_API_KEY: Joi.string().optional(),
+  AI_MODEL: Joi.string().default('claude-sonnet-4-20250514'),
+  AI_MAX_TOKENS: Joi.number().default(4096),
+
+  // Atlassian Configuration (Jira + Bitbucket)
+  ATLASSIAN_BASE_URL: Joi.string().uri().allow('').optional(),
+  ATLASSIAN_EMAIL: Joi.string().email().allow('').optional(),
+  ATLASSIAN_JIRA_API_TOKEN: Joi.string().allow('').optional(),
+  ATLASSIAN_BITBUCKET_API_TOKEN: Joi.string().allow('').optional(),
+  ATLASSIAN_JIRA_DEFAULT_PROJECT: Joi.string().allow('').optional(),
+  ATLASSIAN_BITBUCKET_WORKSPACE: Joi.string().allow('').optional(),
+
+  // Git Configuration
+  GIT_DEFAULT_BRANCH: Joi.string().default('develop'),
+  GIT_COMMIT_FORMAT: Joi.string()
+    .valid('conventional', 'freeform', 'auto')
+    .default('auto'),
+
+  // Branch Naming Configuration
+  ATLASSIAN_BRANCH_PATTERN: Joi.string().optional(),
+  GITHUB_BRANCH_PATTERN: Joi.string().optional(),
+  BRANCH_PREFIX_IMPLEMENT: Joi.string().default('feature'),
+  BRANCH_PREFIX_FIX: Joi.string().default('bugfix'),
+  BRANCH_PREFIX_INVESTIGATE: Joi.string().default('chore'),
+
+  // Workflow Configuration
+  WORKFLOW_DIRECTORY: Joi.string().default('.windsurf/workflows'),
+  WORKFLOW_AUTO_DISCOVERY: Joi.boolean().default(false),
+
+  // State Configuration
+  STATE_DIRECTORY: Joi.string().default('.wf/state'),
+
+  // Logging Configuration
+  LOG_DIRECTORY: Joi.string().default('.wf/logs'),
+  LOG_LEVEL: Joi.string()
+    .valid('error', 'warn', 'info', 'debug')
+    .default('info'),
+
+  // Application
+  NODE_ENV: Joi.string()
+    .valid('development', 'production', 'test')
+    .default('development'),
+});
