@@ -5,11 +5,26 @@ jest.mock('chalk', () => {
   const makeChain = () => {
     const chain: any = identity;
     const colorNames = [
-      'bold', 'dim', 'italic', 'underline', 'inverse', 'strikethrough',
-      'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan',
-      'white', 'gray', 'grey',
+      'bold',
+      'dim',
+      'italic',
+      'underline',
+      'inverse',
+      'strikethrough',
+      'black',
+      'red',
+      'green',
+      'yellow',
+      'blue',
+      'magenta',
+      'cyan',
+      'white',
+      'gray',
+      'grey',
     ];
-    colorNames.forEach((name) => { chain[name] = identity; });
+    colorNames.forEach((name) => {
+      chain[name] = identity;
+    });
     return chain;
   };
 
@@ -75,9 +90,15 @@ describe('RunCommand', () => {
     const module = await Test.createTestingModule({
       providers: [
         RunCommand,
-        { provide: WorkflowParserService, useValue: { findWorkflow: jest.fn().mockResolvedValue(mockWorkflow) } },
+        {
+          provide: WorkflowParserService,
+          useValue: { findWorkflow: jest.fn().mockResolvedValue(mockWorkflow) },
+        },
         { provide: StageEngineService, useValue: {} },
-        { provide: LoggerService, useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn() } },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+        },
         { provide: DryRunPreviewService, useValue: mockDryRunPreview },
       ],
     }).compile();
@@ -88,7 +109,10 @@ describe('RunCommand', () => {
   describe('dry-run mode', () => {
     it('calls showHeader with the workflow name', async () => {
       await command.run(['test-workflow'], { dryRun: true });
-      expect(mockDryRunPreview.showHeader).toHaveBeenCalledWith('run', 'test-workflow');
+      expect(mockDryRunPreview.showHeader).toHaveBeenCalledWith(
+        'run',
+        'test-workflow',
+      );
     });
 
     it('calls showSummary with step count and workflow metadata', async () => {
@@ -107,7 +131,11 @@ describe('RunCommand', () => {
     it('includes step titles in terminalOutputLines', async () => {
       await command.run(['test-workflow'], { dryRun: true });
       const summaryArg = mockDryRunPreview.showSummary.mock.calls[0][0];
-      expect((summaryArg.terminalOutputLines as string[]).some((l) => l.includes('Build'))).toBe(true);
+      expect(
+        (summaryArg.terminalOutputLines as string[]).some((l) =>
+          l.includes('Build'),
+        ),
+      ).toBe(true);
     });
 
     it('appends [Approval Required] flag for steps that require approval', async () => {
