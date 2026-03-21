@@ -1,13 +1,10 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
-import { JiraService } from '../integrations/jira/jira.service';
-import { ClaudeService } from '../integrations/ai/claude.service';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import {
   ConversationContext,
   WorkflowStage as ConvWorkflowStage,
 } from '../integrations/ai/conversation/interfaces';
 import { LoggerService } from '../shared/logger/logger.service';
-import { PlatformService } from '../integrations/platforms/platform.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
@@ -20,6 +17,7 @@ import {
   TicketArtifact,
   PlanArtifact,
   ReviewArtifact,
+  ResolutionAction,
 } from '../agents/interfaces';
 
 enum WorkflowStage {
@@ -37,8 +35,6 @@ const STAGE_ORDER = [
   WorkflowStage.REVIEW,
   WorkflowStage.COMMIT,
 ];
-
-type ResolutionAction = 'implement' | 'fix' | 'investigate';
 
 interface IssueAllOptions {
   from: string;
@@ -60,11 +56,8 @@ interface IssueAllOptions {
 })
 export class IssueAllCommand extends CommandRunner {
   constructor(
-    private jiraService: JiraService,
-    private claudeService: ClaudeService,
     private conversationService: ConversationService,
     private logger: LoggerService,
-    private platformService: PlatformService,
     private configService: ConfigService,
     private dryRunPreview: DryRunPreviewService,
     private agents: AgentOrchestrator,
@@ -429,11 +422,13 @@ export class IssueAllCommand extends CommandRunner {
           platformName,
           repo: options?.repos?.[0],
           skipExisting: options?.skipExisting,
+          baseDir: repoBaseDir,
         });
       } else {
         ticketArtifact = this.agents.fetcher.loadFromDisk(
           ticketKey,
           platformName,
+          repoBaseDir,
         );
       }
 
@@ -445,7 +440,7 @@ export class IssueAllCommand extends CommandRunner {
           affectedRepositories: options?.repos,
         });
 
-        if (options?.interactive) {
+        if (options?.interactive && !planArtifact.fromCache) {
           await this.startInteractiveChat(
             ticketKey,
             'plan' as ConvWorkflowStage,

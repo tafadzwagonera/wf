@@ -13,6 +13,7 @@ export interface PlanArtifact {
   plan: ResolutionPlan;
   action: ResolutionAction;
   path: string;
+  fromCache?: boolean;
 }
 
 export interface ReviewArtifact {
@@ -25,6 +26,7 @@ export interface FetcherOptions {
   platformName: string;
   repo?: string;
   skipExisting?: boolean;
+  baseDir?: string;
 }
 
 export interface PlannerOptions {

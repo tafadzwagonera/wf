@@ -44,7 +44,7 @@ export class PlannerAgent {
           `Plan file is not valid JSON: ${path.basename(planPath)}`,
         );
       }
-      return { plan, action: options.action, path: planPath };
+      return { plan, action: options.action, path: planPath, fromCache: true };
     }
 
     console.log(
@@ -74,7 +74,7 @@ export class PlannerAgent {
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
     console.log(chalk.gray(`  Saved to: ${planPath}`));
 
-    return { plan, action: options.action, path: planPath };
+    return { plan, action: options.action, path: planPath, fromCache: false };
   }
 
   /**

@@ -26,7 +26,10 @@ export class FetcherAgent {
     ticketKey: string,
     options: FetcherOptions,
   ): Promise<TicketArtifact> {
-    const platformDir = path.join(process.cwd(), options.platformName);
+    const platformDir = path.join(
+      options.baseDir ?? process.cwd(),
+      options.platformName,
+    );
     const ticketPath = path.join(platformDir, `${ticketKey}.md`);
 
     if (options.skipExisting && fs.existsSync(ticketPath)) {
@@ -70,15 +73,16 @@ export class FetcherAgent {
    *
    * @param ticketKey - The ticket identifier (e.g. WBP-1234)
    * @param platformName - The platform directory name (e.g. 'jira', 'bitbucket')
+   * @param baseDir - Base directory for artifact storage (defaults to process.cwd())
    * @returns The TicketArtifact with key, markdown content, and file path
    * @throws Error if the ticket file does not exist on disk
    */
-  loadFromDisk(ticketKey: string, platformName: string): TicketArtifact {
-    const ticketPath = path.join(
-      process.cwd(),
-      platformName,
-      `${ticketKey}.md`,
-    );
+  loadFromDisk(
+    ticketKey: string,
+    platformName: string,
+    baseDir: string = process.cwd(),
+  ): TicketArtifact {
+    const ticketPath = path.join(baseDir, platformName, `${ticketKey}.md`);
     if (!fs.existsSync(ticketPath)) {
       throw new Error(
         `Ticket file not found: ${ticketPath}. Run with --from fetch first.`,
