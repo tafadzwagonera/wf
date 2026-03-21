@@ -24,6 +24,17 @@ export class ReviewerAgent {
     private gitService: GitService,
   ) {}
 
+  /**
+   * Run the REVIEW stage for the given ticket.
+   *
+   * Returns null without calling the AI in two cases:
+   * - `options.skipExisting` is true and a review artifact already exists on disk
+   * - The working tree has no uncommitted changes to review
+   *
+   * @param ticket - Ticket artifact produced by FetcherAgent (used for key and artifact path)
+   * @param options - Optional reviewer configuration
+   * @returns ReviewArtifact with review data, disk path, and approval status; or null when skipped
+   */
   async execute(
     ticket: TicketArtifact,
     options: ReviewerOptions = {},
@@ -34,7 +45,18 @@ export class ReviewerAgent {
       console.log(
         chalk.gray(`🔍 Skipping REVIEW - artifact exists: ${reviewPath}`),
       );
-      return null;
+      const content = fs.readFileSync(reviewPath, 'utf-8');
+      const approved = content.includes('✓ Approved');
+      return {
+        review: {
+          summary: '',
+          issues: [],
+          suggestions: [],
+          approved,
+        } as CodeReview,
+        path: reviewPath,
+        approved,
+      };
     }
 
     console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
