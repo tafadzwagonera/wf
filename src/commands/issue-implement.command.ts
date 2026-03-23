@@ -399,8 +399,39 @@ Return ONLY a valid JSON object:
       const discovered = discoverPlanAction(platformDir, ticketKey);
       const action: ResolutionAction = discovered.action;
       const planPath = discovered.filePath;
-      const ticketExists = fs.existsSync(ticketPath);
-      const needsFetch = options?.forceRecreate || !ticketExists;
+      // Preflight Check 1: ticket artifact must exist (gates both live + dry-run)
+      if (!fs.existsSync(ticketPath)) {
+        console.error(
+          chalk.red(`Error: Ticket artifact not found: ${ticketPath}`),
+        );
+        console.error(
+          chalk.yellow(
+            `Run:   wf issue:fetch ${ticketKey}${options?.repos?.length ? ` --repos ${options.repos.join(',')}` : ''}`,
+          ),
+        );
+        process.exit(1);
+      }
+
+      // Preflight Check 2: plan artifact must exist (gates both live + dry-run)
+      // Note: discoverPlanAction always returns a struct — when no plan exists on
+      // disk it returns a synthesised fallback path that does not exist. This
+      // fs.existsSync call is the only existence gate.
+      if (!fs.existsSync(planPath)) {
+        console.error(
+          chalk.red(`Error: No plan artifact found for ${ticketKey}.`),
+        );
+        console.error(
+          chalk.yellow(
+            `Run:   wf issue:plan ${ticketKey} --action <feature|fix|investigate>${options?.repos?.length ? ` --repos ${options.repos.join(',')}` : ''}`,
+          ),
+        );
+        console.error(
+          chalk.yellow(
+            `Then:  wf issue:implement ${ticketKey}${options?.repos?.length ? ` --repos ${options.repos.join(',')}` : ''}`,
+          ),
+        );
+        process.exit(1);
+      }
 
       if (options?.dryRun) {
         this.dryRunPreview.showHeader('issue:implement', ticketKey);
@@ -565,41 +596,7 @@ Return ONLY a valid JSON object:
 
       this.logger.info(`Implementing ticket ${ticketKey}...`);
 
-      let ticketContent: string;
-
-      if (needsFetch) {
-        if (options?.forceRecreate) {
-          this.logger.info('Forcing recreation of ticket artifact...');
-        } else {
-          this.logger.info(
-            'Local artifact not found. Fetching from platform...',
-          );
-        }
-
-        const ticketReference =
-          platformName === 'bitbucket'
-            ? this.formatBitbucketReference(
-                ticketKey,
-                options?.repos?.[0] ?? '',
-                this.configService,
-              )
-            : ticketKey;
-
-        const adapter = this.platformService.getAdapter(platformName);
-        const ticket = await adapter.getTicket(ticketReference);
-
-        if (!fs.existsSync(platformDir)) {
-          fs.mkdirSync(platformDir, { recursive: true });
-        }
-
-        ticketContent = this.formatTicketAsMarkdown(ticket);
-        await fs.promises.writeFile(ticketPath, ticketContent, 'utf-8');
-        this.logger.success(`✓ Ticket saved to: ${ticketPath}`);
-      } else {
-        this.logger.info(`Using local artifact: ${ticketPath}`);
-        ticketContent = await fs.promises.readFile(ticketPath, 'utf-8');
-      }
-
+      const ticketContent = await fs.promises.readFile(ticketPath, 'utf-8');
       const ticketArtifact: TicketArtifact = {
         ticketKey,
         content: ticketContent,
@@ -619,11 +616,17 @@ Return ONLY a valid JSON object:
         };
         /* eslint-enable @typescript-eslint/no-unsafe-member-access */
       } else {
-        // Mode C: generate plan via PlannerAgent
-        planArtifact = await this.orchestrator.planner.execute(ticketArtifact, {
-          action,
-          affectedRepositories: options?.repos,
-        });
+        // Mode C: load plan from disk (plan artifact verified by preflight check)
+        /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+        const plan = loadPlanFile(planPath) as ResolutionPlan;
+        planArtifact = {
+          plan,
+          // `action` is not declared on ResolutionPlan; the `as any` cast is
+          // intentional and mirrors the same defensive pattern used in Mode B.
+          action: ((plan as any).action ?? action) as ResolutionAction,
+          path: planPath,
+        };
+        /* eslint-enable @typescript-eslint/no-unsafe-member-access */
       }
 
       await this.orchestrator.implementer.execute(
