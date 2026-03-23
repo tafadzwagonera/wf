@@ -61,7 +61,6 @@ const discoverPlanAction = (
 interface IssueImplementOptions {
   plan?: string;
   platform?: string;
-  forceRecreate?: boolean;
   format?: OutputFormat;
   repos?: string[];
   dryRun?: boolean;
@@ -71,9 +70,10 @@ interface IssueImplementOptions {
 @Command({
   name: 'issue:implement',
   description:
-    'Generate an implementation plan for a ticket from a local artifact. ' +
-    'If a local artifact is not found, the command will attempt to fetch it from the primary platform. ' +
-    'Use --force-recreate to fetch and recreate artifacts.',
+    'Carry out an implementation plan for a ticket. ' +
+    'Requires a local ticket artifact (<ticketKey>.md) and a plan artifact ' +
+    '(<ticketKey>-plan-<action>.json). ' +
+    'Run issue:fetch then issue:plan before calling this command.',
   arguments: '[ticket-key]',
 })
 export class IssueImplementCommand extends CommandRunner {
@@ -109,14 +109,6 @@ export class IssueImplementCommand extends CommandRunner {
       );
     }
     return platform;
-  }
-
-  @Option({
-    flags: '--force-recreate',
-    description: 'Force fetch and recreate ticket artifact before planning',
-  })
-  parseForceRecreate(): boolean {
-    return true;
   }
 
   @Option({
