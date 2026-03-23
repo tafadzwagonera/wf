@@ -1,4 +1,17 @@
 // src/agents/utils.ts
+import * as path from 'path';
+
+/**
+ * Resolve the artifact storage directory for a given platform.
+ *
+ * @param baseDir - Base directory for artifact storage
+ * @param platformName - The platform name (e.g. 'jira', 'bitbucket')
+ * @returns Absolute path to the platform artifact directory under `.wf/`
+ */
+export const resolveArtifactDir = (
+  baseDir: string,
+  platformName: string,
+): string => path.join(baseDir, '.wf', platformName);
 
 /**
  * Extract the ticket summary from a markdown ticket file.

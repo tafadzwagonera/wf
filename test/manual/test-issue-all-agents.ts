@@ -111,10 +111,7 @@ async function main() {
     );
     console.log(chalk.gray('─'.repeat(60)));
     try {
-      orchestrator.planner.loadFromDisk(
-        '/nonexistent/FAKE-9999.md',
-        'implement',
-      );
+      orchestrator.planner.loadFromDisk('/nonexistent/FAKE-9999.md', 'feature');
       assert('throws for missing plan', false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
@@ -135,7 +132,7 @@ async function main() {
 
     try {
       dryRunOutput = execSync(
-        `npx ts-node -r tsconfig-paths/register src/main.ts issue:all ${ticketKey} --from fetch --to commit --action implement --repos test-repo --dry-run`,
+        `npx ts-node -r tsconfig-paths/register src/main.ts issue:all ${ticketKey} --from fetch --to commit --action feature --repos test-repo --dry-run`,
         { encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 },
       );
     } catch (err: unknown) {

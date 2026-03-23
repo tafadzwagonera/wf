@@ -54,7 +54,7 @@ export class PlannerAgent {
     console.log(chalk.gray(`  Action type: ${options.action}`));
 
     const plan = await this.claudeService.generatePlan(
-      options.action,
+      options.action as any,
       ticket.content,
       {
         ticketKey: ticket.ticketKey,
@@ -119,7 +119,7 @@ export class PlannerAgent {
   private discoverPlan(ticketPath: string): PlanArtifact {
     const baseDir = path.dirname(ticketPath);
     const baseName = path.basename(ticketPath, '.md');
-    const actions: ResolutionAction[] = ['implement', 'fix', 'investigate'];
+    const actions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
 
     const found = actions
       .map((a) => {
@@ -136,7 +136,7 @@ export class PlannerAgent {
 
     if (found.length === 0) {
       throw new Error(
-        'No plan file found for ticket.\nRun with --from plan --action <implement|fix|investigate> first.',
+        'No plan file found for ticket.\nRun with --from plan --action <feature|fix|investigate> first.',
       );
     }
 

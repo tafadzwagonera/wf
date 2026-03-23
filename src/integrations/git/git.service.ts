@@ -1,0 +1,290 @@
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import simpleGit, { SimpleGit, StatusResult, BranchSummary } from 'simple-git';
+import { GitError } from '../../shared/utils/errors';
+import { LoggerService } from '../../shared/logger/logger.service';
+
+export interface BranchInfo {
+  current: string;
+  all: string[];
+  development?: string;
+  isClean: boolean;
+  hasUncommittedChanges: boolean;
+}
+
+export interface CommitOptions {
+  message: string;
+  files?: string[];
+  allowEmpty?: boolean;
+  cwd?: string;
+}
+
+export interface CommitInfo {
+  hash: string;
+  message: string;
+  author: string;
+  date: Date;
+}
+
+@Injectable()
+export class GitService {
+  private git: SimpleGit;
+  private defaultBranch: string;
+
+  constructor(
+    private configService: ConfigService,
+    private logger: LoggerService,
+  ) {
+    this.git = simpleGit();
+    this.defaultBranch = this.configService.get<string>(
+      'git.defaultBranch',
+      'develop',
+    );
+  }
+
+  async isGitRepository(): Promise<boolean> {
+    try {
+      await this.git.status();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async getBranchInfo(): Promise<BranchInfo> {
+    try {
+      const status: StatusResult = await this.git.status();
+      const branches: BranchSummary = await this.git.branch();
+
+      // Detect development branch
+      const devBranch = this.detectDevelopmentBranch(branches.all);
+
+      return {
+        current: status.current || 'HEAD',
+        all: branches.all,
+        development: devBranch,
+        isClean: status.isClean(),
+        hasUncommittedChanges: !status.isClean(),
+      };
+    } catch (error) {
+      throw new GitError('Failed to get branch information', error);
+    }
+  }
+
+  private detectDevelopmentBranch(branches: string[]): string | undefined {
+    const devPatterns = ['develop', 'devel', 'dev', 'development'];
+
+    for (const pattern of devPatterns) {
+      const found = branches.find(
+        (b) => b === pattern || b.endsWith(`/${pattern}`),
+      );
+      if (found) return found;
+    }
+
+    return this.defaultBranch;
+  }
+
+  async createBranch(
+    branchName: string,
+    baseBranch?: string,
+    cwd?: string,
+  ): Promise<void> {
+    const git = cwd ? simpleGit(cwd) : this.git;
+    try {
+      // Validate branch name
+      if (!this.isValidBranchName(branchName)) {
+        throw new GitError(
+          `Invalid branch name: ${branchName}. Branch names should follow pattern: feature/name or WBP-1234__feature-name`,
+        );
+      }
+
+      const status = await git.status();
+      const branches = await git.branch();
+
+      // Check if branch already exists
+      if (branches.all.includes(branchName)) {
+        this.logger.warn(
+          `Branch ${branchName} already exists, checking out...`,
+        );
+        await git.checkout(branchName);
+        return;
+      }
+
+      // Determine base branch
+      const devBranch = this.detectDevelopmentBranch(branches.all);
+      const base = baseBranch || devBranch || status.current;
+
+      // Create and checkout new branch
+      await git.checkoutLocalBranch(branchName);
+
+      this.logger.success(
+        `Created and checked out branch: ${branchName} from ${base}`,
+      );
+    } catch (error) {
+      if (error instanceof GitError) {
+        throw error;
+      }
+      throw new GitError(`Failed to create branch: ${branchName}`, error);
+    }
+  }
+
+  private isValidBranchName(name: string): boolean {
+    // Allow patterns like: feature/name, WBP-1234__feature-name, fix/bug-name
+    const validPatterns = [
+      /^[a-z]+\/[\w-]+$/, // feature/name
+      /^[A-Z]+-\d+__[\w-]+$/, // WBP-1234__feature-name
+      /^[\w-]+$/, // simple-name
+    ];
+
+    return validPatterns.some((pattern) => pattern.test(name));
+  }
+
+  async commit(options: CommitOptions): Promise<string> {
+    try {
+      // Always create a fresh instance so LEFTHOOK=0 can be set without
+      // mutating the shared this.git. LEFTHOOK=0 is the officially supported
+      // skip mechanism — all Lefthook-generated hooks check this var and
+      // exit 0 immediately, preventing hangs in automated commit flows.
+      const git = simpleGit(options.cwd ?? process.cwd()).env({
+        ...process.env,
+        LEFTHOOK: '0',
+      });
+
+      const status = await git.status();
+
+      // If specific files provided, add them
+      if (options.files && options.files.length > 0) {
+        await git.add(options.files);
+      } else if (!status.staged.length && status.files.length > 0) {
+        // Add all modified files if nothing is staged
+        await git.add('.');
+      }
+
+      // Check if there are changes to commit
+      const updatedStatus = await git.status();
+      if (!updatedStatus.staged.length && !options.allowEmpty) {
+        throw new GitError('No changes to commit');
+      }
+
+      // Create commit
+      const result = await git.commit(options.message);
+
+      this.logger.success(`Created commit: ${result.commit}`);
+      return result.commit;
+    } catch (error) {
+      if (error instanceof GitError) {
+        throw error;
+      }
+      throw new GitError('Failed to create commit', error);
+    }
+  }
+
+  async getRecentCommits(
+    count: number = 10,
+    cwd?: string,
+  ): Promise<CommitInfo[]> {
+    try {
+      const git = cwd ? simpleGit(cwd) : this.git;
+      const log = await git.log({ maxCount: count });
+
+      return log.all.map((commit) => ({
+        hash: commit.hash,
+        message: commit.message,
+        author: commit.author_name,
+        date: new Date(commit.date),
+      }));
+    } catch (error) {
+      throw new GitError('Failed to get commit history', error);
+    }
+  }
+
+  async getDiff(staged: boolean = false, cwd?: string): Promise<string> {
+    try {
+      const git = cwd ? simpleGit(cwd) : this.git;
+      const diff = staged ? await git.diff(['--staged']) : await git.diff();
+      return diff;
+    } catch (error) {
+      throw new GitError('Failed to get diff', error);
+    }
+  }
+
+  async stashChanges(message?: string): Promise<void> {
+    try {
+      await this.git.stash(['push', '-m', message || 'Auto-stashed by wf']);
+      this.logger.success('Stashed uncommitted changes');
+    } catch (error) {
+      throw new GitError('Failed to stash changes', error);
+    }
+  }
+
+  async stashPop(): Promise<void> {
+    try {
+      await this.git.stash(['pop']);
+      this.logger.success('Restored stashed changes');
+    } catch (error) {
+      throw new GitError('Failed to restore stashed changes', error);
+    }
+  }
+
+  async getStatus(cwd?: string): Promise<StatusResult> {
+    try {
+      const git = cwd ? simpleGit(cwd) : this.git;
+      return await git.status();
+    } catch (error) {
+      throw new GitError('Failed to get git status', error);
+    }
+  }
+
+  async getCurrentBranch(cwd?: string): Promise<string> {
+    try {
+      const git = cwd ? simpleGit(cwd) : this.git;
+      const status = await git.status();
+      return status.current || 'HEAD';
+    } catch (error) {
+      throw new GitError('Failed to get current branch', error);
+    }
+  }
+
+  async checkoutBranch(branchName: string): Promise<void> {
+    try {
+      await this.git.checkout(branchName);
+      this.logger.success(`Checked out branch: ${branchName}`);
+    } catch (error) {
+      throw new GitError(`Failed to checkout branch: ${branchName}`, error);
+    }
+  }
+
+  async pull(remote: string = 'origin', branch?: string): Promise<void> {
+    try {
+      const currentBranch = branch || (await this.getCurrentBranch());
+      await this.git.pull(remote, currentBranch);
+      this.logger.success(
+        `Pulled latest changes from ${remote}/${currentBranch}`,
+      );
+    } catch (error) {
+      throw new GitError('Failed to pull changes', error);
+    }
+  }
+
+  async push(
+    remote: string = 'origin',
+    branch?: string,
+    setUpstream: boolean = false,
+  ): Promise<void> {
+    try {
+      const currentBranch = branch || (await this.getCurrentBranch());
+
+      if (setUpstream) {
+        await this.git.push(['-u', remote, currentBranch]);
+        this.logger.success(
+          `Pushed and set upstream: ${remote}/${currentBranch}`,
+        );
+      } else {
+        await this.git.push(remote, currentBranch);
+        this.logger.success(`Pushed to ${remote}/${currentBranch}`);
+      }
+    } catch (error) {
+      throw new GitError('Failed to push changes', error);
+    }
+  }
+}

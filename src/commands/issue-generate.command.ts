@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { resolveArtifactDir } from '../agents/utils';
 import {
   UniversalTicket,
   TicketType,
@@ -143,8 +144,7 @@ export class IssueGenerateCommand extends CommandRunner {
         if (options?.save) {
           const timestamp = new Date().toISOString().split('T')[0];
           const filePath = path.join(
-            process.cwd(),
-            platformName,
+            resolveArtifactDir(process.cwd(), platformName),
             `GENERATED-${timestamp}-preview.${format}`,
           );
           this.dryRunPreview.previewFileWrite({
@@ -334,7 +334,10 @@ export class IssueGenerateCommand extends CommandRunner {
     required: true,
   })
   parseRepos(val: string): string[] {
-    return val.split(',').map((s) => s.trim()).filter(Boolean);
+    return val
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
 
   @Option({
@@ -487,7 +490,7 @@ export class IssueGenerateCommand extends CommandRunner {
     platformName: string,
     format: string,
   ): Promise<string> {
-    const platformDir = path.join(process.cwd(), platformName);
+    const platformDir = resolveArtifactDir(process.cwd(), platformName);
     if (!fs.existsSync(platformDir)) {
       fs.mkdirSync(platformDir, { recursive: true });
     }

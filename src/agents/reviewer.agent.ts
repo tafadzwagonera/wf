@@ -1,6 +1,7 @@
 // src/agents/reviewer.agent.ts
 import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
+import * as path from 'path';
 import chalk from 'chalk';
 import { ClaudeService, CodeReview } from '../integrations/ai/claude.service';
 import { GitService } from '../integrations/git/git.service';
@@ -39,7 +40,10 @@ export class ReviewerAgent {
     ticket: TicketArtifact,
     options: ReviewerOptions = {},
   ): Promise<ReviewArtifact | null> {
-    const reviewPath = ticket.path.replace('.md', '-review.md');
+    const wfSuffix = ticket.path.slice(ticket.path.indexOf('.wf/'));
+    const reviewPath = options.repoDir
+      ? path.join(options.repoDir, wfSuffix.replace('.md', '-review.md'))
+      : ticket.path.replace('.md', '-review.md');
 
     if (options.skipExisting && fs.existsSync(reviewPath)) {
       console.log(
@@ -66,7 +70,7 @@ export class ReviewerAgent {
     console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
     console.log(chalk.gray('─'.repeat(70)));
 
-    const diff = await this.gitService.getDiff();
+    const diff = await this.gitService.getDiff(false, options.repoDir);
 
     if (!diff.trim()) {
       console.log(chalk.yellow('⚠ No uncommitted changes to review'));
@@ -117,6 +121,7 @@ export class ReviewerAgent {
         : chalk.red('✗ Changes needed'),
     );
 
+    fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
     fs.writeFileSync(
       reviewPath,
       this.formatReviewMarkdown(ticket.ticketKey, review),

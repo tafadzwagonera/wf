@@ -1,7 +1,7 @@
 // src/agents/interfaces.ts
 import { CodeReview, ResolutionPlan } from '../integrations/ai/claude.service';
 
-export type ResolutionAction = 'implement' | 'fix' | 'investigate';
+export type ResolutionAction = 'feature' | 'fix' | 'investigate';
 
 export interface TicketArtifact {
   ticketKey: string;
@@ -38,8 +38,23 @@ export interface PlannerOptions {
 /** platformName is required to apply Atlassian vs GitHub ticket-key casing rules. */
 export interface ImplementerOptions {
   platformName: string;
+  repoDir?: string;
 }
 
 export interface ReviewerOptions {
   skipExisting?: boolean;
+  repoDir?: string;
 }
+
+export interface FindingsArtifact {
+  action: 'investigate';
+  summary: string;
+  findings: string[];
+  recommendations: string[];
+  conclusion: string;
+  path: string;
+}
+
+export type ImplementerResult =
+  | { type: 'implementation'; branchName: string }
+  | { type: 'investigation'; artifact: FindingsArtifact };

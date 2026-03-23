@@ -12,19 +12,26 @@ export class CommitterAgent {
   ) {}
 
   /**
-   * Generate a commit message for uncommitted changes and print the git commands
-   * needed to stage, commit, and push. Does not execute any git commands itself.
+   * Generate a commit message for uncommitted changes, stage all files, and
+   * create a git commit in the given repo directory. Prints `git push` as a
+   * manual next step but does not execute it.
    *
    * Returns early with a warning if the working tree has no modified or untracked files.
    *
    * @param ticketKey - The ticket identifier prepended to the commit message (e.g. WBP-1234)
-   * @returns A promise that resolves when guidance has been printed
+   * @param repoDir - Optional path to the repository directory
+   * @param ticketContext - Optional plan summary or ticket description used to improve commit message accuracy
+   * @returns A promise that resolves when the commit has been created
    */
-  async execute(ticketKey: string): Promise<void> {
+  async execute(
+    ticketKey: string,
+    repoDir?: string,
+    ticketContext?: string,
+  ): Promise<void> {
     console.log(chalk.bold.yellow('\n💾 STAGE 5: Commit Changes'));
     console.log(chalk.gray('─'.repeat(70)));
 
-    const status = await this.gitService.getStatus();
+    const status = await this.gitService.getStatus(repoDir);
     if (status.files.length === 0) {
       console.log(chalk.yellow('⚠ No changes to commit'));
       return;
@@ -32,24 +39,29 @@ export class CommitterAgent {
 
     console.log(chalk.bold('  Generating commit message...'));
 
-    const diff = await this.gitService.getDiff(true);
-    const commits = await this.gitService.getRecentCommits(10);
+    const diff = await this.gitService.getDiff(false, repoDir);
+    const commits = await this.gitService.getRecentCommits(10, repoDir);
     const commitHistory = commits.map((c) => c.message);
 
-    const commitMsg = await this.claudeService.generateCommitMessage(
+    const rawMsg = await this.claudeService.generateCommitMessage(
       diff,
       commitHistory,
       'auto',
+      ticketContext,
     );
+    // Strip conventional commit type prefix (e.g. "fix: ", "test(scope): ") so the
+    // ticket key is always the sole prefix: "WBP-1234: <description>"
+    const commitMsg = rawMsg.replace(/^[a-z]+(\([^)]+\))?:\s*/, '');
     const finalMsg = `${ticketKey}: ${commitMsg}`;
 
     console.log(chalk.green('\n✓ Commit message generated'));
     console.log(chalk.bold('\n  Message:'));
     console.log(chalk.white(`    ${finalMsg}`));
-    console.log(chalk.bold('\n  Commands:'));
-    console.log(chalk.cyan('    git add .'));
-    const escapedMsg = finalMsg.replace(/"/g, '\\"');
-    console.log(chalk.cyan(`    git commit -m "${escapedMsg}"`));
+
+    await this.gitService.commit({ message: finalMsg, cwd: repoDir });
+    console.log(chalk.green('\n✓ Changes committed'));
+
+    console.log(chalk.bold('\n  Next step:'));
     console.log(chalk.cyan('    git push'));
   }
 }

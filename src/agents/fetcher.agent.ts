@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { TicketArtifact, FetcherOptions } from './interfaces';
+import { resolveArtifactDir } from './utils';
 
 @Injectable()
 export class FetcherAgent {
@@ -26,7 +27,7 @@ export class FetcherAgent {
     ticketKey: string,
     options: FetcherOptions,
   ): Promise<TicketArtifact> {
-    const platformDir = path.join(
+    const platformDir = resolveArtifactDir(
       options.baseDir ?? process.cwd(),
       options.platformName,
     );
@@ -82,7 +83,10 @@ export class FetcherAgent {
     platformName: string,
     baseDir: string = process.cwd(),
   ): TicketArtifact {
-    const ticketPath = path.join(baseDir, platformName, `${ticketKey}.md`);
+    const ticketPath = path.join(
+      resolveArtifactDir(baseDir, platformName),
+      `${ticketKey}.md`,
+    );
     if (!fs.existsSync(ticketPath)) {
       throw new Error(
         `Ticket file not found: ${ticketPath}. Run with --from fetch first.`,

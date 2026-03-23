@@ -38,7 +38,9 @@ export class DryRunPreviewService {
     if (preview.estimatedResponse) {
       const lines = preview.estimatedResponse.split('\n');
       lines.forEach((line, i) =>
-        console.log(chalk.black(`     ${i === 0 ? '↳ Response: ' : ''}${line}`)),
+        console.log(
+          chalk.black(`     ${i === 0 ? '↳ Response: ' : ''}${line}`),
+        ),
       );
     }
     if (preview.payload && Object.keys(preview.payload).length > 0) {

@@ -8,6 +8,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { resolveArtifactDir } from '../agents/utils';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import * as fs from 'fs';
@@ -18,6 +19,7 @@ import {
   PlanArtifact,
   ReviewArtifact,
   ResolutionAction,
+  ImplementerResult,
 } from '../agents/interfaces';
 
 enum WorkflowStage {
@@ -78,7 +80,7 @@ export class IssueAllCommand extends CommandRunner {
   @Option({
     flags: '--action <action>',
     description:
-      'Resolution action type (implement|fix|investigate) - required for PLAN stage',
+      'Resolution action type (feature|fix|investigate) - required for PLAN stage',
   })
   parseAction(val: string): string {
     return val;
@@ -202,12 +204,12 @@ export class IssueAllCommand extends CommandRunner {
         if (!options?.action) {
           throw new Error(
             'Error: --action is required when running PLAN stage.\n' +
-              'Specify: --action <implement|fix|investigate>',
+              'Specify: --action <feature|fix|investigate>',
           );
         }
         // Validate action
         const validActions: ResolutionAction[] = [
-          'implement',
+          'feature',
           'fix',
           'investigate',
         ];
@@ -220,7 +222,7 @@ export class IssueAllCommand extends CommandRunner {
       } else if (options?.action) {
         // Action provided but PLAN stage not running - validate it
         const validActions: ResolutionAction[] = [
-          'implement',
+          'feature',
           'fix',
           'investigate',
         ];
@@ -238,7 +240,7 @@ export class IssueAllCommand extends CommandRunner {
       const repoBaseDir = this.resolveRepoBasePath(options.repos[0]);
 
       if (options?.dryRun) {
-        const platformDir = path.join(repoBaseDir, platformName);
+        const platformDir = resolveArtifactDir(repoBaseDir, platformName);
 
         this.dryRunPreview.showHeader('issue:all', ticketKey);
         console.log(
@@ -284,7 +286,7 @@ export class IssueAllCommand extends CommandRunner {
           } else if (stage === WorkflowStage.PLAN) {
             const planPath = action
               ? path.join(platformDir, `${ticketKey}-plan-${action}.json`)
-              : path.join(platformDir, `${ticketKey}-plan-implement.json`);
+              : path.join(platformDir, `${ticketKey}-plan-feature.json`);
             const artifactExists = fs.existsSync(planPath);
 
             if (options.skipExisting && artifactExists) {
@@ -294,10 +296,10 @@ export class IssueAllCommand extends CommandRunner {
                 method: 'POST',
                 endpoint: '/v1/messages',
                 platform: 'Anthropic Claude',
-                description: `Generate ${action || 'implement'} plan`,
+                description: `Generate ${action || 'feature'} plan`,
                 estimatedResponse: [
                   '{',
-                  `  "action": "${action || 'implement'}",`,
+                  `  "action": "${action || 'feature'}",`,
                   '  "estimatedComplexity": "medium",',
                   '  "steps": ["<step 1>", "..."],',
                   '  "filesAffected": ["<file>", "..."]',
@@ -311,7 +313,7 @@ export class IssueAllCommand extends CommandRunner {
                 format: 'json',
                 contentPreview: [
                   '{',
-                  `  "action": "${action || 'implement'}",`,
+                  `  "action": "${action || 'feature'}",`,
                   '  "estimatedComplexity": "medium",',
                   '  "summary": "<summary>",',
                   '  "steps": [',
@@ -327,13 +329,62 @@ export class IssueAllCommand extends CommandRunner {
               terminalLines.push(`✓ Plan saved to: ${planPath}`);
             }
           } else if (stage === WorkflowStage.IMPLEMENT) {
-            this.dryRunPreview.showNoSideEffects();
-            console.log(
-              chalk.gray(
-                '     Displays: branch name, implementation steps, affected files',
-              ),
-            );
+            if (action === 'investigate') {
+              const findingsPath = path.join(
+                platformDir,
+                `${ticketKey}-plan-investigate-findings-and-recommendations.json`,
+              );
+              this.dryRunPreview.previewApiCall({
+                method: 'POST',
+                endpoint: '/v1/messages',
+                platform: 'Anthropic Claude',
+                description:
+                  'Generate investigation findings and recommendations',
+                estimatedResponse: [
+                  '{',
+                  '  "action": "investigate",',
+                  '  "summary": "<investigation summary>",',
+                  '  "findings": ["<finding 1>", "..."],',
+                  '  "recommendations": ["<recommendation 1>", "..."],',
+                  '  "conclusion": "<conclusion>"',
+                  '}',
+                ].join('\n'),
+              });
+              this.dryRunPreview.previewFileWrite({
+                filePath: findingsPath,
+                operation: fs.existsSync(findingsPath) ? 'overwrite' : 'create',
+                sizeEstimate: '2–6 KB',
+                format: 'json',
+                contentPreview: [
+                  '{',
+                  '  "action": "investigate",',
+                  '  "summary": "<summary>",',
+                  '  "findings": ["<finding>"],',
+                  '  "recommendations": ["<recommendation>"],',
+                  '  "conclusion": "<conclusion>"',
+                  '}',
+                ].join('\n'),
+              });
+              totalApiCalls++;
+              totalFilesCreated++;
+              terminalLines.push(
+                '✓ Investigation findings saved to: ' + findingsPath,
+              );
+            } else {
+              this.dryRunPreview.showNoSideEffects();
+              console.log(
+                chalk.gray(
+                  '     Displays: branch name, implementation steps, affected files',
+                ),
+              );
+            }
           } else if (stage === WorkflowStage.REVIEW) {
+            if (action === 'investigate') {
+              this.dryRunPreview.showSkipped(
+                'investigation workflow ends at IMPLEMENT stage',
+              );
+              continue;
+            }
             const reviewPath = path.join(platformDir, `${ticketKey}-review.md`);
             const artifactExists = fs.existsSync(reviewPath);
 
@@ -379,6 +430,12 @@ export class IssueAllCommand extends CommandRunner {
               terminalLines.push('  Status: ✓ Approved');
             }
           } else if (stage === WorkflowStage.COMMIT) {
+            if (action === 'investigate') {
+              this.dryRunPreview.showSkipped(
+                'investigation workflow ends at IMPLEMENT stage',
+              );
+              continue;
+            }
             this.dryRunPreview.showNoSideEffects();
             console.log(
               chalk.gray(
@@ -466,55 +523,95 @@ export class IssueAllCommand extends CommandRunner {
         if (planArtifact.action !== action) action = planArtifact.action;
       }
 
-      // STAGE 3: IMPLEMENT
-      if (stagesToRun.includes(WorkflowStage.IMPLEMENT) && planArtifact) {
-        await this.agents.implementer.execute(ticketArtifact, planArtifact, {
-          platformName,
-        });
-      }
+      const repoList: (string | undefined)[] = options.repos?.length
+        ? options.repos
+        : [undefined];
 
-      // STAGE 4: REVIEW
-      if (stagesToRun.includes(WorkflowStage.REVIEW)) {
-        reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
-          skipExisting: options?.skipExisting,
-        });
+      for (const repo of repoList) {
+        const repoDir = this.resolveRepoBasePath(repo);
 
-        if (reviewArtifact) {
-          console.log(chalk.bold('\n  Status:'));
-          if (reviewArtifact.approved) {
+        if (repoList.length > 1) {
+          console.log(
+            chalk.bold.cyan(`\n── Repo: ${repo ?? 'current directory'} ──`),
+          );
+        }
+
+        // STAGE 3: IMPLEMENT
+        let implementerResult: ImplementerResult | undefined;
+        if (stagesToRun.includes(WorkflowStage.IMPLEMENT) && planArtifact) {
+          implementerResult = await this.agents.implementer.execute(
+            ticketArtifact,
+            planArtifact,
+            { platformName, repoDir },
+          );
+
+          // Investigation workflows end at the IMPLEMENT stage
+          if (implementerResult.type === 'investigation') {
             console.log(
-              chalk.white('    Changes approved - proceeding to commit stage'),
-            );
-          } else {
-            console.log(
-              chalk.yellow(
-                '    ⚠ Review found issues - address before committing',
+              chalk.bold.green(
+                '\n✓ Investigation workflow complete — no further stages will run',
               ),
             );
-            console.log(
-              chalk.white(
-                '    Commit stage will still execute (you can skip it if needed)',
-              ),
-            );
-          }
-
-          if (options?.interactive) {
-            await this.startInteractiveChat(
-              ticketKey,
-              'review' as ConvWorkflowStage,
-              {
-                ticketContent: ticketArtifact.content,
-                plan: planArtifact?.plan,
-                review: reviewArtifact.review,
-              },
-            );
+            return;
           }
         }
-      }
 
-      // STAGE 5: COMMIT
-      if (stagesToRun.includes(WorkflowStage.COMMIT)) {
-        await this.agents.committer.execute(ticketKey);
+        // STAGE 4: REVIEW
+        if (
+          stagesToRun.includes(WorkflowStage.REVIEW) &&
+          planArtifact?.action !== 'investigate'
+        ) {
+          reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
+            skipExisting: options?.skipExisting,
+            repoDir,
+          });
+
+          if (reviewArtifact) {
+            console.log(chalk.bold('\n  Status:'));
+            if (reviewArtifact.approved) {
+              console.log(
+                chalk.white(
+                  '    Changes approved - proceeding to commit stage',
+                ),
+              );
+            } else {
+              console.log(
+                chalk.yellow(
+                  '    ⚠ Review found issues - address before committing',
+                ),
+              );
+              console.log(
+                chalk.white(
+                  '    Commit stage will still execute (you can skip it if needed)',
+                ),
+              );
+            }
+
+            if (options?.interactive) {
+              await this.startInteractiveChat(
+                ticketKey,
+                'review' as ConvWorkflowStage,
+                {
+                  ticketContent: ticketArtifact.content,
+                  plan: planArtifact?.plan,
+                  review: reviewArtifact.review,
+                },
+              );
+            }
+          }
+        }
+
+        // STAGE 5: COMMIT
+        if (
+          stagesToRun.includes(WorkflowStage.COMMIT) &&
+          planArtifact?.action !== 'investigate'
+        ) {
+          await this.agents.committer.execute(
+            ticketKey,
+            repoDir,
+            planArtifact?.plan?.summary,
+          );
+        }
       }
 
       // Summary
@@ -562,7 +659,7 @@ export class IssueAllCommand extends CommandRunner {
     action?: ResolutionAction,
     baseDir: string = process.cwd(),
   ): { exists: boolean; path: string } {
-    const platformDir = path.join(baseDir, platformName);
+    const platformDir = resolveArtifactDir(baseDir, platformName);
 
     switch (stage) {
       case WorkflowStage.FETCH: {
@@ -573,11 +670,7 @@ export class IssueAllCommand extends CommandRunner {
       case WorkflowStage.PLAN:
         if (!action) {
           // Try to find any plan file
-          const actions: ResolutionAction[] = [
-            'implement',
-            'fix',
-            'investigate',
-          ];
+          const actions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
           for (const a of actions) {
             const planPath = path.join(
               platformDir,

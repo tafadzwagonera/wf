@@ -41,16 +41,12 @@ function testIssueCommitConventional() {
     fail('issue:commit --help does NOT show -c, --conventional');
   }
 
-  console.log(
-    '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-  );
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`Results: ✅ ${passed} passed   ❌ ${failed} failed`);
   if (failed === 0) {
     console.log('✅ All tests passed!');
   }
-  console.log(
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-  );
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   if (failed > 0) process.exit(1);
 }

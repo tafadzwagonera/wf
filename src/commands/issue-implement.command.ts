@@ -1,23 +1,69 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ClaudeService } from '../integrations/ai/claude.service';
+import {
+  ClaudeService,
+  ResolutionPlan,
+} from '../integrations/ai/claude.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { resolveArtifactDir } from '../agents/utils';
+import type {
+  ResolutionAction,
+  TicketArtifact,
+  PlanArtifact,
+} from '../agents/interfaces';
+import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as YAML from 'yaml';
+import chalk from 'chalk';
 
 type OutputFormat = 'json' | 'md' | 'yaml';
 
+const loadPlanFile = (filePath: string): unknown => {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Plan file not found: ${filePath}`);
+  }
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch {
+    throw new Error(`Plan file is not valid JSON: ${filePath}`);
+  }
+};
+
+/** Finds the most recently modified plan file for a ticket across all actions. */
+const discoverPlanAction = (
+  dir: string,
+  key: string,
+): { action: ResolutionAction; filePath: string } => {
+  const candidates: ResolutionAction[] = ['investigate', 'feature', 'fix'];
+  const found = candidates
+    .map((a) => ({
+      action: a,
+      filePath: path.join(dir, `${key}-plan-${a}.json`),
+    }))
+    .filter(({ filePath }) => fs.existsSync(filePath))
+    .sort(
+      (x, y) =>
+        fs.statSync(y.filePath).mtimeMs - fs.statSync(x.filePath).mtimeMs,
+    );
+  return (
+    found[0] ?? {
+      action: 'feature',
+      filePath: path.join(dir, `${key}-plan-feature.json`),
+    }
+  );
+};
+
 interface IssueImplementOptions {
+  plan?: string;
   platform?: string;
   forceRecreate?: boolean;
   format?: OutputFormat;
-  repos: string[];
+  repos?: string[];
   dryRun?: boolean;
 }
 
@@ -28,7 +74,7 @@ interface IssueImplementOptions {
     'Generate an implementation plan for a ticket from a local artifact. ' +
     'If a local artifact is not found, the command will attempt to fetch it from the primary platform. ' +
     'Use --force-recreate to fetch and recreate artifacts.',
-  arguments: '<ticket-key>',
+  arguments: '[ticket-key]',
 })
 export class IssueImplementCommand extends CommandRunner {
   constructor(
@@ -37,8 +83,18 @@ export class IssueImplementCommand extends CommandRunner {
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
+    private readonly orchestrator: AgentOrchestrator,
   ) {
     super();
+  }
+
+  @Option({
+    flags: '--plan <path>',
+    description: 'Path to a plan JSON file (absolute or relative)',
+    required: false,
+  })
+  parsePlan(val: string): string {
+    return val;
   }
 
   @Option({
@@ -81,10 +137,13 @@ export class IssueImplementCommand extends CommandRunner {
     flags: '-r, --repos <repos>',
     description:
       'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
-    required: true,
+    required: false,
   })
   parseRepos(val: string): string[] {
-    return val.split(',').map((s) => s.trim()).filter(Boolean);
+    return val
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
 
   @Option({
@@ -96,23 +155,258 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   async run(
-    [ticketKey]: [string],
+    [ticketKey]: string[],
     options?: IssueImplementOptions,
   ): Promise<void> {
     try {
+      // Guard: ticketKey + Bitbucket requires --repos
       const platformName =
         options?.platform ||
         this.configService.get<string>('platforms.primary', 'jira');
 
-      const action = 'implement';
+      if (
+        ticketKey &&
+        platformName === 'bitbucket' &&
+        !options?.repos?.length
+      ) {
+        console.error(
+          chalk.red('Error: --repos is required for Bitbucket ticket fetching'),
+        );
+        process.exit(1);
+      }
+
+      // Guard: must have either ticketKey or --plan
+      if (!ticketKey && !options?.plan) {
+        console.error(
+          chalk.red(
+            'Error: Provide a <ticket-key> or use --plan <path> to load a plan directly',
+          ),
+        );
+        process.exit(1);
+      }
+
       const format = options?.format || 'json';
 
-      const platformDir = path.join(process.cwd(), platformName);
+      const resolvedPlanPath = options?.plan
+        ? path.resolve(options.plan)
+        : undefined;
+
+      // ── MODE A: --plan only (no ticketKey) ─────────────────────────────
+      if (!ticketKey && resolvedPlanPath) {
+        if (options?.dryRun) {
+          this.dryRunPreview.showHeader(
+            'issue:implement',
+            options.plan ?? '<plan-path>',
+          );
+
+          const planExists = fs.existsSync(resolvedPlanPath);
+          this.dryRunPreview.previewFileRead({
+            filePath: resolvedPlanPath,
+            exists: planExists,
+            sizeInKb: planExists
+              ? (fs.statSync(resolvedPlanPath).size / 1024).toFixed(2)
+              : '0',
+          });
+
+          // Detect investigate plan if file exists, otherwise use action heuristic
+          /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
+          const planForDryRun = planExists
+            ? (() => {
+                try {
+                  return JSON.parse(fs.readFileSync(resolvedPlanPath, 'utf-8'));
+                } catch {
+                  return null;
+                }
+              })()
+            : null;
+          const isInvestigateDryRun = planForDryRun?.action === 'investigate';
+          /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
+
+          if (isInvestigateDryRun) {
+            const findingsPath = resolvedPlanPath.replace(
+              '.json',
+              '-findings-and-recommendations.json',
+            );
+            this.dryRunPreview.previewApiCall({
+              method: 'POST',
+              endpoint: '/v1/messages',
+              platform: 'Anthropic Claude',
+              description:
+                'Generate investigation findings and recommendations',
+              estimatedResponse: [
+                '{',
+                '  "action": "investigate",',
+                '  "summary": "<investigation summary>",',
+                '  "findings": ["<finding 1>", "..."],',
+                '  "recommendations": ["<recommendation 1>", "..."],',
+                '  "conclusion": "<conclusion>"',
+                '}',
+              ].join('\n'),
+            });
+            this.dryRunPreview.previewFileWrite({
+              filePath: findingsPath,
+              operation: fs.existsSync(findingsPath) ? 'overwrite' : 'create',
+              sizeEstimate: '2–6 KB',
+              format: 'json',
+              contentPreview: [
+                '{',
+                '  "action": "investigate",',
+                '  "summary": "<summary>",',
+                '  "findings": ["<finding>"],',
+                '  "recommendations": ["<recommendation>"],',
+                '  "conclusion": "<conclusion>"',
+                '}',
+              ].join('\n'),
+            });
+            this.dryRunPreview.showSummary({
+              apiCallCount: 1,
+              fileCreatedCount: 1,
+              fileModifiedCount: 0,
+              gitOperationCount: 0,
+              terminalOutputLines: [
+                `✓ Investigation findings saved to: ${findingsPath}`,
+              ],
+            });
+          } else {
+            this.dryRunPreview.showSummary({
+              apiCallCount: 0,
+              fileCreatedCount: 0,
+              fileModifiedCount: 0,
+              gitOperationCount: 0,
+              terminalOutputLines: [
+                '🔧 Implementation Guide',
+                '─'.repeat(70),
+                '  Steps:',
+                '    1. <step from plan>',
+                '    2. ...',
+                '',
+                '  Files to modify:',
+                '    - <file>',
+                '',
+                '  Repositories affected:',
+                '    - <repo>',
+                '',
+                '  Status:',
+                '    Ready to implement — create your branch before starting',
+              ],
+            });
+          }
+
+          this.dryRunPreview.showValidationResult();
+          return;
+        }
+
+        /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
+        const plan = loadPlanFile(resolvedPlanPath) as any;
+
+        // Investigation: generate findings instead of showing implementation guide
+        if (plan.action === 'investigate') {
+          const findingsPath = resolvedPlanPath.replace(
+            '.json',
+            '-findings-and-recommendations.json',
+          );
+
+          this.logger.info('Generating investigation findings...');
+
+          const systemPrompt = `You are an expert software investigator providing structured findings and recommendations.
+Analyse the investigation plan and generate comprehensive findings based on the plan's investigation steps.
+Return your response as a JSON object.`;
+
+          const findingsPrompt = `Investigation Plan:
+${JSON.stringify(plan, null, 2)}
+
+Based on this investigation plan and context, generate structured findings and recommendations.
+
+Return ONLY a valid JSON object:
+{
+  "action": "investigate",
+  "summary": "Brief summary of what was investigated and key findings",
+  "findings": ["finding 1", "finding 2", ...],
+  "recommendations": ["recommendation 1", ...],
+  "conclusion": "Overall conclusion and next steps"
+}`;
+
+          const response = await this.claudeService.execute({
+            prompt: findingsPrompt,
+            systemPrompt,
+            temperature: 0.4,
+          });
+
+          let findings: any;
+          try {
+            const jsonMatch =
+              response.content.match(/```json\s*([\s\S]*?)\s*```/) ||
+              response.content.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error('No JSON found in response');
+            findings = JSON.parse(jsonMatch[1] ?? jsonMatch[0]);
+          } catch {
+            throw new Error(
+              'Failed to parse investigation findings from AI response',
+            );
+          }
+
+          await fs.promises.writeFile(
+            findingsPath,
+            JSON.stringify(findings, null, 2),
+            'utf-8',
+          );
+
+          console.log('\n🔍 Investigation Findings');
+          console.log('─'.repeat(70));
+          console.log(`  Summary: ${findings.summary ?? ''}`);
+          if ((findings.findings ?? []).length > 0) {
+            console.log('\n  Findings:');
+            (findings.findings as string[]).forEach((f: string, i: number) =>
+              console.log(`    ${i + 1}. ${f}`),
+            );
+          }
+          if ((findings.recommendations ?? []).length > 0) {
+            console.log('\n  Recommendations:');
+            (findings.recommendations as string[]).forEach(
+              (r: string, i: number) => console.log(`    ${i + 1}. ${r}`),
+            );
+          }
+          console.log(`\n  Conclusion: ${findings.conclusion ?? ''}`);
+          this.logger.success(`✓ Findings saved to: ${findingsPath}`);
+          return;
+        }
+
+        const steps: string[] = plan.steps ?? [];
+        const filesAffected: string[] = plan.filesAffected ?? [];
+        const repositoriesAffected: string[] = plan.repositoriesAffected ?? [];
+        /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
+
+        console.log('\n🔧 Implementation Guide');
+        console.log('─'.repeat(70));
+        console.log('  Steps:');
+        steps.forEach((step, i) => {
+          console.log(`    ${i + 1}. ${step}`);
+        });
+        console.log('');
+        console.log('  Files to modify:');
+        filesAffected.forEach((file) => {
+          console.log(`    - ${file}`);
+        });
+        console.log('');
+        console.log('  Repositories affected:');
+        repositoriesAffected.forEach((repo) => {
+          console.log(`    - ${repo}`);
+        });
+        console.log('');
+        console.log('  Status:');
+        console.log(
+          '    Ready to implement — create your branch before starting',
+        );
+        console.log('');
+        return;
+      }
+
+      // ── MODE B & C: ticketKey present ──────────────────────────────────
+      const platformDir = resolveArtifactDir(process.cwd(), platformName);
       const ticketPath = path.join(platformDir, `${ticketKey}.md`);
-      const planPath = path.join(
-        platformDir,
-        `${ticketKey}-plan-${action}.${format}`,
-      );
+      const discovered = discoverPlanAction(platformDir, ticketKey);
+      const action: ResolutionAction = discovered.action;
+      const planPath = discovered.filePath;
       const ticketExists = fs.existsSync(ticketPath);
       const needsFetch = options?.forceRecreate || !ticketExists;
 
@@ -142,69 +436,134 @@ export class IssueImplementCommand extends CommandRunner {
           });
         }
 
-        this.dryRunPreview.previewApiCall({
-          method: 'POST',
-          endpoint: '/v1/messages',
-          platform: 'Anthropic Claude',
-          description: `Generate ${action} implementation plan`,
-          estimatedResponse: [
-            '{',
-            `  "action": "${action}",`,
-            '  "estimatedComplexity": "medium",',
-            '  "steps": ["<step 1>", "..."],',
-            '  "filesAffected": ["<file>", "..."]',
-            '}',
-          ].join('\n'),
-        });
+        // Mode B: --plan provided — skip AI call preview, show plan-read preview
+        if (resolvedPlanPath) {
+          const planExists = fs.existsSync(resolvedPlanPath);
+          this.dryRunPreview.previewFileRead({
+            filePath: resolvedPlanPath,
+            exists: planExists,
+            sizeInKb: planExists
+              ? (fs.statSync(resolvedPlanPath).size / 1024).toFixed(2)
+              : '0',
+          });
+        } else {
+          // Mode C: generate plan via AI
+          this.dryRunPreview.previewApiCall({
+            method: 'POST',
+            endpoint: '/v1/messages',
+            platform: 'Anthropic Claude',
+            description: `Generate ${action} implementation plan`,
+            estimatedResponse: [
+              '{',
+              `  "action": "${action}",`,
+              '  "estimatedComplexity": "medium",',
+              '  "steps": ["<step 1>", "..."],',
+              '  "filesAffected": ["<file>", "..."]',
+              '}',
+            ].join('\n'),
+          });
 
-        this.dryRunPreview.previewFileWrite({
-          filePath: planPath,
-          operation: fs.existsSync(planPath) ? 'overwrite' : 'create',
-          sizeEstimate: '2–8 KB',
-          format,
-          contentPreview:
-            format === 'json'
-              ? [
-                  '{',
-                  `  "action": "${action}",`,
-                  '  "estimatedComplexity": "medium",',
-                  '  "summary": "<summary>",',
-                  '  "steps": [',
-                  '    "<step 1>",',
-                  '    "<step 2>",',
-                  '    ...',
-                  '  ]',
-                  '}',
-                ].join('\n')
-              : [
-                  '# Implementation Plan',
-                  '',
-                  `**Action:** ${action}`,
-                  '**Complexity:** medium',
-                  '',
-                  '## Summary',
-                  '<summary>',
-                  '',
-                  '## Steps',
-                  '1. <step>',
-                ].join('\n'),
-        });
+          this.dryRunPreview.previewFileWrite({
+            filePath: planPath,
+            operation: fs.existsSync(planPath) ? 'overwrite' : 'create',
+            sizeEstimate: '2–8 KB',
+            format,
+            contentPreview:
+              format === 'json'
+                ? [
+                    '{',
+                    `  "action": "${action}",`,
+                    '  "estimatedComplexity": "medium",',
+                    '  "summary": "<summary>",',
+                    '  "steps": [',
+                    '    "<step 1>",',
+                    '    "<step 2>",',
+                    '    ...',
+                    '  ]',
+                    '}',
+                  ].join('\n')
+                : [
+                    '# Implementation Plan',
+                    '',
+                    `**Action:** ${action}`,
+                    '**Complexity:** medium',
+                    '',
+                    '## Summary',
+                    '<summary>',
+                    '',
+                    '## Steps',
+                    '1. <step>',
+                  ].join('\n'),
+          });
+        }
 
+        // For investigate: also preview findings API call and file write
+        if (action === 'investigate') {
+          const findingsPath = (resolvedPlanPath ?? planPath).replace(
+            '.json',
+            '-findings-and-recommendations.json',
+          );
+          this.dryRunPreview.previewApiCall({
+            method: 'POST',
+            endpoint: '/v1/messages',
+            platform: 'Anthropic Claude',
+            description: 'Generate investigation findings and recommendations',
+            estimatedResponse: [
+              '{',
+              '  "action": "investigate",',
+              '  "summary": "<investigation summary>",',
+              '  "findings": ["<finding 1>", "..."],',
+              '  "recommendations": ["<recommendation 1>", "..."],',
+              '  "conclusion": "<conclusion>"',
+              '}',
+            ].join('\n'),
+          });
+          this.dryRunPreview.previewFileWrite({
+            filePath: findingsPath,
+            operation: fs.existsSync(findingsPath) ? 'overwrite' : 'create',
+            sizeEstimate: '2–6 KB',
+            format: 'json',
+            contentPreview: [
+              '{',
+              '  "action": "investigate",',
+              '  "summary": "<summary>",',
+              '  "findings": ["<finding>"],',
+              '  "recommendations": ["<recommendation>"],',
+              '  "conclusion": "<conclusion>"',
+              '}',
+            ].join('\n'),
+          });
+        }
+
+        const investigateApiCalls = action === 'investigate' ? 1 : 0;
+        const investigateFiles = action === 'investigate' ? 1 : 0;
         this.dryRunPreview.showSummary({
-          apiCallCount: needsFetch ? 2 : 1,
-          fileCreatedCount: needsFetch ? 2 : 1,
+          apiCallCount:
+            (resolvedPlanPath ? (needsFetch ? 1 : 0) : needsFetch ? 2 : 1) +
+            investigateApiCalls,
+          fileCreatedCount:
+            (resolvedPlanPath ? (needsFetch ? 1 : 0) : needsFetch ? 2 : 1) +
+            investigateFiles,
           fileModifiedCount: 0,
           gitOperationCount: 0,
           terminalOutputLines: [
             ...(needsFetch ? [`✓ Ticket saved to: ${ticketPath}`] : []),
-            `✓ Plan saved to: ${planPath}`,
-            '',
-            'Plan Summary:',
-            '  Action: implement',
-            '  Complexity: <medium|high|low>',
-            '  Steps: <n>',
-            '  Files affected: <n>',
-            '  Repositories affected: <n>',
+            ...(action !== 'investigate' || !resolvedPlanPath
+              ? [`✓ Plan saved to: ${resolvedPlanPath ?? planPath}`]
+              : []),
+            ...(action === 'investigate'
+              ? [
+                  `✓ Investigation findings saved to: ${(resolvedPlanPath ?? planPath).replace('.json', '-findings-and-recommendations.json')}`,
+                ]
+              : [
+                  '',
+                  'Plan Summary:',
+                  '  Action: ' + action,
+                  '  Complexity: <medium|high|low>',
+                  '  Steps: <n>',
+                  '  Files affected: <n>',
+                  '  Repositories affected: <n>',
+                ]),
           ],
         });
 
@@ -229,7 +588,7 @@ export class IssueImplementCommand extends CommandRunner {
           platformName === 'bitbucket'
             ? this.formatBitbucketReference(
                 ticketKey,
-                options!.repos[0],
+                options?.repos?.[0] ?? '',
                 this.configService,
               )
             : ticketKey;
@@ -249,50 +608,45 @@ export class IssueImplementCommand extends CommandRunner {
         ticketContent = await fs.promises.readFile(ticketPath, 'utf-8');
       }
 
-      this.logger.info('Generating implementation plan...');
+      const ticketArtifact: TicketArtifact = {
+        ticketKey,
+        content: ticketContent,
+        path: ticketPath,
+      };
 
-      const summary = this.extractSummary(ticketContent);
+      let planArtifact: PlanArtifact;
 
-      const plan = await this.claudeService.generatePlan(
-        action,
-        ticketContent,
-        {
-          ticketKey,
-          summary,
-          affectedRepositories: options!.repos,
-        },
-      );
-
-      let planContent: string;
-      if (format === 'json') {
-        planContent = JSON.stringify(plan, null, 2);
-      } else if (format === 'yaml') {
-        planContent = YAML.stringify(plan);
+      if (resolvedPlanPath) {
+        // Mode B: load plan from --plan path
+        /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+        const plan = loadPlanFile(resolvedPlanPath) as ResolutionPlan;
+        planArtifact = {
+          plan,
+          action: ((plan as any).action ?? action) as ResolutionAction,
+          path: resolvedPlanPath,
+        };
+        /* eslint-enable @typescript-eslint/no-unsafe-member-access */
       } else {
-        planContent = this.formatPlanAsMarkdown(plan);
+        // Mode C: generate plan via PlannerAgent
+        planArtifact = await this.orchestrator.planner.execute(ticketArtifact, {
+          action,
+          affectedRepositories: options?.repos,
+        });
       }
 
-      await fs.promises.writeFile(planPath, planContent, 'utf-8');
-
-      this.logger.success(`✓ Plan saved to: ${planPath}`);
-      this.logger.info(`\nPlan Summary:`);
-      this.logger.info(`  Action: ${plan.action}`);
-      this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
-      this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
-      this.logger.info(`  Files affected: ${plan.filesAffected?.length || 0}`);
-      this.logger.info(
-        `  Repositories affected: ${plan.repositoriesAffected?.length || 0}`,
+      await this.orchestrator.implementer.execute(
+        ticketArtifact,
+        planArtifact,
+        {
+          platformName,
+        },
       );
     } catch (error) {
       ErrorHandler.handle(error as Error);
     }
   }
 
-  private extractSummary(content: string): string {
-    const match = content.match(/^#\s+[A-Z]+-\d+:\s+(.+)$/m);
-    return match ? match[1] : 'Implementation';
-  }
-
+  /* eslint-disable @typescript-eslint/no-unsafe-member-access */
   private formatTicketAsMarkdown(ticket: any): string {
     let md = `# ${ticket.title}\n\n`;
     md += `**Ticket:** ${ticket.key}\n`;
@@ -302,38 +656,7 @@ export class IssueImplementCommand extends CommandRunner {
     md += `## Description\n\n${ticket.description || 'No description provided'}\n`;
     return md;
   }
-
-  private formatPlanAsMarkdown(plan: any): string {
-    let md = `# Implementation Plan\n\n`;
-    md += `**Action:** ${plan.action}\n`;
-    md += `**Complexity:** ${plan.estimatedComplexity}\n\n`;
-    md += `## Summary\n\n${plan.summary}\n\n`;
-
-    if (plan.steps && plan.steps.length > 0) {
-      md += `## Steps\n\n`;
-      plan.steps.forEach((step: string, i: number) => {
-        md += `${i + 1}. ${step}\n`;
-      });
-      md += '\n';
-    }
-
-    if (plan.filesAffected && plan.filesAffected.length > 0) {
-      md += `## Files Affected\n\n`;
-      plan.filesAffected.forEach((file: string) => {
-        md += `- ${file}\n`;
-      });
-      md += '\n';
-    }
-
-    if (plan.risks && plan.risks.length > 0) {
-      md += `## Risks\n\n`;
-      plan.risks.forEach((risk: string) => {
-        md += `- ${risk}\n`;
-      });
-    }
-
-    return md;
-  }
+  /* eslint-enable @typescript-eslint/no-unsafe-member-access */
 
   /**
    * Format repository string for Bitbucket operations

@@ -7,21 +7,96 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { resolveArtifactDir } from '../agents/utils';
+import type { ResolutionAction } from '../agents/interfaces';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
+import chalk from 'chalk';
 
-type ResolutionAction = 'implement' | 'fix' | 'investigate';
 type OutputFormat = 'json' | 'md' | 'yaml';
 
 interface IssuePlanOptions {
-  action?: ResolutionAction;
+  action: ResolutionAction;
+  prompt?: string;
   platform?: string;
   forceRecreate?: boolean;
   format?: OutputFormat;
-  repos: string[];
+  repos?: string[];
   dryRun?: boolean;
 }
+
+const ADJECTIVES = [
+  'bold',
+  'calm',
+  'dark',
+  'fast',
+  'hard',
+  'keen',
+  'late',
+  'loud',
+  'merry',
+  'neat',
+  'pale',
+  'pure',
+  'rare',
+  'rich',
+  'safe',
+  'slim',
+  'soft',
+  'tall',
+  'warm',
+  'wise',
+];
+const VERBS = [
+  'building',
+  'chasing',
+  'diving',
+  'driving',
+  'flying',
+  'forging',
+  'jumping',
+  'lifting',
+  'moving',
+  'paving',
+  'rolling',
+  'running',
+  'shifting',
+  'tinkering',
+  'tracing',
+  'turning',
+  'walking',
+  'weaving',
+  'wiring',
+  'writing',
+];
+const NOUNS = [
+  'axe',
+  'bridge',
+  'cloud',
+  'coast',
+  'creek',
+  'dune',
+  'flame',
+  'forge',
+  'grove',
+  'hill',
+  'lake',
+  'lane',
+  'leaf',
+  'peak',
+  'pine',
+  'reef',
+  'ridge',
+  'river',
+  'stone',
+  'wave',
+];
+
+const generateMnemonic = (): string => {
+  const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+  return `${pick(ADJECTIVES)}-${pick(VERBS)}-${pick(NOUNS)}`;
+};
 
 @Injectable()
 @Command({
@@ -30,7 +105,7 @@ interface IssuePlanOptions {
     'Plan ticket implementation from a local artifact. ' +
     'If a local artifact is not found, the command will attempt to fetch it from the primary platform. ' +
     'Use --force-recreate to fetch and recreate artifacts.',
-  arguments: '<ticket-key>',
+  arguments: '[ticket-key]',
 })
 export class IssuePlanCommand extends CommandRunner {
   constructor(
@@ -45,14 +120,11 @@ export class IssuePlanCommand extends CommandRunner {
 
   @Option({
     flags: '-a, --action <action>',
-    description: 'Resolution action (implement|fix|investigate)',
+    description: 'Resolution action (feature|fix|investigate)',
+    required: true,
   })
   parseAction(action: string): ResolutionAction {
-    const validActions: ResolutionAction[] = [
-      'implement',
-      'fix',
-      'investigate',
-    ];
+    const validActions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
     if (!validActions.includes(action as ResolutionAction)) {
       throw new Error(
         `Invalid action: ${action}. Valid actions: ${validActions.join(', ')}`,
@@ -101,10 +173,13 @@ export class IssuePlanCommand extends CommandRunner {
     flags: '-r, --repos <repos>',
     description:
       'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
-    required: true,
+    required: false,
   })
   parseRepos(val: string): string[] {
-    return val.split(',').map((s) => s.trim()).filter(Boolean);
+    return val
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
 
   @Option({
@@ -115,21 +190,142 @@ export class IssuePlanCommand extends CommandRunner {
     return true;
   }
 
-  async run([ticketKey]: [string], options?: IssuePlanOptions): Promise<void> {
+  @Option({
+    flags: '--prompt <text>',
+    description:
+      'Freeform prompt text to use as ticket content (mutually exclusive with <ticket-key>)',
+  })
+  parsePrompt(val: string): string {
+    return val;
+  }
+
+  async run([ticketKey]: string[], options?: IssuePlanOptions): Promise<void> {
     try {
-      // Get platform
+      // Mutual exclusion guard
+      if (ticketKey && options?.prompt) {
+        console.error(
+          chalk.red(
+            'Error: --prompt cannot be used together with <ticket-key>',
+          ),
+        );
+        process.exit(1);
+      }
+
+      if (!ticketKey && !options?.prompt) {
+        console.error(
+          chalk.red(
+            'Error: Provide a <ticket-key> or use --prompt <text> for a freeform plan',
+          ),
+        );
+        process.exit(1);
+      }
+
       const platformName =
         options?.platform ||
         this.configService.get<string>('platforms.primary', 'jira');
 
-      // Get action (required for plan generation)
-      const action = options?.action || 'implement';
+      // Bitbucket + ticket-key requires --repos
+      if (
+        ticketKey &&
+        platformName === 'bitbucket' &&
+        !options?.repos?.length
+      ) {
+        console.error(
+          chalk.red('Error: --repos is required for Bitbucket ticket fetching'),
+        );
+        process.exit(1);
+      }
 
+      const action = options!.action;
+
+      // ── PROMPT MODE ──────────────────────────────────────────────────────
+      if (options?.prompt) {
+        const platformDir = resolveArtifactDir(process.cwd(), platformName);
+        const planFilename = `${generateMnemonic()}-${action}.json`;
+        const planPath = path.join(platformDir, planFilename);
+        const format = options?.format ?? 'json';
+
+        if (options.dryRun) {
+          this.dryRunPreview.showHeader('issue:plan', `--prompt (${action})`);
+          this.dryRunPreview.previewApiCall({
+            method: 'POST',
+            endpoint: '/v1/messages',
+            platform: 'Anthropic Claude',
+            description: `Generate ${action} plan from prompt`,
+            estimatedResponse: [
+              '{',
+              `  "action": "${action}",`,
+              '  "estimatedComplexity": "medium",',
+              '  "steps": ["<step 1>", "..."],',
+              '  "filesAffected": ["<file>", "..."]',
+              '}',
+            ].join('\n'),
+          });
+          this.dryRunPreview.previewFileWrite({
+            filePath: path.join(platformDir, planFilename),
+            operation: 'create',
+            sizeEstimate: '2–8 KB',
+            format,
+            contentPreview: `{ "action": "${action}", "estimatedComplexity": "medium", ... }`,
+          });
+          this.dryRunPreview.showSummary({
+            apiCallCount: 1,
+            fileCreatedCount: 1,
+            fileModifiedCount: 0,
+            gitOperationCount: 0,
+            terminalOutputLines: [
+              `✓ Plan saved to: <artifact-dir>/${planFilename}`,
+              '',
+              `  Action: ${action}`,
+              '  Complexity: <medium|high|low>',
+            ],
+          });
+          this.dryRunPreview.showValidationResult();
+          return;
+        }
+
+        this.logger.info(`Generating freeform ${action} plan from prompt...`);
+
+        if (!fs.existsSync(platformDir)) {
+          fs.mkdirSync(platformDir, { recursive: true });
+        }
+
+        const plan = await this.claudeService.generatePlan(
+          action as any,
+          options.prompt,
+          {
+            summary: options.prompt.slice(0, 80),
+            affectedRepositories: options?.repos,
+          },
+        );
+
+        let planContent: string;
+        if (format === 'json') {
+          planContent = JSON.stringify(plan, null, 2);
+        } else if (format === 'yaml') {
+          planContent = YAML.stringify(plan);
+        } else {
+          planContent = this.formatPlanAsMarkdown(plan);
+        }
+
+        await fs.promises.writeFile(planPath, planContent, 'utf-8');
+        this.logger.success(`✓ Plan saved to: ${planPath}`);
+        this.logger.info(`\nPlan Summary:`);
+        this.logger.info(`  Action: ${plan.action}`);
+        this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
+        this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
+        this.logger.info(
+          `  Files affected: ${plan.filesAffected?.length || 0}`,
+        );
+        return;
+      }
+
+      // ── TICKET-KEY MODE (existing behaviour) ─────────────────────────────
       // Get format
       const format = options?.format || 'json';
 
       // Check for local artifact or fetch
-      const platformDir = path.join(process.cwd(), platformName);
+      const platformDir = resolveArtifactDir(process.cwd(), platformName);
       const ticketPath = path.join(platformDir, `${ticketKey}.md`);
       const planPath = path.join(
         platformDir,
@@ -251,7 +447,7 @@ export class IssuePlanCommand extends CommandRunner {
           platformName === 'bitbucket'
             ? this.formatBitbucketReference(
                 ticketKey,
-                options!.repos[0],
+                options?.repos?.[0] ?? '',
                 this.configService,
               )
             : ticketKey;
@@ -280,7 +476,7 @@ export class IssuePlanCommand extends CommandRunner {
       const summary = this.extractSummary(ticketContent);
 
       const plan = await this.claudeService.generatePlan(
-        action,
+        action as any,
         ticketContent,
         {
           ticketKey,

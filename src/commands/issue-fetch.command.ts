@@ -72,7 +72,10 @@ export class IssueFetchCommand extends CommandRunner {
     required: true,
   })
   parseRepos(val: string): string[] {
-    return val.split(',').map((s) => s.trim()).filter(Boolean);
+    return val
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
 
   @Option({

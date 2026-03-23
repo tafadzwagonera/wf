@@ -111,9 +111,7 @@ async function testIssueAllAffectedRepos() {
   // ── Tests ────────────────────────────────────────────────────────────────
 
   // Test 1: --repos flag only; plan has no repositoriesAffected → IMPLEMENT shows flag repo
-  console.log(
-    'Test 1: explicit --repos only → IMPLEMENT shows flag repo',
-  );
+  console.log('Test 1: explicit --repos only → IMPLEMENT shows flag repo');
   {
     const { tmpRoot, cleanup } = makeFixtures({ ticketKey: 'TEST-1' });
     const originalCwd = process.cwd();
@@ -212,9 +210,7 @@ async function testIssueAllAffectedRepos() {
   }
 
   // Test 4: Single --repos value; workflow displays it across IMPLEMENT, REVIEW, COMMIT stages
-  console.log(
-    'Test 4: single --repos value → shown in IMPLEMENT stage',
-  );
+  console.log('Test 4: single --repos value → shown in IMPLEMENT stage');
   {
     const { tmpRoot, cleanup } = makeFixtures({ ticketKey: 'TEST-4' });
     const originalCwd = process.cwd();
