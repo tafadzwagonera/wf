@@ -127,6 +127,118 @@ describe('IssueImplementCommand', () => {
       expect(errorOutput).toContain('issue:implement');
     });
 
+  });
+
+  describe('Mode C — dry-run path', () => {
+    let command: IssueImplementCommand;
+    let exitSpy: jest.SpyInstance;
+    let existsSyncSpy: jest.SpyInstance;
+    let consoleErrorSpy: jest.SpyInstance;
+    let dryRunPreview: jest.Mocked<DryRunPreviewService>;
+
+    beforeEach(async () => {
+      command = await buildCommand();
+      exitSpy = jest
+        .spyOn(process, 'exit')
+        .mockImplementation((() => {}) as any);
+      consoleErrorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
+      existsSyncSpy = jest.spyOn(require('fs'), 'existsSync');
+      dryRunPreview = (command as any)
+        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    });
+
+    afterEach(() => {
+      exitSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+      existsSyncSpy.mockRestore();
+    });
+
+    it('exits with code 1 and does not render preview when ticket artifact is missing', async () => {
+      existsSyncSpy.mockReturnValue(false);
+
+      await command.run(['WBP-0001'], { dryRun: true, repos: ['repo-a'] });
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(dryRunPreview.showHeader).not.toHaveBeenCalled();
+    });
+
+    it('exits with code 1 and does not render preview when plan artifact is missing', async () => {
+      existsSyncSpy.mockImplementation((p: string) =>
+        String(p).endsWith('.md'),
+      );
+
+      await command.run(['WBP-0001'], { dryRun: true, repos: ['repo-a'] });
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(dryRunPreview.showHeader).not.toHaveBeenCalled();
+    });
+
+    it('previews two file-reads and shows summary with zero counts when both artifacts exist (feature plan)', async () => {
+      // Allow ticket .md and only the feature plan so discoverPlanAction resolves
+      // to action='feature' (investigate is first in candidates and would win with
+      // equal mtimeMs if we simply mockReturnValue(true)).
+      existsSyncSpy.mockImplementation((p: string) =>
+        !String(p).includes('-plan-investigate.json') &&
+        !String(p).includes('-plan-fix.json'),
+      );
+      jest
+        .spyOn(require('fs'), 'statSync')
+        .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
+
+      await command.run(['WBP-0001'], { dryRun: true, repos: ['repo-a'] });
+
+      expect(exitSpy).not.toHaveBeenCalled();
+      expect(dryRunPreview.previewFileRead).toHaveBeenCalledTimes(2);
+      expect(dryRunPreview.showSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ apiCallCount: 0, fileCreatedCount: 0 }),
+      );
+    });
+
+    it('shows apiCallCount: 1 and fileCreatedCount: 1 for investigate plan dry-run', async () => {
+      existsSyncSpy.mockImplementation((p: string) =>
+        String(p).endsWith('.md') ||
+        String(p).includes('-plan-investigate.json'),
+      );
+      jest
+        .spyOn(require('fs'), 'statSync')
+        .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockReturnValue(JSON.stringify({ action: 'investigate' }));
+
+      await command.run(['WBP-0001'], { dryRun: true, repos: ['repo-a'] });
+
+      expect(exitSpy).not.toHaveBeenCalled();
+      expect(dryRunPreview.showSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ apiCallCount: 1, fileCreatedCount: 1 }),
+      );
+    });
+  });
+
+  // Keep the happy-path live test inside its own describe
+  describe('Mode C — happy path (live)', () => {
+    let exitSpy: jest.SpyInstance;
+    let existsSyncSpy: jest.SpyInstance;
+    let consoleErrorSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      exitSpy = jest
+        .spyOn(process, 'exit')
+        .mockImplementation((() => {}) as any);
+      consoleErrorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
+      existsSyncSpy = jest.spyOn(require('fs'), 'existsSync');
+    });
+
+    afterEach(() => {
+      exitSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+      existsSyncSpy.mockRestore();
+    });
+
     it('reads ticket and plan from disk and calls implementer when both artifacts exist', async () => {
       // Allow ticket .md and only the feature plan so discoverPlanAction resolves
       // to action='feature' (investigate is first in the candidates array and would

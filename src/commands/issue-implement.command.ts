@@ -410,6 +410,7 @@ Return ONLY a valid JSON object:
           ),
         );
         process.exit(1);
+        return;
       }
 
       // Preflight Check 2: plan artifact must exist (gates both live + dry-run)
@@ -431,35 +432,20 @@ Return ONLY a valid JSON object:
           ),
         );
         process.exit(1);
+        return;
       }
 
       if (options?.dryRun) {
         this.dryRunPreview.showHeader('issue:implement', ticketKey);
 
-        if (needsFetch) {
-          this.dryRunPreview.previewApiCall({
-            method: 'GET',
-            endpoint: `/${platformName}/issues/${ticketKey}`,
-            platform: platformName,
-            description: `Fetch ticket ${ticketKey} from ${platformName}`,
-            estimatedResponse: '200 OK — ticket data returned',
-          });
-          this.dryRunPreview.previewFileWrite({
-            filePath: ticketPath,
-            operation: ticketExists ? 'overwrite' : 'create',
-            sizeEstimate: '1–5 KB',
-            format: 'markdown',
-            contentPreview: buildTicketMarkdownPreview(ticketKey),
-          });
-        } else {
-          this.dryRunPreview.previewFileRead({
-            filePath: ticketPath,
-            exists: true,
-            sizeInKb: (fs.statSync(ticketPath).size / 1024).toFixed(2),
-          });
-        }
+        // Ticket: always a file-read (preflight check guarantees it exists)
+        this.dryRunPreview.previewFileRead({
+          filePath: ticketPath,
+          exists: true,
+          sizeInKb: (fs.statSync(ticketPath).size / 1024).toFixed(2),
+        });
 
-        // Mode B: --plan provided — skip AI call preview, show plan-read preview
+        // Plan source: Mode B reads from --plan flag; Mode C reads from discovered path
         if (resolvedPlanPath) {
           const planExists = fs.existsSync(resolvedPlanPath);
           this.dryRunPreview.previewFileRead({
@@ -470,53 +456,11 @@ Return ONLY a valid JSON object:
               : '0',
           });
         } else {
-          // Mode C: generate plan via AI
-          this.dryRunPreview.previewApiCall({
-            method: 'POST',
-            endpoint: '/v1/messages',
-            platform: 'Anthropic Claude',
-            description: `Generate ${action} implementation plan`,
-            estimatedResponse: [
-              '{',
-              `  "action": "${action}",`,
-              '  "estimatedComplexity": "medium",',
-              '  "steps": ["<step 1>", "..."],',
-              '  "filesAffected": ["<file>", "..."]',
-              '}',
-            ].join('\n'),
-          });
-
-          this.dryRunPreview.previewFileWrite({
+          // Mode C: plan discovered from disk — file-read only, no AI call
+          this.dryRunPreview.previewFileRead({
             filePath: planPath,
-            operation: fs.existsSync(planPath) ? 'overwrite' : 'create',
-            sizeEstimate: '2–8 KB',
-            format,
-            contentPreview:
-              format === 'json'
-                ? [
-                    '{',
-                    `  "action": "${action}",`,
-                    '  "estimatedComplexity": "medium",',
-                    '  "summary": "<summary>",',
-                    '  "steps": [',
-                    '    "<step 1>",',
-                    '    "<step 2>",',
-                    '    ...',
-                    '  ]',
-                    '}',
-                  ].join('\n')
-                : [
-                    '# Implementation Plan',
-                    '',
-                    `**Action:** ${action}`,
-                    '**Complexity:** medium',
-                    '',
-                    '## Summary',
-                    '<summary>',
-                    '',
-                    '## Steps',
-                    '1. <step>',
-                  ].join('\n'),
+            exists: true,
+            sizeInKb: (fs.statSync(planPath).size / 1024).toFixed(2),
           });
         }
 
@@ -561,19 +505,11 @@ Return ONLY a valid JSON object:
         const investigateApiCalls = action === 'investigate' ? 1 : 0;
         const investigateFiles = action === 'investigate' ? 1 : 0;
         this.dryRunPreview.showSummary({
-          apiCallCount:
-            (resolvedPlanPath ? (needsFetch ? 1 : 0) : needsFetch ? 2 : 1) +
-            investigateApiCalls,
-          fileCreatedCount:
-            (resolvedPlanPath ? (needsFetch ? 1 : 0) : needsFetch ? 2 : 1) +
-            investigateFiles,
+          apiCallCount: investigateApiCalls,
+          fileCreatedCount: investigateFiles,
           fileModifiedCount: 0,
           gitOperationCount: 0,
           terminalOutputLines: [
-            ...(needsFetch ? [`✓ Ticket saved to: ${ticketPath}`] : []),
-            ...(action !== 'investigate' || !resolvedPlanPath
-              ? [`✓ Plan saved to: ${resolvedPlanPath ?? planPath}`]
-              : []),
             ...(action === 'investigate'
               ? [
                   `✓ Investigation findings saved to: ${(resolvedPlanPath ?? planPath).replace('.json', '-findings-and-recommendations.json')}`,
