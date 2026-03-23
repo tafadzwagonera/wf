@@ -1,0 +1,9 @@
+{
+  "action": "feature",
+  "summary": "Test plan for E5 assertions",
+  "steps": ["Step 1", "Step 2"],
+  "estimatedComplexity": "low",
+  "filesAffected": ["src/test.ts"],
+  "repositoriesAffected": ["test-repo"],
+  "risks": []
+}

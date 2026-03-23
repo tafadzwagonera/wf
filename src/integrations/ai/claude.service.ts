@@ -1,0 +1,497 @@
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import Anthropic from '@anthropic-ai/sdk';
+import { AIError } from '../../shared/utils/errors';
+import { LoggerService } from '../../shared/logger/logger.service';
+
+export interface AIRequest {
+  prompt: string;
+  systemPrompt?: string;
+  maxTokens?: number;
+  temperature?: number;
+  context?: Record<string, any>;
+}
+
+export interface AIResponse {
+  content: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+}
+
+/**
+ * Request interface for multi-turn conversations
+ * Supports passing full conversation history to maintain context
+ */
+export interface AIConversationRequest {
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  systemPrompt?: string;
+  maxTokens?: number;
+  temperature?: number;
+}
+
+export interface FindingsDocument {
+  action: 'investigate';
+  summary: string;
+  findings: string[];
+  recommendations: string[];
+  conclusion: string;
+}
+
+export interface ResolutionPlan {
+  action: 'fix' | 'feature' | 'investigate';
+  summary: string;
+  steps: string[];
+  estimatedComplexity: 'low' | 'medium' | 'high';
+  filesAffected?: string[];
+  repositoriesAffected?: string[];
+  risks?: string[];
+}
+
+export interface CodeReview {
+  summary: string;
+  issues: CodeIssue[];
+  suggestions: string[];
+  approved: boolean;
+}
+
+export interface CodeIssue {
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  file?: string;
+  line?: number;
+}
+
+@Injectable()
+export class ClaudeService {
+  private client: Anthropic;
+  private model: string;
+  private maxTokens: number;
+
+  constructor(
+    private configService: ConfigService,
+    private logger: LoggerService,
+  ) {
+    const apiKey = this.configService.get<string>('ai.apiKey');
+
+    if (!apiKey) {
+      this.logger.warn(
+        'Anthropic API key not configured. Set ANTHROPIC_API_KEY in .env',
+      );
+    } else {
+      this.client = new Anthropic({ apiKey });
+      this.model = this.configService.get<string>(
+        'ai.model',
+        'claude-sonnet-4-20250514',
+      );
+      this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
+
+      this.logger.debug(`Initialized Claude service with model: ${this.model}`);
+    }
+  }
+
+  async execute(request: AIRequest): Promise<AIResponse> {
+    if (!this.client) {
+      throw new AIError(
+        'Claude client not initialized. Set ANTHROPIC_API_KEY in .env',
+        null,
+        false,
+      );
+    }
+
+    this.logger.debug('Executing AI request');
+
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: request.maxTokens || this.maxTokens,
+        temperature: request.temperature || 0.7,
+        system: request.systemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: request.prompt,
+          },
+        ],
+      });
+
+      const content =
+        response.content[0].type === 'text' ? response.content[0].text : '';
+
+      return {
+        content,
+        usage: {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+        },
+      };
+    } catch (error) {
+      if (error instanceof Anthropic.APIError) {
+        throw new AIError(
+          `Claude API error: ${error.message}`,
+          {
+            status: error.status,
+          },
+          true,
+        );
+      }
+
+      throw new AIError('Failed to execute AI request', error);
+    }
+  }
+
+  /**
+   * Execute a multi-turn conversation with Claude
+   * Maintains conversation history by passing full message array to API
+   *
+   * @param request - Conversation request with message history
+   * @returns AI response with content and token usage
+   */
+  async executeWithHistory(
+    request: AIConversationRequest,
+  ): Promise<AIResponse> {
+    if (!this.client) {
+      throw new AIError(
+        'Claude client not initialized. Set ANTHROPIC_API_KEY in .env',
+        null,
+        false,
+      );
+    }
+
+    this.logger.debug(
+      `Executing conversation request with ${request.messages.length} messages`,
+    );
+
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: request.maxTokens || this.maxTokens,
+        temperature: request.temperature || 0.7,
+        system: request.systemPrompt,
+        messages: request.messages, // Full conversation history
+      });
+
+      const content =
+        response.content[0].type === 'text' ? response.content[0].text : '';
+
+      return {
+        content,
+        usage: {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+        },
+      };
+    } catch (error) {
+      if (error instanceof Anthropic.APIError) {
+        throw new AIError(
+          `Claude API error: ${error.message}`,
+          {
+            status: error.status,
+          },
+          true,
+        );
+      }
+
+      throw new AIError('Failed to execute conversation request', error);
+    }
+  }
+
+  async generatePlan(
+    action: 'fix' | 'implement' | 'investigate',
+    issueContent: string,
+    context?: Record<string, any>,
+  ): Promise<ResolutionPlan> {
+    const systemPrompt = `You are an expert software engineer creating detailed resolution plans.
+Your task is to analyze the issue and create a structured plan with clear, actionable steps.
+Return your response as a JSON object matching the ResolutionPlan interface.`;
+
+    const repoHint = context?.affectedRepositories?.length
+      ? `Affected repositories (hint): ${(context.affectedRepositories as string[]).join(', ')}\n\n`
+      : '';
+
+    const prompt = `
+Action: ${action}
+Issue Content:
+${issueContent}
+
+${context ? `Context:\n${JSON.stringify(context, null, 2)}` : ''}
+
+${repoHint}Create a detailed resolution plan with:
+1. A brief summary of the issue and proposed solution
+2. Specific, actionable steps to ${action} the issue
+3. Estimated complexity (low/medium/high)
+4. Files that will be affected (if known)
+5. Potential risks or considerations
+6. Repositories that will be affected (if known — use provided hints or infer from ticket text)
+
+Return ONLY a valid JSON object with these fields:
+{
+  "action": "${action}",
+  "summary": "...",
+  "steps": ["step 1", "step 2", ...],
+  "estimatedComplexity": "low|medium|high",
+  "filesAffected": ["file1.ts", ...],
+  "repositoriesAffected": ["repo-name", ...],
+  "risks": ["risk 1", ...]
+}`;
+
+    const response = await this.execute({
+      prompt,
+      systemPrompt,
+      temperature: 0.5,
+    });
+
+    try {
+      // Extract JSON from response (might be wrapped in markdown code blocks)
+      const jsonMatch =
+        response.content.match(/```json\s*([\s\S]*?)\s*```/) ||
+        response.content.match(/\{[\s\S]*\}/);
+
+      if (!jsonMatch) {
+        throw new Error('No JSON found in response');
+      }
+
+      const jsonContent = jsonMatch[1] || jsonMatch[0];
+      return JSON.parse(jsonContent) as ResolutionPlan;
+    } catch (error) {
+      this.logger.error('Failed to parse AI response as JSON', error);
+      throw new AIError('Failed to parse resolution plan from AI response', {
+        response: response.content,
+        error,
+      });
+    }
+  }
+
+  /**
+   * Generate structured findings and recommendations from an investigation plan.
+   *
+   * @param plan - The investigation plan produced by PlannerAgent
+   * @param ticketContent - Optional ticket markdown for additional context
+   * @returns Structured findings document with findings and recommendations
+   */
+  async generateFindings(
+    plan: ResolutionPlan,
+    ticketContent?: string,
+  ): Promise<FindingsDocument> {
+    const systemPrompt = `You are an expert software investigator providing structured findings and recommendations.
+Analyse the given investigation plan and any available ticket context to produce clear, actionable findings.
+Return your response as a JSON object.`;
+
+    const prompt = `
+Investigation Plan:
+${JSON.stringify(plan, null, 2)}
+${ticketContent ? `\nTicket Context:\n${ticketContent}\n` : ''}
+Perform the investigation described in the plan and generate structured findings and recommendations.
+
+Return ONLY a valid JSON object:
+{
+  "action": "investigate",
+  "summary": "Brief summary of what was investigated and the key findings",
+  "findings": ["finding 1", "finding 2", ...],
+  "recommendations": ["recommendation 1", ...],
+  "conclusion": "Overall conclusion and suggested next steps"
+}`;
+
+    const response = await this.execute({
+      prompt,
+      systemPrompt,
+      temperature: 0.4,
+    });
+
+    try {
+      const jsonMatch =
+        response.content.match(/```json\s*([\s\S]*?)\s*```/) ||
+        response.content.match(/\{[\s\S]*\}/);
+
+      if (!jsonMatch) {
+        throw new Error('No JSON found in response');
+      }
+
+      const jsonContent = jsonMatch[1] || jsonMatch[0];
+      return JSON.parse(jsonContent) as FindingsDocument;
+    } catch (error) {
+      this.logger.error('Failed to parse findings response', error);
+      throw new AIError(
+        'Failed to parse investigation findings from AI response',
+        {
+          response: response.content,
+          error,
+        },
+      );
+    }
+  }
+
+  async generateCommitMessage(
+    diff: string,
+    commitHistory: string[],
+    format: 'conventional' | 'freeform' | 'auto' = 'auto',
+    ticketContext?: string,
+  ): Promise<string> {
+    const systemPrompt = `You are an expert at writing clear, concise git commit messages.
+Analyze the diff and commit history to generate an appropriate commit message.`;
+
+    // Detect format from commit history if auto
+    let detectedFormat = format;
+    if (format === 'auto' && commitHistory.length > 0) {
+      detectedFormat = this.detectCommitFormat(commitHistory);
+    }
+
+    const formatInstructions =
+      detectedFormat === 'conventional'
+        ? `Use conventional commits format: <type>(<scope>): <subject>
+Types: feat, fix, docs, style, refactor, test, chore
+Example: "feat(auth): add JWT token validation"`
+        : 'Write a clear, concise commit message describing the changes';
+
+    const ticketContextSection = ticketContext
+      ? `Ticket context: ${ticketContext}\n\n`
+      : '';
+
+    const prompt = `
+${ticketContextSection}Git Diff:
+\`\`\`
+${diff.substring(0, 3000)} ${diff.length > 3000 ? '...(truncated)' : ''}
+\`\`\`
+
+Recent Commit History:
+${commitHistory.slice(0, 5).join('\n')}
+
+${formatInstructions}
+
+Generate a commit message that:
+1. Reflects the ticket's intent, not just the code change pattern
+2. Follows the repository's commit message style
+3. Is concise but informative
+4. ${detectedFormat === 'conventional' ? 'Follows conventional commits format' : 'Follows the existing commit message style'}
+
+Return ONLY the commit message text, nothing else.`;
+
+    const response = await this.execute({
+      prompt,
+      systemPrompt,
+      temperature: 0.3,
+      maxTokens: 200,
+    });
+
+    return response.content.trim();
+  }
+
+  /**
+   * Generate the complete updated content for a single file based on the
+   * ticket context and plan steps. Returns only the file content — no
+   * markdown fences, no explanation text.
+   *
+   * @param params.ticketContent - Raw ticket markdown for context
+   * @param params.planSteps - Ordered implementation steps from the plan
+   * @param params.filePath - Relative path of the file being updated
+   * @param params.existingContent - Current file content (empty string for new files)
+   * @returns The full updated file content ready to write to disk
+   */
+  async generateFileChange(params: {
+    ticketContent: string;
+    planSteps: string[];
+    filePath: string;
+    existingContent: string;
+  }): Promise<string> {
+    const systemPrompt = `You are an expert software engineer implementing code changes.
+Return ONLY the complete updated file content — no explanation, no markdown code blocks, no surrounding text.`;
+
+    const prompt = `Ticket context:
+${params.ticketContent.substring(0, 1000)}
+
+Implementation steps:
+${params.planSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+
+File: ${params.filePath}
+Current content:
+${params.existingContent || '(empty — create this file from scratch)'}
+
+Apply the relevant steps to this file. Return ONLY the complete updated file content.`;
+
+    const response = await this.execute({
+      prompt,
+      systemPrompt,
+      temperature: 0.2,
+      maxTokens: 8192,
+    });
+
+    return response.content.trim();
+  }
+
+  async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
+    const systemPrompt = `You are an expert code reviewer providing constructive feedback.
+Focus on code quality, best practices, potential bugs, and security issues.
+Return your response as a JSON object matching the CodeReview interface.`;
+
+    const prompt = `
+Code Changes:
+\`\`\`
+${diff.substring(0, 5000)} ${diff.length > 5000 ? '...(truncated)' : ''}
+\`\`\`
+
+Review Guidelines:
+${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
+
+Provide a code review with:
+1. A brief summary of the changes
+2. Any issues found (errors, warnings, or info)
+3. Suggestions for improvement
+4. Whether the code is approved
+
+Return ONLY a valid JSON object:
+{
+  "summary": "...",
+  "issues": [
+    {
+      "severity": "error|warning|info",
+      "message": "...",
+      "file": "optional",
+      "line": optional_number
+    }
+  ],
+  "suggestions": ["suggestion 1", ...],
+  "approved": true|false
+}`;
+
+    const response = await this.execute({
+      prompt,
+      systemPrompt,
+      temperature: 0.3,
+    });
+
+    try {
+      const jsonMatch =
+        response.content.match(/```json\s*([\s\S]*?)\s*```/) ||
+        response.content.match(/\{[\s\S]*\}/);
+
+      if (!jsonMatch) {
+        throw new Error('No JSON found in response');
+      }
+
+      const jsonContent = jsonMatch[1] || jsonMatch[0];
+      return JSON.parse(jsonContent) as CodeReview;
+    } catch (error) {
+      this.logger.error('Failed to parse code review response', error);
+      throw new AIError('Failed to parse code review from AI response', {
+        response: response.content,
+        error,
+      });
+    }
+  }
+
+  private detectCommitFormat(
+    commitHistory: string[],
+  ): 'conventional' | 'freeform' {
+    const conventionalPattern =
+      /^(feat|fix|docs|style|refactor|test|chore)(\(.+\))?:/;
+    const conventionalCount = commitHistory.filter((msg) =>
+      conventionalPattern.test(msg),
+    ).length;
+
+    // If more than 60% use conventional format, use it
+    return conventionalCount / commitHistory.length > 0.6
+      ? 'conventional'
+      : 'freeform';
+  }
+}
