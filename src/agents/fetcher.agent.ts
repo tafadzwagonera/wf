@@ -56,9 +56,9 @@ export class FetcherAgent {
     const ticket = await adapter.getTicket(ticketReference);
 
     console.log(chalk.green('✓ Ticket fetched'));
-    console.log(chalk.bold('  Title:'), chalk.white(ticket.title));
-    console.log(chalk.bold('  Type:'), chalk.white(ticket.type || 'N/A'));
-    console.log(chalk.bold('  Status:'), chalk.white(ticket.status || 'N/A'));
+    console.log(chalk.bold('  Title:'), chalk.bold.cyan(ticket.title));
+    console.log(chalk.bold('  Type:'), chalk.cyan(ticket.type || 'N/A'));
+    console.log(chalk.bold('  Status:'), chalk.cyan(ticket.status || 'N/A'));
 
     fs.mkdirSync(platformDir, { recursive: true });
 

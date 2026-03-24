@@ -64,11 +64,11 @@ export class PlannerAgent {
     );
 
     console.log(chalk.green('✓ Plan generated'));
-    console.log(chalk.bold('  Summary:'), chalk.white(plan.summary));
-    console.log(chalk.bold('  Action:'), chalk.white(plan.action));
+    console.log(chalk.bold('  Summary:'), chalk.bold.cyan(plan.summary));
+    console.log(chalk.bold('  Action:'), chalk.cyan(plan.action));
     console.log(
       chalk.bold('  Complexity:'),
-      chalk.white(plan.estimatedComplexity),
+      chalk.cyan(plan.estimatedComplexity),
     );
 
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));

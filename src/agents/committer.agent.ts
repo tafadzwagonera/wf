@@ -56,7 +56,7 @@ export class CommitterAgent {
 
     console.log(chalk.green('\n✓ Commit message generated'));
     console.log(chalk.bold('\n  Message:'));
-    console.log(chalk.white(`    ${finalMsg}`));
+    console.log(chalk.bold.cyan(`    ${finalMsg}`));
 
     await this.gitService.commit({ message: finalMsg, cwd: repoDir });
     console.log(chalk.green('\n✓ Changes committed'));

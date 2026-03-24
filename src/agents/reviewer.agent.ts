@@ -87,7 +87,7 @@ export class ReviewerAgent {
     const review = await this.claudeService.reviewCode(diff, guidelines);
 
     console.log(chalk.green('\n✓ Review complete'));
-    console.log(chalk.bold('\n  Summary:'), chalk.white(review.summary));
+    console.log(chalk.bold('\n  Summary:'), chalk.bold.cyan(review.summary));
 
     if (review.issues.length > 0) {
       console.log(chalk.bold('\n  Issues found:'));
@@ -111,7 +111,7 @@ export class ReviewerAgent {
 
     if (review.suggestions.length > 0) {
       console.log(chalk.bold('\n  Suggestions:'));
-      review.suggestions.forEach((s) => console.log(chalk.white(`    - ${s}`)));
+      review.suggestions.forEach((s) => console.log(chalk.cyan(`    - ${s}`)));
     }
 
     console.log(

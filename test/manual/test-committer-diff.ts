@@ -175,6 +175,79 @@ async function main() {
         output.slice(0, 300),
       );
     }
+
+    // ── Test 6: .wf/** files are never staged/committed ───────────────────
+    console.log('\n─'.repeat(30));
+    console.log('Test 6: .wf/** exclusion from commits\n');
+
+    // Create a .wf/jira/ artifact file that must never be committed
+    const wfDir = path.join(tmpDir!, '.wf', 'jira');
+    fs.mkdirSync(wfDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(wfDir, 'ticket.json'),
+      JSON.stringify({ key: 'TEST-001' }),
+    );
+
+    // Make another source change so there is something real to commit
+    fs.writeFileSync(
+      initialFile,
+      [
+        'export const updatePax = (pax: any) => {',
+        '  // v2: stricter validation',
+        '  if (pax.travelers === 1 && pax.roomShare === "Double bed room") {',
+        '    throw new Error("Solo travelers cannot select double room");',
+        '  }',
+        '  return pax;',
+        '};',
+        '',
+        'const hasMultipleTravelers = (pax: any) => pax.travelers > 1;',
+        'export { hasMultipleTravelers };',
+      ].join('\n'),
+    );
+
+    output = '';
+    const originalWrite2 = process.stdout.write.bind(process.stdout);
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
+    (process.stdout.write as any) = (chunk: any) => {
+      output += String(chunk);
+      return originalWrite2(chunk);
+    };
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
+
+    try {
+      await committer.execute('TEST-002', tmpDir, ticketContext);
+    } finally {
+      /* eslint-disable-next-line @typescript-eslint/no-unsafe-assignment */
+      (process.stdout.write as any) = originalWrite2;
+    }
+
+    let committedFiles: string;
+    try {
+      committedFiles = execSync('git show --name-only --format="" HEAD', {
+        cwd: tmpDir,
+        encoding: 'utf-8',
+      }).trim();
+    } catch {
+      committedFiles = '';
+    }
+
+    if (!committedFiles.includes('.wf/')) {
+      pass('.wf/** artifact files were NOT committed');
+    } else {
+      fail(
+        '.wf/** files appeared in the commit — exclusion not working',
+        committedFiles,
+      );
+    }
+
+    if (committedFiles.includes('passenger.service.ts')) {
+      pass('Source file passenger.service.ts WAS committed');
+    } else {
+      fail(
+        'Source file was not committed — pathspec exclusion too broad',
+        committedFiles,
+      );
+    }
   } finally {
     await app.close();
     if (tmpDir && fs.existsSync(tmpDir)) {

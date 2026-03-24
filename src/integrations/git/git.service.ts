@@ -156,8 +156,9 @@ export class GitService {
       if (options.files && options.files.length > 0) {
         await git.add(options.files);
       } else if (!status.staged.length && status.files.length > 0) {
-        // Add all modified files if nothing is staged
-        await git.add('.');
+        // Add all modified files if nothing is staged, excluding .wf/** runtime
+        // artifacts that wf writes into the consuming app's directory.
+        await git.raw(['add', '--', '.', ':!.wf/**']);
       }
 
       // Check if there are changes to commit

@@ -77,7 +77,7 @@ export class ImplementerAgent {
 
     console.log(chalk.bold('\n  Steps:'));
     planArtifact.plan.steps.forEach((step: string, i: number) => {
-      console.log(chalk.white(`    ${i + 1}. ${step}`));
+      console.log(chalk.cyan(`    ${i + 1}. ${step}`));
     });
 
     // Generate and write code changes for files belonging to this repo
@@ -121,9 +121,9 @@ export class ImplementerAgent {
     }
 
     console.log(chalk.bold('\n  Status:'));
-    console.log(chalk.white('    Changes generated and written to disk'));
+    console.log(chalk.cyan('    Changes generated and written to disk'));
     console.log(
-      chalk.white(
+      chalk.cyan(
         '    Next stages: review → commit (will execute automatically)',
       ),
     );
@@ -162,24 +162,24 @@ export class ImplementerAgent {
     const artifact: FindingsArtifact = { ...findings, path: findingsPath };
 
     console.log(chalk.green('\n✓ Investigation complete'));
-    console.log(chalk.bold('  Summary:'), chalk.white(artifact.summary));
+    console.log(chalk.bold('  Summary:'), chalk.bold.cyan(artifact.summary));
 
     if (artifact.findings.length > 0) {
       console.log(chalk.bold('\n  Findings:'));
       artifact.findings.forEach((f, i) =>
-        console.log(chalk.white(`    ${i + 1}. ${f}`)),
+        console.log(chalk.cyan(`    ${i + 1}. ${f}`)),
       );
     }
 
     if (artifact.recommendations.length > 0) {
       console.log(chalk.bold('\n  Recommendations:'));
       artifact.recommendations.forEach((r, i) =>
-        console.log(chalk.white(`    ${i + 1}. ${r}`)),
+        console.log(chalk.cyan(`    ${i + 1}. ${r}`)),
       );
     }
 
     console.log(chalk.bold('\n  Conclusion:'));
-    console.log(chalk.white(`    ${artifact.conclusion}`));
+    console.log(chalk.cyan(`    ${artifact.conclusion}`));
     console.log(chalk.gray(`\n  Saved to: ${findingsPath}`));
 
     return { type: 'investigation', artifact };
