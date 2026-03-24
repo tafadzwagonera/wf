@@ -80,6 +80,23 @@ export class ImplementerAgent {
       console.log(chalk.cyan(`    ${i + 1}. ${step}`));
     });
 
+    // Narrate the plan before touching any files (Superpowers: writing-plans pattern)
+    console.log(chalk.gray('\n  Narrating plan...'));
+    const narration = await this.claudeService.narrateImplementationPlan(
+      ticket.content,
+      planArtifact.plan,
+    );
+    console.log('');
+    narration.split('\n').forEach((line) => {
+      if (line.startsWith('## ')) {
+        console.log(chalk.bold(`  ${line}`));
+      } else if (line.trim()) {
+        console.log(chalk.cyan(`    ${line}`));
+      } else {
+        console.log('');
+      }
+    });
+
     // Generate and write code changes for files belonging to this repo
     const repoName = options.repoDir ? path.basename(options.repoDir) : '';
     const repoFiles = (planArtifact.plan.filesAffected ?? []).filter((f) =>
@@ -100,8 +117,10 @@ export class ImplementerAgent {
           ? fs.readFileSync(absolutePath, 'utf-8')
           : '';
 
+        console.log(chalk.gray(`\n    → ${filePath}`));
+        const sceneContext = `${ticket.content}\n\n---\nPlan narration:\n${narration}`;
         const updatedContent = await this.claudeService.generateFileChange({
-          ticketContent: ticket.content,
+          ticketContent: sceneContext,
           planSteps: planArtifact.plan.steps,
           filePath: relativePath,
           existingContent,

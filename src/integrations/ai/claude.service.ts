@@ -322,6 +322,58 @@ Return ONLY a valid JSON object:
     }
   }
 
+  /**
+   * Produce a structured narration of the implementation plan to be shown
+   * to the developer before any file edits begin. Borrows the writing-plans
+   * skill pattern: Goal / Approach / Tasks.
+   *
+   * @param ticketContent - Raw ticket markdown for context
+   * @param plan - The resolution plan produced by PlannerAgent
+   * @returns Plain-text narration string with ## Goal, ## Approach, ## Tasks sections
+   */
+  async narrateImplementationPlan(
+    ticketContent: string,
+    plan: ResolutionPlan,
+  ): Promise<string> {
+    const systemPrompt = `You are a senior software engineer narrating an implementation plan.
+Produce a concise, structured narration that helps the developer understand what will be done and why.
+Return ONLY the narration text — no markdown code fences, no preamble.
+Use exactly this structure:
+
+## Goal
+(One sentence describing the outcome.)
+
+## Approach
+(Two to three sentences on the architectural approach: which layers are touched, key patterns used, and what is intentionally left unchanged.)
+
+## Tasks
+(Numbered list. Each item: "<file path> — <what changes> [depends on: <dependency or risk if any>]")`;
+
+    const prompt = `Ticket context:
+${ticketContent.substring(0, 800)}
+
+Plan summary: ${plan.summary}
+Action: ${plan.action}
+Estimated complexity: ${plan.estimatedComplexity}
+Steps:
+${plan.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+Files affected:
+${(plan.filesAffected ?? []).join('\n') || '(none listed)'}
+Risks:
+${(plan.risks ?? []).join('\n') || '(none listed)'}
+
+Narrate this plan using the structure in the system prompt.`;
+
+    const response = await this.execute({
+      prompt,
+      systemPrompt,
+      temperature: 0.4,
+      maxTokens: 1024,
+    });
+
+    return response.content.trim();
+  }
+
   async generateCommitMessage(
     diff: string,
     commitHistory: string[],
@@ -395,10 +447,18 @@ Return ONLY the commit message text, nothing else.`;
     existingContent: string;
   }): Promise<string> {
     const systemPrompt = `You are an expert software engineer implementing code changes.
-Return ONLY the complete updated file content — no explanation, no markdown code blocks, no surrounding text.`;
+Return ONLY the complete updated file content — no explanation, no markdown code blocks, no surrounding text.
+
+Scene context: you are implementing one file as part of a larger plan. The plan narration is included in the ticket context above. Apply only the steps that are relevant to this specific file.
+
+Self-review before returning:
+1. Completeness — did you implement every plan step that touches this file?
+2. YAGNI — did you add anything not requested by the plan?
+3. Naming — do all names describe what things do, not how they work?
+Handle any issues silently in the code before returning.`;
 
     const prompt = `Ticket context:
-${params.ticketContent.substring(0, 1000)}
+${params.ticketContent.substring(0, 2000)}
 
 Implementation steps:
 ${params.planSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
