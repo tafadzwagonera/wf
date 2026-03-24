@@ -7,6 +7,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
+import { resolveRepoBasePath } from '../agents/utils';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -97,6 +98,10 @@ export class IssueReviewCommand extends CommandRunner {
       : options?.criteria
         ? loadCriteriaFromFile(options.criteria)
         : null;
+
+    // Resolve repo base path early so an invalid --repos value emits a warning
+    // before any expensive API calls, consistent with issue:implement / issue:all.
+    const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
 
     try {
       if (options?.dryRun) {
@@ -258,10 +263,10 @@ export class IssueReviewCommand extends CommandRunner {
         } else {
           console.log(
             chalk.yellow(
-              `  ⚠️  No open PR found for ${source} — falling back to current repo diff\n`,
+              `  ⚠️  No open PR found for ${source} — falling back to repo diff\n`,
             ),
           );
-          diff = await this.reviewCurrentRepo();
+          diff = await this.reviewRepositoryPath(repoBaseDir);
         }
       } else if (fs.existsSync(source)) {
         // Mode 4: Path - review specific repo

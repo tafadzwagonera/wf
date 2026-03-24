@@ -265,6 +265,36 @@ async function testIssueReview() {
       }
     }
 
+    // Test 13: invalid --repos path emits a warning and falls back to cwd
+    // Verifies that resolveRepoBasePath is called and its warning surfaces.
+    console.log(
+      'Test 13: --dry-run with invalid --repos path (expect warning, no crash)',
+    );
+    {
+      const warnMessages: string[] = [];
+      const origWarn = console.log.bind(console);
+      console.log = (...args: any[]) => {
+        const text = args.join(' ');
+        if (text.includes('not found as a path')) warnMessages.push(text);
+        origWarn(...args);
+      };
+      try {
+        await command.run(['ABC-123'], {
+          dryRun: true,
+          repos: ['/nonexistent/repo/path-xyzzy'],
+        });
+        if (warnMessages.length > 0) {
+          pass('Invalid --repos path emitted a warning before dry-run preview');
+        } else {
+          fail('Test 13: no warning emitted for invalid --repos path');
+        }
+      } catch (err: any) {
+        fail(`Test 13: unexpected error: ${err.message}`);
+      } finally {
+        console.log = origWarn;
+      }
+    }
+
     // Test 12: --repos is optional — dry-run with ticket key, no repos provided
     // Verifies: (a) TypeScript no longer requires repos in IssueReviewOptions,
     //           (b) runtime path reaches the dry-run preview without error.
