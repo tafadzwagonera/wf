@@ -1,5 +1,7 @@
 // src/agents/utils.ts
+import * as fs from 'fs';
 import * as path from 'path';
+import chalk from 'chalk';
 
 /**
  * Resolve the artifact storage directory for a given platform.
@@ -33,6 +35,32 @@ export const extractSummary = (content: string): string => {
  * @param text - Input string to slugify
  * @returns URL-safe slug of at most 50 characters
  */
+/**
+ * Resolve the base directory for a repository.
+ * Tries: absolute path → relative to cwd → sibling of cwd → falls back to cwd.
+ *
+ * @param repo - Repository name or path (e.g. "bar", "../bar", "/abs/path/bar")
+ * @returns Absolute path to use as the artifact storage base directory
+ */
+export const resolveRepoBasePath = (repo?: string): string => {
+  if (!repo) return process.cwd();
+
+  if (path.isAbsolute(repo) && fs.existsSync(repo)) return repo;
+
+  const relPath = path.resolve(process.cwd(), repo);
+  if (fs.existsSync(relPath)) return relPath;
+
+  const siblingPath = path.resolve(process.cwd(), '..', repo);
+  if (fs.existsSync(siblingPath)) return siblingPath;
+
+  console.log(
+    chalk.yellow(
+      `⚠  Repository '${repo}' not found as a path or sibling directory. Using current directory.`,
+    ),
+  );
+  return process.cwd();
+};
+
 export const slugify = (text: string): string =>
   text
     .toLowerCase()

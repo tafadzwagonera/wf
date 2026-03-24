@@ -8,7 +8,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
-import { resolveArtifactDir } from '../agents/utils';
+import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import * as fs from 'fs';
@@ -78,7 +78,7 @@ export class IssueAllCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--action <action>',
+    flags: '-a, --action <action>',
     description:
       'Resolution action type (feature|fix|investigate) - required for PLAN stage',
   })
@@ -237,7 +237,7 @@ export class IssueAllCommand extends CommandRunner {
 
       // Resolve base directory: use the first repo when provided,
       // otherwise fall back to the current working directory.
-      const repoBaseDir = this.resolveRepoBasePath(options.repos[0]);
+      const repoBaseDir = resolveRepoBasePath(options.repos[0]);
 
       if (options?.dryRun) {
         const platformDir = resolveArtifactDir(repoBaseDir, platformName);
@@ -528,7 +528,7 @@ export class IssueAllCommand extends CommandRunner {
         : [undefined];
 
       for (const repo of repoList) {
-        const repoDir = this.resolveRepoBasePath(repo);
+        const repoDir = resolveRepoBasePath(repo);
 
         if (repoList.length > 1) {
           console.log(
@@ -842,22 +842,4 @@ Help the developer understand the review feedback, discuss issues, or suggest fi
    * @param repo Repository name or path (e.g. "bar", "../bar", "/abs/path/bar")
    * @returns Absolute base path to use for artifact storage
    */
-  private resolveRepoBasePath(repo?: string): string {
-    if (!repo) return process.cwd();
-
-    if (path.isAbsolute(repo) && fs.existsSync(repo)) return repo;
-
-    const relPath = path.resolve(process.cwd(), repo);
-    if (fs.existsSync(relPath)) return relPath;
-
-    const siblingPath = path.resolve(process.cwd(), '..', repo);
-    if (fs.existsSync(siblingPath)) return siblingPath;
-
-    console.log(
-      chalk.yellow(
-        `⚠  Repository '${repo}' not found as a path or sibling directory. Using current directory.`,
-      ),
-    );
-    return process.cwd();
-  }
 }

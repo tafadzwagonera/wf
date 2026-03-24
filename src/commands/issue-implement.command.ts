@@ -10,7 +10,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
-import { resolveArtifactDir } from '../agents/utils';
+import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import type {
   ResolutionAction,
   TicketArtifact,
@@ -91,8 +91,7 @@ export class IssueImplementCommand extends CommandRunner {
   @Option({
     flags: '--plan <path>',
     description:
-      'Filename (e.g. plan.json → resolved under .wf/<platform>/) ' +
-      'or a path relative to the consumer app root (e.g. tmp/path/plan.json)',
+      'Filename (looked up under <app>/.wf/<platform>/) or relative path (resolved from app root)',
     required: false,
   })
   parsePlan(val: string): string {
@@ -181,10 +180,12 @@ export class IssueImplementCommand extends CommandRunner {
 
       const format = options?.format || 'json';
 
+      const baseDir = resolveRepoBasePath(options?.repos?.[0]);
+
       const resolvedPlanPath = options?.plan
-        ? options.plan.includes(path.sep) || options.plan.includes('/')
-          ? path.resolve(process.cwd(), options.plan)
-          : path.join(resolveArtifactDir(process.cwd(), platformName), options.plan)
+        ? path.dirname(options.plan) === '.'
+          ? path.join(baseDir, '.wf', platformName, options.plan)
+          : path.resolve(baseDir, options.plan)
         : undefined;
 
       // ── MODE A: --plan only (no ticketKey) ─────────────────────────────
@@ -398,7 +399,7 @@ Return ONLY a valid JSON object:
       }
 
       // ── MODE B & C: ticketKey present ──────────────────────────────────
-      const platformDir = resolveArtifactDir(process.cwd(), platformName);
+      const platformDir = resolveArtifactDir(baseDir, platformName);
       const ticketPath = path.join(platformDir, `${ticketKey}.md`);
       const discovered = discoverPlanAction(platformDir, ticketKey);
       const action: ResolutionAction = discovered.action;
