@@ -90,7 +90,9 @@ export class IssueImplementCommand extends CommandRunner {
 
   @Option({
     flags: '--plan <path>',
-    description: 'Path to a plan JSON file (absolute or relative)',
+    description:
+      'Filename (e.g. plan.json → resolved under .wf/<platform>/) ' +
+      'or a path relative to the consumer app root (e.g. tmp/path/plan.json)',
     required: false,
   })
   parsePlan(val: string): string {
@@ -180,7 +182,9 @@ export class IssueImplementCommand extends CommandRunner {
       const format = options?.format || 'json';
 
       const resolvedPlanPath = options?.plan
-        ? path.resolve(options.plan)
+        ? options.plan.includes(path.sep) || options.plan.includes('/')
+          ? path.resolve(process.cwd(), options.plan)
+          : path.join(resolveArtifactDir(process.cwd(), platformName), options.plan)
         : undefined;
 
       // ── MODE A: --plan only (no ticketKey) ─────────────────────────────
