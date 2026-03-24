@@ -1,4 +1,5 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
+import { Injectable } from '@nestjs/common';
 import { ClaudeService } from '../integrations/ai/claude.service';
 import { GitService } from '../integrations/git/git.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
@@ -15,7 +16,7 @@ interface IssueReviewOptions {
   output?: string;
   dryRun?: boolean;
   comment?: boolean;
-  repos: string[];
+  repos?: string[];
   criteria?: string;
   replaceCriteria?: string;
 }
@@ -58,6 +59,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
  * Enhanced command to review code changes with flexible source options
  * Supports: current repo, ticket key, PR URL, or specific repo path
  */
+@Injectable()
 @Command({
   name: 'issue:review',
   description: 'AI-powered code review with flexible source options',
@@ -246,7 +248,9 @@ export class IssueReviewCommand extends CommandRunner {
           .getTicket(source);
         context = this.buildTicketContext(ticket);
 
-        const prUrl = await this.findBitbucketPr(source, options!.repos[0]);
+        const prUrl = options?.repos?.length
+          ? await this.findBitbucketPr(source, options.repos[0])
+          : null;
         if (prUrl) {
           console.log(chalk.gray(`  Found PR: ${prUrl}\n`));
           diff = await this.reviewPullRequest(prUrl);
@@ -362,7 +366,7 @@ export class IssueReviewCommand extends CommandRunner {
     flags: '-r, --repos <repos>',
     description:
       'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
-    required: true,
+    required: false,
   })
   parseRepos(val: string): string[] {
     return val

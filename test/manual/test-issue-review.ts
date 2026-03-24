@@ -28,9 +28,13 @@ async function testIssueReview() {
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
+  let _criteriaSeq = 0;
   /** Write a temporary criteria markdown file and return its absolute path. */
   const writeTempCriteria = (lines: string[]): string => {
-    const filePath = path.join(os.tmpdir(), `criteria-${Date.now()}.md`);
+    const filePath = path.join(
+      os.tmpdir(),
+      `criteria-${Date.now()}-${++_criteriaSeq}.md`,
+    );
     fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
     return filePath;
   };
@@ -259,6 +263,17 @@ async function testIssueReview() {
       } else {
         fail(`Test 11: ${err.message}`);
       }
+    }
+
+    // Test 12: --repos is optional — dry-run with ticket key, no repos provided
+    // Verifies: (a) TypeScript no longer requires repos in IssueReviewOptions,
+    //           (b) runtime path reaches the dry-run preview without error.
+    console.log('Test 12: --dry-run with ticket key, no --repos (repos optional)');
+    try {
+      await command.run(['ABC-123'], { dryRun: true });
+      pass('Dry-run with ticket key and no repos completed without error');
+    } catch (err: any) {
+      fail(`Test 12: ${err.message}`);
     }
 
     // ── Summary ───────────────────────────────────────────────────────────
