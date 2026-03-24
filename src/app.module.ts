@@ -21,8 +21,6 @@ import { PlatformModule } from './integrations/platforms/platform.module';
       load: [configuration],
       validationSchema,
       envFilePath: [
-        '.env.local',
-        '.env',
         path.resolve(__dirname, '../.env.local'),
         path.resolve(__dirname, '../.env'),
       ],
