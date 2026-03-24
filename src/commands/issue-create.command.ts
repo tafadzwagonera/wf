@@ -143,9 +143,9 @@ export class IssueCreateCommand extends CommandRunner {
       const reference = await adapter.createTicket(ticket);
 
       console.log(chalk.green('✅ Ticket created successfully!\n'));
-      console.log(chalk.bold('Platform:'), chalk.white(reference.platform));
-      console.log(chalk.bold('Key:'), chalk.white(reference.key));
-      console.log(chalk.bold('ID:'), chalk.white(reference.id));
+      console.log(chalk.bold('Platform:'), chalk.cyan(reference.platform));
+      console.log(chalk.bold('Key:'), chalk.bold.cyan(reference.key));
+      console.log(chalk.bold('ID:'), chalk.cyan(reference.id));
       if (reference.url) {
         console.log(chalk.bold('URL:'), chalk.cyan(reference.url));
       }

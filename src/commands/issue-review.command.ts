@@ -611,7 +611,7 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private displayReview(review: any): void {
     console.log(chalk.bold('Summary:'));
-    console.log(chalk.white('  ' + review.summary));
+    console.log(chalk.bold.cyan('  ' + review.summary));
 
     if (review.issues && review.issues.length > 0) {
       console.log(chalk.bold('\nIssues Found:'));
@@ -640,7 +640,7 @@ export class IssueReviewCommand extends CommandRunner {
     if (review.suggestions && review.suggestions.length > 0) {
       console.log(chalk.bold('\nSuggestions:'));
       review.suggestions.forEach((suggestion: any) => {
-        console.log(chalk.white(`  💡 ${suggestion}`));
+        console.log(chalk.cyan(`  💡 ${suggestion}`));
       });
     }
 

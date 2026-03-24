@@ -41,15 +41,15 @@ export class ResumeCommand extends CommandRunner {
       const state = await this.stateManager.loadState(executionId);
 
       // Display state info
-      console.log(chalk.bold('Workflow:'), chalk.white(state.workflowId));
+      console.log(chalk.bold('Workflow:'), chalk.cyan(state.workflowId));
       console.log(chalk.bold('Status:'), this.formatStatus(state.status));
       console.log(
         chalk.bold('Progress:'),
-        chalk.white(`${state.results.length} steps completed`),
+        chalk.cyan(`${state.results.length} steps completed`),
       );
       console.log(
         chalk.bold('Created:'),
-        chalk.white(new Date(state.createdAt).toLocaleString()),
+        chalk.cyan(new Date(state.createdAt).toLocaleString()),
       );
       console.log();
 
@@ -76,18 +76,18 @@ export class ResumeCommand extends CommandRunner {
       // Display results
       console.log(chalk.bold.green('\n✅ Workflow resumed and completed!'));
       console.log(chalk.gray('━'.repeat(60)));
-      console.log(chalk.bold('Execution ID:'), chalk.white(result.executionId));
+      console.log(chalk.bold('Execution ID:'), chalk.cyan(result.executionId));
       console.log(
         chalk.bold('Final Status:'),
         this.formatStatus(result.status),
       );
       console.log(
         chalk.bold('Steps Completed:'),
-        chalk.white(`${result.results.length}/${workflow.steps.length}`),
+        chalk.cyan(`${result.results.length}/${workflow.steps.length}`),
       );
       console.log(
         chalk.bold('Duration:'),
-        chalk.white(this.formatDuration(result.createdAt, result.updatedAt)),
+        chalk.cyan(this.formatDuration(result.createdAt, result.updatedAt)),
       );
       console.log(chalk.gray('━'.repeat(60)));
       console.log();

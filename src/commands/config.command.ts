@@ -54,7 +54,7 @@ export class ConfigGetCommand extends CommandRunner {
     if (value === undefined) {
       console.log(chalk.yellow(`Configuration key "${key}" not found`));
     } else {
-      console.log(chalk.bold(key + ':'), chalk.white(value));
+      console.log(chalk.bold(key + ':'), chalk.cyan(value));
     }
   }
 }
@@ -156,7 +156,7 @@ export class ConfigListCommand extends CommandRunner {
       console.log(chalk.bold(section));
       for (const [key, value] of Object.entries(values)) {
         const displayValue = value || chalk.gray('(not set)');
-        console.log(chalk.gray(`  ${key}:`), chalk.white(displayValue));
+        console.log(chalk.gray(`  ${key}:`), chalk.cyan(displayValue));
       }
       console.log();
     }

@@ -95,12 +95,12 @@ export class RunCommand extends CommandRunner {
 
       console.log(chalk.bold.cyan('\n📋 Workflow Details'));
       console.log(chalk.gray('━'.repeat(60)));
-      console.log(chalk.bold('Name:'), chalk.white(workflow.metadata.name));
+      console.log(chalk.bold('Name:'), chalk.bold.cyan(workflow.metadata.name));
       console.log(
         chalk.bold('Description:'),
-        chalk.white(workflow.metadata.description),
+        chalk.bold.cyan(workflow.metadata.description),
       );
-      console.log(chalk.bold('Steps:'), chalk.white(workflow.steps.length));
+      console.log(chalk.bold('Steps:'), chalk.cyan(workflow.steps.length));
       console.log(
         chalk.bold('Auto Execution:'),
         workflow.metadata.autoExecutionMode
@@ -113,7 +113,7 @@ export class RunCommand extends CommandRunner {
       if (Object.keys(parameters).length > 0) {
         console.log(chalk.bold('Parameters:'));
         for (const [key, value] of Object.entries(parameters)) {
-          console.log(chalk.gray(`  ${key}:`), chalk.white(value));
+          console.log(chalk.gray(`  ${key}:`), chalk.cyan(value));
         }
         console.log();
       }
@@ -129,15 +129,15 @@ export class RunCommand extends CommandRunner {
       // Display results
       console.log(chalk.bold.green('\n✅ Workflow completed successfully!'));
       console.log(chalk.gray('━'.repeat(60)));
-      console.log(chalk.bold('Execution ID:'), chalk.white(state.executionId));
+      console.log(chalk.bold('Execution ID:'), chalk.cyan(state.executionId));
       console.log(chalk.bold('Status:'), this.formatStatus(state.status));
       console.log(
         chalk.bold('Steps Completed:'),
-        chalk.white(`${state.results.length}/${workflow.steps.length}`),
+        chalk.cyan(`${state.results.length}/${workflow.steps.length}`),
       );
       console.log(
         chalk.bold('Duration:'),
-        chalk.white(this.formatDuration(state.createdAt, state.updatedAt)),
+        chalk.cyan(this.formatDuration(state.createdAt, state.updatedAt)),
       );
       console.log(chalk.gray('━'.repeat(60)) + '\n');
     } catch (error) {

@@ -149,7 +149,7 @@ export class IssueCommitCommand extends CommandRunner {
           options?.conventional,
         );
         console.log(chalk.green('✓ Generated commit message:\n'));
-        console.log(chalk.white(this.indentMessage(commitMessage)));
+        console.log(chalk.bold.cyan(this.indentMessage(commitMessage)));
         console.log();
       }
 
@@ -165,10 +165,10 @@ export class IssueCommitCommand extends CommandRunner {
       });
 
       console.log(chalk.green('✅ Commit created successfully!\n'));
-      console.log(chalk.bold('Commit hash:'), chalk.white(commitHash));
+      console.log(chalk.bold('Commit hash:'), chalk.cyan(commitHash));
       console.log(
         chalk.bold('Message:'),
-        chalk.white(commitMessage.split('\n')[0]),
+        chalk.bold.cyan(commitMessage.split('\n')[0]),
       );
       console.log(
         chalk.gray('\n💡 Tip: Use "git push" to push your commit to remote\n'),

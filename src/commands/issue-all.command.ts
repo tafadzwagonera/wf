@@ -570,7 +570,7 @@ export class IssueAllCommand extends CommandRunner {
             console.log(chalk.bold('\n  Status:'));
             if (reviewArtifact.approved) {
               console.log(
-                chalk.white(
+                chalk.cyan(
                   '    Changes approved - proceeding to commit stage',
                 ),
               );
@@ -581,7 +581,7 @@ export class IssueAllCommand extends CommandRunner {
                 ),
               );
               console.log(
-                chalk.white(
+                chalk.cyan(
                   '    Commit stage will still execute (you can skip it if needed)',
                 ),
               );
