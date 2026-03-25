@@ -12,6 +12,14 @@ import { LoggerService } from '../../../shared/logger/logger.service';
 
 const DEFAULT_MODEL = 'gemini-2.5-pro';
 
+// Arbitrarily chosen safe power of two (2^12). For gemini-2.5-* thinking
+// models, maxOutputTokens is a shared budget covering both thinking tokens and
+// response tokens — a low per-call override (e.g. 500) can be exhausted by
+// thinking alone, leaving no tokens for the actual response. This floor
+// ensures there is always room for output after thinking completes.
+// Ref: https://ai.google.dev/gemini-api/docs/thinking
+const MAX_TOKENS = 4096;
+
 @Injectable()
 export class GeminiAdapter implements LlmAdapter {
   private client: GoogleGenerativeAI;
@@ -50,11 +58,16 @@ export class GeminiAdapter implements LlmAdapter {
     this.logger.debug('Executing AI request via Gemini');
 
     try {
+      const isThinkingModel = this.model.startsWith('gemini-2.5');
+      const maxOutputTokens = isThinkingModel
+        ? Math.max(request.maxTokens || this.maxTokens, MAX_TOKENS)
+        : (request.maxTokens || this.maxTokens);
+
       const generativeModel = this.client.getGenerativeModel({
         model: this.model,
         systemInstruction: request.systemPrompt,
         generationConfig: {
-          maxOutputTokens: request.maxTokens || this.maxTokens,
+          maxOutputTokens,
           temperature: request.temperature || 0.7,
         },
       });
@@ -94,11 +107,16 @@ export class GeminiAdapter implements LlmAdapter {
     );
 
     try {
+      const isThinkingModel = this.model.startsWith('gemini-2.5');
+      const maxOutputTokens = isThinkingModel
+        ? Math.max(request.maxTokens || this.maxTokens, MAX_TOKENS)
+        : (request.maxTokens || this.maxTokens);
+
       const generativeModel = this.client.getGenerativeModel({
         model: this.model,
         systemInstruction: request.systemPrompt,
         generationConfig: {
-          maxOutputTokens: request.maxTokens || this.maxTokens,
+          maxOutputTokens,
           temperature: request.temperature || 0.7,
         },
       });

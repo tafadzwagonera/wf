@@ -713,14 +713,6 @@ export class IssueAllCommand extends CommandRunner {
     stage: ConvWorkflowStage,
     workflowState: any,
   ): Promise<void> {
-    console.log(chalk.bold.cyan('\n💬 Interactive Chat Mode'));
-    console.log(chalk.gray('─'.repeat(70)));
-    console.log(
-      chalk.gray(
-        'You can now discuss the output with Claude. Type "exit" to continue.',
-      ),
-    );
-
     const context: ConversationContext = {
       ticketKey,
       stage,
@@ -754,8 +746,6 @@ export class IssueAllCommand extends CommandRunner {
         exitCommands: ['exit', 'quit', 'continue'],
       },
     );
-
-    console.log(chalk.green('✓ Resuming workflow...\n'));
   }
   /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
 

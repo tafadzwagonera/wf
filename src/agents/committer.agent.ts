@@ -2,6 +2,7 @@
 import { Injectable } from '@nestjs/common';
 import chalk from 'chalk';
 import { ClaudeService } from '../integrations/ai/claude.service';
+import { GitError } from '../shared/utils/errors';
 import { GitService } from '../integrations/git/git.service';
 
 @Injectable()
@@ -61,8 +62,16 @@ export class CommitterAgent {
     console.log(chalk.bold('\n  Message:'));
     console.log(chalk.bold.cyan(`    ${finalMsg}`));
 
-    await this.gitService.commit({ message: finalMsg, cwd: repoDir });
-    console.log(chalk.green('\n✓ Changes committed'));
+    try {
+      await this.gitService.commit({ message: finalMsg, cwd: repoDir });
+      console.log(chalk.green('\n✓ Changes committed'));
+    } catch (err) {
+      if (err instanceof GitError && err.message === 'No changes to commit') {
+        console.log(chalk.yellow('\n⚠ Nothing to commit — skipping'));
+        return;
+      }
+      throw err;
+    }
 
     console.log(chalk.bold('\n  Next step:'));
     console.log(chalk.cyan('    git push'));
