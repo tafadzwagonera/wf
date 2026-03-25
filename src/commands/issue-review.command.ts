@@ -261,12 +261,11 @@ export class IssueReviewCommand extends CommandRunner {
           diff = await this.reviewPullRequest(prUrl);
           bitbucketCommentRef = prUrl;
         } else {
-          console.log(
-            chalk.yellow(
-              `  ⚠️  No open PR found for ${source} — falling back to repo diff\n`,
-            ),
+          throw new Error(
+            `No open pull request found for ${source}.\n` +
+              `  To review uncommitted changes in the current repository, omit the ticket argument:\n` +
+              `  wf issue:review`,
           );
-          diff = await this.reviewRepositoryPath(repoBaseDir);
         }
       } else if (fs.existsSync(source)) {
         // Mode 4: Path - review specific repo
