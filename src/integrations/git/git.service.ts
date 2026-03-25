@@ -209,6 +209,21 @@ export class GitService {
     }
   }
 
+  /**
+   * Stage all modified and new files, excluding .wf/** runtime artifacts.
+   * Safe to call when nothing is staged yet; idempotent if run again.
+   *
+   * @param cwd - Optional repository directory; defaults to process.cwd()
+   */
+  async stageAll(cwd?: string): Promise<void> {
+    try {
+      const git = cwd ? simpleGit(cwd) : this.git;
+      await git.raw(['add', '--', '.', ':!.wf/**']);
+    } catch (error) {
+      throw new GitError('Failed to stage all changes', error);
+    }
+  }
+
   async stashChanges(message?: string): Promise<void> {
     try {
       await this.git.stash(['push', '-m', message || 'Auto-stashed by wf']);

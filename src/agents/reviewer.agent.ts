@@ -70,12 +70,16 @@ export class ReviewerAgent {
     console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
     console.log(chalk.gray('─'.repeat(70)));
 
-    const diff = await this.gitService.getDiff(false, options.repoDir);
-
-    if (!diff.trim()) {
+    const status = await this.gitService.getStatus(options.repoDir);
+    if (status.files.length === 0) {
       console.log(chalk.yellow('⚠ No uncommitted changes to review'));
       return null;
     }
+
+    // Stage all changes (including new untracked files) so the diff captures
+    // the full set of changes written by ImplementerAgent.
+    await this.gitService.stageAll(options.repoDir);
+    const diff = await this.gitService.getDiff(true, options.repoDir);
 
     console.log(chalk.bold('  Analyzing changes...'));
 
