@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ClaudeService } from '../claude.service';
+import { AiService } from '../ai.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ChatUIService } from './chat-ui.service';
 import {
@@ -24,7 +24,7 @@ export class ConversationService {
   private conversations = new Map<string, ConversationState>();
 
   constructor(
-    private claudeService: ClaudeService,
+    private claudeService: AiService,
     private chatUI: ChatUIService,
     private logger: LoggerService,
   ) {}

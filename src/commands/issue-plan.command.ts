@@ -1,7 +1,7 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ClaudeService } from '../integrations/ai/claude.service';
+import { AiService } from '../integrations/ai/ai.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -109,7 +109,7 @@ const generateMnemonic = (): string => {
 })
 export class IssuePlanCommand extends CommandRunner {
   constructor(
-    private readonly claudeService: ClaudeService,
+    private readonly aiService: AiService,
     private readonly platformService: PlatformService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
@@ -290,7 +290,7 @@ export class IssuePlanCommand extends CommandRunner {
           fs.mkdirSync(platformDir, { recursive: true });
         }
 
-        const plan = await this.claudeService.generatePlan(
+        const plan = await this.aiService.generatePlan(
           action as any,
           options.prompt,
           {
@@ -475,7 +475,7 @@ export class IssuePlanCommand extends CommandRunner {
       // Extract summary for context
       const summary = this.extractSummary(ticketContent);
 
-      const plan = await this.claudeService.generatePlan(
+      const plan = await this.aiService.generatePlan(
         action as any,
         ticketContent,
         {

@@ -56,7 +56,7 @@ export class ErrorHandler {
       [ErrorCode.GIT_ERROR]:
         'Ensure you are in a git repository and have necessary permissions. Check git status.',
       [ErrorCode.AI_ERROR]:
-        'Check your ANTHROPIC_API_KEY is valid. Verify your API quota and network connection.',
+        'Check your AI provider API key is valid (ANTHROPIC_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY). Verify your API quota and network connection.',
       [ErrorCode.STATE_ERROR]:
         'State file may be corrupted. Check .wf/state/ directory permissions.',
       [ErrorCode.USER_CANCELLED]: null,

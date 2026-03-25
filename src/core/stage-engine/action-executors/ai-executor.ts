@@ -5,7 +5,7 @@ import {
   StageResult,
   Artifact,
 } from '../../../common/interfaces';
-import { ClaudeService } from '../../../integrations/ai/claude.service';
+import { AiService } from '../../../integrations/ai/ai.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 
 export interface AIActionConfig {
@@ -20,7 +20,7 @@ export interface AIActionConfig {
 @Injectable()
 export class AIExecutor extends BaseExecutor {
   constructor(
-    private claudeService: ClaudeService,
+    private aiService: AiService,
     private logger: LoggerService,
   ) {
     super();
@@ -62,7 +62,7 @@ export class AIExecutor extends BaseExecutor {
           if (!prompt) {
             throw new Error('Custom AI action requires a prompt');
           }
-          const response = await this.claudeService.execute({
+          const response = await this.aiService.execute({
             prompt,
             systemPrompt,
             maxTokens,
@@ -105,7 +105,7 @@ export class AIExecutor extends BaseExecutor {
     const issueContent = action.context?.issueContent || action.prompt || '';
     const actionType = action.context?.action || 'implement';
 
-    const plan = await this.claudeService.generatePlan(
+    const plan = await this.aiService.generatePlan(
       actionType,
       issueContent,
       context.parameters,
@@ -122,7 +122,7 @@ export class AIExecutor extends BaseExecutor {
     const commitHistory = action.context?.commitHistory || [];
     const format = action.context?.format || 'auto';
 
-    const message = await this.claudeService.generateCommitMessage(
+    const message = await this.aiService.generateCommitMessage(
       diff,
       commitHistory,
       format,
@@ -138,7 +138,7 @@ export class AIExecutor extends BaseExecutor {
     const diff = action.context?.diff || '';
     const guidelines = action.context?.guidelines || [];
 
-    const review = await this.claudeService.reviewCode(diff, guidelines);
+    const review = await this.aiService.reviewCode(diff, guidelines);
 
     return review;
   }

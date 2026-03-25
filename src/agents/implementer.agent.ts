@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import { GitService } from '../integrations/git/git.service';
-import { ClaudeService } from '../integrations/ai/claude.service';
+import { AiService } from '../integrations/ai/ai.service';
 import {
   TicketArtifact,
   PlanArtifact,
@@ -27,7 +27,7 @@ export class ImplementerAgent {
   constructor(
     private configService: ConfigService,
     private gitService: GitService,
-    private claudeService: ClaudeService,
+    private aiService: AiService,
   ) {}
 
   /**
@@ -82,7 +82,7 @@ export class ImplementerAgent {
 
     // Narrate the plan before touching any files (Superpowers: writing-plans pattern)
     console.log(chalk.gray('\n  Narrating plan...'));
-    const narration = await this.claudeService.narrateImplementationPlan(
+    const narration = await this.aiService.narrateImplementationPlan(
       ticket.content,
       planArtifact.plan,
     );
@@ -148,7 +148,7 @@ export class ImplementerAgent {
 
         console.log(chalk.gray(`\n    → ${filePath}`));
         const sceneContext = `${ticket.content}\n\n---\nPlan narration:\n${narration}`;
-        const updatedContent = await this.claudeService.generateFileChange({
+        const updatedContent = await this.aiService.generateFileChange({
           ticketContent: sceneContext,
           planSteps: planArtifact.plan.steps,
           filePath: relativePath,
@@ -187,7 +187,7 @@ export class ImplementerAgent {
     console.log(chalk.gray('─'.repeat(70)));
     console.log(chalk.gray('  Generating findings and recommendations...'));
 
-    const findings = await this.claudeService.generateFindings(
+    const findings = await this.aiService.generateFindings(
       planArtifact.plan,
       ticket.content,
     );

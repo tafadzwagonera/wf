@@ -5,7 +5,7 @@ import type {
   AIConversationRequest,
   AIRequest,
   AIResponse,
-} from '../claude.service';
+} from '../ai.service';
 import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';

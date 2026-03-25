@@ -2,7 +2,7 @@ import type {
   AIConversationRequest,
   AIRequest,
   AIResponse,
-} from './claude.service';
+} from './ai.service';
 
 export const LLM_ADAPTER = 'LLM_ADAPTER';
 

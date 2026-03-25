@@ -21,7 +21,7 @@ jest.mock('../agents/utils', () => ({
 
 import { Test } from '@nestjs/testing';
 import { IssueReviewCommand } from './issue-review.command';
-import { ClaudeService } from '../integrations/ai/claude.service';
+import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -38,7 +38,7 @@ async function buildCommand(overrides?: {
   const module = await Test.createTestingModule({
     providers: [
       IssueReviewCommand,
-      { provide: ClaudeService, useValue: {} },
+      { provide: AiService, useValue: {} },
       {
         provide: GitService,
         useValue: { getDiff: jest.fn().mockResolvedValue('') },

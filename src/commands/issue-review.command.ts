@@ -1,6 +1,6 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
-import { ClaudeService } from '../integrations/ai/claude.service';
+import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -69,7 +69,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 })
 export class IssueReviewCommand extends CommandRunner {
   constructor(
-    private readonly claudeService: ClaudeService,
+    private readonly aiService: AiService,
     private readonly gitService: GitService,
     private readonly platformService: PlatformService,
     private readonly logger: LoggerService,
@@ -302,7 +302,7 @@ export class IssueReviewCommand extends CommandRunner {
           ];
 
       // Perform AI review
-      const review = await this.claudeService.reviewCode(diff, guidelines);
+      const review = await this.aiService.reviewCode(diff, guidelines);
 
       console.log(chalk.green('✓ Code review complete\n'));
 

@@ -1,14 +1,14 @@
 // src/agents/committer.agent.ts
 import { Injectable } from '@nestjs/common';
 import chalk from 'chalk';
-import { ClaudeService } from '../integrations/ai/claude.service';
+import { AiService } from '../integrations/ai/ai.service';
 import { GitError } from '../shared/utils/errors';
 import { GitService } from '../integrations/git/git.service';
 
 @Injectable()
 export class CommitterAgent {
   constructor(
-    private claudeService: ClaudeService,
+    private aiService: AiService,
     private gitService: GitService,
   ) {}
 
@@ -44,7 +44,7 @@ export class CommitterAgent {
     const commits = await this.gitService.getRecentCommits(10, repoDir);
     const commitHistory = commits.map((c) => c.message);
 
-    const rawMsg = await this.claudeService.generateCommitMessage(
+    const rawMsg = await this.aiService.generateCommitMessage(
       diff,
       commitHistory,
       'auto',

@@ -75,7 +75,7 @@ export interface CodeIssue {
 }
 
 @Injectable()
-export class ClaudeService {
+export class AiService {
   constructor(
     private logger: LoggerService,
     @Inject(LLM_ADAPTER) private adapter: LlmAdapter,
@@ -146,17 +146,8 @@ Return ONLY a valid JSON object with these fields:
     });
 
     try {
-      // Extract JSON from response (might be wrapped in markdown code blocks)
-      const jsonMatch =
-        response.content.match(/```json\s*([\s\S]*?)\s*```/) ||
-        response.content.match(/\{[\s\S]*\}/);
-
-      if (!jsonMatch) {
-        throw new Error('No JSON found in response');
-      }
-
-      const jsonContent = jsonMatch[1] || jsonMatch[0];
-      return JSON.parse(jsonContent) as ResolutionPlan;
+      const stripped = stripCodeFences(response.content.trim());
+      return JSON.parse(stripped) as ResolutionPlan;
     } catch (error) {
       this.logger.error('Failed to parse AI response as JSON', error);
       throw new AIError('Failed to parse resolution plan from AI response', {
@@ -203,16 +194,8 @@ Return ONLY a valid JSON object:
     });
 
     try {
-      const jsonMatch =
-        response.content.match(/```json\s*([\s\S]*?)\s*```/) ||
-        response.content.match(/\{[\s\S]*\}/);
-
-      if (!jsonMatch) {
-        throw new Error('No JSON found in response');
-      }
-
-      const jsonContent = jsonMatch[1] || jsonMatch[0];
-      return JSON.parse(jsonContent) as FindingsDocument;
+      const stripped = stripCodeFences(response.content.trim());
+      return JSON.parse(stripped) as FindingsDocument;
     } catch (error) {
       this.logger.error('Failed to parse findings response', error);
       throw new AIError(
@@ -425,16 +408,8 @@ Return ONLY a valid JSON object:
     });
 
     try {
-      const jsonMatch =
-        response.content.match(/```json\s*([\s\S]*?)\s*```/) ||
-        response.content.match(/\{[\s\S]*\}/);
-
-      if (!jsonMatch) {
-        throw new Error('No JSON found in response');
-      }
-
-      const jsonContent = jsonMatch[1] || jsonMatch[0];
-      return JSON.parse(jsonContent) as CodeReview;
+      const stripped = stripCodeFences(response.content.trim());
+      return JSON.parse(stripped) as CodeReview;
     } catch (error) {
       this.logger.error('Failed to parse code review response', error);
       throw new AIError('Failed to parse code review from AI response', {

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConversationService } from './conversation.service';
-import { ClaudeService } from '../claude.service';
+import { AiService } from '../ai.service';
 import { ChatUIService } from './chat-ui.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ConversationContext } from './interfaces';
@@ -9,7 +9,7 @@ import * as path from 'path';
 
 describe('ConversationService Integration Tests', () => {
   let service: ConversationService;
-  let claudeService: jest.Mocked<ClaudeService>;
+  let claudeService: jest.Mocked<AiService>;
   let chatUIService: jest.Mocked<ChatUIService>;
   let loggerService: jest.Mocked<LoggerService>;
   const testTicketKey = 'TEST-INTEGRATION-999';
@@ -44,7 +44,7 @@ describe('ConversationService Integration Tests', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ConversationService,
-        { provide: ClaudeService, useValue: claudeService },
+        { provide: AiService, useValue: claudeService },
         { provide: ChatUIService, useValue: chatUIService },
         { provide: LoggerService, useValue: loggerService },
       ],
@@ -114,7 +114,7 @@ describe('ConversationService Integration Tests', () => {
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           ConversationService,
-          { provide: ClaudeService, useValue: claudeService },
+          { provide: AiService, useValue: claudeService },
           { provide: ChatUIService, useValue: chatUIService },
           { provide: LoggerService, useValue: loggerService },
         ],
@@ -198,7 +198,7 @@ describe('ConversationService Integration Tests', () => {
       const module2: TestingModule = await Test.createTestingModule({
         providers: [
           ConversationService,
-          { provide: ClaudeService, useValue: claudeService },
+          { provide: AiService, useValue: claudeService },
           { provide: ChatUIService, useValue: chatUIService },
           { provide: LoggerService, useValue: loggerService },
         ],
@@ -222,7 +222,7 @@ describe('ConversationService Integration Tests', () => {
       const module3: TestingModule = await Test.createTestingModule({
         providers: [
           ConversationService,
-          { provide: ClaudeService, useValue: claudeService },
+          { provide: AiService, useValue: claudeService },
           { provide: ChatUIService, useValue: chatUIService },
           { provide: LoggerService, useValue: loggerService },
         ],
@@ -260,7 +260,7 @@ describe('ConversationService Integration Tests', () => {
       const module2: TestingModule = await Test.createTestingModule({
         providers: [
           ConversationService,
-          { provide: ClaudeService, useValue: claudeService },
+          { provide: AiService, useValue: claudeService },
           { provide: ChatUIService, useValue: chatUIService },
           { provide: LoggerService, useValue: loggerService },
         ],

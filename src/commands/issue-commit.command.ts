@@ -1,6 +1,6 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { GitService } from '../integrations/git/git.service';
-import { ClaudeService } from '../integrations/ai/claude.service';
+import { AiService } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -28,7 +28,7 @@ interface IssueCommitOptions {
 export class IssueCommitCommand extends CommandRunner {
   constructor(
     private readonly gitService: GitService,
-    private readonly claudeService: ClaudeService,
+    private readonly aiService: AiService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
@@ -241,7 +241,7 @@ export class IssueCommitCommand extends CommandRunner {
   ): Promise<string> {
     const prompt = this.buildCommitPrompt(diff, ticketKey, conventional);
 
-    const response = await this.claudeService.execute({
+    const response = await this.aiService.execute({
       prompt: prompt,
       maxTokens: 500,
       temperature: 0.7,

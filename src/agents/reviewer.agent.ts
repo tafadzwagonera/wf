@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
-import { ClaudeService, CodeReview } from '../integrations/ai/claude.service';
+import { AiService, CodeReview } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 
@@ -21,7 +21,7 @@ const REVIEW_GUIDELINES = [
 @Injectable()
 export class ReviewerAgent {
   constructor(
-    private claudeService: ClaudeService,
+    private aiService: AiService,
     private gitService: GitService,
   ) {}
 
@@ -88,7 +88,7 @@ export class ReviewerAgent {
       `Relevancy: Does the feature or fix work? (context: ticket ${ticket.ticketKey})`,
     ];
 
-    const review = await this.claudeService.reviewCode(diff, guidelines);
+    const review = await this.aiService.reviewCode(diff, guidelines);
 
     console.log(chalk.green('\n✓ Review complete'));
     console.log(chalk.bold('\n  Summary:'), chalk.bold.cyan(review.summary));

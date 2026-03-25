@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConversationService } from './conversation.service';
-import { ClaudeService } from '../claude.service';
+import { AiService } from '../ai.service';
 import { ChatUIService } from './chat-ui.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ConversationContext } from './interfaces';
@@ -12,7 +12,7 @@ jest.mock('fs/promises');
 
 describe('ConversationService', () => {
   let service: ConversationService;
-  let claudeService: jest.Mocked<ClaudeService>;
+  let claudeService: jest.Mocked<AiService>;
   let chatUIService: jest.Mocked<ChatUIService>;
   let loggerService: jest.Mocked<LoggerService>;
 
@@ -44,7 +44,7 @@ describe('ConversationService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ConversationService,
-        { provide: ClaudeService, useValue: claudeService },
+        { provide: AiService, useValue: claudeService },
         { provide: ChatUIService, useValue: chatUIService },
         { provide: LoggerService, useValue: loggerService },
       ],

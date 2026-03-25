@@ -4,9 +4,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
 import {
-  ClaudeService,
+  AiService,
   ResolutionPlan,
-} from '../integrations/ai/claude.service';
+} from '../integrations/ai/ai.service';
 import {
   TicketArtifact,
   PlanArtifact,
@@ -34,7 +34,7 @@ const normalizeSteps = (steps: unknown[]): string[] =>
 
 @Injectable()
 export class PlannerAgent {
-  constructor(private claudeService: ClaudeService) {}
+  constructor(private aiService: AiService) {}
 
   /**
    * Generate an implementation plan for a ticket and save it as a JSON artifact.
@@ -71,7 +71,7 @@ export class PlannerAgent {
     console.log(chalk.gray('─'.repeat(70)));
     console.log(chalk.gray(`  Action type: ${options.action}`));
 
-    const plan = await this.claudeService.generatePlan(
+    const plan = await this.aiService.generatePlan(
       options.action as any,
       ticket.content,
       {

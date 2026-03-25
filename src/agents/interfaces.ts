@@ -1,5 +1,5 @@
 // src/agents/interfaces.ts
-import { CodeReview, ResolutionPlan } from '../integrations/ai/claude.service';
+import { CodeReview, ResolutionPlan } from '../integrations/ai/ai.service';
 
 export type ResolutionAction = 'feature' | 'fix' | 'investigate';
 

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConversationService } from './conversation.service';
 import { ChatUIService } from './chat-ui.service';
-import { ClaudeService } from '../claude.service';
+import { AiService } from '../ai.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ConfigModule } from '@nestjs/config';
 import { LlmAdapterFactory } from '../adapters/llm-adapter.factory';
@@ -16,7 +16,7 @@ import { LlmAdapterFactory } from '../adapters/llm-adapter.factory';
   imports: [ConfigModule],
   providers: [
     LlmAdapterFactory,
-    ClaudeService,
+    AiService,
     ConversationService,
     ChatUIService,
     LoggerService,

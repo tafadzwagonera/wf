@@ -2,9 +2,9 @@ import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
-  ClaudeService,
+  AiService,
   ResolutionPlan,
-} from '../integrations/ai/claude.service';
+} from '../integrations/ai/ai.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -78,7 +78,7 @@ interface IssueImplementOptions {
 })
 export class IssueImplementCommand extends CommandRunner {
   constructor(
-    private readonly claudeService: ClaudeService,
+    private readonly aiService: AiService,
     private readonly platformService: PlatformService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
@@ -323,7 +323,7 @@ Return ONLY a valid JSON object:
   "conclusion": "Overall conclusion and next steps"
 }`;
 
-          const response = await this.claudeService.execute({
+          const response = await this.aiService.execute({
             prompt: findingsPrompt,
             systemPrompt,
             temperature: 0.4,

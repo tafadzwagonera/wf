@@ -17,7 +17,7 @@ jest.mock('chalk', () => {
 
 import { Test } from '@nestjs/testing';
 import { IssueImplementCommand } from './issue-implement.command';
-import { ClaudeService } from '../integrations/ai/claude.service';
+import { AiService } from '../integrations/ai/ai.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -28,7 +28,7 @@ async function buildCommand(): Promise<IssueImplementCommand> {
   const module = await Test.createTestingModule({
     providers: [
       IssueImplementCommand,
-      { provide: ClaudeService, useValue: {} },
+      { provide: AiService, useValue: {} },
       { provide: PlatformService, useValue: {} },
       {
         provide: ConfigService,
@@ -265,7 +265,7 @@ describe('IssueImplementCommand', () => {
       const module = await Test.createTestingModule({
         providers: [
           IssueImplementCommand,
-          { provide: ClaudeService, useValue: {} },
+          { provide: AiService, useValue: {} },
           { provide: PlatformService, useValue: {} },
           {
             provide: ConfigService,

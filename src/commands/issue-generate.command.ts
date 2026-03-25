@@ -1,7 +1,7 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { FormatConverterService } from '../common/converters/format-converter.service';
-import { ClaudeService } from '../integrations/ai/claude.service';
+import { AiService } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -43,7 +43,7 @@ export class IssueGenerateCommand extends CommandRunner {
   constructor(
     private readonly platformService: PlatformService,
     private readonly formatConverterService: FormatConverterService,
-    private readonly claudeService: ClaudeService,
+    private readonly aiService: AiService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
@@ -532,7 +532,7 @@ export class IssueGenerateCommand extends CommandRunner {
     const prompt = this.buildSynthesisPrompt(sources);
 
     // Call AI to synthesize
-    const response = await this.claudeService.execute({
+    const response = await this.aiService.execute({
       prompt: prompt,
       maxTokens: 4096,
     });
