@@ -10,8 +10,13 @@ export const validationSchema = Joi.object({
     .pattern(/^(jira|github|bitbucket)(,(jira|github|bitbucket))*$/),
 
   // AI Configuration
+  AI_PROVIDER: Joi.string()
+    .valid('anthropic', 'gemini', 'deepseek')
+    .default('anthropic'),
   ANTHROPIC_API_KEY: Joi.string().optional(),
-  AI_MODEL: Joi.string().default('claude-sonnet-4-20250514'),
+  GEMINI_API_KEY: Joi.string().optional(),
+  DEEPSEEK_API_KEY: Joi.string().optional(),
+  AI_MODEL: Joi.string().optional(),
   AI_MAX_TOKENS: Joi.number().default(4096),
 
   // Atlassian Configuration (Jira + Bitbucket)

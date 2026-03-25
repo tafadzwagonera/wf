@@ -11,9 +11,11 @@ export default () => ({
     defaultFormat: process.env.DEFAULT_OUTPUT_FORMAT || 'md',
   },
   ai: {
-    provider: 'claude',
+    provider: process.env.AI_PROVIDER || 'anthropic',
     apiKey: process.env.ANTHROPIC_API_KEY,
-    model: process.env.AI_MODEL || 'claude-sonnet-4-20250514',
+    geminiApiKey: process.env.GEMINI_API_KEY,
+    deepseekApiKey: process.env.DEEPSEEK_API_KEY,
+    model: process.env.AI_MODEL,
     maxTokens: parseInt(process.env.AI_MAX_TOKENS || '4096', 10),
   },
   // Atlassian Configuration (Jira + Bitbucket)

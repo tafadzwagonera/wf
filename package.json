@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
+    "@google/generative-ai": "^0.24.1",
     "@hapi/joi": "^17.1.1",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/common": "^11.0.1",
@@ -54,6 +55,7 @@
     "inquirer": "^8.2.6",
     "marked": "^17.0.4",
     "nest-commander": "^3.20.1",
+    "openai": "^6.32.0",
     "ora": "^5.4.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",

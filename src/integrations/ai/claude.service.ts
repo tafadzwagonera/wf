@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import Anthropic from '@anthropic-ai/sdk';
+import { Inject, Injectable } from '@nestjs/common';
 import { AIError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
+import { LLM_ADAPTER } from './llm-adapter.interface';
+import type { LlmAdapter } from './llm-adapter.interface';
 
 export interface AIRequest {
   prompt: string;
@@ -65,85 +65,18 @@ export interface CodeIssue {
 
 @Injectable()
 export class ClaudeService {
-  private client: Anthropic;
-  private model: string;
-  private maxTokens: number;
-
   constructor(
-    private configService: ConfigService,
     private logger: LoggerService,
-  ) {
-    const apiKey = this.configService.get<string>('ai.apiKey');
-
-    if (!apiKey) {
-      this.logger.warn(
-        'Anthropic API key not configured. Set ANTHROPIC_API_KEY in .env',
-      );
-    } else {
-      this.client = new Anthropic({ apiKey });
-      this.model = this.configService.get<string>(
-        'ai.model',
-        'claude-sonnet-4-20250514',
-      );
-      this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
-
-      this.logger.debug(`Initialized Claude service with model: ${this.model}`);
-    }
-  }
+    @Inject(LLM_ADAPTER) private adapter: LlmAdapter,
+  ) {}
 
   async execute(request: AIRequest): Promise<AIResponse> {
-    if (!this.client) {
-      throw new AIError(
-        'Claude client not initialized. Set ANTHROPIC_API_KEY in .env',
-        null,
-        false,
-      );
-    }
-
-    this.logger.debug('Executing AI request');
-
-    try {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: request.maxTokens || this.maxTokens,
-        temperature: request.temperature || 0.7,
-        system: request.systemPrompt,
-        messages: [
-          {
-            role: 'user',
-            content: request.prompt,
-          },
-        ],
-      });
-
-      const content =
-        response.content[0].type === 'text' ? response.content[0].text : '';
-
-      return {
-        content,
-        usage: {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-        },
-      };
-    } catch (error) {
-      if (error instanceof Anthropic.APIError) {
-        throw new AIError(
-          `Claude API error: ${error.message}`,
-          {
-            status: error.status,
-          },
-          true,
-        );
-      }
-
-      throw new AIError('Failed to execute AI request', error);
-    }
+    return this.adapter.execute(request);
   }
 
   /**
-   * Execute a multi-turn conversation with Claude
-   * Maintains conversation history by passing full message array to API
+   * Execute a multi-turn conversation with the configured LLM provider.
+   * Maintains conversation history by passing full message array to the adapter.
    *
    * @param request - Conversation request with message history
    * @returns AI response with content and token usage
@@ -151,50 +84,7 @@ export class ClaudeService {
   async executeWithHistory(
     request: AIConversationRequest,
   ): Promise<AIResponse> {
-    if (!this.client) {
-      throw new AIError(
-        'Claude client not initialized. Set ANTHROPIC_API_KEY in .env',
-        null,
-        false,
-      );
-    }
-
-    this.logger.debug(
-      `Executing conversation request with ${request.messages.length} messages`,
-    );
-
-    try {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: request.maxTokens || this.maxTokens,
-        temperature: request.temperature || 0.7,
-        system: request.systemPrompt,
-        messages: request.messages, // Full conversation history
-      });
-
-      const content =
-        response.content[0].type === 'text' ? response.content[0].text : '';
-
-      return {
-        content,
-        usage: {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-        },
-      };
-    } catch (error) {
-      if (error instanceof Anthropic.APIError) {
-        throw new AIError(
-          `Claude API error: ${error.message}`,
-          {
-            status: error.status,
-          },
-          true,
-        );
-      }
-
-      throw new AIError('Failed to execute conversation request', error);
-    }
+    return this.adapter.executeWithHistory(request);
   }
 
   async generatePlan(

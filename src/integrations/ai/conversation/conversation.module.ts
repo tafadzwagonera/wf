@@ -4,6 +4,7 @@ import { ChatUIService } from './chat-ui.service';
 import { ClaudeService } from '../claude.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ConfigModule } from '@nestjs/config';
+import { LlmAdapterFactory } from '../adapters/llm-adapter.factory';
 
 /**
  * Module for interactive conversation features
@@ -13,7 +14,13 @@ import { ConfigModule } from '@nestjs/config';
  */
 @Module({
   imports: [ConfigModule],
-  providers: [ConversationService, ChatUIService, ClaudeService, LoggerService],
+  providers: [
+    LlmAdapterFactory,
+    ClaudeService,
+    ConversationService,
+    ChatUIService,
+    LoggerService,
+  ],
   exports: [ConversationService, ChatUIService],
 })
 export class ConversationModule {}
