@@ -10,7 +10,7 @@ import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 
-const DEFAULT_MODEL = 'gemini-2.5-pro-preview-03-25';
+const DEFAULT_MODEL = 'gemini-2.5-pro';
 
 @Injectable()
 export class GeminiAdapter implements LlmAdapter {
