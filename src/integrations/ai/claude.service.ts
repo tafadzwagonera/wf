@@ -419,7 +419,8 @@ Generate a commit message that:
 3. Is concise but informative
 4. ${detectedFormat === 'conventional' ? 'Follows conventional commits format' : 'Follows the existing commit message style'}
 
-Return ONLY the commit message text, nothing else.`;
+Do NOT include ticket IDs, issue keys, or project codes in your message (e.g. WBP-1234, TAD-575). The ticket prefix is added automatically.
+Return ONLY the commit message description, nothing else.`;
 
     const response = await this.execute({
       prompt,

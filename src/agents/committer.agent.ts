@@ -49,9 +49,12 @@ export class CommitterAgent {
       'auto',
       ticketContext,
     );
-    // Strip conventional commit type prefix (e.g. "fix: ", "test(scope): ") so the
-    // ticket key is always the sole prefix: "WBP-1234: <description>"
-    const commitMsg = rawMsg.replace(/^[a-z]+(\([^)]+\))?:\s*/, '');
+    // Strip conventional commit type prefix (e.g. "fix: ", "test(scope): ") and any
+    // ticket-key prefix the LLM may have mirrored from commit history (e.g. "WBP-2979: ")
+    // so the active ticketKey is always the sole prefix: "TAD-575: <description>"
+    const commitMsg = rawMsg
+      .replace(/^[a-z]+(\([^)]+\))?:\s*/, '')  // strip conventional prefix
+      .replace(/^[A-Z][A-Z0-9]+-\d+:\s*/, ''); // strip ticket-key prefix
     const finalMsg = `${ticketKey}: ${commitMsg}`;
 
     console.log(chalk.green('\n✓ Commit message generated'));
