@@ -253,6 +253,16 @@ export class IssueAllCommand extends CommandRunner {
         let totalFilesCreated = 0;
         const terminalLines: string[] = [];
 
+        const aiProvider = this.configService.get<string>('ai.provider', 'anthropic');
+        const aiPlatformName =
+          aiProvider === 'gemini' ? 'Google Gemini'
+          : aiProvider === 'deepseek' ? 'DeepSeek'
+          : 'Anthropic Claude';
+        const aiEndpoint =
+          aiProvider === 'gemini' ? '/v1beta/models'
+          : aiProvider === 'deepseek' ? '/chat/completions'
+          : '/v1/messages';
+
         for (const stage of stagesToRun) {
           this.dryRunPreview.showStageHeader(stage);
 
@@ -294,8 +304,8 @@ export class IssueAllCommand extends CommandRunner {
             } else {
               this.dryRunPreview.previewApiCall({
                 method: 'POST',
-                endpoint: '/v1/messages',
-                platform: 'Anthropic Claude',
+                endpoint: aiEndpoint,
+                platform: aiPlatformName,
                 description: `Generate ${action || 'feature'} plan`,
                 estimatedResponse: [
                   '{',
@@ -336,8 +346,8 @@ export class IssueAllCommand extends CommandRunner {
               );
               this.dryRunPreview.previewApiCall({
                 method: 'POST',
-                endpoint: '/v1/messages',
-                platform: 'Anthropic Claude',
+                endpoint: aiEndpoint,
+                platform: aiPlatformName,
                 description:
                   'Generate investigation findings and recommendations',
                 estimatedResponse: [
@@ -393,8 +403,8 @@ export class IssueAllCommand extends CommandRunner {
             } else {
               this.dryRunPreview.previewApiCall({
                 method: 'POST',
-                endpoint: '/v1/messages',
-                platform: 'Anthropic Claude',
+                endpoint: aiEndpoint,
+                platform: aiPlatformName,
                 description: 'Review code changes (git diff)',
                 estimatedResponse: [
                   '{',
