@@ -120,30 +120,21 @@ export class ChatUIService {
     console.log();
 
     // Split content into lines and format
-    const DESCRIPTION_OPEN = /^<descriptions?>$/i;
-    const DESCRIPTION_CLOSE = /^<\/descriptions?>$/i;
-
     const lines = message.content.split('\n');
-    let inDescriptionBlock = false;
     lines.forEach((line) => {
       const trimmed = line.trim();
-      if (DESCRIPTION_OPEN.test(trimmed)) {
-        inDescriptionBlock = true;
-        console.log(chalk.cyan(line));
-      } else if (DESCRIPTION_CLOSE.test(trimmed)) {
-        inDescriptionBlock = false;
-        console.log(chalk.cyan(line));
-      } else if (inDescriptionBlock) {
-        console.log(chalk.cyan(line));
-      } else if (trimmed.startsWith('```')) {
+      if (trimmed.startsWith('```')) {
         // Highlight code blocks
         console.log(chalk.dim(line));
       } else if (trimmed.startsWith('-') || trimmed.startsWith('*')) {
         // Highlight bullet points
-        console.log(chalk.white(line));
+        console.log(chalk.cyan(line));
       } else if (trimmed.match(/^\d+\./)) {
         // Highlight numbered lists
-        console.log(chalk.white(line));
+        console.log(chalk.cyan(line));
+      } else if (trimmed.length > 0) {
+        // Highlight all other non-empty text
+        console.log(chalk.cyan(line));
       } else {
         console.log(line);
       }

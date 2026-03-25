@@ -11,27 +11,24 @@ const mockMessage: ConversationMessage = {
 
 ## Updated Files Affected:
 
-<descriptions>
 - pricing.service.ts — Update findApplicableSpecialOffers to handle fixed amounts
 - tour.service.ts — Update highest-discount selection logic to compare absolute values
-</descriptions>
 
 ## Key Questions for Refinement:
 
-<description>
-Does the Lemax API currently return a discountType field on SPO objects?
-</description>
+1. Does the Lemax API currently return a discountType field on SPO objects?
+2. Should currency conversion be applied for fixed amounts?
 
 Would you like to focus on the selection logic first?`,
   timestamp: new Date(),
 };
 
 console.log(
-  chalk.bold('\n─── Test: <description> / <descriptions> block styling ───\n'),
+  chalk.bold('\n─── Test: text block styling in Claude response ───\n'),
 );
 console.log(
   chalk.dim(
-    'Expected: tag lines and block content appear in CYAN. Everything else uses existing chalk styles.\n',
+    'Expected: all non-empty text lines (bullets, numbered lists, plain text) appear in CYAN.\n',
   ),
 );
 
