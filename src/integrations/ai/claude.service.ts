@@ -4,6 +4,17 @@ import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
 
+/**
+ * Strips a single wrapping markdown code fence from LLM output.
+ * Handles ```typescript, ```ts, ```js, ```json, and plain ``` fences.
+ * @param content Raw LLM response string
+ * @returns File content without the outermost code fence, or the original string if none is present
+ */
+const stripCodeFences = (content: string): string => {
+  const match = content.match(/^```[\w]*\n?([\s\S]*?)```\s*$/);
+  return match ? match[1] : content;
+};
+
 export interface AIRequest {
   prompt: string;
   systemPrompt?: string;
@@ -369,7 +380,7 @@ Apply the relevant steps to this file. Return ONLY the complete updated file con
       maxTokens: 8192,
     });
 
-    return response.content.trim();
+    return stripCodeFences(response.content.trim());
   }
 
   async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
