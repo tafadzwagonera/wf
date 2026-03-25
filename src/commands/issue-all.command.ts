@@ -43,8 +43,8 @@ interface IssueAllOptions {
   to?: string;
   action?: string;
   platform?: string;
-  interactive?: boolean;
-  skipExisting?: boolean;
+  chatMode?: boolean;
+  force?: boolean;
   repos: string[];
   dryRun?: boolean;
 }
@@ -95,10 +95,10 @@ export class IssueAllCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--interactive',
+    flags: '--chat-mode',
     description: 'Enable interactive chat mode at key stages (plan, review)',
   })
-  parseInteractive(): boolean {
+  parseChatMode(): boolean {
     return true;
   }
 
@@ -112,11 +112,11 @@ export class IssueAllCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--skip-existing',
+    flags: '-f, --force',
     description:
-      'Skip stages with existing artifacts (ticket file, plan file, review file)',
+      'Force refetch and recreate all local artifacts, ignoring any cached files',
   })
-  parseSkipExisting(): boolean {
+  parseForce(): boolean {
     return true;
   }
 
@@ -176,6 +176,8 @@ export class IssueAllCommand extends CommandRunner {
     }
 
     try {
+      const skipExisting = !options?.force;
+
       // Parse stages first to determine if PLAN stage will run
       const fromStage = this.parseStage(options.from);
       const toStage = options.to
@@ -270,7 +272,7 @@ export class IssueAllCommand extends CommandRunner {
             const ticketPath = path.join(platformDir, `${ticketKey}.md`);
             const artifactExists = fs.existsSync(ticketPath);
 
-            if (options.skipExisting && artifactExists) {
+            if (skipExisting && artifactExists) {
               this.dryRunPreview.showSkipped('artifact exists');
             } else {
               this.dryRunPreview.previewApiCall({
@@ -299,7 +301,7 @@ export class IssueAllCommand extends CommandRunner {
               : path.join(platformDir, `${ticketKey}-plan-feature.json`);
             const artifactExists = fs.existsSync(planPath);
 
-            if (options.skipExisting && artifactExists) {
+            if (skipExisting && artifactExists) {
               this.dryRunPreview.showSkipped('artifact exists');
             } else {
               this.dryRunPreview.previewApiCall({
@@ -398,7 +400,7 @@ export class IssueAllCommand extends CommandRunner {
             const reviewPath = path.join(platformDir, `${ticketKey}-review.md`);
             const artifactExists = fs.existsSync(reviewPath);
 
-            if (options.skipExisting && artifactExists) {
+            if (skipExisting && artifactExists) {
               this.dryRunPreview.showSkipped('artifact exists');
             } else {
               this.dryRunPreview.previewApiCall({
@@ -488,7 +490,7 @@ export class IssueAllCommand extends CommandRunner {
         ticketArtifact = await this.agents.fetcher.execute(ticketKey, {
           platformName,
           repo: options?.repos?.[0],
-          skipExisting: options?.skipExisting,
+          skipExisting,
           baseDir: repoBaseDir,
         });
       } else {
@@ -503,11 +505,11 @@ export class IssueAllCommand extends CommandRunner {
       if (stagesToRun.includes(WorkflowStage.PLAN)) {
         planArtifact = await this.agents.planner.execute(ticketArtifact, {
           action: action!,
-          skipExisting: options?.skipExisting,
+          skipExisting,
           affectedRepositories: options?.repos,
         });
 
-        if (options?.interactive && !planArtifact.fromCache) {
+        if (options?.chatMode && !planArtifact.fromCache) {
           await this.startInteractiveChat(
             ticketKey,
             'plan' as ConvWorkflowStage,
@@ -572,7 +574,7 @@ export class IssueAllCommand extends CommandRunner {
           planArtifact?.action !== 'investigate'
         ) {
           reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
-            skipExisting: options?.skipExisting,
+            skipExisting,
             repoDir,
           });
 
@@ -597,7 +599,7 @@ export class IssueAllCommand extends CommandRunner {
               );
             }
 
-            if (options?.interactive) {
+            if (options?.chatMode) {
               await this.startInteractiveChat(
                 ticketKey,
                 'review' as ConvWorkflowStage,
