@@ -99,16 +99,45 @@ export class ImplementerAgent {
 
     // Generate and write code changes for files belonging to this repo
     const repoName = options.repoDir ? path.basename(options.repoDir) : '';
-    const repoFiles = (planArtifact.plan.filesAffected ?? []).filter((f) =>
-      repoName ? f.startsWith(`${repoName}/`) : true,
-    );
+    const allFiles = planArtifact.plan.filesAffected ?? [];
+
+    // Primary: files explicitly prefixed with this repo's name.
+    let repoFiles = repoName
+      ? allFiles.filter((f) => f.startsWith(`${repoName}/`))
+      : allFiles;
+
+    // Fallback: plan was generated without repo-name prefixes (older format or
+    // AI non-compliance). Safe to apply only when NO file in the plan carries ANY
+    // known repo prefix — if some files are prefixed and this repo's aren't, the
+    // empty result is intentional and we must not override it.
+    if (repoFiles.length === 0 && allFiles.length > 0) {
+      const planRepos = planArtifact.plan.repositoriesAffected ?? [];
+      const hasAnyRepoPrefix = allFiles.some((f) =>
+        planRepos.some((repo) => f.startsWith(`${repo}/`)),
+      );
+      if (
+        !hasAnyRepoPrefix &&
+        (planRepos.includes(repoName) || planRepos.length === 0)
+      ) {
+        repoFiles = allFiles;
+        if (repoName) {
+          console.log(
+            chalk.yellow(
+              `  ⚠ filesAffected lacks "${repoName}/" prefix — treating all paths as relative to ${repoName}`,
+            ),
+          );
+        }
+      }
+    }
 
     if (repoFiles.length > 0) {
       console.log(chalk.bold('\n  Generating code changes...'));
       for (const filePath of repoFiles) {
-        const relativePath = repoName
-          ? filePath.slice(repoName.length + 1)
-          : filePath;
+        // Strip repo-name prefix only when present; bare paths are used as-is.
+        const relativePath =
+          repoName && filePath.startsWith(`${repoName}/`)
+            ? filePath.slice(repoName.length + 1)
+            : filePath;
         const absolutePath = options.repoDir
           ? path.join(options.repoDir, relativePath)
           : path.resolve(relativePath);

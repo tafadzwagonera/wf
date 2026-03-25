@@ -54,9 +54,7 @@ async function main() {
   // ── Test: narration is called, printed, and passed to generateFileChange ──
   console.log('\n🧪 Test: plan narration output\n' + '─'.repeat(60));
   {
-    const tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'wf-narration-test-'),
-    );
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-narration-test-'));
     // Create the source file that filesAffected references
     const repoName = 'my-repo';
     const repoDir = path.join(tmpDir, repoName);
@@ -157,7 +155,72 @@ async function main() {
     if (writtenContent.includes('// updated content')) {
       pass('Generated file content written to disk');
     } else {
-      fail('Generated file content not found on disk', writtenContent.slice(0, 200));
+      fail(
+        'Generated file content not found on disk',
+        writtenContent.slice(0, 200),
+      );
+    }
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  // ── Test: fallback when filesAffected has no repo prefix ─────────────────
+  console.log('\n🧪 Test: fallback for unprefixed filesAffected\n' + '─'.repeat(60));
+  {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-fallback-test-'));
+    const repoName = 'my-repo';
+    const repoDir = path.join(tmpDir, repoName);
+    const srcDir = path.join(repoDir, 'src');
+    fs.mkdirSync(srcDir, { recursive: true });
+    fs.writeFileSync(path.join(srcDir, 'foo.ts'), '// original\n');
+
+    (implementer as any).claudeService.narrateImplementationPlan = async () =>
+      '## Goal\nFallback test.\n\n## Approach\nTest.\n\n## Tasks\n1. src/foo.ts — update foo';
+
+    (implementer as any).claudeService.generateFileChange = async () =>
+      '// fallback updated\n';
+
+    (implementer as any).gitService.getCurrentBranch = async () => '';
+    (implementer as any).gitService.createBranch = async () => {};
+
+    const ticket: TicketArtifact = {
+      ticketKey: 'TEST-002',
+      content: '# TEST-002\nFallback test.',
+      path: path.join(tmpDir, 'TEST-002.md'),
+    };
+
+    const planArtifact: PlanArtifact = {
+      plan: {
+        action: 'feature',
+        summary: 'Fallback path test',
+        steps: ['Update src/foo.ts'],
+        estimatedComplexity: 'low',
+        // NOTE: bare path — no repo-name prefix (old / non-compliant AI format)
+        filesAffected: ['src/foo.ts'],
+        repositoriesAffected: [repoName],
+        risks: [],
+      },
+      action: 'feature',
+      path: path.join(tmpDir, 'TEST-002-plan-feature.json'),
+    };
+
+    await implementer.execute(ticket, planArtifact, {
+      platformName: 'jira',
+      repoDir,
+    });
+
+    const writtenPath = path.join(srcDir, 'foo.ts');
+    const writtenContent = fs.existsSync(writtenPath)
+      ? fs.readFileSync(writtenPath, 'utf-8')
+      : '';
+
+    if (writtenContent.includes('// fallback updated')) {
+      pass('Fallback: file written to disk when filesAffected has no repo prefix');
+    } else {
+      fail(
+        'Fallback: file NOT written to disk for unprefixed filesAffected',
+        writtenContent.slice(0, 200),
+      );
     }
 
     fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -221,7 +221,9 @@ ${repoHint}Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
 2. Specific, actionable steps to ${action} the issue
 3. Estimated complexity (low/medium/high)
-4. Files that will be affected (if known)
+4. Files that will be affected — prefix EVERY path with its repository name
+   (e.g., "service-tourv3/src/pricing/pricing.service.ts"). Use the repository
+   names from repositoriesAffected when available.
 5. Potential risks or considerations
 6. Repositories that will be affected (if known — use provided hints or infer from ticket text)
 
@@ -231,7 +233,7 @@ Return ONLY a valid JSON object with these fields:
   "summary": "...",
   "steps": ["step 1", "step 2", ...],
   "estimatedComplexity": "low|medium|high",
-  "filesAffected": ["file1.ts", ...],
+  "filesAffected": ["repo-name/src/path/to/file.ts", ...],
   "repositoriesAffected": ["repo-name", ...],
   "risks": ["risk 1", ...]
 }`;
