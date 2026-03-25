@@ -15,6 +15,23 @@ import {
 } from './interfaces';
 import { extractSummary } from './utils';
 
+/**
+ * Normalizes plan steps to strings, handling AI providers that return step objects
+ * (e.g. `{ step: number, description: string }`) instead of plain strings.
+ * @param steps Raw steps array from a parsed plan JSON
+ * @returns Array of plain strings
+ */
+const normalizeSteps = (steps: unknown[]): string[] =>
+  steps.map((step) => {
+    if (typeof step === 'string') return step;
+    if (step && typeof step === 'object') {
+      const s = step as Record<string, unknown>;
+      const text = s['description'] ?? s['text'] ?? s['title'] ?? s['content'];
+      if (typeof text === 'string') return text;
+    }
+    return String(step);
+  });
+
 @Injectable()
 export class PlannerAgent {
   constructor(private claudeService: ClaudeService) {}
@@ -39,6 +56,7 @@ export class PlannerAgent {
       let plan: ResolutionPlan;
       try {
         plan = JSON.parse(fs.readFileSync(planPath, 'utf-8')) as ResolutionPlan;
+        plan = { ...plan, steps: normalizeSteps(plan.steps ?? []) };
       } catch {
         throw new Error(
           `Plan file is not valid JSON: ${path.basename(planPath)}`,
@@ -96,6 +114,7 @@ export class PlannerAgent {
       let plan: ResolutionPlan;
       try {
         plan = JSON.parse(fs.readFileSync(planPath, 'utf-8')) as ResolutionPlan;
+        plan = { ...plan, steps: normalizeSteps(plan.steps ?? []) };
       } catch {
         throw new Error(
           `Plan file is not valid JSON: ${path.basename(planPath)}`,
