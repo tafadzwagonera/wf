@@ -499,7 +499,8 @@ export class IssueGenerateCommand extends CommandRunner {
     const sanitizedTitle = ticket.title
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
-      .slice(0, 30);
+      .slice(0, 30)
+      .replace(/-+$/, '');
     const extension = format === 'md' ? 'md' : format;
     const filename = `GENERATED-${timestamp}-${sanitizedTitle}.${extension}`;
     const ticketPath = path.join(platformDir, filename);
@@ -522,8 +523,8 @@ export class IssueGenerateCommand extends CommandRunner {
   ): Promise<UniversalTicket> {
     console.log(chalk.cyan('\n🤖 Using AI to synthesize content...\n'));
 
-    // If only one source and it's already a ticket, return it
-    if (sources.length === 1 && sources[0].ticket) {
+    // If only one source and it's already a ticket with a description, return it
+    if (sources.length === 1 && sources[0].ticket?.description?.trim()) {
       return sources[0].ticket;
     }
 
