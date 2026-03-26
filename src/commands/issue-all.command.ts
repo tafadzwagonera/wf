@@ -10,6 +10,7 @@ import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { ConfigService } from '@nestjs/config';
+import { AiService } from '../integrations/ai/ai.service';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -63,6 +64,7 @@ export class IssueAllCommand extends CommandRunner {
     private configService: ConfigService,
     private dryRunPreview: DryRunPreviewService,
     private agents: AgentOrchestrator,
+    private aiService: AiService,
   ) {
     super();
   }
@@ -255,11 +257,8 @@ export class IssueAllCommand extends CommandRunner {
         let totalFilesCreated = 0;
         const terminalLines: string[] = [];
 
+        const aiPlatformName = this.aiService.getProviderDisplayName();
         const aiProvider = this.configService.get<string>('ai.provider', 'anthropic');
-        const aiPlatformName =
-          aiProvider === 'gemini' ? 'Google Gemini'
-          : aiProvider === 'deepseek' ? 'DeepSeek'
-          : 'Anthropic Claude';
         const aiEndpoint =
           aiProvider === 'gemini' ? '/v1beta/models'
           : aiProvider === 'deepseek' ? '/chat/completions'
