@@ -548,18 +548,34 @@ export class IssueGenerateCommand extends CommandRunner {
    * Build prompt for AI synthesis
    */
   private buildSynthesisPrompt(sources: SourceContent[]): string {
-    let prompt = `Synthesize and collate the following sources into a single, comprehensive ticket description.\n\n`;
-    prompt += `Generate a well-structured ticket with:\n`;
-    prompt += `- A clear, concise title\n`;
-    prompt += `- A detailed description that combines information from all sources\n`;
-    prompt += `- Proper organization with sections if needed\n\n`;
-    prompt += `Output the ticket in Markdown format with:\n`;
-    prompt += `# Title\n\n`;
-    prompt += `**Type:** (task|bug|story|etc)\n`;
-    prompt += `**Priority:** (high|medium|low)\n\n`;
-    prompt += `## Description\n`;
-    prompt += `[Synthesized description here]\n\n`;
-    prompt += `---\n\n`;
+    let prompt = `Synthesize the following sources into a single, comprehensive Jira ticket.\n\n`;
+    prompt += `Output ONLY valid Markdown using this exact structure. Every heading MUST appear even when source material is sparse — use "None" for sections with no relevant information:\n\n`;
+    prompt += `# Heading: <concise title>\n\n`;
+    prompt += `**Type:** <task|bug|story|epic|subtask>\n`;
+    prompt += `**Priority:** <high|medium|low>\n\n`;
+    prompt += `## Description\n\n`;
+    prompt += `### Summary\n`;
+    prompt += `<concise issue description with code excerpts where applicable>\n\n`;
+    prompt += `#### Technical Details\n`;
+    prompt += `<implementation suggestions, backward compatibility concerns, required migrations, architectural alignment>\n\n`;
+    prompt += `### Acceptance Criteria\n`;
+    prompt += `- <criterion 1>\n\n`;
+    prompt += `### Unit Test Scope\n`;
+    prompt += `- <unit test scope item 1>\n\n`;
+    prompt += `#### Dependencies\n`;
+    prompt += `- <dependency or "None">\n\n`;
+    prompt += `### Risks & Assumptions\n`;
+    prompt += `- <risk or assumption or "None">\n\n`;
+    prompt += `### Affected Repositories\n`;
+    prompt += `- <repository or "None">\n\n`;
+    prompt += `#### References\n`;
+    prompt += `- <reference or "None">\n\n`;
+    prompt += `#### Out of Scope\n`;
+    prompt += `- <out of scope item or "None">\n\n`;
+    prompt += `Rules:\n`;
+    prompt += `- Do not add, remove, or rename any heading.\n`;
+    prompt += `- Do not wrap the output in a code fence.\n`;
+    prompt += `- The line "## Description" MUST appear exactly once.\n\n`;
     prompt += `Sources to synthesize:\n\n`;
 
     sources.forEach((source, index) => {

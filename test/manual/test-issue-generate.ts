@@ -1,0 +1,151 @@
+/**
+ * Manual Test: issue:generate buildSynthesisPrompt template sections
+ *
+ * Run: nr test:manual -- test-issue-generate
+ *
+ * Verifies that the synthesized output contains all required Jira ticket
+ * template sections when the AI response is mocked. No real API calls are made.
+ */
+
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from '../../src/app.module';
+import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
+import { AiService } from '../../src/integrations/ai/ai.service';
+
+const MOCK_AI_RESPONSE = `# Heading: Add rate limiting to the API gateway
+
+**Type:** task
+**Priority:** medium
+
+## Description
+
+### Summary
+The API gateway currently has no rate limiting. Under sustained load, downstream services are overwhelmed.
+Add per-client rate limiting using a token-bucket algorithm.
+
+\`\`\`typescript
+// Example middleware hook
+app.use(rateLimit({ windowMs: 60_000, max: 100 }));
+\`\`\`
+
+#### Technical Details
+- Add a Redis-backed token-bucket middleware to the gateway.
+- Ensure backward compatibility by defaulting to 100 req/min per client.
+- No database migrations required.
+
+### Acceptance Criteria
+- API returns 429 when a client exceeds 100 requests per minute.
+- The rate limit is configurable via environment variable RATE_LIMIT_MAX.
+
+### Unit Test Scope
+- Unit test the token-bucket middleware in isolation.
+- Integration test the gateway with a mocked Redis client.
+
+#### Dependencies
+- redis@^4.0.0
+
+### Risks & Assumptions
+- Redis availability is assumed; a circuit breaker is out of scope.
+
+### Affected Repositories
+- api-gateway
+
+#### References
+- https://example.com/rfc-rate-limiting
+
+#### Out of Scope
+- Per-endpoint rate limits.
+`;
+
+async function testIssueGenerate() {
+  console.log('\n🧪 Manual Test: issue:generate buildSynthesisPrompt template sections\n');
+
+  const app = await NestFactory.createApplicationContext(AppModule, {
+    logger: ['error', 'warn'],
+  });
+
+  let passed = 0;
+  let failed = 0;
+
+  const pass = (msg: string) => {
+    console.log(`  ✓ ${msg}`);
+    passed++;
+  };
+
+  const fail = (msg: string, detail?: string) => {
+    console.error(`  ✗ ${msg}${detail ? `\n    → ${detail}` : ''}`);
+    failed++;
+  };
+
+  const aiService = app.get(AiService);
+  const originalExecute = (aiService as any).execute.bind(aiService);
+  (aiService as any).execute = async () => ({ content: MOCK_AI_RESPONSE });
+
+  // Two temp source files to bypass the single-source short-circuit in synthesizeWithAI:
+  //   if (sources.length === 1 && sources[0].ticket) return sources[0].ticket
+  const tmpFile1 = path.join(os.tmpdir(), `wf-gen-test-a-${Date.now()}.txt`);
+  const tmpFile2 = path.join(os.tmpdir(), `wf-gen-test-b-${Date.now()}.txt`);
+  fs.writeFileSync(tmpFile1, 'Source A: placeholder content.', 'utf-8');
+  fs.writeFileSync(tmpFile2, 'Source B: placeholder content.', 'utf-8');
+
+  let capturedOutput = '';
+  const origWrite = process.stdout.write.bind(process.stdout);
+  (process.stdout.write as any) = (chunk: any, ...args: any[]) => {
+    capturedOutput += String(chunk);
+    return true;
+  };
+
+  const command = app.get(IssueGenerateCommand);
+
+  try {
+    await command.run([tmpFile1, tmpFile2], { repos: [] } as any);
+  } catch (_) {
+    // Ignore — assertions are made on captured stdout
+  } finally {
+    process.stdout.write = origWrite;
+    fs.unlinkSync(tmpFile1);
+    fs.unlinkSync(tmpFile2);
+    (aiService as any).execute = originalExecute;
+  }
+
+  const REQUIRED_SECTIONS = [
+    '### Summary',
+    '#### Technical Details',
+    '### Acceptance Criteria',
+    '### Unit Test Scope',
+    '#### Dependencies',
+    '### Risks & Assumptions',
+    '### Affected Repositories',
+    '#### References',
+    '#### Out of Scope',
+  ];
+
+  for (const section of REQUIRED_SECTIONS) {
+    if (capturedOutput.includes(section)) {
+      pass(`Output contains "${section}"`);
+    } else {
+      fail(`Output is missing "${section}"`, `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`);
+    }
+  }
+
+  // The prompt instructs the AI to start the title with "# Heading:" — verify the serialized
+  // output includes a non-empty heading line in that format.
+  if (/# Heading: .+/.test(capturedOutput)) {
+    pass('Output contains "# Heading: <title>" line');
+  } else {
+    fail('Output is missing "# Heading: <title>" line', `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`);
+  }
+
+  console.log('\n' + '━'.repeat(60));
+  console.log(`Results: ${passed} passed   ${failed} failed`);
+  if (failed === 0) console.log('All tests passed! ✓');
+  console.log('━'.repeat(60) + '\n');
+
+  await app.close();
+  if (failed > 0) process.exit(1);
+}
+
+testIssueGenerate();
