@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AIError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
@@ -79,6 +80,7 @@ export class AiService {
   constructor(
     private logger: LoggerService,
     @Inject(LLM_ADAPTER) private adapter: LlmAdapter,
+    private configService: ConfigService,
   ) {}
 
   async execute(request: AIRequest): Promise<AIResponse> {
@@ -417,6 +419,32 @@ Return ONLY a valid JSON object:
         error,
       });
     }
+  }
+
+  /**
+   * Returns the full AI provider display name for use in dry-run previews.
+   * Reads ai.provider from config (default: 'anthropic').
+   *
+   * @returns 'Anthropic Claude' | 'Google Gemini' | 'DeepSeek'
+   */
+  getProviderDisplayName(): string {
+    const provider = this.configService.get<string>('ai.provider', 'anthropic');
+    if (provider === 'gemini') return 'Google Gemini';
+    if (provider === 'deepseek') return 'DeepSeek';
+    return 'Anthropic Claude';
+  }
+
+  /**
+   * Returns a short AI provider name for use in interactive chat UI labels.
+   * Reads ai.provider from config (default: 'anthropic').
+   *
+   * @returns 'Claude' | 'Gemini' | 'DeepSeek'
+   */
+  getProviderShortName(): string {
+    const provider = this.configService.get<string>('ai.provider', 'anthropic');
+    if (provider === 'gemini') return 'Gemini';
+    if (provider === 'deepseek') return 'DeepSeek';
+    return 'Claude';
   }
 
   private detectCommitFormat(
