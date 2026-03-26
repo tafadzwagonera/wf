@@ -10,6 +10,7 @@ import {
 } from './interfaces';
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
 
 /**
  * Service for managing multi-turn conversations with Claude
@@ -40,7 +41,7 @@ export class ConversationService {
     ticketKey: string,
     context: ConversationContext,
   ): Promise<ConversationState> {
-    const conversationId = crypto.randomUUID();
+    const conversationId = randomUUID();
     const now = new Date();
 
     const state: ConversationState = {
