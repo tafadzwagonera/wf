@@ -170,6 +170,7 @@ export class BitBucketAdapter implements PlatformAdapter {
       PlatformFeature.SEARCH_TICKETS,
       PlatformFeature.GET_PULL_REQUEST,
       PlatformFeature.CREATE_COMMENT,
+      PlatformFeature.CREATE_INLINE_COMMENT,
     ];
 
     return supportedFeatures.includes(feature);
@@ -208,6 +209,32 @@ export class BitBucketAdapter implements PlatformAdapter {
         _body: { content: { raw: body } },
       });
     }
+  }
+
+  /**
+   * Post an inline (line-level) comment on a BitBucket PR diff.
+   * @param prUrl Full PR URL
+   * @param filePath Diff-relative file path (e.g. "src/foo/bar.ts")
+   * @param line Destination-side line number to anchor the comment to
+   * @param body Markdown comment body
+   */
+  async createInlineComment(
+    prUrl: string,
+    filePath: string,
+    line: number,
+    body: string,
+  ): Promise<void> {
+    const { workspace, repo, prId } = this.parsePullRequestUrl(prUrl);
+    await this.bitbucket.pullrequests.createComment({
+      workspace,
+      repo_slug: repo,
+      pull_request_id: prId,
+      _body: {
+        type: 'pullrequest_comment',
+        content: { raw: body },
+        inline: { path: filePath, to: line },
+      },
+    });
   }
 
   /**

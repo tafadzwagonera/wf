@@ -16,6 +16,7 @@ export enum PlatformFeature {
   CREATE_COMMENT = 'create_comment',
   ASSIGN_TICKET = 'assign_ticket',
   ADD_LABELS = 'add_labels',
+  CREATE_INLINE_COMMENT = 'create_inline_comment',
 }
 
 /**
@@ -83,6 +84,21 @@ export interface PlatformAdapter {
    * @param body Markdown comment body
    */
   createComment?(reference: string, body: string): Promise<void>;
+
+  /**
+   * Post an inline (line-level) comment on a PR diff.
+   * Optional — only for platforms that support inline PR comments.
+   * @param prUrl Full PR URL
+   * @param filePath Diff-relative file path (e.g. "src/foo/bar.ts")
+   * @param line Destination-side line number to anchor the comment to
+   * @param body Markdown comment body
+   */
+  createInlineComment?(
+    prUrl: string,
+    filePath: string,
+    line: number,
+    body: string,
+  ): Promise<void>;
 
   /**
    * Find an open pull request whose source branch name contains the ticket key

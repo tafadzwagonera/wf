@@ -1,6 +1,6 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
-import { AiService } from '../integrations/ai/ai.service';
+import { AiService, CodeIssue } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -429,12 +429,42 @@ export class IssueReviewCommand extends CommandRunner {
     prUrl: string,
     review: any,
   ): Promise<void> {
-    const body = this.formatReviewAsComment(review);
     const adapter = this.platformService.getAdapter('bitbucket');
 
-    console.log(chalk.cyan('💬 Posting review comment to Bitbucket...\n'));
-    await adapter.createComment!(prUrl, body);
-    console.log(chalk.green('✓ Comment posted to Bitbucket\n'));
+    const inlineIssues: CodeIssue[] = (review.issues ?? []).filter(
+      (i: CodeIssue) =>
+        (i.severity === 'error' || i.severity === 'warning') &&
+        i.file != null &&
+        i.line != null &&
+        i.line > 0,
+    );
+    const generalIssues: CodeIssue[] = (review.issues ?? []).filter(
+      (i: CodeIssue) =>
+        !(
+          (i.severity === 'error' || i.severity === 'warning') &&
+          i.file != null &&
+          i.line != null &&
+          i.line > 0
+        ),
+    );
+
+    const summaryBody = this.formatReviewAsComment({ ...review, issues: generalIssues });
+    console.log(chalk.cyan('💬 Posting review summary to Bitbucket...\n'));
+    await adapter.createComment!(prUrl, summaryBody);
+    console.log(chalk.green('✓ Summary comment posted\n'));
+
+    if (inlineIssues.length > 0 && adapter.createInlineComment) {
+      console.log(chalk.cyan(`💬 Posting ${inlineIssues.length} inline comment(s) to Bitbucket...\n`));
+      for (const issue of inlineIssues) {
+        const body = `**[${issue.severity.toUpperCase()}]** ${issue.message}`;
+        try {
+          await adapter.createInlineComment(prUrl, issue.file!, issue.line!, body);
+        } catch (err: any) {
+          console.log(chalk.yellow(`  ⚠️  Inline comment skipped (${issue.file}:${issue.line}): ${err.message}\n`));
+        }
+      }
+      console.log(chalk.green('✓ Inline comments posted\n'));
+    }
   }
 
   /**
