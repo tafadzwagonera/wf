@@ -24,7 +24,7 @@ interface IssueGenerateOptions {
   title?: string;
   type?: string;
   priority?: string;
-  repos: string[];
+  repos?: string[];
   dryRun?: boolean;
 }
 
@@ -206,7 +206,7 @@ export class IssueGenerateCommand extends CommandRunner {
       const sourceContents = await this.fetchAllSources(
         passedParams,
         options?.platform,
-        options!.repos[0],
+        options?.repos?.[0],
       );
 
       // Use AI to synthesize and collate data
@@ -331,7 +331,6 @@ export class IssueGenerateCommand extends CommandRunner {
     flags: '-r, --repos <repos>',
     description:
       'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
-    required: true,
   })
   parseRepos(val: string): string[] {
     return val

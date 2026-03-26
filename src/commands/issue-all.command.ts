@@ -46,7 +46,7 @@ interface IssueAllOptions {
   platform?: string;
   chatMode?: boolean;
   force?: boolean;
-  repos: string[];
+  repos?: string[];
   dryRun?: boolean;
 }
 
@@ -126,7 +126,6 @@ export class IssueAllCommand extends CommandRunner {
     flags: '-r, --repos <repos>',
     description:
       'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
-    required: true,
   })
   parseRepos(val: string): string[] {
     return val
@@ -241,7 +240,7 @@ export class IssueAllCommand extends CommandRunner {
 
       // Resolve base directory: use the first repo when provided,
       // otherwise fall back to the current working directory.
-      const repoBaseDir = resolveRepoBasePath(options.repos[0]);
+      const repoBaseDir = resolveRepoBasePath(options.repos?.[0]);
 
       const repoList: (string | undefined)[] = options.repos?.length
         ? options.repos

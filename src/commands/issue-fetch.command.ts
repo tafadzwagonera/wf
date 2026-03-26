@@ -15,7 +15,7 @@ type OutputFormat = 'json' | 'md' | 'yaml' | 'xml';
 interface IssueFetchOptions {
   format?: OutputFormat;
   platform?: string;
-  repos: string[];
+  repos?: string[];
   dryRun?: boolean;
 }
 
@@ -69,7 +69,6 @@ export class IssueFetchCommand extends CommandRunner {
     flags: '-r, --repos <repos>',
     description:
       'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
-    required: true,
   })
   parseRepos(val: string): string[] {
     return val
@@ -151,7 +150,7 @@ export class IssueFetchCommand extends CommandRunner {
         platformName === 'bitbucket'
           ? this.formatBitbucketReference(
               ticketKey,
-              options!.repos[0],
+              options?.repos?.[0] ?? (() => { throw new Error('--repos is required for the Bitbucket platform'); })(),
               this.configService,
             )
           : ticketKey;

@@ -307,6 +307,34 @@ async function testIssueAllAffectedRepos() {
     }
   }
 
+  // Test 7: no --repos provided → resolveRepoBasePath falls back to cwd
+  console.log('Test 7: omit --repos → command falls back to cwd');
+  {
+    const { tmpRoot, cleanup } = makeFixtures({ ticketKey: 'TEST-7', action: 'fix' });
+    const originalCwd = process.cwd();
+    process.chdir(tmpRoot);
+    try {
+      const { output } = await captureOutput(() =>
+        command.run(['TEST-7'], {
+          from: 'implement',
+          to: 'implement',
+          action: 'fix',
+          // repos intentionally omitted
+        }),
+      );
+      // Commander emits: "error: required option '-r, --repos <repos>' not supplied"
+      const commanderRequiredError = output.includes("required option") && output.includes("--repos");
+      if (!commanderRequiredError) {
+        pass('Omitting --repos does not produce a "required" error');
+      } else {
+        fail(`Test 7: got required-option error. Output:\n${output}`);
+      }
+    } finally {
+      process.chdir(originalCwd);
+      cleanup();
+    }
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`Results: ✅ ${passed} passed   ❌ ${failed} failed`);
