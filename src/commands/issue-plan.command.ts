@@ -250,7 +250,7 @@ export class IssuePlanCommand extends CommandRunner {
           this.dryRunPreview.previewApiCall({
             method: 'POST',
             endpoint: '/v1/messages',
-            platform: 'Anthropic Claude',
+            platform: this.aiService.getProviderDisplayName(),
             description: `Generate ${action} plan from prompt`,
             estimatedResponse: [
               '{',
@@ -363,7 +363,7 @@ export class IssuePlanCommand extends CommandRunner {
         this.dryRunPreview.previewApiCall({
           method: 'POST',
           endpoint: '/v1/messages',
-          platform: 'Anthropic Claude',
+          platform: this.aiService.getProviderDisplayName(),
           description: `Generate ${action} implementation plan`,
           estimatedResponse: [
             '{',

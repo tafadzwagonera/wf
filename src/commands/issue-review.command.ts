@@ -146,7 +146,7 @@ export class IssueReviewCommand extends CommandRunner {
         this.dryRunPreview.previewApiCall({
           method: 'POST',
           endpoint: '/v1/messages',
-          platform: 'Anthropic Claude',
+          platform: this.aiService.getProviderDisplayName(),
           description: 'Perform AI-powered code review',
           estimatedResponse: [
             '{',

@@ -6,6 +6,7 @@ import {
   ConversationContext,
   WorkflowStage,
 } from './interfaces';
+import { AiService } from '../ai.service';
 
 /**
  * Service for handling CLI UI for interactive chat sessions
@@ -16,6 +17,8 @@ import {
 @Injectable()
 export class ChatUIService {
   private inquirer = createPromptModule();
+
+  constructor(private readonly aiService: AiService) {}
 
   /**
    * Display introduction to chat session with context
@@ -28,7 +31,7 @@ export class ChatUIService {
     console.log(chalk.gray('─'.repeat(70)));
     console.log(
       chalk.gray(
-        'You can now discuss the output with Claude. Type "exit" to continue.',
+        `You can now discuss the output with ${this.aiService.getProviderShortName()}. Type "exit" to continue.`,
       ),
     );
     console.log();
@@ -116,7 +119,7 @@ export class ChatUIService {
    */
   displayAssistantResponse(message: ConversationMessage): void {
     console.log();
-    console.log(chalk.bold.magenta('🤖 Claude:'));
+    console.log(chalk.bold.magenta(`🤖 ${this.aiService.getProviderShortName()}:`));
     console.log();
 
     // Split content into lines and format
@@ -186,7 +189,7 @@ export class ChatUIService {
         const prefix =
           msg.role === 'user'
             ? chalk.cyan(`💬 You [${index + 1}]:`)
-            : chalk.magenta(`🤖 Claude [${index + 1}]:`);
+            : chalk.magenta(`🤖 ${this.aiService.getProviderShortName()} [${index + 1}]:`);
 
         console.log();
         console.log(prefix);
@@ -224,7 +227,7 @@ export class ChatUIService {
     console.log(chalk.gray('─'.repeat(70)));
     console.log();
     console.log(
-      chalk.white('  • Type any question or message to chat with Claude'),
+      chalk.white(`  • Type any question or message to chat with ${this.aiService.getProviderShortName()}`),
     );
     console.log(chalk.white('  • "history" - View conversation history'));
     console.log(chalk.white('  • "help" - Show this help message'));
@@ -235,7 +238,7 @@ export class ChatUIService {
     );
     console.log();
     console.log(chalk.dim('Tips:'));
-    console.log(chalk.dim('  - Ask Claude to explain steps in more detail'));
+    console.log(chalk.dim(`  - Ask ${this.aiService.getProviderShortName()} to explain steps in more detail`));
     console.log(
       chalk.dim('  - Discuss potential issues or alternative approaches'),
     );
