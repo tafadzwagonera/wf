@@ -16,6 +16,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
 
+/** Minimum description length (chars) for a ticket to bypass AI synthesis. */
+const MIN_DESCRIPTION_LENGTH = 100;
+
 interface IssueGenerateOptions {
   format?: string;
   output?: string;
@@ -523,9 +526,12 @@ export class IssueGenerateCommand extends CommandRunner {
   ): Promise<UniversalTicket> {
     console.log(chalk.cyan('\n🤖 Using AI to synthesize content...\n'));
 
-    // If only one source and it's already a ticket with a description, return it
-    if (sources.length === 1 && sources[0].ticket?.description?.trim()) {
-      return sources[0].ticket;
+    // If only one source and its description is long enough, skip AI synthesis
+    if (
+      sources.length === 1 &&
+      (sources[0].ticket?.description?.trim().length ?? 0) >= MIN_DESCRIPTION_LENGTH
+    ) {
+      return sources[0].ticket!;
     }
 
     // Build prompt for AI

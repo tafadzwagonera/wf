@@ -80,9 +80,13 @@ async function testIssueGenerate() {
     failed++;
   };
 
-  const aiService = app.get(AiService);
-  const originalExecute = (aiService as any).execute.bind(aiService);
-  (aiService as any).execute = async () => ({ content: MOCK_AI_RESPONSE });
+  app.get(AiService); // ensure singleton is initialized
+  const originalProtoExecute = AiService.prototype.execute;
+  let aiCallCount = 0;
+  (AiService.prototype as any).execute = async () => {
+    aiCallCount++;
+    return { content: MOCK_AI_RESPONSE };
+  };
 
   // Two temp source files to bypass the single-source short-circuit in synthesizeWithAI:
   //   if (sources.length === 1 && sources[0].ticket) return sources[0].ticket
@@ -108,7 +112,7 @@ async function testIssueGenerate() {
     process.stdout.write = origWrite;
     fs.unlinkSync(tmpFile1);
     fs.unlinkSync(tmpFile2);
-    (aiService as any).execute = originalExecute;
+    AiService.prototype.execute = originalProtoExecute;
   }
 
   const REQUIRED_SECTIONS = [
@@ -149,14 +153,12 @@ async function testIssueGenerate() {
   }
 
   // --- Fix 2: AI synthesis bypass regression ---
-  // A ticket with no description must NOT be short-circuited; it must go through AI.
-  // The existing MOCK_AI_RESPONSE is only returned when synthesizeWithAI calls aiService.execute.
-  // If the short-circuit fires, capturedOutput would be empty or lack the required sections.
-  // The REQUIRED_SECTIONS checks above already cover this — log intent explicitly:
-  if (capturedOutput.includes('### Summary')) {
-    pass('AI synthesis was invoked (short-circuit did not fire for bare-title ticket)');
+  // Verifies aiService.execute was called at least once during the two-source run above.
+  // This is a direct call-count spy — immune to false positives from source content.
+  if (aiCallCount > 0) {
+    pass(`AI synthesis was invoked (aiService.execute called ${aiCallCount} time(s))`);
   } else {
-    fail('AI synthesis was NOT invoked — short-circuit still firing for bare-title ticket');
+    fail('AI synthesis was NOT invoked — aiService.execute call count is 0');
   }
 
   // The prompt instructs the AI to start the title with "# Heading:" — verify the serialized
@@ -165,6 +167,48 @@ async function testIssueGenerate() {
     pass('Output contains "# Heading: <title>" line');
   } else {
     fail('Output is missing "# Heading: <title>" line', `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`);
+  }
+
+  // --- Fix 3: single-source stub-description forces AI synthesis ---
+  // A ticket with a description shorter than MIN_DESCRIPTION_LENGTH must go through AI.
+  // Uses a single .md source with a 20-char description — should NOT be short-circuited.
+  {
+    const stubFile = path.join(os.tmpdir(), `wf-gen-stub-${Date.now()}.md`);
+    fs.writeFileSync(
+      stubFile,
+      '# Plan: Quick Stub Feature\n\nShort stub description.\n',
+      'utf-8',
+    );
+
+    let stubAiCallCount = 0;
+    const existingProtoExecute = AiService.prototype.execute;
+    (AiService.prototype as any).execute = async () => {
+      stubAiCallCount++;
+      return { content: MOCK_AI_RESPONSE };
+    };
+
+    let stubOutput = '';
+    const origWriteStub = process.stdout.write.bind(process.stdout);
+    (process.stdout.write as any) = (chunk: any, ...args: any[]) => {
+      stubOutput += String(chunk);
+      return true;
+    };
+
+    try {
+      await command.run([stubFile], { repos: [] } as any);
+    } catch (_) {
+      // Ignore — assertion is on stubAiCallCount
+    } finally {
+      process.stdout.write = origWriteStub;
+      fs.unlinkSync(stubFile);
+      AiService.prototype.execute = existingProtoExecute;
+    }
+
+    if (stubAiCallCount > 0) {
+      pass('single-source stub description triggered AI synthesis (not short-circuited)');
+    } else {
+      fail('single-source stub description was short-circuited — AI was NOT called');
+    }
   }
 
   console.log('\n' + '━'.repeat(60));
