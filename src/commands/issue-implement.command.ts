@@ -478,7 +478,7 @@ Return ONLY a valid JSON object:
           this.dryRunPreview.previewApiCall({
             method: 'POST',
             endpoint: '/v1/messages',
-            platform: 'Anthropic Claude',
+            platform: this.aiService.getProviderDisplayName(),
             description: 'Generate investigation findings and recommendations',
             estimatedResponse: [
               '{',
