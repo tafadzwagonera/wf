@@ -64,7 +64,7 @@ export class IssueAllCommand extends CommandRunner {
     private configService: ConfigService,
     private dryRunPreview: DryRunPreviewService,
     private agents: AgentOrchestrator,
-    private aiService: AiService,
+    private readonly aiService: AiService,
   ) {
     super();
   }

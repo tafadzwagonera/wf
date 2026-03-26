@@ -12,7 +12,7 @@ import { AiService } from '../ai.service';
  * Service for handling CLI UI for interactive chat sessions
  *
  * Manages user input, message display, and formatting for
- * terminal-based conversations with Claude.
+ * terminal-based conversations with the configured AI provider.
  */
 @Injectable()
 export class ChatUIService {
