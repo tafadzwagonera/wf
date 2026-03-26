@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueAllCommand } from '../../src/commands/issue-all.command';
@@ -52,7 +53,7 @@ async function testIssueAllAffectedRepos() {
   }): { tmpRoot: string; cleanup: () => void } => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-all-'));
     const platformName = opts.platformName ?? 'jira';
-    const platformDir = path.join(tmpRoot, platformName);
+    const platformDir = path.join(tmpRoot, '.wf', platformName);
     fs.mkdirSync(platformDir, { recursive: true });
 
     const ticketPath = path.join(platformDir, `${opts.ticketKey}.md`);
@@ -79,6 +80,12 @@ async function testIssueAllAffectedRepos() {
     );
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2), 'utf-8');
 
+    // Initialise a bare git repo so branch operations don't throw.
+    execSync('git init', { cwd: tmpRoot, stdio: 'ignore' });
+    execSync('git config user.email "test@test.com"', { cwd: tmpRoot, stdio: 'ignore' });
+    execSync('git config user.name "Test"', { cwd: tmpRoot, stdio: 'ignore' });
+    execSync('git commit --allow-empty -m "init"', { cwd: tmpRoot, stdio: 'ignore' });
+
     return {
       tmpRoot,
       cleanup: () => fs.rmSync(tmpRoot, { recursive: true, force: true }),
@@ -88,23 +95,29 @@ async function testIssueAllAffectedRepos() {
   /**
    * Run a command.run() call and capture all stdout lines.
    * Swaps process.stdout.write so chalk output is intercepted.
+   * Also mocks process.exit so a failed command doesn't kill the test process.
    */
   const captureOutput = async (
     fn: () => Promise<void>,
   ): Promise<{ output: string; error?: string }> => {
     const chunks: string[] = [];
     const originalWrite = process.stdout.write.bind(process.stdout);
+    const originalExit = process.exit.bind(process);
     (process.stdout.write as any) = (chunk: any, ...args: any[]) => {
       chunks.push(typeof chunk === 'string' ? chunk : chunk.toString());
       return originalWrite(chunk, ...args);
     };
+    (process.exit as any) = (code?: number) => {
+      throw new Error(`process.exit(${code ?? 0})`);
+    };
     try {
       await fn();
     } catch (err: any) {
+      // Swallow — may be from our mocked process.exit or a handled command error.
+    } finally {
       (process.stdout.write as any) = originalWrite;
-      return { output: chunks.join(''), error: err.message };
+      (process.exit as any) = originalExit;
     }
-    (process.stdout.write as any) = originalWrite;
     return { output: chunks.join('') };
   };
 
@@ -192,15 +205,15 @@ async function testIssueAllAffectedRepos() {
       const hasRepoA = output.includes('repo-a');
       const hasRepoB = output.includes('repo-b');
       const hasRepoC = output.includes('repo-c');
-      // repo-b should appear exactly once (deduplicated)
-      const repoBCount = (output.match(/repo-b/g) ?? []).length;
-      if (hasRepoA && hasRepoB && hasRepoC && repoBCount === 1) {
+      // repo-b should be looped over exactly once (sub-label appears once, not twice)
+      const repoBLoopCount = (output.match(/── repo-b ──/g) ?? []).length;
+      if (hasRepoA && hasRepoB && hasRepoC && repoBLoopCount === 1) {
         pass(
-          'Deduplication: repo-a, repo-b (×1), repo-c each appear correctly',
+          'Deduplication: repo-a, repo-b (iterated ×1), repo-c each appear correctly',
         );
       } else {
         fail(
-          `Test 3: expected repo-a=${hasRepoA}, repo-b×1=${repoBCount === 1}, repo-c=${hasRepoC}. Output:\n${output}`,
+          `Test 3: expected repo-a=${hasRepoA}, repo-b-iterated×1=${repoBLoopCount === 1}, repo-c=${hasRepoC}. Output:\n${output}`,
         );
       }
     } finally {
@@ -260,6 +273,33 @@ async function testIssueAllAffectedRepos() {
         fail(
           `Test 5: review-repo not found in REVIEW output. Output:\n${output}`,
         );
+      }
+    } finally {
+      process.chdir(originalCwd);
+      cleanup();
+    }
+  }
+
+  // Test 6: Multi-repo → stage 3 header appears exactly once
+  console.log('Test 6: multi-repo → STAGE 3 header appears exactly once');
+  {
+    const { tmpRoot, cleanup } = makeFixtures({ ticketKey: 'TEST-6', action: 'fix' });
+    const originalCwd = process.cwd();
+    process.chdir(tmpRoot);
+    try {
+      const { output } = await captureOutput(() =>
+        command.run(['TEST-6'], {
+          from: 'implement',
+          to: 'implement',
+          action: 'fix',
+          repos: ['repo-a', 'repo-b'],
+        }),
+      );
+      const headerCount = (output.match(/STAGE 3: Implementation Guide/g) ?? []).length;
+      if (headerCount === 1) {
+        pass('Multi-repo: STAGE 3 header appears exactly once');
+      } else {
+        fail(`Test 6: expected 1 header, got ${headerCount}.\n${output}`);
       }
     } finally {
       process.chdir(originalCwd);

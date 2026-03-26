@@ -39,11 +39,13 @@ export interface PlannerOptions {
 export interface ImplementerOptions {
   platformName: string;
   repoDir?: string;
+  suppressHeader?: boolean;
 }
 
 export interface ReviewerOptions {
   skipExisting?: boolean;
   repoDir?: string;
+  suppressHeader?: boolean;
 }
 
 export interface FindingsArtifact {

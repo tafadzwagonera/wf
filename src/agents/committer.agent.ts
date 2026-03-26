@@ -28,13 +28,16 @@ export class CommitterAgent {
     ticketKey: string,
     repoDir?: string,
     ticketContext?: string,
+    suppressHeader?: boolean,
   ): Promise<void> {
-    console.log(chalk.bold.yellow('\n💾 STAGE 5: Commit Changes'));
-    console.log(chalk.gray('─'.repeat(70)));
+    if (!suppressHeader) {
+      console.log(chalk.bold.yellow('\n💾 STAGE 5: Commit Changes'));
+      console.log(chalk.gray('─'.repeat(70)));
+    }
 
     const status = await this.gitService.getStatus(repoDir);
     if (status.files.length === 0) {
-      console.log(chalk.yellow('⚠ No changes to commit'));
+      console.log(chalk.yellow('⚠️  No changes to commit'));
       return;
     }
 

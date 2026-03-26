@@ -243,6 +243,10 @@ export class IssueAllCommand extends CommandRunner {
       // otherwise fall back to the current working directory.
       const repoBaseDir = resolveRepoBasePath(options.repos[0]);
 
+      const repoList: (string | undefined)[] = options.repos?.length
+        ? options.repos
+        : [undefined];
+
       if (options?.dryRun) {
         const platformDir = resolveArtifactDir(repoBaseDir, platformName);
 
@@ -382,12 +386,22 @@ export class IssueAllCommand extends CommandRunner {
                 '✓ Investigation findings saved to: ' + findingsPath,
               );
             } else {
-              this.dryRunPreview.showNoSideEffects();
-              console.log(
-                chalk.gray(
-                  '     Displays: branch name, implementation steps, affected files',
-                ),
-              );
+              for (const repo of repoList) {
+                if (repoList.length > 1) {
+                  console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+                }
+                this.dryRunPreview.showNoSideEffects();
+                console.log(
+                  chalk.gray(
+                    '     Displays: branch name, implementation steps, affected files',
+                  ),
+                );
+                totalApiCalls++;
+                totalFilesCreated++;
+                terminalLines.push(
+                  `✓ Implementation guide displayed for: ${repo ?? 'current directory'}`,
+                );
+              }
             }
           } else if (stage === WorkflowStage.REVIEW) {
             if (action === 'investigate') {
@@ -396,49 +410,57 @@ export class IssueAllCommand extends CommandRunner {
               );
               continue;
             }
-            const reviewPath = path.join(platformDir, `${ticketKey}-review.md`);
-            const artifactExists = fs.existsSync(reviewPath);
+            for (const repo of repoList) {
+              if (repoList.length > 1) {
+                console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+              }
+              const repoPlatformDir = repo
+                ? resolveArtifactDir(resolveRepoBasePath(repo), platformName)
+                : platformDir;
+              const reviewPath = path.join(repoPlatformDir, `${ticketKey}-review.md`);
+              const artifactExists = fs.existsSync(reviewPath);
 
-            if (skipExisting && artifactExists) {
-              this.dryRunPreview.showSkipped('artifact exists');
-            } else {
-              this.dryRunPreview.previewApiCall({
-                method: 'POST',
-                endpoint: aiEndpoint,
-                platform: aiPlatformName,
-                description: 'Review code changes (git diff)',
-                estimatedResponse: [
-                  '{',
-                  '  "summary": "<review summary>",',
-                  '  "approved": true,',
-                  '  "issues": [],',
-                  '  "suggestions": ["..."]',
-                  '}',
-                ].join('\n'),
-              });
-              this.dryRunPreview.previewFileWrite({
-                filePath: reviewPath,
-                operation: artifactExists ? 'overwrite' : 'create',
-                sizeEstimate: '2–5 KB',
-                format: 'markdown',
-                contentPreview: [
-                  'Code Review Report',
-                  'Context: <source>',
-                  '',
-                  '## Summary',
-                  '<AI review summary>',
-                  '',
-                  '## Issues Found',
-                  '(none)',
-                  '',
-                  'Status: ✓ Approved',
-                ].join('\n'),
-              });
-              totalApiCalls++;
-              totalFilesCreated++;
-              terminalLines.push('✓ Review complete');
-              terminalLines.push('  Summary: <AI review summary>');
-              terminalLines.push('  Status: ✓ Approved');
+              if (skipExisting && artifactExists) {
+                this.dryRunPreview.showSkipped('artifact exists');
+              } else {
+                this.dryRunPreview.previewApiCall({
+                  method: 'POST',
+                  endpoint: aiEndpoint,
+                  platform: aiPlatformName,
+                  description: 'Review code changes (git diff)',
+                  estimatedResponse: [
+                    '{',
+                    '  "summary": "<review summary>",',
+                    '  "approved": true,',
+                    '  "issues": [],',
+                    '  "suggestions": ["..."]',
+                    '}',
+                  ].join('\n'),
+                });
+                this.dryRunPreview.previewFileWrite({
+                  filePath: reviewPath,
+                  operation: artifactExists ? 'overwrite' : 'create',
+                  sizeEstimate: '2–5 KB',
+                  format: 'markdown',
+                  contentPreview: [
+                    'Code Review Report',
+                    'Context: <source>',
+                    '',
+                    '## Summary',
+                    '<AI review summary>',
+                    '',
+                    '## Issues Found',
+                    '(none)',
+                    '',
+                    'Status: ✓ Approved',
+                  ].join('\n'),
+                });
+                totalApiCalls++;
+                totalFilesCreated++;
+                terminalLines.push('✓ Review complete');
+                terminalLines.push('  Summary: <AI review summary>');
+                terminalLines.push('  Status: ✓ Approved');
+              }
             }
           } else if (stage === WorkflowStage.COMMIT) {
             if (action === 'investigate') {
@@ -447,15 +469,20 @@ export class IssueAllCommand extends CommandRunner {
               );
               continue;
             }
-            this.dryRunPreview.showNoSideEffects();
-            console.log(
-              chalk.gray(
-                '     Displays: commit commands — user confirms before execution',
-              ),
-            );
-            // Optimistic preview — live path may emit 'No changes to commit' if diff is empty
-            terminalLines.push('✓ Commit message generated');
-            terminalLines.push(`  Message: ${ticketKey}: <AI-generated>`);
+            for (const repo of repoList) {
+              if (repoList.length > 1) {
+                console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+              }
+              this.dryRunPreview.showNoSideEffects();
+              console.log(
+                chalk.gray(
+                  '     Displays: commit commands — user confirms before execution',
+                ),
+              );
+              // Optimistic preview — live path may emit 'No changes to commit' if diff is empty
+              terminalLines.push('✓ Commit message generated');
+              terminalLines.push(`  Message: ${ticketKey}: <AI-generated>`);
+            }
           }
         }
 
@@ -534,26 +561,21 @@ export class IssueAllCommand extends CommandRunner {
         if (planArtifact.action !== action) action = planArtifact.action;
       }
 
-      const repoList: (string | undefined)[] = options.repos?.length
-        ? options.repos
-        : [undefined];
-
-      for (const repo of repoList) {
-        const repoDir = resolveRepoBasePath(repo);
-
-        if (repoList.length > 1) {
-          console.log(
-            chalk.bold.cyan(`\n── Repo: ${repo ?? 'current directory'} ──`),
-          );
+      // ── STAGE 3: IMPLEMENT ──────────────────────────────────────────────
+      let implementerResult: ImplementerResult | undefined;
+      if (stagesToRun.includes(WorkflowStage.IMPLEMENT) && planArtifact) {
+        const isMultiRepo = repoList.length > 1;
+        if (isMultiRepo) {
+          console.log(chalk.bold.yellow('\n🔧 STAGE 3: Implementation Guide'));
+          console.log(chalk.gray('─'.repeat(70)));
         }
-
-        // STAGE 3: IMPLEMENT
-        let implementerResult: ImplementerResult | undefined;
-        if (stagesToRun.includes(WorkflowStage.IMPLEMENT) && planArtifact) {
+        for (const repo of repoList) {
+          const repoDir = resolveRepoBasePath(repo);
+          if (isMultiRepo) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
           implementerResult = await this.agents.implementer.execute(
             ticketArtifact,
             planArtifact,
-            { platformName, repoDir },
+            { platformName, repoDir, suppressHeader: isMultiRepo },
           );
 
           // Investigation workflows end at the IMPLEMENT stage
@@ -566,15 +588,25 @@ export class IssueAllCommand extends CommandRunner {
             return;
           }
         }
+      }
 
-        // STAGE 4: REVIEW
-        if (
-          stagesToRun.includes(WorkflowStage.REVIEW) &&
-          planArtifact?.action !== 'investigate'
-        ) {
+      // ── STAGE 4: REVIEW ─────────────────────────────────────────────────
+      if (
+        stagesToRun.includes(WorkflowStage.REVIEW) &&
+        planArtifact?.action !== 'investigate'
+      ) {
+        const isMultiRepo = repoList.length > 1;
+        if (isMultiRepo) {
+          console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
+          console.log(chalk.gray('─'.repeat(70)));
+        }
+        for (const repo of repoList) {
+          const repoDir = resolveRepoBasePath(repo);
+          if (isMultiRepo) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
           reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
             skipExisting,
             repoDir,
+            suppressHeader: isMultiRepo,
           });
 
           if (reviewArtifact) {
@@ -588,7 +620,7 @@ export class IssueAllCommand extends CommandRunner {
             } else {
               console.log(
                 chalk.yellow(
-                  '    ⚠ Review found issues - address before committing',
+                  '    ⚠️  Review found issues - address before committing',
                 ),
               );
               console.log(
@@ -611,16 +643,26 @@ export class IssueAllCommand extends CommandRunner {
             }
           }
         }
+      }
 
-        // STAGE 5: COMMIT
-        if (
-          stagesToRun.includes(WorkflowStage.COMMIT) &&
-          planArtifact?.action !== 'investigate'
-        ) {
+      // ── STAGE 5: COMMIT ──────────────────────────────────────────────────
+      if (
+        stagesToRun.includes(WorkflowStage.COMMIT) &&
+        planArtifact?.action !== 'investigate'
+      ) {
+        const isMultiRepo = repoList.length > 1;
+        if (isMultiRepo) {
+          console.log(chalk.bold.yellow('\n💾 STAGE 5: Commit Changes'));
+          console.log(chalk.gray('─'.repeat(70)));
+        }
+        for (const repo of repoList) {
+          const repoDir = resolveRepoBasePath(repo);
+          if (isMultiRepo) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
           await this.agents.committer.execute(
             ticketKey,
             repoDir,
             planArtifact?.plan?.summary,
+            isMultiRepo,
           );
         }
       }

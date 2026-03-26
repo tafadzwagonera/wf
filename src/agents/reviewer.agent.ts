@@ -67,12 +67,14 @@ export class ReviewerAgent {
       };
     }
 
-    console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
-    console.log(chalk.gray('─'.repeat(70)));
+    if (!options.suppressHeader) {
+      console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
+      console.log(chalk.gray('─'.repeat(70)));
+    }
 
     const status = await this.gitService.getStatus(options.repoDir);
     if (status.files.length === 0) {
-      console.log(chalk.yellow('⚠ No uncommitted changes to review'));
+      console.log(chalk.yellow('⚠️  No uncommitted changes to review'));
       return null;
     }
 

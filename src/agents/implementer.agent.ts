@@ -50,8 +50,10 @@ export class ImplementerAgent {
       return this.executeInvestigation(ticket, planArtifact);
     }
 
-    console.log(chalk.bold.yellow('\n🔧 STAGE 3: Implementation Guide'));
-    console.log(chalk.gray('─'.repeat(70)));
+    if (!options.suppressHeader) {
+      console.log(chalk.bold.yellow('\n🔧 STAGE 3: Implementation Guide'));
+      console.log(chalk.gray('─'.repeat(70)));
+    }
 
     const summary = extractSummary(ticket.content);
     const branchName = this.generateBranchName(
