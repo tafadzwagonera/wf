@@ -473,7 +473,7 @@ export class IssueReviewCommand extends CommandRunner {
    * @returns Markdown string
    */
   private formatReviewAsComment(review: any): string {
-    let body = `## AI Code Review\n\n`;
+    let body = '';
 
     if (review.issues && review.issues.length > 0) {
       body += `\n### Issues (${review.issues.length})\n`;
@@ -482,13 +482,6 @@ export class IssueReviewCommand extends CommandRunner {
           ? ` — ${issue.file}${issue.line ? `:${issue.line}` : ''}`
           : '';
         body += `- ${issue.message}${location}\n`;
-      });
-    }
-
-    if (review.suggestions && review.suggestions.length > 0) {
-      body += `\n### Suggestions\n`;
-      review.suggestions.forEach((suggestion: any) => {
-        body += `- ${suggestion}\n`;
       });
     }
 
