@@ -198,7 +198,7 @@ export class BitBucketAdapter implements PlatformAdapter {
         workspace,
         repo_slug: repo,
         pull_request_id: prId,
-        _body: { type: 'pullrequest_comment', content: { raw: body } },
+        _body: { content: { raw: body } } as any,
       });
     } else {
       const { workspace, repo, issueId } = this.parseReference(reference);
@@ -230,10 +230,9 @@ export class BitBucketAdapter implements PlatformAdapter {
       repo_slug: repo,
       pull_request_id: prId,
       _body: {
-        type: 'pullrequest_comment',
         content: { raw: body },
         inline: { path: filePath, to: line },
-      },
+      } as any,
     });
   }
 
