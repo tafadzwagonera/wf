@@ -437,20 +437,6 @@ export class IssueReviewCommand extends CommandRunner {
         i.line != null &&
         i.line > 0,
     );
-    const generalIssues: CodeIssue[] = (review.issues ?? []).filter(
-      (i: CodeIssue) =>
-        !(
-          (i.severity === 'error' || i.severity === 'warning') &&
-          i.file != null &&
-          i.line != null &&
-          i.line > 0
-        ),
-    );
-
-    const summaryBody = this.formatReviewAsComment({ ...review, issues: generalIssues });
-    console.log(chalk.cyan('💬 Posting review summary to Bitbucket...\n'));
-    await adapter.createComment!(prUrl, summaryBody);
-    console.log(chalk.green('✓ Summary comment posted\n'));
 
     if (inlineIssues.length > 0 && adapter.createInlineComment) {
       console.log(chalk.cyan(`💬 Posting ${inlineIssues.length} inline comment(s) to Bitbucket...\n`));
