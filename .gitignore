@@ -10,3 +10,4 @@ node_modules/
 # Runtime logs / agent state
 .wf/
 .windsurf-agent/
+.env

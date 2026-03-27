@@ -28,7 +28,20 @@ export class SlackService {
     });
 
     if (!response.data.ok) {
-      throw new Error(`Slack API error: ${response.data.error}`);
+      const error = response.data.error as string;
+      if (error === 'not_in_channel') {
+        throw new Error(
+          `Slack bot is not a member of channel ${channelId}. ` +
+          `Invite it first: open the channel in Slack and run /invite @<your-bot-name>`,
+        );
+      }
+      if (error === 'channel_not_found') {
+        throw new Error(
+          `Slack channel ${channelId} not found. ` +
+          `Check the permalink or ensure the bot has access to the workspace.`,
+        );
+      }
+      throw new Error(`Slack API error: ${error}`);
     }
 
     const messages: SlackMessage[] = (response.data.messages ?? []).map((m: any) => ({
