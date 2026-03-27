@@ -253,9 +253,8 @@ export class IssueReviewCommand extends CommandRunner {
           .getTicket(source);
         context = this.buildTicketContext(ticket);
 
-        const prUrl = options?.repos?.length
-          ? await this.findBitbucketPr(source, options.repos[0])
-          : null;
+        const repoHint = options?.repos?.[0] ?? path.basename(process.cwd());
+        const prUrl = await this.findBitbucketPr(source, repoHint);
         if (prUrl) {
           console.log(chalk.gray(`  Found PR: ${prUrl}\n`));
           diff = await this.reviewPullRequest(prUrl);
