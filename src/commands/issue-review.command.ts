@@ -455,7 +455,7 @@ export class IssueReviewCommand extends CommandRunner {
     if (inlineIssues.length > 0 && adapter.createInlineComment) {
       console.log(chalk.cyan(`💬 Posting ${inlineIssues.length} inline comment(s) to Bitbucket...\n`));
       for (const issue of inlineIssues) {
-        const body = `**[${issue.severity.toUpperCase()}]** ${issue.message}`;
+        const body = issue.message;
         try {
           await adapter.createInlineComment(prUrl, issue.file!, issue.line!, body);
         } catch (err: any) {
@@ -474,7 +474,6 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private formatReviewAsComment(review: any): string {
     let body = `## AI Code Review\n\n`;
-    body += `**Summary:** ${review.summary}\n`;
 
     if (review.issues && review.issues.length > 0) {
       body += `\n### Issues (${review.issues.length})\n`;
@@ -482,7 +481,7 @@ export class IssueReviewCommand extends CommandRunner {
         const location = issue.file
           ? ` — ${issue.file}${issue.line ? `:${issue.line}` : ''}`
           : '';
-        body += `- [${issue.severity.toUpperCase()}] ${issue.message}${location}\n`;
+        body += `- ${issue.message}${location}\n`;
       });
     }
 
