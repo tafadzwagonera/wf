@@ -29,6 +29,7 @@ import { PlatformModule } from '../integrations/platforms/platform.module';
 import { ConvertersModule } from '../common/converters/converters.module';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { SlackService } from '../integrations/slack/slack.service';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
     IssueCowsayCommand,
     LoggerService,
     DryRunPreviewService,
+    SlackService,
   ],
 })
 export class CommandsModule {}

@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { SlackService } from '../integrations/slack/slack.service';
 import { resolveArtifactDir } from '../agents/utils';
 import {
   UniversalTicket,
@@ -50,6 +51,7 @@ export class IssueGenerateCommand extends CommandRunner {
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
+    private readonly slackService: SlackService,
   ) {
     super();
   }
@@ -87,8 +89,19 @@ export class IssueGenerateCommand extends CommandRunner {
 
         let apiCallCount = 0;
 
+        const SLACK_PERMALINK_DRY = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
+
         for (const source of passedParams) {
-          if (source.startsWith('http://') || source.startsWith('https://')) {
+          if (SLACK_PERMALINK_DRY.test(source)) {
+            this.dryRunPreview.previewApiCall({
+              method: 'GET',
+              endpoint: 'https://slack.com/api/conversations.replies',
+              platform: 'Slack',
+              description: `Fetch thread ${source}`,
+              estimatedResponse: '200 OK — thread messages JSON',
+            });
+            apiCallCount++;
+          } else if (source.startsWith('http://') || source.startsWith('https://')) {
             this.dryRunPreview.previewApiCall({
               method: 'GET',
               endpoint: source,
@@ -383,6 +396,15 @@ export class IssueGenerateCommand extends CommandRunner {
     platform?: string,
     repo?: string,
   ): Promise<SourceContent> {
+    // Check if it's a Slack thread permalink (must come before generic URL check)
+    const SLACK_PERMALINK = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
+    const slackMatch = source.match(SLACK_PERMALINK);
+    if (slackMatch) {
+      const channelId = slackMatch[1];
+      const threadTs = `${slackMatch[2]}.${slackMatch[3]}`;
+      return await this.fetchFromSlack(source, channelId, threadTs);
+    }
+
     // Check if it's a URL
     if (source.startsWith('http://') || source.startsWith('https://')) {
       return await this.fetchFromUrl(source);
@@ -398,7 +420,28 @@ export class IssueGenerateCommand extends CommandRunner {
       return await this.fetchFromPlatform(source, platform, repo);
     }
 
-    throw new Error(`Unknown source type: ${source}`);
+    throw new Error(`Unknown source type: ${source}. Supported: URL, local file path, ticket key (ABC-123), Slack thread URL`);
+  }
+
+  /**
+   * Fetch content from a Slack thread permalink
+   */
+  private async fetchFromSlack(
+    source: string,
+    channelId: string,
+    threadTs: string,
+  ): Promise<SourceContent> {
+    const result = await this.slackService.fetchThread(channelId, threadTs);
+    const formattedText = result.messages
+      .map((m) => `[${m.ts}] ${m.user}: ${m.text}`)
+      .join('\n');
+    const threadId = threadTs.replace('.', '-');
+    const artifactDir = resolveArtifactDir(process.cwd(), 'slack');
+    await fs.promises.mkdir(artifactDir, { recursive: true });
+    const artifactPath = path.join(artifactDir, `slack-thread-${channelId}-${threadId}.md`);
+    await fs.promises.writeFile(artifactPath, formattedText, 'utf-8');
+    console.log(chalk.gray(`  Artifact: ${artifactPath}`));
+    return { type: 'slack', source, content: formattedText };
   }
 
   /**
@@ -641,7 +684,7 @@ export class IssueGenerateCommand extends CommandRunner {
  * Source content interface
  */
 interface SourceContent {
-  type: 'url' | 'file' | 'platform' | 'ticket';
+  type: 'url' | 'file' | 'platform' | 'ticket' | 'slack';
   source: string;
   content: any;
   ticket?: UniversalTicket;

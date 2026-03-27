@@ -68,4 +68,7 @@ export default () => ({
   app: {
     nodeEnv: process.env.NODE_ENV || 'development',
   },
+  slack: {
+    botToken: process.env.SLACK_BOT_TOKEN,
+  },
 });
