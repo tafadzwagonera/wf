@@ -261,8 +261,10 @@ export class IssueReviewCommand extends CommandRunner {
           bitbucketCommentRef = prUrl;
         } else {
           throw new Error(
-            `No open pull request found for ${source}.\n` +
-              `  To review uncommitted changes in the current repository, omit the ticket argument:\n` +
+            `No open pull request found for ${source} in repository "${repoHint}".\n` +
+              `  Searched by branch name and PR title.\n` +
+              `  To target a specific repo use: --repos <workspace/repo>\n` +
+              `  To review uncommitted changes instead, omit the ticket argument:\n` +
               `  wf issue:review`,
           );
         }

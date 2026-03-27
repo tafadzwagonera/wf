@@ -248,16 +248,27 @@ export class BitBucketAdapter implements PlatformAdapter {
   ): Promise<string | null> {
     const { workspace, repo } = this.parseProjectOrDefault(repoOverride);
 
-    const response = await this.bitbucket.pullrequests.list({
+    // Search 1: branch name contains ticket key (open PRs only)
+    const byBranch = await this.bitbucket.pullrequests.list({
       workspace,
       repo_slug: repo,
-      q: `source.branch.name ~ "${ticketKey}"`,
+      q: `source.branch.name ~ "${ticketKey}" AND state = "OPEN"`,
     });
+    if (byBranch.data.values?.length) {
+      return byBranch.data.values[0].links?.html?.href ?? null;
+    }
 
-    const prs = response.data.values;
-    if (!prs || prs.length === 0) return null;
+    // Search 2: PR title contains ticket key (fallback)
+    const byTitle = await this.bitbucket.pullrequests.list({
+      workspace,
+      repo_slug: repo,
+      q: `title ~ "${ticketKey}" AND state = "OPEN"`,
+    });
+    if (byTitle.data.values?.length) {
+      return byTitle.data.values[0].links?.html?.href ?? null;
+    }
 
-    return prs[0].links?.html?.href ?? null;
+    return null;
   }
 
   /**
