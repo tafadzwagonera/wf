@@ -16,6 +16,7 @@ import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
+import { createHash } from 'crypto';
 
 /** Minimum description length (chars) for a ticket to bypass AI synthesis. */
 const MIN_DESCRIPTION_LENGTH = 100;
@@ -259,6 +260,7 @@ export class IssueGenerateCommand extends CommandRunner {
           synthesizedTicket,
           platformName,
           format,
+          passedParams,
         );
         console.log(chalk.green('\n✓ Ticket saved to:'), chalk.cyan(savedPath));
       }
@@ -528,37 +530,58 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   /**
+   * Returns the first 8 hex chars of the SHA-256 digest of the ordered
+   * source arguments, giving a short, stable, filesystem-safe identifier.
+   *
+   * @param sources - Raw CLI positional arguments (e.g. ['TAD-101', './notes.md'])
+   * @returns 8-character lowercase hex string
+   */
+  private hashSources(sources: string[]): string {
+    const hash = createHash('sha256');
+    for (const source of sources) {
+      hash.update(source);
+    }
+    return hash.digest('hex').slice(0, 8);
+  }
+
+  /**
    * Save ticket to platform directory with generated filename
    */
   private async saveTicketLocally(
     ticket: UniversalTicket,
     platformName: string,
     format: string,
+    sources: string[],
   ): Promise<string> {
     const platformDir = resolveArtifactDir(process.cwd(), platformName);
-    if (!fs.existsSync(platformDir)) {
-      fs.mkdirSync(platformDir, { recursive: true });
+    await fs.promises.mkdir(platformDir, { recursive: true });
+
+    const hash8 = this.hashSources(sources);
+    const extension = format === 'md' ? 'md' : format;
+
+    // Find an existing artifact with the same source hash and overwrite it,
+    // avoiding duplicate files when the command is retried with identical inputs.
+    const existingFilename = fs
+      .readdirSync(platformDir)
+      .find((name) =>
+        new RegExp(
+          `^GENERATED-\\d{4}-\\d{2}-\\d{2}-${hash8}\\.${extension}$`,
+        ).test(name),
+      );
+
+    let artifactPath: string;
+    if (existingFilename) {
+      artifactPath = path.join(platformDir, existingFilename);
+    } else {
+      const timestamp = new Date().toISOString().split('T')[0];
+      artifactPath = path.join(platformDir, `GENERATED-${timestamp}-${hash8}.${extension}`);
     }
 
-    // Generate filename with timestamp and sanitized title
-    const timestamp = new Date().toISOString().split('T')[0];
-    const sanitizedTitle = ticket.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .slice(0, 30)
-      .replace(/-+$/, '');
-    const extension = format === 'md' ? 'md' : format;
-    const filename = `GENERATED-${timestamp}-${sanitizedTitle}.${extension}`;
-    const ticketPath = path.join(platformDir, filename);
-
-    // Get converter and serialize
     const converter = this.formatConverterService.getConverter(format);
     const content = converter.serialize(ticket);
+    await fs.promises.writeFile(artifactPath, content, 'utf-8');
 
-    // Write to file
-    await fs.promises.writeFile(ticketPath, content, 'utf-8');
-
-    return ticketPath;
+    return artifactPath;
   }
 
   /**
