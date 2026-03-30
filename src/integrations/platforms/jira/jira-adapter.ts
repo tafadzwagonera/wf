@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JiraService } from '../../jira/jira.service';
 import {
   PlatformAdapter,
@@ -23,7 +24,10 @@ const JIRA_NEUTRAL_PRIORITY = 'Medium';
  */
 @Injectable()
 export class JiraAdapter implements PlatformAdapter {
-  constructor(private readonly jiraService: JiraService) {}
+  constructor(
+    private readonly jiraService: JiraService,
+    private readonly configService: ConfigService,
+  ) {}
 
   /**
    * Create a ticket on Jira
@@ -233,11 +237,10 @@ export class JiraAdapter implements PlatformAdapter {
   }
 
   /**
-   * Get Jira ticket URL
+   * Get Jira ticket URL using ATLASSIAN_BASE_URL from config
    */
   private getTicketUrl(ticketKey: string): string {
-    // This would ideally come from config, but we'll construct it
-    // based on the base URL pattern
-    return `https://jira.example.com/browse/${ticketKey}`;
+    const baseUrl = this.configService.get<string>('atlassian.baseUrl') ?? '';
+    return `${baseUrl}/browse/${ticketKey}`;
   }
 }
