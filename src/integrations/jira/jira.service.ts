@@ -106,6 +106,40 @@ export class JiraService {
 
       return ticketKey;
     } catch (error) {
+      const isPriorityError =
+        error?.response?.status === 400 &&
+        error?.response?.data?.errors?.priority;
+
+      if (isPriorityError) {
+        this.logger.warn(
+          `Priority rejected by Jira (${request.priority}). Retrying without priority field.`,
+        );
+        const retryPayload = {
+          fields: {
+            project: { key: project },
+            summary: request.summary,
+            description: this.markdownToADF(request.description),
+            issuetype: { name: request.issueType || 'Task' },
+            ...(request.labels && { labels: request.labels }),
+            ...(request.assignee && {
+              assignee: { accountId: request.assignee },
+            }),
+            ...(request.components && {
+              components: request.components.map((name) => ({ name })),
+            }),
+          },
+        };
+        const url = `${this.baseUrl}/rest/api/3/issue`;
+        const response = await firstValueFrom(
+          this.httpService.post(url, retryPayload, {
+            headers: this.getAuthHeaders(),
+          }),
+        );
+        const ticketKey = response.data.key;
+        this.logger.success(`Created Jira ticket: ${ticketKey}`);
+        return ticketKey;
+      }
+
       this.handleJiraError(error, 'create ticket');
     }
   }

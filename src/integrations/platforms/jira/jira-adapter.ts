@@ -15,6 +15,8 @@ import {
   UpdateTicketRequest,
 } from '../../jira/dto/jira.dto';
 
+const JIRA_NEUTRAL_PRIORITY = 'Medium';
+
 /**
  * Jira platform adapter implementing PlatformAdapter interface
  * Wraps JiraService to provide platform-agnostic operations
@@ -198,8 +200,8 @@ export class JiraAdapter implements PlatformAdapter {
   /**
    * Map UniversalTicket priority to Jira priority
    */
-  private mapPriorityToJira(priority?: TicketPriority): string | undefined {
-    if (!priority) return undefined;
+  private mapPriorityToJira(priority?: TicketPriority): string {
+    if (!priority) return JIRA_NEUTRAL_PRIORITY;
 
     const priorityMap: Record<string, string> = {
       [TicketPriority.HIGHEST]: 'Highest',
@@ -209,7 +211,7 @@ export class JiraAdapter implements PlatformAdapter {
       [TicketPriority.LOWEST]: 'Lowest',
     };
 
-    return priorityMap[priority];
+    return priorityMap[priority] ?? JIRA_NEUTRAL_PRIORITY;
   }
 
   /**
