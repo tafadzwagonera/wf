@@ -112,6 +112,7 @@ LOG_LEVEL=info
 The CLI supports multiple platforms (Jira, GitHub, BitBucket). By default, it will only show warnings for platforms you've configured credentials for.
 
 **Explicit Configuration:**
+
 ```bash
 # Enable only specific platforms
 ENABLED_PLATFORMS=jira,github
@@ -126,15 +127,18 @@ Omit all platform credentials from `.env` to run without any platform integratio
 ### 4. Generate API Tokens
 
 **Anthropic API Key:**
+
 - Go to: https://console.anthropic.com/settings/keys
 - Create a new API key
 
 **Jira API Token:**
+
 - Go to: https://id.atlassian.com/manage-profile/security/api-tokens
 - Create a new API token
 - Ensure your Jira user has necessary project permissions
 
 **BitBucket API Token** (for BitBucket platform support):
+
 - Go to: BitBucket Settings → Personal Settings → App passwords → API tokens
 - Create a new token with required scopes:
   - `repository:read` - Read repository data
@@ -193,12 +197,12 @@ wf issue:fetch WBP-2971 --dry-run
 
 **Options:**
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `-f, --format <format>` | Output format: `json \| md \| yaml \| xml` | `DEFAULT_OUTPUT_FORMAT` |
-| `-p, --platform <platform>` | Source platform: `jira \| github \| bitbucket` | `PRIMARY_PLATFORM` |
-| `-r, --repos <repos>` | Comma-separated repositories (`workspace/repo` or `repo-name`) | required |
-| `--dry-run` | Preview the fetch without writing files | — |
+| Flag                        | Description                                                    | Default                 |
+| --------------------------- | -------------------------------------------------------------- | ----------------------- |
+| `-f, --format <format>`     | Output format: `json \| md \| yaml \| xml`                     | `DEFAULT_OUTPUT_FORMAT` |
+| `-p, --platform <platform>` | Source platform: `jira \| github \| bitbucket`                 | `PRIMARY_PLATFORM`      |
+| `-r, --repos <repos...>`    | Space-separated repositories (`workspace/repo` or `repo-name`) | required                |
+| `--dry-run`                 | Preview the fetch without writing files                        | —                       |
 
 **Output:** saves to `./<platform>/<ticket-key>.<format>` (e.g., `./jira/WBP-2971.md`).
 
@@ -227,14 +231,14 @@ wf issue:plan WBP-2971 --action fix --dry-run
 
 **Options:**
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `-a, --action <action>` | Resolution action: `implement \| fix \| investigate` | `implement` |
-| `-p, --platform <platform>` | Platform to fetch from if local artifact not found | `PRIMARY_PLATFORM` |
-| `--force-recreate` | Re-fetch and overwrite the ticket artifact before planning | — |
-| `-f, --format <format>` | Plan output format: `json \| md \| yaml` | `json` |
-| `-r, --repos <repos>` | Comma-separated repositories (`workspace/repo` or `repo-name`) | required |
-| `--dry-run` | Preview without generating or writing files | — |
+| Flag                        | Description                                                    | Default            |
+| --------------------------- | -------------------------------------------------------------- | ------------------ |
+| `-a, --action <action>`     | Resolution action: `implement \| fix \| investigate`           | `implement`        |
+| `-p, --platform <platform>` | Platform to fetch from if local artifact not found             | `PRIMARY_PLATFORM` |
+| `--force-recreate`          | Re-fetch and overwrite the ticket artifact before planning     | —                  |
+| `-f, --format <format>`     | Plan output format: `json \| md \| yaml`                       | `json`             |
+| `-r, --repos <repos...>`    | Space-separated repositories (`workspace/repo` or `repo-name`) | required           |
+| `--dry-run`                 | Preview without generating or writing files                    | —                  |
 
 **Output:** saves to `./<platform>/<ticket-key>-plan-<action>.<format>` (e.g., `./jira/WBP-2971-plan-fix.json`).
 
@@ -244,12 +248,12 @@ wf issue:plan WBP-2971 --action fix --dry-run
 
 AI-powered code review. Accepts four source modes:
 
-| Source | Description |
-|--------|-------------|
-| _(none)_ | Review staged/unstaged changes in the current repository |
-| `ABC-123` | Review changes in the current repo (context: the ticket) |
-| `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request |
-| `./path/to/repo` | Review changes in a specific local repository |
+| Source                 | Description                                              |
+| ---------------------- | -------------------------------------------------------- |
+| _(none)_               | Review staged/unstaged changes in the current repository |
+| `ABC-123`              | Review changes in the current repo (context: the ticket) |
+| `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request      |
+| `./path/to/repo`       | Review changes in a specific local repository            |
 
 ```bash
 # Review current repository changes
@@ -273,11 +277,11 @@ wf issue:review --dry-run
 
 **Options:**
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `-f, --format <format>` | Output format: `text \| json \| md` | `text` |
-| `-o, --output <path>` | Save review to a file | stdout |
-| `--dry-run` | Preview without calling the AI | — |
+| Flag                    | Description                         | Default |
+| ----------------------- | ----------------------------------- | ------- |
+| `-f, --format <format>` | Output format: `text \| json \| md` | `text`  |
+| `-o, --output <path>`   | Save review to a file               | stdout  |
+| `--dry-run`             | Preview without calling the AI      | —       |
 
 ---
 
@@ -301,12 +305,12 @@ wf issue:create ticket.json --dry-run
 
 **Options:**
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `-p, --platform <platform>` | Target platform: `jira \| github \| bitbucket` | `PRIMARY_PLATFORM` |
-| `--project <project>` | Project key (Jira) or `workspace/repo` (Bitbucket) | from input file |
-| `-t, --type <type>` | Issue type: `task \| bug \| story \| todo` | from input file |
-| `--dry-run` | Validate and preview without creating | — |
+| Flag                        | Description                                        | Default            |
+| --------------------------- | -------------------------------------------------- | ------------------ |
+| `-p, --platform <platform>` | Target platform: `jira \| github \| bitbucket`     | `PRIMARY_PLATFORM` |
+| `--project <project>`       | Project key (Jira) or `workspace/repo` (Bitbucket) | from input file    |
+| `-t, --type <type>`         | Issue type: `task \| bug \| story \| todo`         | from input file    |
+| `--dry-run`                 | Validate and preview without creating              | —                  |
 
 ---
 
@@ -340,17 +344,17 @@ wf issue:generate https://example.com/spec ./notes.md --dry-run
 
 **Options:**
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `-f, --format <format>` | Output format: `json \| md \| yaml \| xml` | `DEFAULT_OUTPUT_FORMAT` |
-| `-o, --output <path>` | Save generated ticket to a file | stdout |
-| `--save` | Save to `./<platform>/GENERATED-<date>-<title>.<format>` | — |
-| `-p, --platform <platform>` | Platform for ticket-key sources | `PRIMARY_PLATFORM` |
-| `-t, --title <title>` | Override the AI-generated title | — |
-| `--type <type>` | Override ticket type: `task \| bug \| story \| epic` | — |
-| `--priority <priority>` | Override priority: `highest \| high \| medium \| low \| lowest` | — |
-| `--repo <repo>` | Bitbucket repository for ticket-key sources | — |
-| `--dry-run` | Preview without fetching or writing | — |
+| Flag                        | Description                                                     | Default                 |
+| --------------------------- | --------------------------------------------------------------- | ----------------------- |
+| `-f, --format <format>`     | Output format: `json \| md \| yaml \| xml`                      | `DEFAULT_OUTPUT_FORMAT` |
+| `-o, --output <path>`       | Save generated ticket to a file                                 | stdout                  |
+| `--save`                    | Save to `./<platform>/GENERATED-<date>-<title>.<format>`        | —                       |
+| `-p, --platform <platform>` | Platform for ticket-key sources                                 | `PRIMARY_PLATFORM`      |
+| `-t, --title <title>`       | Override the AI-generated title                                 | —                       |
+| `--type <type>`             | Override ticket type: `task \| bug \| story \| epic`            | —                       |
+| `--priority <priority>`     | Override priority: `highest \| high \| medium \| low \| lowest` | —                       |
+| `--repo <repo>`             | Bitbucket repository for ticket-key sources                     | —                       |
+| `--dry-run`                 | Preview without fetching or writing                             | —                       |
 
 ---
 
@@ -377,12 +381,12 @@ wf issue:commit --dry-run
 
 **Options:**
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `-m, --message <message>` | Manual commit message — bypasses AI generation | — |
-| `--no-ai` | Require a manual `--message` (error if omitted) | — |
-| `--conventional` | Force conventional commits format (`<type>(<scope>): <description>`) | — |
-| `--dry-run` | Preview the commit without staging or committing | — |
+| Flag                      | Description                                                          | Default |
+| ------------------------- | -------------------------------------------------------------------- | ------- |
+| `-m, --message <message>` | Manual commit message — bypasses AI generation                       | —       |
+| `--no-ai`                 | Require a manual `--message` (error if omitted)                      | —       |
+| `--conventional`          | Force conventional commits format (`<type>(<scope>): <description>`) | —       |
+| `--dry-run`               | Preview the commit without staging or committing                     | —       |
 
 **Branch detection:** ticket keys are extracted from the branch name using the pattern `[A-Z]+-\d+` (e.g., `feature/WBP-2971__add-oauth` → `WBP-2971`).
 
@@ -418,26 +422,26 @@ wf issue-all WBP-2971 --from fetch --action fix --dry-run
 
 **Options:**
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--from <stage>` | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit` | — |
-| `--to <stage>` | Stop stage (inclusive) | `commit` |
-| `--action <action>` | Resolution action: `implement \| fix \| investigate` — required when `plan` stage runs | — |
-| `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket` | `PRIMARY_PLATFORM` |
-| `--interactive` | Open AI chat after `plan` and `review` stages | — |
-| `--skip-existing` | Skip stages whose output artifact already exists | — |
-| `--repo <repo>` | Bitbucket repository override (`workspace/repo` or `repo-name`) | — |
-| `--dry-run` | Preview every stage without making changes | — |
+| Flag                        | Description                                                                            | Default            |
+| --------------------------- | -------------------------------------------------------------------------------------- | ------------------ |
+| `--from <stage>`            | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit`           | —                  |
+| `--to <stage>`              | Stop stage (inclusive)                                                                 | `commit`           |
+| `--action <action>`         | Resolution action: `implement \| fix \| investigate` — required when `plan` stage runs | —                  |
+| `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket`                                                | `PRIMARY_PLATFORM` |
+| `--interactive`             | Open AI chat after `plan` and `review` stages                                          | —                  |
+| `--skip-existing`           | Skip stages whose output artifact already exists                                       | —                  |
+| `--repo <repo>`             | Bitbucket repository override (`workspace/repo` or `repo-name`)                        | —                  |
+| `--dry-run`                 | Preview every stage without making changes                                             | —                  |
 
 **Stage order and artifacts:**
 
-| Stage | Artifact |
-|-------|----------|
-| `fetch` | `./<platform>/<ticket-key>.md` |
-| `plan` | `./<platform>/<ticket-key>-plan-<action>.json` |
-| `implement` | _(display only — branch name and steps printed)_ |
-| `review` | `./<platform>/<ticket-key>-review.md` |
-| `commit` | _(display only — commit commands printed for confirmation)_ |
+| Stage       | Artifact                                                    |
+| ----------- | ----------------------------------------------------------- |
+| `fetch`     | `./<platform>/<ticket-key>.md`                              |
+| `plan`      | `./<platform>/<ticket-key>-plan-<action>.json`              |
+| `implement` | _(display only — branch name and steps printed)_            |
+| `review`    | `./<platform>/<ticket-key>-review.md`                       |
+| `commit`    | _(display only — commit commands printed for confirmation)_ |
 
 **Branch naming:** `issue-all` generates a branch name in the format `<prefix>/<TICKET-KEY>__<slug>`, where prefix is controlled by `BRANCH_PREFIX_*` env vars (`feature`, `bugfix`, `chore`).
 
@@ -464,11 +468,12 @@ wf issue:fetch 123 --platform bitbucket --repos myworkspace/myrepo
 # Single repository using repo name only (uses ATLASSIAN_BITBUCKET_WORKSPACE from env)
 wf issue:fetch 123 --platform bitbucket --repos myrepo
 
-# Multiple repositories (comma-separated)
-wf issue:fetch 123 --platform bitbucket --repos myworkspace/repo-a,myworkspace/repo-b
+# Multiple repositories (space-separated)
+wf issue:fetch 123 --platform bitbucket --repos myworkspace/repo-a myworkspace/repo-b
 ```
 
 **Repository format:**
+
 - **Full format**: `workspace/repo` — explicit workspace and repository
 - **Short format**: `repo` — uses `ATLASSIAN_BITBUCKET_WORKSPACE` from environment
 
@@ -505,6 +510,7 @@ yarn start run workflow --dry-run
 ```
 
 **Options:**
+
 - `-p, --params <json>` - Parameters as JSON string
 - `-a, --auto-execute` - Skip approval gates
 - `-d, --dry-run` - Show workflow steps without executing
@@ -759,27 +765,33 @@ yarn test:e2e
 ### Common Issues
 
 **1. "Workflow not found"**
+
 - Check that workflow file exists in `.windsurf/workflows/`
 - Verify filename matches workflow name
 
 **2. "Jira authentication failed"**
+
 - Verify `ATLASSIAN_API_TOKEN` is correct and not expired
 - Check user has necessary permissions
 - Run diagnostic: `yarn ts-node -r tsconfig-paths/register test/manual/diagnose-jira-permissions.ts`
 
 **3. "Claude API error"**
+
 - Verify `ANTHROPIC_API_KEY` is set correctly
 - Check API quota and billing
 
 **4. "Git error"**
+
 - Ensure you're in a git repository
 - Check git status and permissions
 
 **5. "Plan file not found"**
+
 - Run `issue:plan` (or `issue-all --from plan`) before running `implement` or later stages
 - If you specified `--action fix` at plan time, use the same action when resuming: `issue-all WBP-2971 --from implement --action fix`
 
 **6. "Workspace required"**
+
 - Set `ATLASSIAN_BITBUCKET_WORKSPACE` in `.env`, or pass `--repo workspace/repo` (full format)
 
 ### Debug Mode
@@ -805,6 +817,7 @@ UNLICENSED
 ## Support
 
 For issues and questions:
+
 - GitHub Issues: https://github.com/anthropics/claude-code/issues
 - Documentation: This README
 

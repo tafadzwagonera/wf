@@ -7,6 +7,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { parseReposOption } from './utils/repos-option';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -68,15 +69,12 @@ export class IssueFetchCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-r, --repos <repos>',
+    flags: '-r, --repos <repos...>',
     description:
-      'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
   })
-  parseRepos(val: string): string[] {
-    return val
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+  parseRepos(val: string | string[], previous: string[] = []): string[] {
+    return parseReposOption(val, previous);
   }
 
   @Option({
@@ -155,7 +153,12 @@ export class IssueFetchCommand extends CommandRunner {
         platformName === 'bitbucket'
           ? this.formatBitbucketReference(
               ticketKey,
-              options?.repos?.[0] ?? (() => { throw new Error('--repos is required for the Bitbucket platform'); })(),
+              options?.repos?.[0] ??
+                (() => {
+                  throw new Error(
+                    '--repos is required for the Bitbucket platform',
+                  );
+                })(),
               this.configService,
             )
           : ticketKey;

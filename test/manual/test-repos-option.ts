@@ -4,13 +4,14 @@
  * Run: nr test:manual -- test-repos-option
  *
  * Verifies that:
- *   1. issue:fetch --help shows -r, --repos and NOT --repo or --affected-repos
- *   2. issue:plan --help shows -r, --repos
- *   3. issue:implement --help shows -r, --repos
- *   4. issue:review --help shows -r, --repos
- *   5. issue:all --help shows -r, --repos
- *   6. issue:generate --help shows -r, --repos
- *   7. None of the above show the old --repo / --affected-repositories flags
+ *   1. issue:fetch --help shows -r, --repos <repos...> and NOT --repo or --affected-repos
+ *   2. issue:plan --help shows -r, --repos <repos...>
+ *   3. issue:implement --help shows -r, --repos <repos...>
+ *   4. issue:review --help shows -r, --repos <repos...>
+ *   5. issue:all --help shows -r, --repos <repos...>
+ *   6. issue:generate --help shows -r, --repos <repos...>
+ *   7. Help text describes repos as space-separated, not comma-separated
+ *   8. None of the above show the old --repo / --affected-repositories flags
  */
 
 import { execSync } from 'child_process';
@@ -53,10 +54,22 @@ async function testReposOption() {
   for (const cmd of commands) {
     const help = helpOutput(cmd);
 
-    if (help.includes('-r, --repos')) {
-      pass(`${cmd}: -r, --repos present in --help`);
+    if (help.includes('-r, --repos <repos...>')) {
+      pass(`${cmd}: -r, --repos <repos...> present in --help`);
     } else {
-      fail(`${cmd}: -r, --repos NOT found in --help`);
+      fail(`${cmd}: -r, --repos <repos...> NOT found in --help`);
+    }
+
+    if (help.includes('Space-separated list of repositories')) {
+      pass(`${cmd}: help text describes repos as space-separated`);
+    } else {
+      fail(`${cmd}: help text does not describe repos as space-separated`);
+    }
+
+    if (help.includes('Comma-separated list of repositories')) {
+      fail(`${cmd}: old comma-separated wording still present in --help`);
+    } else {
+      pass(`${cmd}: old comma-separated wording correctly absent`);
     }
 
     if (help.includes('--repo ') || help.match(/--repo\b(?!s)/)) {

@@ -8,6 +8,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveRepoBasePath } from '../agents/utils';
+import { parseReposOption } from './utils/repos-option';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -385,16 +386,13 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-r, --repos <repos>',
+    flags: '-r, --repos <repos...>',
     description:
-      'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
     required: false,
   })
-  parseRepos(val: string): string[] {
-    return val
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+  parseRepos(val: string | string[], previous: string[] = []): string[] {
+    return parseReposOption(val, previous);
   }
 
   @Option({

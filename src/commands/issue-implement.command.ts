@@ -1,16 +1,14 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  AiService,
-  ResolutionPlan,
-} from '../integrations/ai/ai.service';
+import { AiService, ResolutionPlan } from '../integrations/ai/ai.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { parseReposOption } from './utils/repos-option';
 import type {
   ResolutionAction,
   TicketArtifact,
@@ -127,16 +125,13 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-r, --repos <repos>',
+    flags: '-r, --repos <repos...>',
     description:
-      'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
     required: false,
   })
-  parseRepos(val: string): string[] {
-    return val
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+  parseRepos(val: string | string[], previous: string[] = []): string[] {
+    return parseReposOption(val, previous);
   }
 
   @Option({
@@ -411,7 +406,7 @@ Return ONLY a valid JSON object:
         );
         console.error(
           chalk.yellow(
-            `Run:   wf issue:fetch ${ticketKey}${options?.repos?.length ? ` --repos ${options.repos.join(',')}` : ''}`,
+            `Run:   wf issue:fetch ${ticketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`,
           ),
         );
         process.exit(1);
@@ -428,12 +423,12 @@ Return ONLY a valid JSON object:
         );
         console.error(
           chalk.yellow(
-            `Run:   wf issue:plan ${ticketKey} --action <feature|fix|investigate>${options?.repos?.length ? ` --repos ${options.repos.join(',')}` : ''}`,
+            `Run:   wf issue:plan ${ticketKey} --action <feature|fix|investigate>${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`,
           ),
         );
         console.error(
           chalk.yellow(
-            `Then:  wf issue:implement ${ticketKey}${options?.repos?.length ? ` --repos ${options.repos.join(',')}` : ''}`,
+            `Then:  wf issue:implement ${ticketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`,
           ),
         );
         process.exit(1);

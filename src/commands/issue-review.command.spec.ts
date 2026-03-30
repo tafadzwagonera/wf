@@ -4,10 +4,25 @@ jest.mock('chalk', () => {
   const makeChain = () => {
     const chain: any = identity;
     [
-      'bold', 'dim', 'italic', 'underline', 'inverse', 'strikethrough',
-      'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan',
-      'white', 'gray', 'grey',
-    ].forEach((name) => { chain[name] = identity; });
+      'bold',
+      'dim',
+      'italic',
+      'underline',
+      'inverse',
+      'strikethrough',
+      'black',
+      'red',
+      'green',
+      'yellow',
+      'blue',
+      'magenta',
+      'cyan',
+      'white',
+      'gray',
+      'grey',
+    ].forEach((name) => {
+      chain[name] = identity;
+    });
     return chain;
   };
   const chalk = makeChain();
@@ -81,6 +96,16 @@ async function buildCommand(overrides?: {
 }
 
 describe('IssueReviewCommand', () => {
+  describe('parseRepos', () => {
+    it('returns trimmed repo values from variadic option input', async () => {
+      const command = await buildCommand();
+
+      expect(
+        command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any),
+      ).toEqual(['repo-a', 'workspace/repo-b']);
+    });
+  });
+
   describe('ticket key — no open PR', () => {
     let command: IssueReviewCommand;
     let exitSpy: jest.SpyInstance;

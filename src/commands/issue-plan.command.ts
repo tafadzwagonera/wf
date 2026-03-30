@@ -8,6 +8,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { parseReposOption } from './utils/repos-option';
 import type { ResolutionAction } from '../agents/interfaces';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -171,16 +172,13 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-r, --repos <repos>',
+    flags: '-r, --repos <repos...>',
     description:
-      'Comma-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
     required: false,
   })
-  parseRepos(val: string): string[] {
-    return val
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+  parseRepos(val: string | string[], previous: string[] = []): string[] {
+    return parseReposOption(val, previous);
   }
 
   @Option({

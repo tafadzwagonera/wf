@@ -104,6 +104,16 @@ describe('IssueFetchCommand', () => {
     jest.restoreAllMocks();
   });
 
+  describe('parseRepos', () => {
+    it('returns trimmed repo values from variadic option input', async () => {
+      const command = await buildCommand();
+
+      expect(
+        command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any),
+      ).toEqual(['repo-a', 'workspace/repo-b']);
+    });
+  });
+
   it('stores fetched artifacts under the cwd namespace by default', async () => {
     const command = await buildCommand();
     const dryRunPreview = (command as any)

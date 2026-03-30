@@ -109,6 +109,16 @@ describe('IssueImplementCommand', () => {
     cwdSpy.mockRestore();
   });
 
+  describe('parseRepos', () => {
+    it('returns trimmed repo values from variadic option input', async () => {
+      const command = await buildCommand();
+
+      expect(
+        command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any),
+      ).toEqual(['repo-a', 'workspace/repo-b']);
+    });
+  });
+
   describe('option metadata', () => {
     it('does not expose a --force-recreate option', () => {
       const proto = IssueImplementCommand.prototype as any;
@@ -153,6 +163,8 @@ describe('IssueImplementCommand', () => {
       expect(errorOutput).toContain(
         path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-0001.md'),
       );
+      expect(errorOutput).toContain('--repos repo-a');
+      expect(errorOutput).not.toContain('--repos repo-a,');
     });
 
     it('exits with code 1 and prints plan hint when ticket exists but plan is missing', async () => {
@@ -170,6 +182,8 @@ describe('IssueImplementCommand', () => {
       expect(errorOutput).toContain('No plan artifact found');
       expect(errorOutput).toContain('issue:plan');
       expect(errorOutput).toContain('issue:implement');
+      expect(errorOutput).toContain('--repos repo-a');
+      expect(errorOutput).not.toContain('--repos repo-a,');
     });
   });
 
