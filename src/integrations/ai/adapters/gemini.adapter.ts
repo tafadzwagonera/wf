@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import * as os from 'os';
+import * as path from 'path';
 import type {
   AIConversationRequest,
   AIRequest,
@@ -9,6 +11,7 @@ import type {
 import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
+import { loadAiContextConfig } from './load-ai-context-config';
 
 const DEFAULT_MODEL = 'gemini-2.5-pro';
 
@@ -21,10 +24,11 @@ const DEFAULT_MODEL = 'gemini-2.5-pro';
 const MAX_TOKENS = 4096;
 
 @Injectable()
-export class GeminiAdapter implements LlmAdapter {
+export class GeminiAdapter implements LlmAdapter, OnModuleInit {
   private client: GoogleGenerativeAI;
   private model: string;
   private maxTokens: number;
+  private contextConfig = '';
 
   constructor(
     private configService: ConfigService,
@@ -46,6 +50,19 @@ export class GeminiAdapter implements LlmAdapter {
     }
   }
 
+  async onModuleInit(): Promise<void> {
+    this.contextConfig = await loadAiContextConfig(
+      path.join(os.homedir(), '.gemini', 'GEMINI.md'),
+      'GEMINI.md',
+      'gemini',
+    );
+  }
+
+  private prependConfig(systemPrompt: string | undefined): string | undefined {
+    if (!this.contextConfig) return systemPrompt;
+    return this.contextConfig + (systemPrompt ?? '');
+  }
+
   async execute(request: AIRequest): Promise<AIResponse> {
     if (!this.client) {
       throw new AIError(
@@ -65,7 +82,7 @@ export class GeminiAdapter implements LlmAdapter {
 
       const generativeModel = this.client.getGenerativeModel({
         model: this.model,
-        systemInstruction: request.systemPrompt,
+        systemInstruction: this.prependConfig(request.systemPrompt),
         generationConfig: {
           maxOutputTokens,
           temperature: request.temperature || 0.7,
@@ -114,7 +131,7 @@ export class GeminiAdapter implements LlmAdapter {
 
       const generativeModel = this.client.getGenerativeModel({
         model: this.model,
-        systemInstruction: request.systemPrompt,
+        systemInstruction: this.prependConfig(request.systemPrompt),
         generationConfig: {
           maxOutputTokens,
           temperature: request.temperature || 0.7,
