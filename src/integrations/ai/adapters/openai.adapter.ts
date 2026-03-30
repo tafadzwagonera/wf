@@ -1,6 +1,8 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import * as os from 'os';
+import * as path from 'path';
 import type {
   AIConversationRequest,
   AIRequest,
@@ -40,9 +42,11 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
   }
 
   async onModuleInit(): Promise<void> {
-    // No standard global config path exists for OpenAI; only project-level
-    // OPENAI.md in process.cwd() is checked.
-    this.contextConfig = await loadAiContextConfig(null, 'OPENAI.md', 'openai');
+    this.contextConfig = await loadAiContextConfig(
+      path.join(os.homedir(), '.openai', 'OPENAI.md'),
+      '.openai/OPENAI.md',
+      'openai',
+    );
   }
 
   private prependConfig(systemPrompt: string | undefined): string | undefined {
