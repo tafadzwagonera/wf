@@ -363,4 +363,47 @@ describe('JiraService', () => {
       expect(result.issueType).toBe('Bug');
     });
   });
+
+  describe('resolveValidPriorityName', () => {
+    it('should return the exact Jira priority name when a case-insensitive match is found', async () => {
+      mockHttpService.get.mockReturnValue(
+        of({
+          data: [
+            { id: '1', name: 'Highest' },
+            { id: '2', name: 'High' },
+            { id: '3', name: 'Medium' },
+            { id: '4', name: 'Low' },
+            { id: '5', name: 'Lowest' },
+          ],
+        }),
+      );
+
+      const result = await service.resolveValidPriorityName('high');
+      expect(result).toBe('High');
+    });
+
+    it('should return undefined when no matching priority exists', async () => {
+      mockHttpService.get.mockReturnValue(
+        of({
+          data: [
+            { id: '1', name: 'P1' },
+            { id: '2', name: 'P2' },
+            { id: '3', name: 'P3' },
+          ],
+        }),
+      );
+
+      const result = await service.resolveValidPriorityName('High');
+      expect(result).toBeUndefined();
+    });
+
+    it('should return undefined when the priority fetch fails', async () => {
+      mockHttpService.get.mockReturnValue(
+        throwError(() => new Error('Network error')),
+      );
+
+      const result = await service.resolveValidPriorityName('High');
+      expect(result).toBeUndefined();
+    });
+  });
 });

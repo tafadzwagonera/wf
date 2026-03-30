@@ -57,6 +57,26 @@ export class JiraService {
     }
   }
 
+  /**
+   * Fetch all available Jira priorities and return the exact name that
+   * matches the requested priority (case-insensitive). Returns undefined
+   * if no match is found or the fetch fails.
+   */
+  async resolveValidPriorityName(requested: string): Promise<string | undefined> {
+    try {
+      const url = `${this.baseUrl}/rest/api/3/priority`;
+      const response = await firstValueFrom(
+        this.httpService.get(url, { headers: this.getAuthHeaders() }),
+      );
+      const priorities: Array<{ id: string; name: string }> = response.data;
+      const lower = requested.toLowerCase();
+      const match = priorities.find((p) => p.name.toLowerCase() === lower);
+      return match?.name;
+    } catch {
+      return undefined;
+    }
+  }
+
   private getAuthHeaders() {
     const auth = Buffer.from(`${this.email}:${this.apiToken}`).toString(
       'base64',
