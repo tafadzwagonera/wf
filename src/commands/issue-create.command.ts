@@ -9,6 +9,7 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import { TicketType } from '../common/dto/universal-ticket.dto';
 import chalk from 'chalk';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 interface IssueCreateOptions {
@@ -59,7 +60,10 @@ export class IssueCreateCommand extends CommandRunner {
 
     try {
       // Read input file
-      const inputFilePath = path.resolve(inputPath);
+      const resolved = path.resolve(inputPath);
+      const inputFilePath = fs.existsSync(resolved)
+        ? resolved
+        : path.join(os.homedir(), '.wf', inputPath);
       if (!fs.existsSync(inputFilePath)) {
         throw new Error(`Input file not found: ${inputFilePath}`);
       }

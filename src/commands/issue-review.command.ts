@@ -142,8 +142,9 @@ export class IssueReviewCommand extends CommandRunner {
             description: 'Fetch pull request diff',
             estimatedResponse: '200 OK — diff content',
           });
-        } else if (fs.existsSync(source)) {
-          console.log(chalk.gray(`   Source  : repository at ${source}\n`));
+        } else if (fs.existsSync(source) || fs.existsSync(path.join(os.homedir(), '.wf', source))) {
+          const resolvedDrySource = fs.existsSync(source) ? source : path.join(os.homedir(), '.wf', source);
+          console.log(chalk.gray(`   Source  : repository at ${resolvedDrySource}\n`));
         }
 
         this.dryRunPreview.previewApiCall({
@@ -271,12 +272,13 @@ export class IssueReviewCommand extends CommandRunner {
               `  wf issue:review`,
           );
         }
-      } else if (fs.existsSync(source)) {
+      } else if (fs.existsSync(source) || fs.existsSync(path.join(os.homedir(), '.wf', source))) {
         // Mode 4: Path - review specific repo
+        const resolvedSource = fs.existsSync(source) ? source : path.join(os.homedir(), '.wf', source);
         console.log(chalk.bold.cyan(`\n🔍 Reviewing Repository at Path\n`));
-        console.log(chalk.gray(`  Path: ${source}\n`));
-        diff = await this.reviewRepositoryPath(source);
-        context = `repository at ${source}`;
+        console.log(chalk.gray(`  Path: ${resolvedSource}\n`));
+        diff = await this.reviewRepositoryPath(resolvedSource);
+        context = `repository at ${resolvedSource}`;
       } else {
         throw new Error(
           `Invalid source: ${source}. Expected: ticket key (ABC-123), PR URL, or valid path.`,

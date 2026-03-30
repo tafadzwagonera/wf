@@ -415,9 +415,13 @@ export class IssueGenerateCommand extends CommandRunner {
       return await this.fetchFromUrl(source);
     }
 
-    // Check if it's a local file path
+    // Check if it's a local file path (with ~/.wf fallback)
     if (fs.existsSync(source)) {
       return await this.fetchFromFile(source);
+    }
+    const wfFallback = path.join(os.homedir(), '.wf', source);
+    if (fs.existsSync(wfFallback)) {
+      return await this.fetchFromFile(wfFallback);
     }
 
     // Check if it's a ticket key (contains letters and numbers with dash/hyphen)
