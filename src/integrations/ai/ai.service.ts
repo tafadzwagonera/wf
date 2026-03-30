@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import dayjs from 'dayjs';
 import { AIError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
@@ -59,6 +60,9 @@ export interface ResolutionPlan {
   filesAffected?: string[];
   repositoriesAffected?: string[];
   risks?: string[];
+  provider?: string;
+  source?: string;
+  timestamp?: string;
 }
 
 export interface CodeReview {
@@ -149,7 +153,35 @@ Return ONLY a valid JSON object with these fields:
 
     try {
       const stripped = stripCodeFences(response.content.trim());
-      return JSON.parse(stripped) as ResolutionPlan;
+      const plan = JSON.parse(stripped) as ResolutionPlan;
+
+      const rawSteps: unknown[] = Array.isArray(plan.steps) ? plan.steps : [];
+      plan.steps = rawSteps.map((step) => {
+        if (typeof step === 'string') return step;
+        if (step && typeof step === 'object') {
+          const s = step as Record<string, unknown>;
+          const text = s['description'] ?? s['text'] ?? s['title'] ?? s['content'];
+          if (typeof text === 'string') return text;
+        }
+        return String(step);
+      });
+
+      const provider = this.configService.get<string>('ai.provider', 'anthropic');
+      const model = this.configService.get<string>('ai.model', '');
+      const prefixMap: Record<string, string> = {
+        anthropic: 'claude-',
+        gemini: 'gemini-',
+        deepseek: 'deepseek-',
+        openai: 'gpt-',
+      };
+      const prefix = prefixMap[provider] ?? '';
+      const source = model.startsWith(prefix) ? model.slice(prefix.length) : model;
+
+      plan.provider = provider;
+      plan.source = source;
+      plan.timestamp = dayjs().toISOString();
+
+      return plan;
     } catch (error) {
       this.logger.error('Failed to parse AI response as JSON', error);
       throw new AIError('Failed to parse resolution plan from AI response', {
