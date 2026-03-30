@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import type {
@@ -9,15 +9,17 @@ import type {
 import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
+import { loadAiContextConfig } from './load-ai-context-config';
 
 const DEFAULT_MODEL = 'deepseek-reasoner';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
 
 @Injectable()
-export class DeepSeekAdapter implements LlmAdapter {
+export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
   private client: OpenAI;
   private model: string;
   private maxTokens: number;
+  private contextConfig = '';
 
   constructor(
     private configService: ConfigService,
@@ -41,6 +43,21 @@ export class DeepSeekAdapter implements LlmAdapter {
     }
   }
 
+  async onModuleInit(): Promise<void> {
+    // No standard global config path exists for DeepSeek; only project-level
+    // DEEPSEEK.md in process.cwd() is checked.
+    this.contextConfig = await loadAiContextConfig(
+      null,
+      'DEEPSEEK.md',
+      'deepseek',
+    );
+  }
+
+  private prependConfig(systemPrompt: string | undefined): string | undefined {
+    if (!this.contextConfig) return systemPrompt;
+    return this.contextConfig + (systemPrompt ?? '');
+  }
+
   async execute(request: AIRequest): Promise<AIResponse> {
     if (!this.client) {
       throw new AIError(
@@ -55,8 +72,9 @@ export class DeepSeekAdapter implements LlmAdapter {
     try {
       const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
 
-      if (request.systemPrompt) {
-        messages.push({ role: 'system', content: request.systemPrompt });
+      const systemPrompt = this.prependConfig(request.systemPrompt);
+      if (systemPrompt) {
+        messages.push({ role: 'system', content: systemPrompt });
       }
 
       messages.push({ role: 'user', content: request.prompt });
@@ -104,8 +122,9 @@ export class DeepSeekAdapter implements LlmAdapter {
     try {
       const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
 
-      if (request.systemPrompt) {
-        messages.push({ role: 'system', content: request.systemPrompt });
+      const systemPrompt = this.prependConfig(request.systemPrompt);
+      if (systemPrompt) {
+        messages.push({ role: 'system', content: systemPrompt });
       }
 
       for (const msg of request.messages) {
