@@ -13,7 +13,7 @@ import * as path from 'path';
 
 interface IssueCreateOptions {
   platform?: string;
-  project?: string;
+  ticketProject?: string;
   type?: string;
   dryRun?: boolean;
 }
@@ -83,8 +83,8 @@ export class IssueCreateCommand extends CommandRunner {
       const ticket = converter.parse(content);
 
       // Apply command-line overrides
-      if (options?.project) {
-        ticket.project = options.project;
+      if (options?.ticketProject) {
+        ticket.project = options.ticketProject;
       }
       if (options?.type) {
         ticket.type = options.type as TicketType;
@@ -164,11 +164,11 @@ export class IssueCreateCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--project <project>',
+    flags: '--ticket-project <project>',
     description:
       'Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file',
   })
-  parseProject(val: string): string {
+  parseTicketProject(val: string): string {
     return val;
   }
 

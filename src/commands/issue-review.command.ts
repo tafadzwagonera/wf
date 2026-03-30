@@ -10,6 +10,7 @@ import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveRepoBasePath } from '../agents/utils';
 import chalk from 'chalk';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 interface IssueReviewOptions {
@@ -82,6 +83,8 @@ export class IssueReviewCommand extends CommandRunner {
     passedParams: string[],
     options?: IssueReviewOptions,
   ): Promise<void> {
+    fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
+
     const source = passedParams[0];
 
     // Early validation — throws directly so callers can catch without going

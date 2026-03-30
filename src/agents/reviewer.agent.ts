@@ -40,10 +40,7 @@ export class ReviewerAgent {
     ticket: TicketArtifact,
     options: ReviewerOptions = {},
   ): Promise<ReviewArtifact | null> {
-    const wfSuffix = ticket.path.slice(ticket.path.indexOf('.wf/'));
-    const reviewPath = options.repoDir
-      ? path.join(options.repoDir, wfSuffix.replace('.md', '-review.md'))
-      : ticket.path.replace('.md', '-review.md');
+    const reviewPath = ticket.path.replace('.md', '-review.md');
 
     if (options.skipExisting && fs.existsSync(reviewPath)) {
       console.log(

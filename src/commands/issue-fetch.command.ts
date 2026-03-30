@@ -6,7 +6,9 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as YAML from 'yaml';
 
@@ -87,6 +89,8 @@ export class IssueFetchCommand extends CommandRunner {
 
   async run([ticketKey]: [string], options?: IssueFetchOptions): Promise<void> {
     try {
+      fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
+
       // Get platform (from option or config)
       const platformName =
         options?.platform ||
@@ -101,7 +105,8 @@ export class IssueFetchCommand extends CommandRunner {
         ) as OutputFormat);
 
       const extension = format === 'md' ? 'md' : format;
-      const platformDir = path.join(process.cwd(), platformName);
+      const repoBase = resolveRepoBasePath(options?.repos?.[0]);
+      const platformDir = resolveArtifactDir(repoBase, platformName);
       const filePath = path.join(platformDir, `${ticketKey}.${extension}`);
 
       if (options?.dryRun) {

@@ -91,7 +91,7 @@ export class IssueImplementCommand extends CommandRunner {
   @Option({
     flags: '--plan <path>',
     description:
-      'Filename (looked up under <app>/.wf/<platform>/) or relative path (resolved from app root)',
+      'Filename (looked up under ~/.wf/<app>/<platform>/) or relative path (resolved from app root)',
     required: false,
   })
   parsePlan(val: string): string {
@@ -184,7 +184,7 @@ export class IssueImplementCommand extends CommandRunner {
 
       const resolvedPlanPath = options?.plan
         ? path.dirname(options.plan) === '.'
-          ? path.join(baseDir, '.wf', platformName, options.plan)
+          ? path.join(resolveArtifactDir(baseDir, platformName), options.plan)
           : path.resolve(baseDir, options.plan)
         : undefined;
 

@@ -1,19 +1,21 @@
 // src/agents/utils.ts
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import chalk from 'chalk';
 
 /**
  * Resolve the artifact storage directory for a given platform.
  *
- * @param baseDir - Base directory for artifact storage
+ * @param baseDir - Base directory for artifact storage (repo path)
  * @param platformName - The platform name (e.g. 'jira', 'bitbucket')
- * @returns Absolute path to the platform artifact directory under `.wf/`
+ * @returns Absolute path to the platform artifact directory under `~/.wf/<app>/`
  */
 export const resolveArtifactDir = (
   baseDir: string,
   platformName: string,
-): string => path.join(baseDir, '.wf', platformName);
+): string =>
+  path.join(os.homedir(), '.wf', path.basename(path.resolve(baseDir)), platformName);
 
 /**
  * Extract the ticket summary from a markdown ticket file.

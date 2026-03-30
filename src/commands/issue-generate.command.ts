@@ -14,6 +14,7 @@ import {
 } from '../common/dto/universal-ticket.dto';
 import chalk from 'chalk';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import axios from 'axios';
 import { createHash } from 'crypto';
@@ -61,6 +62,8 @@ export class IssueGenerateCommand extends CommandRunner {
     passedParams: string[],
     options?: IssueGenerateOptions,
   ): Promise<void> {
+    fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
+
     if (!passedParams || passedParams.length === 0) {
       console.error(chalk.red('Error: At least one source is required'));
       console.log(

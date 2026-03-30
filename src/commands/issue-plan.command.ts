@@ -10,6 +10,7 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir } from '../agents/utils';
 import type { ResolutionAction } from '../agents/interfaces';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as YAML from 'yaml';
 import chalk from 'chalk';
@@ -201,6 +202,8 @@ export class IssuePlanCommand extends CommandRunner {
 
   async run([ticketKey]: string[], options?: IssuePlanOptions): Promise<void> {
     try {
+      fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
+
       // Mutual exclusion guard
       if (ticketKey && options?.prompt) {
         console.error(
