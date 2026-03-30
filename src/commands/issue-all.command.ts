@@ -542,6 +542,8 @@ export class IssueAllCommand extends CommandRunner {
               ticketContent: ticketArtifact.content,
               plan: planArtifact.plan,
             },
+            resolveRepoBasePath(repoList[0]),
+            platformName,
           );
         }
       }
@@ -561,6 +563,25 @@ export class IssueAllCommand extends CommandRunner {
       }
 
       // ── STAGE 3: IMPLEMENT ──────────────────────────────────────────────
+      let conversationContext: string | undefined;
+      if (options?.chatMode && !planArtifact?.fromCache) {
+        const savedConv = await this.conversationService.loadConversation(
+          ticketKey,
+          resolveRepoBasePath(repoList[0]),
+          platformName,
+        );
+        if (savedConv?.messages.length) {
+          const userMessages = savedConv.messages
+            .filter((m) => m.role === 'user')
+            .map((m) => m.content)
+            .join('\n');
+          if (userMessages) {
+            conversationContext =
+              `Developer implementation notes (from planning chat):\n${userMessages}`;
+          }
+        }
+      }
+
       let implementerResult: ImplementerResult | undefined;
       if (stagesToRun.includes(WorkflowStage.IMPLEMENT) && planArtifact) {
         const isMultiRepo = repoList.length > 1;
@@ -574,7 +595,7 @@ export class IssueAllCommand extends CommandRunner {
           implementerResult = await this.agents.implementer.execute(
             ticketArtifact,
             planArtifact,
-            { platformName, repoDir, suppressHeader: isMultiRepo },
+            { platformName, repoDir, suppressHeader: isMultiRepo, conversationContext },
           );
 
           // Investigation workflows end at the IMPLEMENT stage
@@ -638,6 +659,8 @@ export class IssueAllCommand extends CommandRunner {
                   plan: planArtifact?.plan,
                   review: reviewArtifact.review,
                 },
+                resolveRepoBasePath(repoList[0]),
+                platformName,
               );
             }
           }
@@ -764,11 +787,15 @@ export class IssueAllCommand extends CommandRunner {
     ticketKey: string,
     stage: ConvWorkflowStage,
     workflowState: any,
+    repoDir: string,
+    platformName: string,
   ): Promise<void> {
     const context: ConversationContext = {
       ticketKey,
       stage,
       stageOutput: stage === 'plan' ? workflowState.plan : workflowState.review,
+      repoDir,
+      platformName,
       workflowState: {
         ticketContent: workflowState.ticketContent,
         plan: workflowState.plan,
@@ -778,7 +805,7 @@ export class IssueAllCommand extends CommandRunner {
 
     // Load or create conversation
     let conversation =
-      await this.conversationService.loadConversation(ticketKey);
+      await this.conversationService.loadConversation(ticketKey, repoDir, platformName);
     if (!conversation) {
       conversation = await this.conversationService.createConversation(
         ticketKey,

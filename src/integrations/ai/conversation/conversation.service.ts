@@ -9,6 +9,7 @@ import {
   ChatSessionOptions,
 } from './interfaces';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 
@@ -71,9 +72,13 @@ export class ConversationService {
    * @param ticketKey - Ticket identifier
    * @returns Loaded conversation state or null if not found
    */
-  async loadConversation(ticketKey: string): Promise<ConversationState | null> {
+  async loadConversation(
+    ticketKey: string,
+    repoDir?: string,
+    platformName?: string,
+  ): Promise<ConversationState | null> {
     try {
-      const filePath = this.getConversationFilePath(ticketKey);
+      const filePath = this.getConversationFilePath(ticketKey, repoDir, platformName);
 
       if (!fs.existsSync(filePath)) {
         this.logger.debug(
@@ -202,7 +207,11 @@ export class ConversationService {
    */
   async saveConversation(state: ConversationState): Promise<void> {
     try {
-      const filePath = this.getConversationFilePath(state.ticketKey);
+      const filePath = this.getConversationFilePath(
+        state.ticketKey,
+        state.context.repoDir,
+        state.context.platformName,
+      );
       const dir = path.dirname(filePath);
 
       // Ensure directory exists
@@ -313,7 +322,11 @@ export class ConversationService {
     await this.saveConversation(state);
 
     // Display end message
-    const filePath = this.getConversationFilePath(state.ticketKey);
+    const filePath = this.getConversationFilePath(
+      state.ticketKey,
+      state.context.repoDir,
+      state.context.platformName,
+    );
     this.chatUI.displayChatEnd(filePath);
   }
 
@@ -333,10 +346,20 @@ export class ConversationService {
    * @param ticketKey - Ticket identifier
    * @returns Full path to conversation JSON file
    */
-  private getConversationFilePath(ticketKey: string): string {
-    // Store in same directory as ticket files
-    const cwd = process.cwd();
-    // Assuming ticket is in jira/ directory by default
-    return path.join(cwd, 'jira', `${ticketKey}-conversation.json`);
+  private getConversationFilePath(
+    ticketKey: string,
+    repoDir?: string,
+    platformName?: string,
+  ): string {
+    if (repoDir && platformName) {
+      const artifactDir = path.join(
+        os.homedir(),
+        '.wf',
+        path.basename(path.resolve(repoDir)),
+        platformName,
+      );
+      return path.join(artifactDir, `${ticketKey}-conversation.json`);
+    }
+    return path.join(process.cwd(), 'jira', `${ticketKey}-conversation.json`);
   }
 }

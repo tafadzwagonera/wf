@@ -40,6 +40,7 @@ export interface ImplementerOptions {
   platformName: string;
   repoDir?: string;
   suppressHeader?: boolean;
+  conversationContext?: string;
 }
 
 export interface ReviewerOptions {

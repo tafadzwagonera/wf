@@ -28,6 +28,8 @@ export interface ConversationContext {
   ticketKey: string;
   stage: WorkflowStage;
   stageOutput?: any;
+  repoDir?: string;
+  platformName?: string;
   workflowState: {
     ticketContent: string;
     plan?: any;

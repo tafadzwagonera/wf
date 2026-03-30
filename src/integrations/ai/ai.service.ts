@@ -366,6 +366,7 @@ Return ONLY the commit message description, nothing else.`;
     planSteps: string[];
     filePath: string;
     existingContent: string;
+    conversationContext?: string;
   }): Promise<string> {
     const systemPrompt = `You are an expert software engineer implementing code changes.
 Return ONLY the complete updated file content — no explanation, no markdown code blocks, no surrounding text.
@@ -383,7 +384,7 @@ ${params.ticketContent.substring(0, 2000)}
 
 Implementation steps:
 ${params.planSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
-
+${params.conversationContext ? `\n${params.conversationContext}\n` : ''}
 File: ${params.filePath}
 Current content:
 ${params.existingContent || '(empty — create this file from scratch)'}
@@ -403,6 +404,7 @@ Apply the relevant steps to this file. Return ONLY the complete updated file con
   async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
     const systemPrompt = `You are an expert code reviewer providing constructive feedback.
 Focus on code quality, best practices, potential bugs, and security issues.
+Ignore any changes to JSON or markdown files under \`.wf/\` or platform artefact directories (jira/, bitbucket/) — review only application source code.
 Return your response as a JSON object matching the CodeReview interface.`;
 
     const prompt = `

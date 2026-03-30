@@ -155,6 +155,7 @@ export class ImplementerAgent {
           planSteps: planArtifact.plan.steps,
           filePath: relativePath,
           existingContent,
+          conversationContext: options.conversationContext,
         });
 
         fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
