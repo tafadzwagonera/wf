@@ -11,9 +11,10 @@ export const validationSchema = Joi.object({
 
   // AI Configuration
   AI_PROVIDER: Joi.string()
-    .valid('anthropic', 'gemini', 'deepseek')
+    .valid('anthropic', 'gemini', 'deepseek', 'openai')
     .default('anthropic'),
   ANTHROPIC_API_KEY: Joi.string().optional(),
+  OPENAI_API_KEY: Joi.string().optional(),
   GEMINI_API_KEY: Joi.string().optional(),
   DEEPSEEK_API_KEY: Joi.string().optional(),
   AI_MODEL: Joi.string().optional(),

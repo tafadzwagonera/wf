@@ -160,13 +160,17 @@ Return ONLY a valid JSON object with these fields:
         if (typeof step === 'string') return step;
         if (step && typeof step === 'object') {
           const s = step as Record<string, unknown>;
-          const text = s['description'] ?? s['text'] ?? s['title'] ?? s['content'];
+          const text =
+            s['description'] ?? s['text'] ?? s['title'] ?? s['content'];
           if (typeof text === 'string') return text;
         }
         return String(step);
       });
 
-      const provider = this.configService.get<string>('ai.provider', 'anthropic');
+      const provider = this.configService.get<string>(
+        'ai.provider',
+        'anthropic',
+      );
       const model = this.configService.get<string>('ai.model', '');
       const prefixMap: Record<string, string> = {
         anthropic: 'claude-',
@@ -175,7 +179,9 @@ Return ONLY a valid JSON object with these fields:
         openai: 'gpt-',
       };
       const prefix = prefixMap[provider] ?? '';
-      const source = model.startsWith(prefix) ? model.slice(prefix.length) : model;
+      const source = model.startsWith(prefix)
+        ? model.slice(prefix.length)
+        : model;
 
       plan.provider = provider;
       plan.source = source;
@@ -459,10 +465,11 @@ Return ONLY a valid JSON object:
    * Returns the full AI provider display name for use in dry-run previews.
    * Reads ai.provider from config (default: 'anthropic').
    *
-   * @returns 'Anthropic Claude' | 'Google Gemini' | 'DeepSeek'
+   * @returns 'Anthropic Claude' | 'OpenAI' | 'Google Gemini' | 'DeepSeek'
    */
   getProviderDisplayName(): string {
     const provider = this.configService.get<string>('ai.provider', 'anthropic');
+    if (provider === 'openai') return 'OpenAI';
     if (provider === 'gemini') return 'Google Gemini';
     if (provider === 'deepseek') return 'DeepSeek';
     return 'Anthropic Claude';
@@ -472,10 +479,11 @@ Return ONLY a valid JSON object:
    * Returns a short AI provider name for use in interactive chat UI labels.
    * Reads ai.provider from config (default: 'anthropic').
    *
-   * @returns 'Claude' | 'Gemini' | 'DeepSeek'
+   * @returns 'Claude' | 'OpenAI' | 'Gemini' | 'DeepSeek'
    */
   getProviderShortName(): string {
     const provider = this.configService.get<string>('ai.provider', 'anthropic');
+    if (provider === 'openai') return 'OpenAI';
     if (provider === 'gemini') return 'Gemini';
     if (provider === 'deepseek') return 'DeepSeek';
     return 'Claude';

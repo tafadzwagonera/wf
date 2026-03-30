@@ -261,11 +261,18 @@ export class IssueAllCommand extends CommandRunner {
         const terminalLines: string[] = [];
 
         const aiPlatformName = this.aiService.getProviderDisplayName();
-        const aiProvider = this.configService.get<string>('ai.provider', 'anthropic');
+        const aiProvider = this.configService.get<string>(
+          'ai.provider',
+          'anthropic',
+        );
         const aiEndpoint =
-          aiProvider === 'gemini' ? '/v1beta/models'
-          : aiProvider === 'deepseek' ? '/chat/completions'
-          : '/v1/messages';
+          aiProvider === 'gemini'
+            ? '/v1beta/models'
+            : aiProvider === 'openai'
+              ? '/chat/completions'
+              : aiProvider === 'deepseek'
+                ? '/chat/completions'
+                : '/v1/messages';
 
         for (const stage of stagesToRun) {
           this.dryRunPreview.showStageHeader(stage);
@@ -387,7 +394,9 @@ export class IssueAllCommand extends CommandRunner {
             } else {
               for (const repo of repoList) {
                 if (repoList.length > 1) {
-                  console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+                  console.log(
+                    chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
+                  );
                 }
                 this.dryRunPreview.showNoSideEffects();
                 console.log(
@@ -411,12 +420,17 @@ export class IssueAllCommand extends CommandRunner {
             }
             for (const repo of repoList) {
               if (repoList.length > 1) {
-                console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+                console.log(
+                  chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
+                );
               }
               const repoPlatformDir = repo
                 ? resolveArtifactDir(resolveRepoBasePath(repo), platformName)
                 : platformDir;
-              const reviewPath = path.join(repoPlatformDir, `${ticketKey}-review.md`);
+              const reviewPath = path.join(
+                repoPlatformDir,
+                `${ticketKey}-review.md`,
+              );
               const artifactExists = fs.existsSync(reviewPath);
 
               if (skipExisting && artifactExists) {
@@ -470,7 +484,9 @@ export class IssueAllCommand extends CommandRunner {
             }
             for (const repo of repoList) {
               if (repoList.length > 1) {
-                console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+                console.log(
+                  chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
+                );
               }
               this.dryRunPreview.showNoSideEffects();
               console.log(
@@ -576,8 +592,7 @@ export class IssueAllCommand extends CommandRunner {
             .map((m) => m.content)
             .join('\n');
           if (userMessages) {
-            conversationContext =
-              `Developer implementation notes (from planning chat):\n${userMessages}`;
+            conversationContext = `Developer implementation notes (from planning chat):\n${userMessages}`;
           }
         }
       }
@@ -591,11 +606,19 @@ export class IssueAllCommand extends CommandRunner {
         }
         for (const repo of repoList) {
           const repoDir = resolveRepoBasePath(repo);
-          if (isMultiRepo) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+          if (isMultiRepo)
+            console.log(
+              chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
+            );
           implementerResult = await this.agents.implementer.execute(
             ticketArtifact,
             planArtifact,
-            { platformName, repoDir, suppressHeader: isMultiRepo, conversationContext },
+            {
+              platformName,
+              repoDir,
+              suppressHeader: isMultiRepo,
+              conversationContext,
+            },
           );
 
           // Investigation workflows end at the IMPLEMENT stage
@@ -622,7 +645,10 @@ export class IssueAllCommand extends CommandRunner {
         }
         for (const repo of repoList) {
           const repoDir = resolveRepoBasePath(repo);
-          if (isMultiRepo) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+          if (isMultiRepo)
+            console.log(
+              chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
+            );
           reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
             skipExisting,
             repoDir,
@@ -633,9 +659,7 @@ export class IssueAllCommand extends CommandRunner {
             console.log(chalk.bold('\n  Status:'));
             if (reviewArtifact.approved) {
               console.log(
-                chalk.cyan(
-                  '    Changes approved - proceeding to commit stage',
-                ),
+                chalk.cyan('    Changes approved - proceeding to commit stage'),
               );
             } else {
               console.log(
@@ -679,7 +703,10 @@ export class IssueAllCommand extends CommandRunner {
         }
         for (const repo of repoList) {
           const repoDir = resolveRepoBasePath(repo);
-          if (isMultiRepo) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+          if (isMultiRepo)
+            console.log(
+              chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
+            );
           await this.agents.committer.execute(
             ticketKey,
             repoDir,
@@ -804,8 +831,11 @@ export class IssueAllCommand extends CommandRunner {
     };
 
     // Load or create conversation
-    let conversation =
-      await this.conversationService.loadConversation(ticketKey, repoDir, platformName);
+    let conversation = await this.conversationService.loadConversation(
+      ticketKey,
+      repoDir,
+      platformName,
+    );
     if (!conversation) {
       conversation = await this.conversationService.createConversation(
         ticketKey,

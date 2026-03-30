@@ -13,6 +13,7 @@ export default () => ({
   ai: {
     provider: process.env.AI_PROVIDER || 'anthropic',
     apiKey: process.env.ANTHROPIC_API_KEY,
+    openaiApiKey: process.env.OPENAI_API_KEY,
     geminiApiKey: process.env.GEMINI_API_KEY,
     deepseekApiKey: process.env.DEEPSEEK_API_KEY,
     model: process.env.AI_MODEL,

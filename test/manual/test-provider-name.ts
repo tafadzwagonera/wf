@@ -5,8 +5,9 @@
  *
  * Verifies that:
  *   1. Default (anthropic) provider shows 'Anthropic Claude' in dry-run output
- *   2. AI_PROVIDER=gemini shows 'Google Gemini' in dry-run output
- *   3. AI_PROVIDER=deepseek shows 'DeepSeek' in dry-run output
+ *   2. AI_PROVIDER=openai shows 'OpenAI' in dry-run output
+ *   3. AI_PROVIDER=gemini shows 'Google Gemini' in dry-run output
+ *   4. AI_PROVIDER=deepseek shows 'DeepSeek' in dry-run output
  */
 
 import { execSync } from 'child_process';
@@ -33,8 +34,22 @@ function testProviderName() {
         cwd: process.cwd(),
         env: { ...process.env, ...env },
       });
-    } catch (err: any) {
-      return (err.stdout ?? '') + (err.stderr ?? '');
+    } catch (error: unknown) {
+      const stdout =
+        typeof error === 'object' &&
+        error !== null &&
+        'stdout' in error &&
+        typeof error.stdout === 'string'
+          ? error.stdout
+          : '';
+      const stderr =
+        typeof error === 'object' &&
+        error !== null &&
+        'stderr' in error &&
+        typeof error.stderr === 'string'
+          ? error.stderr
+          : '';
+      return stdout + stderr;
     }
   };
 
@@ -49,7 +64,18 @@ function testProviderName() {
     );
   }
 
-  // 2. Google Gemini
+  // 2. OpenAI
+  const openaiOutput = runDryRun({ AI_PROVIDER: 'openai' });
+  if (openaiOutput.includes('OpenAI')) {
+    pass('AI_PROVIDER=openai shows "OpenAI" in dry-run output');
+  } else {
+    fail(
+      'AI_PROVIDER=openai does NOT show "OpenAI"',
+      openaiOutput.slice(0, 300),
+    );
+  }
+
+  // 3. Google Gemini
   const geminiOutput = runDryRun({ AI_PROVIDER: 'gemini' });
   if (geminiOutput.includes('Google Gemini')) {
     pass('AI_PROVIDER=gemini shows "Google Gemini" in dry-run output');
@@ -60,7 +86,7 @@ function testProviderName() {
     );
   }
 
-  // 3. DeepSeek
+  // 4. DeepSeek
   const deepseekOutput = runDryRun({ AI_PROVIDER: 'deepseek' });
   if (deepseekOutput.includes('DeepSeek')) {
     pass('AI_PROVIDER=deepseek shows "DeepSeek" in dry-run output');
