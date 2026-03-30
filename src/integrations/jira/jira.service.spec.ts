@@ -364,6 +364,53 @@ describe('JiraService', () => {
     });
   });
 
+  describe('createTicket priority handling', () => {
+    it('should omit priority when no matching priority name is found', async () => {
+      // Priority lookup returns no match
+      mockHttpService.get.mockReturnValue(
+        of({ data: [{ id: '1', name: 'P1' }, { id: '2', name: 'P2' }] }),
+      );
+      // Create ticket succeeds
+      mockHttpService.post.mockReturnValue(
+        of({ data: { key: 'WBP-100' } }),
+      );
+
+      const key = await service.createTicket({
+        project: 'WBP',
+        summary: 'Test ticket',
+        description: 'desc',
+        issueType: 'Task',
+        priority: 'High',
+      });
+
+      expect(key).toBe('WBP-100');
+      const payload = mockHttpService.post.mock.calls[0][1];
+      expect(payload.fields.priority).toBeUndefined();
+    });
+
+    it('should include priority when the resolved name matches', async () => {
+      // Priority lookup returns a match
+      mockHttpService.get.mockReturnValue(
+        of({ data: [{ id: '2', name: 'High' }, { id: '3', name: 'Medium' }] }),
+      );
+      mockHttpService.post.mockReturnValue(
+        of({ data: { key: 'WBP-101' } }),
+      );
+
+      const key = await service.createTicket({
+        project: 'WBP',
+        summary: 'Test ticket',
+        description: 'desc',
+        issueType: 'Task',
+        priority: 'High',
+      });
+
+      expect(key).toBe('WBP-101');
+      const payload = mockHttpService.post.mock.calls[0][1];
+      expect(payload.fields.priority).toEqual({ name: 'High' });
+    });
+  });
+
   describe('resolveValidPriorityName', () => {
     it('should return the exact Jira priority name when a case-insensitive match is found', async () => {
       mockHttpService.get.mockReturnValue(

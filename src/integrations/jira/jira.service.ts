@@ -98,6 +98,17 @@ export class JiraService {
       );
     }
 
+    // Resolve priority against the Jira instance's priority scheme
+    let resolvedPriority: string | undefined;
+    if (request.priority) {
+      resolvedPriority = await this.resolveValidPriorityName(request.priority);
+      if (!resolvedPriority) {
+        this.logger.warn(
+          `Priority "${request.priority}" not found in Jira priority scheme. Creating ticket without priority.`,
+        );
+      }
+    }
+
     try {
       const payload = {
         fields: {
@@ -105,7 +116,7 @@ export class JiraService {
           summary: request.summary,
           description: this.markdownToADF(request.description),
           issuetype: { name: request.issueType || 'Task' },
-          ...(request.priority && { priority: { name: request.priority } }),
+          ...(resolvedPriority && { priority: { name: resolvedPriority } }),
           ...(request.labels && { labels: request.labels }),
           ...(request.assignee && {
             assignee: { accountId: request.assignee },
