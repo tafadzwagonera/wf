@@ -1,3 +1,5 @@
+import { resolveWfPath } from '../shared/utils/wf-paths';
+
 export default () => ({
   platforms: {
     primary: process.env.PRIMARY_PLATFORM || 'jira',
@@ -60,10 +62,10 @@ export default () => ({
     autoDiscovery: process.env.WORKFLOW_AUTO_DISCOVERY === 'true',
   },
   state: {
-    directory: process.env.STATE_DIRECTORY || '.wf/state',
+    directory: resolveWfPath(process.env.STATE_DIRECTORY, 'state'),
   },
   logging: {
-    directory: process.env.LOG_DIRECTORY || '.wf/logs',
+    directory: resolveWfPath(process.env.LOG_DIRECTORY, 'logs'),
     level: process.env.LOG_LEVEL || 'info',
   },
   app: {

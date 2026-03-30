@@ -7,17 +7,17 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { SlackService } from '../integrations/slack/slack.service';
-import { resolveArtifactDir } from '../agents/utils';
+import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import {
   UniversalTicket,
   TicketType,
 } from '../common/dto/universal-ticket.dto';
 import chalk from 'chalk';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import axios from 'axios';
 import { createHash } from 'crypto';
+import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 /** Minimum description length (chars) for a ticket to bypass AI synthesis. */
 const MIN_DESCRIPTION_LENGTH = 100;
@@ -62,7 +62,7 @@ export class IssueGenerateCommand extends CommandRunner {
     passedParams: string[],
     options?: IssueGenerateOptions,
   ): Promise<void> {
-    fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
+    fs.mkdirSync(getWfHomeDir(), { recursive: true });
 
     if (!passedParams || passedParams.length === 0) {
       console.error(chalk.red('Error: At least one source is required'));
@@ -85,6 +85,7 @@ export class IssueGenerateCommand extends CommandRunner {
         const platformName =
           options?.platform ||
           this.configService.get<string>('platforms.primary', 'jira');
+        const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
 
         this.dryRunPreview.showHeader(
           'issue:generate',
@@ -93,7 +94,8 @@ export class IssueGenerateCommand extends CommandRunner {
 
         let apiCallCount = 0;
 
-        const SLACK_PERMALINK_DRY = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
+        const SLACK_PERMALINK_DRY =
+          /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
 
         for (const source of passedParams) {
           if (SLACK_PERMALINK_DRY.test(source)) {
@@ -105,7 +107,10 @@ export class IssueGenerateCommand extends CommandRunner {
               estimatedResponse: '200 OK — thread messages JSON',
             });
             apiCallCount++;
-          } else if (source.startsWith('http://') || source.startsWith('https://')) {
+          } else if (
+            source.startsWith('http://') ||
+            source.startsWith('https://')
+          ) {
             this.dryRunPreview.previewApiCall({
               method: 'GET',
               endpoint: source,
@@ -164,7 +169,7 @@ export class IssueGenerateCommand extends CommandRunner {
         if (options?.save) {
           const timestamp = new Date().toISOString().split('T')[0];
           const filePath = path.join(
-            resolveArtifactDir(process.cwd(), platformName),
+            resolveArtifactDir(artifactBaseDir, platformName),
             `GENERATED-${timestamp}-preview.${format}`,
           );
           this.dryRunPreview.previewFileWrite({
@@ -264,6 +269,7 @@ export class IssueGenerateCommand extends CommandRunner {
           platformName,
           format,
           passedParams,
+          options?.repos?.[0],
         );
         console.log(chalk.green('\n✓ Ticket saved to:'), chalk.cyan(savedPath));
       }
@@ -402,12 +408,13 @@ export class IssueGenerateCommand extends CommandRunner {
     repo?: string,
   ): Promise<SourceContent> {
     // Check if it's a Slack thread permalink (must come before generic URL check)
-    const SLACK_PERMALINK = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
+    const SLACK_PERMALINK =
+      /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
     const slackMatch = source.match(SLACK_PERMALINK);
     if (slackMatch) {
       const channelId = slackMatch[1];
       const threadTs = `${slackMatch[2]}.${slackMatch[3]}`;
-      return await this.fetchFromSlack(source, channelId, threadTs);
+      return await this.fetchFromSlack(source, channelId, threadTs, repo);
     }
 
     // Check if it's a URL
@@ -419,7 +426,7 @@ export class IssueGenerateCommand extends CommandRunner {
     if (fs.existsSync(source)) {
       return await this.fetchFromFile(source);
     }
-    const wfFallback = path.join(os.homedir(), '.wf', source);
+    const wfFallback = path.join(getWfHomeDir(), source);
     if (fs.existsSync(wfFallback)) {
       return await this.fetchFromFile(wfFallback);
     }
@@ -429,7 +436,9 @@ export class IssueGenerateCommand extends CommandRunner {
       return await this.fetchFromPlatform(source, platform, repo);
     }
 
-    throw new Error(`Unknown source type: ${source}. Supported: URL, local file path, ticket key (ABC-123), Slack thread URL`);
+    throw new Error(
+      `Unknown source type: ${source}. Supported: URL, local file path, ticket key (ABC-123), Slack thread URL`,
+    );
   }
 
   /**
@@ -439,15 +448,19 @@ export class IssueGenerateCommand extends CommandRunner {
     source: string,
     channelId: string,
     threadTs: string,
+    repo?: string,
   ): Promise<SourceContent> {
     const result = await this.slackService.fetchThread(channelId, threadTs);
     const formattedText = result.messages
       .map((m) => `[${m.ts}] ${m.user}: ${m.text}`)
       .join('\n');
     const threadId = threadTs.replace('.', '-');
-    const artifactDir = resolveArtifactDir(process.cwd(), 'slack');
+    const artifactDir = resolveArtifactDir(resolveRepoBasePath(repo), 'slack');
     await fs.promises.mkdir(artifactDir, { recursive: true });
-    const artifactPath = path.join(artifactDir, `slack-thread-${channelId}-${threadId}.md`);
+    const artifactPath = path.join(
+      artifactDir,
+      `slack-thread-${channelId}-${threadId}.md`,
+    );
     await fs.promises.writeFile(artifactPath, formattedText, 'utf-8');
     console.log(chalk.gray(`  Artifact: ${artifactPath}`));
     return { type: 'slack', source, content: formattedText };
@@ -559,8 +572,12 @@ export class IssueGenerateCommand extends CommandRunner {
     platformName: string,
     format: string,
     sources: string[],
+    repo?: string,
   ): Promise<string> {
-    const platformDir = resolveArtifactDir(process.cwd(), platformName);
+    const platformDir = resolveArtifactDir(
+      resolveRepoBasePath(repo),
+      platformName,
+    );
     await fs.promises.mkdir(platformDir, { recursive: true });
 
     const hash8 = this.hashSources(sources);
@@ -581,7 +598,10 @@ export class IssueGenerateCommand extends CommandRunner {
       artifactPath = path.join(platformDir, existingFilename);
     } else {
       const timestamp = new Date().toISOString().split('T')[0];
-      artifactPath = path.join(platformDir, `GENERATED-${timestamp}-${hash8}.${extension}`);
+      artifactPath = path.join(
+        platformDir,
+        `GENERATED-${timestamp}-${hash8}.${extension}`,
+      );
     }
 
     const converter = this.formatConverterService.getConverter(format);
@@ -602,7 +622,8 @@ export class IssueGenerateCommand extends CommandRunner {
     // If only one source and its description is long enough, skip AI synthesis
     if (
       sources.length === 1 &&
-      (sources[0].ticket?.description?.trim().length ?? 0) >= MIN_DESCRIPTION_LENGTH
+      (sources[0].ticket?.description?.trim().length ?? 0) >=
+        MIN_DESCRIPTION_LENGTH
     ) {
       return sources[0].ticket!;
     }

@@ -7,7 +7,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
-import { resolveArtifactDir } from '../agents/utils';
+import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import type { ResolutionAction } from '../agents/interfaces';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -240,10 +240,11 @@ export class IssuePlanCommand extends CommandRunner {
       }
 
       const action = options!.action;
+      const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
 
       // ── PROMPT MODE ──────────────────────────────────────────────────────
       if (options?.prompt) {
-        const platformDir = resolveArtifactDir(process.cwd(), platformName);
+        const platformDir = resolveArtifactDir(artifactBaseDir, platformName);
         const planFilename = `${generateMnemonic()}-${action}.json`;
         const planPath = path.join(platformDir, planFilename);
         const format = options?.format ?? 'json';
@@ -328,7 +329,7 @@ export class IssuePlanCommand extends CommandRunner {
       const format = options?.format || 'json';
 
       // Check for local artifact or fetch
-      const platformDir = resolveArtifactDir(process.cwd(), platformName);
+      const platformDir = resolveArtifactDir(artifactBaseDir, platformName);
       const ticketPath = path.join(platformDir, `${ticketKey}.md`);
       const planPath = path.join(
         platformDir,

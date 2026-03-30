@@ -10,8 +10,8 @@ import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveRepoBasePath } from '../agents/utils';
 import chalk from 'chalk';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 interface IssueReviewOptions {
   format?: string;
@@ -83,7 +83,7 @@ export class IssueReviewCommand extends CommandRunner {
     passedParams: string[],
     options?: IssueReviewOptions,
   ): Promise<void> {
-    fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
+    fs.mkdirSync(getWfHomeDir(), { recursive: true });
 
     const source = passedParams[0];
 
@@ -142,9 +142,16 @@ export class IssueReviewCommand extends CommandRunner {
             description: 'Fetch pull request diff',
             estimatedResponse: '200 OK — diff content',
           });
-        } else if (fs.existsSync(source) || fs.existsSync(path.join(os.homedir(), '.wf', source))) {
-          const resolvedDrySource = fs.existsSync(source) ? source : path.join(os.homedir(), '.wf', source);
-          console.log(chalk.gray(`   Source  : repository at ${resolvedDrySource}\n`));
+        } else if (
+          fs.existsSync(source) ||
+          fs.existsSync(path.join(getWfHomeDir(), source))
+        ) {
+          const resolvedDrySource = fs.existsSync(source)
+            ? source
+            : path.join(getWfHomeDir(), source);
+          console.log(
+            chalk.gray(`   Source  : repository at ${resolvedDrySource}\n`),
+          );
         }
 
         this.dryRunPreview.previewApiCall({
@@ -272,9 +279,14 @@ export class IssueReviewCommand extends CommandRunner {
               `  wf issue:review`,
           );
         }
-      } else if (fs.existsSync(source) || fs.existsSync(path.join(os.homedir(), '.wf', source))) {
+      } else if (
+        fs.existsSync(source) ||
+        fs.existsSync(path.join(getWfHomeDir(), source))
+      ) {
         // Mode 4: Path - review specific repo
-        const resolvedSource = fs.existsSync(source) ? source : path.join(os.homedir(), '.wf', source);
+        const resolvedSource = fs.existsSync(source)
+          ? source
+          : path.join(getWfHomeDir(), source);
         console.log(chalk.bold.cyan(`\n🔍 Reviewing Repository at Path\n`));
         console.log(chalk.gray(`  Path: ${resolvedSource}\n`));
         diff = await this.reviewRepositoryPath(resolvedSource);
@@ -446,13 +458,26 @@ export class IssueReviewCommand extends CommandRunner {
     );
 
     if (inlineIssues.length > 0 && adapter.createInlineComment) {
-      console.log(chalk.cyan(`💬 Posting ${inlineIssues.length} inline comment(s) to Bitbucket...\n`));
+      console.log(
+        chalk.cyan(
+          `💬 Posting ${inlineIssues.length} inline comment(s) to Bitbucket...\n`,
+        ),
+      );
       for (const issue of inlineIssues) {
         const body = issue.message;
         try {
-          await adapter.createInlineComment(prUrl, issue.file!, issue.line!, body);
+          await adapter.createInlineComment(
+            prUrl,
+            issue.file!,
+            issue.line!,
+            body,
+          );
         } catch (err: any) {
-          console.log(chalk.yellow(`  ⚠️  Inline comment skipped (${issue.file}:${issue.line}): ${err.message}\n`));
+          console.log(
+            chalk.yellow(
+              `  ⚠️  Inline comment skipped (${issue.file}:${issue.line}): ${err.message}\n`,
+            ),
+          );
         }
       }
       console.log(chalk.green('✓ Inline comments posted\n'));

@@ -4,15 +4,40 @@ jest.mock('chalk', () => {
   const makeChain = () => {
     const chain: any = identity;
     [
-      'bold', 'dim', 'italic', 'underline', 'inverse', 'strikethrough',
-      'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan',
-      'white', 'gray', 'grey',
-    ].forEach((name) => { chain[name] = identity; });
+      'bold',
+      'dim',
+      'italic',
+      'underline',
+      'inverse',
+      'strikethrough',
+      'black',
+      'red',
+      'green',
+      'yellow',
+      'blue',
+      'magenta',
+      'cyan',
+      'white',
+      'gray',
+      'grey',
+    ].forEach((name) => {
+      chain[name] = identity;
+    });
     return chain;
   };
   const chalk = makeChain();
   chalk.bold = makeChain();
   return { default: chalk, ...chalk };
+});
+
+jest.mock('../agents/utils', () => {
+  const actual = jest.requireActual('../agents/utils');
+  return {
+    ...actual,
+    resolveRepoBasePath: jest.fn((repo?: string) =>
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
+    ),
+  };
 });
 
 import { Test } from '@nestjs/testing';
@@ -23,12 +48,19 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
+import * as os from 'os';
+import * as path from 'path';
 
 async function buildCommand(): Promise<IssueImplementCommand> {
   const module = await Test.createTestingModule({
     providers: [
       IssueImplementCommand,
-      { provide: AiService, useValue: {} },
+      {
+        provide: AiService,
+        useValue: {
+          getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
+        },
+      },
       { provide: PlatformService, useValue: {} },
       {
         provide: ConfigService,
@@ -67,6 +99,16 @@ async function buildCommand(): Promise<IssueImplementCommand> {
 }
 
 describe('IssueImplementCommand', () => {
+  let cwdSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue('/tmp/consumer-app');
+  });
+
+  afterEach(() => {
+    cwdSpy.mockRestore();
+  });
+
   describe('option metadata', () => {
     it('does not expose a --force-recreate option', () => {
       const proto = IssueImplementCommand.prototype as any;
@@ -108,6 +150,9 @@ describe('IssueImplementCommand', () => {
         .join('\n');
       expect(errorOutput).toContain('Ticket artifact not found');
       expect(errorOutput).toContain('issue:fetch');
+      expect(errorOutput).toContain(
+        path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-0001.md'),
+      );
     });
 
     it('exits with code 1 and prints plan hint when ticket exists but plan is missing', async () => {
@@ -126,7 +171,6 @@ describe('IssueImplementCommand', () => {
       expect(errorOutput).toContain('issue:plan');
       expect(errorOutput).toContain('issue:implement');
     });
-
   });
 
   describe('Mode C — dry-run path', () => {
@@ -179,9 +223,10 @@ describe('IssueImplementCommand', () => {
       // Allow ticket .md and only the feature plan so discoverPlanAction resolves
       // to action='feature' (investigate is first in candidates and would win with
       // equal mtimeMs if we simply mockReturnValue(true)).
-      existsSyncSpy.mockImplementation((p: string) =>
-        !String(p).includes('-plan-investigate.json') &&
-        !String(p).includes('-plan-fix.json'),
+      existsSyncSpy.mockImplementation(
+        (p: string) =>
+          !String(p).includes('-plan-investigate.json') &&
+          !String(p).includes('-plan-fix.json'),
       );
       jest
         .spyOn(require('fs'), 'statSync')
@@ -197,9 +242,10 @@ describe('IssueImplementCommand', () => {
     });
 
     it('shows apiCallCount: 1 and fileCreatedCount: 1 for investigate plan dry-run', async () => {
-      existsSyncSpy.mockImplementation((p: string) =>
-        String(p).endsWith('.md') ||
-        String(p).includes('-plan-investigate.json'),
+      existsSyncSpy.mockImplementation(
+        (p: string) =>
+          String(p).endsWith('.md') ||
+          String(p).includes('-plan-investigate.json'),
       );
       jest
         .spyOn(require('fs'), 'statSync')
@@ -243,9 +289,10 @@ describe('IssueImplementCommand', () => {
       // Allow ticket .md and only the feature plan so discoverPlanAction resolves
       // to action='feature' (investigate is first in the candidates array and would
       // win when all mtimeMs are equal if we simply mockReturnValue(true)).
-      existsSyncSpy.mockImplementation((p: string) =>
-        !String(p).includes('-plan-investigate.json') &&
-        !String(p).includes('-plan-fix.json'),
+      existsSyncSpy.mockImplementation(
+        (p: string) =>
+          !String(p).includes('-plan-investigate.json') &&
+          !String(p).includes('-plan-fix.json'),
       );
       // statSync is called by discoverPlanAction's sort — prevent real fs access
       jest
@@ -302,7 +349,19 @@ describe('IssueImplementCommand', () => {
       const [ticketArg, planArg] =
         mockOrchestrator.implementer.execute.mock.calls[0];
       expect(ticketArg.ticketKey).toBe('WBP-0001');
+      expect(ticketArg.path).toBe(
+        path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-0001.md'),
+      );
       expect(planArg.action).toBe('feature');
+      expect(planArg.path).toBe(
+        path.join(
+          os.homedir(),
+          '.wf',
+          'repo-a',
+          'jira',
+          'WBP-0001-plan-feature.json',
+        ),
+      );
       // planner was never called — plan was loaded from disk
       expect(mockOrchestrator.planner.execute).not.toHaveBeenCalled();
     });

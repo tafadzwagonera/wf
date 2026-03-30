@@ -1,4 +1,5 @@
 import * as Joi from '@hapi/joi';
+import { getWfLogDir, getWfStateDir } from '../shared/utils/wf-paths';
 
 export const validationSchema = Joi.object({
   // Platform Configuration
@@ -46,10 +47,10 @@ export const validationSchema = Joi.object({
   WORKFLOW_AUTO_DISCOVERY: Joi.boolean().default(false),
 
   // State Configuration
-  STATE_DIRECTORY: Joi.string().default('.wf/state'),
+  STATE_DIRECTORY: Joi.string().default(getWfStateDir()),
 
   // Logging Configuration
-  LOG_DIRECTORY: Joi.string().default('.wf/logs'),
+  LOG_DIRECTORY: Joi.string().default(getWfLogDir()),
   LOG_LEVEL: Joi.string()
     .valid('error', 'warn', 'info', 'debug')
     .default('info'),

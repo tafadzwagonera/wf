@@ -11,6 +11,7 @@ import {
 } from '../../common/interfaces';
 import { StateError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
+import { getWfStateDir } from '../../shared/utils/wf-paths';
 
 @Injectable()
 export class StateManagerService {
@@ -22,7 +23,7 @@ export class StateManagerService {
   ) {
     this.stateDirectory = this.configService.get<string>(
       'state.directory',
-      '.wf/state',
+      getWfStateDir(),
     );
     this.ensureStateDirectory();
   }

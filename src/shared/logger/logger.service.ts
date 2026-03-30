@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
+import { getWfLogDir } from '../utils/wf-paths';
 
 export enum LogLevel {
   ERROR = 0,
@@ -22,7 +23,7 @@ export class LoggerService implements NestLoggerService {
     this.logLevel = this.parseLogLevel(levelStr);
     this.logDirectory = this.configService.get<string>(
       'logging.directory',
-      '.wf/logs',
+      getWfLogDir(),
     );
     this.ensureLogDirectory();
     this.logFile = path.join(

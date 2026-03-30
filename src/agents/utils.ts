@@ -1,8 +1,8 @@
 // src/agents/utils.ts
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import chalk from 'chalk';
+import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 /**
  * Resolve the artifact storage directory for a given platform.
@@ -15,7 +15,7 @@ export const resolveArtifactDir = (
   baseDir: string,
   platformName: string,
 ): string =>
-  path.join(os.homedir(), '.wf', path.basename(path.resolve(baseDir)), platformName);
+  path.join(getWfHomeDir(), path.basename(path.resolve(baseDir)), platformName);
 
 /**
  * Extract the ticket summary from a markdown ticket file.
