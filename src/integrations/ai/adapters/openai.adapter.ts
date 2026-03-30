@@ -94,7 +94,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
 
       const response = await this.client.chat.completions.create({
         model: this.model,
-        max_tokens: request.maxTokens || this.maxTokens,
+        max_completion_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         messages: this.buildMessages(messages),
       });
@@ -151,7 +151,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
 
       const response = await this.client.chat.completions.create({
         model: this.model,
-        max_tokens: request.maxTokens || this.maxTokens,
+        max_completion_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         messages: this.buildMessages(messages),
       });
