@@ -31,7 +31,9 @@ async function main() {
   console.log('Result:\n', projectOnlyResult || '(empty)');
 
   // --- Scenario 3: neither config exists ---
-  console.log(chalk.cyan('\nScenario 3: no config exists (expect chalk.yellow warning)'));
+  console.log(
+    chalk.cyan('\nScenario 3: no config exists (expect chalk.yellow warning)'),
+  );
   const noneResult = await loadAiContextConfig(
     path.join(os.homedir(), '.claude', 'DOES_NOT_EXIST.md'),
     'DOES_NOT_EXIST.md',
@@ -40,9 +42,20 @@ async function main() {
   console.log('Result:', noneResult || '(empty — warning should appear above)');
 
   // --- Scenario 4: DeepSeek (null global path) ---
-  console.log(chalk.cyan('\nScenario 4: DeepSeek (null global, project DEEPSEEK.md missing)'));
-  const deepseekResult = await loadAiContextConfig(null, 'DEEPSEEK.md', 'deepseek');
-  console.log('Result:', deepseekResult || '(empty — warning should appear above)');
+  console.log(
+    chalk.cyan(
+      '\nScenario 4: DeepSeek (null global, project DEEPSEEK.md missing)',
+    ),
+  );
+  const deepseekResult = await loadAiContextConfig(
+    null,
+    'DEEPSEEK.md',
+    'deepseek',
+  );
+  console.log(
+    'Result:',
+    deepseekResult || '(empty — warning should appear above)',
+  );
 
   // Cleanup
   await fs.unlink(projectConfigPath).catch(() => {});

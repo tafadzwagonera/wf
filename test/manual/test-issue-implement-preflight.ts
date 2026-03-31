@@ -85,9 +85,7 @@ async function main() {
   // ── Test 2: ticket exists, plan missing ──────────────────────────────────
   console.log('\n🧪 Test 2: ticket exists, plan missing\n' + '─'.repeat(60));
   {
-    const tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'wf-implement-test-'),
-    );
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-implement-test-'));
     const artifactDir = path.join(tmpDir, '.wf', 'jira');
     fs.mkdirSync(artifactDir, { recursive: true });
     fs.writeFileSync(

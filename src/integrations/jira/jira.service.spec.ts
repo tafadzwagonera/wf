@@ -368,12 +368,15 @@ describe('JiraService', () => {
     it('should omit priority when no matching priority name is found', async () => {
       // Priority lookup returns no match
       mockHttpService.get.mockReturnValue(
-        of({ data: [{ id: '1', name: 'P1' }, { id: '2', name: 'P2' }] }),
+        of({
+          data: [
+            { id: '1', name: 'P1' },
+            { id: '2', name: 'P2' },
+          ],
+        }),
       );
       // Create ticket succeeds
-      mockHttpService.post.mockReturnValue(
-        of({ data: { key: 'WBP-100' } }),
-      );
+      mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-100' } }));
 
       const key = await service.createTicket({
         project: 'WBP',
@@ -391,11 +394,14 @@ describe('JiraService', () => {
     it('should include priority when the resolved name matches', async () => {
       // Priority lookup returns a match
       mockHttpService.get.mockReturnValue(
-        of({ data: [{ id: '2', name: 'High' }, { id: '3', name: 'Medium' }] }),
+        of({
+          data: [
+            { id: '2', name: 'High' },
+            { id: '3', name: 'Medium' },
+          ],
+        }),
       );
-      mockHttpService.post.mockReturnValue(
-        of({ data: { key: 'WBP-101' } }),
-      );
+      mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-101' } }));
 
       const key = await service.createTicket({
         project: 'WBP',

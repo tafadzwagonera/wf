@@ -62,7 +62,9 @@ export class JiraService {
    * matches the requested priority (case-insensitive). Returns undefined
    * if no match is found or the fetch fails.
    */
-  async resolveValidPriorityName(requested: string): Promise<string | undefined> {
+  async resolveValidPriorityName(
+    requested: string,
+  ): Promise<string | undefined> {
     try {
       const url = `${this.baseUrl}/rest/api/3/priority`;
       const response = await firstValueFrom(

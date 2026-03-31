@@ -78,7 +78,11 @@ export class ConversationService {
     platformName?: string,
   ): Promise<ConversationState | null> {
     try {
-      const filePath = this.getConversationFilePath(ticketKey, repoDir, platformName);
+      const filePath = this.getConversationFilePath(
+        ticketKey,
+        repoDir,
+        platformName,
+      );
 
       if (!fs.existsSync(filePath)) {
         this.logger.debug(

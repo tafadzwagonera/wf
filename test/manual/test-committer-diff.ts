@@ -181,7 +181,7 @@ async function main() {
     console.log('Test 6: .wf/** exclusion from commits\n');
 
     // Create a .wf/jira/ artifact file that must never be committed
-    const wfDir = path.join(tmpDir!, '.wf', 'jira');
+    const wfDir = path.join(tmpDir, '.wf', 'jira');
     fs.mkdirSync(wfDir, { recursive: true });
     fs.writeFileSync(
       path.join(wfDir, 'ticket.json'),
@@ -207,12 +207,12 @@ async function main() {
 
     output = '';
     const originalWrite2 = process.stdout.write.bind(process.stdout);
-    /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
+    /* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
     (process.stdout.write as any) = (chunk: any) => {
       output += String(chunk);
       return originalWrite2(chunk);
     };
-    /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
+    /* eslint-enable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
 
     try {
       await committer.execute('TEST-002', tmpDir, ticketContext);

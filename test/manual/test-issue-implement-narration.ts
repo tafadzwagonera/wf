@@ -165,7 +165,9 @@ async function main() {
   }
 
   // ── Test: fallback when filesAffected has no repo prefix ─────────────────
-  console.log('\n🧪 Test: fallback for unprefixed filesAffected\n' + '─'.repeat(60));
+  console.log(
+    '\n🧪 Test: fallback for unprefixed filesAffected\n' + '─'.repeat(60),
+  );
   {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-fallback-test-'));
     const repoName = 'my-repo';
@@ -215,7 +217,9 @@ async function main() {
       : '';
 
     if (writtenContent.includes('// fallback updated')) {
-      pass('Fallback: file written to disk when filesAffected has no repo prefix');
+      pass(
+        'Fallback: file written to disk when filesAffected has no repo prefix',
+      );
     } else {
       fail(
         'Fallback: file NOT written to disk for unprefixed filesAffected',

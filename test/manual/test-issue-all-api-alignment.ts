@@ -121,7 +121,9 @@ async function main() {
     if (exitCode !== 0 || output.toLowerCase().includes('unknown option')) {
       pass('--interactive correctly rejected');
     } else {
-      fail(`--interactive was accepted (exit ${exitCode}) — old flag still registered`);
+      fail(
+        `--interactive was accepted (exit ${exitCode}) — old flag still registered`,
+      );
     }
   }
 
@@ -133,7 +135,9 @@ async function main() {
     if (exitCode !== 0 || output.toLowerCase().includes('unknown option')) {
       pass('--skip-existing correctly rejected');
     } else {
-      fail(`--skip-existing was accepted (exit ${exitCode}) — old flag still registered`);
+      fail(
+        `--skip-existing was accepted (exit ${exitCode}) — old flag still registered`,
+      );
     }
   }
 
@@ -190,7 +194,9 @@ async function main() {
   }
 
   console.log(
-    chalk.bold('Test 6: --force → dry-run overwrites even when artifact exists'),
+    chalk.bold(
+      'Test 6: --force → dry-run overwrites even when artifact exists',
+    ),
   );
   {
     const { tmpRoot, cleanup } = makeArtifactFixture('TEST-6');

@@ -34,6 +34,4 @@ console.log(
 
 service.displayAssistantResponse(mockMessage);
 
-console.log(
-  chalk.bold('─── End of test. Verify cyan lines above. ───\n'),
-);
+console.log(chalk.bold('─── End of test. Verify cyan lines above. ───\n'));

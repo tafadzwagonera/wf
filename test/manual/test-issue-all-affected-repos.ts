@@ -82,9 +82,15 @@ async function testIssueAllAffectedRepos() {
 
     // Initialise a bare git repo so branch operations don't throw.
     execSync('git init', { cwd: tmpRoot, stdio: 'ignore' });
-    execSync('git config user.email "test@test.com"', { cwd: tmpRoot, stdio: 'ignore' });
+    execSync('git config user.email "test@test.com"', {
+      cwd: tmpRoot,
+      stdio: 'ignore',
+    });
     execSync('git config user.name "Test"', { cwd: tmpRoot, stdio: 'ignore' });
-    execSync('git commit --allow-empty -m "init"', { cwd: tmpRoot, stdio: 'ignore' });
+    execSync('git commit --allow-empty -m "init"', {
+      cwd: tmpRoot,
+      stdio: 'ignore',
+    });
 
     return {
       tmpRoot,
@@ -283,7 +289,10 @@ async function testIssueAllAffectedRepos() {
   // Test 6: Multi-repo → stage 3 header appears exactly once
   console.log('Test 6: multi-repo → STAGE 3 header appears exactly once');
   {
-    const { tmpRoot, cleanup } = makeFixtures({ ticketKey: 'TEST-6', action: 'fix' });
+    const { tmpRoot, cleanup } = makeFixtures({
+      ticketKey: 'TEST-6',
+      action: 'fix',
+    });
     const originalCwd = process.cwd();
     process.chdir(tmpRoot);
     try {
@@ -295,7 +304,8 @@ async function testIssueAllAffectedRepos() {
           repos: ['repo-a', 'repo-b'],
         }),
       );
-      const headerCount = (output.match(/STAGE 3: Implementation Guide/g) ?? []).length;
+      const headerCount = (output.match(/STAGE 3: Implementation Guide/g) ?? [])
+        .length;
       if (headerCount === 1) {
         pass('Multi-repo: STAGE 3 header appears exactly once');
       } else {
@@ -310,7 +320,10 @@ async function testIssueAllAffectedRepos() {
   // Test 7: no --repos provided → resolveRepoBasePath falls back to cwd
   console.log('Test 7: omit --repos → command falls back to cwd');
   {
-    const { tmpRoot, cleanup } = makeFixtures({ ticketKey: 'TEST-7', action: 'fix' });
+    const { tmpRoot, cleanup } = makeFixtures({
+      ticketKey: 'TEST-7',
+      action: 'fix',
+    });
     const originalCwd = process.cwd();
     process.chdir(tmpRoot);
     try {
@@ -323,7 +336,8 @@ async function testIssueAllAffectedRepos() {
         }),
       );
       // Commander emits: "error: required option '-r, --repos <repos>' not supplied"
-      const commanderRequiredError = output.includes("required option") && output.includes("--repos");
+      const commanderRequiredError =
+        output.includes('required option') && output.includes('--repos');
       if (!commanderRequiredError) {
         pass('Omitting --repos does not produce a "required" error');
       } else {

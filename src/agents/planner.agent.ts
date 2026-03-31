@@ -3,10 +3,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
-import {
-  AiService,
-  ResolutionPlan,
-} from '../integrations/ai/ai.service';
+import { AiService, ResolutionPlan } from '../integrations/ai/ai.service';
 import {
   TicketArtifact,
   PlanArtifact,

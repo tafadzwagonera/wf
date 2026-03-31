@@ -57,7 +57,7 @@ export class CommitterAgent {
     // ticket-key prefix the LLM may have mirrored from commit history (e.g. "WBP-2979: ")
     // so the active ticketKey is always the sole prefix: "TAD-575: <description>"
     const commitMsg = rawMsg
-      .replace(/^[a-z]+(\([^)]+\))?:\s*/, '')  // strip conventional prefix
+      .replace(/^[a-z]+(\([^)]+\))?:\s*/, '') // strip conventional prefix
       .replace(/^[A-Z][A-Z0-9]+-\d+:\s*/, ''); // strip ticket-key prefix
     const finalMsg = `${ticketKey}: ${commitMsg}`;
 

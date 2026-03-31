@@ -20,7 +20,8 @@ describe('BitBucketAdapter', () => {
             get: (key: string) => {
               if (key === 'atlassian.email') return 'test@example.com';
               if (key === 'atlassian.bitbucket.apiToken') return 'token';
-              if (key === 'atlassian.bitbucket.workspace') return 'testworkspace';
+              if (key === 'atlassian.bitbucket.workspace')
+                return 'testworkspace';
               return undefined;
             },
           },

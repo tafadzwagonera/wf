@@ -33,8 +33,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
       );
     } else {
       this.client = new OpenAI({ apiKey, baseURL: DEEPSEEK_BASE_URL });
-      this.model =
-        this.configService.get<string>('ai.model') || DEFAULT_MODEL;
+      this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
       this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
 
       this.logger.debug(
@@ -95,9 +94,13 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
       };
     } catch (error) {
       if (error instanceof OpenAI.APIError) {
-        throw new AIError(`DeepSeek API error: ${error.message}`, {
-          status: error.status,
-        }, true);
+        throw new AIError(
+          `DeepSeek API error: ${error.message}`,
+          {
+            status: error.status,
+          },
+          true,
+        );
       }
 
       throw new AIError('Failed to execute AI request', error);
@@ -147,9 +150,13 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
       };
     } catch (error) {
       if (error instanceof OpenAI.APIError) {
-        throw new AIError(`DeepSeek API error: ${error.message}`, {
-          status: error.status,
-        }, true);
+        throw new AIError(
+          `DeepSeek API error: ${error.message}`,
+          {
+            status: error.status,
+          },
+          true,
+        );
       }
 
       throw new AIError('Failed to execute conversation request', error);

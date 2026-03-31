@@ -42,8 +42,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
       );
     } else {
       this.client = new GoogleGenerativeAI(apiKey);
-      this.model =
-        this.configService.get<string>('ai.model') || DEFAULT_MODEL;
+      this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
       this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
 
       this.logger.debug(`Initialized Gemini adapter with model: ${this.model}`);
@@ -78,7 +77,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
       const isThinkingModel = this.model.startsWith('gemini-2.5');
       const maxOutputTokens = isThinkingModel
         ? Math.max(request.maxTokens || this.maxTokens, MAX_TOKENS)
-        : (request.maxTokens || this.maxTokens);
+        : request.maxTokens || this.maxTokens;
 
       const generativeModel = this.client.getGenerativeModel({
         model: this.model,
@@ -127,7 +126,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
       const isThinkingModel = this.model.startsWith('gemini-2.5');
       const maxOutputTokens = isThinkingModel
         ? Math.max(request.maxTokens || this.maxTokens, MAX_TOKENS)
-        : (request.maxTokens || this.maxTokens);
+        : request.maxTokens || this.maxTokens;
 
       const generativeModel = this.client.getGenerativeModel({
         model: this.model,

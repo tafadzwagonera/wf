@@ -99,7 +99,9 @@ describe('loadAiContextConfig', () => {
       );
 
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('No global or project-level configuration found for anthropic'),
+        expect.stringContaining(
+          'No global or project-level configuration found for anthropic',
+        ),
       );
       warnSpy.mockRestore();
     });
@@ -113,7 +115,10 @@ describe('loadAiContextConfig', () => {
 
       expect(result).toBe('## Project Config\nproject rules\n\n');
       expect(mockReadFile).toHaveBeenCalledTimes(1);
-      expect(mockReadFile).toHaveBeenCalledWith('/project/DEEPSEEK.md', 'utf-8');
+      expect(mockReadFile).toHaveBeenCalledWith(
+        '/project/DEEPSEEK.md',
+        'utf-8',
+      );
     });
   });
 });

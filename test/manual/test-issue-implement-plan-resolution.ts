@@ -72,7 +72,11 @@ async function main() {
     (process as any).cwd = () => tmpDir;
 
     const stdoutCapture = captureStdout();
-    await command.run([], { plan: 'my-plan.json', platform: 'jira', dryRun: true });
+    await command.run([], {
+      plan: 'my-plan.json',
+      platform: 'jira',
+      dryRun: true,
+    });
     const output = stdoutCapture.restore();
 
     (process as any).cwd = origCwd;

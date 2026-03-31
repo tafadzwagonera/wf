@@ -298,7 +298,9 @@ async function testIssueReview() {
     // Test 12: --repos is optional — dry-run with ticket key, no repos provided
     // Verifies: (a) TypeScript no longer requires repos in IssueReviewOptions,
     //           (b) runtime path reaches the dry-run preview without error.
-    console.log('Test 12: --dry-run with ticket key, no --repos (repos optional)');
+    console.log(
+      'Test 12: --dry-run with ticket key, no --repos (repos optional)',
+    );
     try {
       await command.run(['ABC-123'], { dryRun: true });
       pass('Dry-run with ticket key and no repos completed without error');

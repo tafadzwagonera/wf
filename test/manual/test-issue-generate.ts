@@ -61,7 +61,9 @@ app.use(rateLimit({ windowMs: 60_000, max: 100 }));
 `;
 
 async function testIssueGenerate() {
-  console.log('\n🧪 Manual Test: issue:generate buildSynthesisPrompt template sections\n');
+  console.log(
+    '\n🧪 Manual Test: issue:generate buildSynthesisPrompt template sections\n',
+  );
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
@@ -131,7 +133,10 @@ async function testIssueGenerate() {
     if (capturedOutput.includes(section)) {
       pass(`Output contains "${section}"`);
     } else {
-      fail(`Output is missing "${section}"`, `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`);
+      fail(
+        `Output is missing "${section}"`,
+        `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`,
+      );
     }
   }
 
@@ -148,7 +153,10 @@ async function testIssueGenerate() {
     if (!sanitized.endsWith('-')) {
       pass('sanitizedTitle does not end with a trailing dash');
     } else {
-      fail('sanitizedTitle still ends with a trailing dash', `Got: "${sanitized}"`);
+      fail(
+        'sanitizedTitle still ends with a trailing dash',
+        `Got: "${sanitized}"`,
+      );
     }
   }
 
@@ -156,7 +164,9 @@ async function testIssueGenerate() {
   // Verifies aiService.execute was called at least once during the two-source run above.
   // This is a direct call-count spy — immune to false positives from source content.
   if (aiCallCount > 0) {
-    pass(`AI synthesis was invoked (aiService.execute called ${aiCallCount} time(s))`);
+    pass(
+      `AI synthesis was invoked (aiService.execute called ${aiCallCount} time(s))`,
+    );
   } else {
     fail('AI synthesis was NOT invoked — aiService.execute call count is 0');
   }
@@ -166,7 +176,10 @@ async function testIssueGenerate() {
   if (/# Heading: .+/.test(capturedOutput)) {
     pass('Output contains "# Heading: <title>" line');
   } else {
-    fail('Output is missing "# Heading: <title>" line', `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`);
+    fail(
+      'Output is missing "# Heading: <title>" line',
+      `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`,
+    );
   }
 
   // --- Fix 3: single-source stub-description forces AI synthesis ---
@@ -205,9 +218,13 @@ async function testIssueGenerate() {
     }
 
     if (stubAiCallCount > 0) {
-      pass('single-source stub description triggered AI synthesis (not short-circuited)');
+      pass(
+        'single-source stub description triggered AI synthesis (not short-circuited)',
+      );
     } else {
-      fail('single-source stub description was short-circuited — AI was NOT called');
+      fail(
+        'single-source stub description was short-circuited — AI was NOT called',
+      );
     }
   }
 

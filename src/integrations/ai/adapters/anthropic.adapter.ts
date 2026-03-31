@@ -89,9 +89,13 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
       };
     } catch (error) {
       if (error instanceof Anthropic.APIError) {
-        throw new AIError(`Claude API error: ${error.message}`, {
-          status: error.status,
-        }, true);
+        throw new AIError(
+          `Claude API error: ${error.message}`,
+          {
+            status: error.status,
+          },
+          true,
+        );
       }
 
       throw new AIError('Failed to execute AI request', error);
@@ -134,9 +138,13 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
       };
     } catch (error) {
       if (error instanceof Anthropic.APIError) {
-        throw new AIError(`Claude API error: ${error.message}`, {
-          status: error.status,
-        }, true);
+        throw new AIError(
+          `Claude API error: ${error.message}`,
+          {
+            status: error.status,
+          },
+          true,
+        );
       }
 
       throw new AIError('Failed to execute conversation request', error);
