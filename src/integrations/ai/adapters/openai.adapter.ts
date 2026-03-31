@@ -17,29 +17,16 @@ const DEFAULT_MODEL = 'gpt-4.1';
 
 @Injectable()
 export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
-  private client: OpenAI;
-  private model: string;
-  private maxTokens: number;
+  private client?: OpenAI;
+  private model = DEFAULT_MODEL;
+  private maxTokens = 4096;
   private contextConfig = '';
+  private didWarnMissingConfig = false;
 
   constructor(
     private configService: ConfigService,
     private logger: LoggerService,
-  ) {
-    const apiKey = this.configService.get<string>('ai.openaiApiKey');
-
-    if (!apiKey) {
-      this.logger.warn(
-        'OpenAI API key not configured. Set OPENAI_API_KEY in .env',
-      );
-    } else {
-      this.client = new OpenAI({ apiKey });
-      this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
-      this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
-
-      this.logger.debug(`Initialized OpenAI adapter with model: ${this.model}`);
-    }
-  }
+  ) {}
 
   async onModuleInit(): Promise<void> {
     this.contextConfig = await loadAiContextConfig(
@@ -47,6 +34,30 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       '.openai/OPENAI.md',
       'openai',
     );
+  }
+
+  private initializeClient(): void {
+    if (this.client) {
+      return;
+    }
+
+    const apiKey = this.configService.get<string>('ai.openaiApiKey');
+
+    if (!apiKey) {
+      if (!this.didWarnMissingConfig) {
+        this.logger.warn(
+          'OpenAI API key not configured. Add `ai: [{ name: "openai", apiKey: "..." }]` to wf.config.*.',
+        );
+        this.didWarnMissingConfig = true;
+      }
+      return;
+    }
+
+    this.client = new OpenAI({ apiKey });
+    this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
+    this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
+
+    this.logger.debug(`Initialized OpenAI adapter with model: ${this.model}`);
   }
 
   private prependConfig(systemPrompt: string | undefined): string | undefined {
@@ -73,9 +84,11 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
   }
 
   async execute(request: AIRequest): Promise<AIResponse> {
+    this.initializeClient();
+
     if (!this.client) {
       throw new AIError(
-        'OpenAI client not initialized. Set OPENAI_API_KEY in .env',
+        'OpenAI client not initialized. Configure `ai[].apiKey` for the `openai` provider in wf.config.*.',
         null,
         false,
       );
@@ -97,7 +110,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       messages.push({ role: 'user', content: request.prompt });
 
       const response = await this.client.chat.completions.create({
-        model: this.model,
+        model: request.model || this.model,
         max_completion_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         messages: this.buildMessages(messages),
@@ -126,9 +139,11 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
   async executeWithHistory(
     request: AIConversationRequest,
   ): Promise<AIResponse> {
+    this.initializeClient();
+
     if (!this.client) {
       throw new AIError(
-        'OpenAI client not initialized. Set OPENAI_API_KEY in .env',
+        'OpenAI client not initialized. Configure `ai[].apiKey` for the `openai` provider in wf.config.*.',
         null,
         false,
       );
@@ -154,7 +169,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       }
 
       const response = await this.client.chat.completions.create({
-        model: this.model,
+        model: request.model || this.model,
         max_completion_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         messages: this.buildMessages(messages),

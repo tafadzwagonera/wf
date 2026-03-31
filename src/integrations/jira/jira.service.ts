@@ -41,7 +41,7 @@ export class JiraService {
       // Only warn if platform is enabled
       if (this.platformConfig.isPlatformEnabled('jira', hasPartialConfig)) {
         this.logger.warn(
-          'Jira credentials not configured. Set ATLASSIAN_BASE_URL, ATLASSIAN_EMAIL, and ATLASSIAN_JIRA_API_TOKEN in .env',
+          'Jira credentials not configured. Set atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken in wf.config.*.',
         );
       }
     }
@@ -50,7 +50,7 @@ export class JiraService {
   private ensureConfigured(): void {
     if (!this.baseUrl || !this.email || !this.apiToken) {
       throw new JiraApiError(
-        'Jira is not configured. Please set ATLASSIAN_BASE_URL, ATLASSIAN_EMAIL, and ATLASSIAN_JIRA_API_TOKEN in your .env file.',
+        'Jira is not configured. Set atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken in wf.config.*.',
         null,
         false,
       );

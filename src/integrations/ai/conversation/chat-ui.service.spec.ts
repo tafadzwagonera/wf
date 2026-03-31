@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ChatUIService } from './chat-ui.service';
 import { ConversationMessage } from './interfaces';
+import { AiService } from '../ai.service';
 
 // Mock chalk before any imports
 jest.mock('chalk', () => {
@@ -42,10 +43,19 @@ jest.mock('chalk', () => {
 describe('ChatUIService', () => {
   let service: ChatUIService;
   let consoleLogSpy: jest.SpyInstance;
+  const mockAiService = {
+    getProviderShortName: jest.fn(() => 'Claude'),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ChatUIService],
+      providers: [
+        ChatUIService,
+        {
+          provide: AiService,
+          useValue: mockAiService,
+        },
+      ],
     }).compile();
 
     service = module.get<ChatUIService>(ChatUIService);
@@ -55,7 +65,7 @@ describe('ChatUIService', () => {
   });
 
   afterEach(() => {
-    consoleLogSpy.mockRestore();
+    consoleLogSpy?.mockRestore();
     jest.clearAllMocks();
   });
 

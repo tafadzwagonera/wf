@@ -23,6 +23,9 @@ export interface AIRequest {
   maxTokens?: number;
   temperature?: number;
   context?: Record<string, any>;
+  model?: string;
+  provider?: string;
+  stage?: 'plan' | 'implement' | 'review' | 'generate';
 }
 
 export interface AIResponse {
@@ -42,6 +45,9 @@ export interface AIConversationRequest {
   systemPrompt?: string;
   maxTokens?: number;
   temperature?: number;
+  model?: string;
+  provider?: string;
+  stage?: 'plan' | 'implement' | 'review' | 'generate';
 }
 
 export interface FindingsDocument {
@@ -88,7 +94,10 @@ export class AiService {
   ) {}
 
   async execute(request: AIRequest): Promise<AIResponse> {
-    return this.adapter.execute(request);
+    return this.adapter.execute({
+      ...request,
+      ...this.resolveAiTarget(request.stage, request.provider, request.model),
+    });
   }
 
   /**
@@ -101,7 +110,10 @@ export class AiService {
   async executeWithHistory(
     request: AIConversationRequest,
   ): Promise<AIResponse> {
-    return this.adapter.executeWithHistory(request);
+    return this.adapter.executeWithHistory({
+      ...request,
+      ...this.resolveAiTarget(request.stage, request.provider, request.model),
+    });
   }
 
   async generatePlan(
@@ -149,6 +161,7 @@ Return ONLY a valid JSON object with these fields:
       prompt,
       systemPrompt,
       temperature: 0.5,
+      stage: 'plan',
     });
 
     try {
@@ -231,6 +244,7 @@ Return ONLY a valid JSON object:
       prompt,
       systemPrompt,
       temperature: 0.4,
+      stage: 'implement',
     });
 
     try {
@@ -402,6 +416,7 @@ Apply the relevant steps to this file. Return ONLY the complete updated file con
       systemPrompt,
       temperature: 0.2,
       maxTokens: 8192,
+      stage: 'implement',
     });
 
     return stripCodeFences(response.content.trim());
@@ -447,6 +462,7 @@ Return ONLY a valid JSON object:
       prompt,
       systemPrompt,
       temperature: 0.3,
+      stage: 'review',
     });
 
     try {
@@ -487,6 +503,47 @@ Return ONLY a valid JSON object:
     if (provider === 'gemini') return 'Gemini';
     if (provider === 'deepseek') return 'DeepSeek';
     return 'Claude';
+  }
+
+  private resolveAiTarget(
+    stage?: 'plan' | 'implement' | 'review' | 'generate',
+    providerOverride?: string,
+    modelOverride?: string,
+  ): { provider?: string; model?: string } {
+    if (providerOverride || modelOverride) {
+      return {
+        provider: providerOverride,
+        model: modelOverride,
+      };
+    }
+
+    const provider = this.configService.get<string>('ai.provider', 'anthropic');
+    const model = this.configService.get<string>('ai.model', '');
+
+    if (!stage) {
+      return { provider, model };
+    }
+
+    const stageModel =
+      this.configService.get<string>(`ai.stages.${stage}`) ??
+      this.configService.get<Record<string, string>>('ai.stages', {})?.[stage];
+
+    if (!stageModel) {
+      return { provider, model };
+    }
+
+    const providers =
+      this.configService.get<
+        Array<{ name: string; model?: string; default?: boolean }>
+      >('ai.providers', []) ?? [];
+    const matchingProvider = providers.find(
+      (candidate) => candidate.model === stageModel,
+    );
+
+    return {
+      provider: matchingProvider?.name ?? provider,
+      model: stageModel,
+    };
   }
 
   private detectCommitFormat(

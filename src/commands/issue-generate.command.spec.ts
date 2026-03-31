@@ -55,16 +55,67 @@ import * as path from 'path';
 const mockCwd = '/tmp/consumer-app';
 
 async function buildCommand(): Promise<IssueGenerateCommand> {
+  const mockAiService = {
+    getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
+    execute: jest.fn().mockResolvedValue({
+      content: [
+        '# Generated Title',
+        '',
+        '**Type:** task',
+        '**Priority:** medium',
+        '',
+        '## Description',
+        '',
+        '### Summary',
+        'Generated summary',
+        '',
+        '#### Technical Details',
+        'None',
+        '',
+        '### Acceptance Criteria',
+        '- None',
+        '',
+        '### Unit Test Scope',
+        '- None',
+        '',
+        '#### Dependencies',
+        '- None',
+        '',
+        '### Risks & Assumptions',
+        '- None',
+        '',
+        '### Affected Repositories',
+        '- None',
+        '',
+        '#### References',
+        '- None',
+        '',
+        '#### Out of Scope',
+        '- None',
+      ].join('\n'),
+    }),
+  };
   const module = await Test.createTestingModule({
     providers: [
       IssueGenerateCommand,
       { provide: PlatformService, useValue: {} },
-      { provide: FormatConverterService, useValue: {} },
+      {
+        provide: FormatConverterService,
+        useValue: {
+          getConverter: jest.fn(() => ({
+            serialize: jest.fn(),
+            parse: jest.fn(() => ({
+              title: 'Generated Title',
+              description: 'Generated summary',
+              type: 'task',
+              priority: 'medium',
+            })),
+          })),
+        },
+      },
       {
         provide: AiService,
-        useValue: {
-          getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
-        },
+        useValue: mockAiService,
       },
       {
         provide: ConfigService,
@@ -113,6 +164,28 @@ describe('IssueGenerateCommand', () => {
   afterEach(() => {
     cwdSpy.mockRestore();
     jest.restoreAllMocks();
+  });
+
+  describe('AI stage routing', () => {
+    it('uses the generate stage override when synthesizing ticket content', async () => {
+      const command = await buildCommand();
+      const aiService = (command as any).aiService as jest.Mocked<AiService>;
+
+      await (command as any).synthesizeWithAI([
+        {
+          type: 'file',
+          source: './notes.md',
+          content: 'Short notes that require synthesis',
+        },
+      ]);
+
+      expect(aiService.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'generate',
+          maxTokens: 4096,
+        }),
+      );
+    });
   });
 
   describe('parseRepos', () => {

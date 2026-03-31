@@ -2,18 +2,20 @@
  * Manual Test Script for Jira Integration
  *
  * Setup:
- * 1. Copy .env.example to .env
- * 2. Fill in JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN
+ * 1. Create wf.config.js (or another supported wf.config.* file)
+ * 2. Set atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken
  * 3. Run: ts-node -r tsconfig-paths/register test/manual/test-jira.ts
  */
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
+import { initializeWfConfig } from '../../src/config/wf-config-loader';
 import { JiraService } from '../../src/integrations/jira/jira.service';
 
 async function testJiraIntegration() {
   console.log('🧪 Testing Jira Integration\n');
 
+  await initializeWfConfig();
   const app = await NestFactory.createApplicationContext(AppModule);
   const jiraService = app.get(JiraService);
 
@@ -70,7 +72,7 @@ console.log(x);
 
     console.log('✅ All manual tests completed successfully!\n');
     console.log('To test actual Jira API calls:');
-    console.log('1. Configure .env with your Jira credentials');
+    console.log('1. Configure wf.config.* with your Jira credentials');
     console.log('2. Uncomment the API tests in this file');
     console.log('3. Run again\n');
   } catch (error) {

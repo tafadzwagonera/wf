@@ -25,29 +25,16 @@ const MAX_TOKENS = 4096;
 
 @Injectable()
 export class GeminiAdapter implements LlmAdapter, OnModuleInit {
-  private client: GoogleGenerativeAI;
-  private model: string;
-  private maxTokens: number;
+  private client?: GoogleGenerativeAI;
+  private model = DEFAULT_MODEL;
+  private maxTokens = 4096;
   private contextConfig = '';
+  private didWarnMissingConfig = false;
 
   constructor(
     private configService: ConfigService,
     private logger: LoggerService,
-  ) {
-    const apiKey = this.configService.get<string>('ai.geminiApiKey');
-
-    if (!apiKey) {
-      this.logger.warn(
-        'Gemini API key not configured. Set GEMINI_API_KEY in .env',
-      );
-    } else {
-      this.client = new GoogleGenerativeAI(apiKey);
-      this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
-      this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
-
-      this.logger.debug(`Initialized Gemini adapter with model: ${this.model}`);
-    }
-  }
+  ) {}
 
   async onModuleInit(): Promise<void> {
     this.contextConfig = await loadAiContextConfig(
@@ -57,15 +44,41 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
     );
   }
 
+  private initializeClient(): void {
+    if (this.client) {
+      return;
+    }
+
+    const apiKey = this.configService.get<string>('ai.geminiApiKey');
+
+    if (!apiKey) {
+      if (!this.didWarnMissingConfig) {
+        this.logger.warn(
+          'Gemini API key not configured. Add `ai: [{ name: "gemini", apiKey: "..." }]` to wf.config.*.',
+        );
+        this.didWarnMissingConfig = true;
+      }
+      return;
+    }
+
+    this.client = new GoogleGenerativeAI(apiKey);
+    this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
+    this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
+
+    this.logger.debug(`Initialized Gemini adapter with model: ${this.model}`);
+  }
+
   private prependConfig(systemPrompt: string | undefined): string | undefined {
     if (!this.contextConfig) return systemPrompt;
     return this.contextConfig + (systemPrompt ?? '');
   }
 
   async execute(request: AIRequest): Promise<AIResponse> {
+    this.initializeClient();
+
     if (!this.client) {
       throw new AIError(
-        'Gemini client not initialized. Set GEMINI_API_KEY in .env',
+        'Gemini client not initialized. Configure `ai[].apiKey` for the `gemini` provider in wf.config.*.',
         null,
         false,
       );
@@ -74,13 +87,14 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
     this.logger.debug('Executing AI request via Gemini');
 
     try {
-      const isThinkingModel = this.model.startsWith('gemini-2.5');
+      const model = request.model || this.model;
+      const isThinkingModel = model.startsWith('gemini-2.5');
       const maxOutputTokens = isThinkingModel
         ? Math.max(request.maxTokens || this.maxTokens, MAX_TOKENS)
         : request.maxTokens || this.maxTokens;
 
       const generativeModel = this.client.getGenerativeModel({
-        model: this.model,
+        model,
         systemInstruction: this.prependConfig(request.systemPrompt),
         generationConfig: {
           maxOutputTokens,
@@ -110,9 +124,11 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
   async executeWithHistory(
     request: AIConversationRequest,
   ): Promise<AIResponse> {
+    this.initializeClient();
+
     if (!this.client) {
       throw new AIError(
-        'Gemini client not initialized. Set GEMINI_API_KEY in .env',
+        'Gemini client not initialized. Configure `ai[].apiKey` for the `gemini` provider in wf.config.*.',
         null,
         false,
       );
@@ -123,13 +139,14 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
     );
 
     try {
-      const isThinkingModel = this.model.startsWith('gemini-2.5');
+      const model = request.model || this.model;
+      const isThinkingModel = model.startsWith('gemini-2.5');
       const maxOutputTokens = isThinkingModel
         ? Math.max(request.maxTokens || this.maxTokens, MAX_TOKENS)
         : request.maxTokens || this.maxTokens;
 
       const generativeModel = this.client.getGenerativeModel({
-        model: this.model,
+        model,
         systemInstruction: this.prependConfig(request.systemPrompt),
         generationConfig: {
           maxOutputTokens,

@@ -52,18 +52,18 @@ export class ErrorHandler {
       [ErrorCode.EXECUTION_ERROR]:
         'Check the execution logs for more details. Ensure all prerequisites are met.',
       [ErrorCode.JIRA_API_ERROR]:
-        'Verify your Jira credentials (ATLASSIAN_BASE_URL, ATLASSIAN_EMAIL, ATLASSIAN_JIRA_API_TOKEN) in .env file.',
+        'Verify your Jira credentials in wf.config.* under atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken.',
       [ErrorCode.GIT_ERROR]:
         'Ensure you are in a git repository and have necessary permissions. Check git status.',
       [ErrorCode.AI_ERROR]:
-        'Check your AI provider API key is valid (ANTHROPIC_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY). Verify your API quota and network connection.',
+        'Check your wf.config.* AI provider entries and API keys. Verify the selected provider has a valid apiKey, model, quota, and network access.',
       [ErrorCode.STATE_ERROR]:
         'State file may be corrupted. Check .wf/state/ directory permissions.',
       [ErrorCode.USER_CANCELLED]: null,
       [ErrorCode.APPROVAL_ERROR]:
         'There was an issue with the approval process. Try again.',
       [ErrorCode.CONFIGURATION_ERROR]:
-        'Check your .env file and ensure all required configuration values are set.',
+        'Check your wf.config.* file and ensure the required configuration values are present and valid.',
       [ErrorCode.FILE_SYSTEM_ERROR]:
         'Check file permissions and ensure the path exists.',
     };

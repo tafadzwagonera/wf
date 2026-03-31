@@ -11,6 +11,11 @@
     ".": {
       "require": "./dist/main.js",
       "default": "./dist/main.js"
+    },
+    "./config": {
+      "types": "./dist/config/public-config.d.ts",
+      "require": "./dist/config/public-config.js",
+      "default": "./dist/config/public-config.js"
     }
   },
   "bin": {

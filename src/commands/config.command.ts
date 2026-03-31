@@ -2,8 +2,7 @@ import { Command, CommandRunner, SubCommand } from 'nest-commander';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import chalk from 'chalk';
-import * as fs from 'fs';
-import * as path from 'path';
+import { discoverWfConfigPath } from '../config/wf-config-loader';
 
 @Command({
   name: 'config',
@@ -73,37 +72,20 @@ export class ConfigSetCommand extends CommandRunner {
       process.exit(1);
     }
 
+    const configPath = discoverWfConfigPath(process.cwd());
+
     console.log(
-      chalk.yellow('\n⚠️  Configuration changes require updating .env file\n'),
+      chalk.yellow(
+        '\n⚠️  wf config set is advisory. Update your wf.config.* file manually.\n',
+      ),
     );
-    console.log(chalk.gray('Add or update the following in your .env file:'));
-
-    // Convert nested key to env variable name
-    const envKey = this.keyToEnvVar(key);
-    console.log(chalk.cyan(`${envKey}=${value}`));
-    console.log();
-
-    // Optionally write to .env file
-    const envPath = path.join(process.cwd(), '.env');
-
-    if (fs.existsSync(envPath)) {
-      console.log(chalk.gray(`💡 Tip: File found at ${envPath}`));
-      console.log(chalk.gray('You can edit it manually or run:'));
-      console.log(chalk.cyan(`echo "${envKey}=${value}" >> .env\n`));
-    } else {
-      console.log(
-        chalk.yellow('No .env file found. Create one from .env.example:'),
-      );
-      console.log(chalk.cyan('cp .env.example .env\n'));
-    }
-  }
-
-  private keyToEnvVar(key: string): string {
-    // Convert jira.baseUrl -> JIRA_BASE_URL
-    return key
-      .split('.')
-      .map((part) => part.replace(/([A-Z])/g, '_$1').toUpperCase())
-      .join('_');
+    console.log(
+      chalk.gray(
+        `Resolved config file: ${configPath ?? 'none found. Create wf.config.js, wf.config.mjs, wf.config.ts, wf.config.mts, wf.config.yaml, or wf.config.yml.'}`,
+      ),
+    );
+    console.log(chalk.gray('Suggested update:'));
+    console.log(chalk.cyan(`${key}: ${value}\n`));
   }
 }
 

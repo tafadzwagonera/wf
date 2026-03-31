@@ -70,6 +70,8 @@ describe('OpenAIAdapter', () => {
           },
         },
       } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'gpt-5.4';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
 
       await adapter.execute({
         prompt: 'hello',

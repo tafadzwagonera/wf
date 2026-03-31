@@ -39,7 +39,7 @@ export class GitHubAdapter implements PlatformAdapter {
       // Only warn if platform is enabled
       if (this.platformConfig.isPlatformEnabled('github', hasPartialConfig)) {
         this.logger.warn(
-          'GitHub token not configured. Set GITHUB_TOKEN in .env',
+          'GitHub token not configured. Set github.token in wf.config.*.',
         );
       }
       this.octokit = new Octokit();
@@ -246,7 +246,7 @@ export class GitHubAdapter implements PlatformAdapter {
 
     throw new Error(
       'No GitHub repository specified and no default repository configured. ' +
-        'Provide project as "owner/repo" or set GITHUB_DEFAULT_REPO in .env',
+        'Provide project as "owner/repo" or set github.defaultRepo in wf.config.*.',
     );
   }
 

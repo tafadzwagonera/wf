@@ -5,12 +5,14 @@
  *
  * Verifies that:
  *   1. Default (anthropic) provider shows 'Anthropic Claude' in dry-run output
- *   2. AI_PROVIDER=openai shows 'OpenAI' in dry-run output
- *   3. AI_PROVIDER=gemini shows 'Google Gemini' in dry-run output
- *   4. AI_PROVIDER=deepseek shows 'DeepSeek' in dry-run output
+ *   2. wf.config.js with openai as default shows 'OpenAI' in dry-run output
+ *   3. wf.config.js with gemini as default shows 'Google Gemini' in dry-run output
+ *   4. wf.config.js with deepseek as default shows 'DeepSeek' in dry-run output
  */
 
 import { execSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 
 function testProviderName() {
   console.log('🧪 Testing provider display names in issue:commit --dry-run\n');
@@ -27,12 +29,33 @@ function testProviderName() {
     failed++;
   };
 
-  const runDryRun = (env: Record<string, string>): string => {
+  const configPath = path.join(process.cwd(), 'wf.config.js');
+  const existingConfig = fs.existsSync(configPath)
+    ? fs.readFileSync(configPath, 'utf-8')
+    : null;
+
+  const writeConfig = (provider: string, model: string): void => {
+    fs.writeFileSync(
+      configPath,
+      [
+        'module.exports = {',
+        '  ai: [',
+        `    { name: '${provider}', apiKey: 'test-key', model: '${model}', default: true },`,
+        '  ],',
+        '};',
+        '',
+      ].join('\n'),
+    );
+  };
+
+  const runDryRun = (provider: string, model: string): string => {
+    writeConfig(provider, model);
+
     try {
       return execSync('node dist/main.js issue:commit --dry-run', {
         encoding: 'utf-8',
         cwd: process.cwd(),
-        env: { ...process.env, ...env },
+        env: { ...process.env },
       });
     } catch (error: unknown) {
       const stdout =
@@ -53,48 +76,49 @@ function testProviderName() {
     }
   };
 
-  // 1. Anthropic (default)
-  const anthropicOutput = runDryRun({ AI_PROVIDER: 'anthropic' });
-  if (anthropicOutput.includes('Anthropic Claude')) {
-    pass('AI_PROVIDER=anthropic shows "Anthropic Claude" in dry-run output');
-  } else {
-    fail(
-      'AI_PROVIDER=anthropic does NOT show "Anthropic Claude"',
-      anthropicOutput.slice(0, 300),
-    );
-  }
+  try {
+    const anthropicOutput = runDryRun('anthropic', 'claude-sonnet-4-20250514');
+    if (anthropicOutput.includes('Anthropic Claude')) {
+      pass('Anthropic config shows "Anthropic Claude" in dry-run output');
+    } else {
+      fail(
+        'Anthropic config does NOT show "Anthropic Claude"',
+        anthropicOutput.slice(0, 300),
+      );
+    }
 
-  // 2. OpenAI
-  const openaiOutput = runDryRun({ AI_PROVIDER: 'openai' });
-  if (openaiOutput.includes('OpenAI')) {
-    pass('AI_PROVIDER=openai shows "OpenAI" in dry-run output');
-  } else {
-    fail(
-      'AI_PROVIDER=openai does NOT show "OpenAI"',
-      openaiOutput.slice(0, 300),
-    );
-  }
+    const openaiOutput = runDryRun('openai', 'gpt-5.4');
+    if (openaiOutput.includes('OpenAI')) {
+      pass('OpenAI config shows "OpenAI" in dry-run output');
+    } else {
+      fail('OpenAI config does NOT show "OpenAI"', openaiOutput.slice(0, 300));
+    }
 
-  // 3. Google Gemini
-  const geminiOutput = runDryRun({ AI_PROVIDER: 'gemini' });
-  if (geminiOutput.includes('Google Gemini')) {
-    pass('AI_PROVIDER=gemini shows "Google Gemini" in dry-run output');
-  } else {
-    fail(
-      'AI_PROVIDER=gemini does NOT show "Google Gemini"',
-      geminiOutput.slice(0, 300),
-    );
-  }
+    const geminiOutput = runDryRun('gemini', 'gemini-2.5-pro');
+    if (geminiOutput.includes('Google Gemini')) {
+      pass('Gemini config shows "Google Gemini" in dry-run output');
+    } else {
+      fail(
+        'Gemini config does NOT show "Google Gemini"',
+        geminiOutput.slice(0, 300),
+      );
+    }
 
-  // 4. DeepSeek
-  const deepseekOutput = runDryRun({ AI_PROVIDER: 'deepseek' });
-  if (deepseekOutput.includes('DeepSeek')) {
-    pass('AI_PROVIDER=deepseek shows "DeepSeek" in dry-run output');
-  } else {
-    fail(
-      'AI_PROVIDER=deepseek does NOT show "DeepSeek"',
-      deepseekOutput.slice(0, 300),
-    );
+    const deepseekOutput = runDryRun('deepseek', 'deepseek-reasoner');
+    if (deepseekOutput.includes('DeepSeek')) {
+      pass('DeepSeek config shows "DeepSeek" in dry-run output');
+    } else {
+      fail(
+        'DeepSeek config does NOT show "DeepSeek"',
+        deepseekOutput.slice(0, 300),
+      );
+    }
+  } finally {
+    if (existingConfig === null) {
+      fs.rmSync(configPath, { force: true });
+    } else {
+      fs.writeFileSync(configPath, existingConfig);
+    }
   }
 
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

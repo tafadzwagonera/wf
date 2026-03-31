@@ -15,34 +15,16 @@ import { loadAiContextConfig } from './load-ai-context-config';
 
 @Injectable()
 export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
-  private client: Anthropic;
-  private model: string;
-  private maxTokens: number;
+  private client?: Anthropic;
+  private model = 'claude-sonnet-4-20250514';
+  private maxTokens = 4096;
   private contextConfig = '';
+  private didWarnMissingConfig = false;
 
   constructor(
     private configService: ConfigService,
     private logger: LoggerService,
-  ) {
-    const apiKey = this.configService.get<string>('ai.apiKey');
-
-    if (!apiKey) {
-      this.logger.warn(
-        'Anthropic API key not configured. Set ANTHROPIC_API_KEY in .env',
-      );
-    } else {
-      this.client = new Anthropic({ apiKey });
-      this.model = this.configService.get<string>(
-        'ai.model',
-        'claude-sonnet-4-20250514',
-      );
-      this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
-
-      this.logger.debug(
-        `Initialized Anthropic adapter with model: ${this.model}`,
-      );
-    }
-  }
+  ) {}
 
   async onModuleInit(): Promise<void> {
     this.contextConfig = await loadAiContextConfig(
@@ -52,15 +34,46 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     );
   }
 
+  private initializeClient(): void {
+    if (this.client) {
+      return;
+    }
+
+    const apiKey = this.configService.get<string>('ai.anthropicApiKey');
+
+    if (!apiKey) {
+      if (!this.didWarnMissingConfig) {
+        this.logger.warn(
+          'Anthropic API key not configured. Add `ai: [{ name: "anthropic", apiKey: "..." }]` to wf.config.*.',
+        );
+        this.didWarnMissingConfig = true;
+      }
+      return;
+    }
+
+    this.client = new Anthropic({ apiKey });
+    this.model = this.configService.get<string>(
+      'ai.model',
+      'claude-sonnet-4-20250514',
+    );
+    this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
+
+    this.logger.debug(
+      `Initialized Anthropic adapter with model: ${this.model}`,
+    );
+  }
+
   private prependConfig(systemPrompt: string | undefined): string | undefined {
     if (!this.contextConfig) return systemPrompt;
     return this.contextConfig + (systemPrompt ?? '');
   }
 
   async execute(request: AIRequest): Promise<AIResponse> {
+    this.initializeClient();
+
     if (!this.client) {
       throw new AIError(
-        'Anthropic client not initialized. Set ANTHROPIC_API_KEY in .env',
+        'Anthropic client not initialized. Configure `ai[].apiKey` for the `anthropic` provider in wf.config.*.',
         null,
         false,
       );
@@ -70,7 +83,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
 
     try {
       const response = await this.client.messages.create({
-        model: this.model,
+        model: request.model || this.model,
         max_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         system: this.prependConfig(request.systemPrompt),
@@ -105,9 +118,11 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
   async executeWithHistory(
     request: AIConversationRequest,
   ): Promise<AIResponse> {
+    this.initializeClient();
+
     if (!this.client) {
       throw new AIError(
-        'Anthropic client not initialized. Set ANTHROPIC_API_KEY in .env',
+        'Anthropic client not initialized. Configure `ai[].apiKey` for the `anthropic` provider in wf.config.*.',
         null,
         false,
       );
@@ -119,7 +134,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
 
     try {
       const response = await this.client.messages.create({
-        model: this.model,
+        model: request.model || this.model,
         max_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         system: this.prependConfig(request.systemPrompt),

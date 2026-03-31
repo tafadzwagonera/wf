@@ -16,31 +16,16 @@ const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
 
 @Injectable()
 export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
-  private client: OpenAI;
-  private model: string;
-  private maxTokens: number;
+  private client?: OpenAI;
+  private model = DEFAULT_MODEL;
+  private maxTokens = 4096;
   private contextConfig = '';
+  private didWarnMissingConfig = false;
 
   constructor(
     private configService: ConfigService,
     private logger: LoggerService,
-  ) {
-    const apiKey = this.configService.get<string>('ai.deepseekApiKey');
-
-    if (!apiKey) {
-      this.logger.warn(
-        'DeepSeek API key not configured. Set DEEPSEEK_API_KEY in .env',
-      );
-    } else {
-      this.client = new OpenAI({ apiKey, baseURL: DEEPSEEK_BASE_URL });
-      this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
-      this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
-
-      this.logger.debug(
-        `Initialized DeepSeek adapter with model: ${this.model}`,
-      );
-    }
-  }
+  ) {}
 
   async onModuleInit(): Promise<void> {
     // No standard global config path exists for DeepSeek; only project-level
@@ -52,15 +37,41 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
     );
   }
 
+  private initializeClient(): void {
+    if (this.client) {
+      return;
+    }
+
+    const apiKey = this.configService.get<string>('ai.deepseekApiKey');
+
+    if (!apiKey) {
+      if (!this.didWarnMissingConfig) {
+        this.logger.warn(
+          'DeepSeek API key not configured. Add `ai: [{ name: "deepseek", apiKey: "..." }]` to wf.config.*.',
+        );
+        this.didWarnMissingConfig = true;
+      }
+      return;
+    }
+
+    this.client = new OpenAI({ apiKey, baseURL: DEEPSEEK_BASE_URL });
+    this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
+    this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
+
+    this.logger.debug(`Initialized DeepSeek adapter with model: ${this.model}`);
+  }
+
   private prependConfig(systemPrompt: string | undefined): string | undefined {
     if (!this.contextConfig) return systemPrompt;
     return this.contextConfig + (systemPrompt ?? '');
   }
 
   async execute(request: AIRequest): Promise<AIResponse> {
+    this.initializeClient();
+
     if (!this.client) {
       throw new AIError(
-        'DeepSeek client not initialized. Set DEEPSEEK_API_KEY in .env',
+        'DeepSeek client not initialized. Configure `ai[].apiKey` for the `deepseek` provider in wf.config.*.',
         null,
         false,
       );
@@ -79,7 +90,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
       messages.push({ role: 'user', content: request.prompt });
 
       const response = await this.client.chat.completions.create({
-        model: this.model,
+        model: request.model || this.model,
         max_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         messages,
@@ -110,9 +121,11 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
   async executeWithHistory(
     request: AIConversationRequest,
   ): Promise<AIResponse> {
+    this.initializeClient();
+
     if (!this.client) {
       throw new AIError(
-        'DeepSeek client not initialized. Set DEEPSEEK_API_KEY in .env',
+        'DeepSeek client not initialized. Configure `ai[].apiKey` for the `deepseek` provider in wf.config.*.',
         null,
         false,
       );
@@ -135,7 +148,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
       }
 
       const response = await this.client.chat.completions.create({
-        model: this.model,
+        model: request.model || this.model,
         max_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         messages,

@@ -1,8 +1,6 @@
-import * as path from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import configuration from './config/configuration';
-import { validationSchema } from './config/validation.schema';
 import { JiraModule } from './integrations/jira/jira.module';
 import { GitModule } from './integrations/git/git.module';
 import { AIModule } from './integrations/ai/ai.module';
@@ -18,12 +16,8 @@ import { PlatformModule } from './integrations/platforms/platform.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      ignoreEnvFile: true,
       load: [configuration],
-      validationSchema,
-      envFilePath: [
-        path.resolve(__dirname, '../.env.local'),
-        path.resolve(__dirname, '../.env'),
-      ],
     }),
     JiraModule,
     GitModule,

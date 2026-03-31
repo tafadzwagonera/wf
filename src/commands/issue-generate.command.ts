@@ -633,6 +633,7 @@ export class IssueGenerateCommand extends CommandRunner {
     const response = await this.aiService.execute({
       prompt: prompt,
       maxTokens: 4096,
+      stage: 'generate',
     });
 
     // Parse AI response as markdown (default) and convert to UniversalTicket

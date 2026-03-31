@@ -43,88 +43,118 @@ npm link
 
 ## Configuration
 
-### 1. Create `.env` file
+Create one of these files in the consumer project root:
 
-Copy the example configuration:
+- `wf.config.js`
+- `wf.config.mjs`
+- `wf.config.ts`
+- `wf.config.mts`
+- `wf.config.yaml`
+- `wf.config.yml`
 
-```bash
-cp .env.example .env
+When multiple files exist, `wf` uses this precedence order from top to bottom.
+
+### JavaScript / TypeScript Example
+
+```ts
+import { defineConfig } from 'wf/config';
+
+export default defineConfig({
+  platforms: {
+    primary: 'jira',
+  },
+  ai: [
+    {
+      name: 'anthropic',
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      model: 'claude-sonnet-4-20250514',
+      default: true,
+    },
+    {
+      name: 'gemini',
+      apiKey: process.env.GEMINI_API_KEY,
+      model: 'gemini-2.5-pro',
+    },
+  ],
+  atlassian: {
+    baseUrl: 'https://yourcompany.atlassian.net',
+    email: 'your-email@company.com',
+    jira: {
+      apiToken: process.env.ATLASSIAN_JIRA_API_TOKEN,
+      defaultProject: 'WBP',
+    },
+    bitbucket: {
+      apiToken: process.env.ATLASSIAN_BITBUCKET_API_TOKEN,
+      workspace: 'your-workspace',
+    },
+  },
+  github: {
+    token: process.env.GITHUB_TOKEN,
+    defaultRepo: 'owner/repo',
+  },
+  git: {
+    defaultBranch: 'develop',
+    commitFormat: 'auto',
+  },
+  log: {
+    directory: '.wf/logs',
+    level: 'info',
+  },
+  state: {
+    directory: '.wf/state',
+  },
+  stages: {
+    plan: 'claude-sonnet-4-20250514',
+    implement: 'claude-sonnet-4-20250514',
+    review: 'gemini-2.5-pro',
+  },
+});
 ```
 
-### 2. Configure Credentials
+### YAML Example
 
-Edit `.env` with your credentials:
-
-```bash
-# ── Platform ──────────────────────────────────────────────────────────────────
-# Comma-separated list of platforms to enable (jira, github, bitbucket).
-# Omit to auto-detect based on configured credentials.
-# ENABLED_PLATFORMS=jira,github,bitbucket
-PRIMARY_PLATFORM=jira
-DEFAULT_OUTPUT_FORMAT=md          # json | md | yaml | xml
-
-# ── Claude AI ─────────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY=sk-ant-xxxxx
-AI_MODEL=claude-sonnet-4-20250514 # optional — this is the default
-AI_MAX_TOKENS=4096                 # optional — this is the default
-
-# ── Atlassian (Jira + Bitbucket) ──────────────────────────────────────────────
-# Shared credentials for both services (both are Atlassian products).
-ATLASSIAN_BASE_URL=https://yourcompany.atlassian.net
-ATLASSIAN_EMAIL=your-email@company.com
-ATLASSIAN_API_TOKEN=your-api-token
-
-# Jira-specific
-ATLASSIAN_JIRA_DEFAULT_PROJECT=   # e.g. WBP
-
-# Bitbucket-specific
-# API tokens required — app passwords were deprecated September 9, 2025.
-ATLASSIAN_BITBUCKET_WORKSPACE=your-workspace
-
-# ── GitHub ────────────────────────────────────────────────────────────────────
-GITHUB_TOKEN=ghp_your-token       # optional
-GITHUB_DEFAULT_REPO=owner/repo    # optional
-
-# ── Git ───────────────────────────────────────────────────────────────────────
-GIT_COMMIT_FORMAT=auto
-GIT_DEFAULT_BRANCH=develop
-
-# ── Branch Naming ─────────────────────────────────────────────────────────────
-# Patterns are validated but not enforced — a warning is shown on mismatch.
-# ATLASSIAN_BRANCH_PATTERN=^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\/[A-Z]+-[0-9]+__|__.+$
-# GITHUB_BRANCH_PATTERN=^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\/[A-Za-z0-9_-]+$
-BRANCH_PREFIX_IMPLEMENT=feature   # default
-BRANCH_PREFIX_FIX=bugfix          # default
-BRANCH_PREFIX_INVESTIGATE=chore   # default
-
-# ── Workflow Engine ────────────────────────────────────────────────────────────
-WORKFLOW_DIRECTORY=.windsurf/workflows
-STATE_DIRECTORY=.wf/state
-LOG_DIRECTORY=.wf/logs
-
-# ── Application ───────────────────────────────────────────────────────────────
-NODE_ENV=development
-LOG_LEVEL=info
+```yaml
+platforms:
+  primary: jira
+ai:
+  - name: anthropic
+    apiKey: ${ANTHROPIC_API_KEY}
+    model: claude-sonnet-4-20250514
+    default: true
+atlassian:
+  baseUrl: https://yourcompany.atlassian.net
+  email: your-email@company.com
+  jira:
+    apiToken: ${ATLASSIAN_JIRA_API_TOKEN}
+    defaultProject: WBP
+log:
+  directory: .wf/logs
+  level: info
 ```
 
-### 3. Platform Configuration
+### TypeScript Config Support
 
-The CLI supports multiple platforms (Jira, GitHub, BitBucket). By default, it will only show warnings for platforms you've configured credentials for.
-
-**Explicit Configuration:**
+- Bun and Deno support TypeScript config files natively.
+- Node.js supports TypeScript configs natively on `>= 22.13.0` when started with `--experimental-strip-types`.
+- Otherwise install `jiti@>=2.2.0` in the consumer project. `wf` does not install it for you.
 
 ```bash
-# Enable only specific platforms
-ENABLED_PLATFORMS=jira,github
+npm install --save-dev jiti
 ```
 
-**Auto-Detection (Default):**
-If `ENABLED_PLATFORMS` is not set, the CLI automatically detects which platforms you're using based on configured credentials. Only platforms with credentials will show configuration warnings.
+```bash
+node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
+```
 
-**Disable All Warnings:**
-Omit all platform credentials from `.env` to run without any platform integrations.
+### Defaults and Notes
 
-### 4. Generate API Tokens
+- Built-in defaults cover provider/model selection, branch prefixes, workflow directory, state/log directories, and log level.
+- `ai[].default` defaults to `false`; if no provider is explicitly defaulted, `wf` uses the first provider entry.
+- `stages.plan`, `stages.implement`, and `stages.review` may override the default model. `fetch` and `commit` cannot be overridden.
+- `wf config get` and `wf config list` read the normalized runtime config.
+- `wf config set` is advisory only and points you at the config file to edit.
+
+### Generate API Tokens
 
 **Anthropic API Key:**
 
@@ -146,7 +176,7 @@ Omit all platform credentials from `.env` to run without any platform integratio
   - `issue:write` - Create and update issues
   - `pullrequest:read` - Read pull requests
 - Copy the generated token
-- Set `ATLASSIAN_API_TOKEN` and `ATLASSIAN_BITBUCKET_WORKSPACE` in your `.env` file
+- Set `atlassian.bitbucket.apiToken` and `atlassian.bitbucket.workspace` in `wf.config.*`
 
 **⚠️ Note:** BitBucket app passwords were deprecated on September 9, 2025. Only API tokens are supported.
 
@@ -182,7 +212,7 @@ The issue API is a suite of commands for the full ticket lifecycle: fetch → pl
 Fetch a ticket from a platform and save it as a local artifact. **Overwrites any existing local artifact.**
 
 ```bash
-# Fetch using the primary platform from .env
+# Fetch using the primary platform from wf.config.*
 wf issue:fetch WBP-2971
 
 # Specify platform and output format
@@ -536,11 +566,11 @@ yarn start resume a1b2c3d4
 
 #### `wf config`
 
-Manage agent configuration.
+Inspect the resolved runtime configuration.
 
 ```bash
-yarn start config get jira.baseUrl
-yarn start config set jira.email user@example.com
+yarn start config get atlassian.baseUrl
+yarn start config set atlassian.email user@example.com
 yarn start config list
 ```
 
@@ -771,13 +801,13 @@ yarn test:e2e
 
 **2. "Jira authentication failed"**
 
-- Verify `ATLASSIAN_API_TOKEN` is correct and not expired
+- Verify `atlassian.jira.apiToken` is correct and not expired
 - Check user has necessary permissions
 - Run diagnostic: `yarn ts-node -r tsconfig-paths/register test/manual/diagnose-jira-permissions.ts`
 
 **3. "Claude API error"**
 
-- Verify `ANTHROPIC_API_KEY` is set correctly
+- Verify the active Anthropic provider entry in `wf.config.*` has a valid `apiKey`
 - Check API quota and billing
 
 **4. "Git error"**
@@ -792,7 +822,7 @@ yarn test:e2e
 
 **6. "Workspace required"**
 
-- Set `ATLASSIAN_BITBUCKET_WORKSPACE` in `.env`, or pass `--repo workspace/repo` (full format)
+- Set `atlassian.bitbucket.workspace` in `wf.config.*`, or pass `--repo workspace/repo` (full format)
 
 ### Debug Mode
 

@@ -45,7 +45,7 @@ export class BitBucketAdapter implements PlatformAdapter {
         this.platformConfig.isPlatformEnabled('bitbucket', hasPartialConfig)
       ) {
         this.logger.warn(
-          'BitBucket credentials not configured. Set ATLASSIAN_EMAIL, ATLASSIAN_BITBUCKET_API_TOKEN and ATLASSIAN_BITBUCKET_WORKSPACE in .env',
+          'BitBucket credentials not configured. Set atlassian.email, atlassian.bitbucket.apiToken, and atlassian.bitbucket.workspace in wf.config.*.',
         );
       }
       this.bitbucket = new Bitbucket();
