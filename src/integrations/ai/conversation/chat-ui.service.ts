@@ -159,7 +159,6 @@ export class ChatUIService {
     totalUsage: { input: number; output: number },
   ): void {
     const current = currentUsage.inputTokens + currentUsage.outputTokens;
-    const total = totalUsage.input + totalUsage.output;
 
     console.log(
       chalk.dim(

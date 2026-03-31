@@ -255,11 +255,7 @@ export class ConversationService {
       throw new Error(`Conversation not found: ${conversationId}`);
     }
 
-    const {
-      systemPrompt,
-      maxTurns = 20,
-      exitCommands = ['exit', 'quit', 'continue'],
-    } = options || {};
+    const { systemPrompt, maxTurns = 20 } = options || {};
 
     // Display intro
     this.chatUI.displayChatIntro(state.context.stage, state.context);

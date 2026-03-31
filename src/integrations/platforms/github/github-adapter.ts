@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Octokit } from '@octokit/rest';
 import {
@@ -291,7 +291,7 @@ export class GitHubAdapter implements PlatformAdapter {
     prNumber: number;
   } {
     // Format: https://github.com/owner/repo/pull/123
-    const match = url.match(/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/);
+    const match = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
     if (!match) {
       throw new Error(`Invalid GitHub PR URL: ${url}`);
     }

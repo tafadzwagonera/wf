@@ -105,7 +105,7 @@ export class IssueReviewCommand extends CommandRunner {
 
     // Resolve repo base path early so an invalid --repos value emits a warning
     // before any expensive API calls, consistent with issue:implement / issue:all.
-    const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
+    resolveRepoBasePath(options?.repos?.[0]);
 
     try {
       if (options?.dryRun) {

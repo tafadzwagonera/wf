@@ -30,14 +30,7 @@ export class AIExecutor extends BaseExecutor {
     action: AIActionConfig,
     context: StageContext,
   ): Promise<Partial<StageResult>> {
-    const {
-      type,
-      prompt,
-      systemPrompt,
-      context: aiContext,
-      maxTokens,
-      temperature,
-    } = action;
+    const { type, prompt, systemPrompt, maxTokens, temperature } = action;
 
     this.logger.debug(`Executing AI action: ${type}`);
 
@@ -58,7 +51,7 @@ export class AIExecutor extends BaseExecutor {
           result = await this.performCodeReview(action, context);
           break;
 
-        case 'custom':
+        case 'custom': {
           if (!prompt) {
             throw new Error('Custom AI action requires a prompt');
           }
@@ -70,6 +63,7 @@ export class AIExecutor extends BaseExecutor {
           });
           result = { response: response.content };
           break;
+        }
 
         default:
           throw new Error(`Unknown AI action type: ${type}`);
@@ -118,6 +112,7 @@ export class AIExecutor extends BaseExecutor {
     action: AIActionConfig,
     context: StageContext,
   ): Promise<any> {
+    void context;
     const diff = action.context?.diff || '';
     const commitHistory = action.context?.commitHistory || [];
     const format = action.context?.format || 'auto';
@@ -135,6 +130,7 @@ export class AIExecutor extends BaseExecutor {
     action: AIActionConfig,
     context: StageContext,
   ): Promise<any> {
+    void context;
     const diff = action.context?.diff || '';
     const guidelines = action.context?.guidelines || [];
 

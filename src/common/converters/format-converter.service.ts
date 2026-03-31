@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { FormatConverter, TicketFormat } from './format-converter.interface';
+import { FormatConverter } from './format-converter.interface';
 
 /**
  * Factory service for managing and retrieving format converters.

@@ -50,7 +50,7 @@ async function testCowsay() {
   // ── Test 2: output includes the package version ───────────────────────────
 
   console.log('Test 2: output contains package version');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+
   const pkgVersion = (require('../../package.json') as { version: string })
     .version;
   const hasVersion = lines.some((l) => l.includes(pkgVersion));

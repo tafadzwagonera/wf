@@ -807,7 +807,7 @@ export class IssueAllCommand extends CommandRunner {
    * @param workflowState - State data including ticket content, plan, review
    */
   // workflowState is intentionally typed `any` — it carries heterogeneous stage outputs
-  /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
+
   private async startInteractiveChat(
     ticketKey: string,
     stage: ConvWorkflowStage,
@@ -854,7 +854,6 @@ export class IssueAllCommand extends CommandRunner {
       },
     );
   }
-  /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
 
   /**
    * Build system prompt with workflow stage context
@@ -863,7 +862,7 @@ export class IssueAllCommand extends CommandRunner {
    * @param workflowState - State data
    * @returns System prompt with contextual information
    */
-  /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call */
+
   private buildChatSystemPrompt(
     stage: ConvWorkflowStage,
     workflowState: any,
@@ -925,7 +924,6 @@ Help the developer understand the review feedback, discuss issues, or suggest fi
 
     return basePrompt;
   }
-  /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call */
 
   /**
    * Resolve a repository name to a filesystem base path.

@@ -3,13 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'yaml';
-import { marked } from 'marked';
 import {
   Workflow,
   WorkflowMetadata,
   WorkflowInvocation,
   ExecutionStep,
-  StepAction,
 } from '../../common/interfaces';
 import { WorkflowParseError, ValidationError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
@@ -95,7 +93,7 @@ export class WorkflowParserService {
         if (workflow.metadata.name === displayName) {
           return workflow;
         }
-      } catch (error) {
+      } catch {
         this.logger.warn(`Failed to parse workflow: ${fileName}`);
       }
     }
@@ -259,6 +257,7 @@ export class WorkflowParserService {
   }
 
   private checkRequiresApproval(title: string, context: string): boolean {
+    void context;
     const approvalKeywords = [
       'wait for',
       'approval',

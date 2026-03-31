@@ -76,13 +76,12 @@ async function main() {
     const committer = app.get(CommitterAgent);
 
     let output = '';
-    /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
+
     const originalWrite = process.stdout.write.bind(process.stdout);
     (process.stdout.write as any) = (chunk: any) => {
       output += String(chunk);
       return originalWrite(chunk);
     };
-    /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
 
     console.log(
       '\n🧪 CommitterAgent: ticket context → accurate commit message + real commit\n',
@@ -95,7 +94,6 @@ async function main() {
     try {
       await committer.execute('TEST-001', tmpDir, ticketContext);
     } finally {
-      /* eslint-disable-next-line @typescript-eslint/no-unsafe-assignment */
       (process.stdout.write as any) = originalWrite;
     }
 
@@ -207,17 +205,15 @@ async function main() {
 
     output = '';
     const originalWrite2 = process.stdout.write.bind(process.stdout);
-    /* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
+
     (process.stdout.write as any) = (chunk: any) => {
       output += String(chunk);
       return originalWrite2(chunk);
     };
-    /* eslint-enable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
 
     try {
       await committer.execute('TEST-002', tmpDir, ticketContext);
     } finally {
-      /* eslint-disable-next-line @typescript-eslint/no-unsafe-assignment */
       (process.stdout.write as any) = originalWrite2;
     }
 

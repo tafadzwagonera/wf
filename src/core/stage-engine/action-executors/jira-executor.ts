@@ -33,6 +33,7 @@ export class JiraExecutor extends BaseExecutor {
     action: JiraActionConfig,
     context: StageContext,
   ): Promise<Partial<StageResult>> {
+    void context;
     const { operation } = action;
 
     this.logger.debug(`Executing Jira action: ${operation}`);

@@ -55,7 +55,7 @@ export class LoggerService implements NestLoggerService {
 
     try {
       fs.appendFileSync(this.logFile, logLine);
-    } catch (error) {
+    } catch {
       // Silently fail if unable to write to log file
     }
   }

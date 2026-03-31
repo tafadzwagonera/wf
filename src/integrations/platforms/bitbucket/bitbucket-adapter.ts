@@ -373,7 +373,7 @@ export class BitBucketAdapter implements PlatformAdapter {
   } {
     // Format: https://bitbucket.org/workspace/repo/pull-requests/123
     const match = url.match(
-      /bitbucket\.org\/([^\/]+)\/([^\/]+)\/pull-requests\/(\d+)/,
+      /bitbucket\.org\/([^/]+)\/([^/]+)\/pull-requests\/(\d+)/,
     );
     if (!match) {
       throw new Error(`Invalid BitBucket PR URL: ${url}`);

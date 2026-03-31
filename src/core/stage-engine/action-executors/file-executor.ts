@@ -35,6 +35,7 @@ export class FileExecutor extends BaseExecutor {
     action: FileActionConfig,
     context: StageContext,
   ): Promise<Partial<StageResult>> {
+    void context;
     const {
       operation,
       filePath,

@@ -11,3 +11,4 @@ node_modules/
 .wf/
 .windsurf-agent/
 .env
+wf.config.ts

@@ -198,7 +198,7 @@ export class StateManagerService {
         }
 
         states.push(state);
-      } catch (error) {
+      } catch {
         this.logger.warn(`Failed to read state file: ${file}`);
       }
     }

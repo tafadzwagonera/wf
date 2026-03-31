@@ -18,6 +18,7 @@ export class ConfigCommand extends CommandRunner {
   }
 
   async run(passedParams: string[]): Promise<void> {
+    void passedParams;
     console.log(chalk.yellow('\nUsage: wf config <subcommand> [args]'));
     console.log(chalk.gray('\nSubcommands:'));
     console.log(chalk.gray('  get <key>        Get configuration value'));

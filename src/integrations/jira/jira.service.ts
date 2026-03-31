@@ -487,9 +487,10 @@ export class JiraService {
     switch (node.type) {
       case 'paragraph':
         return this.processADFContent(node.content) + '\n\n';
-      case 'heading':
+      case 'heading': {
         const level = '#'.repeat(node.attrs.level);
         return `${level} ${this.processADFContent(node.content)}\n\n`;
+      }
       case 'bulletList':
         return (
           node.content
@@ -505,9 +506,10 @@ export class JiraService {
             )
             .join('\n') + '\n\n'
         );
-      case 'codeBlock':
+      case 'codeBlock': {
         const lang = node.attrs?.language || '';
         return `\`\`\`${lang}\n${this.processADFContent(node.content)}\n\`\`\`\n\n`;
+      }
       case 'listItem':
         return this.processADFContent(node.content);
       default:

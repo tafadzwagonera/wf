@@ -28,9 +28,10 @@ export class ApprovalSystemService {
       case ApprovalDecision.PROCEED:
         return { decision };
 
-      case ApprovalDecision.RETRY:
+      case ApprovalDecision.RETRY: {
         const modifications = await this.collectModifications();
         return { decision, modifications };
+      }
 
       case ApprovalDecision.CANCEL:
         throw new UserCancelledError('Workflow cancelled by user');
@@ -223,7 +224,7 @@ export class ApprovalSystemService {
 
       try {
         modifications.parameters = JSON.parse(paramAnswers.parameters);
-      } catch (error) {
+      } catch {
         this.logger.warn('Invalid JSON for parameters, ignoring...');
       }
     }

@@ -161,7 +161,7 @@ export class RunCommand extends CommandRunner {
       try {
         const parsed = JSON.parse(paramsString);
         Object.assign(parameters, parsed);
-      } catch (error) {
+      } catch {
         this.logger.warn('Failed to parse --params JSON, ignoring');
       }
     }

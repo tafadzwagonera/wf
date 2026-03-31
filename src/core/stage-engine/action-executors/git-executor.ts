@@ -40,6 +40,7 @@ export class GitExecutor extends BaseExecutor {
     action: GitActionConfig,
     context: StageContext,
   ): Promise<Partial<StageResult>> {
+    void context;
     const { operation } = action;
 
     this.logger.debug(`Executing Git action: ${operation}`);

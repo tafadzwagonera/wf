@@ -51,7 +51,7 @@ export class ListCommand extends CommandRunner {
           }
 
           console.log();
-        } catch (error) {
+        } catch {
           console.log(chalk.bold.red(`• ${workflowName}`));
           console.log(chalk.red(`  Error: Failed to parse workflow`));
           console.log();

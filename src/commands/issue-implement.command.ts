@@ -5,7 +5,6 @@ import { AiService, ResolutionPlan } from '../integrations/ai/ai.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
@@ -173,8 +172,6 @@ export class IssueImplementCommand extends CommandRunner {
         process.exit(1);
       }
 
-      const format = options?.format || 'json';
-
       const baseDir = resolveRepoBasePath(options?.repos?.[0]);
 
       const resolvedPlanPath = options?.plan
@@ -201,7 +198,7 @@ export class IssueImplementCommand extends CommandRunner {
           });
 
           // Detect investigate plan if file exists, otherwise use action heuristic
-          /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
+
           const planForDryRun = planExists
             ? (() => {
                 try {
@@ -212,7 +209,6 @@ export class IssueImplementCommand extends CommandRunner {
               })()
             : null;
           const isInvestigateDryRun = planForDryRun?.action === 'investigate';
-          /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
 
           if (isInvestigateDryRun) {
             const findingsPath = resolvedPlanPath.replace(
@@ -288,7 +284,6 @@ export class IssueImplementCommand extends CommandRunner {
           return;
         }
 
-        /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
         const plan = loadPlanFile(resolvedPlanPath) as any;
 
         // Investigation: generate findings instead of showing implementation guide
@@ -366,7 +361,6 @@ Return ONLY a valid JSON object:
         const steps: string[] = plan.steps ?? [];
         const filesAffected: string[] = plan.filesAffected ?? [];
         const repositoriesAffected: string[] = plan.repositoriesAffected ?? [];
-        /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
 
         console.log('\n🔧 Implementation Guide');
         console.log('─'.repeat(70));
@@ -543,17 +537,16 @@ Return ONLY a valid JSON object:
 
       if (resolvedPlanPath) {
         // Mode B: load plan from --plan path
-        /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+
         const plan = loadPlanFile(resolvedPlanPath) as ResolutionPlan;
         planArtifact = {
           plan,
           action: ((plan as any).action ?? action) as ResolutionAction,
           path: resolvedPlanPath,
         };
-        /* eslint-enable @typescript-eslint/no-unsafe-member-access */
       } else {
         // Mode C: load plan from disk (plan artifact verified by preflight check)
-        /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+
         const plan = loadPlanFile(planPath) as ResolutionPlan;
         planArtifact = {
           plan,
@@ -562,7 +555,6 @@ Return ONLY a valid JSON object:
           action: ((plan as any).action ?? action) as ResolutionAction,
           path: planPath,
         };
-        /* eslint-enable @typescript-eslint/no-unsafe-member-access */
       }
 
       await this.orchestrator.implementer.execute(
@@ -577,7 +569,6 @@ Return ONLY a valid JSON object:
     }
   }
 
-  /* eslint-disable @typescript-eslint/no-unsafe-member-access */
   private formatTicketAsMarkdown(ticket: any): string {
     let md = `# ${ticket.title}\n\n`;
     md += `**Ticket:** ${ticket.key}\n`;
@@ -587,7 +578,6 @@ Return ONLY a valid JSON object:
     md += `## Description\n\n${ticket.description || 'No description provided'}\n`;
     return md;
   }
-  /* eslint-enable @typescript-eslint/no-unsafe-member-access */
 
   /**
    * Format repository string for Bitbucket operations

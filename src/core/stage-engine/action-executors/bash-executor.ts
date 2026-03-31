@@ -7,7 +7,6 @@ import {
   StageResult,
   Artifact,
 } from '../../../common/interfaces';
-import { ExecutionError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 
 const execAsync = promisify(exec);
@@ -30,6 +29,7 @@ export class BashExecutor extends BaseExecutor {
     action: BashActionConfig,
     context: StageContext,
   ): Promise<Partial<StageResult>> {
+    void context;
     const { command, cwd, timeout = 30000, env, captureOutput = true } = action;
 
     this.logger.debug(`Executing bash command: ${command}`);
