@@ -110,6 +110,7 @@ export interface NormalizedWfConfig {
   };
   slack: {
     botToken?: string;
+    userToken?: string;
   };
 }
 
@@ -200,6 +201,7 @@ const configSchema = Joi.object<WfConfig>({
   }).optional(),
   slack: Joi.object({
     botToken: Joi.string().allow('').optional(),
+    userToken: Joi.string().allow('').optional(),
   }).optional(),
   stages: Joi.object({
     plan: Joi.string().optional(),
@@ -617,6 +619,7 @@ export const normalizeWfConfig = (
     },
     slack: {
       botToken: validatedConfig.slack?.botToken,
+      userToken: validatedConfig.slack?.userToken,
     },
   };
 };

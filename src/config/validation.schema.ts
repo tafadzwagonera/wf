@@ -57,6 +57,7 @@ export const validationSchema = Joi.object({
 
   // Slack Configuration
   SLACK_BOT_TOKEN: Joi.string().allow('').optional(),
+  SLACK_USER_TOKEN: Joi.string().allow('').optional(),
 
   // Application
   NODE_ENV: Joi.string()

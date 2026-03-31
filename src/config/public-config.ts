@@ -69,6 +69,7 @@ export interface WfConfig {
   };
   slack?: {
     botToken?: string;
+    userToken?: string;
   };
   stages?: Partial<
     Record<'plan' | 'implement' | 'review' | 'generate', string>

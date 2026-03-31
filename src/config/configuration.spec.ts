@@ -39,4 +39,16 @@ describe('configuration defaults', () => {
       path.join(os.homedir(), '.wf', 'logs'),
     );
   });
+
+  it('preserves configured Slack user token settings', () => {
+    const config = normalizeWfConfig({
+      slack: {
+        botToken: 'xoxb-test-token',
+        userToken: 'xoxp-test-token',
+      },
+    });
+
+    expect(config.slack.botToken).toBe('xoxb-test-token');
+    expect(config.slack.userToken).toBe('xoxp-test-token');
+  });
 });

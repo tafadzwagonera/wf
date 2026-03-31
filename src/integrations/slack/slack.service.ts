@@ -19,6 +19,10 @@ interface SlackChannelHistoryResult {
   messages: SlackMessage[];
 }
 
+interface SlackApiOptions {
+  fallbackOnChannelNotFound?: boolean;
+}
+
 @Injectable()
 export class SlackService {
   constructor(private readonly configService: ConfigService) {}
@@ -34,20 +38,19 @@ export class SlackService {
     channelId: string,
     limit: number,
   ): Promise<SlackChannelHistoryResult> {
-    const token = this.getSlackToken();
-    const response = await axios.get(
+    const response = await this.callSlackApi(
       'https://slack.com/api/conversations.history',
       {
-        params: { channel: channelId, limit },
-        headers: { Authorization: `Bearer ${token}` },
+        channel: channelId,
+        limit,
       },
+      channelId,
+      { fallbackOnChannelNotFound: true },
     );
-
-    this.ensureSlackResponseOk(response.data, channelId);
 
     return {
       channelId,
-      messages: this.mapSlackMessages(response.data.messages ?? []),
+      messages: this.mapSlackMessages(response.messages ?? []),
     };
   }
 
@@ -55,34 +58,96 @@ export class SlackService {
     channelId: string,
     threadTs: string,
   ): Promise<SlackThreadResult> {
-    const token = this.getSlackToken();
-
-    const response = await axios.get(
+    const response = await this.callSlackApi(
       'https://slack.com/api/conversations.replies',
       {
-        params: { channel: channelId, ts: threadTs },
-        headers: { Authorization: `Bearer ${token}` },
+        channel: channelId,
+        ts: threadTs,
       },
+      channelId,
+      { fallbackOnChannelNotFound: true },
     );
-
-    this.ensureSlackResponseOk(response.data, channelId);
 
     return {
       channelId,
       threadTs,
-      messages: this.mapSlackMessages(response.data.messages ?? []),
+      messages: this.mapSlackMessages(response.messages ?? []),
     };
   }
 
   /**
-   * Resolve the Slack bot token needed for API calls.
+   * Execute a Slack Web API call with optional fallback to a user token.
    *
-   * @returns Slack bot token
+   * @param endpoint - Slack API endpoint URL
+   * @param params - Query string params for the request
+   * @param channelId - Conversation identifier for error messages
+   * @param options - Retry behavior options
+   * @returns Raw Slack API response data
    */
-  private getSlackToken(): string {
-    const token = this.configService.get<string>('slack.botToken');
-    if (!token) throw new Error('SLACK_BOT_TOKEN is not set');
-    return token;
+  private async callSlackApi(
+    endpoint: string,
+    params: Record<string, string | number>,
+    channelId: string,
+    options: SlackApiOptions = {},
+  ): Promise<any> {
+    const primaryToken = this.getSlackToken('bot');
+    const userToken = this.getSlackToken('user');
+    const tokens = primaryToken
+      ? [
+          primaryToken,
+          ...(userToken && userToken !== primaryToken ? [userToken] : []),
+        ]
+      : userToken
+        ? [userToken]
+        : [];
+
+    if (tokens.length === 0) {
+      throw new Error(
+        'Set slack.botToken or slack.userToken before using Slack sources',
+      );
+    }
+
+    let lastResponseData: any;
+
+    for (let index = 0; index < tokens.length; index++) {
+      const token = tokens[index];
+      const response = await axios.get(endpoint, {
+        params,
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      lastResponseData = response.data;
+
+      if (response.data?.ok) {
+        return response.data;
+      }
+
+      const shouldRetry =
+        options.fallbackOnChannelNotFound &&
+        response.data?.error === 'channel_not_found' &&
+        index < tokens.length - 1;
+
+      if (!shouldRetry) {
+        this.ensureSlackResponseOk(response.data, channelId);
+      }
+    }
+
+    this.ensureSlackResponseOk(lastResponseData, channelId);
+    throw new Error('Unreachable Slack API state');
+  }
+
+  /**
+   * Resolve the configured Slack token for the requested token type.
+   *
+   * @param tokenType - Slack token category to resolve
+   * @returns Slack token when configured
+   */
+  private getSlackToken(tokenType: 'bot' | 'user'): string | undefined {
+    const configKey =
+      tokenType === 'bot' ? 'slack.botToken' : 'slack.userToken';
+    const token = this.configService.get<string>(configKey)?.trim();
+
+    return token ? token : undefined;
   }
 
   /**
@@ -121,7 +186,7 @@ export class SlackService {
     if (error === 'channel_not_found') {
       throw new Error(
         `Slack channel ${channelId} not found. ` +
-          `Check the permalink or ensure the bot has access to the workspace.`,
+          `Check the permalink, ensure the token has access to the workspace, or configure slack.userToken for DM/MPDM conversations.`,
       );
     }
     throw new Error(`Slack API error: ${error}`);

@@ -15,7 +15,10 @@ describe('SlackService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
-    mockConfigService.get.mockReturnValue('xoxb-test-token');
+    mockConfigService.get.mockImplementation((key: string) => {
+      if (key === 'slack.botToken') return 'xoxb-test-token';
+      return undefined;
+    });
     slackService = new SlackService(
       mockConfigService as unknown as ConfigService,
     );
@@ -82,7 +85,7 @@ describe('SlackService', () => {
       await expect(
         slackService.fetchChannelHistory('C0AP5MMCP53', 50),
       ).rejects.toThrow(
-        'Slack channel C0AP5MMCP53 not found. Check the permalink or ensure the bot has access to the workspace.',
+        'Slack channel C0AP5MMCP53 not found. Check the permalink, ensure the token has access to the workspace, or configure slack.userToken for DM/MPDM conversations.',
       );
     });
 
@@ -97,6 +100,54 @@ describe('SlackService', () => {
       await expect(
         slackService.fetchChannelHistory('C0AP5MMCP53', 50),
       ).rejects.toThrow('Slack API error: internal_error');
+    });
+
+    it('retries with a configured user token when the bot token cannot resolve the conversation', async () => {
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'slack.botToken') return 'xoxb-test-token';
+        if (key === 'slack.userToken') return 'xoxp-test-token';
+        return undefined;
+      });
+
+      mockAxios.get
+        .mockResolvedValueOnce({
+          data: {
+            ok: false,
+            error: 'channel_not_found',
+          },
+        } as any)
+        .mockResolvedValueOnce({
+          data: {
+            ok: true,
+            messages: [
+              {
+                ts: '1712345678.123456',
+                user: 'U123',
+                text: 'Recovered with user token',
+              },
+            ],
+          },
+        } as any);
+
+      const result = await slackService.fetchChannelHistory('C0AP5MMCP53', 50);
+
+      expect(mockAxios.get).toHaveBeenNthCalledWith(
+        1,
+        'https://slack.com/api/conversations.history',
+        expect.objectContaining({
+          params: { channel: 'C0AP5MMCP53', limit: 50 },
+          headers: { Authorization: 'Bearer xoxb-test-token' },
+        }),
+      );
+      expect(mockAxios.get).toHaveBeenNthCalledWith(
+        2,
+        'https://slack.com/api/conversations.history',
+        expect.objectContaining({
+          params: { channel: 'C0AP5MMCP53', limit: 50 },
+          headers: { Authorization: 'Bearer xoxp-test-token' },
+        }),
+      );
+      expect(result.messages[0].text).toBe('Recovered with user token');
     });
   });
 });
