@@ -51,10 +51,15 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { SlackService } from '../integrations/slack/slack.service';
 import * as os from 'os';
 import * as path from 'path';
+import * as fs from 'fs';
 
 const mockCwd = '/tmp/consumer-app';
 
 async function buildCommand(): Promise<IssueGenerateCommand> {
+  const mockSlackService = {
+    fetchThread: jest.fn(),
+    fetchChannelHistory: jest.fn(),
+  };
   const mockAiService = {
     getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
     execute: jest.fn().mockResolvedValue({
@@ -147,7 +152,7 @@ async function buildCommand(): Promise<IssueGenerateCommand> {
           previewFileWrite: jest.fn(),
         },
       },
-      { provide: SlackService, useValue: {} },
+      { provide: SlackService, useValue: mockSlackService },
     ],
   }).compile();
 
@@ -156,13 +161,21 @@ async function buildCommand(): Promise<IssueGenerateCommand> {
 
 describe('IssueGenerateCommand', () => {
   let cwdSpy: jest.SpyInstance;
+  let mkdirSpy: jest.SpyInstance;
+  let writeFileSpy: jest.SpyInstance;
 
   beforeEach(() => {
     cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(mockCwd);
+    mkdirSpy = jest.spyOn(fs.promises, 'mkdir').mockResolvedValue(undefined);
+    writeFileSpy = jest
+      .spyOn(fs.promises, 'writeFile')
+      .mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     cwdSpy.mockRestore();
+    mkdirSpy.mockRestore();
+    writeFileSpy.mockRestore();
     jest.restoreAllMocks();
   });
 
@@ -226,5 +239,86 @@ describe('IssueGenerateCommand', () => {
     expect(path.dirname(preview.filePath)).toBe(
       path.join(os.homedir(), '.wf', 'repo-a', 'jira'),
     );
+  });
+
+  describe('Slack source handling', () => {
+    it('routes bare Slack channel archive URLs to channel history instead of generic URL fetching', async () => {
+      const command = await buildCommand();
+      const slackService = (command as any)
+        .slackService as jest.Mocked<SlackService>;
+
+      slackService.fetchChannelHistory.mockResolvedValue({
+        channelId: 'C0AP5MMCP53',
+        messages: [
+          {
+            ts: '1712345678.123456',
+            user: 'U123',
+            text: 'Investigate Slack import behavior',
+          },
+        ],
+      } as any);
+
+      const result = await (command as any).fetchSource(
+        'https://touraxis.slack.com/archives/C0AP5MMCP53',
+      );
+
+      expect(slackService.fetchChannelHistory).toHaveBeenCalledWith(
+        'C0AP5MMCP53',
+        50,
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          type: 'slack',
+          source: 'https://touraxis.slack.com/archives/C0AP5MMCP53',
+          content:
+            '[1712345678.123456] U123: Investigate Slack import behavior',
+        }),
+      );
+    });
+
+    it('keeps Slack thread permalinks on the existing thread fetch path', async () => {
+      const command = await buildCommand();
+      const slackService = (command as any)
+        .slackService as jest.Mocked<SlackService>;
+
+      slackService.fetchThread.mockResolvedValue({
+        channelId: 'C0AP5MMCP53',
+        threadTs: '1712345678.123456',
+        messages: [
+          {
+            ts: '1712345678.123456',
+            user: 'U123',
+            text: 'Existing thread flow',
+          },
+        ],
+      });
+
+      await (command as any).fetchSource(
+        'https://touraxis.slack.com/archives/C0AP5MMCP53/p1712345678123456',
+      );
+
+      expect(slackService.fetchThread).toHaveBeenCalledWith(
+        'C0AP5MMCP53',
+        '1712345678.123456',
+      );
+      expect(slackService.fetchChannelHistory).not.toHaveBeenCalled();
+    });
+
+    it('shows Slack history API preview for bare Slack channel archive URLs in dry-run mode', async () => {
+      const command = await buildCommand();
+      const dryRunPreview = (command as any)
+        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+
+      await command.run(['https://touraxis.slack.com/archives/C0AP5MMCP53'], {
+        dryRun: true,
+      });
+
+      expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: 'https://slack.com/api/conversations.history',
+          platform: 'Slack',
+        }),
+      );
+    });
   });
 });

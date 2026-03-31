@@ -22,6 +22,11 @@ import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 /** Minimum description length (chars) for a ticket to bypass AI synthesis. */
 const MIN_DESCRIPTION_LENGTH = 100;
+const SLACK_CHANNEL_HISTORY_LIMIT = 50;
+const SLACK_PERMALINK =
+  /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
+const SLACK_CHANNEL_URL =
+  /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/?$/i;
 
 interface IssueGenerateOptions {
   format?: string;
@@ -95,17 +100,23 @@ export class IssueGenerateCommand extends CommandRunner {
 
         let apiCallCount = 0;
 
-        const SLACK_PERMALINK_DRY =
-          /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
-
         for (const source of passedParams) {
-          if (SLACK_PERMALINK_DRY.test(source)) {
+          if (SLACK_PERMALINK.test(source)) {
             this.dryRunPreview.previewApiCall({
               method: 'GET',
               endpoint: 'https://slack.com/api/conversations.replies',
               platform: 'Slack',
               description: `Fetch thread ${source}`,
               estimatedResponse: '200 OK — thread messages JSON',
+            });
+            apiCallCount++;
+          } else if (SLACK_CHANNEL_URL.test(source)) {
+            this.dryRunPreview.previewApiCall({
+              method: 'GET',
+              endpoint: 'https://slack.com/api/conversations.history',
+              platform: 'Slack',
+              description: `Fetch recent channel history ${source}`,
+              estimatedResponse: '200 OK — channel messages JSON',
             });
             apiCallCount++;
           } else if (
@@ -406,13 +417,17 @@ export class IssueGenerateCommand extends CommandRunner {
     repo?: string,
   ): Promise<SourceContent> {
     // Check if it's a Slack thread permalink (must come before generic URL check)
-    const SLACK_PERMALINK =
-      /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
     const slackMatch = source.match(SLACK_PERMALINK);
     if (slackMatch) {
       const channelId = slackMatch[1];
       const threadTs = `${slackMatch[2]}.${slackMatch[3]}`;
       return await this.fetchFromSlack(source, channelId, threadTs, repo);
+    }
+
+    const slackChannelMatch = source.match(SLACK_CHANNEL_URL);
+    if (slackChannelMatch) {
+      const channelId = slackChannelMatch[1];
+      return await this.fetchFromSlackChannel(source, channelId, repo);
     }
 
     // Check if it's a URL
@@ -449,18 +464,34 @@ export class IssueGenerateCommand extends CommandRunner {
     repo?: string,
   ): Promise<SourceContent> {
     const result = await this.slackService.fetchThread(channelId, threadTs);
-    const formattedText = result.messages
-      .map((m) => `[${m.ts}] ${m.user}: ${m.text}`)
-      .join('\n');
     const threadId = threadTs.replace('.', '-');
-    const artifactDir = resolveArtifactDir(resolveRepoBasePath(repo), 'slack');
-    await fs.promises.mkdir(artifactDir, { recursive: true });
-    const artifactPath = path.join(
-      artifactDir,
+    const formattedText = this.formatSlackMessages(result.messages);
+    await this.writeSlackArtifact(
+      repo,
       `slack-thread-${channelId}-${threadId}.md`,
+      formattedText,
     );
-    await fs.promises.writeFile(artifactPath, formattedText, 'utf-8');
-    console.log(chalk.gray(`  Artifact: ${artifactPath}`));
+    return { type: 'slack', source, content: formattedText };
+  }
+
+  /**
+   * Fetch content from a Slack channel archive URL.
+   */
+  private async fetchFromSlackChannel(
+    source: string,
+    channelId: string,
+    repo?: string,
+  ): Promise<SourceContent> {
+    const result = await this.slackService.fetchChannelHistory(
+      channelId,
+      SLACK_CHANNEL_HISTORY_LIMIT,
+    );
+    const formattedText = this.formatSlackMessages(result.messages);
+    await this.writeSlackArtifact(
+      repo,
+      `slack-channel-${channelId}.md`,
+      formattedText,
+    );
     return { type: 'slack', source, content: formattedText };
   }
 
@@ -560,6 +591,40 @@ export class IssueGenerateCommand extends CommandRunner {
       hash.update(source);
     }
     return hash.digest('hex').slice(0, 8);
+  }
+
+  /**
+   * Convert Slack messages into the text format used for synthesis artifacts.
+   *
+   * @param messages - Slack messages to serialize
+   * @returns Readable plain-text conversation content
+   */
+  private formatSlackMessages(
+    messages: Array<{ user: string; ts: string; text: string }>,
+  ): string {
+    return messages
+      .map((message) => `[${message.ts}] ${message.user}: ${message.text}`)
+      .join('\n');
+  }
+
+  /**
+   * Persist fetched Slack content to the existing artifact namespace.
+   *
+   * @param repo - Optional repo namespace for artifacts
+   * @param fileName - Artifact filename
+   * @param content - Slack content to save
+   * @returns Nothing
+   */
+  private async writeSlackArtifact(
+    repo: string | undefined,
+    fileName: string,
+    content: string,
+  ): Promise<void> {
+    const artifactDir = resolveArtifactDir(resolveRepoBasePath(repo), 'slack');
+    await fs.promises.mkdir(artifactDir, { recursive: true });
+    const artifactPath = path.join(artifactDir, fileName);
+    await fs.promises.writeFile(artifactPath, content, 'utf-8');
+    console.log(chalk.gray(`  Artifact: ${artifactPath}`));
   }
 
   /**
