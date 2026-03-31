@@ -54,7 +54,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
     if (!apiKey) {
       if (!this.didWarnMissingConfig) {
         this.logger.warn(
-          'Gemini API key not configured. Add `ai: [{ name: "gemini", apiKey: "..." }]` to wf.config.*.',
+          'Gemini API key not configured. Add `ai: [{ provider: "google", apiKey: "..." }]` to wf.config.*.',
         );
         this.didWarnMissingConfig = true;
       }
@@ -78,7 +78,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
 
     if (!this.client) {
       throw new AIError(
-        'Gemini client not initialized. Configure `ai[].apiKey` for the `gemini` provider in wf.config.*.',
+        'Gemini client not initialized. Configure `ai[].apiKey` for the `google` provider in wf.config.*.',
         null,
         false,
       );
@@ -128,7 +128,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
 
     if (!this.client) {
       throw new AIError(
-        'Gemini client not initialized. Configure `ai[].apiKey` for the `gemini` provider in wf.config.*.',
+        'Gemini client not initialized. Configure `ai[].apiKey` for the `google` provider in wf.config.*.',
         null,
         false,
       );

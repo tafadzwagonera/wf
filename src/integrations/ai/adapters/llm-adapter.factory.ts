@@ -29,7 +29,7 @@ export const LlmAdapterFactory = {
         provider ?? configService.get<string>('ai.provider', 'anthropic');
 
       if (resolvedProvider === 'openai') return openaiAdapter;
-      if (resolvedProvider === 'gemini') return geminiAdapter;
+      if (resolvedProvider === 'google') return geminiAdapter;
       if (resolvedProvider === 'deepseek') return deepseekAdapter;
       return anthropicAdapter;
     };

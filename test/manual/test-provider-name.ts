@@ -6,7 +6,7 @@
  * Verifies that:
  *   1. Default (anthropic) provider shows 'Anthropic Claude' in dry-run output
  *   2. wf.config.js with openai as default shows 'OpenAI' in dry-run output
- *   3. wf.config.js with gemini as default shows 'Google Gemini' in dry-run output
+ *   3. wf.config.js with google as default shows 'Google Gemini' in dry-run output
  *   4. wf.config.js with deepseek as default shows 'DeepSeek' in dry-run output
  */
 
@@ -40,7 +40,7 @@ function testProviderName() {
       [
         'module.exports = {',
         '  ai: [',
-        `    { name: '${provider}', apiKey: 'test-key', model: '${model}', default: true },`,
+        `    { provider: '${provider}', apiKey: 'test-key', model: '${model}', default: true },`,
         '  ],',
         '};',
         '',
@@ -94,7 +94,7 @@ function testProviderName() {
       fail('OpenAI config does NOT show "OpenAI"', openaiOutput.slice(0, 300));
     }
 
-    const geminiOutput = runDryRun('gemini', 'gemini-2.5-pro');
+    const geminiOutput = runDryRun('google', 'gemini-2.5-pro');
     if (geminiOutput.includes('Google Gemini')) {
       pass('Gemini config shows "Google Gemini" in dry-run output');
     } else {

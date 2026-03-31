@@ -87,30 +87,95 @@ describe('wf-config-loader', () => {
           return {
             __esModule: true,
             default: {
-              ai: [{ name: 'openai', apiKey: 'test-key', model: 'gpt-5.4' }],
+              ai: [
+                { provider: 'openai', apiKey: 'test-key', model: 'gpt-5.4' },
+              ],
             },
           };
         },
       });
 
       expect(config).toEqual({
-        ai: [{ name: 'openai', apiKey: 'test-key', model: 'gpt-5.4' }],
+        ai: [{ provider: 'openai', apiKey: 'test-key', model: 'gpt-5.4' }],
       });
     });
   });
 
   describe('normalizeWfConfig', () => {
-    it('defaults the first AI provider when none is explicitly marked as default', () => {
+    it('accepts a single AI provider when none is explicitly marked as default', () => {
       const config = normalizeWfConfig({
-        ai: [
-          { name: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' },
-          { name: 'gemini', apiKey: 'gemini-key', model: 'gemini-2.5-pro' },
-        ],
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
       });
 
       expect(config.ai.provider).toBe('openai');
       expect(config.ai.model).toBe('gpt-5.4');
       expect(config.ai.openaiApiKey).toBe('openai-key');
+    });
+
+    it('requires an explicit default AI provider when multiple providers are configured', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [
+            { provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' },
+            {
+              provider: 'google',
+              apiKey: 'gemini-key',
+              model: 'gemini-2.5-pro',
+            },
+          ],
+        }),
+      ).toThrow(/default AI provider.*required/i);
+    });
+
+    it('exposes configured maxTokens only for the active Gemini provider', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'google',
+            apiKey: 'gemini-key',
+            model: 'gemini-2.5-pro',
+            maxTokens: 8192,
+            default: true,
+          },
+        ],
+      });
+
+      expect(config.ai.maxTokens).toBe(8192);
+    });
+
+    it('ignores configured maxTokens for non-Gemini providers', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            maxTokens: 8192,
+            default: true,
+          },
+        ],
+      });
+
+      expect(config.ai.maxTokens).toBeUndefined();
+    });
+
+    it('still resolves API keys for non-default providers', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            default: true,
+          },
+          {
+            provider: 'google',
+            apiKey: 'gemini-key',
+            model: 'gemini-2.5-pro',
+          },
+        ],
+      });
+
       expect(config.ai.geminiApiKey).toBe('gemini-key');
     });
 
@@ -119,13 +184,13 @@ describe('wf-config-loader', () => {
         normalizeWfConfig({
           ai: [
             {
-              name: 'anthropic',
+              provider: 'anthropic',
               apiKey: 'anthropic-key',
               model: 'claude-sonnet-4-20250514',
               default: true,
             },
             {
-              name: 'openai',
+              provider: 'openai',
               apiKey: 'openai-key',
               model: 'gpt-5.4',
               default: true,
@@ -154,7 +219,7 @@ describe('wf-config-loader', () => {
         path.join(projectRoot, 'wf.config.js'),
         [
           'module.exports = {',
-          '  ai: [{ name: "openai", apiKey: "test-key", model: "gpt-5.4" }],',
+          '  ai: [{ provider: "openai", apiKey: "test-key", model: "gpt-5.4" }],',
           '  atlassian: {',
           '    baseUrl: "https://example.atlassian.net",',
           '    email: "dev@example.com",',
@@ -184,7 +249,7 @@ describe('wf-config-loader', () => {
         path.join(projectRoot, 'wf.config.yaml'),
         [
           'ai:',
-          '  - name: gemini',
+          '  - provider: google',
           '    apiKey: gemini-key',
           '    model: gemini-2.5-pro',
           '    default: true',
@@ -196,7 +261,7 @@ describe('wf-config-loader', () => {
 
       const config = await loadWfConfig({ cwd: projectRoot });
 
-      expect(config.ai.provider).toBe('gemini');
+      expect(config.ai.provider).toBe('google');
       expect(config.ai.model).toBe('gemini-2.5-pro');
       expect(config.ai.stages.review).toBe('gemini-2.5-pro');
     });

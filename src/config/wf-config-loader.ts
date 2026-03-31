@@ -48,7 +48,7 @@ export interface NormalizedWfConfig {
       WfAiProviderConfig & {
         default: boolean;
         model: string;
-        maxTokens: number;
+        maxTokens?: number;
       }
     >;
     apiKey?: string;
@@ -57,7 +57,7 @@ export interface NormalizedWfConfig {
     geminiApiKey?: string;
     deepseekApiKey?: string;
     model: string;
-    maxTokens: number;
+    maxTokens?: number;
     stages: Partial<Record<SupportedStageName, string>>;
   };
   atlassian: {
@@ -128,8 +128,8 @@ interface WfConfigLoadOptions extends TypeScriptConfigLoadOptions {
 let loadedConfig: NormalizedWfConfig | null = null;
 
 const providerSchema = Joi.object<WfAiProviderConfig>({
-  name: Joi.string()
-    .valid('anthropic', 'openai', 'gemini', 'deepseek')
+  provider: Joi.string()
+    .valid('anthropic', 'openai', 'google', 'deepseek')
     .required(),
   apiKey: Joi.string().allow('').optional(),
   model: Joi.string().allow('').optional(),
@@ -213,10 +213,18 @@ const configSchema = Joi.object<WfConfig>({
 
 const getDefaultModelForProvider = (provider: WfAiProviderName): string => {
   if (provider === 'openai') return DEFAULT_OPENAI_MODEL;
-  if (provider === 'gemini') return DEFAULT_GEMINI_MODEL;
+  if (provider === 'google') return DEFAULT_GEMINI_MODEL;
   if (provider === 'deepseek') return DEFAULT_DEEPSEEK_MODEL;
   return DEFAULT_ANTHROPIC_MODEL;
 };
+
+const isGeminiConfig = ({
+  provider,
+  model,
+}: {
+  provider: WfAiProviderName;
+  model: string;
+}): boolean => provider === 'google' && model.startsWith('gemini');
 
 const parseNodeVersion = (nodeVersion: string): [number, number, number] =>
   nodeVersion
@@ -433,13 +441,19 @@ const normalizeProvider = (
 ): WfAiProviderConfig & {
   default: boolean;
   model: string;
-  maxTokens: number;
-} => ({
-  ...provider,
-  default: provider.default ?? false,
-  model: provider.model || getDefaultModelForProvider(provider.name),
-  maxTokens: provider.maxTokens ?? 4096,
-});
+  maxTokens?: number;
+} => {
+  const model = provider.model || getDefaultModelForProvider(provider.provider);
+
+  return {
+    ...provider,
+    default: provider.default ?? false,
+    model,
+    maxTokens: isGeminiConfig({ provider: provider.provider, model })
+      ? (provider.maxTokens ?? 4096)
+      : undefined,
+  };
+};
 
 /**
  * Normalize user config into the runtime shape consumed by Nest ConfigService.
@@ -465,7 +479,7 @@ export const normalizeWfConfig = (
     ? validatedConfig.ai
     : [
         {
-          name: 'anthropic' as const,
+          provider: 'anthropic' as const,
           model: DEFAULT_ANTHROPIC_MODEL,
           default: true,
         },
@@ -476,6 +490,12 @@ export const normalizeWfConfig = (
   if (defaultProviders.length > 1) {
     throw new ValidationError(
       'Invalid wf config: at most one AI provider may set default: true.',
+    );
+  }
+
+  if (providers.length > 1 && defaultProviders.length === 0) {
+    throw new ValidationError(
+      'Invalid wf config: a default AI provider is required when multiple AI providers are configured.',
     );
   }
 
@@ -511,11 +531,11 @@ export const normalizeWfConfig = (
   );
 
   const providerMap = new Map(
-    providers.map((provider) => [provider.name, provider]),
+    providers.map((provider) => [provider.provider, provider]),
   );
   const anthropicProvider = providerMap.get('anthropic');
   const openaiProvider = providerMap.get('openai');
-  const geminiProvider = providerMap.get('gemini');
+  const geminiProvider = providerMap.get('google');
   const deepseekProvider = providerMap.get('deepseek');
   const jiraApiToken =
     validatedConfig.atlassian?.jira?.apiToken ??
@@ -530,7 +550,7 @@ export const normalizeWfConfig = (
       defaultFormat: validatedConfig.output?.defaultFormat ?? 'md',
     },
     ai: {
-      provider: activeProvider.name,
+      provider: activeProvider.provider,
       providers,
       apiKey: activeProvider.apiKey,
       anthropicApiKey: anthropicProvider?.apiKey,

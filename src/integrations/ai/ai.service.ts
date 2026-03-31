@@ -187,7 +187,7 @@ Return ONLY a valid JSON object with these fields:
       const model = this.configService.get<string>('ai.model', '');
       const prefixMap: Record<string, string> = {
         anthropic: 'claude-',
-        gemini: 'gemini-',
+        google: 'gemini-',
         deepseek: 'deepseek-',
         openai: 'gpt-',
       };
@@ -486,7 +486,7 @@ Return ONLY a valid JSON object:
   getProviderDisplayName(): string {
     const provider = this.configService.get<string>('ai.provider', 'anthropic');
     if (provider === 'openai') return 'OpenAI';
-    if (provider === 'gemini') return 'Google Gemini';
+    if (provider === 'google') return 'Google Gemini';
     if (provider === 'deepseek') return 'DeepSeek';
     return 'Anthropic Claude';
   }
@@ -500,7 +500,7 @@ Return ONLY a valid JSON object:
   getProviderShortName(): string {
     const provider = this.configService.get<string>('ai.provider', 'anthropic');
     if (provider === 'openai') return 'OpenAI';
-    if (provider === 'gemini') return 'Gemini';
+    if (provider === 'google') return 'Gemini';
     if (provider === 'deepseek') return 'DeepSeek';
     return 'Claude';
   }
@@ -534,14 +534,14 @@ Return ONLY a valid JSON object:
 
     const providers =
       this.configService.get<
-        Array<{ name: string; model?: string; default?: boolean }>
+        Array<{ provider: string; model?: string; default?: boolean }>
       >('ai.providers', []) ?? [];
     const matchingProvider = providers.find(
       (candidate) => candidate.model === stageModel,
     );
 
     return {
-      provider: matchingProvider?.name ?? provider,
+      provider: matchingProvider?.provider ?? provider,
       model: stageModel,
     };
   }

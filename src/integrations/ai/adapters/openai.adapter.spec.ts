@@ -83,6 +83,26 @@ describe('OpenAIAdapter', () => {
       expect(request?.max_completion_tokens).toBe(4096);
       expect(request?.max_tokens).toBeUndefined();
     });
+
+    it('ignores config-level ai.maxTokens during initialization', async () => {
+      const mockConfigService = {
+        get: jest.fn((key: string, defaultValue?: string | number) => {
+          if (key === 'ai.openaiApiKey') return 'test-key';
+          if (key === 'ai.model') return 'gpt-5.4';
+          if (key === 'ai.maxTokens') return 1234;
+          return defaultValue;
+        }),
+      } as unknown as ConfigService;
+      const adapter = new OpenAIAdapter(mockConfigService, mockLogger);
+
+      (
+        adapter as unknown as { initializeClient: () => void }
+      ).initializeClient();
+
+      expect((adapter as unknown as { maxTokens: number }).maxTokens).toBe(
+        4096,
+      );
+    });
   });
 
   describe('onModuleInit', () => {

@@ -65,13 +65,13 @@ export default defineConfig({
   },
   ai: [
     {
-      name: 'anthropic',
+      provider: 'anthropic',
       apiKey: process.env.ANTHROPIC_API_KEY,
       model: 'claude-sonnet-4-20250514',
       default: true,
     },
     {
-      name: 'gemini',
+      provider: 'google',
       apiKey: process.env.GEMINI_API_KEY,
       model: 'gemini-2.5-pro',
     },
@@ -117,7 +117,7 @@ export default defineConfig({
 platforms:
   primary: jira
 ai:
-  - name: anthropic
+  - provider: anthropic
     apiKey: ${ANTHROPIC_API_KEY}
     model: claude-sonnet-4-20250514
     default: true
@@ -149,7 +149,9 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 ### Defaults and Notes
 
 - Built-in defaults cover provider/model selection, branch prefixes, workflow directory, state/log directories, and log level.
-- `ai[].default` defaults to `false`; if no provider is explicitly defaulted, `wf` uses the first provider entry.
+- `ai[].provider` selects the backing AI provider for each entry.
+- `ai[].default` is optional when only one provider is configured, and required when two or more providers are configured.
+- `ai[].maxTokens` is only applied to Gemini provider entries using Gemini models; other providers ignore it.
 - `stages.plan`, `stages.implement`, and `stages.review` may override the default model. `fetch` and `commit` cannot be overridden.
 - `wf config get` and `wf config list` read the normalized runtime config.
 - `wf config set` is advisory only and points you at the config file to edit.

@@ -46,7 +46,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
     if (!apiKey) {
       if (!this.didWarnMissingConfig) {
         this.logger.warn(
-          'OpenAI API key not configured. Add `ai: [{ name: "openai", apiKey: "..." }]` to wf.config.*.',
+          'OpenAI API key not configured. Add `ai: [{ provider: "openai", apiKey: "..." }]` to wf.config.*.',
         );
         this.didWarnMissingConfig = true;
       }
@@ -55,7 +55,6 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
 
     this.client = new OpenAI({ apiKey });
     this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
-    this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
 
     this.logger.debug(`Initialized OpenAI adapter with model: ${this.model}`);
   }

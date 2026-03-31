@@ -44,7 +44,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     if (!apiKey) {
       if (!this.didWarnMissingConfig) {
         this.logger.warn(
-          'Anthropic API key not configured. Add `ai: [{ name: "anthropic", apiKey: "..." }]` to wf.config.*.',
+          'Anthropic API key not configured. Add `ai: [{ provider: "anthropic", apiKey: "..." }]` to wf.config.*.',
         );
         this.didWarnMissingConfig = true;
       }
@@ -56,7 +56,6 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
       'ai.model',
       'claude-sonnet-4-20250514',
     );
-    this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
 
     this.logger.debug(
       `Initialized Anthropic adapter with model: ${this.model}`,

@@ -1,7 +1,7 @@
-export type WfAiProviderName = 'anthropic' | 'openai' | 'gemini' | 'deepseek';
+export type WfAiProviderName = 'anthropic' | 'openai' | 'google' | 'deepseek';
 
 export interface WfAiProviderConfig {
-  name: WfAiProviderName;
+  provider: WfAiProviderName;
   apiKey?: string;
   model?: string;
   maxTokens?: number;

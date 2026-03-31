@@ -264,7 +264,7 @@ export class IssueAllCommand extends CommandRunner {
           'anthropic',
         );
         const aiEndpoint =
-          aiProvider === 'gemini'
+          aiProvider === 'google'
             ? '/v1beta/models'
             : aiProvider === 'openai'
               ? '/chat/completions'

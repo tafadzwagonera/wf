@@ -19,13 +19,13 @@ describe('AiService', () => {
           'ai.model': 'gpt-5.4',
           'ai.providers': [
             {
-              name: 'openai',
+              provider: 'openai',
               apiKey: 'openai-key',
               model: 'gpt-5.4',
               default: true,
             },
             {
-              name: 'gemini',
+              provider: 'google',
               apiKey: 'gemini-key',
               model: 'gemini-2.5-pro',
               default: false,
@@ -73,7 +73,7 @@ describe('AiService', () => {
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          provider: 'gemini',
+          provider: 'google',
           model: 'gemini-2.5-pro',
         }),
       );

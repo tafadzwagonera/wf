@@ -47,7 +47,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
     if (!apiKey) {
       if (!this.didWarnMissingConfig) {
         this.logger.warn(
-          'DeepSeek API key not configured. Add `ai: [{ name: "deepseek", apiKey: "..." }]` to wf.config.*.',
+          'DeepSeek API key not configured. Add `ai: [{ provider: "deepseek", apiKey: "..." }]` to wf.config.*.',
         );
         this.didWarnMissingConfig = true;
       }
@@ -56,7 +56,6 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
 
     this.client = new OpenAI({ apiKey, baseURL: DEEPSEEK_BASE_URL });
     this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
-    this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
 
     this.logger.debug(`Initialized DeepSeek adapter with model: ${this.model}`);
   }
