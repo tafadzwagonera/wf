@@ -26,9 +26,19 @@ describe('OpenAIAdapter', () => {
 
   const createAdapter = (): OpenAIAdapter => {
     const mockConfigService = {
-      get: jest.fn((key: string, defaultValue?: string | number) => {
+      get: jest.fn((key: string, defaultValue?: unknown) => {
         if (key === 'ai.openaiApiKey') return 'test-key';
         if (key === 'ai.model') return 'gpt-5.4';
+        if (key === 'ai.providers') {
+          return [
+            {
+              provider: 'openai',
+              apiKey: 'test-key',
+              model: 'gpt-5.4',
+              default: true,
+            },
+          ];
+        }
         if (key === 'ai.maxTokens') return 4096;
         return defaultValue;
       }),
@@ -115,6 +125,7 @@ describe('OpenAIAdapter', () => {
         path.join(os.homedir(), '.openai', 'OPENAI.md'),
         '.openai/OPENAI.md',
         'openai',
+        true,
       );
     });
   });

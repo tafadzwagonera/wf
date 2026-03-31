@@ -1,6 +1,8 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import * as os from 'os';
+import * as path from 'path';
 import type {
   AIConversationRequest,
   AIRequest,
@@ -10,6 +12,8 @@ import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
+import { hasProviderUsageIntent } from './provider-intent';
+import type { WfAiProviderConfig } from '../../../config/public-config';
 
 const DEFAULT_MODEL = 'deepseek-reasoner';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
@@ -28,12 +32,14 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // No standard global config path exists for DeepSeek; only project-level
-    // DEEPSEEK.md in process.cwd() is checked.
+    const providers =
+      this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
+
     this.contextConfig = await loadAiContextConfig(
-      null,
+      path.join(os.homedir(), '.deepseek', 'DEEPSEEK.md'),
       'DEEPSEEK.md',
       'deepseek',
+      hasProviderUsageIntent(providers, 'deepseek'),
     );
   }
 

@@ -12,6 +12,8 @@ import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
+import { hasProviderUsageIntent } from './provider-intent';
+import type { WfAiProviderConfig } from '../../../config/public-config';
 
 const DEFAULT_MODEL = 'gpt-4.1';
 
@@ -29,10 +31,14 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    const providers =
+      this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
+
     this.contextConfig = await loadAiContextConfig(
       path.join(os.homedir(), '.openai', 'OPENAI.md'),
       '.openai/OPENAI.md',
       'openai',
+      hasProviderUsageIntent(providers, 'openai'),
     );
   }
 

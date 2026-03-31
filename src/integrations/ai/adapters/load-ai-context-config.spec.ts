@@ -33,6 +33,7 @@ describe('loadAiContextConfig', () => {
         path.join(os.homedir(), '.claude', 'CLAUDE.md'),
         'CLAUDE.md',
         'anthropic',
+        true,
       );
 
       expect(result).toBe(
@@ -52,6 +53,7 @@ describe('loadAiContextConfig', () => {
         path.join(os.homedir(), '.claude', 'CLAUDE.md'),
         'CLAUDE.md',
         'anthropic',
+        true,
       );
 
       expect(result).toBe('## Global Config\nglobal rules\n\n');
@@ -69,6 +71,7 @@ describe('loadAiContextConfig', () => {
         path.join(os.homedir(), '.claude', 'CLAUDE.md'),
         'CLAUDE.md',
         'anthropic',
+        true,
       );
 
       expect(result).toBe('## Project Config\nproject rules\n\n');
@@ -83,6 +86,7 @@ describe('loadAiContextConfig', () => {
         path.join(os.homedir(), '.claude', 'CLAUDE.md'),
         'CLAUDE.md',
         'anthropic',
+        true,
       );
 
       expect(result).toBe('');
@@ -96,6 +100,7 @@ describe('loadAiContextConfig', () => {
         path.join(os.homedir(), '.claude', 'CLAUDE.md'),
         'CLAUDE.md',
         'anthropic',
+        true,
       );
 
       expect(warnSpy).toHaveBeenCalledWith(
@@ -107,14 +112,47 @@ describe('loadAiContextConfig', () => {
     });
   });
 
-  describe('when globalPath is null (DeepSeek)', () => {
-    it('only reads project config file', async () => {
-      mockReadFile.mockResolvedValue('project rules' as any);
+  describe('when warning is disabled', () => {
+    it('returns empty string without logging a warning', async () => {
+      mockReadFile.mockRejectedValue(new Error('ENOENT'));
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
 
-      const result = await loadAiContextConfig(null, 'DEEPSEEK.md', 'deepseek');
+      const result = await loadAiContextConfig(
+        path.join(os.homedir(), '.claude', 'CLAUDE.md'),
+        'CLAUDE.md',
+        'anthropic',
+        false,
+      );
 
-      expect(result).toBe('## Project Config\nproject rules\n\n');
-      expect(mockReadFile).toHaveBeenCalledTimes(1);
+      expect(result).toBe('');
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe('when using DeepSeek paths', () => {
+    it('reads both the global and project config files', async () => {
+      mockReadFile.mockImplementation(async (filePath) => {
+        if (String(filePath).includes('.deepseek'))
+          return 'global rules' as any;
+        return 'project rules' as any;
+      });
+
+      const result = await loadAiContextConfig(
+        path.join(os.homedir(), '.deepseek', 'DEEPSEEK.md'),
+        'DEEPSEEK.md',
+        'deepseek',
+        true,
+      );
+
+      expect(result).toBe(
+        '## Global Config\nglobal rules\n\n## Project Config\nproject rules\n\n',
+      );
+      expect(mockReadFile).toHaveBeenCalledTimes(2);
+      expect(mockReadFile).toHaveBeenCalledWith(
+        path.join(os.homedir(), '.deepseek', 'DEEPSEEK.md'),
+        'utf-8',
+      );
       expect(mockReadFile).toHaveBeenCalledWith(
         '/project/DEEPSEEK.md',
         'utf-8',

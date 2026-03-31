@@ -7,15 +7,17 @@ import chalk from 'chalk';
  * a combined config block to prepend to system prompts.
  *
  * @param globalPath - Absolute path to the global config file, or null if no
- *   standard global config exists for this provider (e.g. DeepSeek).
+ *   global config should be skipped.
  * @param projectFileName - Filename to look for in process.cwd() (e.g. 'CLAUDE.md').
  * @param providerName - Display name used in the warning message.
+ * @param shouldWarnWhenMissing - Whether a missing config should emit a warning.
  * @returns Combined config block string, or empty string if no config found.
  */
 export const loadAiContextConfig = async (
   globalPath: string | null,
   projectFileName: string,
   providerName: string,
+  shouldWarnWhenMissing: boolean,
 ): Promise<string> => {
   const projectPath = path.join(process.cwd(), projectFileName);
 
@@ -27,11 +29,14 @@ export const loadAiContextConfig = async (
   ]);
 
   if (globalContent === null && projectContent === null) {
-    console.warn(
-      chalk.yellow(
-        `⚠️ No global or project-level configuration found for ${providerName}`,
-      ),
-    );
+    if (shouldWarnWhenMissing) {
+      console.warn(
+        chalk.yellow(
+          `⚠️ No global or project-level configuration found for ${providerName}`,
+        ),
+      );
+    }
+
     return '';
   }
 

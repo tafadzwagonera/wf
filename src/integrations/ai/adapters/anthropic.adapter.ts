@@ -12,6 +12,8 @@ import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
+import { hasProviderUsageIntent } from './provider-intent';
+import type { WfAiProviderConfig } from '../../../config/public-config';
 
 @Injectable()
 export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
@@ -27,10 +29,14 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    const providers =
+      this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
+
     this.contextConfig = await loadAiContextConfig(
       path.join(os.homedir(), '.claude', 'CLAUDE.md'),
       'CLAUDE.md',
       'anthropic',
+      hasProviderUsageIntent(providers, 'anthropic'),
     );
   }
 

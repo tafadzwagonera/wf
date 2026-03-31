@@ -27,11 +27,19 @@ describe('GeminiAdapter', () => {
 
   const createAdapter = (configOverrides?: Record<string, string | number>) => {
     const mockConfigService = {
-      get: jest.fn((key: string, defaultValue?: string | number) => {
-        const values: Record<string, string | number> = {
+      get: jest.fn((key: string, defaultValue?: unknown) => {
+        const values: Record<string, unknown> = {
           'ai.geminiApiKey': 'test-key',
           'ai.model': 'gemini-2.5-pro',
           'ai.maxTokens': 8192,
+          'ai.providers': [
+            {
+              provider: 'google',
+              apiKey: 'test-key',
+              model: 'gemini-2.5-pro',
+              default: true,
+            },
+          ],
           ...configOverrides,
         };
 
@@ -118,6 +126,7 @@ describe('GeminiAdapter', () => {
         path.join(os.homedir(), '.gemini', 'GEMINI.md'),
         'GEMINI.md',
         'gemini',
+        true,
       );
     });
   });
