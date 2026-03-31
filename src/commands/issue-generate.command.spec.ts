@@ -49,6 +49,7 @@ import { AiService } from '../integrations/ai/ai.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { SlackService } from '../integrations/slack/slack.service';
+import { ErrorHandler } from '../shared/utils/error-handler';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -242,7 +243,7 @@ describe('IssueGenerateCommand', () => {
   });
 
   describe('Slack source handling', () => {
-    it('routes bare Slack channel archive URLs to channel history instead of generic URL fetching', async () => {
+    it('formats bare Slack archive URLs as chronological conversation artifacts with thread-style filenames', async () => {
       const command = await buildCommand();
       const slackService = (command as any)
         .slackService as jest.Mocked<SlackService>;
@@ -252,8 +253,13 @@ describe('IssueGenerateCommand', () => {
         messages: [
           {
             ts: '1712345678.123456',
+            user: 'U456',
+            text: 'Latest follow-up',
+          },
+          {
+            ts: '1712345600.000001',
             user: 'U123',
-            text: 'Investigate Slack import behavior',
+            text: 'Initial MPDM context',
           },
         ],
       } as any);
@@ -270,9 +276,25 @@ describe('IssueGenerateCommand', () => {
         expect.objectContaining({
           type: 'slack',
           source: 'https://touraxis.slack.com/archives/C0AP5MMCP53',
-          content:
-            '[1712345678.123456] U123: Investigate Slack import behavior',
+          content: [
+            '[1712345600.000001] U123: Initial MPDM context',
+            '[1712345678.123456] U456: Latest follow-up',
+          ].join('\n'),
         }),
+      );
+      expect(writeFileSpy).toHaveBeenCalledWith(
+        path.join(
+          os.homedir(),
+          '.wf',
+          'consumer-app',
+          'slack',
+          'slack-thread-C0AP5MMCP53-1712345600-000001.md',
+        ),
+        [
+          '[1712345600.000001] U123: Initial MPDM context',
+          '[1712345678.123456] U456: Latest follow-up',
+        ].join('\n'),
+        'utf-8',
       );
     });
 
@@ -319,6 +341,42 @@ describe('IssueGenerateCommand', () => {
           platform: 'Slack',
         }),
       );
+      expect(dryRunPreview.previewFileWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePath: path.join(
+            os.homedir(),
+            '.wf',
+            'consumer-app',
+            'slack',
+            'slack-thread-C0AP5MMCP53-<oldest-message-ts>.md',
+          ),
+          format: 'md',
+        }),
+      );
+    });
+
+    it('stops instead of synthesizing an empty ticket when all Slack sources fail', async () => {
+      const command = await buildCommand();
+      const slackService = (command as any)
+        .slackService as jest.Mocked<SlackService>;
+      const aiService = (command as any).aiService as jest.Mocked<AiService>;
+      const errorHandlerSpy = jest
+        .spyOn(ErrorHandler, 'handle')
+        .mockImplementation((() => {
+          throw new Error('handled');
+        }) as any);
+
+      slackService.fetchChannelHistory.mockRejectedValue(
+        new Error('Slack channel C0AP5MMCP53 not found'),
+      );
+
+      await expect(
+        command.run(['https://touraxis.slack.com/archives/C0AP5MMCP53']),
+      ).rejects.toThrow('handled');
+
+      expect(aiService.execute).not.toHaveBeenCalled();
+
+      errorHandlerSpy.mockRestore();
     });
   });
 });

@@ -102,6 +102,8 @@ export class IssueGenerateCommand extends CommandRunner {
 
         for (const source of passedParams) {
           if (SLACK_PERMALINK.test(source)) {
+            const [, channelId, seconds, micros] =
+              source.match(SLACK_PERMALINK)!;
             this.dryRunPreview.previewApiCall({
               method: 'GET',
               endpoint: 'https://slack.com/api/conversations.replies',
@@ -109,14 +111,37 @@ export class IssueGenerateCommand extends CommandRunner {
               description: `Fetch thread ${source}`,
               estimatedResponse: '200 OK — thread messages JSON',
             });
+            this.dryRunPreview.previewFileWrite({
+              filePath: path.join(
+                resolveArtifactDir(artifactBaseDir, 'slack'),
+                `slack-thread-${channelId}-${seconds}-${micros}.md`,
+              ),
+              operation: 'create',
+              sizeEstimate: '1–20 KB',
+              format: 'md',
+              contentPreview:
+                '[<ts>] <user>: <message>\n[<ts>] <user>: <reply>',
+            });
             apiCallCount++;
           } else if (SLACK_CHANNEL_URL.test(source)) {
+            const [, channelId] = source.match(SLACK_CHANNEL_URL)!;
             this.dryRunPreview.previewApiCall({
               method: 'GET',
               endpoint: 'https://slack.com/api/conversations.history',
               platform: 'Slack',
               description: `Fetch recent channel history ${source}`,
               estimatedResponse: '200 OK — channel messages JSON',
+            });
+            this.dryRunPreview.previewFileWrite({
+              filePath: path.join(
+                resolveArtifactDir(artifactBaseDir, 'slack'),
+                `slack-thread-${channelId}-<oldest-message-ts>.md`,
+              ),
+              operation: 'create',
+              sizeEstimate: '1–20 KB',
+              format: 'md',
+              contentPreview:
+                '[<ts>] <user>: <message>\n[<ts>] <user>: <message>',
             });
             apiCallCount++;
           } else if (
@@ -245,6 +270,7 @@ export class IssueGenerateCommand extends CommandRunner {
         options?.platform,
         options?.repos?.[0],
       );
+      this.assertSourcesAvailable(sourceContents, passedParams);
 
       // Use AI to synthesize and collate data
       const synthesizedTicket = await this.synthesizeWithAI(sourceContents);
@@ -409,6 +435,27 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   /**
+   * Ensure there is usable source material before invoking AI synthesis.
+   *
+   * @param contents - Successfully fetched source contents
+   * @param sources - Raw source arguments for error reporting
+   * @returns Nothing; throws when all source fetches failed
+   */
+  private assertSourcesAvailable(
+    contents: SourceContent[],
+    sources: string[],
+  ): void {
+    if (contents.length > 0) {
+      return;
+    }
+
+    throw new Error(
+      `Failed to fetch usable content from ${sources.length} source(s). ` +
+        'Resolve the source access issue and retry.',
+    );
+  }
+
+  /**
    * Fetch content from a single source
    */
   private async fetchSource(
@@ -464,7 +511,7 @@ export class IssueGenerateCommand extends CommandRunner {
     repo?: string,
   ): Promise<SourceContent> {
     const result = await this.slackService.fetchThread(channelId, threadTs);
-    const threadId = threadTs.replace('.', '-');
+    const threadId = this.normalizeSlackTimestamp(threadTs);
     const formattedText = this.formatSlackMessages(result.messages);
     await this.writeSlackArtifact(
       repo,
@@ -487,9 +534,10 @@ export class IssueGenerateCommand extends CommandRunner {
       SLACK_CHANNEL_HISTORY_LIMIT,
     );
     const formattedText = this.formatSlackMessages(result.messages);
+    const conversationTs = this.getSlackConversationArtifactTs(result.messages);
     await this.writeSlackArtifact(
       repo,
-      `slack-channel-${channelId}.md`,
+      `slack-thread-${channelId}-${conversationTs}.md`,
       formattedText,
     );
     return { type: 'slack', source, content: formattedText };
@@ -602,9 +650,57 @@ export class IssueGenerateCommand extends CommandRunner {
   private formatSlackMessages(
     messages: Array<{ user: string; ts: string; text: string }>,
   ): string {
-    return messages
+    return [...messages]
+      .sort((left, right) => this.compareSlackTimestamps(left.ts, right.ts))
       .map((message) => `[${message.ts}] ${message.user}: ${message.text}`)
       .join('\n');
+  }
+
+  /**
+   * Pick a deterministic timestamp anchor for Slack conversation artifacts.
+   *
+   * Bare Slack archive URLs do not include a message timestamp, so use the
+   * earliest fetched message to keep artifact names stable and chronological.
+   *
+   * @param messages - Slack messages returned for the conversation
+   * @returns Normalized Slack timestamp for the artifact filename
+   */
+  private getSlackConversationArtifactTs(
+    messages: Array<{ ts: string }>,
+  ): string {
+    if (messages.length === 0) {
+      return 'no-messages';
+    }
+
+    const earliestMessage = [...messages].sort((left, right) =>
+      this.compareSlackTimestamps(left.ts, right.ts),
+    )[0];
+
+    return this.normalizeSlackTimestamp(earliestMessage.ts);
+  }
+
+  /**
+   * Compare Slack timestamps numerically while preserving sub-second ordering.
+   *
+   * @param leftTs - First Slack timestamp
+   * @param rightTs - Second Slack timestamp
+   * @returns Negative when left is earlier, positive when right is earlier
+   */
+  private compareSlackTimestamps(leftTs: string, rightTs: string): number {
+    const leftValue = Number(leftTs);
+    const rightValue = Number(rightTs);
+
+    return leftValue - rightValue;
+  }
+
+  /**
+   * Convert a Slack timestamp into the filename-safe form used by artifacts.
+   *
+   * @param timestamp - Slack timestamp, usually in seconds.microseconds form
+   * @returns Timestamp string safe for file naming
+   */
+  private normalizeSlackTimestamp(timestamp: string): string {
+    return timestamp.replace('.', '-');
   }
 
   /**
