@@ -17,6 +17,7 @@ import { IssueReviewCommand } from './issue-review.command';
 import { IssueAllCommand } from './issue-all.command';
 import { IssueGenerateCommand } from './issue-generate.command';
 import { IssueCommitCommand } from './issue-commit.command';
+import { IssuePrCommand } from './issue-pr.command';
 import { IssueCowsayCommand } from './issue-cowsay.command';
 import { AgentsModule } from '../agents/agents.module';
 import { WorkflowParserModule } from '../core/workflow-parser/workflow-parser.module';
@@ -60,6 +61,7 @@ import { SlackService } from '../integrations/slack/slack.service';
     IssueAllCommand,
     IssueGenerateCommand,
     IssueCommitCommand,
+    IssuePrCommand,
     IssueCowsayCommand,
     LoggerService,
     DryRunPreviewService,

@@ -41,15 +41,19 @@ async function main() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
+  // Absolute path to dist/main.js so it can be invoked from a temp dir,
+  // avoiding wf.config.ts in the project root which breaks Node.js loading.
+  const distMain = path.join(__dirname, '../../dist/main.js');
+
   /**
    * Run `node dist/main.js issue:all <args>` and return stdout+stderr and exit code.
    */
   const runCli = (args: string): { output: string; exitCode: number } => {
     try {
-      const output = execSync(`node dist/main.js issue:all ${args}`, {
+      const output = execSync(`node ${distMain} issue:all ${args}`, {
         encoding: 'utf-8',
         stdio: 'pipe',
-        cwd: process.cwd(),
+        cwd: os.tmpdir(),
         timeout: 15_000,
       });
       return { output, exitCode: 0 };
@@ -62,13 +66,17 @@ async function main() {
   };
 
   /**
-   * Create a temp dir with a pre-seeded ticket artifact under `.wf/jira/`.
+   * Create a temp dir and seed a ticket artifact in the location that
+   * resolveArtifactDir() will look for it: ~/.wf/<basename(tmpRoot)>/jira/.
    */
   const makeArtifactFixture = (
     ticketKey: string,
   ): { tmpRoot: string; cleanup: () => void } => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-all-align-'));
-    const platformDir = path.join(tmpRoot, '.wf', 'jira');
+    // resolveArtifactDir resolves to: getWfHomeDir() / basename(baseDir) / platform
+    // When cwd=tmpRoot and repo='test-repo' is not found, baseDir=cwd=tmpRoot.
+    const wfHome = path.join(os.homedir(), '.wf');
+    const platformDir = path.join(wfHome, path.basename(tmpRoot), 'jira');
     fs.mkdirSync(platformDir, { recursive: true });
     fs.writeFileSync(
       path.join(platformDir, `${ticketKey}.md`),
@@ -77,7 +85,13 @@ async function main() {
     );
     return {
       tmpRoot,
-      cleanup: () => fs.rmSync(tmpRoot, { recursive: true, force: true }),
+      cleanup: () => {
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+        fs.rmSync(path.join(wfHome, path.basename(tmpRoot)), {
+          recursive: true,
+          force: true,
+        });
+      },
     };
   };
 
@@ -141,18 +155,28 @@ async function main() {
     }
   }
 
-  console.log(chalk.bold('Test 4: -f / --force flag is accepted'));
+  console.log(
+    chalk.bold(
+      'Test 4: --force accepted; -f rejected (no short form after CLI refactor)',
+    ),
+  );
   {
     const { exitCode: exitLong } = runCli(
       'TEST-4 --from fetch --to fetch --repos test-repo --dry-run --force',
     );
-    const { exitCode: exitShort } = runCli(
+    const { exitCode: exitShort, output: shortOutput } = runCli(
       'TEST-4 --from fetch --to fetch --repos test-repo --dry-run -f',
     );
-    if (exitLong === 0 && exitShort === 0) {
-      pass('--force and -f both accepted; dry-run exited 0');
+    const shortRejected =
+      exitShort !== 0 || shortOutput.toLowerCase().includes('unknown option');
+    if (exitLong === 0 && shortRejected) {
+      pass(
+        '--force accepted; -f correctly rejected (short form removed to avoid --format conflict)',
+      );
     } else {
-      fail(`--force exited ${exitLong}, -f exited ${exitShort}`);
+      fail(
+        `--force exited ${exitLong} (expected 0); -f exited ${exitShort} rejected=${shortRejected} (expected true)`,
+      );
     }
   }
 

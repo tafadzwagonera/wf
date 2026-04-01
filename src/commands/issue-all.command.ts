@@ -12,6 +12,7 @@ import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { ConfigService } from '@nestjs/config';
 import { AiService } from '../integrations/ai/ai.service';
+import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -23,6 +24,18 @@ import {
   ResolutionAction,
   ImplementerResult,
 } from '../agents/interfaces';
+
+const ISSUE_ALL_EXAMPLES: CliExample[] = [
+  {
+    comment: 'Run full workflow from fetch',
+    command: 'wf issue:all WBP-2971 --from fetch --action fix',
+  },
+  {
+    comment: 'Resume from implement stage',
+    command:
+      'wf issue:all WBP-2971 --from implement --action fix --platform jira',
+  },
+];
 
 enum WorkflowStage {
   FETCH = 'fetch',
@@ -49,6 +62,7 @@ interface IssueAllOptions {
   force?: boolean;
   repos?: string[];
   dryRun?: boolean;
+  pr?: boolean;
 }
 
 @Command({
@@ -71,29 +85,11 @@ export class IssueAllCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--from <stage>',
-    description:
-      'Start from stage (fetch|plan|implement|review|commit) [REQUIRED]',
-    required: true,
-  })
-  parseFrom(val: string): string {
-    return val;
-  }
-
-  @Option({
     flags: '-a, --action <action>',
     description:
       'Resolution action type (feature|fix|investigate) - required for PLAN stage',
   })
   parseAction(val: string): string {
-    return val;
-  }
-
-  @Option({
-    flags: '--platform <platform>',
-    description: 'Platform to use (jira|github|bitbucket)',
-  })
-  parsePlatform(val: string): string {
     return val;
   }
 
@@ -106,20 +102,45 @@ export class IssueAllCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--to <stage>',
-    description:
-      'Stop at stage (fetch|plan|implement|review|commit) - defaults to commit',
+    flags: '--dry-run',
+    description: 'Preview the full workflow without making changes',
   })
-  parseTo(val: string): string {
-    return val;
+  parseDryRun(): boolean {
+    return true;
   }
 
   @Option({
-    flags: '-f, --force',
+    flags: '--force',
     description:
       'Force refetch and recreate all local artifacts, ignoring any cached files',
   })
   parseForce(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--from <stage>',
+    description:
+      'Start from stage (fetch|plan|implement|review|commit) [REQUIRED]',
+    required: true,
+  })
+  parseFrom(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '-p, --platform <platform>',
+    description: 'Platform to use (jira|github|bitbucket)',
+  })
+  parsePlatform(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '--pr',
+    description: 'After the COMMIT stage, print a hint to run wf issue:pr',
+  })
+  parsePr(): boolean {
     return true;
   }
 
@@ -133,14 +154,17 @@ export class IssueAllCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--dry-run',
-    description: 'Preview the full workflow without making changes',
+    flags: '--to <stage>',
+    description:
+      'Stop at stage (fetch|plan|implement|review|commit) - defaults to commit',
   })
-  parseDryRun(): boolean {
-    return true;
+  parseTo(val: string): string {
+    return val;
   }
 
   async run(passedParams: string[], options?: IssueAllOptions): Promise<void> {
+    printExamples(ISSUE_ALL_EXAMPLES);
+
     const ticketKey = passedParams[0];
 
     if (!ticketKey) {
@@ -718,6 +742,14 @@ export class IssueAllCommand extends CommandRunner {
       console.log(chalk.bold.green('\n✅ Workflow Complete!'));
       console.log(chalk.gray('═'.repeat(70)));
       console.log(chalk.bold.cyan('\n🎯 Done!\n'));
+
+      if (options?.pr) {
+        console.log(
+          chalk.cyan(
+            `\n  ℹ  Run: wf issue:pr ${ticketKey} to create a pull request`,
+          ),
+        );
+      }
     } catch (error) {
       ErrorHandler.handle(error as Error);
     }

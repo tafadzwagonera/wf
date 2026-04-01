@@ -17,6 +17,26 @@ export enum PlatformFeature {
   ASSIGN_TICKET = 'assign_ticket',
   ADD_LABELS = 'add_labels',
   CREATE_INLINE_COMMENT = 'create_inline_comment',
+  CREATE_PULL_REQUEST = 'create_pull_request',
+}
+
+/**
+ * Options for creating a pull request via PlatformAdapter.createPullRequest
+ */
+export interface CreatePullRequestOptions {
+  /** PR title */
+  title: string;
+  /** PR body (markdown) */
+  body: string;
+  /** Source branch name */
+  head: string;
+  /** Target branch name (e.g. 'main') */
+  base: string;
+  /**
+   * Repository in "owner/repo" format.
+   * Falls back to GITHUB_DEFAULT_REPO if omitted.
+   */
+  repo?: string;
 }
 
 /**
@@ -111,4 +131,13 @@ export interface PlatformAdapter {
     ticketKey: string,
     repoOverride?: string,
   ): Promise<string | null>;
+
+  /**
+   * Create a pull request on the platform.
+   * Optional — only for platforms that support PR creation.
+   *
+   * @param options - PR creation parameters
+   * @returns URL of the created pull request
+   */
+  createPullRequest?(options: CreatePullRequestOptions): Promise<string>;
 }

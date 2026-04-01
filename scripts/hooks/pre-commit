@@ -1,0 +1,30 @@
+#!/bin/sh
+
+# pre-commit hook: Run linting and warn about .wf/ files
+
+# Run linting
+echo "Running linting..."
+npm run lint
+LINT_EXIT_CODE=$?
+
+if [ $LINT_EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo "ERROR: Linting failed. Fix errors before committing."
+    echo ""
+    exit 1
+fi
+
+# Check for staged .wf/ files
+STAGED_WF_FILES=$(git diff --cached --name-only | grep -E "^\.wf/" | head -20)
+
+if [ -n "$STAGED_WF_FILES" ]; then
+    echo ""
+    echo "WARNING: You are about to commit files under .wf/ which should be gitignored."
+    echo "  Staged .wf/ files:"
+    echo "$STAGED_WF_FILES" | sed 's/^/    - /'
+    echo ""
+    echo "Consider running: git reset HEAD <file> to unstage them."
+    echo ""
+fi
+
+exit 0

@@ -9,6 +9,7 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
+import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -19,10 +20,22 @@ interface IssueReviewOptions {
   output?: string;
   dryRun?: boolean;
   comment?: boolean;
+  platform?: string;
   repos?: string[];
   criteria?: string;
   replaceCriteria?: string;
 }
+
+const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
+  {
+    comment: 'Review current repo changes',
+    command: 'wf issue:review',
+  },
+  {
+    comment: 'Review with ticket context',
+    command: 'wf issue:review WBP-2971 --platform jira --format md',
+  },
+];
 
 const DEFAULT_REVIEW_GUIDELINES = [
   'Clarity: Would another developer understand this instantly?',
@@ -84,6 +97,8 @@ export class IssueReviewCommand extends CommandRunner {
     passedParams: string[],
     options?: IssueReviewOptions,
   ): Promise<void> {
+    printExamples(ISSUE_REVIEW_EXAMPLES);
+
     fs.mkdirSync(getWfHomeDir(), { recursive: true });
 
     const source = passedParams[0];
@@ -354,6 +369,31 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--comment',
+    description: 'Post review as a comment on the Bitbucket PR',
+  })
+  parseComment(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--criteria <path>',
+    description:
+      'Path to a markdown file with additional review criteria to append to the defaults',
+  })
+  parseCriteria(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '--dry-run',
+    description: 'Preview the review operation without making changes',
+  })
+  parseDryRun(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-f, --format <format>',
     description: 'Output format (text|json|md) - default: text',
   })
@@ -370,37 +410,10 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--dry-run',
-    description: 'Preview the review operation without making changes',
+    flags: '-p, --platform <platform>',
+    description: 'Platform (jira|github|bitbucket)',
   })
-  parseDryRun(): boolean {
-    return true;
-  }
-
-  @Option({
-    flags: '--comment',
-    description: 'Post review as a comment on the Bitbucket PR',
-  })
-  parseComment(): boolean {
-    return true;
-  }
-
-  @Option({
-    flags: '-r, --repos <repos...>',
-    description:
-      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
-    required: false,
-  })
-  parseRepos(val: string | string[], previous: string[] = []): string[] {
-    return parseReposOption(val, previous);
-  }
-
-  @Option({
-    flags: '--criteria <path>',
-    description:
-      'Path to a markdown file with additional review criteria to append to the defaults',
-  })
-  parseCriteria(val: string): string {
+  parsePlatform(val: string): string {
     return val;
   }
 
@@ -411,6 +424,16 @@ export class IssueReviewCommand extends CommandRunner {
   })
   parseReplaceCriteria(val: string): string {
     return val;
+  }
+
+  @Option({
+    flags: '-r, --repos <repos...>',
+    description:
+      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+    required: false,
+  })
+  parseRepos(val: string | string[], previous: string[] = []): string[] {
+    return parseReposOption(val, previous);
   }
 
   /**

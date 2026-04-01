@@ -267,7 +267,7 @@ wf issue:plan WBP-2971 --action fix --dry-run
 | --------------------------- | -------------------------------------------------------------- | ------------------ |
 | `-a, --action <action>`     | Resolution action: `implement \| fix \| investigate`           | `implement`        |
 | `-p, --platform <platform>` | Platform to fetch from if local artifact not found             | `PRIMARY_PLATFORM` |
-| `--force-recreate`          | Re-fetch and overwrite the ticket artifact before planning     | —                  |
+| `--force`                   | Force fetch and recreate ticket artifact before planning       | —                  |
 | `-f, --format <format>`     | Plan output format: `json \| md \| yaml`                       | `json`             |
 | `-r, --repos <repos...>`    | Space-separated repositories (`workspace/repo` or `repo-name`) | required           |
 | `--dry-run`                 | Preview without generating or writing files                    | —                  |
@@ -424,6 +424,31 @@ wf issue:commit --dry-run
 
 ---
 
+#### `wf issue:pr [ticket-key]`
+
+Create a pull request on the hosting platform with the ticket key in the title and plan artifact as the body.
+
+```bash
+# Create a PR using the ticket key
+wf issue:pr WBP-2971
+
+# Preview the PR without creating it
+wf issue:pr WBP-2971 --dry-run
+```
+
+**Options:**
+
+| Flag                        | Description                                                    | Default            |
+| --------------------------- | -------------------------------------------------------------- | ------------------ |
+| `-a, --action <action>`     | Resolution action used to locate the plan artifact             | `implement`        |
+| `-b, --base <branch>`       | Base branch for the pull request                               | default branch     |
+| `--dry-run`                 | Preview the PR without creating it                             | —                  |
+| `-p, --platform <platform>` | Target platform: `github \| bitbucket`                         | `PRIMARY_PLATFORM` |
+| `-r, --repos <repos...>`    | Space-separated repositories (`workspace/repo` or `repo-name`) | —                  |
+| `-t, --title <title>`       | Override the auto-generated PR title                           | —                  |
+
+---
+
 #### `wf issue-all <ticket-key>`
 
 Orchestrate the full issue workflow in a single command. Runs any contiguous range of stages: `fetch → plan → implement → review → commit`.
@@ -460,6 +485,7 @@ wf issue-all WBP-2971 --from fetch --action fix --dry-run
 | `--to <stage>`              | Stop stage (inclusive)                                                                 | `commit`           |
 | `--action <action>`         | Resolution action: `implement \| fix \| investigate` — required when `plan` stage runs | —                  |
 | `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket`                                                | `PRIMARY_PLATFORM` |
+| `--pr`                      | Create PR after commit stage                                                           | false              |
 | `--interactive`             | Open AI chat after `plan` and `review` stages                                          | —                  |
 | `--skip-existing`           | Skip stages whose output artifact already exists                                       | —                  |
 | `--repo <repo>`             | Bitbucket repository override (`workspace/repo` or `repo-name`)                        | —                  |

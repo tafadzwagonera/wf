@@ -8,10 +8,22 @@ import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
+import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as YAML from 'yaml';
+
+const ISSUE_FETCH_EXAMPLES: CliExample[] = [
+  {
+    comment: 'Fetch ticket from primary platform',
+    command: 'wf issue:fetch WBP-2971',
+  },
+  {
+    comment: 'Specify platform and format',
+    command: 'wf issue:fetch WBP-2971 --platform jira --format md',
+  },
+];
 
 type OutputFormat = 'json' | 'md' | 'yaml' | 'xml';
 
@@ -38,6 +50,14 @@ export class IssueFetchCommand extends CommandRunner {
     private readonly dryRunPreview: DryRunPreviewService,
   ) {
     super();
+  }
+
+  @Option({
+    flags: '--dry-run',
+    description: 'Preview the fetch operation without making changes',
+  })
+  parseDryRun(): boolean {
+    return true;
   }
 
   @Option({
@@ -77,15 +97,9 @@ export class IssueFetchCommand extends CommandRunner {
     return parseReposOption(val, previous);
   }
 
-  @Option({
-    flags: '--dry-run',
-    description: 'Preview the fetch operation without making changes',
-  })
-  parseDryRun(): boolean {
-    return true;
-  }
-
   async run([ticketKey]: [string], options?: IssueFetchOptions): Promise<void> {
+    printExamples(ISSUE_FETCH_EXAMPLES);
+
     try {
       fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
 

@@ -8,7 +8,12 @@
  *   2. issue:commit --help does NOT show bare --conventional (without -c)
  */
 
+import * as os from 'os';
+import * as path from 'path';
 import { execSync } from 'child_process';
+
+// Run dist/main.js from a temp dir so wf.config.ts in the project root is not picked up.
+const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
 
 function testIssueCommitConventional() {
   console.log('🧪 Testing -c shortcut for --conventional in issue:commit\n');
@@ -27,9 +32,9 @@ function testIssueCommitConventional() {
 
   let help: string;
   try {
-    help = execSync('node dist/main.js issue:commit --help', {
+    help = execSync(`node ${DIST_MAIN} issue:commit --help`, {
       encoding: 'utf-8',
-      cwd: process.cwd(),
+      cwd: os.tmpdir(),
     });
   } catch (err: any) {
     help = (err.stdout ?? '') + (err.stderr ?? '');
