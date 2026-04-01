@@ -5,6 +5,8 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { parseReposOption } from './utils/repos-option';
 import chalk from 'chalk';
 
 interface IssueCommitOptions {
@@ -12,7 +14,20 @@ interface IssueCommitOptions {
   noAi?: boolean;
   conventional?: boolean;
   dryRun?: boolean;
+  platform?: string;
+  repos?: string[];
 }
+
+const ISSUE_COMMIT_EXAMPLES: CliExample[] = [
+  {
+    comment: 'AI-generated commit message',
+    command: 'wf issue:commit WBP-2971',
+  },
+  {
+    comment: 'Force conventional format',
+    command: 'wf issue:commit WBP-2971 --conventional --platform jira',
+  },
+];
 
 /**
  * Command to create git commits with AI-generated messages
@@ -40,6 +55,8 @@ export class IssueCommitCommand extends CommandRunner {
     passedParams: string[],
     options?: IssueCommitOptions,
   ): Promise<void> {
+    printExamples(ISSUE_COMMIT_EXAMPLES);
+
     try {
       // Get ticket key (from param or branch) — needed for both dry-run and live
       let ticketKey: string | null = passedParams[0] || null;
@@ -179,6 +196,22 @@ export class IssueCommitCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '-c, --conventional',
+    description: 'Force conventional commits format',
+  })
+  parseConventional(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--dry-run',
+    description: 'Preview the commit operation without making changes',
+  })
+  parseDryRun(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-m, --message <message>',
     description: 'Manual commit message (bypasses AI generation)',
   })
@@ -195,19 +228,20 @@ export class IssueCommitCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-c, --conventional',
-    description: 'Force conventional commits format',
+    flags: '-p, --platform <platform>',
+    description: 'Platform (jira|github|bitbucket)',
   })
-  parseConventional(): boolean {
-    return true;
+  parsePlatform(val: string): string {
+    return val;
   }
 
   @Option({
-    flags: '--dry-run',
-    description: 'Preview the commit operation without making changes',
+    flags: '-r, --repos <repos...>',
+    description:
+      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
   })
-  parseDryRun(): boolean {
-    return true;
+  parseRepos(val: string | string[], previous: string[] = []): string[] {
+    return parseReposOption(val, previous);
   }
 
   /**

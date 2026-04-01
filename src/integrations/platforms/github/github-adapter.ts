@@ -4,6 +4,7 @@ import { Octokit } from '@octokit/rest';
 import {
   PlatformAdapter,
   PlatformFeature,
+  CreatePullRequestOptions,
 } from '../platform-adapter.interface';
 import {
   UniversalTicket,
@@ -165,6 +166,7 @@ export class GitHubAdapter implements PlatformAdapter {
       PlatformFeature.GET_PULL_REQUEST,
       PlatformFeature.ADD_LABELS,
       PlatformFeature.ASSIGN_TICKET,
+      PlatformFeature.CREATE_PULL_REQUEST,
     ];
 
     return supportedFeatures.includes(feature);
@@ -175,6 +177,32 @@ export class GitHubAdapter implements PlatformAdapter {
    */
   getPlatformName(): string {
     return 'github';
+  }
+
+  /**
+   * Create a pull request on GitHub
+   *
+   * @param options - PR creation parameters
+   * @returns URL of the created pull request
+   */
+  async createPullRequest(options: CreatePullRequestOptions): Promise<string> {
+    const repoString =
+      options.repo ||
+      this.configService.get<string>('github.defaultRepo') ||
+      '';
+
+    const { owner, repo } = this.parseProjectOrDefault(repoString || undefined);
+
+    const response = await this.octokit.pulls.create({
+      owner,
+      repo,
+      title: options.title,
+      body: options.body,
+      head: options.head,
+      base: options.base,
+    });
+
+    return response.data.html_url;
   }
 
   /**

@@ -9,6 +9,7 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import { SlackService } from '../integrations/slack/slack.service';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
+import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import {
   UniversalTicket,
   TicketType,
@@ -27,6 +28,17 @@ const SLACK_PERMALINK =
   /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
 const SLACK_CHANNEL_URL =
   /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/?$/i;
+
+const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
+  {
+    comment: 'Generate ticket from a URL',
+    command: 'wf issue:generate https://example.com/spec',
+  },
+  {
+    comment: 'Save with overridden title',
+    command: 'wf issue:generate ./requirements.md --title "Add OAuth2" --save',
+  },
+];
 
 interface IssueGenerateOptions {
   format?: string;
@@ -68,6 +80,8 @@ export class IssueGenerateCommand extends CommandRunner {
     passedParams: string[],
     options?: IssueGenerateOptions,
   ): Promise<void> {
+    printExamples(ISSUE_GENERATE_EXAMPLES);
+
     fs.mkdirSync(getWfHomeDir(), { recursive: true });
 
     if (!passedParams || passedParams.length === 0) {
@@ -337,6 +351,14 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--dry-run',
+    description: 'Preview the generate operation without making changes',
+  })
+  parseDryRun(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-f, --format <format>',
     description: 'Output format (json|md|yaml|xml) - default from env',
   })
@@ -353,34 +375,10 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--save',
-    description: 'Save generated ticket to platform directory',
-  })
-  parseSave(): boolean {
-    return true;
-  }
-
-  @Option({
     flags: '-p, --platform <platform>',
     description: 'Platform for ticket sources (jira|github|bitbucket)',
   })
   parsePlatform(val: string): string {
-    return val;
-  }
-
-  @Option({
-    flags: '-t, --title <title>',
-    description: 'Override generated title with custom title',
-  })
-  parseTitle(val: string): string {
-    return val;
-  }
-
-  @Option({
-    flags: '--type <type>',
-    description: 'Override ticket type (task|bug|story|epic)',
-  })
-  parseType(val: string): string {
     return val;
   }
 
@@ -402,11 +400,27 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--dry-run',
-    description: 'Preview the generate operation without making changes',
+    flags: '--save',
+    description: 'Save generated ticket to platform directory',
   })
-  parseDryRun(): boolean {
+  parseSave(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '-t, --title <title>',
+    description: 'Override generated title with custom title',
+  })
+  parseTitle(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '--type <type>',
+    description: 'Override ticket type (task|bug|story|epic)',
+  })
+  parseType(val: string): string {
+    return val;
   }
 
   /**

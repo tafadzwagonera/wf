@@ -7,6 +7,8 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { TicketType } from '../common/dto/universal-ticket.dto';
+import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { parseReposOption } from './utils/repos-option';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -14,10 +16,22 @@ import * as path from 'path';
 
 interface IssueCreateOptions {
   platform?: string;
+  repos?: string[];
   ticketProject?: string;
   type?: string;
   dryRun?: boolean;
 }
+
+const ISSUE_CREATE_EXAMPLES: CliExample[] = [
+  {
+    comment: 'Create ticket from JSON on primary platform',
+    command: 'wf issue:create ticket.json',
+  },
+  {
+    comment: 'Create on specific platform',
+    command: 'wf issue:create ticket.md --platform jira --type story',
+  },
+];
 
 /**
  * Command to create tickets on various platforms from standardized input
@@ -45,6 +59,8 @@ export class IssueCreateCommand extends CommandRunner {
     passedParams: string[],
     options?: IssueCreateOptions,
   ): Promise<void> {
+    printExamples(ISSUE_CREATE_EXAMPLES);
+
     const inputPath = passedParams[0];
 
     if (!inputPath) {
@@ -160,11 +176,28 @@ export class IssueCreateCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--dry-run',
+    description: 'Validate without creating - preview only',
+  })
+  parseDryRun(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-p, --platform <platform>',
     description: 'Target platform (jira|github|bitbucket) - default from env',
   })
   parsePlatform(val: string): string {
     return val;
+  }
+
+  @Option({
+    flags: '-r, --repos <repos...>',
+    description:
+      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+  })
+  parseRepos(val: string | string[], previous: string[] = []): string[] {
+    return parseReposOption(val, previous);
   }
 
   @Option({
@@ -182,13 +215,5 @@ export class IssueCreateCommand extends CommandRunner {
   })
   parseType(val: string): string {
     return val;
-  }
-
-  @Option({
-    flags: '--dry-run',
-    description: 'Validate without creating - preview only',
-  })
-  parseDryRun(): boolean {
-    return true;
   }
 }

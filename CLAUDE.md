@@ -20,3 +20,10 @@ Always `git add` before `git commit`. Never assume files are pre-staged.
 
 ## Manual Testing
 After every fix or feature, run a manual test from `test/manual/` via `nr test:manual -- <test>`. Requires `antfu-collective/ni` and `"test:manual": "run-manual-test.ts"` in `package.json`.
+
+## Active Technologies
+- TypeScript 5.7 / Node.js 22 (v22.17.1 locally) + NestJS 11, nest-commander, chalk 4, @octokit/rest, jest 30 (001-ssh-cli-refactor)
+- File system only (`.wf/state/`, `.wf/logs/`, platform artifact dirs) (001-ssh-cli-refactor)
+
+## Recent Changes
+- 001-ssh-cli-refactor: Added TypeScript 5.7 / Node.js 22 (v22.17.1 locally) + NestJS 11, nest-commander, chalk 4, @octokit/rest, jest 30

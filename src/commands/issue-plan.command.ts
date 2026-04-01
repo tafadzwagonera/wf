@@ -9,6 +9,7 @@ import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
+import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import type { ResolutionAction } from '../agents/interfaces';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -16,13 +17,24 @@ import * as path from 'path';
 import * as YAML from 'yaml';
 import chalk from 'chalk';
 
+const ISSUE_PLAN_EXAMPLES: CliExample[] = [
+  {
+    comment: 'Plan a fix for a ticket',
+    command: 'wf issue:plan WBP-2971 --action fix',
+  },
+  {
+    comment: 'Force re-fetch before planning',
+    command: 'wf issue:plan WBP-2971 --action fix --force --platform jira',
+  },
+];
+
 type OutputFormat = 'json' | 'md' | 'yaml';
 
 interface IssuePlanOptions {
   action: ResolutionAction;
   prompt?: string;
   platform?: string;
-  forceRecreate?: boolean;
+  force?: boolean;
   format?: OutputFormat;
   repos?: string[];
   dryRun?: boolean;
@@ -106,7 +118,7 @@ const generateMnemonic = (): string => {
   description:
     'Plan ticket implementation from a local artifact. ' +
     'If a local artifact is not found, the command will attempt to fetch it from the primary platform. ' +
-    'Use --force-recreate to fetch and recreate artifacts.',
+    'Use --force to fetch and recreate artifacts.',
   arguments: '[ticket-key]',
 })
 export class IssuePlanCommand extends CommandRunner {
@@ -136,24 +148,18 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-p, --platform <platform>',
-    description: 'Platform to fetch from if local artifact not found',
+    flags: '--dry-run',
+    description: 'Preview the plan operation without making changes',
   })
-  parsePlatform(platform: string): string {
-    const validPlatforms = ['jira', 'github', 'bitbucket'];
-    if (!validPlatforms.includes(platform)) {
-      throw new Error(
-        `Invalid platform: ${platform}. Valid platforms: ${validPlatforms.join(', ')}`,
-      );
-    }
-    return platform;
+  parseDryRun(): boolean {
+    return true;
   }
 
   @Option({
-    flags: '--force-recreate',
+    flags: '--force',
     description: 'Force fetch and recreate ticket artifact before planning',
   })
-  parseForceRecreate(): boolean {
+  parseForce(): boolean {
     return true;
   }
 
@@ -172,21 +178,17 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-r, --repos <repos...>',
-    description:
-      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
-    required: false,
+    flags: '-p, --platform <platform>',
+    description: 'Platform to fetch from if local artifact not found',
   })
-  parseRepos(val: string | string[], previous: string[] = []): string[] {
-    return parseReposOption(val, previous);
-  }
-
-  @Option({
-    flags: '--dry-run',
-    description: 'Preview the plan operation without making changes',
-  })
-  parseDryRun(): boolean {
-    return true;
+  parsePlatform(platform: string): string {
+    const validPlatforms = ['jira', 'github', 'bitbucket'];
+    if (!validPlatforms.includes(platform)) {
+      throw new Error(
+        `Invalid platform: ${platform}. Valid platforms: ${validPlatforms.join(', ')}`,
+      );
+    }
+    return platform;
   }
 
   @Option({
@@ -198,7 +200,19 @@ export class IssuePlanCommand extends CommandRunner {
     return val;
   }
 
+  @Option({
+    flags: '-r, --repos <repos...>',
+    description:
+      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+    required: false,
+  })
+  parseRepos(val: string | string[], previous: string[] = []): string[] {
+    return parseReposOption(val, previous);
+  }
+
   async run([ticketKey]: string[], options?: IssuePlanOptions): Promise<void> {
+    printExamples(ISSUE_PLAN_EXAMPLES);
+
     try {
       fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
 
@@ -334,7 +348,7 @@ export class IssuePlanCommand extends CommandRunner {
         `${ticketKey}-plan-${action}.${format}`,
       );
       const ticketExists = fs.existsSync(ticketPath);
-      const needsFetch = options?.forceRecreate || !ticketExists;
+      const needsFetch = options?.force || !ticketExists;
 
       if (options?.dryRun) {
         this.dryRunPreview.showHeader('issue:plan', ticketKey);
@@ -436,7 +450,7 @@ export class IssuePlanCommand extends CommandRunner {
       let ticketContent: string;
 
       if (needsFetch) {
-        if (options?.forceRecreate) {
+        if (options?.force) {
           this.logger.info('Forcing recreation of ticket artifact...');
         } else {
           this.logger.info(
