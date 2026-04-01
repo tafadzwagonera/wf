@@ -30,6 +30,26 @@ jest.mock('chalk', () => {
   return { default: chalk, ...chalk };
 });
 
+jest.mock('inquirer', () => ({
+  __esModule: true,
+  default: {
+    prompt: jest.fn(),
+  },
+}));
+
+jest.mock('fs', () => {
+  const actual = jest.requireActual('fs');
+  return {
+    ...actual,
+    existsSync: jest.fn(actual.existsSync),
+    promises: {
+      ...actual.promises,
+      mkdir: jest.fn(actual.promises.mkdir),
+      writeFile: jest.fn(actual.promises.writeFile),
+    },
+  };
+});
+
 jest.mock('../agents/utils', () => {
   const actual = jest.requireActual('../agents/utils');
   return {
@@ -50,6 +70,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { SlackService } from '../integrations/slack/slack.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import inquirer from 'inquirer';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -164,6 +185,9 @@ describe('IssueGenerateCommand', () => {
   let cwdSpy: jest.SpyInstance;
   let mkdirSpy: jest.SpyInstance;
   let writeFileSpy: jest.SpyInstance;
+  let consoleLogSpy: jest.SpyInstance;
+  let originalStdinIsTTY: boolean | undefined;
+  let originalStdoutIsTTY: boolean | undefined;
 
   beforeEach(() => {
     cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(mockCwd);
@@ -171,12 +195,28 @@ describe('IssueGenerateCommand', () => {
     writeFileSpy = jest
       .spyOn(fs.promises, 'writeFile')
       .mockResolvedValue(undefined);
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    originalStdinIsTTY = process.stdin.isTTY;
+    originalStdoutIsTTY = process.stdout.isTTY;
+    (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReset();
+    (
+      fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+    ).mockImplementation(jest.requireActual('fs').existsSync);
   });
 
   afterEach(() => {
     cwdSpy.mockRestore();
     mkdirSpy.mockRestore();
     writeFileSpy.mockRestore();
+    consoleLogSpy.mockRestore();
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: originalStdinIsTTY,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: originalStdoutIsTTY,
+      configurable: true,
+    });
     jest.restoreAllMocks();
   });
 
@@ -240,6 +280,244 @@ describe('IssueGenerateCommand', () => {
     expect(path.dirname(preview.filePath)).toBe(
       path.join(os.homedir(), '.wf', 'repo-a', 'jira'),
     );
+  });
+
+  describe('repo-aware local source resolution', () => {
+    it('prefers repo matches over cwd when --repos is provided', async () => {
+      const command = await buildCommand();
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) => {
+        const filePath = String(input);
+        return (
+          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
+          filePath === 'src/spec.md' ||
+          filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md')
+        );
+      });
+
+      const resolvedSources = await (command as any).resolveSourceInputs(
+        'src/spec.md',
+        ['repo-a'],
+        false,
+      );
+
+      expect(resolvedSources).toEqual([
+        path.join('/tmp/consumer-app/repo-a', 'src/spec.md'),
+      ]);
+    });
+
+    it('allows selecting multiple repo matches for synthesis in interactive mode', async () => {
+      const command = await buildCommand();
+      const promptMock = inquirer.prompt as jest.MockedFunction<
+        typeof inquirer.prompt
+      >;
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) => {
+        const filePath = String(input);
+        return (
+          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
+          filePath === path.join('/tmp/consumer-app', 'repo-b') ||
+          filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md') ||
+          filePath === path.join('/tmp/consumer-app/repo-b', 'src/spec.md')
+        );
+      });
+
+      promptMock.mockResolvedValueOnce({
+        selectedSources: [
+          path.join('/tmp/consumer-app/repo-a', 'src/spec.md'),
+          path.join('/tmp/consumer-app/repo-b', 'src/spec.md'),
+        ],
+      });
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+
+      const resolvedSources = await (command as any).resolveSourceInputs(
+        'src/spec.md',
+        ['repo-a', 'repo-b'],
+        false,
+      );
+
+      expect(resolvedSources).toEqual([
+        path.join('/tmp/consumer-app/repo-a', 'src/spec.md'),
+        path.join('/tmp/consumer-app/repo-b', 'src/spec.md'),
+      ]);
+      expect(promptMock).toHaveBeenCalled();
+    });
+
+    it('fails in silent mode when a relative source matches multiple repos', async () => {
+      const command = await buildCommand();
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) => {
+        const filePath = String(input);
+        return (
+          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
+          filePath === path.join('/tmp/consumer-app', 'repo-b') ||
+          filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md') ||
+          filePath === path.join('/tmp/consumer-app/repo-b', 'src/spec.md')
+        );
+      });
+
+      await expect(
+        (command as any).resolveSourceInputs(
+          'src/spec.md',
+          ['repo-a', 'repo-b'],
+          true,
+        ),
+      ).rejects.toThrow('matches multiple repositories');
+    });
+
+    it('does not treat ~/.wf artifacts as local source files', async () => {
+      const command = await buildCommand();
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) => {
+        const filePath = String(input);
+        return filePath === path.join(os.homedir(), '.wf', 'src/spec.md');
+      });
+
+      await expect((command as any).fetchSource('src/spec.md')).rejects.toThrow(
+        'Unknown source type',
+      );
+    });
+
+    it('warns when a repo identifier cannot be resolved', async () => {
+      const command = await buildCommand();
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) => {
+        const filePath = String(input);
+        return (
+          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
+          filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md')
+        );
+      });
+
+      const resolvedSources = await (command as any).resolveSourceInputs(
+        'src/spec.md',
+        ['missing-repo', 'repo-a'],
+        false,
+      );
+
+      expect(resolvedSources).toEqual([
+        path.join('/tmp/consumer-app/repo-a', 'src/spec.md'),
+      ]);
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Repository 'missing-repo'"),
+      );
+    });
+  });
+
+  describe('multi-repo save targets', () => {
+    it('prompts for save targets only after synthesis succeeds', async () => {
+      const command = await buildCommand();
+      const aiService = (command as any).aiService as jest.Mocked<AiService>;
+      const saveTicketLocallySpy = jest
+        .spyOn(command as any, 'saveTicketLocally')
+        .mockResolvedValue('/tmp/generated.md');
+      const promptMock = inquirer.prompt as jest.MockedFunction<
+        typeof inquirer.prompt
+      >;
+      const tempSourcePath = path.join(
+        os.tmpdir(),
+        'wf-issue-generate-save.md',
+      );
+
+      fs.writeFileSync(tempSourcePath, 'Short source content', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) => {
+        const filePath = String(input);
+        return (
+          jest.requireActual('fs').existsSync(filePath) ||
+          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
+          filePath === path.join('/tmp/consumer-app', 'repo-b')
+        );
+      });
+
+      promptMock.mockResolvedValueOnce({ selectedRepos: ['repo-a'] });
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+
+      try {
+        await command.run([tempSourcePath], {
+          save: true,
+          repos: ['repo-a', 'repo-b'],
+        });
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      expect(aiService.execute).toHaveBeenCalled();
+      expect(promptMock).toHaveBeenCalled();
+      expect(saveTicketLocallySpy).toHaveBeenCalledTimes(1);
+      expect(saveTicketLocallySpy).toHaveBeenCalledWith(
+        expect.anything(),
+        'jira',
+        'md',
+        [tempSourcePath],
+        'repo-a',
+      );
+    });
+
+    it('fails in silent mode when --save targets multiple repos', async () => {
+      const command = await buildCommand();
+      const errorHandlerSpy = jest
+        .spyOn(ErrorHandler, 'handle')
+        .mockImplementation((() => {
+          throw new Error('handled');
+        }) as any);
+      const tempSourcePath = path.join(
+        os.tmpdir(),
+        'wf-issue-generate-silent-save.md',
+      );
+
+      fs.writeFileSync(tempSourcePath, 'Short source content', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) => {
+        const filePath = String(input);
+        return (
+          jest.requireActual('fs').existsSync(filePath) ||
+          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
+          filePath === path.join('/tmp/consumer-app', 'repo-b')
+        );
+      });
+
+      try {
+        await expect(
+          command.run([tempSourcePath], {
+            save: true,
+            repos: ['repo-a', 'repo-b'],
+            silent: true,
+          } as any),
+        ).rejects.toThrow('handled');
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      expect(errorHandlerSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('multiple repositories'),
+        }),
+      );
+
+      errorHandlerSpy.mockRestore();
+    });
   });
 
   describe('Slack source handling', () => {

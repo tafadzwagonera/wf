@@ -14,6 +14,7 @@ import {
   UniversalTicket,
   TicketType,
 } from '../common/dto/universal-ticket.dto';
+import inquirer from 'inquirer';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -44,12 +45,23 @@ interface IssueGenerateOptions {
   format?: string;
   output?: string;
   save?: boolean;
+  silent?: boolean;
   platform?: string;
   title?: string;
   type?: string;
   priority?: string;
   repos?: string[];
   dryRun?: boolean;
+}
+
+interface ResolvedRepo {
+  input: string;
+  basePath: string;
+}
+
+interface LocalSourceResolution {
+  concreteSources: string[];
+  matchedRepoInputs: string[];
 }
 
 /**
@@ -115,76 +127,84 @@ export class IssueGenerateCommand extends CommandRunner {
         let apiCallCount = 0;
 
         for (const source of passedParams) {
-          if (SLACK_PERMALINK.test(source)) {
-            const [, channelId, seconds, micros] =
-              source.match(SLACK_PERMALINK)!;
-            this.dryRunPreview.previewApiCall({
-              method: 'GET',
-              endpoint: 'https://slack.com/api/conversations.replies',
-              platform: 'Slack',
-              description: `Fetch thread ${source}`,
-              estimatedResponse: '200 OK — thread messages JSON',
-            });
-            this.dryRunPreview.previewFileWrite({
-              filePath: path.join(
-                resolveArtifactDir(artifactBaseDir, 'slack'),
-                `slack-thread-${channelId}-${seconds}-${micros}.md`,
-              ),
-              operation: 'create',
-              sizeEstimate: '1–20 KB',
-              format: 'md',
-              contentPreview:
-                '[<ts>] <user>: <message>\n[<ts>] <user>: <reply>',
-            });
-            apiCallCount++;
-          } else if (SLACK_CHANNEL_URL.test(source)) {
-            const [, channelId] = source.match(SLACK_CHANNEL_URL)!;
-            this.dryRunPreview.previewApiCall({
-              method: 'GET',
-              endpoint: 'https://slack.com/api/conversations.history',
-              platform: 'Slack',
-              description: `Fetch recent channel history ${source}`,
-              estimatedResponse: '200 OK — channel messages JSON',
-            });
-            this.dryRunPreview.previewFileWrite({
-              filePath: path.join(
-                resolveArtifactDir(artifactBaseDir, 'slack'),
-                `slack-thread-${channelId}-<oldest-message-ts>.md`,
-              ),
-              operation: 'create',
-              sizeEstimate: '1–20 KB',
-              format: 'md',
-              contentPreview:
-                '[<ts>] <user>: <message>\n[<ts>] <user>: <message>',
-            });
-            apiCallCount++;
-          } else if (
-            source.startsWith('http://') ||
-            source.startsWith('https://')
-          ) {
-            this.dryRunPreview.previewApiCall({
-              method: 'GET',
-              endpoint: source,
-              platform: 'Web',
-              description: 'Fetch content from URL',
-              estimatedResponse: '200 OK — HTML / text content',
-            });
-            apiCallCount++;
-          } else if (/^[A-Z]+-\d+$/i.test(source)) {
-            this.dryRunPreview.previewApiCall({
-              method: 'GET',
-              endpoint: `/${platformName}/issues/${source}`,
-              platform: platformName,
-              description: `Fetch ticket ${source}`,
-              estimatedResponse: '200 OK — ticket data',
-            });
-            apiCallCount++;
-          } else if (fs.existsSync(source)) {
-            this.dryRunPreview.previewFileRead({
-              filePath: path.resolve(source),
-              exists: true,
-              sizeInKb: (fs.statSync(source).size / 1024).toFixed(2),
-            });
+          const resolvedSources = await this.resolveSourceInputs(
+            source,
+            options?.repos,
+            options?.silent ?? false,
+          );
+
+          for (const resolvedSource of resolvedSources) {
+            if (SLACK_PERMALINK.test(resolvedSource)) {
+              const [, channelId, seconds, micros] =
+                resolvedSource.match(SLACK_PERMALINK)!;
+              this.dryRunPreview.previewApiCall({
+                method: 'GET',
+                endpoint: 'https://slack.com/api/conversations.replies',
+                platform: 'Slack',
+                description: `Fetch thread ${resolvedSource}`,
+                estimatedResponse: '200 OK — thread messages JSON',
+              });
+              this.dryRunPreview.previewFileWrite({
+                filePath: path.join(
+                  resolveArtifactDir(artifactBaseDir, 'slack'),
+                  `slack-thread-${channelId}-${seconds}-${micros}.md`,
+                ),
+                operation: 'create',
+                sizeEstimate: '1–20 KB',
+                format: 'md',
+                contentPreview:
+                  '[<ts>] <user>: <message>\n[<ts>] <user>: <reply>',
+              });
+              apiCallCount++;
+            } else if (SLACK_CHANNEL_URL.test(resolvedSource)) {
+              const [, channelId] = resolvedSource.match(SLACK_CHANNEL_URL)!;
+              this.dryRunPreview.previewApiCall({
+                method: 'GET',
+                endpoint: 'https://slack.com/api/conversations.history',
+                platform: 'Slack',
+                description: `Fetch recent channel history ${resolvedSource}`,
+                estimatedResponse: '200 OK — channel messages JSON',
+              });
+              this.dryRunPreview.previewFileWrite({
+                filePath: path.join(
+                  resolveArtifactDir(artifactBaseDir, 'slack'),
+                  `slack-thread-${channelId}-<oldest-message-ts>.md`,
+                ),
+                operation: 'create',
+                sizeEstimate: '1–20 KB',
+                format: 'md',
+                contentPreview:
+                  '[<ts>] <user>: <message>\n[<ts>] <user>: <message>',
+              });
+              apiCallCount++;
+            } else if (
+              resolvedSource.startsWith('http://') ||
+              resolvedSource.startsWith('https://')
+            ) {
+              this.dryRunPreview.previewApiCall({
+                method: 'GET',
+                endpoint: resolvedSource,
+                platform: 'Web',
+                description: 'Fetch content from URL',
+                estimatedResponse: '200 OK — HTML / text content',
+              });
+              apiCallCount++;
+            } else if (/^[A-Z]+-\d+$/i.test(resolvedSource)) {
+              this.dryRunPreview.previewApiCall({
+                method: 'GET',
+                endpoint: `/${platformName}/issues/${resolvedSource}`,
+                platform: platformName,
+                description: `Fetch ticket ${resolvedSource}`,
+                estimatedResponse: '200 OK — ticket data',
+              });
+              apiCallCount++;
+            } else if (fs.existsSync(resolvedSource)) {
+              this.dryRunPreview.previewFileRead({
+                filePath: path.resolve(resolvedSource),
+                exists: true,
+                sizeInKb: (fs.statSync(resolvedSource).size / 1024).toFixed(2),
+              });
+            }
           }
         }
 
@@ -282,7 +302,8 @@ export class IssueGenerateCommand extends CommandRunner {
       const sourceContents = await this.fetchAllSources(
         passedParams,
         options?.platform,
-        options?.repos?.[0],
+        options?.repos,
+        options?.silent ?? false,
       );
       this.assertSourcesAvailable(sourceContents, passedParams);
 
@@ -316,14 +337,25 @@ export class IssueGenerateCommand extends CommandRunner {
         const platformName =
           options?.platform ||
           this.configService.get<string>('platforms.primary', 'jira');
-        const savedPath = await this.saveTicketLocally(
-          synthesizedTicket,
-          platformName,
-          format,
-          passedParams,
-          options?.repos?.[0],
+        const saveTargets = await this.resolveSaveTargets(
+          options?.repos,
+          options?.silent ?? false,
         );
-        console.log(chalk.green('\n✓ Ticket saved to:'), chalk.cyan(savedPath));
+        const targetRepos = saveTargets.length > 0 ? saveTargets : [undefined];
+
+        for (const targetRepo of targetRepos) {
+          const savedPath = await this.saveTicketLocally(
+            synthesizedTicket,
+            platformName,
+            format,
+            passedParams,
+            targetRepo,
+          );
+          console.log(
+            chalk.green('\n✓ Ticket saved to:'),
+            chalk.cyan(savedPath),
+          );
+        }
       }
 
       // Output to file or stdout
@@ -408,6 +440,14 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '-s, --silent',
+    description: 'Disable interactive prompts and fail on ambiguity',
+  })
+  parseSilent(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-t, --title <title>',
     description: 'Override generated title with custom title',
   })
@@ -429,7 +469,8 @@ export class IssueGenerateCommand extends CommandRunner {
   private async fetchAllSources(
     sources: string[],
     platform?: string,
-    repo?: string,
+    repos?: string[],
+    silent = false,
   ): Promise<SourceContent[]> {
     const contents: SourceContent[] = [];
 
@@ -437,9 +478,26 @@ export class IssueGenerateCommand extends CommandRunner {
       console.log(chalk.gray(`  Fetching: ${source}`));
 
       try {
-        const content = await this.fetchSource(source, platform, repo);
-        contents.push(content);
-        console.log(chalk.green(`    ✓ Fetched (${content.type})`));
+        const resolvedSources = await this.resolveSourceInputs(
+          source,
+          repos,
+          silent,
+        );
+
+        if (resolvedSources.length === 0) {
+          console.log(chalk.yellow('    ⚠ Skipped: no sources selected'));
+          continue;
+        }
+
+        for (const resolvedSource of resolvedSources) {
+          const content = await this.fetchSource(
+            resolvedSource,
+            platform,
+            repos?.[0],
+          );
+          contents.push(content);
+          console.log(chalk.green(`    ✓ Fetched (${content.type})`));
+        }
       } catch (error) {
         console.log(chalk.yellow(`    ⚠ Failed: ${error.message}`));
       }
@@ -496,13 +554,9 @@ export class IssueGenerateCommand extends CommandRunner {
       return await this.fetchFromUrl(source);
     }
 
-    // Check if it's a local file path (with ~/.wf fallback)
+    // Check if it's a local file path
     if (fs.existsSync(source)) {
       return await this.fetchFromFile(source);
-    }
-    const wfFallback = path.join(getWfHomeDir(), source);
-    if (fs.existsSync(wfFallback)) {
-      return await this.fetchFromFile(wfFallback);
     }
 
     // Check if it's a ticket key (contains letters and numbers with dash/hyphen)
@@ -782,6 +836,219 @@ export class IssueGenerateCommand extends CommandRunner {
     await fs.promises.writeFile(artifactPath, content, 'utf-8');
 
     return artifactPath;
+  }
+
+  /**
+   * Resolve a raw source argument into concrete sources for fetching.
+   *
+   * @param source - Raw CLI source argument
+   * @param repos - Optional repos supplied via `--repos`
+   * @param silent - When true, fail instead of prompting on ambiguity
+   * @returns Resolved source paths or original non-file source
+   */
+  private async resolveSourceInputs(
+    source: string,
+    repos?: string[],
+    silent = false,
+  ): Promise<string[]> {
+    if (
+      SLACK_PERMALINK.test(source) ||
+      SLACK_CHANNEL_URL.test(source) ||
+      source.startsWith('http://') ||
+      source.startsWith('https://') ||
+      /^[A-Z]+-\d+$/i.test(source)
+    ) {
+      return [source];
+    }
+
+    if (path.isAbsolute(source) && fs.existsSync(source)) {
+      return [source];
+    }
+
+    const resolvedRepoSources = await this.resolveRepoRelativeSources(
+      source,
+      repos,
+      silent,
+    );
+    if (resolvedRepoSources.concreteSources.length > 0) {
+      return resolvedRepoSources.concreteSources;
+    }
+
+    if (fs.existsSync(source)) {
+      return [source];
+    }
+
+    return [];
+  }
+
+  /**
+   * Resolve a relative source against the repositories supplied via `--repos`.
+   *
+   * @param source - Raw relative source path
+   * @param repos - Optional repos supplied via `--repos`
+   * @param silent - When true, fail instead of prompting on ambiguity
+   * @returns Concrete source paths plus the matching repo identifiers
+   */
+  private async resolveRepoRelativeSources(
+    source: string,
+    repos?: string[],
+    silent = false,
+  ): Promise<LocalSourceResolution> {
+    if (!repos?.length || path.isAbsolute(source)) {
+      return { concreteSources: [], matchedRepoInputs: [] };
+    }
+
+    const resolvedRepos = this.resolveRepos(repos);
+    const matches = resolvedRepos
+      .map((repo) => ({
+        repoInput: repo.input,
+        filePath: path.join(repo.basePath, source),
+      }))
+      .filter(({ filePath }) => fs.existsSync(filePath));
+
+    if (matches.length === 0) {
+      return { concreteSources: [], matchedRepoInputs: [] };
+    }
+
+    if (matches.length === 1) {
+      return {
+        concreteSources: [matches[0].filePath],
+        matchedRepoInputs: [matches[0].repoInput],
+      };
+    }
+
+    if (silent || !this.isInteractiveSession()) {
+      throw new Error(
+        `Source "${source}" matches multiple repositories: ${matches
+          .map(({ repoInput }) => repoInput)
+          .join(
+            ', ',
+          )}. Re-run interactively or pass --silent with a single unambiguous repo.`,
+      );
+    }
+
+    const answers = await inquirer.prompt([
+      {
+        type: 'checkbox',
+        name: 'selectedSources',
+        message: `Select matching files for ${source}`,
+        choices: matches.map(({ filePath, repoInput }) => ({
+          name: `${repoInput}: ${filePath}`,
+          value: filePath,
+        })),
+      },
+    ]);
+
+    const selectedSources = (answers.selectedSources ?? []) as string[];
+    const selectedRepoInputs = matches
+      .filter(({ filePath }) => selectedSources.includes(filePath))
+      .map(({ repoInput }) => repoInput);
+
+    return {
+      concreteSources: selectedSources,
+      matchedRepoInputs: selectedRepoInputs,
+    };
+  }
+
+  /**
+   * Resolve save targets for `--save`.
+   *
+   * @param repos - Optional repos supplied via `--repos`
+   * @param silent - When true, fail instead of prompting on ambiguity
+   * @returns Repo identifiers to use as artifact namespaces
+   */
+  private async resolveSaveTargets(
+    repos?: string[],
+    silent = false,
+  ): Promise<string[]> {
+    if (!repos?.length) {
+      return [];
+    }
+
+    const resolvedRepos = this.resolveRepos(repos);
+    if (resolvedRepos.length <= 1) {
+      return resolvedRepos.map(({ input }) => input);
+    }
+
+    if (silent || !this.isInteractiveSession()) {
+      throw new Error(
+        `Cannot save to multiple repositories in silent mode. Matching repositories: ${resolvedRepos
+          .map(({ input }) => input)
+          .join(', ')}.`,
+      );
+    }
+
+    const answers = await inquirer.prompt([
+      {
+        type: 'checkbox',
+        name: 'selectedRepos',
+        message: 'Select repositories to save the generated artifact into',
+        choices: resolvedRepos.map(({ input, basePath }) => ({
+          name: `${input}: ${basePath}`,
+          value: input,
+        })),
+        validate: (selectedRepos: string[]) =>
+          selectedRepos.length > 0 ||
+          'Select at least one repository to save the generated artifact.',
+      },
+    ]);
+
+    return answers.selectedRepos as string[];
+  }
+
+  /**
+   * Resolve each repo identifier to a real local directory.
+   *
+   * @param repos - Raw repo identifiers from `--repos`
+   * @returns Resolved repo directories in input order
+   */
+  private resolveRepos(repos: string[]): ResolvedRepo[] {
+    return repos.flatMap((repo) => {
+      const resolvedRepo = this.resolveRepoDirectory(repo);
+      if (!resolvedRepo) {
+        console.log(
+          chalk.yellow(
+            `⚠ Repository '${repo}' not found as a path or sibling directory.`,
+          ),
+        );
+        return [];
+      }
+
+      return [{ input: repo, basePath: resolvedRepo }];
+    });
+  }
+
+  /**
+   * Resolve a repo identifier to a local directory without falling back to cwd.
+   *
+   * @param repo - Repository identifier from `--repos`
+   * @returns Absolute repo path, or undefined when not found
+   */
+  private resolveRepoDirectory(repo: string): string | undefined {
+    if (path.isAbsolute(repo) && fs.existsSync(repo)) {
+      return repo;
+    }
+
+    const relativeRepoPath = path.resolve(process.cwd(), repo);
+    if (fs.existsSync(relativeRepoPath)) {
+      return relativeRepoPath;
+    }
+
+    const siblingRepoPath = path.resolve(process.cwd(), '..', repo);
+    if (fs.existsSync(siblingRepoPath)) {
+      return siblingRepoPath;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Check whether the current session can show interactive prompts.
+   *
+   * @returns True when both stdin and stdout are TTYs
+   */
+  private isInteractiveSession(): boolean {
+    return Boolean(process.stdin.isTTY && process.stdout.isTTY);
   }
 
   /**
