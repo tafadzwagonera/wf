@@ -376,6 +376,14 @@ describe('IssueImplementCommand', () => {
           'WBP-0001-plan-feature.json',
         ),
       );
+      expect(mockOrchestrator.implementer.execute).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(Object),
+        expect.objectContaining({
+          platformName: 'jira',
+          repoDir: '/tmp/consumer-app/repo-a',
+        }),
+      );
       // planner was never called — plan was loaded from disk
       expect(mockOrchestrator.planner.execute).not.toHaveBeenCalled();
     });
@@ -404,6 +412,44 @@ describe('IssueImplementCommand', () => {
       expect(
         consoleSpy.mock.calls.some((call) =>
           String(call[0]).includes('Only the first repository'),
+        ),
+      ).toBe(true);
+
+      existsSyncSpy.mockRestore();
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('ticket mode with multiple repos', () => {
+    it('warns that only the first repository will be verified', async () => {
+      const command = await buildCommand();
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+      const existsSyncSpy = jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation(
+          (p: string) =>
+            !String(p).includes('-plan-investigate.json') &&
+            !String(p).includes('-plan-fix.json'),
+        );
+      jest
+        .spyOn(require('fs'), 'statSync')
+        .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
+      jest
+        .spyOn(require('fs').promises, 'readFile')
+        .mockResolvedValue('# WBP-0001\n**Ticket:** WBP-0001\n');
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockReturnValue(JSON.stringify({ action: 'feature', steps: [] }));
+
+      await command.run(['WBP-0001'], { repos: ['repo-a', 'repo-b'] });
+
+      expect(
+        consoleSpy.mock.calls.some((call) =>
+          String(call[0]).includes(
+            'issue:implement verifies only the first repository',
+          ),
         ),
       ).toBe(true);
 

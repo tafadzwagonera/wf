@@ -73,6 +73,16 @@ const warnOnPrimaryPlanRepo = (repos?: string[]): void => {
   }
 };
 
+const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
+  if ((repos?.length ?? 0) > 1) {
+    console.log(
+      chalk.yellow(
+        `⚠️ issue:implement verifies only the first repository. Remaining repos are context only: ${repos!.slice(1).join(', ')}. Use wf issue:all or run wf issue:implement separately per repository for multi-repo plans.`,
+      ),
+    );
+  }
+};
+
 @Injectable()
 @Command({
   name: 'issue:implement',
@@ -402,6 +412,7 @@ Return ONLY a valid JSON object:
 
       // ── MODE B & C: ticketKey present ──────────────────────────────────
       const platformDir = resolveArtifactDir(baseDir, platformName);
+      warnOnVerificationRepoBoundary(options?.repos);
       const ticketPath = path.join(platformDir, `${ticketKey}.md`);
       const discovered = discoverPlanAction(platformDir, ticketKey);
       const action: ResolutionAction = discovered.action;
@@ -538,6 +549,7 @@ Return ONLY a valid JSON object:
       }
 
       this.logger.info(`Implementing ticket ${ticketKey}...`);
+      const repoDir = resolveRepoBasePath(options?.repos?.[0]);
 
       const ticketContent = await fs.promises.readFile(ticketPath, 'utf-8');
       const ticketArtifact: TicketArtifact = {
@@ -575,6 +587,7 @@ Return ONLY a valid JSON object:
         planArtifact,
         {
           platformName,
+          repoDir,
         },
       );
     } catch (error) {

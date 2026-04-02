@@ -15,6 +15,30 @@ import {
 import { extractSummary, slugify } from './utils';
 import * as fs from 'fs';
 import * as path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
+const MAX_VERIFICATION_ATTEMPTS = 3;
+const TSC_OUTPUT_LINES = 200;
+
+interface VerificationCommandResult {
+  command: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+interface PackageScripts {
+  build?: string;
+  format?: string;
+  lint?: string;
+}
+
+interface VerificationFailure {
+  attempt: number;
+  results: VerificationCommandResult[];
+}
 
 const DEFAULT_PREFIX_MAPPING: Record<ResolutionAction, string> = {
   feature: 'feature',
@@ -54,6 +78,8 @@ export class ImplementerAgent {
       console.log(chalk.bold.yellow('\n🔧 STAGE 3: Implementation Guide'));
       console.log(chalk.gray('─'.repeat(70)));
     }
+
+    this.validateImplementationScope(planArtifact, options.repoDir);
 
     const summary = extractSummary(ticket.content);
     const branchName = this.generateBranchName(
@@ -132,36 +158,71 @@ export class ImplementerAgent {
       }
     }
 
-    if (repoFiles.length > 0) {
-      console.log(chalk.bold('\n  Generating code changes...'));
-      for (const filePath of repoFiles) {
-        // Strip repo-name prefix only when present; bare paths are used as-is.
-        const relativePath =
-          repoName && filePath.startsWith(`${repoName}/`)
-            ? filePath.slice(repoName.length + 1)
-            : filePath;
-        const absolutePath = options.repoDir
-          ? path.join(options.repoDir, relativePath)
-          : path.resolve(relativePath);
+    const packageScripts = this.readPackageScripts(options.repoDir);
+    const sceneContext = `${ticket.content}\n\n---\nPlan narration:\n${narration}`;
+    let retryContext = options.conversationContext;
 
-        const existingContent = fs.existsSync(absolutePath)
-          ? fs.readFileSync(absolutePath, 'utf-8')
-          : '';
+    for (
+      let attemptNumber = 1;
+      attemptNumber <= MAX_VERIFICATION_ATTEMPTS;
+      attemptNumber += 1
+    ) {
+      if (repoFiles.length > 0) {
+        console.log(chalk.bold('\n  Generating code changes...'));
+        for (const filePath of repoFiles) {
+          // Strip repo-name prefix only when present; bare paths are used as-is.
+          const relativePath =
+            repoName && filePath.startsWith(`${repoName}/`)
+              ? filePath.slice(repoName.length + 1)
+              : filePath;
+          const absolutePath = options.repoDir
+            ? path.join(options.repoDir, relativePath)
+            : path.resolve(relativePath);
 
-        console.log(chalk.gray(`\n    → ${filePath}`));
-        const sceneContext = `${ticket.content}\n\n---\nPlan narration:\n${narration}`;
-        const updatedContent = await this.aiService.generateFileChange({
-          ticketContent: sceneContext,
-          planSteps: planArtifact.plan.steps,
-          filePath: relativePath,
-          existingContent,
-          conversationContext: options.conversationContext,
-        });
+          const existingContent = fs.existsSync(absolutePath)
+            ? fs.readFileSync(absolutePath, 'utf-8')
+            : '';
 
-        fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-        fs.writeFileSync(absolutePath, updatedContent, 'utf-8');
-        console.log(chalk.green(`    ✓ Updated: ${filePath}`));
+          console.log(chalk.gray(`\n    → ${filePath}`));
+          const updatedContent = await this.aiService.generateFileChange({
+            ticketContent: sceneContext,
+            planSteps: planArtifact.plan.steps,
+            filePath: relativePath,
+            existingContent,
+            conversationContext: retryContext,
+          });
+
+          fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+          fs.writeFileSync(absolutePath, updatedContent, 'utf-8');
+          console.log(chalk.green(`    ✓ Updated: ${filePath}`));
+        }
       }
+
+      console.log(chalk.bold('\n  Verification:'));
+      const verificationFailure = await this.verifyImplementation(
+        options.repoDir,
+        packageScripts,
+        attemptNumber,
+      );
+      if (!verificationFailure) {
+        break;
+      }
+
+      if (attemptNumber === MAX_VERIFICATION_ATTEMPTS) {
+        throw new Error(
+          this.formatVerificationFailureMessage(verificationFailure),
+        );
+      }
+
+      retryContext = this.buildRetryContext(
+        options.conversationContext,
+        verificationFailure,
+      );
+      console.log(
+        chalk.yellow(
+          `    Verification failed on attempt ${attemptNumber}. Regenerating files with diagnostics...`,
+        ),
+      );
     }
 
     if ((planArtifact.plan.repositoriesAffected?.length ?? 0) > 0) {
@@ -172,14 +233,205 @@ export class ImplementerAgent {
     }
 
     console.log(chalk.bold('\n  Status:'));
-    console.log(chalk.cyan('    Changes generated and written to disk'));
     console.log(
-      chalk.cyan(
-        '    Next stages: review → commit (will execute automatically)',
-      ),
+      chalk.cyan('    Changes generated, verified, and written to disk'),
+    );
+    console.log(
+      chalk.cyan('    issue:implement completed for the selected repository'),
     );
 
     return { type: 'implementation', branchName };
+  }
+
+  /**
+   * Ensures issue:implement only operates on the selected repository.
+   *
+   * @param planArtifact - Plan metadata including files/repositories affected
+   * @param repoDir - Selected repository directory
+   * @returns Nothing; throws when the plan crosses repo boundaries
+   */
+  private validateImplementationScope(
+    planArtifact: PlanArtifact,
+    repoDir?: string,
+  ): void {
+    const repoName = repoDir ? path.basename(repoDir) : '';
+    const repositoriesAffected = [
+      ...new Set(planArtifact.plan.repositoriesAffected ?? []),
+    ];
+    if (repositoriesAffected.length > 1) {
+      throw new Error(
+        `issue:implement only verifies a single repository. This plan affects multiple repositories: ${repositoriesAffected.join(', ')}. Use wf issue:all or run wf issue:implement separately per repository.`,
+      );
+    }
+
+    if (!repoName) {
+      return;
+    }
+
+    const localPathPrefixes = new Set([
+      'src',
+      'test',
+      'tests',
+      'apps',
+      'libs',
+      'docs',
+      'scripts',
+      'config',
+      'bin',
+      'dist',
+      '.github',
+      '.husky',
+      '.changeset',
+      'package.json',
+      'tsconfig.json',
+      'tsconfig.build.json',
+      'README.md',
+    ]);
+    const offendingPaths = (planArtifact.plan.filesAffected ?? []).filter(
+      (filePath) => {
+        const [prefix] = filePath.split('/');
+        return prefix !== repoName && !localPathPrefixes.has(prefix);
+      },
+    );
+    if (offendingPaths.length > 0) {
+      throw new Error(
+        `issue:implement can only modify and verify files for ${repoName}. Found paths for other repositories: ${offendingPaths.join(', ')}. Use wf issue:all or run wf issue:implement separately per repository.`,
+      );
+    }
+  }
+
+  /**
+   * Reads the current package scripts for the selected repository.
+   *
+   * @param repoDir - Repository directory where package.json is expected
+   * @returns Relevant script names for verification
+   */
+  private readPackageScripts(repoDir?: string): PackageScripts {
+    const packageJsonPath = path.join(repoDir ?? process.cwd(), 'package.json');
+    if (!fs.existsSync(packageJsonPath)) {
+      throw new Error(
+        `package.json not found in ${repoDir ?? process.cwd()}. issue:implement requires a Node-based repository to verify format, lint, TypeScript, and build steps.`,
+      );
+    }
+
+    const packageJson = JSON.parse(
+      fs.readFileSync(packageJsonPath, 'utf-8'),
+    ) as { scripts?: PackageScripts };
+    const scripts = packageJson.scripts ?? {};
+    if (!scripts.build) {
+      throw new Error(
+        `package.json in ${repoDir ?? process.cwd()} does not define a build script. issue:implement requires a build script so it can run nr build before succeeding.`,
+      );
+    }
+
+    return scripts;
+  }
+
+  /**
+   * Executes the strict verification sequence for the selected repository.
+   *
+   * @param repoDir - Repository directory to verify
+   * @param packageScripts - Available package.json scripts
+   * @param attempt - Current retry attempt number
+   * @returns Verification failure details, or null when all checks pass
+   */
+  private async verifyImplementation(
+    repoDir: string | undefined,
+    packageScripts: PackageScripts,
+    attempt: number,
+  ): Promise<VerificationFailure | null> {
+    const commands: string[] = [];
+    if (packageScripts.format) {
+      commands.push('nr format');
+    }
+    if (packageScripts.lint) {
+      commands.push('nr lint');
+    }
+    commands.push(
+      `npx tsc --noEmit --pretty 2>&1 | head -n ${TSC_OUTPUT_LINES}`,
+    );
+    commands.push('nr build');
+
+    const results: VerificationCommandResult[] = [];
+    for (const command of commands) {
+      const result = await this.runCommand(command, repoDir);
+      results.push(result);
+      if (result.exitCode !== 0) {
+        return { attempt, results };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Runs a shell command in the selected repository and captures the output.
+   *
+   * @param command - Exact shell command to execute
+   * @param cwd - Repository directory
+   * @returns Exit code plus captured stdout/stderr
+   */
+  private async runCommand(
+    command: string,
+    cwd?: string,
+  ): Promise<VerificationCommandResult> {
+    try {
+      const { stdout, stderr } = await execAsync(command, {
+        cwd: cwd ?? process.cwd(),
+        maxBuffer: 1024 * 1024 * 10,
+      });
+      return {
+        command,
+        exitCode: 0,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+      };
+    } catch (error: any) {
+      return {
+        command,
+        exitCode: error.code ?? 1,
+        stdout: error.stdout?.trim?.() ?? '',
+        stderr: error.stderr?.trim?.() ?? error.message ?? '',
+      };
+    }
+  }
+
+  /**
+   * Builds retry context that feeds verification diagnostics back into the next AI pass.
+   *
+   * @param baseContext - Existing conversation context from the caller
+   * @param failure - Verification failure details from the last attempt
+   * @returns Combined context string
+   */
+  private buildRetryContext(
+    baseContext: string | undefined,
+    failure: VerificationFailure,
+  ): string {
+    const diagnostics = this.formatVerificationFailureMessage(failure);
+    return [baseContext, diagnostics].filter(Boolean).join('\n\n');
+  }
+
+  /**
+   * Formats the latest verification failure for logs and AI retry prompts.
+   *
+   * @param failure - Verification failure details from the last attempt
+   * @returns Concise failure summary with command outputs
+   */
+  private formatVerificationFailureMessage(
+    failure: VerificationFailure,
+  ): string {
+    const renderedResults = failure.results
+      .map((result) => {
+        const outputs = [result.stdout, result.stderr]
+          .filter(Boolean)
+          .join('\n');
+        return [`Command: ${result.command}`, outputs && `Output:\n${outputs}`]
+          .filter(Boolean)
+          .join('\n');
+      })
+      .join('\n\n');
+
+    return `Verification failed on attempt ${failure.attempt}.\n\n${renderedResults}`.trim();
   }
 
   private async executeInvestigation(
