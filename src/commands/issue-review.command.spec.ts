@@ -56,7 +56,10 @@ async function buildCommand(overrides?: {
       { provide: AiService, useValue: {} },
       {
         provide: GitService,
-        useValue: { getDiff: jest.fn().mockResolvedValue('') },
+        useValue: {
+          getDiff: jest.fn().mockResolvedValue(''),
+          isGitRepository: jest.fn().mockResolvedValue(true),
+        },
       },
       {
         provide: PlatformService,
@@ -106,46 +109,77 @@ describe('IssueReviewCommand', () => {
     });
   });
 
-  describe('ticket key — no open PR', () => {
-    let command: IssueReviewCommand;
-    let exitSpy: jest.SpyInstance;
-    let consoleErrorSpy: jest.SpyInstance;
+  describe('ticket key uses local repo review with ticket context', () => {
+    it('reviews local changes instead of searching for a PR', async () => {
+      const command = await buildCommand();
+      const reviewRepoSetSpy = jest
+        .spyOn(command as any, 'reviewRepoSet')
+        .mockResolvedValue('diff content');
+      const aiService = (command as any).aiService;
+      aiService.reviewCode = jest.fn().mockResolvedValue({
+        summary: 'ok',
+        issues: [],
+        suggestions: [],
+        approved: true,
+      });
 
-    beforeEach(async () => {
-      command = await buildCommand();
-      exitSpy = jest
+      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+
+      expect(reviewRepoSetSpy).toHaveBeenCalled();
+      expect(aiService.reviewCode).toHaveBeenCalledWith(
+        'diff content',
+        expect.arrayContaining([
+          expect.stringContaining('ticket TAD-575'),
+          expect.stringContaining('repositories under review'),
+        ]),
+      );
+    });
+  });
+
+  describe('source validation and repo targeting', () => {
+    it('rejects filesystem paths as invalid sources', async () => {
+      const command = await buildCommand();
+      const exitSpy = jest
         .spyOn(process, 'exit')
         .mockImplementation((() => {}) as any);
-      consoleErrorSpy = jest
+      const consoleErrorSpy = jest
         .spyOn(console, 'error')
         .mockImplementation(() => {});
-    });
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
 
-    afterEach(() => {
+      await command.run(['../repo-path'], {});
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      const errorOutput = consoleErrorSpy.mock.calls
+        .map((c) => c.join(' '))
+        .join('\n');
+      expect(errorOutput).toContain(
+        'Expected: ticket key (ABC-123) or PR URL.',
+      );
+
       exitSpy.mockRestore();
       consoleErrorSpy.mockRestore();
     });
 
-    it('exits with code 1 when ticket key is supplied with --repos but no open PR is found', async () => {
-      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+    it('reviews each resolved repo when --repos is provided without a source', async () => {
+      const command = await buildCommand();
+      const reviewCurrentRepoSpy = jest
+        .spyOn(command as any, 'reviewCurrentRepo')
+        .mockResolvedValueOnce('diff a')
+        .mockResolvedValueOnce('diff b');
+      const aiService = (command as any).aiService;
+      aiService.reviewCode = jest.fn().mockResolvedValue({
+        summary: 'ok',
+        issues: [],
+        suggestions: [],
+        approved: true,
+      });
 
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      const errorOutput = consoleErrorSpy.mock.calls
-        .map((c) => c.join(' '))
-        .join('\n');
-      expect(errorOutput).toContain('No open pull request found for TAD-575');
-      expect(errorOutput).toContain('wf issue:review');
-    });
+      await command.run([], { repos: ['repo-a', 'repo-b'] });
 
-    it('exits with code 1 when ticket key is supplied without --repos (PR search skipped)', async () => {
-      await command.run(['TAD-575'], {});
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      const errorOutput = consoleErrorSpy.mock.calls
-        .map((c) => c.join(' '))
-        .join('\n');
-      expect(errorOutput).toContain('No open pull request found for TAD-575');
-      expect(errorOutput).toContain('wf issue:review');
+      expect(reviewCurrentRepoSpy).toHaveBeenCalledTimes(2);
+      expect(reviewCurrentRepoSpy).toHaveBeenNthCalledWith(1, '/mock/repo');
+      expect(reviewCurrentRepoSpy).toHaveBeenNthCalledWith(2, '/mock/repo');
     });
   });
 });

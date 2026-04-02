@@ -222,4 +222,34 @@ describe('IssueCreateCommand', () => {
     ).rejects.toThrow(`Input file not found: ${expectedMissingPath}`);
     expect(mockReadFileSync).not.toHaveBeenCalled();
   });
+
+  it('warns and uses only the first repo namespace when multiple repos are provided', async () => {
+    const command = await buildCommand();
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const artifactPath = path.join(
+      os.homedir(),
+      '.wf',
+      'repo-a',
+      'jira',
+      'GENERATED-2026-04-01-46ac9014.md',
+    );
+
+    mockExistsSync.mockImplementation(
+      (input) => String(input) === artifactPath,
+    );
+
+    await command.run(['GENERATED-2026-04-01-46ac9014.md'], {
+      repos: ['repo-a', 'repo-b'],
+      dryRun: true,
+    });
+
+    expect(mockReadFileSync).toHaveBeenCalledWith(artifactPath, 'utf-8');
+    expect(
+      consoleSpy.mock.calls.some((call) =>
+        String(call[0]).includes('Only the first repository'),
+      ),
+    ).toBe(true);
+
+    consoleSpy.mockRestore();
+  });
 });

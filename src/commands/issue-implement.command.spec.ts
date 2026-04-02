@@ -380,4 +380,35 @@ describe('IssueImplementCommand', () => {
       expect(mockOrchestrator.planner.execute).not.toHaveBeenCalled();
     });
   });
+
+  describe('--plan with multiple repos', () => {
+    it('warns that only the first repo plan namespace will be used', async () => {
+      const command = await buildCommand();
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+      const existsSyncSpy = jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((p: string) =>
+          String(p).includes(
+            path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'plan.json'),
+          ),
+        );
+
+      await command.run([], {
+        plan: 'plan.json',
+        repos: ['repo-a', 'repo-b'],
+        dryRun: true,
+      });
+
+      expect(
+        consoleSpy.mock.calls.some((call) =>
+          String(call[0]).includes('Only the first repository'),
+        ),
+      ).toBe(true);
+
+      existsSyncSpy.mockRestore();
+      consoleSpy.mockRestore();
+    });
+  });
 });

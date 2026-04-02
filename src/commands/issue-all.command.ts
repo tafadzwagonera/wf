@@ -147,7 +147,7 @@ export class IssueAllCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+      'Space-separated repositories; the first repo anchors artifact storage and all repos are used as workflow context',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);

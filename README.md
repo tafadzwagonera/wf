@@ -278,14 +278,13 @@ wf issue:plan WBP-2971 --action fix --dry-run
 
 #### `wf issue:review [source]`
 
-AI-powered code review. Accepts four source modes:
+AI-powered code review. Accepts two source modes:
 
-| Source                 | Description                                              |
-| ---------------------- | -------------------------------------------------------- |
-| _(none)_               | Review staged/unstaged changes in the current repository |
-| `ABC-123`              | Review changes in the current repo (context: the ticket) |
-| `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request      |
-| `./path/to/repo`       | Review changes in a specific local repository            |
+| Source                 | Description                                                                         |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| _(none)_               | Review staged/unstaged changes in the current repo, or all repos listed in `--repos` |
+| `ABC-123`              | Review local repo changes with ticket context                                       |
+| `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request                                 |
 
 ```bash
 # Review current repository changes
@@ -296,9 +295,6 @@ wf issue:review WBP-2971
 
 # Review a GitHub PR
 wf issue:review https://github.com/owner/repo/pull/42
-
-# Review a local repo
-wf issue:review ../my-other-repo
 
 # Save review output to file
 wf issue:review WBP-2971 --output ./jira/WBP-2971-review.md
@@ -313,6 +309,7 @@ wf issue:review --dry-run
 | ----------------------- | ----------------------------------- | ------- |
 | `-f, --format <format>` | Output format: `text \| json \| md` | `text`  |
 | `-o, --output <path>`   | Save review to a file               | stdout  |
+| `-r, --repos <repos...>`| First repo anchors local review context; all repos are inspected for local changes | current repo |
 | `--dry-run`             | Preview without calling the AI      | —       |
 
 ---
@@ -340,6 +337,7 @@ wf issue:create ticket.json --dry-run
 | Flag                        | Description                                        | Default            |
 | --------------------------- | -------------------------------------------------- | ------------------ |
 | `-p, --platform <platform>` | Target platform: `jira \| github \| bitbucket`     | `PRIMARY_PLATFORM` |
+| `-r, --repos <repos...>`    | Only the first repo is used for artifact lookup; extras are ignored with a warning | current repo |
 | `--project <project>`       | Project key (Jira) or `workspace/repo` (Bitbucket) | from input file    |
 | `-t, --type <type>`         | Issue type: `task \| bug \| story \| todo`         | from input file    |
 | `--dry-run`                 | Validate and preview without creating              | —                  |
@@ -418,6 +416,7 @@ wf issue:commit --dry-run
 | `-m, --message <message>` | Manual commit message — bypasses AI generation                       | —       |
 | `--no-ai`                 | Require a manual `--message` (error if omitted)                      | —       |
 | `--conventional`          | Force conventional commits format (`<type>(<scope>): <description>`) | —       |
+| `-r, --repos <repos...>`  | Only the first repo is used as the commit working tree; extras are ignored with a warning | current repo |
 | `--dry-run`               | Preview the commit without staging or committing                     | —       |
 
 **Branch detection:** ticket keys are extracted from the branch name using the pattern `[A-Z]+-\d+` (e.g., `feature/WBP-2971__add-oauth` → `WBP-2971`).
@@ -444,7 +443,7 @@ wf issue:pr WBP-2971 --dry-run
 | `-b, --base <branch>`       | Base branch for the pull request                               | default branch     |
 | `--dry-run`                 | Preview the PR without creating it                             | —                  |
 | `-p, --platform <platform>` | Target platform: `github \| bitbucket`                         | `PRIMARY_PLATFORM` |
-| `-r, --repos <repos...>`    | Space-separated repositories (`workspace/repo` or `repo-name`) | —                  |
+| `-r, --repos <repos...>`    | Only the first repo is used; extras are ignored with a warning | —                  |
 | `-t, --title <title>`       | Override the auto-generated PR title                           | —                  |
 
 ---
@@ -488,7 +487,7 @@ wf issue-all WBP-2971 --from fetch --action fix --dry-run
 | `--pr`                      | Create PR after commit stage                                                           | false              |
 | `--interactive`             | Open AI chat after `plan` and `review` stages                                          | —                  |
 | `--skip-existing`           | Skip stages whose output artifact already exists                                       | —                  |
-| `--repo <repo>`             | Bitbucket repository override (`workspace/repo` or `repo-name`)                        | —                  |
+| `-r, --repos <repos...>`    | First repo anchors artifact storage; all repos are used as workflow context            | current repo       |
 | `--dry-run`                 | Preview every stage without making changes                                             | —                  |
 
 **Stage order and artifacts:**

@@ -42,19 +42,21 @@ export class GitService {
     );
   }
 
-  async isGitRepository(): Promise<boolean> {
+  async isGitRepository(cwd?: string): Promise<boolean> {
+    const git = cwd ? simpleGit(cwd) : this.git;
     try {
-      await this.git.status();
+      await git.status();
       return true;
     } catch {
       return false;
     }
   }
 
-  async getBranchInfo(): Promise<BranchInfo> {
+  async getBranchInfo(cwd?: string): Promise<BranchInfo> {
+    const git = cwd ? simpleGit(cwd) : this.git;
     try {
-      const status: StatusResult = await this.git.status();
-      const branches: BranchSummary = await this.git.branch();
+      const status: StatusResult = await git.status();
+      const branches: BranchSummary = await git.branch();
 
       // Detect development branch
       const devBranch = this.detectDevelopmentBranch(branches.all);

@@ -7,6 +7,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
+import { resolveRepoBasePath } from '../agents/utils';
 import chalk from 'chalk';
 
 interface IssueCommitOptions {
@@ -28,6 +29,16 @@ const ISSUE_COMMIT_EXAMPLES: CliExample[] = [
     command: 'wf issue:commit WBP-2971 --conventional --platform jira',
   },
 ];
+
+const warnOnIgnoredRepos = (repos?: string[]): void => {
+  if ((repos?.length ?? 0) > 1) {
+    console.log(
+      chalk.yellow(
+        `⚠️ Only the first repository will be used for issue:commit. Ignoring: ${repos!.slice(1).join(', ')}`,
+      ),
+    );
+  }
+};
 
 /**
  * Command to create git commits with AI-generated messages
@@ -58,12 +69,15 @@ export class IssueCommitCommand extends CommandRunner {
     printExamples(ISSUE_COMMIT_EXAMPLES);
 
     try {
+      const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
+      warnOnIgnoredRepos(options?.repos);
+
       // Get ticket key (from param or branch) — needed for both dry-run and live
       let ticketKey: string | null = passedParams[0] || null;
 
       if (options?.dryRun) {
         if (!ticketKey) {
-          const detected = await this.detectTicketFromBranch();
+          const detected = await this.detectTicketFromBranch(repoBaseDir);
           if (detected) {
             ticketKey = detected;
           }
@@ -117,17 +131,17 @@ export class IssueCommitCommand extends CommandRunner {
       }
 
       // Check if we're in a git repository
-      const isRepo = await this.gitService.isGitRepository();
+      const isRepo = await this.gitService.isGitRepository(repoBaseDir);
       if (!isRepo) {
         throw new Error(
-          'Not a git repository. Run this command from a git repository.',
+          `Not a git repository. Run this command from a git repository: ${repoBaseDir}`,
         );
       }
 
       console.log(chalk.bold.cyan('\n📝 Creating Git Commit\n'));
 
       if (!ticketKey) {
-        const detected = await this.detectTicketFromBranch();
+        const detected = await this.detectTicketFromBranch(repoBaseDir);
         if (detected) {
           ticketKey = detected;
           console.log(chalk.gray(`  Auto-detected ticket: ${ticketKey}`));
@@ -135,7 +149,7 @@ export class IssueCommitCommand extends CommandRunner {
       }
 
       // Get git diff to understand changes
-      const diff = await this.gitService.getDiff(true); // Get staged changes
+      const diff = await this.gitService.getDiff(true, repoBaseDir); // Get staged changes
       if (!diff || diff.trim().length === 0) {
         throw new Error(
           'No staged changes to commit. Use "git add" to stage changes first.',
@@ -179,6 +193,7 @@ export class IssueCommitCommand extends CommandRunner {
       console.log(chalk.cyan('📦 Creating commit...\n'));
       const commitHash = await this.gitService.commit({
         message: commitMessage,
+        cwd: repoBaseDir,
       });
 
       console.log(chalk.green('✅ Commit created successfully!\n'));
@@ -238,7 +253,7 @@ export class IssueCommitCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+      'Space-separated repositories; only the first repo is used and additional repos are ignored with a warning',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
@@ -248,9 +263,11 @@ export class IssueCommitCommand extends CommandRunner {
    * Detect ticket key from current branch name
    * Supports formats like: feature/WBP-2971-description, WBP-2971, etc.
    */
-  private async detectTicketFromBranch(): Promise<string | null> {
+  private async detectTicketFromBranch(
+    repoBaseDir?: string,
+  ): Promise<string | null> {
     try {
-      const branchInfo = await this.gitService.getBranchInfo();
+      const branchInfo = await this.gitService.getBranchInfo(repoBaseDir);
       const branchName = branchInfo.current;
 
       // Try to extract ticket key (format: ABC-123)

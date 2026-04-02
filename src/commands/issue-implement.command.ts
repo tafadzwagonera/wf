@@ -63,6 +63,16 @@ interface IssueImplementOptions {
   dryRun?: boolean;
 }
 
+const warnOnPrimaryPlanRepo = (repos?: string[]): void => {
+  if ((repos?.length ?? 0) > 1) {
+    console.log(
+      chalk.yellow(
+        `⚠️ Only the first repository will be used to resolve the plan artifact. Remaining repos are used only as implementation context: ${repos!.slice(1).join(', ')}`,
+      ),
+    );
+  }
+};
+
 @Injectable()
 @Command({
   name: 'issue:implement',
@@ -88,7 +98,7 @@ export class IssueImplementCommand extends CommandRunner {
   @Option({
     flags: '--plan <path>',
     description:
-      'Filename (looked up under ~/.wf/<app>/<platform>/) or relative path (resolved from app root)',
+      'Filename (looked up under the primary repo artifact namespace) or relative path (resolved from the primary repo root)',
     required: false,
   })
   parsePlan(val: string): string {
@@ -126,7 +136,7 @@ export class IssueImplementCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+      'Space-separated repositories; first repo anchors artifact lookup, all repos remain available as implementation context',
     required: false,
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
@@ -173,6 +183,9 @@ export class IssueImplementCommand extends CommandRunner {
       }
 
       const baseDir = resolveRepoBasePath(options?.repos?.[0]);
+      if (options?.plan) {
+        warnOnPrimaryPlanRepo(options?.repos);
+      }
 
       const resolvedPlanPath = options?.plan
         ? path.dirname(options.plan) === '.'

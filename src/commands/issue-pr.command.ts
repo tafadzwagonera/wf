@@ -34,6 +34,16 @@ const ISSUE_PR_EXAMPLES: CliExample[] = [
   },
 ];
 
+const warnOnIgnoredRepos = (repos?: string[]): void => {
+  if ((repos?.length ?? 0) > 1) {
+    console.log(
+      chalk.yellow(
+        `⚠️ Only the first repository will be used for issue:pr. Ignoring: ${repos!.slice(1).join(', ')}`,
+      ),
+    );
+  }
+};
+
 const VALID_ACTIONS = ['feature', 'fix', 'investigate'] as const;
 
 /**
@@ -63,6 +73,8 @@ export class IssuePrCommand extends CommandRunner {
     printExamples(ISSUE_PR_EXAMPLES);
 
     try {
+      warnOnIgnoredRepos(options?.repos);
+
       // Resolve ticket key from param or current branch
       let ticketKey: string | null = passedParams[0] || null;
 
@@ -221,7 +233,7 @@ export class IssuePrCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated list of repositories (workspace/repo or repo-name)',
+      'Space-separated repositories; only the first repo is used and additional repos are ignored with a warning',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);

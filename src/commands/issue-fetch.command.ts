@@ -9,6 +9,7 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import chalk from 'chalk';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -24,6 +25,16 @@ const ISSUE_FETCH_EXAMPLES: CliExample[] = [
     command: 'wf issue:fetch WBP-2971 --platform jira --format md',
   },
 ];
+
+const warnOnIgnoredRepos = (repos?: string[]): void => {
+  if ((repos?.length ?? 0) > 1) {
+    console.log(
+      chalk.yellow(
+        `⚠️ Only the first repository will be used for issue:fetch. Ignoring: ${repos!.slice(1).join(', ')}`,
+      ),
+    );
+  }
+};
 
 type OutputFormat = 'json' | 'md' | 'yaml' | 'xml';
 
@@ -91,7 +102,7 @@ export class IssueFetchCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+      'Space-separated repositories; only the first repo is used and additional repos are ignored with a warning',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
@@ -102,6 +113,7 @@ export class IssueFetchCommand extends CommandRunner {
 
     try {
       fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
+      warnOnIgnoredRepos(options?.repos);
 
       // Get platform (from option or config)
       const platformName =

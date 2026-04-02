@@ -22,6 +22,16 @@ interface IssueCreateOptions {
   dryRun?: boolean;
 }
 
+const warnOnIgnoredRepos = (repos?: string[]): void => {
+  if ((repos?.length ?? 0) > 1) {
+    console.log(
+      chalk.yellow(
+        `⚠️ Only the first repository will be used for issue:create artifact lookup. Ignoring: ${repos!.slice(1).join(', ')}`,
+      ),
+    );
+  }
+};
+
 const ISSUE_CREATE_EXAMPLES: CliExample[] = [
   {
     comment: 'Create ticket from JSON on primary platform',
@@ -78,6 +88,7 @@ export class IssueCreateCommand extends CommandRunner {
       const platformName =
         options?.platform ||
         this.configService.get<string>('platforms.primary', 'jira');
+      warnOnIgnoredRepos(options?.repos);
       const resolved = path.resolve(inputPath);
       const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
       const artifactPath =
@@ -200,7 +211,7 @@ export class IssueCreateCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+      'Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);

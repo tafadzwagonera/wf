@@ -13,7 +13,6 @@ import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 interface IssueReviewOptions {
   format?: string;
@@ -72,13 +71,14 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 };
 
 /**
- * Enhanced command to review code changes with flexible source options
- * Supports: current repo, ticket key, PR URL, or specific repo path
+ * Review code changes in the current or selected repositories, optionally
+ * adding ticket context or reviewing a pull request URL directly.
  */
 @Injectable()
 @Command({
   name: 'issue:review',
-  description: 'AI-powered code review with flexible source options',
+  description:
+    'AI-powered code review of local repository changes or pull request diffs',
   arguments: '[source]',
   options: { isDefault: false },
 })
@@ -99,9 +99,10 @@ export class IssueReviewCommand extends CommandRunner {
   ): Promise<void> {
     printExamples(ISSUE_REVIEW_EXAMPLES);
 
-    fs.mkdirSync(getWfHomeDir(), { recursive: true });
-
     const source = passedParams[0];
+    const repoDirs = options?.repos?.length
+      ? options.repos.map((repo) => resolveRepoBasePath(repo))
+      : [process.cwd()];
 
     // Early validation — throws directly so callers can catch without going
     // through ErrorHandler.handle() → process.exit(1).
@@ -118,16 +119,16 @@ export class IssueReviewCommand extends CommandRunner {
         ? loadCriteriaFromFile(options.criteria)
         : null;
 
-    // Resolve repo base path early so an invalid --repos value emits a warning
-    // before any expensive API calls, consistent with issue:implement / issue:all.
-    resolveRepoBasePath(options?.repos?.[0]);
-
     try {
       if (options?.dryRun) {
         this.dryRunPreview.showHeader('issue:review', source || 'current repo');
 
         if (!source) {
-          console.log(chalk.gray('   Source  : current repository git diff\n'));
+          console.log(
+            chalk.gray(
+              `   Source  : working tree diff in ${repoDirs.length} repo(s)\n`,
+            ),
+          );
         } else if (this.isTicketKey(source)) {
           this.dryRunPreview.previewApiCall({
             method: 'GET',
@@ -135,20 +136,6 @@ export class IssueReviewCommand extends CommandRunner {
             platform: 'Jira',
             description: 'Fetch ticket details for review context',
             estimatedResponse: '200 OK — ticket title and description',
-          });
-          this.dryRunPreview.previewApiCall({
-            method: 'GET',
-            endpoint: `/2.0/repositories/{workspace}/{repo}/pullrequests?q=source.branch.name~"${source}"`,
-            platform: 'Bitbucket',
-            description: 'Search for open PR with ticket key in branch name',
-            estimatedResponse: '200 OK — list of matching pull requests',
-          });
-          this.dryRunPreview.previewApiCall({
-            method: 'GET',
-            endpoint: `/2.0/repositories/{workspace}/{repo}/pullrequests/{id}/diff`,
-            platform: 'Bitbucket',
-            description: 'Fetch pull request diff',
-            estimatedResponse: '200 OK — diff content',
           });
         } else if (this.isUrl(source)) {
           this.dryRunPreview.previewApiCall({
@@ -158,15 +145,9 @@ export class IssueReviewCommand extends CommandRunner {
             description: 'Fetch pull request diff',
             estimatedResponse: '200 OK — diff content',
           });
-        } else if (
-          fs.existsSync(source) ||
-          fs.existsSync(path.join(getWfHomeDir(), source))
-        ) {
-          const resolvedDrySource = fs.existsSync(source)
-            ? source
-            : path.join(getWfHomeDir(), source);
-          console.log(
-            chalk.gray(`   Source  : repository at ${resolvedDrySource}\n`),
+        } else {
+          throw new Error(
+            `Invalid source: ${source}. Expected: ticket key (ABC-123) or PR URL.`,
           );
         }
 
@@ -186,9 +167,7 @@ export class IssueReviewCommand extends CommandRunner {
         });
 
         const willPostComment =
-          options?.comment &&
-          source &&
-          (this.isBitbucketSource(source) || this.isTicketKey(source));
+          options?.comment && source && this.isBitbucketSource(source);
 
         if (willPostComment) {
           this.dryRunPreview.previewApiCall({
@@ -228,7 +207,7 @@ export class IssueReviewCommand extends CommandRunner {
         const isPrUrl = source && this.isUrl(source);
         this.dryRunPreview.showSummary({
           apiCallCount:
-            (isTicketKey ? 3 : isPrUrl ? 2 : 1) + (willPostComment ? 1 : 0),
+            (isTicketKey ? 2 : isPrUrl ? 2 : 1) + (willPostComment ? 1 : 0),
           fileCreatedCount,
           fileModifiedCount: 0,
           gitOperationCount: 0,
@@ -257,8 +236,8 @@ export class IssueReviewCommand extends CommandRunner {
         console.log(
           chalk.bold.cyan('\n🔍 Reviewing Current Repository Changes\n'),
         );
-        diff = await this.reviewCurrentRepo();
-        context = 'current repository changes';
+        diff = await this.reviewRepoSet(repoDirs);
+        context = this.buildRepoContext(repoDirs, 'current repository changes');
       } else if (this.isUrl(source)) {
         // Mode 2: PR URL - review GitHub/BitBucket PR
         console.log(chalk.bold.cyan(`\n🔍 Reviewing Pull Request\n`));
@@ -269,7 +248,7 @@ export class IssueReviewCommand extends CommandRunner {
           bitbucketCommentRef = source;
         }
       } else if (this.isTicketKey(source)) {
-        // Mode 3: Ticket key - fetch from platform, search for associated PR
+        // Mode 3: Ticket key - fetch ticket context, then review local repo changes
         console.log(
           chalk.bold.cyan(`\n🔍 Reviewing Changes for Ticket: ${source}\n`),
         );
@@ -278,38 +257,11 @@ export class IssueReviewCommand extends CommandRunner {
         const ticket = await this.platformService
           .getDefaultAdapter()
           .getTicket(source);
-        context = this.buildTicketContext(ticket);
-
-        const repoHint = options?.repos?.[0] ?? path.basename(process.cwd());
-        const prUrl = await this.findBitbucketPr(source, repoHint);
-        if (prUrl) {
-          console.log(chalk.gray(`  Found PR: ${prUrl}\n`));
-          diff = await this.reviewPullRequest(prUrl);
-          bitbucketCommentRef = prUrl;
-        } else {
-          throw new Error(
-            `No open pull request found for ${source} in repository "${repoHint}".\n` +
-              `  Searched by branch name and PR title.\n` +
-              `  To target a specific repo use: --repos <workspace/repo>\n` +
-              `  To review uncommitted changes instead, omit the ticket argument:\n` +
-              `  wf issue:review`,
-          );
-        }
-      } else if (
-        fs.existsSync(source) ||
-        fs.existsSync(path.join(getWfHomeDir(), source))
-      ) {
-        // Mode 4: Path - review specific repo
-        const resolvedSource = fs.existsSync(source)
-          ? source
-          : path.join(getWfHomeDir(), source);
-        console.log(chalk.bold.cyan(`\n🔍 Reviewing Repository at Path\n`));
-        console.log(chalk.gray(`  Path: ${resolvedSource}\n`));
-        diff = await this.reviewRepositoryPath(resolvedSource);
-        context = `repository at ${resolvedSource}`;
+        diff = await this.reviewRepoSet(repoDirs);
+        context = `${this.buildTicketContext(ticket)}\n\n${this.buildRepoContext(repoDirs, 'repositories under review')}`;
       } else {
         throw new Error(
-          `Invalid source: ${source}. Expected: ticket key (ABC-123), PR URL, or valid path.`,
+          `Invalid source: ${source}. Expected: ticket key (ABC-123) or PR URL.`,
         );
       }
 
@@ -429,25 +381,11 @@ export class IssueReviewCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+      'Space-separated repositories; first repo anchors local review context and all repos are inspected for local changes',
     required: false,
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
-  }
-
-  /**
-   * Search Bitbucket for an open PR whose source branch contains the ticket key.
-   * @param ticketKey Jira-style ticket key (e.g. "WBP-2955")
-   * @param repo Repo in "workspace/repo" format
-   * @returns PR URL if found, null otherwise
-   */
-  private async findBitbucketPr(
-    ticketKey: string,
-    repo: string,
-  ): Promise<string | null> {
-    const adapter = this.platformService.getAdapter('bitbucket');
-    return adapter.findPullRequestByTicketKey?.(ticketKey, repo) ?? null;
   }
 
   /**
@@ -541,19 +479,38 @@ export class IssueReviewCommand extends CommandRunner {
   /**
    * Review current repository changes
    */
-  private async reviewCurrentRepo(): Promise<string> {
-    const isRepo = await this.gitService.isGitRepository();
+  private async reviewCurrentRepo(repoDir: string): Promise<string> {
+    const isRepo = await this.gitService.isGitRepository(repoDir);
     if (!isRepo) {
-      throw new Error('Not a git repository');
+      throw new Error(`Not a git repository: ${repoDir}`);
     }
 
     // Try to get diff (staged or unstaged)
-    let diff = await this.gitService.getDiff(true); // Try staged first
+    let diff = await this.gitService.getDiff(true, repoDir); // Try staged first
     if (!diff || diff.trim().length === 0) {
-      diff = await this.gitService.getDiff(false); // Try unstaged
+      diff = await this.gitService.getDiff(false, repoDir); // Try unstaged
     }
 
     return diff;
+  }
+
+  private async reviewRepoSet(repoDirs: string[]): Promise<string> {
+    const sections: string[] = [];
+
+    for (const repoDir of repoDirs) {
+      const diff = await this.reviewCurrentRepo(repoDir);
+      if (!diff || diff.trim().length === 0) {
+        continue;
+      }
+
+      sections.push(
+        repoDirs.length > 1
+          ? `## Repository: ${path.basename(repoDir)}\n\n${diff}`
+          : diff,
+      );
+    }
+
+    return sections.join('\n\n');
   }
 
   /**
@@ -574,81 +531,11 @@ export class IssueReviewCommand extends CommandRunner {
     }
   }
 
-  /**
-   * Review repository at specific path. When no .git directory is present,
-   * falls back to collecting source file contents for review instead of throwing,
-   * allowing review of directories not yet initialised as git repos.
-   * @param repoPath Absolute or relative path to the directory
-   * @returns Diff string or collected file contents
-   */
-  private async reviewRepositoryPath(repoPath: string): Promise<string> {
-    const resolvedPath = path.resolve(repoPath);
-
-    if (!fs.existsSync(resolvedPath)) {
-      throw new Error(`Path does not exist: ${resolvedPath}`);
-    }
-
-    const gitDir = path.join(resolvedPath, '.git');
-    if (!fs.existsSync(gitDir)) {
-      console.log(
-        chalk.yellow(
-          `  ⚠️  No .git directory found — collecting source files for review\n`,
-        ),
-      );
-      return this.collectFilesForReview(resolvedPath);
-    }
-
-    const currentDir = process.cwd();
-    try {
-      process.chdir(resolvedPath);
-      return await this.gitService.getDiff(false);
-    } finally {
-      process.chdir(currentDir);
-    }
-  }
-
-  /**
-   * Collect source file contents from a directory for AI review.
-   * Used when the directory has no .git working tree.
-   * Reads .ts, .js, and .json files up to 50 KB each,
-   * skipping node_modules, dist, and .git.
-   * @param dirPath Absolute path to the directory to scan
-   * @returns Formatted string of file contents ready for AI review
-   */
-  private collectFilesForReview(dirPath: string): string {
-    const maxFileSizeInBytes = 50 * 1024;
-    const allowedExtensions = new Set(['.ts', '.js', '.json']);
-    const excludedDirs = new Set(['node_modules', 'dist', '.git']);
-
-    const collectPaths = (dir: string): string[] => {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      return entries.flatMap((entry) => {
-        if (entry.isDirectory()) {
-          return excludedDirs.has(entry.name)
-            ? []
-            : collectPaths(path.join(dir, entry.name));
-        }
-        const ext = path.extname(entry.name);
-        return allowedExtensions.has(ext) ? [path.join(dir, entry.name)] : [];
-      });
-    };
-
-    const filePaths = collectPaths(dirPath);
-    if (filePaths.length === 0) {
-      return `# Directory Review: ${dirPath}\n\nNo .ts, .js, or .json source files found.`;
-    }
-
-    const sections = filePaths.map((filePath) => {
-      const relativePath = path.relative(dirPath, filePath);
-      if (fs.statSync(filePath).size > maxFileSizeInBytes) {
-        return `## ${relativePath}\n\n_Skipped: exceeds ${maxFileSizeInBytes / 1024} KB_\n`;
-      }
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const ext = path.extname(filePath).slice(1) || 'text';
-      return `## ${relativePath}\n\n\`\`\`${ext}\n${content}\n\`\`\`\n`;
-    });
-
-    return `# Directory Review: ${dirPath}\n\n${sections.join('\n')}`;
+  private buildRepoContext(repoDirs: string[], label: string): string {
+    const repoNames = repoDirs
+      .map((repoDir) => path.basename(repoDir))
+      .join(', ');
+    return `${label}: ${repoNames}`;
   }
 
   /**
