@@ -30,12 +30,12 @@ export const extractSummary = (content: string): string => {
 };
 
 /**
- * Convert a string to a URL-safe slug (max 50 chars).
+ * Convert a string to a URL-safe slug.
  * Lowercases, strips non-word characters, collapses spaces to hyphens,
- * deduplicates hyphens, strips leading/trailing hyphens, then truncates.
+ * deduplicates hyphens, and strips leading/trailing hyphens.
  *
  * @param text - Input string to slugify
- * @returns URL-safe slug of at most 50 characters
+ * @returns URL-safe slug
  */
 /**
  * Resolve the base directory for a repository.
@@ -93,5 +93,4 @@ export const slugify = (text: string): string =>
     .replace(/[^\w\s-]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .substring(0, 50);
+    .replace(/^-+|-+$/g, '');

@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { resolveRepoBasePath } from './utils';
+import { extractSummary, resolveRepoBasePath, slugify } from './utils';
 
 jest.mock('fs', () => ({
   existsSync: jest.fn(),
@@ -56,5 +56,30 @@ describe('resolveRepoBasePath', () => {
 
     expect(resolveRepoBasePath('workspace/repo-a')).toBe('/tmp/current-app');
     expect(consoleLogSpy).toHaveBeenCalled();
+  });
+});
+
+describe('extractSummary', () => {
+  it('returns the full ticket heading summary from the artifact content', () => {
+    const content = `# WBP-3054: Trip.com Content Mapping: Align Contentful Fields to Trip.com Preview Structure
+
+## Description
+
+Example body`;
+
+    expect(extractSummary(content)).toBe(
+      'Trip.com Content Mapping: Align Contentful Fields to Trip.com Preview Structure',
+    );
+  });
+});
+
+describe('slugify', () => {
+  it('keeps the full normalized slug for long ticket summaries', () => {
+    const summary =
+      'Trip.com Content Mapping: Align Contentful Fields to Trip.com Preview Structure';
+
+    expect(slugify(summary)).toBe(
+      'tripcom-content-mapping-align-contentful-fields-to-tripcom-preview-structure',
+    );
   });
 });
