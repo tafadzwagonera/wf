@@ -22,6 +22,19 @@ export interface WfAtlassianConfig {
   };
 }
 
+export interface WfAfterImplementConfig {
+  maxAttempts?: number;
+  fingerprintLineCount?: number;
+  requireStateChangeForRetry?: boolean;
+  retryOnSameFailure?: boolean;
+  scripts: Record<string, string>;
+}
+
+export interface WfImplementStageConfig {
+  model?: string;
+  afterImplement?: WfAfterImplementConfig;
+}
+
 export interface WfConfig {
   platforms?: {
     primary?: 'jira' | 'github' | 'bitbucket';
@@ -71,9 +84,8 @@ export interface WfConfig {
     botToken?: string;
     userToken?: string;
   };
-  stages?: Partial<
-    Record<'plan' | 'implement' | 'review' | 'generate', string>
-  > & {
+  stages?: Partial<Record<'plan' | 'review' | 'generate', string>> & {
+    implement?: WfImplementStageConfig;
     fetch?: string;
     commit?: string;
   };

@@ -209,6 +209,49 @@ describe('wf-config-loader', () => {
         }),
       ).toThrow(/commit.*cannot be overridden/i);
     });
+
+    it('rejects legacy string implement stage overrides', () => {
+      expect(() =>
+        normalizeWfConfig({
+          stages: {
+            implement: 'gpt-5.4',
+          } as never,
+        }),
+      ).toThrow(/implement.*object/i);
+    });
+
+    it('normalizes implement stage model and afterImplement settings', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          implement: {
+            model: 'gemini-2.5-pro',
+            afterImplement: {
+              maxAttempts: 2,
+              fingerprintLineCount: 10,
+              requireStateChangeForRetry: true,
+              retryOnSameFailure: false,
+              scripts: {
+                lint: 'npm run lint',
+                build: 'npm run build',
+              },
+            },
+          },
+        },
+      });
+
+      expect(config.stages.implement?.model).toBe('gemini-2.5-pro');
+      expect(config.stages.implement?.afterImplement).toEqual({
+        maxAttempts: 2,
+        fingerprintLineCount: 10,
+        requireStateChangeForRetry: true,
+        retryOnSameFailure: false,
+        scripts: {
+          lint: 'npm run lint',
+          build: 'npm run build',
+        },
+      });
+    });
   });
 
   describe('loadWfConfig', () => {

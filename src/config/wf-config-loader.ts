@@ -7,9 +7,11 @@ import YAML from 'yaml';
 import { resolveWfPath } from '../shared/utils/wf-paths';
 import { ValidationError } from '../shared/utils/errors';
 import type {
+  WfAfterImplementConfig,
   WfAiProviderConfig,
   WfAiProviderName,
   WfConfig,
+  WfImplementStageConfig,
 } from './public-config';
 
 const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
@@ -26,13 +28,21 @@ const CONFIG_FILE_NAMES = [
   'wf.config.yml',
 ] as const;
 
-const SUPPORTED_STAGE_NAMES = [
-  'plan',
-  'implement',
-  'review',
-  'generate',
-] as const;
-type SupportedStageName = (typeof SUPPORTED_STAGE_NAMES)[number];
+type SupportedStageName = 'plan' | 'implement' | 'review' | 'generate';
+type SupportedModelStageName = Exclude<SupportedStageName, 'implement'>;
+
+export interface NormalizedAfterImplementConfig {
+  maxAttempts: number;
+  fingerprintLineCount: number;
+  requireStateChangeForRetry: boolean;
+  retryOnSameFailure: boolean;
+  scripts: Record<string, string>;
+}
+
+export interface NormalizedImplementStageConfig {
+  model?: string;
+  afterImplement?: NormalizedAfterImplementConfig;
+}
 
 export interface NormalizedWfConfig {
   platforms: {
@@ -58,7 +68,13 @@ export interface NormalizedWfConfig {
     deepseekApiKey?: string;
     model: string;
     maxTokens?: number;
-    stages: Partial<Record<SupportedStageName, string>>;
+    stages: Partial<Record<SupportedModelStageName, string>>;
+  };
+  stages: {
+    plan?: string;
+    implement?: NormalizedImplementStageConfig;
+    review?: string;
+    generate?: string;
   };
   atlassian: {
     baseUrl?: string;
@@ -138,6 +154,22 @@ const providerSchema = Joi.object<WfAiProviderConfig>({
   default: Joi.boolean().optional(),
 });
 
+const afterImplementSchema = Joi.object<WfAfterImplementConfig>({
+  maxAttempts: Joi.number().integer().min(1).optional(),
+  fingerprintLineCount: Joi.number().integer().min(1).optional(),
+  requireStateChangeForRetry: Joi.boolean().optional(),
+  retryOnSameFailure: Joi.boolean().optional(),
+  scripts: Joi.object()
+    .pattern(Joi.string().min(1), Joi.string().min(1).required())
+    .min(1)
+    .required(),
+});
+
+const implementStageSchema = Joi.object<WfImplementStageConfig>({
+  model: Joi.string().allow('').optional(),
+  afterImplement: afterImplementSchema.optional(),
+});
+
 const configSchema = Joi.object<WfConfig>({
   platforms: Joi.object({
     primary: Joi.string().valid('jira', 'github', 'bitbucket').optional(),
@@ -205,7 +237,7 @@ const configSchema = Joi.object<WfConfig>({
   }).optional(),
   stages: Joi.object({
     plan: Joi.string().optional(),
-    implement: Joi.string().optional(),
+    implement: implementStageSchema.optional(),
     review: Joi.string().optional(),
     generate: Joi.string().optional(),
     fetch: Joi.string().optional(),
@@ -457,6 +489,22 @@ const normalizeProvider = (
   };
 };
 
+const normalizeAfterImplementConfig = (
+  config?: WfAfterImplementConfig,
+): NormalizedAfterImplementConfig | undefined => {
+  if (!config) {
+    return undefined;
+  }
+
+  return {
+    maxAttempts: config.maxAttempts ?? 2,
+    fingerprintLineCount: config.fingerprintLineCount ?? 40,
+    requireStateChangeForRetry: config.requireStateChangeForRetry ?? true,
+    retryOnSameFailure: config.retryOnSameFailure ?? false,
+    scripts: config.scripts,
+  };
+};
+
 /**
  * Normalize user config into the runtime shape consumed by Nest ConfigService.
  *
@@ -521,7 +569,7 @@ export const normalizeWfConfig = (
     );
   }
 
-  const stages = SUPPORTED_STAGE_NAMES.reduce(
+  const aiStages = (['plan', 'review', 'generate'] as const).reduce(
     (result, stageName) => {
       const stageModel = validatedConfig.stages?.[stageName];
       if (stageModel) {
@@ -529,8 +577,17 @@ export const normalizeWfConfig = (
       }
       return result;
     },
-    {} as Partial<Record<SupportedStageName, string>>,
+    {} as Partial<Record<SupportedModelStageName, string>>,
   );
+
+  const normalizedImplementStage = validatedConfig.stages?.implement
+    ? {
+        model: validatedConfig.stages.implement.model || undefined,
+        afterImplement: normalizeAfterImplementConfig(
+          validatedConfig.stages.implement.afterImplement,
+        ),
+      }
+    : undefined;
 
   const providerMap = new Map(
     providers.map((provider) => [provider.provider, provider]),
@@ -561,7 +618,13 @@ export const normalizeWfConfig = (
       deepseekApiKey: deepseekProvider?.apiKey,
       model: activeProvider.model,
       maxTokens: activeProvider.maxTokens,
-      stages,
+      stages: aiStages,
+    },
+    stages: {
+      plan: validatedConfig.stages?.plan,
+      implement: normalizedImplementStage,
+      review: validatedConfig.stages?.review,
+      generate: validatedConfig.stages?.generate,
     },
     atlassian: {
       baseUrl: validatedConfig.atlassian?.baseUrl,

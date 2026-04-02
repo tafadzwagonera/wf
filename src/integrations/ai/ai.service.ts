@@ -525,6 +525,7 @@ Return ONLY a valid JSON object:
     }
 
     const stageModel =
+      this.configService.get<string>(`stages.${stage}.model`) ??
       this.configService.get<string>(`ai.stages.${stage}`) ??
       this.configService.get<Record<string, string>>('ai.stages', {})?.[stage];
 

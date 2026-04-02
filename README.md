@@ -105,7 +105,21 @@ export default defineConfig({
   },
   stages: {
     plan: 'claude-sonnet-4-20250514',
-    implement: 'claude-sonnet-4-20250514',
+    implement: {
+      model: 'claude-sonnet-4-20250514',
+      afterImplement: {
+        maxAttempts: 2,
+        fingerprintLineCount: 40,
+        requireStateChangeForRetry: true,
+        retryOnSameFailure: false,
+        scripts: {
+          format: 'npm run format',
+          lintFix: 'npm run lint -- --fix',
+          lint: 'npm run lint',
+          build: 'npm run build',
+        },
+      },
+    },
     review: 'gemini-2.5-pro',
   },
 });
@@ -130,6 +144,16 @@ atlassian:
 log:
   directory: .wf/logs
   level: info
+stages:
+  implement:
+    model: claude-sonnet-4-20250514
+    afterImplement:
+      scripts:
+        format: npm run format
+        lintFix: npm run lint -- --fix
+        lint: npm run lint
+        build: npm run build
+  review: gemini-2.5-pro
 ```
 
 ### TypeScript Config Support
@@ -152,7 +176,12 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - `ai[].provider` selects the backing AI provider for each entry.
 - `ai[].default` is optional when only one provider is configured, and required when two or more providers are configured.
 - `ai[].maxTokens` is only applied to Gemini provider entries using Gemini models; other providers ignore it.
-- `stages.plan`, `stages.implement`, and `stages.review` may override the default model. `fetch` and `commit` cannot be overridden.
+- `stages.plan`, `stages.review`, and `stages.generate` may override the default model with a string value.
+- `stages.implement` must be an object with an optional `model` and optional `afterImplement`.
+- `afterImplement.scripts` run in declaration order. Include `build` there when the consumer application requires build verification.
+- Recommended sequence: `format` → `lint --fix` → `lint` → `build`. This removes formatting noise before the final lint/build gate and makes retries focus on real code issues.
+- Prefer portable wrappers such as `npm run lint`, `bash ./scripts/verify.sh`, or `node ./scripts/verify.mjs` instead of relying on executable bits or shell-specific features.
+- `fetch` and `commit` cannot be overridden.
 - `wf config get` and `wf config list` read the normalized runtime config.
 - `wf config set` is advisory only and points you at the config file to edit.
 

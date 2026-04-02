@@ -41,11 +41,27 @@ describe('ImplementerAgent', () => {
           useValue: {
             get: jest
               .fn()
-              .mockImplementation((key: string, fallback?: string) =>
-                key === 'branching.prefixMapping'
-                  ? { feature: 'feature', fix: 'bugfix', investigate: 'chore' }
-                  : fallback,
-              ),
+              .mockImplementation((key: string, fallback?: unknown) => {
+                const values: Record<string, unknown> = {
+                  'branching.prefixMapping': {
+                    feature: 'feature',
+                    fix: 'bugfix',
+                    investigate: 'chore',
+                  },
+                  'stages.implement.afterImplement': {
+                    maxAttempts: 2,
+                    fingerprintLineCount: 5,
+                    requireStateChangeForRetry: true,
+                    retryOnSameFailure: false,
+                    scripts: {
+                      lint: 'npm run lint',
+                      build: 'npm run build',
+                    },
+                  },
+                };
+
+                return key in values ? values[key] : fallback;
+              }),
           },
         },
         {
@@ -118,56 +134,57 @@ describe('ImplementerAgent', () => {
   });
 
   describe('verification loop', () => {
-    it('runs format, lint, tsc, and nr build in the selected repo after generating files', async () => {
+    const installMockRepoFiles = () => {
+      const mockFiles = new Map<string, string>([
+        [
+          '/tmp/repo-a/package.json',
+          JSON.stringify({
+            scripts: {
+              lint: 'eslint .',
+              build: 'tsc -p .',
+            },
+          }),
+        ],
+        ['/tmp/repo-a/src/example.ts', 'export const value = 0;\n'],
+      ]);
+
       jest
         .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((filePath: string) => {
-          if (filePath === '/tmp/repo-a/src/example.ts') return true;
-          return filePath === '/tmp/repo-a/package.json';
-        });
+        .mockImplementation((filePath: string) => mockFiles.has(filePath));
       jest
         .spyOn(require('fs'), 'readFileSync')
         .mockImplementation((filePath: string) => {
-          if (filePath === '/tmp/repo-a/package.json') {
-            return JSON.stringify({
-              scripts: {
-                format: 'prettier --write .',
-                lint: 'eslint .',
-                build: 'tsc -p .',
-              },
-            });
+          const content = mockFiles.get(filePath);
+          if (content === undefined) {
+            throw new Error(`Unexpected read: ${filePath}`);
           }
-          return 'export const value = 0;\n';
+          return content;
         });
       jest
         .spyOn(require('fs'), 'mkdirSync')
         .mockImplementation(() => undefined as any);
       jest
         .spyOn(require('fs'), 'writeFileSync')
-        .mockImplementation(() => undefined);
+        .mockImplementation((filePath: string, content: string) => {
+          mockFiles.set(filePath, content);
+        });
+
+      return mockFiles;
+    };
+
+    it('runs configured afterImplement scripts in order after generating files', async () => {
+      installMockRepoFiles();
 
       const runCommandSpy = jest
         .spyOn(agent as any, 'runCommand')
         .mockResolvedValueOnce({
-          command: 'nr format',
+          command: 'npm run lint',
           exitCode: 0,
           stdout: '',
           stderr: '',
         })
         .mockResolvedValueOnce({
-          command: 'nr lint',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npx tsc --noEmit --pretty 2>&1 | head -n 200',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'nr build',
+          command: 'npm run build',
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -186,49 +203,18 @@ describe('ImplementerAgent', () => {
       expect(aiService.generateFileChange).toHaveBeenCalledTimes(1);
       expect(runCommandSpy).toHaveBeenNthCalledWith(
         1,
-        'nr format',
+        'npm run lint',
         '/tmp/repo-a',
       );
       expect(runCommandSpy).toHaveBeenNthCalledWith(
         2,
-        'nr lint',
-        '/tmp/repo-a',
-      );
-      expect(runCommandSpy).toHaveBeenNthCalledWith(
-        3,
-        'npx tsc --noEmit --pretty 2>&1 | head -n 200',
-        '/tmp/repo-a',
-      );
-      expect(runCommandSpy).toHaveBeenNthCalledWith(
-        4,
-        'nr build',
+        'npm run build',
         '/tmp/repo-a',
       );
     });
 
-    it('retries file generation with verification diagnostics until checks pass', async () => {
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((filePath: string) => {
-          if (filePath === '/tmp/repo-a/src/example.ts') return true;
-          return filePath === '/tmp/repo-a/package.json';
-        });
-      jest
-        .spyOn(require('fs'), 'readFileSync')
-        .mockImplementation((filePath: string) => {
-          if (filePath === '/tmp/repo-a/package.json') {
-            return JSON.stringify({
-              scripts: { build: 'tsc -p .' },
-            });
-          }
-          return 'export const value = 0;\n';
-        });
-      jest
-        .spyOn(require('fs'), 'mkdirSync')
-        .mockImplementation(() => undefined as any);
-      jest
-        .spyOn(require('fs'), 'writeFileSync')
-        .mockImplementation(() => undefined);
+    it('retries with the full configured script sequence after actionable failures', async () => {
+      installMockRepoFiles();
 
       aiService.generateFileChange
         .mockResolvedValueOnce('export const broken = true;\n')
@@ -237,19 +223,19 @@ describe('ImplementerAgent', () => {
       jest
         .spyOn(agent as any, 'runCommand')
         .mockResolvedValueOnce({
-          command: 'npx tsc --noEmit --pretty 2>&1 | head -n 200',
+          command: 'npm run lint',
           exitCode: 1,
           stdout: 'src/example.ts:1:1 - error TS1005: ; expected',
           stderr: '',
         })
         .mockResolvedValueOnce({
-          command: 'npx tsc --noEmit --pretty 2>&1 | head -n 200',
+          command: 'npm run lint',
           exitCode: 0,
           stdout: '',
           stderr: '',
         })
         .mockResolvedValueOnce({
-          command: 'nr build',
+          command: 'npm run build',
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -266,6 +252,71 @@ describe('ImplementerAgent', () => {
         'Verification failed on attempt 1',
       );
       expect(secondCall.conversationContext).toContain('error TS1005');
+    });
+
+    it('stops retrying when the AI does not produce a state change after a failure', async () => {
+      installMockRepoFiles();
+
+      aiService.generateFileChange
+        .mockResolvedValueOnce('export const broken = true;\n')
+        .mockResolvedValueOnce('export const broken = true;\n');
+
+      jest.spyOn(agent as any, 'runCommand').mockResolvedValueOnce({
+        command: 'npm run lint',
+        exitCode: 1,
+        stdout: 'src/example.ts:1:1 - error TS1005: ; expected',
+        stderr: '',
+      });
+
+      await expect(
+        agent.execute(ticketArtifact, buildPlan({}), {
+          platformName: 'jira',
+          repoDir: '/tmp/repo-a',
+        }),
+      ).rejects.toThrow(/did not produce a state change/i);
+    });
+
+    it('treats formatter or linter rewrites as real state changes for the next retry', async () => {
+      const mockFiles = installMockRepoFiles();
+
+      aiService.generateFileChange
+        .mockResolvedValueOnce('export const broken = true;\n')
+        .mockResolvedValueOnce('export const formatted = true;\n');
+
+      jest
+        .spyOn(agent as any, 'runCommand')
+        .mockImplementationOnce(async () => {
+          mockFiles.set(
+            '/tmp/repo-a/src/example.ts',
+            'export const formatted = true;\n',
+          );
+
+          return {
+            command: 'npm run lint',
+            exitCode: 1,
+            stdout: 'src/example.ts:1:1 - error TS1005: ; expected',
+            stderr: '',
+          };
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run build',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        });
+
+      await agent.execute(ticketArtifact, buildPlan({}), {
+        platformName: 'jira',
+        repoDir: '/tmp/repo-a',
+      });
+
+      expect(aiService.generateFileChange).toHaveBeenCalledTimes(2);
     });
   });
 });

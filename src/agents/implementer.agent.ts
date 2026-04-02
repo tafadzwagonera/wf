@@ -17,10 +17,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { createHash } from 'crypto';
+import type { NormalizedAfterImplementConfig } from '../config/wf-config-loader';
 
 const execAsync = promisify(exec);
-const MAX_VERIFICATION_ATTEMPTS = 3;
-const TSC_OUTPUT_LINES = 200;
+const DEFAULT_MAX_ATTEMPTS = 1;
+const DEFAULT_FINGERPRINT_LINE_COUNT = 40;
+const ACTIONABLE_DIAGNOSTIC_PATTERN =
+  /(error|failed|exception|cannot|can't|not found|syntaxerror|referenceerror|typeerror|ts\d+)/i;
 
 interface VerificationCommandResult {
   command: string;
@@ -29,15 +33,25 @@ interface VerificationCommandResult {
   stderr: string;
 }
 
-interface PackageScripts {
-  build?: string;
-  format?: string;
-  lint?: string;
-}
-
 interface VerificationFailure {
   attempt: number;
   results: VerificationCommandResult[];
+}
+
+interface VerificationOutcome {
+  failure: VerificationFailure | null;
+  rewroteTrackedFiles: boolean;
+}
+
+interface VerificationScript {
+  name: string;
+  command: string;
+  aliases: string[];
+}
+
+interface FileWriteResult {
+  filePath: string;
+  changed: boolean;
 }
 
 const DEFAULT_PREFIX_MAPPING: Record<ResolutionAction, string> = {
@@ -158,62 +172,120 @@ export class ImplementerAgent {
       }
     }
 
-    const packageScripts = this.readPackageScripts(options.repoDir);
+    const afterImplement = this.getAfterImplementConfig();
+    const verificationScripts = this.prepareVerificationScripts(
+      options.repoDir,
+      afterImplement,
+    );
+    const trackedFilePaths = this.resolveTrackedFilePaths(
+      repoFiles,
+      repoName,
+      options.repoDir,
+    );
     const sceneContext = `${ticket.content}\n\n---\nPlan narration:\n${narration}`;
     let retryContext = options.conversationContext;
+    let previousFailureFingerprint: string | undefined;
+    let lastVerificationFailure: VerificationFailure | undefined;
+    let verificationRewroteTrackedFiles = false;
+    const maxAttempts = afterImplement?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
 
     for (
       let attemptNumber = 1;
-      attemptNumber <= MAX_VERIFICATION_ATTEMPTS;
+      attemptNumber <= maxAttempts;
       attemptNumber += 1
     ) {
-      if (repoFiles.length > 0) {
-        console.log(chalk.bold('\n  Generating code changes...'));
-        for (const filePath of repoFiles) {
-          // Strip repo-name prefix only when present; bare paths are used as-is.
-          const relativePath =
-            repoName && filePath.startsWith(`${repoName}/`)
-              ? filePath.slice(repoName.length + 1)
-              : filePath;
-          const absolutePath = options.repoDir
-            ? path.join(options.repoDir, relativePath)
-            : path.resolve(relativePath);
+      const fileWriteResults = await this.generateRepoFiles({
+        repoFiles,
+        repoName,
+        repoDir: options.repoDir,
+        sceneContext,
+        planSteps: planArtifact.plan.steps,
+        retryContext,
+      });
 
-          const existingContent = fs.existsSync(absolutePath)
-            ? fs.readFileSync(absolutePath, 'utf-8')
-            : '';
+      if (verificationScripts.length === 0) {
+        break;
+      }
 
-          console.log(chalk.gray(`\n    → ${filePath}`));
-          const updatedContent = await this.aiService.generateFileChange({
-            ticketContent: sceneContext,
-            planSteps: planArtifact.plan.steps,
-            filePath: relativePath,
-            existingContent,
-            conversationContext: retryContext,
-          });
-
-          fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-          fs.writeFileSync(absolutePath, updatedContent, 'utf-8');
-          console.log(chalk.green(`    ✓ Updated: ${filePath}`));
-        }
+      if (
+        attemptNumber > 1 &&
+        afterImplement?.requireStateChangeForRetry !== false &&
+        fileWriteResults.every((result) => !result.changed) &&
+        !verificationRewroteTrackedFiles
+      ) {
+        throw new Error(
+          this.formatVerificationExitMessage({
+            ticketKey: ticket.ticketKey,
+            repoDir: options.repoDir,
+            summary:
+              'Verification failed and the next AI pass did not produce a state change. Refusing to rerun hooks against stale files.',
+            failure: lastVerificationFailure,
+          }),
+        );
       }
 
       console.log(chalk.bold('\n  Verification:'));
-      const verificationFailure = await this.verifyImplementation(
+      this.printVerificationScripts(verificationScripts);
+      const verificationOutcome = await this.verifyImplementation(
         options.repoDir,
-        packageScripts,
+        verificationScripts,
+        trackedFilePaths,
         attemptNumber,
       );
+      verificationRewroteTrackedFiles = verificationOutcome.rewroteTrackedFiles;
+      const verificationFailure = verificationOutcome.failure;
       if (!verificationFailure) {
         break;
       }
 
-      if (attemptNumber === MAX_VERIFICATION_ATTEMPTS) {
+      lastVerificationFailure = verificationFailure;
+      const failureFingerprint = this.buildFailureFingerprint(
+        verificationFailure,
+        afterImplement?.fingerprintLineCount ?? DEFAULT_FINGERPRINT_LINE_COUNT,
+      );
+      const hasActionableDiagnostics =
+        this.hasActionableDiagnostics(verificationFailure);
+
+      if (attemptNumber === maxAttempts) {
         throw new Error(
-          this.formatVerificationFailureMessage(verificationFailure),
+          this.formatVerificationExitMessage({
+            ticketKey: ticket.ticketKey,
+            repoDir: options.repoDir,
+            summary: 'Verification retry budget exhausted.',
+            failure: verificationFailure,
+          }),
         );
       }
 
+      if (!hasActionableDiagnostics) {
+        throw new Error(
+          this.formatVerificationExitMessage({
+            ticketKey: ticket.ticketKey,
+            repoDir: options.repoDir,
+            summary:
+              'Verification failed without actionable diagnostics. User intervention is required before retrying.',
+            failure: verificationFailure,
+          }),
+        );
+      }
+
+      if (
+        previousFailureFingerprint &&
+        previousFailureFingerprint === failureFingerprint &&
+        afterImplement?.retryOnSameFailure !== true
+      ) {
+        throw new Error(
+          this.formatVerificationExitMessage({
+            ticketKey: ticket.ticketKey,
+            repoDir: options.repoDir,
+            summary:
+              'Verification failure fingerprint did not change between attempts. User intervention is required.',
+            failure: verificationFailure,
+          }),
+        );
+      }
+
+      previousFailureFingerprint = failureFingerprint;
       retryContext = this.buildRetryContext(
         options.conversationContext,
         verificationFailure,
@@ -301,67 +373,309 @@ export class ImplementerAgent {
   }
 
   /**
-   * Reads the current package scripts for the selected repository.
+   * Loads the normalized implement-stage verification configuration.
    *
-   * @param repoDir - Repository directory where package.json is expected
-   * @returns Relevant script names for verification
+   * @returns Configured afterImplement settings, if any
    */
-  private readPackageScripts(repoDir?: string): PackageScripts {
-    const packageJsonPath = path.join(repoDir ?? process.cwd(), 'package.json');
-    if (!fs.existsSync(packageJsonPath)) {
-      throw new Error(
-        `package.json not found in ${repoDir ?? process.cwd()}. issue:implement requires a Node-based repository to verify format, lint, TypeScript, and build steps.`,
-      );
-    }
-
-    const packageJson = JSON.parse(
-      fs.readFileSync(packageJsonPath, 'utf-8'),
-    ) as { scripts?: PackageScripts };
-    const scripts = packageJson.scripts ?? {};
-    if (!scripts.build) {
-      throw new Error(
-        `package.json in ${repoDir ?? process.cwd()} does not define a build script. issue:implement requires a build script so it can run nr build before succeeding.`,
-      );
-    }
-
-    return scripts;
+  private getAfterImplementConfig():
+    | NormalizedAfterImplementConfig
+    | undefined {
+    return this.configService.get<NormalizedAfterImplementConfig | undefined>(
+      'stages.implement.afterImplement',
+    );
   }
 
   /**
-   * Executes the strict verification sequence for the selected repository.
+   * Generates the updated file contents for the selected repository.
+   *
+   * @param params - File generation context
+   * @returns Changed-state metadata for each written file
+   */
+  private async generateRepoFiles(params: {
+    repoFiles: string[];
+    repoName: string;
+    repoDir?: string;
+    sceneContext: string;
+    planSteps: string[];
+    retryContext?: string;
+  }): Promise<FileWriteResult[]> {
+    const results: FileWriteResult[] = [];
+
+    if (params.repoFiles.length === 0) {
+      return results;
+    }
+
+    console.log(chalk.bold('\n  Generating code changes...'));
+    for (const filePath of params.repoFiles) {
+      const relativePath =
+        params.repoName && filePath.startsWith(`${params.repoName}/`)
+          ? filePath.slice(params.repoName.length + 1)
+          : filePath;
+      const absolutePath = params.repoDir
+        ? path.join(params.repoDir, relativePath)
+        : path.resolve(relativePath);
+      const existingContent = fs.existsSync(absolutePath)
+        ? fs.readFileSync(absolutePath, 'utf-8')
+        : '';
+
+      console.log(chalk.gray(`\n    → ${filePath}`));
+      const updatedContent = await this.aiService.generateFileChange({
+        ticketContent: params.sceneContext,
+        planSteps: params.planSteps,
+        filePath: relativePath,
+        existingContent,
+        conversationContext: params.retryContext,
+      });
+
+      fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+      fs.writeFileSync(absolutePath, updatedContent, 'utf-8');
+      console.log(chalk.green(`    ✓ Updated: ${filePath}`));
+      results.push({
+        filePath,
+        changed: updatedContent !== existingContent,
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Resolves the absolute file paths tracked for verification rewrite detection.
+   *
+   * @param repoFiles - Files assigned to the current repository
+   * @param repoName - Repository name prefix
+   * @param repoDir - Repository directory
+   * @returns Absolute file paths for tracked files
+   */
+  private resolveTrackedFilePaths(
+    repoFiles: string[],
+    repoName: string,
+    repoDir?: string,
+  ): string[] {
+    return repoFiles.map((filePath) => {
+      const relativePath =
+        repoName && filePath.startsWith(`${repoName}/`)
+          ? filePath.slice(repoName.length + 1)
+          : filePath;
+
+      return repoDir
+        ? path.join(repoDir, relativePath)
+        : path.resolve(relativePath);
+    });
+  }
+
+  /**
+   * Reads package.json scripts for alias reporting when available.
+   *
+   * @param repoDir - Repository directory to inspect
+   * @returns package.json script mappings, or an empty object when unavailable
+   */
+  private readPackageScripts(repoDir?: string): Record<string, string> {
+    const packageJsonPath = path.join(repoDir ?? process.cwd(), 'package.json');
+    if (!fs.existsSync(packageJsonPath)) {
+      return {};
+    }
+
+    try {
+      const packageJson = JSON.parse(
+        fs.readFileSync(packageJsonPath, 'utf-8'),
+      ) as { scripts?: Record<string, string> };
+      return packageJson.scripts ?? {};
+    } catch {
+      console.log(
+        chalk.yellow(
+          `  ⚠ Unable to parse ${packageJsonPath}; continuing without package.json alias discovery.`,
+        ),
+      );
+      return {};
+    }
+  }
+
+  /**
+   * Builds the verification script list and resolves package.json aliases when possible.
+   *
+   * @param repoDir - Repository directory used for package.json alias discovery
+   * @param afterImplement - Normalized afterImplement hook config
+   * @returns Ordered verification scripts
+   */
+  private prepareVerificationScripts(
+    repoDir: string | undefined,
+    afterImplement: NormalizedAfterImplementConfig | undefined,
+  ): VerificationScript[] {
+    if (!afterImplement) {
+      return [];
+    }
+
+    const packageScripts = this.readPackageScripts(repoDir);
+    return Object.entries(afterImplement.scripts).map(([name, command]) => ({
+      name,
+      command,
+      aliases: this.findPackageAliases(command, packageScripts),
+    }));
+  }
+
+  /**
+   * Resolves package.json aliases for a configured verification command.
+   *
+   * @param command - Configured hook command
+   * @param packageScripts - package.json scripts map
+   * @returns Matching package.json aliases
+   */
+  private findPackageAliases(
+    command: string,
+    packageScripts: Record<string, string>,
+  ): string[] {
+    const aliases = new Set<string>();
+    const directScriptMatch = command.match(
+      /^(?:npm run|pnpm|yarn|nr)\s+([A-Za-z0-9:_-]+)$/,
+    );
+
+    if (directScriptMatch) {
+      const [, scriptName] = directScriptMatch;
+      if (packageScripts[scriptName]) {
+        aliases.add(scriptName);
+      }
+    }
+
+    for (const [scriptName, scriptCommand] of Object.entries(packageScripts)) {
+      if (scriptCommand === command) {
+        aliases.add(scriptName);
+      }
+    }
+
+    return [...aliases];
+  }
+
+  /**
+   * Logs the configured verification scripts and any discovered package aliases.
+   *
+   * @param scripts - Ordered verification scripts
+   * @returns Nothing
+   */
+  private printVerificationScripts(scripts: VerificationScript[]): void {
+    if (scripts.length === 0) {
+      console.log(chalk.gray('    No afterImplement scripts configured.'));
+      return;
+    }
+
+    console.log(chalk.bold('    Discovered scripts:'));
+    scripts.forEach((script, index) => {
+      console.log(
+        chalk.cyan(`      ${index + 1}. ${script.name}: ${script.command}`),
+      );
+      if (script.aliases.length > 0) {
+        console.log(
+          chalk.gray(
+            `         package.json aliases: ${script.aliases.join(', ')}`,
+          ),
+        );
+      }
+    });
+  }
+
+  /**
+   * Executes the configured verification sequence for the selected repository.
    *
    * @param repoDir - Repository directory to verify
-   * @param packageScripts - Available package.json scripts
+   * @param scripts - Configured afterImplement scripts
    * @param attempt - Current retry attempt number
    * @returns Verification failure details, or null when all checks pass
    */
   private async verifyImplementation(
     repoDir: string | undefined,
-    packageScripts: PackageScripts,
+    scripts: VerificationScript[],
+    trackedFilePaths: string[],
     attempt: number,
-  ): Promise<VerificationFailure | null> {
-    const commands: string[] = [];
-    if (packageScripts.format) {
-      commands.push('nr format');
-    }
-    if (packageScripts.lint) {
-      commands.push('nr lint');
-    }
-    commands.push(
-      `npx tsc --noEmit --pretty 2>&1 | head -n ${TSC_OUTPUT_LINES}`,
-    );
-    commands.push('nr build');
-
+  ): Promise<VerificationOutcome> {
+    const trackedFileContentsBefore =
+      this.captureTrackedFileContents(trackedFilePaths);
     const results: VerificationCommandResult[] = [];
-    for (const command of commands) {
-      const result = await this.runCommand(command, repoDir);
+    for (const script of scripts) {
+      const result = await this.runCommand(script.command, repoDir);
       results.push(result);
       if (result.exitCode !== 0) {
-        return { attempt, results };
+        this.printVerificationErrors(script.name, result);
+        return {
+          failure: { attempt, results },
+          rewroteTrackedFiles: this.didTrackedFilesChange(
+            trackedFileContentsBefore,
+            this.captureTrackedFileContents(trackedFilePaths),
+          ),
+        };
       }
     }
 
-    return null;
+    return {
+      failure: null,
+      rewroteTrackedFiles: this.didTrackedFilesChange(
+        trackedFileContentsBefore,
+        this.captureTrackedFileContents(trackedFilePaths),
+      ),
+    };
+  }
+
+  /**
+   * Captures current contents for the tracked files.
+   *
+   * @param trackedFilePaths - Absolute tracked file paths
+   * @returns File content snapshot keyed by path
+   */
+  private captureTrackedFileContents(
+    trackedFilePaths: string[],
+  ): Map<string, string | null> {
+    return new Map(
+      trackedFilePaths.map((filePath) => [
+        filePath,
+        fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : null,
+      ]),
+    );
+  }
+
+  /**
+   * Compares tracked file snapshots to determine whether verification rewrote them.
+   *
+   * @param previousSnapshot - Snapshot captured before running verification hooks
+   * @param nextSnapshot - Snapshot captured after running verification hooks
+   * @returns True when any tracked file changed
+   */
+  private didTrackedFilesChange(
+    previousSnapshot: Map<string, string | null>,
+    nextSnapshot: Map<string, string | null>,
+  ): boolean {
+    for (const [filePath, previousContent] of previousSnapshot.entries()) {
+      if ((nextSnapshot.get(filePath) ?? null) !== previousContent) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Logs a failed verification command with its diagnostics.
+   *
+   * @param scriptName - Hook script name
+   * @param result - Failed command result
+   * @returns Nothing
+   */
+  private printVerificationErrors(
+    scriptName: string,
+    result: VerificationCommandResult,
+  ): void {
+    console.log(chalk.red(`    ${scriptName} failed: ${result.command}`));
+    const outputs = [result.stdout, result.stderr].filter(Boolean);
+    if (outputs.length === 0) {
+      console.log(chalk.red('      No diagnostics were emitted.'));
+      return;
+    }
+
+    outputs.forEach((output) => {
+      output.split('\n').forEach((line) => {
+        if (line.trim()) {
+          console.log(chalk.red(`      ${line}`));
+        }
+      });
+    });
   }
 
   /**
@@ -412,6 +726,51 @@ export class ImplementerAgent {
   }
 
   /**
+   * Fingerprints the leading verification diagnostics to detect repeated failures.
+   *
+   * @param failure - Verification failure details from the last attempt
+   * @param lineCount - Maximum number of diagnostic lines to hash
+   * @returns Stable failure fingerprint
+   */
+  private buildFailureFingerprint(
+    failure: VerificationFailure,
+    lineCount: number,
+  ): string {
+    const leadingLines = failure.results
+      .flatMap((result) => {
+        const outputs = [result.stdout, result.stderr]
+          .filter(Boolean)
+          .join('\n')
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean);
+
+        return [`Command: ${result.command}`, ...outputs];
+      })
+      .slice(0, lineCount)
+      .join('\n')
+      .toLowerCase();
+
+    return createHash('sha256').update(leadingLines).digest('hex');
+  }
+
+  /**
+   * Determines whether the captured diagnostics contain actionable error text.
+   *
+   * @param failure - Verification failure details from the last attempt
+   * @returns True when diagnostics contain actionable content
+   */
+  private hasActionableDiagnostics(failure: VerificationFailure): boolean {
+    return failure.results.some((result) =>
+      [result.stdout, result.stderr]
+        .filter(Boolean)
+        .join('\n')
+        .split('\n')
+        .some((line) => ACTIONABLE_DIAGNOSTIC_PATTERN.test(line)),
+    );
+  }
+
+  /**
    * Formats the latest verification failure for logs and AI retry prompts.
    *
    * @param failure - Verification failure details from the last attempt
@@ -432,6 +791,28 @@ export class ImplementerAgent {
       .join('\n\n');
 
     return `Verification failed on attempt ${failure.attempt}.\n\n${renderedResults}`.trim();
+  }
+
+  /**
+   * Formats a terminal verification exit message with workflow resume guidance.
+   *
+   * @param params - Exit message details
+   * @returns Combined error message
+   */
+  private formatVerificationExitMessage(params: {
+    ticketKey: string;
+    repoDir?: string;
+    summary: string;
+    failure?: VerificationFailure;
+  }): string {
+    const repoName = params.repoDir ? path.basename(params.repoDir) : '';
+    const repoOption = repoName ? ` --repos ${repoName}` : '';
+    const resumeCommand = `wf issue ${params.ticketKey} --from review${repoOption}`;
+    const failureDetails = params.failure
+      ? `\n\n${this.formatVerificationFailureMessage(params.failure)}`
+      : '';
+
+    return `${params.summary}${failureDetails}\n\nResolve the underlying problem, then resume the workflow with:\n${resumeCommand}`.trim();
   }
 
   private async executeInvestigation(

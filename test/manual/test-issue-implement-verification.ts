@@ -5,7 +5,7 @@
  *
  * Verifies:
  *   1. Multi-repo plans are rejected with guidance to use issue or per-repo issue:implement
- *   2. Verification runs in the selected repo and retries with diagnostics until checks pass
+ *   2. Configured afterImplement scripts run in the selected repo and retries carry diagnostics forward
  */
 
 import { NestFactory } from '@nestjs/core';
@@ -87,7 +87,6 @@ async function main() {
       JSON.stringify({
         name: 'repo-a',
         scripts: {
-          format: 'echo format',
           lint: 'echo lint',
           build: 'echo build',
         },
@@ -121,6 +120,7 @@ async function main() {
     const originalRunCommand = (implementer as any).runCommand.bind(
       implementer,
     );
+    const originalAfterImplement = (implementer as any).getAfterImplementConfig;
     const originalNarrate = aiService.narrateImplementationPlan.bind(aiService);
     const originalGenerate = aiService.generateFileChange.bind(aiService);
     const originalCurrentBranch = gitService.getCurrentBranch.bind(gitService);
@@ -128,7 +128,7 @@ async function main() {
 
     const executedCommands: string[] = [];
     const generateContexts: string[] = [];
-    let tscAttempts = 0;
+    let lintAttempts = 0;
 
     aiService.narrateImplementationPlan = async () =>
       '## Goal\nManual verification.\n\n## Approach\nRetry when checks fail.\n\n## Tasks\n1. repo-a/src/example.ts — fix diagnostics';
@@ -140,11 +140,21 @@ async function main() {
     };
     gitService.getCurrentBranch = async () => 'main';
     gitService.createBranch = async () => {};
+    (implementer as any).getAfterImplementConfig = () => ({
+      maxAttempts: 2,
+      fingerprintLineCount: 5,
+      requireStateChangeForRetry: true,
+      retryOnSameFailure: false,
+      scripts: {
+        lint: 'npm run lint',
+        build: 'npm run build',
+      },
+    });
     (implementer as any).runCommand = async (command: string, cwd?: string) => {
       executedCommands.push(`${cwd ?? ''}:${command}`);
-      if (command.startsWith('npx tsc')) {
-        tscAttempts += 1;
-        if (tscAttempts === 1) {
+      if (command === 'npm run lint') {
+        lintAttempts += 1;
+        if (lintAttempts === 1) {
           return {
             command,
             exitCode: 1,
@@ -169,9 +179,8 @@ async function main() {
       });
 
       if (
-        executedCommands.some((entry) => entry === `${repoDir}:nr format`) &&
-        executedCommands.some((entry) => entry === `${repoDir}:nr lint`) &&
-        executedCommands.some((entry) => entry === `${repoDir}:nr build`)
+        executedCommands.some((entry) => entry === `${repoDir}:npm run lint`) &&
+        executedCommands.some((entry) => entry === `${repoDir}:npm run build`)
       ) {
         pass('Verification commands run in the selected repo');
       } else {
@@ -195,6 +204,7 @@ async function main() {
     } catch (error) {
       fail('Verification retry scenario did not pass', String(error));
     } finally {
+      (implementer as any).getAfterImplementConfig = originalAfterImplement;
       aiService.narrateImplementationPlan = originalNarrate;
       aiService.generateFileChange = originalGenerate;
       gitService.getCurrentBranch = originalCurrentBranch;

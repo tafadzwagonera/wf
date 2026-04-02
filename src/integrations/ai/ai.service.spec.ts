@@ -32,6 +32,7 @@ describe('AiService', () => {
             },
           ],
           'ai.stages.review': 'gemini-2.5-pro',
+          'stages.implement.model': 'gemini-2.5-pro',
         };
 
         return key in values ? values[key] : defaultValue;
@@ -75,6 +76,26 @@ describe('AiService', () => {
         expect.objectContaining({
           provider: 'google',
           model: 'gemini-2.5-pro',
+        }),
+      );
+    });
+
+    it('routes implement requests using stages.implement.model when configured', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generateFileChange({
+        ticketContent: 'ticket',
+        planSteps: ['update file'],
+        filePath: 'src/example.ts',
+        existingContent: 'export const value = 0;\n',
+      });
+
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'google',
+          model: 'gemini-2.5-pro',
+          stage: 'implement',
         }),
       );
     });
