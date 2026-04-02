@@ -150,4 +150,23 @@ describe('IssuePlanCommand', () => {
     expect(path.dirname(ticketPreview.filePath)).toBe(expectedDir);
     expect(path.dirname(planPreview.filePath)).toBe(expectedDir);
   });
+
+  it('stores ticket-mode plans under the repo-name namespace for long-format repos', async () => {
+    const command = await buildCommand();
+    const dryRunPreview = (command as any)
+      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+
+    await command.run(['WBP-1'], {
+      action: 'fix',
+      repos: ['workspace/repo-a'],
+      dryRun: true,
+    });
+
+    const ticketPreview = dryRunPreview.previewFileWrite.mock.calls[0][0];
+    const planPreview = dryRunPreview.previewFileWrite.mock.calls[1][0];
+    const expectedDir = path.join(os.homedir(), '.wf', 'repo-a', 'jira');
+
+    expect(path.dirname(ticketPreview.filePath)).toBe(expectedDir);
+    expect(path.dirname(planPreview.filePath)).toBe(expectedDir);
+  });
 });

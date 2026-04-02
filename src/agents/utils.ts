@@ -47,13 +47,37 @@ export const extractSummary = (content: string): string => {
 export const resolveRepoBasePath = (repo?: string): string => {
   if (!repo) return process.cwd();
 
-  if (path.isAbsolute(repo) && fs.existsSync(repo)) return repo;
+  const tryResolvePath = (candidate: string): string | null => {
+    if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
+      return candidate;
+    }
 
-  const relPath = path.resolve(process.cwd(), repo);
-  if (fs.existsSync(relPath)) return relPath;
+    const relPath = path.resolve(process.cwd(), candidate);
+    if (fs.existsSync(relPath)) {
+      return relPath;
+    }
 
-  const siblingPath = path.resolve(process.cwd(), '..', repo);
-  if (fs.existsSync(siblingPath)) return siblingPath;
+    const siblingPath = path.resolve(process.cwd(), '..', candidate);
+    if (fs.existsSync(siblingPath)) {
+      return siblingPath;
+    }
+
+    return null;
+  };
+
+  const resolvedRepoPath = tryResolvePath(repo);
+  if (resolvedRepoPath) {
+    return resolvedRepoPath;
+  }
+
+  const repoSegments = repo.split(/\//).filter(Boolean);
+  const localRepoName = repoSegments.length > 1 ? repoSegments[1] : null;
+  if (localRepoName) {
+    const resolvedRepoNamePath = tryResolvePath(localRepoName);
+    if (resolvedRepoNamePath) {
+      return resolvedRepoNamePath;
+    }
+  }
 
   console.log(
     chalk.yellow(

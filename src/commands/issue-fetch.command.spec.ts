@@ -139,4 +139,20 @@ describe('IssueFetchCommand', () => {
       path.join(os.homedir(), '.wf', 'repo-a', 'jira'),
     );
   });
+
+  it('stores fetched artifacts under the repo-name namespace for long-format repos', async () => {
+    const command = await buildCommand();
+    const dryRunPreview = (command as any)
+      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+
+    await command.run(['WBP-1'], {
+      repos: ['workspace/repo-a'],
+      dryRun: true,
+    });
+
+    const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
+    expect(path.dirname(preview.filePath)).toBe(
+      path.join(os.homedir(), '.wf', 'repo-a', 'jira'),
+    );
+  });
 });
