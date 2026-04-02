@@ -5,9 +5,7 @@ jest.mock('fs', () => ({
   existsSync: jest.fn(),
 }));
 
-const { existsSync } = jest.requireMock('fs') as {
-  existsSync: jest.Mock;
-};
+const { existsSync } = jest.requireMock('fs');
 
 describe('resolveRepoBasePath', () => {
   let cwdSpy: jest.SpyInstance;
