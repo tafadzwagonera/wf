@@ -9,9 +9,9 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import { TicketType } from '../common/dto/universal-ticket.dto';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
+import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import chalk from 'chalk';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 interface IssueCreateOptions {
@@ -75,11 +75,21 @@ export class IssueCreateCommand extends CommandRunner {
     }
 
     try {
-      // Read input file
+      const platformName =
+        options?.platform ||
+        this.configService.get<string>('platforms.primary', 'jira');
       const resolved = path.resolve(inputPath);
+      const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
+      const artifactPath =
+        path.basename(inputPath) === inputPath
+          ? path.join(resolveArtifactDir(repoBaseDir, platformName), inputPath)
+          : null;
       const inputFilePath = fs.existsSync(resolved)
         ? resolved
-        : path.join(os.homedir(), '.wf', inputPath);
+        : artifactPath && fs.existsSync(artifactPath)
+          ? artifactPath
+          : resolved;
+
       if (!fs.existsSync(inputFilePath)) {
         throw new Error(`Input file not found: ${inputFilePath}`);
       }
@@ -111,10 +121,6 @@ export class IssueCreateCommand extends CommandRunner {
       }
 
       // Get platform adapter
-      const platformName =
-        options?.platform ||
-        this.configService.get<string>('platforms.primary', 'jira');
-
       console.log(chalk.gray(`  Target platform: ${platformName}\n`));
 
       // Dry run mode - just validate
