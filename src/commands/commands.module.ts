@@ -14,7 +14,7 @@ import { IssueFetchCommand } from './issue-fetch.command';
 import { IssuePlanCommand } from './issue-plan.command';
 import { IssueImplementCommand } from './issue-implement.command';
 import { IssueReviewCommand } from './issue-review.command';
-import { IssueAllCommand } from './issue-all.command';
+import { IssueCommand } from './issue.command';
 import { IssueGenerateCommand } from './issue-generate.command';
 import { IssueCommitCommand } from './issue-commit.command';
 import { IssuePrCommand } from './issue-pr.command';
@@ -58,7 +58,7 @@ import { SlackService } from '../integrations/slack/slack.service';
     IssuePlanCommand,
     IssueImplementCommand,
     IssueReviewCommand,
-    IssueAllCommand,
+    IssueCommand,
     IssueGenerateCommand,
     IssueCommitCommand,
     IssuePrCommand,

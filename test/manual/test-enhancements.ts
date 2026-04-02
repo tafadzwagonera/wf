@@ -159,10 +159,10 @@ async function main() {
   // ── E6: Investigation findings flow ─────────────────────────────────────
   console.log(chalk.bold.cyan('\n§ E6 — Investigation findings flow\n'));
 
-  // E6-1: issue:all dry-run with --action investigate shows findings preview, not branch
+  // E6-1: issue dry-run with --action investigate shows findings preview, not branch
   {
     const { output: e6Out, exitCode: e6Code } = run(
-      `${CLI} issue:all WBP-0001 --from plan --action investigate --repos test-repo --dry-run`,
+      `${CLI} issue WBP-0001 --from plan --action investigate --repos test-repo --dry-run`,
     );
     assert('E6-1: exit 0', e6Code === 0);
     assert(

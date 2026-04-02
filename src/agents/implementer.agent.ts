@@ -260,7 +260,7 @@ export class ImplementerAgent {
     ];
     if (repositoriesAffected.length > 1) {
       throw new Error(
-        `issue:implement only verifies a single repository. This plan affects multiple repositories: ${repositoriesAffected.join(', ')}. Use wf issue:all or run wf issue:implement separately per repository.`,
+        `issue:implement only verifies a single repository. This plan affects multiple repositories: ${repositoriesAffected.join(', ')}. Use wf issue or run wf issue:implement separately per repository.`,
       );
     }
 
@@ -295,7 +295,7 @@ export class ImplementerAgent {
     );
     if (offendingPaths.length > 0) {
       throw new Error(
-        `issue:implement can only modify and verify files for ${repoName}. Found paths for other repositories: ${offendingPaths.join(', ')}. Use wf issue:all or run wf issue:implement separately per repository.`,
+        `issue:implement can only modify and verify files for ${repoName}. Found paths for other repositories: ${offendingPaths.join(', ')}. Use wf issue or run wf issue:implement separately per repository.`,
       );
     }
   }

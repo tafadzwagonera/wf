@@ -24,7 +24,7 @@ async function testConversationArtefactPath() {
     console.log(
       '⚠ WF_TEST_TICKET is not set — skipping test.\n' +
         '  Set it to a ticket key for which you have already run:\n' +
-        '    wf issue:all <ticket> --from fetch -a fix --chat-mode\n',
+        '    wf issue <ticket> --from fetch -a fix --chat-mode\n',
     );
     process.exit(0);
   }
@@ -66,7 +66,7 @@ async function testConversationArtefactPath() {
   } else {
     fail(
       `Artefact NOT found at expected location: ${expectedPath}\n` +
-        '  Run wf issue:all with --chat-mode first, or check that Bug 1 fix was applied.',
+        '  Run wf issue with --chat-mode first, or check that Bug 1 fix was applied.',
     );
   }
 

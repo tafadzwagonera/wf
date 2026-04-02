@@ -77,7 +77,7 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
       chalk.yellow(
-        `⚠️ issue:implement verifies only the first repository. Remaining repos are context only: ${repos!.slice(1).join(', ')}. Use wf issue:all or run wf issue:implement separately per repository for multi-repo plans.`,
+        `⚠️ issue:implement verifies only the first repository. Remaining repos are context only: ${repos!.slice(1).join(', ')}. Use wf issue or run wf issue:implement separately per repository for multi-repo plans.`,
       ),
     );
   }

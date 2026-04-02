@@ -25,15 +25,14 @@ import {
   ImplementerResult,
 } from '../agents/interfaces';
 
-const ISSUE_ALL_EXAMPLES: CliExample[] = [
+const ISSUE_EXAMPLES: CliExample[] = [
   {
     comment: 'Run full workflow from fetch',
-    command: 'wf issue:all WBP-2971 --from fetch --action fix',
+    command: 'wf issue WBP-2971 --from fetch --action fix',
   },
   {
     comment: 'Resume from implement stage',
-    command:
-      'wf issue:all WBP-2971 --from implement --action fix --platform jira',
+    command: 'wf issue WBP-2971 --from implement --action fix --platform jira',
   },
 ];
 
@@ -53,7 +52,7 @@ const STAGE_ORDER = [
   WorkflowStage.COMMIT,
 ];
 
-interface IssueAllOptions {
+interface IssueOptions {
   from: string;
   to?: string;
   action?: string;
@@ -66,13 +65,13 @@ interface IssueAllOptions {
 }
 
 @Command({
-  name: 'issue:all',
+  name: 'issue',
   description:
     'Complete workflow: fetch, plan, implement, review, and commit. Use --from and --to to control stage range.',
   arguments: '<ticket-key>',
   options: { isDefault: false },
 })
-export class IssueAllCommand extends CommandRunner {
+export class IssueCommand extends CommandRunner {
   constructor(
     private conversationService: ConversationService,
     private logger: LoggerService,
@@ -162,8 +161,8 @@ export class IssueAllCommand extends CommandRunner {
     return val;
   }
 
-  async run(passedParams: string[], options?: IssueAllOptions): Promise<void> {
-    printExamples(ISSUE_ALL_EXAMPLES);
+  async run(passedParams: string[], options?: IssueOptions): Promise<void> {
+    printExamples(ISSUE_EXAMPLES);
 
     const ticketKey = passedParams[0];
 
@@ -171,12 +170,12 @@ export class IssueAllCommand extends CommandRunner {
       console.error(chalk.red('Error: Ticket key is required'));
       console.log(
         chalk.gray(
-          'Usage: wf issue:all <ticket-key> --from <stage> [--to <stage>] [options]',
+          'Usage: wf issue <ticket-key> --from <stage> [--to <stage>] [options]',
         ),
       );
       console.log(
         chalk.gray(
-          'Example: wf issue:all WBP-2971 --from fetch --to review --action fix\n',
+          'Example: wf issue WBP-2971 --from fetch --to review --action fix\n',
         ),
       );
       process.exit(1);
@@ -186,13 +185,13 @@ export class IssueAllCommand extends CommandRunner {
       console.error(chalk.red('Error: --from option is required'));
       console.log(
         chalk.gray(
-          'Usage: wf issue:all <ticket-key> --from <stage> [--to <stage>] [options]',
+          'Usage: wf issue <ticket-key> --from <stage> [--to <stage>] [options]',
         ),
       );
       console.log(chalk.gray('Stages: fetch|plan|implement|review|commit'));
       console.log(
         chalk.gray(
-          'Example: wf issue:all WBP-2971 --from fetch --to review --action fix\n',
+          'Example: wf issue WBP-2971 --from fetch --to review --action fix\n',
         ),
       );
       process.exit(1);
@@ -271,7 +270,7 @@ export class IssueAllCommand extends CommandRunner {
       if (options?.dryRun) {
         const platformDir = resolveArtifactDir(repoBaseDir, platformName);
 
-        this.dryRunPreview.showHeader('issue:all', ticketKey);
+        this.dryRunPreview.showHeader('issue', ticketKey);
         console.log(
           chalk.gray(
             `   Stages : ${fromStage} → ${toStage}  |  Platform: ${platformName}\n`,

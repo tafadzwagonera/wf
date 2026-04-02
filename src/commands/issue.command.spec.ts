@@ -42,7 +42,8 @@ jest.mock('../agents/utils', () => {
 
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { IssueAllCommand } from './issue-all.command';
+import { CommandMeta } from 'nest-commander/src/constants';
+import { IssueCommand } from './issue.command';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -53,10 +54,10 @@ import * as path from 'path';
 
 const mockCwd = '/tmp/consumer-app';
 
-async function buildCommand(): Promise<IssueAllCommand> {
+async function buildCommand(): Promise<IssueCommand> {
   const module = await Test.createTestingModule({
     providers: [
-      IssueAllCommand,
+      IssueCommand,
       { provide: ConversationService, useValue: {} },
       {
         provide: LoggerService,
@@ -101,10 +102,10 @@ async function buildCommand(): Promise<IssueAllCommand> {
     ],
   }).compile();
 
-  return module.get(IssueAllCommand);
+  return module.get(IssueCommand);
 }
 
-describe('IssueAllCommand', () => {
+describe('IssueCommand', () => {
   let cwdSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -114,6 +115,14 @@ describe('IssueAllCommand', () => {
   afterEach(() => {
     cwdSpy.mockRestore();
     jest.restoreAllMocks();
+  });
+
+  it('registers the command as issue', () => {
+    const metadata = Reflect.getMetadata(CommandMeta, IssueCommand) as {
+      name: string;
+    };
+
+    expect(metadata.name).toBe('issue');
   });
 
   it('stores default artifacts under the cwd namespace in dry-run mode', async () => {

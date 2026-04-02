@@ -198,14 +198,14 @@ wf issue:fetch WBP-2971 --platform jira
 wf issue:plan WBP-2971 --action fix
 
 # Run the complete issue workflow in one command
-wf issue-all WBP-2971 --from fetch --to commit --action fix
+wf issue WBP-2971 --from fetch --to commit --action fix
 ```
 
 ## Commands
 
 ### Issue API
 
-The issue API is a suite of commands for the full ticket lifecycle: fetch → plan → implement → review → commit. Commands prefixed with `issue:` are focused steps; `issue-all` orchestrates them together.
+The issue API is a suite of commands for the full ticket lifecycle: fetch → plan → implement → review → commit. Commands prefixed with `issue:` are focused steps; `issue` orchestrates them together.
 
 ---
 
@@ -448,32 +448,32 @@ wf issue:pr WBP-2971 --dry-run
 
 ---
 
-#### `wf issue-all <ticket-key>`
+#### `wf issue <ticket-key>`
 
 Orchestrate the full issue workflow in a single command. Runs any contiguous range of stages: `fetch → plan → implement → review → commit`.
 
 ```bash
 # Full workflow from scratch
-wf issue-all WBP-2971 --from fetch --action fix
+wf issue WBP-2971 --from fetch --action fix
 
-# Skip fetch if local artifact exists; run plan through review
-wf issue-all WBP-2971 --from plan --to review --action implement
+# Resume from plan and run through review
+wf issue WBP-2971 --from plan --to review --action fix
 
 # Resume from implement (auto-discovers existing plan)
-wf issue-all WBP-2971 --from implement
+wf issue WBP-2971 --from implement
 
-# Skip stages that already have artifacts
-wf issue-all WBP-2971 --from fetch --action fix --skip-existing
+# Force refresh even when local artifacts already exist
+wf issue WBP-2971 --from fetch --action fix --force
 
 # Interactive chat mode after plan and review stages
-wf issue-all WBP-2971 --from fetch --action investigate --interactive
+wf issue WBP-2971 --from fetch --action investigate --chat-mode
 
-# Bitbucket with repo override
-wf issue-all 123 --from fetch --to review --action fix \
-  --platform bitbucket --repo myworkspace/myrepo
+# Bitbucket with repos override
+wf issue 123 --from fetch --to review --action fix \
+  --platform bitbucket --repos myworkspace/myrepo
 
 # Preview the full workflow without making changes
-wf issue-all WBP-2971 --from fetch --action fix --dry-run
+wf issue WBP-2971 --from fetch --action fix --dry-run
 ```
 
 **Options:**
@@ -482,11 +482,11 @@ wf issue-all WBP-2971 --from fetch --action fix --dry-run
 | --------------------------- | -------------------------------------------------------------------------------------- | ------------------ |
 | `--from <stage>`            | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit`           | —                  |
 | `--to <stage>`              | Stop stage (inclusive)                                                                 | `commit`           |
-| `--action <action>`         | Resolution action: `implement \| fix \| investigate` — required when `plan` stage runs | —                  |
+| `--action <action>`         | Resolution action: `feature \| fix \| investigate` — required when `plan` stage runs | —                  |
 | `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket`                                                | `PRIMARY_PLATFORM` |
 | `--pr`                      | Create PR after commit stage                                                           | false              |
-| `--interactive`             | Open AI chat after `plan` and `review` stages                                          | —                  |
-| `--skip-existing`           | Skip stages whose output artifact already exists                                       | —                  |
+| `--chat-mode`               | Open AI chat after `plan` and `review` stages                                          | —                  |
+| `--force`                   | Recreate artifacts instead of using the default skip-existing behavior                 | false              |
 | `-r, --repos <repos...>`    | First repo anchors artifact storage; all repos are used as workflow context            | current repo       |
 | `--dry-run`                 | Preview every stage without making changes                                             | —                  |
 
@@ -500,13 +500,13 @@ wf issue-all WBP-2971 --from fetch --action fix --dry-run
 | `review`    | `./<platform>/<ticket-key>-review.md`                       |
 | `commit`    | _(display only — commit commands printed for confirmation)_ |
 
-**Branch naming:** `issue-all` generates a branch name in the format `<prefix>/<TICKET-KEY>__<slug>`, where prefix is controlled by `BRANCH_PREFIX_*` env vars (`feature`, `bugfix`, `chore`).
+**Branch naming:** `issue` generates a branch name in the format `<prefix>/<TICKET-KEY>__<slug>`, where prefix is controlled by `BRANCH_PREFIX_*` env vars (`feature`, `bugfix`, `chore`).
 
 ---
 
 #### `wf issue-implement <ticket-key>` _(legacy)_
 
-Simple implementation guide generator. Reads the ticket from `./jira/<ticket-key>.md` and prints an implementation plan. Superseded by `issue:plan` and `issue-all`.
+Simple implementation guide generator. Reads the ticket from `./jira/<ticket-key>.md` and prints an implementation plan. Superseded by `issue:plan` and `issue`.
 
 ```bash
 wf issue-implement WBP-2971
@@ -703,7 +703,7 @@ APPROVAL REQUIRED: Review Stage Output
 wf/
 ├── src/
 │   ├── commands/              # CLI commands
-│   │   ├── issue-all.command.ts
+│   │   ├── issue.command.ts
 │   │   ├── issue-create.command.ts
 │   │   ├── issue-fetch.command.ts
 │   │   ├── issue-generate.command.ts
@@ -844,8 +844,8 @@ yarn test:e2e
 
 **5. "Plan file not found"**
 
-- Run `issue:plan` (or `issue-all --from plan`) before running `implement` or later stages
-- If you specified `--action fix` at plan time, use the same action when resuming: `issue-all WBP-2971 --from implement --action fix`
+- Run `issue:plan` (or `issue --from plan`) before running `implement` or later stages
+- If you specified `--action fix` at plan time, use the same action when resuming: `issue WBP-2971 --from implement --action fix`
 
 **6. "Workspace required"**
 

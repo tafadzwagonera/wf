@@ -1,4 +1,4 @@
-// test/manual/test-issue-all-agents.ts
+// test/manual/test-issue-agents.ts
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { AgentOrchestrator } from '../../src/agents/agent-orchestrator.service';
@@ -132,7 +132,7 @@ async function main() {
 
     try {
       dryRunOutput = execSync(
-        `npx ts-node -r tsconfig-paths/register src/main.ts issue:all ${ticketKey} --from fetch --to commit --action feature --repos test-repo --dry-run`,
+        `npx ts-node -r tsconfig-paths/register src/main.ts issue ${ticketKey} --from fetch --to commit --action feature --repos test-repo --dry-run`,
         { encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 },
       );
     } catch (err: unknown) {
@@ -173,7 +173,7 @@ async function main() {
       // --dry-run ensures the guard fires before any filesystem lookup,
       // so the test is reliable regardless of whether the ticket file exists.
       guardOutput = execSync(
-        `npx ts-node -r tsconfig-paths/register src/main.ts issue:all ${ticketKey} --from plan --to plan --repos test-repo --dry-run`,
+        `npx ts-node -r tsconfig-paths/register src/main.ts issue ${ticketKey} --from plan --to plan --repos test-repo --dry-run`,
         { encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 },
       );
     } catch (err: unknown) {

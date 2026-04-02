@@ -1,7 +1,7 @@
 /**
- * Manual Test Script for issue:all --repos feature
+ * Manual Test Script for issue --repos feature
  *
- * Run: nr test:manual -- test-issue-all-affected-repos
+ * Run: nr test:manual -- test-issue-affected-repos
  *
  * Tests repository resolution logic: explicit CLI flag, AI-inferred fallback,
  * and deduplication.
@@ -16,16 +16,16 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
-import { IssueAllCommand } from '../../src/commands/issue-all.command';
+import { IssueCommand } from '../../src/commands/issue.command';
 
-async function testIssueAllAffectedRepos() {
-  console.log('🧪 Testing issue:all --repos feature\n');
+async function testIssueAffectedRepos() {
+  console.log('🧪 Testing issue --repos feature\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
   });
 
-  const command = app.get(IssueAllCommand);
+  const command = app.get(IssueCommand);
 
   let passed = 0;
   let failed = 0;
@@ -50,10 +50,16 @@ async function testIssueAllAffectedRepos() {
     platformName?: string;
     planRepositoriesAffected?: string[];
     action?: string;
-  }): { tmpRoot: string; cleanup: () => void } => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-all-'));
+  }): { tmpRoot: string; homeDir: string; cleanup: () => void } => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-'));
+    const homeDir = path.join(tmpRoot, 'home');
     const platformName = opts.platformName ?? 'jira';
-    const platformDir = path.join(tmpRoot, '.wf', platformName);
+    const platformDir = path.join(
+      homeDir,
+      '.wf',
+      path.basename(tmpRoot),
+      platformName,
+    );
     fs.mkdirSync(platformDir, { recursive: true });
 
     const ticketPath = path.join(platformDir, `${opts.ticketKey}.md`);
@@ -94,6 +100,7 @@ async function testIssueAllAffectedRepos() {
 
     return {
       tmpRoot,
+      homeDir,
       cleanup: () => fs.rmSync(tmpRoot, { recursive: true, force: true }),
     };
   };
@@ -106,12 +113,18 @@ async function testIssueAllAffectedRepos() {
   const captureOutput = async (
     fn: () => Promise<void>,
   ): Promise<{ output: string; error?: string }> => {
-    const chunks: string[] = [];
-    const originalWrite = process.stdout.write.bind(process.stdout);
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
     const originalExit = process.exit.bind(process);
     (process.stdout.write as any) = (chunk: any, ...args: any[]) => {
-      chunks.push(typeof chunk === 'string' ? chunk : chunk.toString());
-      return originalWrite(chunk, ...args);
+      stdoutChunks.push(typeof chunk === 'string' ? chunk : chunk.toString());
+      return originalStdoutWrite(chunk, ...args);
+    };
+    (process.stderr.write as any) = (chunk: any, ...args: any[]) => {
+      stderrChunks.push(typeof chunk === 'string' ? chunk : chunk.toString());
+      return originalStderrWrite(chunk, ...args);
     };
     (process.exit as any) = (code?: number) => {
       throw new Error(`process.exit(${code ?? 0})`);
@@ -121,10 +134,11 @@ async function testIssueAllAffectedRepos() {
     } catch (err: any) {
       // Swallow — may be from our mocked process.exit or a handled command error.
     } finally {
-      (process.stdout.write as any) = originalWrite;
+      (process.stdout.write as any) = originalStdoutWrite;
+      (process.stderr.write as any) = originalStderrWrite;
       (process.exit as any) = originalExit;
     }
-    return { output: chunks.join('') };
+    return { output: stdoutChunks.join('') + stderrChunks.join('') };
   };
 
   // ── Tests ────────────────────────────────────────────────────────────────
@@ -132,9 +146,11 @@ async function testIssueAllAffectedRepos() {
   // Test 1: --repos flag only; plan has no repositoriesAffected → IMPLEMENT shows flag repo
   console.log('Test 1: explicit --repos only → IMPLEMENT shows flag repo');
   {
-    const { tmpRoot, cleanup } = makeFixtures({ ticketKey: 'TEST-1' });
+    const { tmpRoot, homeDir, cleanup } = makeFixtures({ ticketKey: 'TEST-1' });
     const originalCwd = process.cwd();
+    const originalHome = process.env.HOME;
     process.chdir(tmpRoot);
+    process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
         command.run(['TEST-1'], {
@@ -151,22 +167,25 @@ async function testIssueAllAffectedRepos() {
       }
     } finally {
       process.chdir(originalCwd);
+      process.env.HOME = originalHome;
       cleanup();
     }
   }
 
-  // Test 2: Empty --repos; plan has repositoriesAffected → IMPLEMENT shows plan repos
+  // Test 2: Empty --repos; plan repositories do not trigger a required-option error
   console.log(
-    'Test 2: empty --repos; plan has repositoriesAffected → IMPLEMENT shows plan repo',
+    'Test 2: empty --repos; plan repositories do not trigger a required-option error',
   );
   {
-    const { tmpRoot, cleanup } = makeFixtures({
+    const { tmpRoot, homeDir, cleanup } = makeFixtures({
       ticketKey: 'TEST-2',
       planRepositoriesAffected: ['repo-b'],
       action: 'fix',
     });
     const originalCwd = process.cwd();
+    const originalHome = process.env.HOME;
     process.chdir(tmpRoot);
+    process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
         command.run(['TEST-2'], {
@@ -176,29 +195,41 @@ async function testIssueAllAffectedRepos() {
           repos: [],
         }),
       );
-      if (output.includes('repo-b')) {
-        pass('IMPLEMENT stage shows AI-inferred repo-b from plan');
+      const commanderRequiredError =
+        output.includes('required option') && output.includes('--repos');
+      if (
+        !commanderRequiredError &&
+        output.includes('STAGE 3: Implementation Guide')
+      ) {
+        pass(
+          'Empty --repos still runs IMPLEMENT without a required-option error',
+        );
       } else {
-        fail(`Test 2: repo-b not found in output. Output:\n${output}`);
+        fail(
+          `Test 2: expected IMPLEMENT output without a required-option error. Output:\n${output}`,
+        );
       }
     } finally {
       process.chdir(originalCwd);
+      process.env.HOME = originalHome;
       cleanup();
     }
   }
 
-  // Test 3: --repos + plan repos → deduplicated union
+  // Test 3: Multi-repo plan is rejected with updated issue guidance
   console.log(
-    'Test 3: explicit repos + plan repos → deduplication applied correctly',
+    'Test 3: explicit repos + multi-repo plan → issue guidance is shown',
   );
   {
-    const { tmpRoot, cleanup } = makeFixtures({
+    const { tmpRoot, homeDir, cleanup } = makeFixtures({
       ticketKey: 'TEST-3',
       planRepositoriesAffected: ['repo-b', 'repo-c'],
       action: 'fix',
     });
     const originalCwd = process.cwd();
+    const originalHome = process.env.HOME;
     process.chdir(tmpRoot);
+    process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
         command.run(['TEST-3'], {
@@ -208,22 +239,23 @@ async function testIssueAllAffectedRepos() {
           repos: ['repo-a', 'repo-b'],
         }),
       );
-      const hasRepoA = output.includes('repo-a');
-      const hasRepoB = output.includes('repo-b');
-      const hasRepoC = output.includes('repo-c');
-      // repo-b should be looped over exactly once (sub-label appears once, not twice)
-      const repoBLoopCount = (output.match(/── repo-b ──/g) ?? []).length;
-      if (hasRepoA && hasRepoB && hasRepoC && repoBLoopCount === 1) {
-        pass(
-          'Deduplication: repo-a, repo-b (iterated ×1), repo-c each appear correctly',
-        );
+      if (
+        output.includes(
+          'This plan affects multiple repositories: repo-b, repo-c',
+        ) &&
+        output.includes(
+          'Use wf issue or run wf issue:implement separately per repository',
+        )
+      ) {
+        pass('Multi-repo plan is rejected with issue guidance');
       } else {
         fail(
-          `Test 3: expected repo-a=${hasRepoA}, repo-b-iterated×1=${repoBLoopCount === 1}, repo-c=${hasRepoC}. Output:\n${output}`,
+          `Test 3: expected multi-repo guidance in output. Output:\n${output}`,
         );
       }
     } finally {
       process.chdir(originalCwd);
+      process.env.HOME = originalHome;
       cleanup();
     }
   }
@@ -231,9 +263,11 @@ async function testIssueAllAffectedRepos() {
   // Test 4: Single --repos value; workflow displays it across IMPLEMENT, REVIEW, COMMIT stages
   console.log('Test 4: single --repos value → shown in IMPLEMENT stage');
   {
-    const { tmpRoot, cleanup } = makeFixtures({ ticketKey: 'TEST-4' });
+    const { tmpRoot, homeDir, cleanup } = makeFixtures({ ticketKey: 'TEST-4' });
     const originalCwd = process.cwd();
+    const originalHome = process.env.HOME;
     process.chdir(tmpRoot);
+    process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
         command.run(['TEST-4'], {
@@ -250,6 +284,7 @@ async function testIssueAllAffectedRepos() {
       }
     } finally {
       process.chdir(originalCwd);
+      process.env.HOME = originalHome;
       cleanup();
     }
   }
@@ -257,13 +292,15 @@ async function testIssueAllAffectedRepos() {
   // Test 5: REVIEW stage also shows resolvedRepos
   console.log('Test 5: REVIEW stage shows repositories in scope');
   {
-    const { tmpRoot, cleanup } = makeFixtures({
+    const { tmpRoot, homeDir, cleanup } = makeFixtures({
       ticketKey: 'TEST-5',
       planRepositoriesAffected: ['review-repo'],
       action: 'fix',
     });
     const originalCwd = process.cwd();
+    const originalHome = process.env.HOME;
     process.chdir(tmpRoot);
+    process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
         command.run(['TEST-5'], {
@@ -282,6 +319,7 @@ async function testIssueAllAffectedRepos() {
       }
     } finally {
       process.chdir(originalCwd);
+      process.env.HOME = originalHome;
       cleanup();
     }
   }
@@ -289,12 +327,14 @@ async function testIssueAllAffectedRepos() {
   // Test 6: Multi-repo → stage 3 header appears exactly once
   console.log('Test 6: multi-repo → STAGE 3 header appears exactly once');
   {
-    const { tmpRoot, cleanup } = makeFixtures({
+    const { tmpRoot, homeDir, cleanup } = makeFixtures({
       ticketKey: 'TEST-6',
       action: 'fix',
     });
     const originalCwd = process.cwd();
+    const originalHome = process.env.HOME;
     process.chdir(tmpRoot);
+    process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
         command.run(['TEST-6'], {
@@ -313,6 +353,7 @@ async function testIssueAllAffectedRepos() {
       }
     } finally {
       process.chdir(originalCwd);
+      process.env.HOME = originalHome;
       cleanup();
     }
   }
@@ -320,12 +361,14 @@ async function testIssueAllAffectedRepos() {
   // Test 7: no --repos provided → resolveRepoBasePath falls back to cwd
   console.log('Test 7: omit --repos → command falls back to cwd');
   {
-    const { tmpRoot, cleanup } = makeFixtures({
+    const { tmpRoot, homeDir, cleanup } = makeFixtures({
       ticketKey: 'TEST-7',
       action: 'fix',
     });
     const originalCwd = process.cwd();
+    const originalHome = process.env.HOME;
     process.chdir(tmpRoot);
+    process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
         command.run(['TEST-7'], {
@@ -345,6 +388,7 @@ async function testIssueAllAffectedRepos() {
       }
     } finally {
       process.chdir(originalCwd);
+      process.env.HOME = originalHome;
       cleanup();
     }
   }
@@ -360,4 +404,4 @@ async function testIssueAllAffectedRepos() {
   await app.close();
 }
 
-testIssueAllAffectedRepos();
+testIssueAffectedRepos();

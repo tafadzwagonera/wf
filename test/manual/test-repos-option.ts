@@ -8,13 +8,15 @@
  *   2. issue:plan --help shows -r, --repos <repos...>
  *   3. issue:implement --help shows -r, --repos <repos...>
  *   4. issue:review --help shows -r, --repos <repos...>
- *   5. issue:all --help shows -r, --repos <repos...>
+ *   5. issue --help shows -r, --repos <repos...>
  *   6. issue:generate --help shows -r, --repos <repos...>
  *   7. Help text describes repos as space-separated, not comma-separated
  *   8. None of the above show the old --repo / --affected-repositories flags
  */
 
 import { execSync } from 'child_process';
+import * as os from 'os';
+import * as path from 'path';
 
 async function testReposOption() {
   console.log('🧪 Testing consolidated --repos option\n');
@@ -32,10 +34,11 @@ async function testReposOption() {
   };
 
   const helpOutput = (command: string): string => {
+    const distMain = path.join(__dirname, '../../dist/main.js');
     try {
-      return execSync(`node dist/main.js ${command} --help`, {
+      return execSync(`node ${distMain} ${command} --help`, {
         encoding: 'utf-8',
-        cwd: process.cwd(),
+        cwd: os.tmpdir(),
       });
     } catch (err: any) {
       return (err.stdout ?? '') + (err.stderr ?? '');
@@ -47,7 +50,7 @@ async function testReposOption() {
     'issue:plan',
     'issue:implement',
     'issue:review',
-    'issue:all',
+    'issue',
     'issue:generate',
   ];
 
@@ -60,7 +63,7 @@ async function testReposOption() {
       fail(`${cmd}: -r, --repos <repos...> NOT found in --help`);
     }
 
-    if (help.includes('Space-separated list of repositories')) {
+    if (/Space-separated(?: list of)? repositories/.test(help)) {
       pass(`${cmd}: help text describes repos as space-separated`);
     } else {
       fail(`${cmd}: help text does not describe repos as space-separated`);

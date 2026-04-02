@@ -145,7 +145,7 @@ export class DryRunPreviewService {
   }
 
   /**
-   * Display a stage separator for multi-stage previews (issue-all)
+   * Display a stage separator for multi-stage previews (issue)
    * @param stageName Display name for the stage
    */
   showStageHeader(stageName: string): void {

@@ -94,7 +94,7 @@ describe('ImplementerAgent', () => {
           },
         ),
       ).rejects.toThrow(
-        'issue:implement only verifies a single repository. This plan affects multiple repositories: repo-a, repo-b. Use wf issue:all or run wf issue:implement separately per repository.',
+        'issue:implement only verifies a single repository. This plan affects multiple repositories: repo-a, repo-b. Use wf issue or run wf issue:implement separately per repository.',
       );
     });
 
@@ -112,7 +112,7 @@ describe('ImplementerAgent', () => {
           },
         ),
       ).rejects.toThrow(
-        'issue:implement can only modify and verify files for repo-a. Found paths for other repositories: repo-b/src/example.ts. Use wf issue:all or run wf issue:implement separately per repository.',
+        'issue:implement can only modify and verify files for repo-a. Found paths for other repositories: repo-b/src/example.ts. Use wf issue or run wf issue:implement separately per repository.',
       );
     });
   });

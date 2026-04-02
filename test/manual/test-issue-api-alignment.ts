@@ -1,7 +1,7 @@
 /**
- * Manual test: issue:all API alignment
+ * Manual test: issue API alignment
  *
- * Run: nr test:manual -- test-issue-all-api-alignment
+ * Run: nr test:manual -- test-issue-api-alignment
  *
  * Verifies:
  *   1. --chat-mode flag is accepted (dry-run exits 0)
@@ -22,10 +22,10 @@ import { execSync } from 'child_process';
 import chalk from 'chalk';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
-import { IssueAllCommand } from '../../src/commands/issue-all.command';
+import { IssueCommand } from '../../src/commands/issue.command';
 
 async function main() {
-  console.log(chalk.bold.cyan('\n🧪 issue:all API alignment tests\n'));
+  console.log(chalk.bold.cyan('\n🧪 issue API alignment tests\n'));
 
   let passed = 0;
   let failed = 0;
@@ -46,11 +46,11 @@ async function main() {
   const distMain = path.join(__dirname, '../../dist/main.js');
 
   /**
-   * Run `node dist/main.js issue:all <args>` and return stdout+stderr and exit code.
+   * Run `node dist/main.js issue <args>` and return stdout+stderr and exit code.
    */
   const runCli = (args: string): { output: string; exitCode: number } => {
     try {
-      const output = execSync(`node ${distMain} issue:all ${args}`, {
+      const output = execSync(`node ${distMain} issue ${args}`, {
         encoding: 'utf-8',
         stdio: 'pipe',
         cwd: os.tmpdir(),
@@ -71,11 +71,12 @@ async function main() {
    */
   const makeArtifactFixture = (
     ticketKey: string,
-  ): { tmpRoot: string; cleanup: () => void } => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-all-align-'));
+  ): { tmpRoot: string; homeDir: string; cleanup: () => void } => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-align-'));
+    const homeDir = path.join(tmpRoot, 'home');
     // resolveArtifactDir resolves to: getWfHomeDir() / basename(baseDir) / platform
     // When cwd=tmpRoot and repo='test-repo' is not found, baseDir=cwd=tmpRoot.
-    const wfHome = path.join(os.homedir(), '.wf');
+    const wfHome = path.join(homeDir, '.wf');
     const platformDir = path.join(wfHome, path.basename(tmpRoot), 'jira');
     fs.mkdirSync(platformDir, { recursive: true });
     fs.writeFileSync(
@@ -85,12 +86,9 @@ async function main() {
     );
     return {
       tmpRoot,
+      homeDir,
       cleanup: () => {
         fs.rmSync(tmpRoot, { recursive: true, force: true });
-        fs.rmSync(path.join(wfHome, path.basename(tmpRoot)), {
-          recursive: true,
-          force: true,
-        });
       },
     };
   };
@@ -185,15 +183,17 @@ async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
   });
-  const command = app.get(IssueAllCommand);
+  const command = app.get(IssueCommand);
 
   console.log(
     chalk.bold('Test 5: No --force → dry-run skips FETCH when artifact exists'),
   );
   {
-    const { tmpRoot, cleanup } = makeArtifactFixture('TEST-5');
+    const { tmpRoot, homeDir, cleanup } = makeArtifactFixture('TEST-5');
     const originalCwd = process.cwd();
+    const originalHome = process.env.HOME;
     process.chdir(tmpRoot);
+    process.env.HOME = homeDir;
     try {
       const output = await captureStdout(() =>
         command.run(['TEST-5'], {
@@ -213,6 +213,7 @@ async function main() {
       fail(`Test 5 threw: ${err.message}`);
     } finally {
       process.chdir(originalCwd);
+      process.env.HOME = originalHome;
       cleanup();
     }
   }
@@ -223,9 +224,11 @@ async function main() {
     ),
   );
   {
-    const { tmpRoot, cleanup } = makeArtifactFixture('TEST-6');
+    const { tmpRoot, homeDir, cleanup } = makeArtifactFixture('TEST-6');
     const originalCwd = process.cwd();
+    const originalHome = process.env.HOME;
     process.chdir(tmpRoot);
+    process.env.HOME = homeDir;
     try {
       const output = await captureStdout(() =>
         command.run(['TEST-6'], {
@@ -245,6 +248,7 @@ async function main() {
       fail(`Test 6 threw: ${err.message}`);
     } finally {
       process.chdir(originalCwd);
+      process.env.HOME = originalHome;
       cleanup();
     }
   }

@@ -4,7 +4,7 @@
  * Run: nr test:manual -- test-issue-implement-verification
  *
  * Verifies:
- *   1. Multi-repo plans are rejected with guidance to use issue:all or per-repo issue:implement
+ *   1. Multi-repo plans are rejected with guidance to use issue or per-repo issue:implement
  *   2. Verification runs in the selected repo and retries with diagnostics until checks pass
  */
 
@@ -63,9 +63,9 @@ async function main() {
       const message = String((error as Error).message);
       if (
         message.includes('issue:implement only verifies a single repository') &&
-        message.includes('Use wf issue:all')
+        message.includes('Use wf issue')
       ) {
-        pass('Multi-repo plans are rejected with issue:all guidance');
+        pass('Multi-repo plans are rejected with issue guidance');
       } else {
         fail('Unexpected multi-repo error message', message);
       }
