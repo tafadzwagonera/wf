@@ -21,10 +21,12 @@ import { createHash } from 'crypto';
 import type { NormalizedAfterImplementConfig } from '../config/wf-config-loader';
 
 const execAsync = promisify(exec);
-const DEFAULT_MAX_ATTEMPTS = 1;
+const DEFAULT_BASE_MAX_ATTEMPTS = 3;
+const DEFAULT_MAX_PROGRESS_EXTENSIONS = 2;
+const DEFAULT_ABSOLUTE_MAX_ATTEMPTS = 5;
 const DEFAULT_FINGERPRINT_LINE_COUNT = 40;
 const ACTIONABLE_DIAGNOSTIC_PATTERN =
-  /(error|failed|exception|cannot|can't|not found|syntaxerror|referenceerror|typeerror|ts\d+)/i;
+  /(error|failed|exception|cannot|can't|not found|syntaxerror|referenceerror|typeerror|ts\d+|format|prettier|code style|lint)/i;
 
 interface VerificationCommandResult {
   command: string;
@@ -41,6 +43,11 @@ interface VerificationFailure {
 interface VerificationOutcome {
   failure: VerificationFailure | null;
   rewroteTrackedFiles: boolean;
+}
+
+interface VerificationProgress {
+  isMeaningful: boolean;
+  summary: string;
 }
 
 interface VerificationScript {
@@ -185,13 +192,20 @@ export class ImplementerAgent {
     const sceneContext = `${ticket.content}\n\n---\nPlan narration:\n${narration}`;
     let retryContext = options.conversationContext;
     let previousFailureFingerprint: string | undefined;
+    let previousVerificationFailure: VerificationFailure | undefined;
     let lastVerificationFailure: VerificationFailure | undefined;
     let verificationRewroteTrackedFiles = false;
-    const maxAttempts = afterImplement?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    let progressExtensionsUsed = 0;
+    const baseMaxAttempts =
+      afterImplement?.baseMaxAttempts ?? DEFAULT_BASE_MAX_ATTEMPTS;
+    const maxProgressExtensions =
+      afterImplement?.maxProgressExtensions ?? DEFAULT_MAX_PROGRESS_EXTENSIONS;
+    const absoluteMaxAttempts =
+      afterImplement?.absoluteMaxAttempts ?? DEFAULT_ABSOLUTE_MAX_ATTEMPTS;
 
     for (
       let attemptNumber = 1;
-      attemptNumber <= maxAttempts;
+      attemptNumber <= absoluteMaxAttempts;
       attemptNumber += 1
     ) {
       const fileWriteResults = await this.generateRepoFiles({
@@ -243,19 +257,22 @@ export class ImplementerAgent {
         verificationFailure,
         afterImplement?.fingerprintLineCount ?? DEFAULT_FINGERPRINT_LINE_COUNT,
       );
+      const trackedFilesChanged =
+        fileWriteResults.some((result) => result.changed) ||
+        verificationOutcome.rewroteTrackedFiles;
       const hasActionableDiagnostics =
         this.hasActionableDiagnostics(verificationFailure);
-
-      if (attemptNumber === maxAttempts) {
-        throw new Error(
-          this.formatVerificationExitMessage({
-            ticketKey: ticket.ticketKey,
-            repoDir: options.repoDir,
-            summary: 'Verification retry budget exhausted.',
-            failure: verificationFailure,
-          }),
-        );
-      }
+      const progress = this.assessVerificationProgress({
+        previousFailure: previousVerificationFailure,
+        currentFailure: verificationFailure,
+        trackedFilesChanged,
+      });
+      const hasBaseRetryBudget = attemptNumber < baseMaxAttempts;
+      const canUseProgressExtension =
+        !hasBaseRetryBudget &&
+        progress.isMeaningful &&
+        progressExtensionsUsed < maxProgressExtensions &&
+        attemptNumber < absoluteMaxAttempts;
 
       if (!hasActionableDiagnostics) {
         throw new Error(
@@ -285,7 +302,26 @@ export class ImplementerAgent {
         );
       }
 
+      if (!hasBaseRetryBudget && !canUseProgressExtension) {
+        const retrySummary = progress.summary
+          ? `Verification retry budget exhausted. ${progress.summary}`
+          : 'Verification retry budget exhausted.';
+        throw new Error(
+          this.formatVerificationExitMessage({
+            ticketKey: ticket.ticketKey,
+            repoDir: options.repoDir,
+            summary: retrySummary,
+            failure: verificationFailure,
+          }),
+        );
+      }
+
+      if (canUseProgressExtension) {
+        progressExtensionsUsed += 1;
+      }
+
       previousFailureFingerprint = failureFingerprint;
+      previousVerificationFailure = verificationFailure;
       retryContext = this.buildRetryContext(
         options.conversationContext,
         verificationFailure,
@@ -768,6 +804,143 @@ export class ImplementerAgent {
         .split('\n')
         .some((line) => ACTIONABLE_DIAGNOSTIC_PATTERN.test(line)),
     );
+  }
+
+  /**
+   * Determines whether verification is converging enough to justify another retry.
+   *
+   * @param params - Consecutive failure snapshots plus state-change signal
+   * @returns Progress assessment for retry extension decisions
+   */
+  private assessVerificationProgress(params: {
+    previousFailure?: VerificationFailure;
+    currentFailure: VerificationFailure;
+    trackedFilesChanged: boolean;
+  }): VerificationProgress {
+    if (!params.previousFailure) {
+      return {
+        isMeaningful: true,
+        summary:
+          'First verification failure captured; using base retry budget.',
+      };
+    }
+
+    const previousFailureScriptIndex =
+      params.previousFailure.results.length - 1;
+    const currentFailureScriptIndex = params.currentFailure.results.length - 1;
+    const previousDiagnosticLineCount = this.countDiagnosticLines(
+      params.previousFailure,
+    );
+    const currentDiagnosticLineCount = this.countDiagnosticLines(
+      params.currentFailure,
+    );
+    const previousErrorClasses = this.extractErrorClasses(
+      params.previousFailure,
+    );
+    const currentErrorClasses = this.extractErrorClasses(params.currentFailure);
+    const resolvedErrorClasses = [...previousErrorClasses].filter(
+      (errorClass) => !currentErrorClasses.has(errorClass),
+    );
+    const introducedErrorClasses = [...currentErrorClasses].filter(
+      (errorClass) => !previousErrorClasses.has(errorClass),
+    );
+    const stageAdvanced =
+      currentFailureScriptIndex > previousFailureScriptIndex;
+    const diagnosticLinesReduced =
+      currentDiagnosticLineCount < previousDiagnosticLineCount;
+    const errorClassesImproved =
+      resolvedErrorClasses.length > 0 &&
+      introducedErrorClasses.length <= resolvedErrorClasses.length;
+    const isMeaningful =
+      stageAdvanced ||
+      (params.trackedFilesChanged &&
+        (diagnosticLinesReduced || errorClassesImproved));
+
+    const reasons: string[] = [];
+    if (stageAdvanced) {
+      reasons.push('verification advanced to a later script');
+    }
+    if (params.trackedFilesChanged && diagnosticLinesReduced) {
+      reasons.push('diagnostic output shrank after file changes');
+    }
+    if (params.trackedFilesChanged && errorClassesImproved) {
+      reasons.push(
+        `resolved error classes: ${resolvedErrorClasses.join(', ')}`,
+      );
+    }
+
+    return {
+      isMeaningful,
+      summary: isMeaningful
+        ? `Progress detected: ${reasons.join('; ')}.`
+        : 'Verification did not advance to a later script or materially reduce the diagnostics.',
+    };
+  }
+
+  /**
+   * Counts non-empty diagnostic lines across command stdout/stderr outputs.
+   *
+   * @param failure - Verification failure details
+   * @returns Number of diagnostic lines
+   */
+  private countDiagnosticLines(failure: VerificationFailure): number {
+    return failure.results.reduce((lineCount, result) => {
+      const diagnosticLines = [result.stdout, result.stderr]
+        .filter(Boolean)
+        .flatMap((output) => output.split('\n'))
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      return lineCount + diagnosticLines.length;
+    }, 0);
+  }
+
+  /**
+   * Classifies diagnostic output into coarse error categories for progress checks.
+   *
+   * @param failure - Verification failure details
+   * @returns Set of detected error classes
+   */
+  private extractErrorClasses(failure: VerificationFailure): Set<string> {
+    const errorClasses = new Set<string>();
+    const diagnosticText = failure.results
+      .flatMap((result) => [result.stdout, result.stderr])
+      .filter(Boolean)
+      .join('\n')
+      .toLowerCase();
+
+    if (/prettier|format|code style/.test(diagnosticText)) {
+      errorClasses.add('format');
+    }
+    if (/eslint|lint|no-[a-z-]+/.test(diagnosticText)) {
+      errorClasses.add('lint');
+    }
+    if (
+      /syntaxerror|parsing error|unexpected token|ts1005/.test(diagnosticText)
+    ) {
+      errorClasses.add('syntax');
+    }
+    if (
+      /typeerror|type .* assignable|ts2322|ts2345|ts2741|ts2769/.test(
+        diagnosticText,
+      )
+    ) {
+      errorClasses.add('type');
+    }
+    if (
+      /referenceerror|cannot find name|not defined|ts2304/.test(diagnosticText)
+    ) {
+      errorClasses.add('reference');
+    }
+    if (/cannot find module|module not found|ts2307/.test(diagnosticText)) {
+      errorClasses.add('module');
+    }
+
+    if (errorClasses.size === 0 && diagnosticText.trim()) {
+      errorClasses.add('generic');
+    }
+
+    return errorClasses;
   }
 
   /**

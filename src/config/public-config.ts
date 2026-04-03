@@ -24,6 +24,9 @@ export interface WfAtlassianConfig {
 
 export interface WfAfterImplementConfig {
   maxAttempts?: number;
+  baseMaxAttempts?: number;
+  maxProgressExtensions?: number;
+  absoluteMaxAttempts?: number;
   fingerprintLineCount?: number;
   requireStateChangeForRetry?: boolean;
   retryOnSameFailure?: boolean;

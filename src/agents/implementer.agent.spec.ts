@@ -49,11 +49,16 @@ describe('ImplementerAgent', () => {
                     investigate: 'chore',
                   },
                   'stages.implement.afterImplement': {
-                    maxAttempts: 2,
+                    baseMaxAttempts: 3,
+                    maxProgressExtensions: 2,
+                    absoluteMaxAttempts: 5,
                     fingerprintLineCount: 5,
                     requireStateChangeForRetry: true,
                     retryOnSameFailure: false,
                     scripts: {
+                      formatWrite: 'npm run format:write',
+                      formatCheck: 'npm run format:check',
+                      lintFix: 'npm run lint:fix',
                       lint: 'npm run lint',
                       build: 'npm run build',
                     },
@@ -140,6 +145,9 @@ describe('ImplementerAgent', () => {
           '/tmp/repo-a/package.json',
           JSON.stringify({
             scripts: {
+              'format:write': 'prettier --write .',
+              'format:check': 'prettier --check .',
+              'lint:fix': 'eslint . --fix',
               lint: 'eslint .',
               build: 'tsc -p .',
             },
@@ -178,6 +186,24 @@ describe('ImplementerAgent', () => {
       const runCommandSpy = jest
         .spyOn(agent as any, 'runCommand')
         .mockResolvedValueOnce({
+          command: 'npm run format:write',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:check',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint:fix',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
           command: 'npm run lint',
           exitCode: 0,
           stdout: '',
@@ -203,11 +229,26 @@ describe('ImplementerAgent', () => {
       expect(aiService.generateFileChange).toHaveBeenCalledTimes(1);
       expect(runCommandSpy).toHaveBeenNthCalledWith(
         1,
-        'npm run lint',
+        'npm run format:write',
         '/tmp/repo-a',
       );
       expect(runCommandSpy).toHaveBeenNthCalledWith(
         2,
+        'npm run format:check',
+        '/tmp/repo-a',
+      );
+      expect(runCommandSpy).toHaveBeenNthCalledWith(
+        3,
+        'npm run lint:fix',
+        '/tmp/repo-a',
+      );
+      expect(runCommandSpy).toHaveBeenNthCalledWith(
+        4,
+        'npm run lint',
+        '/tmp/repo-a',
+      );
+      expect(runCommandSpy).toHaveBeenNthCalledWith(
+        5,
         'npm run build',
         '/tmp/repo-a',
       );
@@ -223,9 +264,45 @@ describe('ImplementerAgent', () => {
       jest
         .spyOn(agent as any, 'runCommand')
         .mockResolvedValueOnce({
+          command: 'npm run format:write',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:check',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint:fix',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
           command: 'npm run lint',
           exitCode: 1,
           stdout: 'src/example.ts:1:1 - error TS1005: ; expected',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:write',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:check',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint:fix',
+          exitCode: 0,
+          stdout: '',
           stderr: '',
         })
         .mockResolvedValueOnce({
@@ -254,6 +331,122 @@ describe('ImplementerAgent', () => {
       expect(secondCall.conversationContext).toContain('error TS1005');
     });
 
+    it('extends retries beyond the base budget when verification advances to a later stage', async () => {
+      installMockRepoFiles();
+
+      const configService = (agent as any).configService as ConfigService;
+      jest
+        .spyOn(configService, 'get')
+        .mockImplementation((key: string, fallback?: unknown) => {
+          const values: Record<string, unknown> = {
+            'branching.prefixMapping': {
+              feature: 'feature',
+              fix: 'bugfix',
+              investigate: 'chore',
+            },
+            'stages.implement.afterImplement': {
+              baseMaxAttempts: 2,
+              maxProgressExtensions: 2,
+              absoluteMaxAttempts: 4,
+              fingerprintLineCount: 5,
+              requireStateChangeForRetry: true,
+              retryOnSameFailure: false,
+              scripts: {
+                formatWrite: 'npm run format:write',
+                formatCheck: 'npm run format:check',
+                lintFix: 'npm run lint:fix',
+                lint: 'npm run lint',
+                build: 'npm run build',
+              },
+            },
+          };
+
+          return key in values ? values[key] : fallback;
+        });
+
+      aiService.generateFileChange
+        .mockResolvedValueOnce('export const invalid = true;\n')
+        .mockResolvedValueOnce('export const typed = true;\n')
+        .mockResolvedValueOnce('export const built = true;\n');
+
+      jest
+        .spyOn(agent as any, 'runCommand')
+        .mockResolvedValueOnce({
+          command: 'npm run format:write',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:check',
+          exitCode: 1,
+          stdout:
+            'Checking formatting...\n[src/example.ts] Code style issues found',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:write',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:check',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint:fix',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint',
+          exitCode: 1,
+          stdout: 'src/example.ts:1:1 - error TS2322: Type mismatch',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:write',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:check',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint:fix',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run build',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        });
+
+      await agent.execute(ticketArtifact, buildPlan({}), {
+        platformName: 'jira',
+        repoDir: '/tmp/repo-a',
+      });
+
+      expect(aiService.generateFileChange).toHaveBeenCalledTimes(3);
+    });
+
     it('stops retrying when the AI does not produce a state change after a failure', async () => {
       installMockRepoFiles();
 
@@ -261,12 +454,32 @@ describe('ImplementerAgent', () => {
         .mockResolvedValueOnce('export const broken = true;\n')
         .mockResolvedValueOnce('export const broken = true;\n');
 
-      jest.spyOn(agent as any, 'runCommand').mockResolvedValueOnce({
-        command: 'npm run lint',
-        exitCode: 1,
-        stdout: 'src/example.ts:1:1 - error TS1005: ; expected',
-        stderr: '',
-      });
+      jest
+        .spyOn(agent as any, 'runCommand')
+        .mockResolvedValueOnce({
+          command: 'npm run format:write',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:check',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint:fix',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint',
+          exitCode: 1,
+          stdout: 'src/example.ts:1:1 - error TS1005: ; expected',
+          stderr: '',
+        });
 
       await expect(
         agent.execute(ticketArtifact, buildPlan({}), {
@@ -292,11 +505,29 @@ describe('ImplementerAgent', () => {
           );
 
           return {
-            command: 'npm run lint',
+            command: 'npm run format:write',
             exitCode: 1,
             stdout: 'src/example.ts:1:1 - error TS1005: ; expected',
             stderr: '',
           };
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:write',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:check',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint:fix',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
         })
         .mockResolvedValueOnce({
           command: 'npm run lint',

@@ -227,11 +227,16 @@ describe('wf-config-loader', () => {
           implement: {
             model: 'gemini-2.5-pro',
             afterImplement: {
-              maxAttempts: 2,
+              baseMaxAttempts: 3,
+              maxProgressExtensions: 2,
+              absoluteMaxAttempts: 5,
               fingerprintLineCount: 10,
               requireStateChangeForRetry: true,
               retryOnSameFailure: false,
               scripts: {
+                formatWrite: 'npm run format:write',
+                formatCheck: 'npm run format:check',
+                lintFix: 'npm run lint:fix',
                 lint: 'npm run lint',
                 build: 'npm run build',
               },
@@ -242,11 +247,16 @@ describe('wf-config-loader', () => {
 
       expect(config.stages.implement?.model).toBe('gemini-2.5-pro');
       expect(config.stages.implement?.afterImplement).toEqual({
-        maxAttempts: 2,
+        baseMaxAttempts: 3,
+        maxProgressExtensions: 2,
+        absoluteMaxAttempts: 5,
         fingerprintLineCount: 10,
         requireStateChangeForRetry: true,
         retryOnSameFailure: false,
         scripts: {
+          formatWrite: 'npm run format:write',
+          formatCheck: 'npm run format:check',
+          lintFix: 'npm run lint:fix',
           lint: 'npm run lint',
           build: 'npm run build',
         },
