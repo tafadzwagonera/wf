@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { formatCliCommand } from './cli-command-colors';
 
 export interface CliExample {
   comment: string;
@@ -15,42 +16,8 @@ export const printExamples = (examples: CliExample[]): void => {
     // Print comment line
     console.log(chalk.gray(`  # ${example.comment}`));
 
-    // Color-code the command
-    const tokens = example.command.split(' ');
-    const coloredTokens: string[] = [];
-    let previousWasFlag = false;
-
-    for (let i = 0; i < tokens.length; i++) {
-      const token = tokens[i];
-
-      // Rule 1: 'wf' at start → cyan
-      if (i === 0 && token === 'wf') {
-        coloredTokens.push(chalk.cyan('wf'));
-        previousWasFlag = false;
-        continue;
-      }
-
-      // Rule 2: Token starts with '-' → yellow flag
-      if (token.startsWith('-')) {
-        coloredTokens.push(chalk.yellow(token));
-        previousWasFlag = true;
-        continue;
-      }
-
-      // Rule 3: Non-flag token following a flag → green value
-      if (previousWasFlag) {
-        coloredTokens.push(chalk.green(token));
-        previousWasFlag = false;
-        continue;
-      }
-
-      // Rule 4: Any other token (subcommand, positional args) → plain white
-      coloredTokens.push(token);
-      previousWasFlag = false;
-    }
-
     // Print colored command line
-    console.log(`  ${coloredTokens.join(' ')}`);
+    console.log(`  ${formatCliCommand(example.command)}`);
 
     // Blank line after each example
     console.log('');

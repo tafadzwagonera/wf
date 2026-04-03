@@ -1,28 +1,17 @@
 // src/agents/reviewer.agent.ts
 import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
-import * as path from 'path';
 import chalk from 'chalk';
-import { AiService, CodeReview } from '../integrations/ai/ai.service';
+import type { CodeReview } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
-
-const REVIEW_GUIDELINES = [
-  'Clarity: Would another developer understand this instantly?',
-  'Deletability: Can I remove or replace this easily?',
-  'Failure handling: What breaks? Is it handled?',
-  'Necessity: Is anything here unused or speculative?',
-  'Quality: Do the changes conform to formatting and quality metrics?',
-  'Security: Are there any glaring security concerns?',
-  'Simplicity: Is this the simplest thing that works?',
-  'Structure: Does this reflect the domain?',
-];
+import { ReviewStageService } from '../workflows/stages/review-stage.service';
 
 @Injectable()
 export class ReviewerAgent {
   constructor(
-    private aiService: AiService,
-    private gitService: GitService,
+    private readonly gitService: GitService,
+    private readonly reviewStageService: ReviewStageService,
   ) {}
 
   /**
@@ -82,12 +71,9 @@ export class ReviewerAgent {
 
     console.log(chalk.bold('  Analyzing changes...'));
 
-    const guidelines = [
-      ...REVIEW_GUIDELINES,
-      `Relevancy: Does the feature or fix work? (context: ticket ${ticket.ticketKey})`,
-    ];
-
-    const review = await this.aiService.reviewCode(diff, guidelines);
+    const review = await this.reviewStageService.reviewDiff(diff, {
+      context: `ticket ${ticket.ticketKey}`,
+    });
 
     console.log(chalk.green('\n✓ Review complete'));
     console.log(chalk.bold('\n  Summary:'), chalk.bold.cyan(review.summary));
@@ -124,30 +110,12 @@ export class ReviewerAgent {
         : chalk.red('✗ Changes needed'),
     );
 
-    fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
-    fs.writeFileSync(
-      reviewPath,
-      this.formatReviewMarkdown(ticket.ticketKey, review),
+    const artifact = this.reviewStageService.createReviewArtifact(
+      ticket,
+      review,
     );
-    console.log(chalk.gray(`\n  Saved to: ${reviewPath}`));
+    console.log(chalk.gray(`\n  Saved to: ${artifact.path}`));
 
-    return { review, path: reviewPath, approved: review.approved };
-  }
-
-  private formatReviewMarkdown(ticketKey: string, review: CodeReview): string {
-    return `# Code Review: ${ticketKey}
-
-## Summary
-${review.summary}
-
-## Issues
-${review.issues.map((i) => `- [${i.severity}] ${i.message}${i.file ? ` (${i.file}${i.line ? `:${i.line}` : ''})` : ''}`).join('\n')}
-
-## Suggestions
-${review.suggestions.map((s) => `- ${s}`).join('\n')}
-
-## Status
-${review.approved ? '✓ Approved' : '✗ Changes needed'}
-`;
+    return artifact;
   }
 }

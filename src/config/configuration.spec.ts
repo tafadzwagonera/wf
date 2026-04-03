@@ -4,6 +4,16 @@ import * as os from 'os';
 import * as path from 'path';
 
 describe('configuration defaults', () => {
+  afterEach(() => {
+    delete process.env.WF_SKIP_CONFIG_BOOTSTRAP;
+  });
+
+  it('returns an empty config when help bootstrap skips preload', () => {
+    process.env.WF_SKIP_CONFIG_BOOTSTRAP = 'true';
+
+    expect(configuration()).toEqual({});
+  });
+
   it('uses home-scoped defaults for state and logging directories', () => {
     const config = configuration();
 

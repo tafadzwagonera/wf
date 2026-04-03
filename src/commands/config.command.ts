@@ -1,8 +1,22 @@
 import { Command, CommandRunner, SubCommand } from 'nest-commander';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
+import { createRequire } from 'module';
 import chalk from 'chalk';
-import { discoverWfConfigPath } from '../config/wf-config-loader';
+
+const moduleRequire = createRequire(__filename);
+
+/**
+ * Resolve the user config path on demand so help bootstrap does not load the
+ * config loader module.
+ *
+ * @param cwd - Current working directory to search from
+ * @returns The discovered config path, if present
+ */
+const discoverConfigPath = (cwd: string): string | null => {
+  const { discoverWfConfigPath } = moduleRequire('../config/wf-config-loader');
+  return discoverWfConfigPath(cwd);
+};
 
 @Command({
   name: 'config',
@@ -73,7 +87,7 @@ export class ConfigSetCommand extends CommandRunner {
       process.exit(1);
     }
 
-    const configPath = discoverWfConfigPath(process.cwd());
+    const configPath = discoverConfigPath(process.cwd());
 
     console.log(
       chalk.yellow(

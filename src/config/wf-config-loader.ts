@@ -28,7 +28,12 @@ const CONFIG_FILE_NAMES = [
   'wf.config.yml',
 ] as const;
 
-type SupportedStageName = 'plan' | 'implement' | 'review' | 'generate';
+type SupportedStageName =
+  | 'plan'
+  | 'implement'
+  | 'review'
+  | 'generate'
+  | 'commit';
 type SupportedModelStageName = Exclude<SupportedStageName, 'implement'>;
 
 export interface NormalizedAfterImplementConfig {
@@ -77,6 +82,7 @@ export interface NormalizedWfConfig {
     implement?: NormalizedImplementStageConfig;
     review?: string;
     generate?: string;
+    commit?: string;
   };
   atlassian: {
     baseUrl?: string;
@@ -577,13 +583,7 @@ export const normalizeWfConfig = (
     );
   }
 
-  if ((validatedConfig.stages as { commit?: string } | undefined)?.commit) {
-    throw new ValidationError(
-      'Invalid wf config: commit stage cannot be overridden in stages.',
-    );
-  }
-
-  const aiStages = (['plan', 'review', 'generate'] as const).reduce(
+  const aiStages = (['plan', 'review', 'generate', 'commit'] as const).reduce(
     (result, stageName) => {
       const stageModel = validatedConfig.stages?.[stageName];
       if (stageModel) {
@@ -639,6 +639,7 @@ export const normalizeWfConfig = (
       implement: normalizedImplementStage,
       review: validatedConfig.stages?.review,
       generate: validatedConfig.stages?.generate,
+      commit: validatedConfig.stages?.commit,
     },
     atlassian: {
       baseUrl: validatedConfig.atlassian?.baseUrl,
