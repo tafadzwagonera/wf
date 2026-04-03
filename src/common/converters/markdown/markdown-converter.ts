@@ -8,6 +8,19 @@ import {
   TicketPriority,
 } from '../../dto/universal-ticket.dto';
 
+const SYNTHETIC_TITLE_LABEL_PATTERN = /^(?:title|heading)\s*:\s*(.+)$/i;
+
+/**
+ * Remove known synthetic title labels added by generated markdown artifacts.
+ *
+ * @param title - Raw title text extracted from the markdown heading
+ * @returns Normalized title suitable for downstream ticket creation
+ */
+const normalizeMarkdownTitle = (title: string): string => {
+  const match = title.trim().match(SYNTHETIC_TITLE_LABEL_PATTERN);
+  return match?.[1]?.trim() || title.trim();
+};
+
 /**
  * Markdown format converter for UniversalTicket
  * Handles parsing and serialization of tickets in Markdown format
@@ -37,7 +50,7 @@ export class MarkdownConverter implements FormatConverter {
           if (titleMatch[1]) {
             data.key = titleMatch[1].trim();
           }
-          data.title = titleMatch[2].trim();
+          data.title = normalizeMarkdownTitle(titleMatch[2]);
         }
       }
 
