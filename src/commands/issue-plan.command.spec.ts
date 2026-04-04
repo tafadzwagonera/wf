@@ -47,12 +47,18 @@ import { AiService } from '../integrations/ai/ai.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { FetchStageService } from '../workflows/stages/fetch-stage.service';
+import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import * as os from 'os';
 import * as path from 'path';
 
 const mockCwd = '/tmp/consumer-app';
 
-async function buildCommand(): Promise<IssuePlanCommand> {
+async function buildCommand(): Promise<{
+  command: IssuePlanCommand;
+  fetchStageService: jest.Mocked<FetchStageService>;
+  planStageService: jest.Mocked<PlanStageService>;
+}> {
   const module = await Test.createTestingModule({
     providers: [
       IssuePlanCommand,
@@ -63,6 +69,19 @@ async function buildCommand(): Promise<IssuePlanCommand> {
         },
       },
       { provide: PlatformService, useValue: {} },
+      {
+        provide: FetchStageService,
+        useValue: {
+          fetchArtifact: jest.fn(),
+          loadArtifact: jest.fn(),
+        },
+      },
+      {
+        provide: PlanStageService,
+        useValue: {
+          generatePlan: jest.fn(),
+        },
+      },
       {
         provide: ConfigService,
         useValue: { get: jest.fn().mockReturnValue('jira') },
@@ -90,7 +109,11 @@ async function buildCommand(): Promise<IssuePlanCommand> {
     ],
   }).compile();
 
-  return module.get(IssuePlanCommand);
+  return {
+    command: module.get(IssuePlanCommand),
+    fetchStageService: module.get(FetchStageService),
+    planStageService: module.get(PlanStageService),
+  };
 }
 
 describe('IssuePlanCommand', () => {
@@ -107,7 +130,7 @@ describe('IssuePlanCommand', () => {
 
   describe('parseRepos', () => {
     it('returns trimmed repo values from variadic option input', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
 
       expect(
         command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any),
@@ -116,7 +139,7 @@ describe('IssuePlanCommand', () => {
   });
 
   it('stores prompt-mode plans under the cwd namespace when --repos is absent', async () => {
-    const command = await buildCommand();
+    const { command } = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
@@ -133,7 +156,7 @@ describe('IssuePlanCommand', () => {
   });
 
   it('stores ticket-mode plans under the targeted repo namespace when --repos is provided', async () => {
-    const command = await buildCommand();
+    const { command } = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
@@ -152,7 +175,7 @@ describe('IssuePlanCommand', () => {
   });
 
   it('stores ticket-mode plans under the repo-name namespace for long-format repos', async () => {
-    const command = await buildCommand();
+    const { command } = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
@@ -168,5 +191,43 @@ describe('IssuePlanCommand', () => {
 
     expect(path.dirname(ticketPreview.filePath)).toBe(expectedDir);
     expect(path.dirname(planPreview.filePath)).toBe(expectedDir);
+  });
+
+  it('delegates ticket retrieval and plan generation to stage services in live ticket mode', async () => {
+    const { command, fetchStageService, planStageService } =
+      await buildCommand();
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['src/auth.ts'],
+    } as any);
+
+    const writeFileSpy = jest
+      .spyOn(require('fs').promises, 'writeFile')
+      .mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(fetchStageService.fetchArtifact).toHaveBeenCalledWith('WBP-1', {
+      platformName: 'jira',
+      repo: 'repo-a',
+      baseDir: '/tmp/consumer-app/repo-a',
+    });
+    expect(planStageService.generatePlan).toHaveBeenCalledWith(
+      '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      {
+        action: 'fix',
+        ticketKey: 'WBP-1',
+        affectedRepositories: undefined,
+      },
+    );
+    expect(writeFileSpy).toHaveBeenCalled();
   });
 });

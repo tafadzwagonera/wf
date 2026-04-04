@@ -9,6 +9,7 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -59,6 +60,7 @@ export class IssueFetchCommand extends CommandRunner {
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
+    private readonly fetchStageService: FetchStageService,
   ) {
     super();
   }
@@ -175,23 +177,10 @@ export class IssueFetchCommand extends CommandRunner {
       this.logger.info(`Fetching ticket ${ticketKey} from ${platformName}...`);
 
       // Format reference for Bitbucket
-      const ticketReference =
-        platformName === 'bitbucket'
-          ? this.formatBitbucketReference(
-              ticketKey,
-              options?.repos?.[0] ??
-                (() => {
-                  throw new Error(
-                    '--repos is required for the Bitbucket platform',
-                  );
-                })(),
-              this.configService,
-            )
-          : ticketKey;
-
-      // Fetch ticket from platform
-      const adapter = this.platformService.getAdapter(platformName);
-      const ticket = await adapter.getTicket(ticketReference);
+      const ticket = await this.fetchStageService.fetchTicket(ticketKey, {
+        platformName,
+        repo: options?.repos?.[0],
+      });
 
       // Format ticket content
       const content = this.formatTicket(ticket, format);
@@ -325,49 +314,5 @@ export class IssueFetchCommand extends CommandRunner {
     }
     // markdown (default)
     return buildTicketMarkdownPreview(ticketKey);
-  }
-
-  /**
-   * Format repository string for Bitbucket operations
-   * @param repo Repository in workspace/repo or repo-name format
-   * @param configService NestJS ConfigService instance
-   * @returns Formatted workspace/repo string
-   */
-  private formatBitbucketRepo(
-    repo: string,
-    configService: ConfigService,
-  ): string {
-    // Already in workspace/repo format
-    if (repo.includes('/')) {
-      return repo;
-    }
-
-    // Get workspace from config and combine
-    const workspace = configService.get<string>(
-      'atlassian.bitbucket.workspace',
-    );
-    if (!workspace) {
-      throw new Error(
-        'Workspace required. Provide as workspace/repo or set ATLASSIAN_BITBUCKET_WORKSPACE',
-      );
-    }
-
-    return `${workspace}/${repo}`;
-  }
-
-  /**
-   * Format Bitbucket issue reference
-   * @param issueId Issue ID (number or string)
-   * @param repo Repository (workspace/repo or repo-name)
-   * @param configService NestJS ConfigService instance
-   * @returns Formatted reference (workspace/repo#123)
-   */
-  private formatBitbucketReference(
-    issueId: string,
-    repo: string,
-    configService: ConfigService,
-  ): string {
-    const formattedRepo = this.formatBitbucketRepo(repo, configService);
-    return `${formattedRepo}#${issueId}`;
   }
 }

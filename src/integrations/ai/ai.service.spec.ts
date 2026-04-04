@@ -31,6 +31,7 @@ describe('AiService', () => {
               default: false,
             },
           ],
+          'ai.stages.commit': 'gemini-2.5-pro',
           'ai.stages.review': 'gemini-2.5-pro',
           'stages.implement.model': 'gemini-2.5-pro',
         };
@@ -96,6 +97,24 @@ describe('AiService', () => {
           provider: 'google',
           model: 'gemini-2.5-pro',
           stage: 'implement',
+        }),
+      );
+    });
+
+    it('routes commit requests to the provider whose model matches the configured stage override', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.execute({
+        prompt: 'commit',
+        stage: 'commit',
+      });
+
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'google',
+          model: 'gemini-2.5-pro',
+          stage: 'commit',
         }),
       );
     });

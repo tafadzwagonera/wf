@@ -1,15 +1,15 @@
 // src/agents/committer.agent.ts
 import { Injectable } from '@nestjs/common';
 import chalk from 'chalk';
-import { AiService } from '../integrations/ai/ai.service';
 import { GitError } from '../shared/utils/errors';
 import { GitService } from '../integrations/git/git.service';
+import { CommitStageService } from '../workflows/stages/commit-stage.service';
 
 @Injectable()
 export class CommitterAgent {
   constructor(
-    private aiService: AiService,
-    private gitService: GitService,
+    private readonly gitService: GitService,
+    private readonly commitStageService: CommitStageService,
   ) {}
 
   /**
@@ -47,19 +47,12 @@ export class CommitterAgent {
     const commits = await this.gitService.getRecentCommits(10, repoDir);
     const commitHistory = commits.map((c) => c.message);
 
-    const rawMsg = await this.aiService.generateCommitMessage(
+    const finalMsg = await this.commitStageService.generateCommitMessage({
       diff,
+      ticketKey,
       commitHistory,
-      'auto',
       ticketContext,
-    );
-    // Strip conventional commit type prefix (e.g. "fix: ", "test(scope): ") and any
-    // ticket-key prefix the LLM may have mirrored from commit history (e.g. "WBP-2979: ")
-    // so the active ticketKey is always the sole prefix: "TAD-575: <description>"
-    const commitMsg = rawMsg
-      .replace(/^[a-z]+(\([^)]+\))?:\s*/, '') // strip conventional prefix
-      .replace(/^[A-Z][A-Z0-9]+-\d+:\s*/, ''); // strip ticket-key prefix
-    const finalMsg = `${ticketKey}: ${commitMsg}`;
+    });
 
     console.log(chalk.green('\n✓ Commit message generated'));
     console.log(chalk.bold('\n  Message:'));

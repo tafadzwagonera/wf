@@ -200,14 +200,26 @@ describe('wf-config-loader', () => {
       ).toThrow(/at most one AI provider/i);
     });
 
-    it('rejects unsupported stage overrides', () => {
+    it('rejects unsupported fetch stage overrides', () => {
       expect(() =>
         normalizeWfConfig({
           stages: {
-            commit: 'gpt-5.4',
+            fetch: 'gpt-5.4',
           } as never,
         }),
-      ).toThrow(/commit.*cannot be overridden/i);
+      ).toThrow(/fetch.*cannot be overridden/i);
+    });
+
+    it('accepts commit stage model overrides', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          commit: 'gemini-2.5-pro',
+        },
+      });
+
+      expect(config.ai.stages.commit).toBe('gemini-2.5-pro');
+      expect(config.stages.commit).toBe('gemini-2.5-pro');
     });
 
     it('rejects legacy string implement stage overrides', () => {

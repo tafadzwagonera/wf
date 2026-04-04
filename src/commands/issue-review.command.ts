@@ -10,6 +10,7 @@ import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -34,17 +35,6 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
     comment: 'Review with ticket context',
     command: 'wf issue:review WBP-2971 --platform jira --format md',
   },
-];
-
-const DEFAULT_REVIEW_GUIDELINES = [
-  'Clarity: Would another developer understand this instantly?',
-  'Deletability: Can I remove or replace this easily?',
-  'Failure handling: What breaks? Is it handled?',
-  'Necessity: Is anything here unused or speculative?',
-  'Quality: Do the changes conform to formatting and quality metrics?',
-  'Security: Are there any glaring security concerns?',
-  'Simplicity: Is this the simplest thing that works?',
-  'Structure: Does this reflect the domain?',
 ];
 
 /**
@@ -89,6 +79,7 @@ export class IssueReviewCommand extends CommandRunner {
     private readonly platformService: PlatformService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
+    private readonly reviewStageService: ReviewStageService,
   ) {
     super();
   }
@@ -277,18 +268,11 @@ export class IssueReviewCommand extends CommandRunner {
 
       console.log(chalk.cyan('🤖 Analyzing changes with AI...\n'));
 
-      // Build review guidelines using pre-loaded extraCriteria.
-      const relevancyGuideline = `Relevancy: Does the feature or fix work? (This is very important — context: ${context})`;
-      const guidelines: string[] = options?.replaceCriteria
-        ? extraCriteria!
-        : [
-            ...DEFAULT_REVIEW_GUIDELINES,
-            relevancyGuideline,
-            ...(extraCriteria ?? []),
-          ];
-
-      // Perform AI review
-      const review = await this.aiService.reviewCode(diff, guidelines);
+      const review = await this.reviewStageService.reviewDiff(diff, {
+        context,
+        extraCriteria: extraCriteria ?? undefined,
+        replaceCriteria: Boolean(options?.replaceCriteria),
+      });
 
       console.log(chalk.green('✓ Code review complete\n'));
 

@@ -25,7 +25,7 @@ export interface AIRequest {
   context?: Record<string, any>;
   model?: string;
   provider?: string;
-  stage?: 'plan' | 'implement' | 'review' | 'generate';
+  stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit';
 }
 
 export interface AIResponse {
@@ -47,7 +47,7 @@ export interface AIConversationRequest {
   temperature?: number;
   model?: string;
   provider?: string;
-  stage?: 'plan' | 'implement' | 'review' | 'generate';
+  stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit';
 }
 
 export interface FindingsDocument {
@@ -506,7 +506,7 @@ Return ONLY a valid JSON object:
   }
 
   private resolveAiTarget(
-    stage?: 'plan' | 'implement' | 'review' | 'generate',
+    stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit',
     providerOverride?: string,
     modelOverride?: string,
   ): { provider?: string; model?: string } {

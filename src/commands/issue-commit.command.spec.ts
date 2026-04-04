@@ -47,6 +47,7 @@ import { GitService } from '../integrations/git/git.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { CommitStageService } from '../workflows/stages/commit-stage.service';
 
 const mockGitService = {
   isGitRepository: jest.fn().mockResolvedValue(true),
@@ -61,12 +62,23 @@ const mockAiService = {
   getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
 };
 
-async function buildCommand(): Promise<IssueCommitCommand> {
+async function buildCommand(): Promise<{
+  command: IssueCommitCommand;
+  commitStageService: jest.Mocked<CommitStageService>;
+}> {
   const module = await Test.createTestingModule({
     providers: [
       IssueCommitCommand,
       { provide: GitService, useValue: mockGitService },
       { provide: AiService, useValue: mockAiService },
+      {
+        provide: CommitStageService,
+        useValue: {
+          generateCommitMessage: jest
+            .fn()
+            .mockResolvedValue('WBP-123: ship it'),
+        },
+      },
       {
         provide: ConfigService,
         useValue: { get: jest.fn() },
@@ -93,7 +105,10 @@ async function buildCommand(): Promise<IssueCommitCommand> {
     ],
   }).compile();
 
-  return module.get(IssueCommitCommand);
+  return {
+    command: module.get(IssueCommitCommand),
+    commitStageService: module.get(CommitStageService),
+  };
 }
 
 describe('IssueCommitCommand', () => {
@@ -107,7 +122,7 @@ describe('IssueCommitCommand', () => {
   });
 
   it('uses process.cwd() as the git base when --repos is absent', async () => {
-    const command = await buildCommand();
+    const { command } = await buildCommand();
 
     await command.run(['WBP-123'], { message: 'ship it' });
 
@@ -125,7 +140,7 @@ describe('IssueCommitCommand', () => {
   });
 
   it('uses only the first resolved repo and warns when multiple repos are provided', async () => {
-    const command = await buildCommand();
+    const { command } = await buildCommand();
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
     await command.run(['WBP-123'], {
@@ -151,5 +166,21 @@ describe('IssueCommitCommand', () => {
     ).toBe(true);
 
     consoleSpy.mockRestore();
+  });
+
+  it('delegates AI commit message generation to CommitStageService', async () => {
+    const { command, commitStageService } = await buildCommand();
+
+    await command.run(['WBP-123'], {});
+
+    expect(commitStageService.generateCommitMessage).toHaveBeenCalledWith({
+      diff: 'diff --git a/file b/file',
+      ticketKey: 'WBP-123',
+      conventional: undefined,
+    });
+    expect(mockGitService.commit).toHaveBeenCalledWith({
+      message: 'WBP-123: ship it',
+      cwd: '/tmp/current-app',
+    });
   });
 });

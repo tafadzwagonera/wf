@@ -8,6 +8,7 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveRepoBasePath } from '../agents/utils';
+import { CommitStageService } from '../workflows/stages/commit-stage.service';
 import chalk from 'chalk';
 
 interface IssueCommitOptions {
@@ -58,6 +59,7 @@ export class IssueCommitCommand extends CommandRunner {
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
+    private readonly commitStageService: CommitStageService,
   ) {
     super();
   }
@@ -174,11 +176,11 @@ export class IssueCommitCommand extends CommandRunner {
       } else {
         // Generate with AI (default behavior)
         console.log(chalk.cyan('🤖 Generating commit message with AI...\n'));
-        commitMessage = await this.generateCommitMessage(
+        commitMessage = await this.commitStageService.generateCommitMessage({
           diff,
-          ticketKey || undefined,
-          options?.conventional,
-        );
+          ticketKey: ticketKey || undefined,
+          conventional: options?.conventional,
+        });
         console.log(chalk.green('✓ Generated commit message:\n'));
         console.log(chalk.bold.cyan(this.indentMessage(commitMessage)));
         console.log();
@@ -280,63 +282,6 @@ export class IssueCommitCommand extends CommandRunner {
     } catch {
       return null;
     }
-  }
-
-  /**
-   * Generate commit message using AI
-   */
-  private async generateCommitMessage(
-    diff: string,
-    ticketKey?: string,
-    conventional?: boolean,
-  ): Promise<string> {
-    const prompt = this.buildCommitPrompt(diff, ticketKey, conventional);
-
-    const response = await this.aiService.execute({
-      prompt: prompt,
-      maxTokens: 500,
-      temperature: 0.7,
-    });
-
-    // Clean up the response
-    let message = response.content.trim();
-
-    // Remove markdown code blocks if present
-    message = message.replace(/```[a-z]*\n?/g, '').replace(/```/g, '');
-
-    return message.trim();
-  }
-
-  /**
-   * Build prompt for AI commit message generation
-   */
-  private buildCommitPrompt(
-    diff: string,
-    ticketKey?: string,
-    conventional?: boolean,
-  ): string {
-    let prompt = `Generate a concise, informative git commit message for the following changes.\n\n`;
-
-    if (conventional) {
-      prompt += `Use conventional commits format: <type>(<scope>): <description>\n`;
-      prompt += `Types: feat, fix, docs, style, refactor, test, chore\n\n`;
-    }
-
-    if (ticketKey) {
-      prompt += `Related ticket: ${ticketKey}\n\n`;
-    }
-
-    prompt += `Guidelines:\n`;
-    prompt += `- First line: concise summary (50 chars or less)\n`;
-    prompt += `- Focus on WHY and WHAT, not HOW\n`;
-    prompt += `- Use imperative mood ("Add feature" not "Added feature")\n`;
-    prompt += `- Be specific and clear\n`;
-    prompt += `- Do not include the ticket key (will be added automatically)\n\n`;
-    prompt += `Git diff:\n`;
-    prompt += `\`\`\`diff\n${diff.substring(0, 3000)}\n\`\`\`\n\n`;
-    prompt += `Return only the commit message, no explanations.`;
-
-    return prompt;
   }
 
   /**

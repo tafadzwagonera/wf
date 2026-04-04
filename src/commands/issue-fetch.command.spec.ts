@@ -46,16 +46,26 @@ import { IssueFetchCommand } from './issue-fetch.command';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import * as os from 'os';
 import * as path from 'path';
 
 const mockCwd = '/tmp/consumer-app';
 
-async function buildCommand(): Promise<IssueFetchCommand> {
+async function buildCommand(): Promise<{
+  command: IssueFetchCommand;
+  fetchStageService: jest.Mocked<FetchStageService>;
+}> {
   const module = await Test.createTestingModule({
     providers: [
       IssueFetchCommand,
       { provide: PlatformService, useValue: {} },
+      {
+        provide: FetchStageService,
+        useValue: {
+          fetchTicket: jest.fn(),
+        },
+      },
       {
         provide: ConfigService,
         useValue: {
@@ -89,7 +99,10 @@ async function buildCommand(): Promise<IssueFetchCommand> {
     ],
   }).compile();
 
-  return module.get(IssueFetchCommand);
+  return {
+    command: module.get(IssueFetchCommand),
+    fetchStageService: module.get(FetchStageService),
+  };
 }
 
 describe('IssueFetchCommand', () => {
@@ -106,7 +119,7 @@ describe('IssueFetchCommand', () => {
 
   describe('parseRepos', () => {
     it('returns trimmed repo values from variadic option input', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
 
       expect(
         command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any),
@@ -115,7 +128,7 @@ describe('IssueFetchCommand', () => {
   });
 
   it('stores fetched artifacts under the cwd namespace by default', async () => {
-    const command = await buildCommand();
+    const { command } = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
@@ -128,7 +141,7 @@ describe('IssueFetchCommand', () => {
   });
 
   it('stores fetched artifacts under the targeted repo namespace when --repos is provided', async () => {
-    const command = await buildCommand();
+    const { command } = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
@@ -141,7 +154,7 @@ describe('IssueFetchCommand', () => {
   });
 
   it('stores fetched artifacts under the repo-name namespace for long-format repos', async () => {
-    const command = await buildCommand();
+    const { command } = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
@@ -154,5 +167,27 @@ describe('IssueFetchCommand', () => {
     expect(path.dirname(preview.filePath)).toBe(
       path.join(os.homedir(), '.wf', 'repo-a', 'jira'),
     );
+  });
+
+  it('delegates live ticket retrieval to FetchStageService', async () => {
+    const { command, fetchStageService } = await buildCommand();
+    fetchStageService.fetchTicket.mockResolvedValue({
+      key: 'WBP-1',
+      title: 'Fix auth flow',
+      description: 'Restore auth flow',
+      status: 'todo',
+    } as any);
+
+    const writeFileSpy = jest
+      .spyOn(require('fs').promises, 'writeFile')
+      .mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { repos: ['repo-a'] });
+
+    expect(fetchStageService.fetchTicket).toHaveBeenCalledWith('WBP-1', {
+      platformName: 'jira',
+      repo: 'repo-a',
+    });
+    expect(writeFileSpy).toHaveBeenCalled();
   });
 });

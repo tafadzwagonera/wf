@@ -11,6 +11,8 @@ import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import type { ResolutionAction } from '../agents/interfaces';
+import { FetchStageService } from '../workflows/stages/fetch-stage.service';
+import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -128,6 +130,8 @@ export class IssuePlanCommand extends CommandRunner {
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
+    private readonly fetchStageService: FetchStageService,
+    private readonly planStageService: PlanStageService,
   ) {
     super();
   }
@@ -306,14 +310,10 @@ export class IssuePlanCommand extends CommandRunner {
           fs.mkdirSync(platformDir, { recursive: true });
         }
 
-        const plan = await this.aiService.generatePlan(
-          action as any,
-          options.prompt,
-          {
-            summary: options.prompt.slice(0, 80),
-            affectedRepositories: options?.repos,
-          },
-        );
+        const plan = await this.planStageService.generatePlan(options.prompt, {
+          action,
+          affectedRepositories: options?.repos,
+        });
 
         let planContent: string;
         if (format === 'json') {
@@ -458,47 +458,30 @@ export class IssuePlanCommand extends CommandRunner {
           );
         }
 
-        // Format reference for Bitbucket
-        const ticketReference =
-          platformName === 'bitbucket'
-            ? this.formatBitbucketReference(
-                ticketKey,
-                options?.repos?.[0] ?? '',
-                this.configService,
-              )
-            : ticketKey;
-
-        // Fetch from platform
-        const adapter = this.platformService.getAdapter(platformName);
-        const ticket = await adapter.getTicket(ticketReference);
-
-        // Save to file
-        if (!fs.existsSync(platformDir)) {
-          fs.mkdirSync(platformDir, { recursive: true });
-        }
-
-        ticketContent = this.formatTicketAsMarkdown(ticket);
-        await fs.promises.writeFile(ticketPath, ticketContent, 'utf-8');
-        this.logger.success(`✓ Ticket saved to: ${ticketPath}`);
+        const artifact = await this.fetchStageService.fetchArtifact(ticketKey, {
+          platformName,
+          repo: options?.repos?.[0],
+          baseDir: artifactBaseDir,
+        });
+        ticketContent = artifact.content;
+        this.logger.success(`✓ Ticket saved to: ${artifact.path}`);
       } else {
-        this.logger.info(`Using local artifact: ${ticketPath}`);
-        ticketContent = await fs.promises.readFile(ticketPath, 'utf-8');
+        const artifact = this.fetchStageService.loadArtifact(
+          ticketKey,
+          platformName,
+          artifactBaseDir,
+        );
+        this.logger.info(`Using local artifact: ${artifact.path}`);
+        ticketContent = artifact.content;
       }
 
       // Generate plan using AI
       this.logger.info('Generating implementation plan...');
 
-      // Extract summary for context
-      const summary = this.extractSummary(ticketContent);
-
-      const plan = await this.aiService.generatePlan(
-        action as any,
-        ticketContent,
-        {
-          ticketKey,
-          summary,
-        },
-      );
+      const plan = await this.planStageService.generatePlan(ticketContent, {
+        action,
+        ticketKey,
+      });
 
       // Save plan to file
 
@@ -522,21 +505,6 @@ export class IssuePlanCommand extends CommandRunner {
     } catch (error) {
       ErrorHandler.handle(error as Error);
     }
-  }
-
-  private extractSummary(content: string): string {
-    const match = content.match(/^#\s+[A-Z]+-\d+:\s+(.+)$/m);
-    return match ? match[1] : 'Implementation';
-  }
-
-  private formatTicketAsMarkdown(ticket: any): string {
-    let md = `# ${ticket.title}\n\n`;
-    md += `**Ticket:** ${ticket.key}\n`;
-    md += `**Type:** ${ticket.type || 'N/A'}\n`;
-    md += `**Status:** ${ticket.status}\n`;
-    md += `**Priority:** ${ticket.priority || 'N/A'}\n\n`;
-    md += `## Description\n\n${ticket.description || 'No description provided'}\n`;
-    return md;
   }
 
   private formatPlanAsMarkdown(plan: any): string {
@@ -569,49 +537,5 @@ export class IssuePlanCommand extends CommandRunner {
     }
 
     return md;
-  }
-
-  /**
-   * Format repository string for Bitbucket operations
-   * @param repo Repository in workspace/repo or repo-name format
-   * @param configService NestJS ConfigService instance
-   * @returns Formatted workspace/repo string
-   */
-  private formatBitbucketRepo(
-    repo: string,
-    configService: ConfigService,
-  ): string {
-    // Already in workspace/repo format
-    if (repo.includes('/')) {
-      return repo;
-    }
-
-    // Get workspace from config and combine
-    const workspace = configService.get<string>(
-      'atlassian.bitbucket.workspace',
-    );
-    if (!workspace) {
-      throw new Error(
-        'Workspace required. Provide as workspace/repo or set ATLASSIAN_BITBUCKET_WORKSPACE',
-      );
-    }
-
-    return `${workspace}/${repo}`;
-  }
-
-  /**
-   * Format Bitbucket issue reference
-   * @param issueId Issue ID (number or string)
-   * @param repo Repository (workspace/repo or repo-name)
-   * @param configService NestJS ConfigService instance
-   * @returns Formatted reference (workspace/repo#123)
-   */
-  private formatBitbucketReference(
-    issueId: string,
-    repo: string,
-    configService: ConfigService,
-  ): string {
-    const formattedRepo = this.formatBitbucketRepo(repo, configService);
-    return `${formattedRepo}#${issueId}`;
   }
 }

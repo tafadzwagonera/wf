@@ -8,12 +8,13 @@ import { ImplementerAgent } from './implementer.agent';
 import { ReviewerAgent } from './reviewer.agent';
 import { CommitterAgent } from './committer.agent';
 import { AgentOrchestrator } from './agent-orchestrator.service';
+import { WorkflowStagesModule } from '../workflows/stages/workflow-stages.module';
 
 @Module({
   // Re-importing AIModule, PlatformModule, GitModule here is correct NestJS practice.
   // NestJS deduplicates providers per module scope — no double-registration occurs.
   // ConfigModule is global; do NOT import it here.
-  imports: [AIModule, PlatformModule, GitModule],
+  imports: [AIModule, PlatformModule, GitModule, WorkflowStagesModule],
   providers: [
     FetcherAgent,
     PlannerAgent,
