@@ -137,16 +137,9 @@ export class IssueReviewCommand extends CommandRunner {
             estimatedResponse: '200 OK — diff content',
           });
         } else {
-          const resolvedSourcePath = this.resolveSourcePath(source);
-          if (resolvedSourcePath) {
-            console.log(
-              chalk.gray(`   Source  : repository at ${resolvedSourcePath}\n`),
-            );
-          } else {
-            throw new Error(
-              `Invalid source: ${source}. Expected: ticket key (ABC-123), PR URL, or valid path.`,
-            );
-          }
+          throw new Error(
+            `Invalid source: ${source}. Expected: ticket key (ABC-123) or PR URL.`,
+          );
         }
 
         this.dryRunPreview.previewApiCall({
@@ -262,17 +255,9 @@ export class IssueReviewCommand extends CommandRunner {
         diff = await this.reviewRepoSet(repoDirs);
         context = `${this.buildTicketContext(ticket)}\n\n${this.buildRepoContext(repoDirs, 'repositories under review')}`;
       } else {
-        const resolvedSourcePath = this.resolveSourcePath(source);
-        if (resolvedSourcePath) {
-          console.log(chalk.bold.cyan(`\n🔍 Reviewing Repository at Path\n`));
-          console.log(chalk.gray(`  Path: ${resolvedSourcePath}\n`));
-          diff = await this.reviewRepositoryPath(resolvedSourcePath);
-          context = `repository at ${resolvedSourcePath}`;
-        } else {
-          throw new Error(
-            `Invalid source: ${source}. Expected: ticket key (ABC-123), PR URL, or valid path.`,
-          );
-        }
+        throw new Error(
+          `Invalid source: ${source}. Expected: ticket key (ABC-123) or PR URL.`,
+        );
       }
 
       if (!diff || diff.trim().length === 0) {
@@ -517,98 +502,6 @@ export class IssueReviewCommand extends CommandRunner {
     }
 
     return sections.join('\n\n');
-  }
-
-  /**
-   * Resolve a filesystem source path for direct repository review.
-   * Accepts literal paths and repo-scoped custom artifact directories under `~/.wf/<repo>`.
-   *
-   * @param source - Path-like source argument from the CLI
-   * @returns Absolute path when the source exists, otherwise null
-   */
-  private resolveSourcePath(source: string): string | null {
-    const directPath = path.resolve(source);
-    if (fs.existsSync(directPath)) {
-      return directPath;
-    }
-
-    const artifactPath = resolveCustomArtifactDir(resolveRepoBasePath(source));
-    if (fs.existsSync(artifactPath)) {
-      return artifactPath;
-    }
-
-    return null;
-  }
-
-  /**
-   * Review a repository directory directly. Non-git directories are reviewed by
-   * collecting source files into a synthetic diff-like payload.
-   *
-   * @param repoPath - Absolute or relative path to the directory to review
-   * @returns Git diff or collected source file contents
-   */
-  private async reviewRepositoryPath(repoPath: string): Promise<string> {
-    const resolvedPath = path.resolve(repoPath);
-
-    if (!fs.existsSync(resolvedPath)) {
-      throw new Error(`Path does not exist: ${resolvedPath}`);
-    }
-
-    if (!(await this.gitService.isGitRepository(resolvedPath))) {
-      console.log(
-        chalk.yellow(
-          '  ⚠️  No git repository found at the target path; collecting source files for review\n',
-        ),
-      );
-      return this.collectFilesForReview(resolvedPath);
-    }
-
-    return this.reviewCurrentRepo(resolvedPath);
-  }
-
-  /**
-   * Collect reviewable source files from a non-git directory.
-   *
-   * @param dirPath - Directory to scan recursively
-   * @returns Concatenated file-content payload for AI review
-   */
-  private collectFilesForReview(dirPath: string): string {
-    const maxFileSizeInBytes = 50 * 1024;
-    const allowedExtensions = new Set(['.ts', '.js', '.json']);
-    const excludedDirs = new Set(['node_modules', 'dist', '.git']);
-
-    const collectPaths = (currentDir: string): string[] => {
-      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-
-      return entries.flatMap((entry) => {
-        const entryPath = path.join(currentDir, entry.name);
-        if (entry.isDirectory()) {
-          return excludedDirs.has(entry.name) ? [] : collectPaths(entryPath);
-        }
-
-        return allowedExtensions.has(path.extname(entry.name))
-          ? [entryPath]
-          : [];
-      });
-    };
-
-    const filePaths = collectPaths(dirPath);
-    if (filePaths.length === 0) {
-      return `# Directory Review: ${dirPath}\n\nNo .ts, .js, or .json source files found.`;
-    }
-
-    const sections = filePaths.map((filePath) => {
-      const relativePath = path.relative(dirPath, filePath);
-      if (fs.statSync(filePath).size > maxFileSizeInBytes) {
-        return `## ${relativePath}\n\n_Skipped: exceeds ${maxFileSizeInBytes / 1024} KB_\n`;
-      }
-
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const extension = path.extname(filePath).slice(1) || 'text';
-      return `## ${relativePath}\n\n\`\`\`${extension}\n${content}\n\`\`\`\n`;
-    });
-
-    return `# Directory Review: ${dirPath}\n\n${sections.join('\n')}`;
   }
 
   /**
