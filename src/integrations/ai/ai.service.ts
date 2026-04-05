@@ -147,6 +147,11 @@ ${repoHint}Create a detailed resolution plan with:
    names from repositoriesAffected when available.
 5. Potential risks or considerations
 6. Repositories that will be affected (if known — use provided hints or infer from ticket text)
+7. Task-specific verification only when needed:
+   - Use "verification.targeted" for focused checks required by this specific plan
+   - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
+   - Omit "verification" entirely when no targeted checks or waivers are needed
+   - Keep verification tool-agnostic and command-based, e.g. "npm run test:manual -- test-issue-review"
 
 Return ONLY a valid JSON object with these fields:
 {
@@ -156,7 +161,23 @@ Return ONLY a valid JSON object with these fields:
   "estimatedComplexity": "low|medium|high",
   "filesAffected": ["repo-name/src/path/to/file.ts", ...],
   "repositoriesAffected": ["repo-name", ...],
-  "risks": ["risk 1", ...]
+  "risks": ["risk 1", ...],
+  "verification": {
+    "targeted": [
+      {
+        "id": "manual-review",
+        "run": "npm run test:manual -- test-issue-review",
+        "policy": "enforced",
+        "reason": "Explain what this check covers"
+      }
+    ],
+    "waivers": [
+      {
+        "id": "e2e",
+        "reason": "Explain why this repo-level baseline check is waived"
+      }
+    ]
+  }
 }`;
 
     const response = await this.execute({

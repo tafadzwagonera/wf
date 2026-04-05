@@ -118,5 +118,69 @@ describe('AiService', () => {
         }),
       );
     });
+
+    it('requests and preserves plan-level verification policies when generating plans', async () => {
+      const adapter = {
+        execute: jest.fn().mockResolvedValue({
+          content: JSON.stringify({
+            action: 'fix',
+            summary: 'Resolve criteria path handling',
+            steps: ['Add failing test', 'Implement resolver'],
+            estimatedComplexity: 'medium',
+            filesAffected: ['repo-a/src/commands/issue-review.command.ts'],
+            repositoriesAffected: ['repo-a'],
+            risks: ['Path resolution regressions'],
+            verification: {
+              targeted: [
+                {
+                  id: 'manual-review',
+                  run: 'npm run test:manual -- test-issue-review',
+                  policy: 'enforced',
+                  reason: 'Covers review command resolution paths',
+                },
+              ],
+              waivers: [
+                {
+                  id: 'e2e',
+                  reason: 'Command-level fix does not touch app runtime paths',
+                },
+              ],
+            },
+          }),
+        }),
+        executeWithHistory: jest.fn().mockResolvedValue({ content: 'ok' }),
+      } as unknown as jest.Mocked<LlmAdapter>;
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const plan = await service.generatePlan(
+        'fix',
+        '# WBP-123: Fix criteria resolution',
+        {
+          affectedRepositories: ['repo-a'],
+        },
+      );
+
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('"verification": {'),
+        }),
+      );
+      expect(plan.verification).toEqual({
+        targeted: [
+          {
+            id: 'manual-review',
+            run: 'npm run test:manual -- test-issue-review',
+            policy: 'enforced',
+            reason: 'Covers review command resolution paths',
+          },
+        ],
+        waivers: [
+          {
+            id: 'e2e',
+            reason: 'Command-level fix does not touch app runtime paths',
+          },
+        ],
+      });
+    });
   });
 });

@@ -298,6 +298,15 @@ describe('IssuePlanCommand', () => {
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
       filesAffected: ['src/auth.ts'],
+      verification: {
+        targeted: [
+          {
+            id: 'manual-auth-smoke',
+            run: 'npm run test:manual -- test-auth-redirect',
+            policy: 'enforced',
+          },
+        ],
+      },
     } as any);
 
     const writeFileSpy = jest
@@ -320,6 +329,7 @@ describe('IssuePlanCommand', () => {
       },
     );
     expect(writeFileSpy).toHaveBeenCalled();
+    expect(String(writeFileSpy.mock.calls[0][1])).toContain('"verification"');
   });
 
   it('deletes sibling standard plans before writing a new ticket plan', async () => {

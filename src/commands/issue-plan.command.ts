@@ -573,6 +573,35 @@ export class IssuePlanCommand extends CommandRunner {
       md += '\n';
     }
 
+    if (
+      plan.verification?.targeted?.length ||
+      plan.verification?.waivers?.length
+    ) {
+      md += `## Verification\n\n`;
+
+      if (plan.verification.targeted?.length) {
+        md += `### Targeted Checks\n\n`;
+        plan.verification.targeted.forEach((check: any) => {
+          const parts = [
+            `- \`${check.id}\``,
+            check.policy ? `policy: \`${check.policy}\`` : '',
+            check.run ? `run: \`${check.run}\`` : '',
+            check.reason ? `reason: ${check.reason}` : '',
+          ].filter(Boolean);
+          md += `${parts.join(' | ')}\n`;
+        });
+        md += '\n';
+      }
+
+      if (plan.verification.waivers?.length) {
+        md += `### Waivers\n\n`;
+        plan.verification.waivers.forEach((waiver: any) => {
+          md += `- \`${waiver.id}\` — ${waiver.reason}\n`;
+        });
+        md += '\n';
+      }
+    }
+
     if (plan.risks && plan.risks.length > 0) {
       md += `## Risks\n\n`;
       plan.risks.forEach((risk: string) => {

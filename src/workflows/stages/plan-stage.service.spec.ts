@@ -12,6 +12,16 @@ describe('PlanStageService', () => {
     estimatedComplexity: 'medium',
     steps: ['Inspect redirect logic', 'Adjust callback handling'],
     filesAffected: ['src/auth/callback.ts'],
+    verification: {
+      targeted: [
+        {
+          id: 'manual-auth-smoke',
+          run: 'npm run test:manual -- test-auth-redirect',
+          policy: 'enforced',
+          reason: 'Covers redirect callback flow',
+        },
+      ],
+    },
     risks: ['Regression in login flow'],
   };
 
