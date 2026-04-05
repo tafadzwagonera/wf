@@ -53,64 +53,58 @@ async function main() {
     planDryRun.includes('.wf/'),
   );
 
-  // ── E4: --prompt for issue:plan ────────────────────────────────────────
-  console.log(chalk.bold.cyan('\n🧪 E4: issue:plan --prompt'));
+  // ── E4: --custom for issue:plan ────────────────────────────────────────
+  console.log(chalk.bold.cyan('\n🧪 E4: issue:plan --custom'));
   console.log(chalk.gray('─'.repeat(60)));
 
-  // Happy path: --prompt dry-run exits 0 and output contains a mnemonic filename
+  // Happy path: --custom dry-run exits 0 and output contains a mnemonic filename
   const { output: promptOut, exitCode: promptCode } = run(
-    `${CLI} issue:plan --prompt "add dark mode toggle" --action feature --repos test-repo --dry-run`,
+    `${CLI} issue:plan --action feature --custom README.md --repos test-repo --dry-run`,
   );
-  assert('--prompt dry-run exits 0', promptCode === 0);
+  assert('--custom dry-run exits 0', promptCode === 0);
   assert(
-    '--prompt dry-run output contains mnemonic-feature.json pattern',
+    '--custom dry-run output contains mnemonic-feature.json pattern',
     /[a-z]+-[a-z]+-[a-z]+-feature\.json/.test(promptOut),
   );
 
-  // Mutual exclusion: ticket-key + --prompt → non-zero exit
+  // Mutual exclusion: ticket-key + --custom → non-zero exit
   const { exitCode: mutualCode, output: mutualOut } = run(
-    `${CLI} issue:plan WBP-0001 --prompt "foo" --action feature --repos test-repo --dry-run`,
+    `${CLI} issue:plan WBP-0001 --action feature --custom README.md --repos test-repo --dry-run`,
   );
-  assert('ticket-key + --prompt exits non-zero', mutualCode !== 0);
+  assert('ticket-key + --custom exits non-zero', mutualCode !== 0);
   assert(
-    'mutual-exclusion error message mentions --prompt',
-    mutualOut.includes('--prompt'),
-  );
-
-  // force-recreate is silently ignored with --prompt
-  const { exitCode: forceCode } = run(
-    `${CLI} issue:plan --prompt "add dark mode" --action feature --repos test-repo --force-recreate --dry-run`,
-  );
-  assert(
-    '--prompt + --force-recreate exits 0 (force-recreate silently ignored)',
-    forceCode === 0,
+    'mutual-exclusion error message mentions --custom',
+    mutualOut.includes('--custom'),
   );
 
   // Missing --action → non-zero
   const { exitCode: noActionCode } = run(
-    `${CLI} issue:plan --prompt "add dark mode" --repos test-repo --dry-run`,
+    `${CLI} issue:plan --custom README.md --repos test-repo --dry-run`,
   );
-  assert('--prompt without --action exits non-zero', noActionCode !== 0);
+  assert('--custom without --action exits non-zero', noActionCode !== 0);
 
-  // ── E5: --plan for issue:implement ────────────────────────────────────
-  console.log(chalk.bold.cyan('\n🧪 E5: issue:implement --plan'));
+  // ── E5: custom artifact execution for issue:implement ──────────────────
+  console.log(chalk.bold.cyan('\n🧪 E5: issue:implement custom artifact'));
   console.log(chalk.gray('─'.repeat(60)));
 
-  // Non-existent plan → "Plan file not found"
+  // Missing extension → validation error
   const { exitCode: missingPlanCode, output: missingPlanOut } = run(
-    `${CLI} issue:implement --plan /nonexistent/path.json`,
+    `${CLI} issue:implement merry-tinkering-pine-feature`,
   );
-  assert('--plan /nonexistent exits non-zero', missingPlanCode !== 0);
   assert(
-    'error mentions "Plan file not found"',
-    missingPlanOut.includes('Plan file not found'),
+    'custom artifact without extension exits non-zero',
+    missingPlanCode !== 0,
+  );
+  assert(
+    'error mentions extension requirement',
+    missingPlanOut.includes('extension'),
   );
 
-  // No ticketKey, no --plan → non-zero
+  // No ticketKey, no custom artifact → non-zero
   const { exitCode: noArgsCode } = run(`${CLI} issue:implement --dry-run`);
   assert('no args exits non-zero', noArgsCode !== 0);
 
-  // --plan keyless dry-run: exits 0, no "git checkout -b"
+  // Custom artifact dry-run: exits 0, no "git checkout -b"
   // Create a minimal valid plan JSON for the test
   const tmpPlan = path.join(
     process.cwd(),
@@ -132,21 +126,12 @@ async function main() {
   );
 
   const { exitCode: planKeylessCode, output: planKeylessOut } = run(
-    `${CLI} issue:implement --plan ${tmpPlan} --dry-run`,
+    `${CLI} issue:implement ${tmpPlan} --dry-run`,
   );
-  assert('--plan keyless dry-run exits 0', planKeylessCode === 0);
+  assert('custom artifact dry-run exits 0', planKeylessCode === 0);
   assert(
-    '--plan keyless output does NOT contain "git checkout -b"',
+    'custom artifact output does NOT contain "git checkout -b"',
     !planKeylessOut.includes('git checkout -b'),
-  );
-
-  // --plan keyless without --repos exits 0 (repos is optional in keyless mode)
-  const { exitCode: noReposCode } = run(
-    `${CLI} issue:implement --plan ${tmpPlan} --dry-run`,
-  );
-  assert(
-    '--plan without --repos exits 0 (repos optional in keyless mode)',
-    noReposCode === 0,
   );
 
   // Cleanup
@@ -175,7 +160,7 @@ async function main() {
     );
   }
 
-  // E6-2: issue:implement --plan <investigate-plan> --dry-run exits 0 without branch
+  // E6-2: issue:implement <investigate-plan> --dry-run exits 0 without branch
   {
     const investigatePlan = path.join(
       require('os').tmpdir(),
@@ -194,7 +179,7 @@ async function main() {
       }),
     );
     const { output: e6PlanOut, exitCode: e6PlanCode } = run(
-      `${CLI} issue:implement --plan ${investigatePlan} --dry-run`,
+      `${CLI} issue:implement ${investigatePlan} --dry-run`,
     );
     assert('E6-2: exit 0', e6PlanCode === 0);
     assert(

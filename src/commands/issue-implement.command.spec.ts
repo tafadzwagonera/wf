@@ -124,6 +124,34 @@ describe('IssueImplementCommand', () => {
       const proto = IssueImplementCommand.prototype as any;
       expect(proto.parseForceRecreate).toBeUndefined();
     });
+
+    it('does not expose --plan or --format options', () => {
+      const proto = IssueImplementCommand.prototype as any;
+      expect(proto.parsePlan).toBeUndefined();
+      expect(proto.parseFormat).toBeUndefined();
+    });
+  });
+
+  describe('custom plan identifier validation', () => {
+    it('requires a file extension for non-ticket identifiers', async () => {
+      const command = await buildCommand();
+      const exitSpy = jest
+        .spyOn(process, 'exit')
+        .mockImplementation((() => {}) as any);
+      const consoleErrorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
+
+      await command.run(['merry-tinkering-pine-feature'], { dryRun: true });
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(
+        consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
+      ).toContain('extension');
+
+      exitSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    });
   });
 
   describe('Mode C — preflight checks (live path)', () => {
@@ -168,9 +196,8 @@ describe('IssueImplementCommand', () => {
     });
 
     it('exits with code 1 and prints plan hint when ticket exists but plan is missing', async () => {
-      // .md paths → ticket exists; .json paths → plan does not exist
       existsSyncSpy.mockImplementation((p: string) =>
-        String(p).endsWith('.md'),
+        String(p).endsWith('WBP-0001.md'),
       );
 
       await command.run(['WBP-0001'], { repos: ['repo-a'] });
@@ -239,8 +266,8 @@ describe('IssueImplementCommand', () => {
       // equal mtimeMs if we simply mockReturnValue(true)).
       existsSyncSpy.mockImplementation(
         (p: string) =>
-          !String(p).includes('-plan-investigate.json') &&
-          !String(p).includes('-plan-fix.json'),
+          String(p).endsWith('WBP-0001.md') ||
+          String(p).endsWith('WBP-0001-plan-feature.json'),
       );
       jest
         .spyOn(require('fs'), 'statSync')
@@ -258,8 +285,8 @@ describe('IssueImplementCommand', () => {
     it('shows apiCallCount: 1 and fileCreatedCount: 1 for investigate plan dry-run', async () => {
       existsSyncSpy.mockImplementation(
         (p: string) =>
-          String(p).endsWith('.md') ||
-          String(p).includes('-plan-investigate.json'),
+          String(p).endsWith('WBP-0001.md') ||
+          String(p).endsWith('WBP-0001-plan-investigate.json'),
       );
       jest
         .spyOn(require('fs'), 'statSync')
@@ -274,6 +301,145 @@ describe('IssueImplementCommand', () => {
       expect(dryRunPreview.showSummary).toHaveBeenCalledWith(
         expect.objectContaining({ apiCallCount: 1, fileCreatedCount: 1 }),
       );
+    });
+  });
+
+  describe('custom plan mode', () => {
+    it('resolves a custom filename from the repo artifact namespace in dry-run mode', async () => {
+      const command = await buildCommand();
+      const dryRunPreview = (command as any)
+        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((input: string) =>
+          String(input).endsWith(
+            path.join(
+              '.wf',
+              'repo-a',
+              'jira',
+              'merry-tinkering-pine-feature.json',
+            ),
+          ),
+        );
+      jest
+        .spyOn(require('fs'), 'statSync')
+        .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockReturnValue(JSON.stringify({ action: 'feature', steps: [] }));
+
+      await command.run(['merry-tinkering-pine-feature.json'], {
+        repos: ['repo-a'],
+        dryRun: true,
+      });
+
+      expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePath: path.join(
+            os.homedir(),
+            '.wf',
+            'repo-a',
+            'jira',
+            'merry-tinkering-pine-feature.json',
+          ),
+        }),
+      );
+    });
+  });
+
+  describe('standard plan format support', () => {
+    it('loads a markdown standard plan artifact when json is absent', async () => {
+      const mockOrchestrator = {
+        implementer: { execute: jest.fn().mockResolvedValue(undefined) },
+        planner: { execute: jest.fn() },
+      };
+      const module = await Test.createTestingModule({
+        providers: [
+          IssueImplementCommand,
+          {
+            provide: AiService,
+            useValue: {
+              getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
+            },
+          },
+          { provide: PlatformService, useValue: {} },
+          {
+            provide: ConfigService,
+            useValue: { get: jest.fn().mockReturnValue('jira') },
+          },
+          {
+            provide: LoggerService,
+            useValue: {
+              info: jest.fn(),
+              warn: jest.fn(),
+              error: jest.fn(),
+              success: jest.fn(),
+            },
+          },
+          {
+            provide: DryRunPreviewService,
+            useValue: {
+              showHeader: jest.fn(),
+              showSummary: jest.fn(),
+              showValidationResult: jest.fn(),
+              previewApiCall: jest.fn(),
+              previewFileRead: jest.fn(),
+              previewFileWrite: jest.fn(),
+            },
+          },
+          { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        ],
+      }).compile();
+      const command = module.get(IssueImplementCommand);
+
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((input: string) => {
+          const filePath = String(input);
+          return (
+            filePath.endsWith('WBP-0001.md') ||
+            filePath.endsWith('WBP-0001-plan-feature.md')
+          );
+        });
+      jest
+        .spyOn(require('fs'), 'statSync')
+        .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
+      jest
+        .spyOn(require('fs').promises, 'readFile')
+        .mockResolvedValue('# WBP-0001\n**Ticket:** WBP-0001\n');
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockReturnValue(
+          [
+            '# Implementation Plan',
+            '',
+            '**Action:** feature',
+            '**Complexity:** medium',
+            '',
+            '## Summary',
+            '',
+            'Plan summary',
+            '',
+            '## Steps',
+            '',
+            '1. First step',
+          ].join('\n'),
+        );
+
+      await command.run(['WBP-0001'], { repos: ['repo-a'] });
+
+      expect(mockOrchestrator.implementer.execute).toHaveBeenCalledTimes(1);
+      const [, planArg] = mockOrchestrator.implementer.execute.mock.calls[0];
+      expect(planArg.path).toBe(
+        path.join(
+          os.homedir(),
+          '.wf',
+          'repo-a',
+          'jira',
+          'WBP-0001-plan-feature.md',
+        ),
+      );
+      expect(planArg.plan.steps).toEqual(['First step']);
     });
   });
 
@@ -305,8 +471,8 @@ describe('IssueImplementCommand', () => {
       // win when all mtimeMs are equal if we simply mockReturnValue(true)).
       existsSyncSpy.mockImplementation(
         (p: string) =>
-          !String(p).includes('-plan-investigate.json') &&
-          !String(p).includes('-plan-fix.json'),
+          String(p).endsWith('WBP-0001.md') ||
+          String(p).endsWith('WBP-0001-plan-feature.json'),
       );
       // statSync is called by discoverPlanAction's sort — prevent real fs access
       jest
@@ -389,37 +555,6 @@ describe('IssueImplementCommand', () => {
     });
   });
 
-  describe('--plan with multiple repos', () => {
-    it('warns that only the first repo plan namespace will be used', async () => {
-      const command = await buildCommand();
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
-      const existsSyncSpy = jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((p: string) =>
-          String(p).includes(
-            path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'plan.json'),
-          ),
-        );
-
-      await command.run([], {
-        plan: 'plan.json',
-        repos: ['repo-a', 'repo-b'],
-        dryRun: true,
-      });
-
-      expect(
-        consoleSpy.mock.calls.some((call) =>
-          String(call[0]).includes('Only the first repository'),
-        ),
-      ).toBe(true);
-
-      existsSyncSpy.mockRestore();
-      consoleSpy.mockRestore();
-    });
-  });
-
   describe('ticket mode with multiple repos', () => {
     it('warns that only the first repository will be verified', async () => {
       const command = await buildCommand();
@@ -430,8 +565,8 @@ describe('IssueImplementCommand', () => {
         .spyOn(require('fs'), 'existsSync')
         .mockImplementation(
           (p: string) =>
-            !String(p).includes('-plan-investigate.json') &&
-            !String(p).includes('-plan-fix.json'),
+            String(p).endsWith('WBP-0001.md') ||
+            String(p).endsWith('WBP-0001-plan-feature.json'),
         );
       jest
         .spyOn(require('fs'), 'statSync')

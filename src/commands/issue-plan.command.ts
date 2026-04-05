@@ -7,6 +7,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { getPlanArtifactExtension } from '../shared/utils/plan-artifact';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
@@ -21,6 +22,10 @@ import chalk from 'chalk';
 
 const ISSUE_PLAN_EXAMPLES: CliExample[] = [
   {
+    comment: 'Create a custom feature plan from a markdown artifact',
+    command: 'wf issue:plan --action feature --custom jira/bar.md',
+  },
+  {
     comment: 'Plan a fix for a ticket',
     command: 'wf issue:plan WBP-2971 --action fix',
   },
@@ -34,7 +39,7 @@ type OutputFormat = 'json' | 'md' | 'yaml';
 
 interface IssuePlanOptions {
   action: ResolutionAction;
-  prompt?: string;
+  custom?: string;
   platform?: string;
   force?: boolean;
   format?: OutputFormat;
@@ -152,6 +157,15 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '-c, --custom <source.md>',
+    description:
+      'Custom markdown source artifact to synthesize into a canonical plan (mutually exclusive with <ticket-key>)',
+  })
+  parseCustom(val: string): string {
+    return val;
+  }
+
+  @Option({
     flags: '--dry-run',
     description: 'Preview the plan operation without making changes',
   })
@@ -196,15 +210,6 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--prompt <text>',
-    description:
-      'Freeform prompt text to use as ticket content (mutually exclusive with <ticket-key>)',
-  })
-  parsePrompt(val: string): string {
-    return val;
-  }
-
-  @Option({
     flags: '-r, --repos <repos...>',
     description:
       'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
@@ -220,23 +225,24 @@ export class IssuePlanCommand extends CommandRunner {
     try {
       fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
 
-      // Mutual exclusion guard
-      if (ticketKey && options?.prompt) {
+      if (ticketKey && options?.custom) {
         console.error(
           chalk.red(
-            'Error: --prompt cannot be used together with <ticket-key>',
+            'Error: --custom cannot be used together with <ticket-key>',
           ),
         );
         process.exit(1);
+        return;
       }
 
-      if (!ticketKey && !options?.prompt) {
+      if (!ticketKey && !options?.custom) {
         console.error(
           chalk.red(
-            'Error: Provide a <ticket-key> or use --prompt <text> for a freeform plan',
+            'Error: Provide a <ticket-key> or use --custom <source.md> for a custom plan',
           ),
         );
         process.exit(1);
+        return;
       }
 
       const platformName =
@@ -257,21 +263,44 @@ export class IssuePlanCommand extends CommandRunner {
 
       const action = options!.action;
       const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
+      const format = options?.format || 'json';
+      const extension = getPlanArtifactExtension(format);
 
-      // ── PROMPT MODE ──────────────────────────────────────────────────────
-      if (options?.prompt) {
+      // ── CUSTOM MODE ──────────────────────────────────────────────────────
+      if (options?.custom) {
         const platformDir = resolveArtifactDir(artifactBaseDir, platformName);
-        const planFilename = `${generateMnemonic()}-${action}.json`;
+        if (!options.custom.toLowerCase().endsWith('.md')) {
+          console.error(
+            chalk.red('Error: --custom only accepts Markdown (.md) sources'),
+          );
+          process.exit(1);
+          return;
+        }
+
+        const customSourcePath = this.resolveCustomSourcePath(
+          options.custom,
+          options?.repos,
+        );
+        const planFilename = `${this.generateUniqueCustomPlanStem(
+          platformDir,
+          action,
+        )}-${action}.${extension}`;
         const planPath = path.join(platformDir, planFilename);
-        const format = options?.format ?? 'json';
 
         if (options.dryRun) {
-          this.dryRunPreview.showHeader('issue:plan', `--prompt (${action})`);
+          this.dryRunPreview.showHeader('issue:plan', `--custom (${action})`);
+          this.dryRunPreview.previewFileRead({
+            filePath: customSourcePath,
+            exists: fs.existsSync(customSourcePath),
+            sizeInKb: fs.existsSync(customSourcePath)
+              ? (fs.statSync(customSourcePath).size / 1024).toFixed(2)
+              : '0',
+          });
           this.dryRunPreview.previewApiCall({
             method: 'POST',
             endpoint: '/v1/messages',
             platform: this.aiService.getProviderDisplayName(),
-            description: `Generate ${action} plan from prompt`,
+            description: `Generate ${action} plan from custom markdown source`,
             estimatedResponse: [
               '{',
               `  "action": "${action}",`,
@@ -304,16 +333,20 @@ export class IssuePlanCommand extends CommandRunner {
           return;
         }
 
-        this.logger.info(`Generating freeform ${action} plan from prompt...`);
+        this.logger.info(`Generating custom ${action} plan from markdown...`);
 
         if (!fs.existsSync(platformDir)) {
           fs.mkdirSync(platformDir, { recursive: true });
         }
 
-        const plan = await this.planStageService.generatePlan(options.prompt, {
-          action,
-          affectedRepositories: options?.repos,
-        });
+        const customSourceContent = fs.readFileSync(customSourcePath, 'utf-8');
+        const plan = await this.planStageService.generatePlan(
+          customSourceContent,
+          {
+            action,
+            affectedRepositories: options?.repos,
+          },
+        );
 
         let planContent: string;
         if (format === 'json') {
@@ -337,15 +370,12 @@ export class IssuePlanCommand extends CommandRunner {
       }
 
       // ── TICKET-KEY MODE (existing behaviour) ─────────────────────────────
-      // Get format
-      const format = options?.format || 'json';
-
       // Check for local artifact or fetch
       const platformDir = resolveArtifactDir(artifactBaseDir, platformName);
       const ticketPath = path.join(platformDir, `${ticketKey}.md`);
       const planPath = path.join(
         platformDir,
-        `${ticketKey}-plan-${action}.${format}`,
+        `${ticketKey}-plan-${action}.${extension}`,
       );
       const ticketExists = fs.existsSync(ticketPath);
       const needsFetch = options?.force || !ticketExists;
@@ -494,6 +524,7 @@ export class IssuePlanCommand extends CommandRunner {
         planContent = this.formatPlanAsMarkdown(plan);
       }
 
+      this.deleteSiblingStandardPlans(platformDir, ticketKey, planPath);
       await fs.promises.writeFile(planPath, planContent, 'utf-8');
 
       this.logger.success(`✓ Plan saved to: ${planPath}`);
@@ -529,6 +560,14 @@ export class IssuePlanCommand extends CommandRunner {
       md += '\n';
     }
 
+    if (plan.repositoriesAffected && plan.repositoriesAffected.length > 0) {
+      md += `## Repositories Affected\n\n`;
+      plan.repositoriesAffected.forEach((repository: string) => {
+        md += `- ${repository}\n`;
+      });
+      md += '\n';
+    }
+
     if (plan.risks && plan.risks.length > 0) {
       md += `## Risks\n\n`;
       plan.risks.forEach((risk: string) => {
@@ -538,4 +577,95 @@ export class IssuePlanCommand extends CommandRunner {
 
     return md;
   }
+
+  /**
+   * Remove stale standard plan siblings so a ticket keeps exactly one standard plan.
+   *
+   * @param platformDir - Artifact namespace for the active repo/platform
+   * @param ticketKey - Ticket identifier
+   * @param retainedPlanPath - Newly selected standard plan path
+   * @returns void
+   */
+  private deleteSiblingStandardPlans(
+    platformDir: string,
+    ticketKey: string,
+    retainedPlanPath: string,
+  ): void {
+    const actions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
+    const extensions: Array<'json' | 'md' | 'yaml'> = ['json', 'md', 'yaml'];
+
+    for (const siblingAction of actions) {
+      for (const extension of extensions) {
+        const siblingPath = path.join(
+          platformDir,
+          `${ticketKey}-plan-${siblingAction}.${extension}`,
+        );
+        if (siblingPath === retainedPlanPath || !fs.existsSync(siblingPath)) {
+          continue;
+        }
+
+        this.logger.warn(`Deleting stale standard plan: ${siblingPath}`);
+        fs.unlinkSync(siblingPath);
+      }
+    }
+  }
+
+  /**
+   * Generate a collision-resistant custom plan stem under the active artifact namespace.
+   *
+   * @param platformDir - Artifact namespace for the active repo/platform
+   * @param action - Resolution action suffix
+   * @returns Unique mnemonic stem without the trailing action or extension
+   */
+  private generateUniqueCustomPlanStem(
+    platformDir: string,
+    action: ResolutionAction,
+  ): string {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const stem = generateMnemonic();
+      const hasCollision = ['json', 'md', 'yaml'].some((extension) =>
+        fs.existsSync(path.join(platformDir, `${stem}-${action}.${extension}`)),
+      );
+      if (!hasCollision) {
+        return stem;
+      }
+    }
+
+    throw new Error('Unable to generate a unique custom plan filename');
+  }
+
+  /**
+   * Resolve a custom markdown source using repo-aware local file rules.
+   *
+   * @param source - Raw `--custom` CLI value
+   * @param repos - Optional repo list supplied via `--repos`
+   * @returns Absolute or cwd-relative source path
+   */
+  private resolveCustomSourcePath(source: string, repos?: string[]): string {
+    if (path.isAbsolute(source)) {
+      return source;
+    }
+
+    const matches = (repos ?? [])
+      .map((repo) => path.join(resolveRepoBasePath(repo), source))
+      .filter((candidate) => fs.existsSync(candidate));
+    if (matches.length > 1) {
+      throw new Error(
+        `Custom source "${source}" matches multiple repositories: ${matches.join(', ')}`,
+      );
+    }
+    if (matches.length === 1) {
+      return matches[0];
+    }
+
+    const cwdCandidate = path.resolve(source);
+    if (fs.existsSync(cwdCandidate)) {
+      return cwdCandidate;
+    }
+
+    return path.resolve(artifactBasePathForSourceFallback(repos), source);
+  }
 }
+
+const artifactBasePathForSourceFallback = (repos?: string[]): string =>
+  resolveRepoBasePath(repos?.[0]);

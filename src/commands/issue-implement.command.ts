@@ -6,6 +6,11 @@ import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import {
+  isTicketKey,
+  parsePlanArtifact,
+  SUPPORTED_PLAN_EXTENSIONS,
+} from '../shared/utils/plan-artifact';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import type {
@@ -18,60 +23,59 @@ import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
 
-type OutputFormat = 'json' | 'md' | 'yaml';
-
-const loadPlanFile = (filePath: string): unknown => {
+const loadPlanFile = (filePath: string): ResolutionPlan => {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Plan file not found: ${filePath}`);
   }
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  } catch {
-    throw new Error(`Plan file is not valid JSON: ${filePath}`);
+    return parsePlanArtifact(fs.readFileSync(filePath, 'utf-8'), filePath);
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? error.message
+        : `Plan file is not valid: ${filePath}`,
+    );
   }
 };
 
-/** Finds the most recently modified plan file for a ticket across all actions. */
-const discoverPlanAction = (
+/** Resolve the single standard plan file for a ticket. */
+const discoverStandardPlan = (
   dir: string,
   key: string,
-): { action: ResolutionAction; filePath: string } => {
-  const candidates: ResolutionAction[] = ['investigate', 'feature', 'fix'];
+): { action: ResolutionAction; filePath: string } | null => {
+  const candidates: ResolutionAction[] = ['feature', 'fix', 'investigate'];
   const found = candidates
-    .map((a) => ({
-      action: a,
-      filePath: path.join(dir, `${key}-plan-${a}.json`),
-    }))
+    .flatMap((action) =>
+      SUPPORTED_PLAN_EXTENSIONS.map((extension) => ({
+        action,
+        filePath: path.join(dir, `${key}-plan-${action}.${extension}`),
+      })),
+    )
     .filter(({ filePath }) => fs.existsSync(filePath))
-    .sort(
-      (x, y) =>
-        fs.statSync(y.filePath).mtimeMs - fs.statSync(x.filePath).mtimeMs,
+    .sort((left, right) => left.filePath.localeCompare(right.filePath));
+
+  if (found.length === 0) {
+    return null;
+  }
+
+  if (found.length > 1) {
+    throw new Error(
+      `Multiple standard plan artifacts found for ${key}: ${found
+        .map(({ filePath }) => path.basename(filePath))
+        .join(
+          ', ',
+        )}. Re-run wf issue:plan ${key} --action <feature|fix|investigate> to replace stale plans.`,
     );
-  return (
-    found[0] ?? {
-      action: 'feature',
-      filePath: path.join(dir, `${key}-plan-feature.json`),
-    }
-  );
+  }
+
+  return found[0];
 };
 
 interface IssueImplementOptions {
-  plan?: string;
   platform?: string;
-  format?: OutputFormat;
   repos?: string[];
   dryRun?: boolean;
 }
-
-const warnOnPrimaryPlanRepo = (repos?: string[]): void => {
-  if ((repos?.length ?? 0) > 1) {
-    console.log(
-      chalk.yellow(
-        `⚠️ Only the first repository will be used to resolve the plan artifact. Remaining repos are used only as implementation context: ${repos!.slice(1).join(', ')}`,
-      ),
-    );
-  }
-};
 
 const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
@@ -88,10 +92,9 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
   name: 'issue:implement',
   description:
     'Carry out an implementation plan for a ticket. ' +
-    'Requires a local ticket artifact (<ticketKey>.md) and a plan artifact ' +
-    '(<ticketKey>-plan-<action>.json). ' +
+    'Use a ticket key to execute a standard plan artifact or a custom plan artifact filename with extension. ' +
     'Run issue:fetch then issue:plan before calling this command.',
-  arguments: '[ticket-key]',
+  arguments: '[ticket-key-or-plan-file]',
 })
 export class IssueImplementCommand extends CommandRunner {
   constructor(
@@ -106,16 +109,6 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--plan <path>',
-    description:
-      'Filename (looked up under the primary repo artifact namespace) or relative path (resolved from the primary repo root)',
-    required: false,
-  })
-  parsePlan(val: string): string {
-    return val;
-  }
-
-  @Option({
     flags: '-p, --platform <platform>',
     description: 'Platform to fetch from if local artifact not found',
   })
@@ -127,20 +120,6 @@ export class IssueImplementCommand extends CommandRunner {
       );
     }
     return platform;
-  }
-
-  @Option({
-    flags: '-f, --format <format>',
-    description: 'Output format for the implementation plan (json|md|yaml)',
-  })
-  parseFormat(format: string): OutputFormat {
-    const validFormats: OutputFormat[] = ['json', 'md', 'yaml'];
-    if (!validFormats.includes(format as OutputFormat)) {
-      throw new Error(
-        `Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`,
-      );
-    }
-    return format as OutputFormat;
   }
 
   @Option({
@@ -162,7 +141,7 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   async run(
-    [ticketKey]: string[],
+    [identifier]: string[],
     options?: IssueImplementOptions,
   ): Promise<void> {
     try {
@@ -172,7 +151,8 @@ export class IssueImplementCommand extends CommandRunner {
         this.configService.get<string>('platforms.primary', 'jira');
 
       if (
-        ticketKey &&
+        identifier &&
+        isTicketKey(identifier) &&
         platformName === 'bitbucket' &&
         !options?.repos?.length
       ) {
@@ -182,34 +162,26 @@ export class IssueImplementCommand extends CommandRunner {
         process.exit(1);
       }
 
-      // Guard: must have either ticketKey or --plan
-      if (!ticketKey && !options?.plan) {
+      if (!identifier) {
         console.error(
           chalk.red(
-            'Error: Provide a <ticket-key> or use --plan <path> to load a plan directly',
+            'Error: Provide a <ticket-key> or a custom plan artifact filename',
           ),
         );
         process.exit(1);
+        return;
       }
 
       const baseDir = resolveRepoBasePath(options?.repos?.[0]);
-      if (options?.plan) {
-        warnOnPrimaryPlanRepo(options?.repos);
-      }
+      const ticketKey = isTicketKey(identifier) ? identifier : undefined;
+      const resolvedPlanPath = ticketKey
+        ? undefined
+        : this.resolveCustomPlanPath(identifier, baseDir, platformName);
 
-      const resolvedPlanPath = options?.plan
-        ? path.dirname(options.plan) === '.'
-          ? path.join(resolveArtifactDir(baseDir, platformName), options.plan)
-          : path.resolve(baseDir, options.plan)
-        : undefined;
-
-      // ── MODE A: --plan only (no ticketKey) ─────────────────────────────
+      // ── CUSTOM PLAN MODE ────────────────────────────────────────────────
       if (!ticketKey && resolvedPlanPath) {
         if (options?.dryRun) {
-          this.dryRunPreview.showHeader(
-            'issue:implement',
-            options.plan ?? '<plan-path>',
-          );
+          this.dryRunPreview.showHeader('issue:implement', identifier);
 
           const planExists = fs.existsSync(resolvedPlanPath);
           this.dryRunPreview.previewFileRead({
@@ -223,13 +195,7 @@ export class IssueImplementCommand extends CommandRunner {
           // Detect investigate plan if file exists, otherwise use action heuristic
 
           const planForDryRun = planExists
-            ? (() => {
-                try {
-                  return JSON.parse(fs.readFileSync(resolvedPlanPath, 'utf-8'));
-                } catch {
-                  return null;
-                }
-              })()
+            ? loadPlanFile(resolvedPlanPath)
             : null;
           const isInvestigateDryRun = planForDryRun?.action === 'investigate';
 
@@ -410,13 +376,15 @@ Return ONLY a valid JSON object:
         return;
       }
 
+      if (!ticketKey) {
+        throw new Error('Ticket key is required for standard plan execution');
+      }
+
       // ── MODE B & C: ticketKey present ──────────────────────────────────
       const platformDir = resolveArtifactDir(baseDir, platformName);
       warnOnVerificationRepoBoundary(options?.repos);
       const ticketPath = path.join(platformDir, `${ticketKey}.md`);
-      const discovered = discoverPlanAction(platformDir, ticketKey);
-      const action: ResolutionAction = discovered.action;
-      const planPath = discovered.filePath;
+      const discovered = discoverStandardPlan(platformDir, ticketKey);
       // Preflight Check 1: ticket artifact must exist (gates both live + dry-run)
       if (!fs.existsSync(ticketPath)) {
         console.error(
@@ -431,11 +399,7 @@ Return ONLY a valid JSON object:
         return;
       }
 
-      // Preflight Check 2: plan artifact must exist (gates both live + dry-run)
-      // Note: discoverPlanAction always returns a struct — when no plan exists on
-      // disk it returns a synthesised fallback path that does not exist. This
-      // fs.existsSync call is the only existence gate.
-      if (!fs.existsSync(planPath)) {
+      if (!discovered) {
         console.error(
           chalk.red(`Error: No plan artifact found for ${ticketKey}.`),
         );
@@ -452,6 +416,8 @@ Return ONLY a valid JSON object:
         process.exit(1);
         return;
       }
+      const action: ResolutionAction = discovered.action;
+      const planPath = discovered.filePath;
 
       if (options?.dryRun) {
         this.dryRunPreview.showHeader('issue:implement', ticketKey);
@@ -563,21 +529,19 @@ Return ONLY a valid JSON object:
       if (resolvedPlanPath) {
         // Mode B: load plan from --plan path
 
-        const plan = loadPlanFile(resolvedPlanPath) as ResolutionPlan;
+        const plan = loadPlanFile(resolvedPlanPath);
         planArtifact = {
           plan,
-          action: ((plan as any).action ?? action) as ResolutionAction,
+          action: plan.action,
           path: resolvedPlanPath,
         };
       } else {
         // Mode C: load plan from disk (plan artifact verified by preflight check)
 
-        const plan = loadPlanFile(planPath) as ResolutionPlan;
+        const plan = loadPlanFile(planPath);
         planArtifact = {
           plan,
-          // `action` is not declared on ResolutionPlan; the `as any` cast is
-          // intentional and mirrors the same defensive pattern used in Mode B.
-          action: ((plan as any).action ?? action) as ResolutionAction,
+          action: plan.action,
           path: planPath,
         };
       }
@@ -645,5 +609,36 @@ Return ONLY a valid JSON object:
   ): string {
     const formattedRepo = this.formatBitbucketRepo(repo, configService);
     return `${formattedRepo}#${issueId}`;
+  }
+
+  /**
+   * Resolve a custom plan artifact filename using the active artifact namespace.
+   *
+   * @param identifier - Raw CLI positional argument
+   * @param baseDir - Repo-aware base directory
+   * @param platformName - Active platform namespace
+   * @returns Resolved plan artifact path
+   */
+  private resolveCustomPlanPath(
+    identifier: string,
+    baseDir: string,
+    platformName: string,
+  ): string {
+    const extension = path.extname(identifier).slice(1).toLowerCase();
+    if (!SUPPORTED_PLAN_EXTENSIONS.includes(extension as any)) {
+      throw new Error(
+        'Custom plan artifacts must include a supported file extension: .json, .md, .yaml, or .yml',
+      );
+    }
+
+    if (path.isAbsolute(identifier)) {
+      return identifier;
+    }
+
+    if (path.dirname(identifier) === '.') {
+      return path.join(resolveArtifactDir(baseDir, platformName), identifier);
+    }
+
+    return path.resolve(baseDir, identifier);
   }
 }

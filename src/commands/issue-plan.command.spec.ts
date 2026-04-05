@@ -138,14 +138,21 @@ describe('IssuePlanCommand', () => {
     });
   });
 
-  it('stores prompt-mode plans under the cwd namespace when --repos is absent', async () => {
+  describe('option metadata', () => {
+    it('does not expose a --prompt option', () => {
+      const proto = IssuePlanCommand.prototype as any;
+      expect(proto.parsePrompt).toBeUndefined();
+    });
+  });
+
+  it('stores custom-mode plans under the cwd namespace when --repos is absent', async () => {
     const { command } = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run([], {
       action: 'fix',
-      prompt: 'Investigate login flow',
+      custom: 'jira/bar.md',
       dryRun: true,
     });
 
@@ -153,6 +160,52 @@ describe('IssuePlanCommand', () => {
     expect(path.dirname(preview.filePath)).toBe(
       path.join(os.homedir(), '.wf', 'consumer-app', 'jira'),
     );
+  });
+
+  it('rejects ticket-key + --custom together', async () => {
+    const { command } = await buildCommand();
+    const exitSpy = jest
+      .spyOn(process, 'exit')
+      .mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    await command.run(['WBP-1'], {
+      action: 'feature',
+      custom: 'jira/bar.md',
+    } as any);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(
+      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
+    ).toContain('--custom');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('rejects non-markdown custom sources', async () => {
+    const { command } = await buildCommand();
+    const exitSpy = jest
+      .spyOn(process, 'exit')
+      .mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    await command.run([], {
+      action: 'feature',
+      custom: 'jira/bar.yaml',
+    } as any);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(
+      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
+    ).toContain('Markdown');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
   });
 
   it('stores ticket-mode plans under the targeted repo namespace when --repos is provided', async () => {
@@ -201,6 +254,16 @@ describe('IssuePlanCommand', () => {
       content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
     planStageService.generatePlan.mockResolvedValue({
       action: 'fix',
       summary: 'Fix login',
@@ -229,5 +292,65 @@ describe('IssuePlanCommand', () => {
       },
     );
     expect(writeFileSpy).toHaveBeenCalled();
+  });
+
+  it('deletes sibling standard plans before writing a new ticket plan', async () => {
+    const { command, fetchStageService, planStageService } =
+      await buildCommand();
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['src/auth.ts'],
+    } as any);
+
+    jest
+      .spyOn(require('fs'), 'existsSync')
+      .mockImplementation((input: string) => {
+        const filePath = String(input);
+        return (
+          filePath.endsWith('WBP-1.md') ||
+          filePath.endsWith('WBP-1-plan-feature.json') ||
+          filePath.endsWith('WBP-1-plan-investigate.md')
+        );
+      });
+    const unlinkSyncSpy = jest
+      .spyOn(require('fs'), 'unlinkSync')
+      .mockImplementation(() => {});
+    jest
+      .spyOn(require('fs').promises, 'writeFile')
+      .mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(unlinkSyncSpy).toHaveBeenCalledWith(
+      path.join(
+        os.homedir(),
+        '.wf',
+        'repo-a',
+        'jira',
+        'WBP-1-plan-feature.json',
+      ),
+    );
+    expect(unlinkSyncSpy).toHaveBeenCalledWith(
+      path.join(
+        os.homedir(),
+        '.wf',
+        'repo-a',
+        'jira',
+        'WBP-1-plan-investigate.md',
+      ),
+    );
   });
 });

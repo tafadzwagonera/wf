@@ -3,6 +3,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AiService, ResolutionPlan } from '../../integrations/ai/ai.service';
 import {
+  parsePlanArtifact,
+  SUPPORTED_PLAN_EXTENSIONS,
+} from '../../shared/utils/plan-artifact';
+import {
   PlanArtifact,
   PlannerOptions,
   ResolutionAction,
@@ -86,20 +90,23 @@ export class PlanStageService {
     const actions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
 
     const found = actions
-      .map((action) => {
-        const planPath = path.join(baseDir, `${baseName}-plan-${action}.json`);
-        return fs.existsSync(planPath)
-          ? {
-              action,
-              path: planPath,
-              mtimeMs: fs.statSync(planPath).mtimeMs,
-            }
-          : null;
-      })
+      .flatMap((action) =>
+        SUPPORTED_PLAN_EXTENSIONS.map((extension) => {
+          const planPath = path.join(
+            baseDir,
+            `${baseName}-plan-${action}.${extension}`,
+          );
+          return fs.existsSync(planPath)
+            ? {
+                action,
+                path: planPath,
+              }
+            : null;
+        }),
+      )
       .filter(Boolean) as Array<{
       action: ResolutionAction;
       path: string;
-      mtimeMs: number;
     }>;
 
     if (found.length === 0) {
@@ -108,7 +115,14 @@ export class PlanStageService {
       );
     }
 
-    found.sort((left, right) => right.mtimeMs - left.mtimeMs);
+    if (found.length > 1) {
+      throw new Error(
+        `Multiple plan files found for ticket: ${found
+          .map((artifact) => path.basename(artifact.path))
+          .join(', ')}.\nRe-run issue:plan to replace stale artifacts.`,
+      );
+    }
+
     const selected = found[0];
     return {
       plan: this.readPlan(selected.path),
@@ -119,10 +133,12 @@ export class PlanStageService {
 
   private readPlan(planPath: string): ResolutionPlan {
     try {
-      return JSON.parse(fs.readFileSync(planPath, 'utf-8')) as ResolutionPlan;
-    } catch {
+      return parsePlanArtifact(fs.readFileSync(planPath, 'utf-8'), planPath);
+    } catch (error) {
       throw new Error(
-        `Plan file is not valid JSON: ${path.basename(planPath)}`,
+        error instanceof Error
+          ? error.message
+          : `Plan file is not valid: ${path.basename(planPath)}`,
       );
     }
   }

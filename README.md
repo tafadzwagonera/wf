@@ -271,20 +271,23 @@ wf issue:fetch WBP-2971 --dry-run
 
 #### `wf issue:plan <ticket-key>`
 
-Generate an AI implementation plan for a ticket. Reads from the local artifact saved by `issue:fetch`. If no local artifact exists, it is fetched first.
+Generate an AI implementation plan for a ticket, or synthesize a canonical custom plan from a markdown source artifact. Reads from the local artifact saved by `issue:fetch`. If no local ticket artifact exists, it is fetched first.
 
 ```bash
-# Plan using a local artifact (default action: implement)
-wf issue:plan WBP-2971
-
 # Specify the resolution action
 wf issue:plan WBP-2971 --action fix
 
-# Force re-fetch of the ticket artifact before planning
-wf issue:plan WBP-2971 --action investigate --force-recreate
+# Create a custom feature plan from a markdown artifact
+wf issue:plan --action feature --custom jira/bar.md
+
+# Save the custom plan as YAML
+wf issue:plan --action fix --custom docs/notes.md --format yaml
 
 # Save the plan in YAML instead of JSON
-wf issue:plan WBP-2971 --action implement --format yaml
+wf issue:plan WBP-2971 --action investigate --format yaml
+
+# Force re-fetch of the ticket artifact before planning
+wf issue:plan WBP-2971 --action investigate --force
 
 # Preview without making changes
 wf issue:plan WBP-2971 --action fix --dry-run
@@ -294,14 +297,15 @@ wf issue:plan WBP-2971 --action fix --dry-run
 
 | Flag                        | Description                                                    | Default            |
 | --------------------------- | -------------------------------------------------------------- | ------------------ |
-| `-a, --action <action>`     | Resolution action: `implement \| fix \| investigate`           | `implement`        |
-| `-p, --platform <platform>` | Platform to fetch from if local artifact not found             | `PRIMARY_PLATFORM` |
+| `-a, --action <action>`     | Resolution action: `feature \| fix \| investigate`             | required           |
+| `-c, --custom <source.md>`  | Custom markdown source artifact for plan synthesis             | —                  |
+| `--dry-run`                 | Preview without generating or writing files                    | —                  |
 | `--force`                   | Force fetch and recreate ticket artifact before planning       | —                  |
+| `-p, --platform <platform>` | Platform to fetch from if local artifact not found             | `PRIMARY_PLATFORM` |
 | `-f, --format <format>`     | Plan output format: `json \| md \| yaml`                       | `json`             |
 | `-r, --repos <repos...>`    | Space-separated repositories (`workspace/repo` or `repo-name`) | required           |
-| `--dry-run`                 | Preview without generating or writing files                    | —                  |
 
-**Output:** saves to `./<platform>/<ticket-key>-plan-<action>.<format>` (e.g., `./jira/WBP-2971-plan-fix.json`).
+**Output:** saves to `./<platform>/<ticket-key>-plan-<action>.<format>` for ticket-backed plans, or `<mnemonic>-<action>.<format>` for custom plans (for example, `merry-tinkering-pine-feature.json`).
 
 ---
 
@@ -533,12 +537,19 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 
 ---
 
-#### `wf issue-implement <ticket-key>` _(legacy)_
+#### `wf issue:implement <ticket-key-or-plan-file>`
 
-Simple implementation guide generator. Reads the ticket from `./jira/<ticket-key>.md` and prints an implementation plan. Superseded by `issue:plan` and `issue`.
+Execute an existing canonical plan artifact. Ticket keys resolve the single standard plan for that ticket. Custom plans must be passed as explicit artifact filenames including extension.
 
 ```bash
-wf issue-implement WBP-2971
+# Execute the standard plan for a ticket
+wf issue:implement WBP-2971
+
+# Execute a custom plan artifact
+wf issue:implement merry-tinkering-pine-feature.json
+
+# Execute a custom YAML plan artifact
+wf issue:implement bold-jumping-wave-fix.yaml
 ```
 
 ---

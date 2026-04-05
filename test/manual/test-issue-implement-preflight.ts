@@ -54,6 +54,19 @@ function captureConsoleError(): { restore: () => string } {
   };
 }
 
+function overrideHomeDir(nextHomeDir: string): () => void {
+  const previousHome = process.env.HOME;
+  process.env.HOME = nextHomeDir;
+  return () => {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+      return;
+    }
+
+    process.env.HOME = previousHome;
+  };
+}
+
 async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error'],
@@ -65,8 +78,8 @@ async function main() {
   {
     const exitCapture = captureExit();
     const errCapture = captureConsoleError();
-    // TEST-MISSING-9999 will not exist in .wf/ of the current working directory
-    await command.run(['TEST-MISSING-9999'], {});
+    // WBP-9999 will not exist in .wf/ of the current working directory
+    await command.run(['WBP-9999'], {});
     const exitCode = exitCapture.restore();
     const errorOutput = errCapture.restore();
 
@@ -86,12 +99,10 @@ async function main() {
   console.log('\n🧪 Test 2: ticket exists, plan missing\n' + '─'.repeat(60));
   {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-implement-test-'));
-    const artifactDir = path.join(tmpDir, '.wf', 'jira');
+    const restoreHome = overrideHomeDir(tmpDir);
+    const artifactDir = path.join(tmpDir, '.wf', path.basename(tmpDir), 'jira');
     fs.mkdirSync(artifactDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(artifactDir, 'PLAN-MISSING-001.md'),
-      '# PLAN-MISSING-001\n',
-    );
+    fs.writeFileSync(path.join(artifactDir, 'WBP-1001.md'), '# WBP-1001\n');
 
     // Override process.cwd so resolveArtifactDir picks up our tmpDir
     const origCwd = process.cwd.bind(process);
@@ -99,10 +110,11 @@ async function main() {
 
     const exitCapture = captureExit();
     const errCapture = captureConsoleError();
-    await command.run(['PLAN-MISSING-001'], {});
+    await command.run(['WBP-1001'], {});
     const exitCode = exitCapture.restore();
     const errorOutput = errCapture.restore();
     (process as any).cwd = origCwd;
+    restoreHome();
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
 
