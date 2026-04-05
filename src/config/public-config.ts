@@ -30,7 +30,8 @@ export interface WfAfterImplementConfig {
   fingerprintLineCount?: number;
   requireStateChangeForRetry?: boolean;
   retryOnSameFailure?: boolean;
-  scripts: Record<string, string>;
+  policyFile?: string;
+  scripts?: Record<string, string>;
 }
 
 export interface WfImplementStageConfig {

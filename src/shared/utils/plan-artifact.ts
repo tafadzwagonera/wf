@@ -2,6 +2,7 @@ import { ResolutionPlan } from '../../integrations/ai/ai.service';
 import type { ResolutionAction } from '../../agents/interfaces';
 import * as YAML from 'yaml';
 import * as path from 'path';
+import { normalizePlanVerification } from './verification-manifest';
 
 const VALID_ACTIONS: ResolutionAction[] = ['feature', 'fix', 'investigate'];
 const VALID_COMPLEXITIES = ['low', 'medium', 'high'] as const;
@@ -85,6 +86,7 @@ const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
       rawPlan.repositoriesAffected,
     ),
     risks: normalizeOptionalStringList(rawPlan.risks),
+    verification: normalizePlanVerification(rawPlan.verification, filePath),
     provider:
       typeof rawPlan.provider === 'string' ? rawPlan.provider : undefined,
     source: typeof rawPlan.source === 'string' ? rawPlan.source : undefined,

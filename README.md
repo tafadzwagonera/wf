@@ -110,14 +110,9 @@ export default defineConfig({
       afterImplement: {
         maxAttempts: 2,
         fingerprintLineCount: 40,
+        policyFile: 'verification.policy.json',
         requireStateChangeForRetry: true,
         retryOnSameFailure: false,
-        scripts: {
-          format: 'npm run format',
-          lintFix: 'npm run lint -- --fix',
-          lint: 'npm run lint',
-          build: 'npm run build',
-        },
       },
     },
     review: 'gemini-2.5-pro',
@@ -148,12 +143,21 @@ stages:
   implement:
     model: claude-sonnet-4-20250514
     afterImplement:
-      scripts:
-        format: npm run format
-        lintFix: npm run lint -- --fix
-        lint: npm run lint
-        build: npm run build
+      policyFile: verification.policy.json
   review: gemini-2.5-pro
+```
+
+Example verification manifest:
+
+```json
+{
+  "version": 1,
+  "baseline": [
+    { "id": "format", "run": "npm run format", "policy": "enforced" },
+    { "id": "lint", "run": "npm run lint", "policy": "enforced" },
+    { "id": "build", "run": "npm run build", "policy": "enforced" }
+  ]
+}
 ```
 
 ### TypeScript Config Support
@@ -178,8 +182,9 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - `ai[].maxTokens` is only applied to Gemini provider entries using Gemini models; other providers ignore it.
 - `stages.plan`, `stages.review`, and `stages.generate` may override the default model with a string value.
 - `stages.implement` must be an object with an optional `model` and optional `afterImplement`.
-- `afterImplement.scripts` run in declaration order. Include `build` there when the consumer application requires build verification.
-- Recommended sequence: `format` → `lint --fix` → `lint` → `build`. This removes formatting noise before the final lint/build gate and makes retries focus on real code issues.
+- Prefer `afterImplement.policyFile` to point at a repository-owned verification manifest. This keeps baseline verification policy tool-agnostic and reusable from CI or other executors.
+- `afterImplement.scripts` remains supported as a fallback when a manifest is not present.
+- Manifest baseline checks run in declaration order. Recommended sequence: `format` → `lint --fix` → `lint` → `build`. This removes formatting noise before the final lint/build gate and makes retries focus on real code issues.
 - Prefer portable wrappers such as `npm run lint`, `bash ./scripts/verify.sh`, or `node ./scripts/verify.mjs` instead of relying on executable bits or shell-specific features.
 - `fetch` and `commit` cannot be overridden.
 - `wf config get` and `wf config list` read the normalized runtime config.
@@ -313,11 +318,11 @@ wf issue:plan WBP-2971 --action fix --dry-run
 
 AI-powered code review. Accepts two source modes:
 
-| Source                 | Description                                                                         |
-| ---------------------- | ----------------------------------------------------------------------------------- |
+| Source                 | Description                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------ |
 | _(none)_               | Review staged/unstaged changes in the current repo, or all repos listed in `--repos` |
-| `ABC-123`              | Review local repo changes with ticket context                                       |
-| `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request                                 |
+| `ABC-123`              | Review local repo changes with ticket context                                        |
+| `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request                                  |
 
 ```bash
 # Review current repository changes
@@ -338,12 +343,12 @@ wf issue:review --dry-run
 
 **Options:**
 
-| Flag                    | Description                         | Default |
-| ----------------------- | ----------------------------------- | ------- |
-| `-f, --format <format>` | Output format: `text \| json \| md` | `text`  |
-| `-o, --output <path>`   | Save review to a file               | stdout  |
-| `-r, --repos <repos...>`| First repo anchors local review context; all repos are inspected for local changes | current repo |
-| `--dry-run`             | Preview without calling the AI      | —       |
+| Flag                     | Description                                                                        | Default      |
+| ------------------------ | ---------------------------------------------------------------------------------- | ------------ |
+| `-f, --format <format>`  | Output format: `text \| json \| md`                                                | `text`       |
+| `-o, --output <path>`    | Save review to a file                                                              | stdout       |
+| `-r, --repos <repos...>` | First repo anchors local review context; all repos are inspected for local changes | current repo |
+| `--dry-run`              | Preview without calling the AI                                                     | —            |
 
 ---
 
@@ -367,13 +372,13 @@ wf issue:create ticket.json --dry-run
 
 **Options:**
 
-| Flag                        | Description                                        | Default            |
-| --------------------------- | -------------------------------------------------- | ------------------ |
-| `-p, --platform <platform>` | Target platform: `jira \| github \| bitbucket`     | `PRIMARY_PLATFORM` |
-| `-r, --repos <repos...>`    | Only the first repo is used for artifact lookup; extras are ignored with a warning | current repo |
-| `--project <project>`       | Project key (Jira) or `workspace/repo` (Bitbucket) | from input file    |
-| `-t, --type <type>`         | Issue type: `task \| bug \| story \| todo`         | from input file    |
-| `--dry-run`                 | Validate and preview without creating              | —                  |
+| Flag                        | Description                                                                        | Default            |
+| --------------------------- | ---------------------------------------------------------------------------------- | ------------------ |
+| `-p, --platform <platform>` | Target platform: `jira \| github \| bitbucket`                                     | `PRIMARY_PLATFORM` |
+| `-r, --repos <repos...>`    | Only the first repo is used for artifact lookup; extras are ignored with a warning | current repo       |
+| `--project <project>`       | Project key (Jira) or `workspace/repo` (Bitbucket)                                 | from input file    |
+| `-t, --type <type>`         | Issue type: `task \| bug \| story \| todo`                                         | from input file    |
+| `--dry-run`                 | Validate and preview without creating                                              | —                  |
 
 ---
 
@@ -444,13 +449,13 @@ wf issue:commit --dry-run
 
 **Options:**
 
-| Flag                      | Description                                                          | Default |
-| ------------------------- | -------------------------------------------------------------------- | ------- |
-| `-m, --message <message>` | Manual commit message — bypasses AI generation                       | —       |
-| `--no-ai`                 | Require a manual `--message` (error if omitted)                      | —       |
-| `--conventional`          | Force conventional commits format (`<type>(<scope>): <description>`) | —       |
+| Flag                      | Description                                                                               | Default      |
+| ------------------------- | ----------------------------------------------------------------------------------------- | ------------ |
+| `-m, --message <message>` | Manual commit message — bypasses AI generation                                            | —            |
+| `--no-ai`                 | Require a manual `--message` (error if omitted)                                           | —            |
+| `--conventional`          | Force conventional commits format (`<type>(<scope>): <description>`)                      | —            |
 | `-r, --repos <repos...>`  | Only the first repo is used as the commit working tree; extras are ignored with a warning | current repo |
-| `--dry-run`               | Preview the commit without staging or committing                     | —       |
+| `--dry-run`               | Preview the commit without staging or committing                                          | —            |
 
 **Branch detection:** ticket keys are extracted from the branch name using the pattern `[A-Z]+-\d+` (e.g., `feature/WBP-2971__add-oauth` → `WBP-2971`).
 
@@ -511,17 +516,17 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 
 **Options:**
 
-| Flag                        | Description                                                                            | Default            |
-| --------------------------- | -------------------------------------------------------------------------------------- | ------------------ |
-| `--from <stage>`            | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit`           | —                  |
-| `--to <stage>`              | Stop stage (inclusive)                                                                 | `commit`           |
+| Flag                        | Description                                                                          | Default            |
+| --------------------------- | ------------------------------------------------------------------------------------ | ------------------ |
+| `--from <stage>`            | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit`         | —                  |
+| `--to <stage>`              | Stop stage (inclusive)                                                               | `commit`           |
 | `--action <action>`         | Resolution action: `feature \| fix \| investigate` — required when `plan` stage runs | —                  |
-| `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket`                                                | `PRIMARY_PLATFORM` |
-| `--pr`                      | Create PR after commit stage                                                           | false              |
-| `--chat-mode`               | Open AI chat after `plan` and `review` stages                                          | —                  |
-| `--force`                   | Recreate artifacts instead of using the default skip-existing behavior                 | false              |
-| `--dry-run`                 | Preview every stage without making changes, including branch and file work             | —                  |
-| `-r, --repos <repos...>`    | First repo anchors artifact storage; all repos are used as workflow context            | current repo       |
+| `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket`                                              | `PRIMARY_PLATFORM` |
+| `--pr`                      | Create PR after commit stage                                                         | false              |
+| `--chat-mode`               | Open AI chat after `plan` and `review` stages                                        | —                  |
+| `--force`                   | Recreate artifacts instead of using the default skip-existing behavior               | false              |
+| `--dry-run`                 | Preview every stage without making changes, including branch and file work           | —                  |
+| `-r, --repos <repos...>`    | First repo anchors artifact storage; all repos are used as workflow context          | current repo       |
 
 **Stage order and artifacts:**
 

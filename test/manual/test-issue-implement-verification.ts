@@ -5,7 +5,7 @@
  *
  * Verifies:
  *   1. Multi-repo plans are rejected with guidance to use issue or per-repo issue:implement
- *   2. Configured afterImplement scripts run in the selected repo and retries carry diagnostics forward
+ *   2. Repository verification manifests run in the selected repo and retries carry diagnostics forward
  */
 
 import { NestFactory } from '@nestjs/core';
@@ -93,6 +93,24 @@ async function main() {
       }),
     );
     fs.writeFileSync(
+      path.join(repoDir, 'verification.policy.json'),
+      JSON.stringify({
+        version: 1,
+        baseline: [
+          {
+            id: 'lint',
+            run: 'npm run lint',
+            policy: 'enforced',
+          },
+          {
+            id: 'build',
+            run: 'npm run build',
+            policy: 'enforced',
+          },
+        ],
+      }),
+    );
+    fs.writeFileSync(
       path.join(srcDir, 'example.ts'),
       'export const value = 0;\n',
     );
@@ -143,12 +161,10 @@ async function main() {
     (implementer as any).getAfterImplementConfig = () => ({
       maxAttempts: 2,
       fingerprintLineCount: 5,
+      policyFile: 'verification.policy.json',
       requireStateChangeForRetry: true,
       retryOnSameFailure: false,
-      scripts: {
-        lint: 'npm run lint',
-        build: 'npm run build',
-      },
+      scripts: {},
     });
     (implementer as any).runCommand = async (command: string, cwd?: string) => {
       executedCommands.push(`${cwd ?? ''}:${command}`);

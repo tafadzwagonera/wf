@@ -12,3 +12,4 @@ node_modules/
 .windsurf-agent/
 .env
 wf.config.ts
+verification.policy.json

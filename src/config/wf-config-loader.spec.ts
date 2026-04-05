@@ -265,6 +265,7 @@ describe('wf-config-loader', () => {
         fingerprintLineCount: 10,
         requireStateChangeForRetry: true,
         retryOnSameFailure: false,
+        policyFile: undefined,
         scripts: {
           formatWrite: 'npm run format:write',
           formatCheck: 'npm run format:check',
@@ -272,6 +273,30 @@ describe('wf-config-loader', () => {
           lint: 'npm run lint',
           build: 'npm run build',
         },
+      });
+    });
+
+    it('accepts a manifest path without inline scripts', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          implement: {
+            afterImplement: {
+              policyFile: '.wf/verification.json',
+            } as any,
+          },
+        },
+      });
+
+      expect(config.stages.implement?.afterImplement).toEqual({
+        baseMaxAttempts: 3,
+        maxProgressExtensions: 2,
+        absoluteMaxAttempts: 5,
+        fingerprintLineCount: 40,
+        requireStateChangeForRetry: true,
+        retryOnSameFailure: false,
+        policyFile: '.wf/verification.json',
+        scripts: {},
       });
     });
   });

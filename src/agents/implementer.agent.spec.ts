@@ -274,6 +274,86 @@ describe('ImplementerAgent', () => {
       );
     });
 
+    it('merges manifest baseline with plan targeted checks and skips waived baseline checks', async () => {
+      const mockFiles = installMockRepoFiles();
+      mockFiles.set(
+        '/tmp/repo-a/.wf/verification.json',
+        JSON.stringify({
+          version: 1,
+          baseline: [
+            { id: 'lint', run: 'npm run lint', policy: 'enforced' },
+            { id: 'build', run: 'npm run build', policy: 'enforced' },
+            { id: 'e2e', run: 'npm run test:e2e', policy: 'enforced' },
+          ],
+        }),
+      );
+
+      const configService = (agent as any).configService as ConfigService;
+      jest
+        .spyOn(configService, 'get')
+        .mockImplementation((key: string, fallback?: unknown) => {
+          const values: Record<string, unknown> = {
+            'branching.prefixMapping': {
+              feature: 'feature',
+              fix: 'bugfix',
+              investigate: 'chore',
+            },
+            'stages.implement.afterImplement': {
+              baseMaxAttempts: 3,
+              maxProgressExtensions: 2,
+              absoluteMaxAttempts: 5,
+              fingerprintLineCount: 5,
+              requireStateChangeForRetry: true,
+              retryOnSameFailure: false,
+              policyFile: '.wf/verification.json',
+              scripts: {},
+            },
+          };
+
+          return key in values ? values[key] : fallback;
+        });
+
+      const runCommandSpy = jest
+        .spyOn(agent as any, 'runCommand')
+        .mockResolvedValue({
+          command: 'ok',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          verification: {
+            targeted: [
+              {
+                id: 'manual-review',
+                run: 'npm run test:manual -- test-issue-review',
+                policy: 'enforced',
+              },
+            ],
+            waivers: [
+              {
+                id: 'e2e',
+                reason: 'Docs-only change',
+              },
+            ],
+          } as any,
+        } as any),
+        {
+          platformName: 'jira',
+          repoDir: '/tmp/repo-a',
+        },
+      );
+
+      expect(runCommandSpy.mock.calls.map((call) => call[0])).toEqual([
+        'npm run lint',
+        'npm run build',
+        'npm run test:manual -- test-issue-review',
+      ]);
+    });
+
     it('retries with the full configured script sequence after actionable failures', async () => {
       installMockRepoFiles();
 

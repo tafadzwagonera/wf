@@ -19,6 +19,11 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { createHash } from 'crypto';
 import type { NormalizedAfterImplementConfig } from '../config/wf-config-loader';
+import {
+  loadVerificationManifest,
+  VerificationPolicy,
+  type VerificationStep,
+} from '../shared/utils/verification-manifest';
 
 const execAsync = promisify(exec);
 const DEFAULT_BASE_MAX_ATTEMPTS = 3;
@@ -51,8 +56,11 @@ interface VerificationProgress {
 }
 
 interface VerificationScript {
+  id: string;
   name: string;
   command: string;
+  policy: VerificationPolicy;
+  reason?: string;
   aliases: string[];
 }
 
@@ -188,6 +196,7 @@ export class ImplementerAgent {
     const verificationScripts = this.prepareVerificationScripts(
       options.repoDir,
       afterImplement,
+      planArtifact.plan.verification,
     );
     const trackedFilePaths = this.resolveTrackedFilePaths(
       repoFiles,
@@ -542,17 +551,69 @@ export class ImplementerAgent {
   private prepareVerificationScripts(
     repoDir: string | undefined,
     afterImplement: NormalizedAfterImplementConfig | undefined,
+    planVerification?: PlanArtifact['plan']['verification'],
   ): VerificationScript[] {
+    const packageScripts = this.readPackageScripts(repoDir);
+    const baselineSteps = this.resolveBaselineVerificationSteps(
+      repoDir,
+      afterImplement,
+    );
+    const waiverIds = new Set(
+      (planVerification?.waivers ?? []).map((waiver) => waiver.id),
+    );
+    const targetedSteps = planVerification?.targeted ?? [];
+    const resolvedSteps = [...baselineSteps, ...targetedSteps].filter(
+      (step) => !waiverIds.has(step.id),
+    );
+
+    return resolvedSteps.map((step) => ({
+      id: step.id,
+      name: step.id,
+      command: step.run,
+      policy: step.policy,
+      reason: step.reason,
+      aliases: this.findPackageAliases(step.run, packageScripts),
+    }));
+  }
+
+  private resolveBaselineVerificationSteps(
+    repoDir: string | undefined,
+    afterImplement: NormalizedAfterImplementConfig | undefined,
+  ): VerificationStep[] {
+    const manifestPath = this.resolveVerificationManifestPath(
+      repoDir,
+      afterImplement,
+    );
+
+    if (manifestPath) {
+      return loadVerificationManifest(manifestPath).baseline;
+    }
+
     if (!afterImplement) {
       return [];
     }
 
-    const packageScripts = this.readPackageScripts(repoDir);
     return Object.entries(afterImplement.scripts).map(([name, command]) => ({
-      name,
-      command,
-      aliases: this.findPackageAliases(command, packageScripts),
+      id: name,
+      run: command,
+      policy: 'enforced',
     }));
+  }
+
+  private resolveVerificationManifestPath(
+    repoDir: string | undefined,
+    afterImplement: NormalizedAfterImplementConfig | undefined,
+  ): string | undefined {
+    const baseDir = repoDir ?? process.cwd();
+    const configuredPath = afterImplement?.policyFile;
+    if (configuredPath) {
+      return path.isAbsolute(configuredPath)
+        ? configuredPath
+        : path.join(baseDir, configuredPath);
+    }
+
+    const defaultPath = path.join(baseDir, '.wf', 'verification.json');
+    return fs.existsSync(defaultPath) ? defaultPath : undefined;
   }
 
   /**
@@ -601,8 +662,12 @@ export class ImplementerAgent {
 
     console.log(chalk.bold('    Discovered scripts:'));
     scripts.forEach((script, index) => {
+      const policySuffix =
+        script.policy === 'best_effort' ? ' (best-effort)' : '';
       console.log(
-        chalk.cyan(`      ${index + 1}. ${script.name}: ${script.command}`),
+        chalk.cyan(
+          `      ${index + 1}. ${script.name}: ${script.command}${policySuffix}`,
+        ),
       );
       if (script.aliases.length > 0) {
         console.log(
@@ -635,6 +700,10 @@ export class ImplementerAgent {
       const result = await this.runCommand(script.command, repoDir);
       results.push(result);
       if (result.exitCode !== 0) {
+        if (script.policy === 'best_effort') {
+          this.printBestEffortWarning(script.name, result);
+          continue;
+        }
         this.printVerificationErrors(script.name, result);
         return {
           failure: { attempt, results },
@@ -717,6 +786,17 @@ export class ImplementerAgent {
         }
       });
     });
+  }
+
+  private printBestEffortWarning(
+    scriptName: string,
+    result: VerificationCommandResult,
+  ): void {
+    console.log(
+      chalk.yellow(
+        `    ${scriptName} failed but is best-effort: ${result.command}`,
+      ),
+    );
   }
 
   /**

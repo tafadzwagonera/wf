@@ -5,6 +5,7 @@ import { AIError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
+import type { PlanVerificationConfig } from '../../shared/utils/verification-manifest';
 
 /**
  * Strips a single wrapping markdown code fence from LLM output.
@@ -66,6 +67,7 @@ export interface ResolutionPlan {
   filesAffected?: string[];
   repositoriesAffected?: string[];
   risks?: string[];
+  verification?: PlanVerificationConfig;
   provider?: string;
   source?: string;
   timestamp?: string;

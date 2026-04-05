@@ -43,6 +43,7 @@ export interface NormalizedAfterImplementConfig {
   fingerprintLineCount: number;
   requireStateChangeForRetry: boolean;
   retryOnSameFailure: boolean;
+  policyFile?: string;
   scripts: Record<string, string>;
 }
 
@@ -170,11 +171,12 @@ const afterImplementSchema = Joi.object<WfAfterImplementConfig>({
   fingerprintLineCount: Joi.number().integer().min(1).optional(),
   requireStateChangeForRetry: Joi.boolean().optional(),
   retryOnSameFailure: Joi.boolean().optional(),
+  policyFile: Joi.string().min(1).optional(),
   scripts: Joi.object()
     .pattern(Joi.string().min(1), Joi.string().min(1).required())
     .min(1)
-    .required(),
-});
+    .optional(),
+}).or('policyFile', 'scripts');
 
 const implementStageSchema = Joi.object<WfImplementStageConfig>({
   model: Joi.string().allow('').optional(),
@@ -521,7 +523,8 @@ const normalizeAfterImplementConfig = (
     fingerprintLineCount: config.fingerprintLineCount ?? 40,
     requireStateChangeForRetry: config.requireStateChangeForRetry ?? true,
     retryOnSameFailure: config.retryOnSameFailure ?? false,
-    scripts: config.scripts,
+    policyFile: config.policyFile,
+    scripts: config.scripts ?? {},
   };
 };
 
