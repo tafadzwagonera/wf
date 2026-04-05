@@ -41,6 +41,7 @@ export interface ImplementerOptions {
   repoDir?: string;
   suppressHeader?: boolean;
   conversationContext?: string;
+  customBranchSlug?: string;
 }
 
 export interface ReviewerOptions {

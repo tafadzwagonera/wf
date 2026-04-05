@@ -520,8 +520,8 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 | `--pr`                      | Create PR after commit stage                                                           | false              |
 | `--chat-mode`               | Open AI chat after `plan` and `review` stages                                          | —                  |
 | `--force`                   | Recreate artifacts instead of using the default skip-existing behavior                 | false              |
+| `--dry-run`                 | Preview every stage without making changes, including branch and file work             | —                  |
 | `-r, --repos <repos...>`    | First repo anchors artifact storage; all repos are used as workflow context            | current repo       |
-| `--dry-run`                 | Preview every stage without making changes                                             | —                  |
 
 **Stage order and artifacts:**
 
@@ -529,7 +529,7 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 | ----------- | ----------------------------------------------------------- |
 | `fetch`     | `./<platform>/<ticket-key>.md`                              |
 | `plan`      | `./<platform>/<ticket-key>-plan-<action>.json`              |
-| `implement` | _(display only — branch name and steps printed)_            |
+| `implement` | working tree updates in the selected repo plus branch setup |
 | `review`    | `./<platform>/<ticket-key>-review.md`                       |
 | `commit`    | _(display only — commit commands printed for confirmation)_ |
 
@@ -539,7 +539,7 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 
 #### `wf issue:implement <ticket-key-or-plan-file>`
 
-Execute an existing canonical plan artifact. Ticket keys resolve the single standard plan for that ticket. Custom plans must be passed as explicit artifact filenames including extension.
+Execute an existing canonical plan artifact. Ticket keys resolve the single standard plan for that ticket. Custom plans must be passed as explicit artifact filenames including extension; `fix` and `feature` plans synthesize an execution context and run the shared implementation flow.
 
 ```bash
 # Execute the standard plan for a ticket
@@ -550,6 +550,9 @@ wf issue:implement merry-tinkering-pine-feature.json
 
 # Execute a custom YAML plan artifact
 wf issue:implement bold-jumping-wave-fix.yaml
+
+# Preview branch and file work for a custom plan
+wf issue:implement dark-building-creek-fix.json --dry-run
 ```
 
 ---

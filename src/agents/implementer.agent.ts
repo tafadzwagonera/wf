@@ -103,12 +103,17 @@ export class ImplementerAgent {
     this.validateImplementationScope(planArtifact, options.repoDir);
 
     const summary = extractSummary(ticket.content);
-    const branchName = this.generateBranchName(
-      ticket.ticketKey,
-      summary,
-      planArtifact.action,
-      options.platformName,
-    );
+    const branchName = options.customBranchSlug
+      ? this.generateCustomBranchName(
+          options.customBranchSlug,
+          planArtifact.action,
+        )
+      : this.generateBranchName(
+          ticket.ticketKey,
+          summary,
+          planArtifact.action,
+          options.platformName,
+        );
 
     const currentBranch = await this.gitService
       .getCurrentBranch(options.repoDir)
@@ -1083,5 +1088,17 @@ export class ImplementerAgent {
     }
 
     return branchName;
+  }
+
+  private generateCustomBranchName(
+    artifactStem: string,
+    action: ResolutionAction,
+  ): string {
+    const prefixMapping = this.configService.get<
+      Record<ResolutionAction, string>
+    >('branching.prefixMapping', DEFAULT_PREFIX_MAPPING);
+    const prefix = prefixMapping[action] || 'feature';
+
+    return `${prefix}/${slugify(artifactStem)}`;
   }
 }

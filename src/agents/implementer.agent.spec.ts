@@ -138,6 +138,26 @@ describe('ImplementerAgent', () => {
     });
   });
 
+  describe('custom branch slug', () => {
+    it('uses the custom branch slug when provided for non-ticket execution contexts', async () => {
+      jest
+        .spyOn(agent as any, 'prepareVerificationScripts')
+        .mockReturnValue([]);
+
+      await agent.execute(ticketArtifact, buildPlan({ filesAffected: [] }), {
+        platformName: 'jira',
+        repoDir: '/tmp/repo-a',
+        customBranchSlug: 'dark-building-creek',
+      });
+
+      expect(gitService.createBranch).toHaveBeenCalledWith(
+        'feature/dark-building-creek',
+        undefined,
+        '/tmp/repo-a',
+      );
+    });
+  });
+
   describe('verification loop', () => {
     const installMockRepoFiles = () => {
       const mockFiles = new Map<string, string>([

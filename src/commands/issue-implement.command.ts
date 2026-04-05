@@ -81,6 +81,11 @@ interface IssueImplementOptions {
   dryRun?: boolean;
 }
 
+interface SyntheticCustomExecutionContext {
+  ticketArtifact: TicketArtifact;
+  customBranchSlug: string;
+}
+
 const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
@@ -95,9 +100,9 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
 @Command({
   name: 'issue:implement',
   description:
-    'Carry out an implementation plan for a ticket. ' +
-    'Use a ticket key to execute a standard plan artifact or a custom plan artifact filename with extension. ' +
-    'Run issue:fetch then issue:plan before calling this command.',
+    'Carry out an implementation plan from a ticket-backed or custom plan artifact. ' +
+    'Use a ticket key to execute the standard plan for that ticket, or pass a custom plan artifact filename with extension to synthesize an execution context and run the shared implementer flow. ' +
+    'Run issue:fetch then issue:plan before calling this command for ticket-backed workflows.',
   arguments: '[ticket-key-or-plan-file]',
 })
 export class IssueImplementCommand extends CommandRunner {
@@ -127,6 +132,15 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--dry-run',
+    description:
+      'Preview branch, file, and investigation work without making changes',
+  })
+  parseDryRun(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-r, --repos <repos...>',
     description:
       'Space-separated repositories; first repo anchors artifact lookup, all repos remain available as implementation context',
@@ -134,14 +148,6 @@ export class IssueImplementCommand extends CommandRunner {
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
-  }
-
-  @Option({
-    flags: '--dry-run',
-    description: 'Preview the implement operation without making changes',
-  })
-  parseDryRun(): boolean {
-    return true;
   }
 
   async run(
@@ -184,6 +190,11 @@ export class IssueImplementCommand extends CommandRunner {
 
       // ── CUSTOM PLAN MODE ────────────────────────────────────────────────
       if (!ticketKey && resolvedPlanPath) {
+        const plan = loadPlanFile(resolvedPlanPath);
+        const repoDir = resolveRepoBasePath(options?.repos?.[0]);
+        const customExecutionContext =
+          this.buildSyntheticCustomExecutionContext(resolvedPlanPath, plan);
+
         if (options?.dryRun) {
           this.dryRunPreview.showHeader('issue:implement', identifier);
 
@@ -198,10 +209,7 @@ export class IssueImplementCommand extends CommandRunner {
 
           // Detect investigate plan if file exists, otherwise use action heuristic
 
-          const planForDryRun = planExists
-            ? loadPlanFile(resolvedPlanPath)
-            : null;
-          const isInvestigateDryRun = planForDryRun?.action === 'investigate';
+          const isInvestigateDryRun = plan.action === 'investigate';
 
           if (isInvestigateDryRun) {
             const findingsPath = resolvedPlanPath.replace(
@@ -249,12 +257,33 @@ export class IssueImplementCommand extends CommandRunner {
               ],
             });
           } else {
+            const trackedFiles = this.resolveDryRunTrackedFiles(plan, repoDir);
+            const modifiedFileCount = trackedFiles.filter((file) =>
+              fs.existsSync(file),
+            ).length;
+            const createdFileCount = trackedFiles.length - modifiedFileCount;
+
+            this.dryRunPreview.previewGitOperation({
+              operation: 'branch',
+              description: `create or switch to feature branch ${this.formatCustomBranchName(plan.action, customExecutionContext.customBranchSlug)}`,
+            });
+            trackedFiles.forEach((filePath) => {
+              this.dryRunPreview.previewFileWrite({
+                filePath,
+                operation: fs.existsSync(filePath) ? 'overwrite' : 'create',
+                sizeEstimate: 'AI-generated update',
+                format: path.extname(filePath).slice(1) || 'text',
+                contentPreview: `# planned change\n${path.relative(repoDir, filePath)}`,
+              });
+            });
             this.dryRunPreview.showSummary({
               apiCallCount: 0,
-              fileCreatedCount: 0,
-              fileModifiedCount: 0,
-              gitOperationCount: 0,
+              fileCreatedCount: createdFileCount,
+              fileModifiedCount: modifiedFileCount,
+              gitOperationCount: 1,
               terminalOutputLines: [
+                `⚠️ Synthetic execution context for custom plan ${path.basename(resolvedPlanPath)}`,
+                `Branch: ${this.formatCustomBranchName(plan.action, customExecutionContext.customBranchSlug)}`,
                 '🔧 Implementation Guide',
                 '─'.repeat(70),
                 '  Steps:',
@@ -276,8 +305,6 @@ export class IssueImplementCommand extends CommandRunner {
           this.dryRunPreview.showValidationResult();
           return;
         }
-
-        const plan = loadPlanFile(resolvedPlanPath) as any;
 
         // Investigation: generate findings instead of showing implementation guide
         if (plan.action === 'investigate') {
@@ -351,32 +378,26 @@ Return ONLY a valid JSON object:
           return;
         }
 
-        const steps: string[] = plan.steps ?? [];
-        const filesAffected: string[] = plan.filesAffected ?? [];
-        const repositoriesAffected: string[] = plan.repositoriesAffected ?? [];
-
-        console.log('\n🔧 Implementation Guide');
-        console.log('─'.repeat(70));
-        console.log('  Steps:');
-        steps.forEach((step, i) => {
-          console.log(`    ${i + 1}. ${step}`);
-        });
-        console.log('');
-        console.log('  Files to modify:');
-        filesAffected.forEach((file) => {
-          console.log(`    - ${file}`);
-        });
-        console.log('');
-        console.log('  Repositories affected:');
-        repositoriesAffected.forEach((repo) => {
-          console.log(`    - ${repo}`);
-        });
-        console.log('');
-        console.log('  Status:');
         console.log(
-          '    Ready to implement — create your branch before starting',
+          chalk.yellow(
+            `⚠️ Created synthetic execution context for custom plan ${path.basename(resolvedPlanPath)}. Branch naming will use artifact stem "${customExecutionContext.customBranchSlug}".`,
+          ),
         );
-        console.log('');
+
+        const planArtifact: PlanArtifact = {
+          plan,
+          action: plan.action,
+          path: resolvedPlanPath,
+        };
+        await this.orchestrator.implementer.execute(
+          customExecutionContext.ticketArtifact,
+          planArtifact,
+          {
+            platformName,
+            repoDir,
+            customBranchSlug: customExecutionContext.customBranchSlug,
+          },
+        );
         return;
       }
 
@@ -639,5 +660,113 @@ Return ONLY a valid JSON object:
     }
 
     return path.resolve(baseDir, identifier);
+  }
+
+  /**
+   * Build a synthetic ticket-like context so custom plans can reuse the
+   * standard implementer flow without a backing ticket artifact.
+   *
+   * @param planPath - Absolute custom plan artifact path
+   * @param plan - Parsed custom plan
+   * @returns Synthetic execution context for the implementer
+   */
+  private buildSyntheticCustomExecutionContext(
+    planPath: string,
+    plan: ResolutionPlan,
+  ): SyntheticCustomExecutionContext {
+    const artifactName = path.basename(planPath, path.extname(planPath));
+    const customBranchSlug = artifactName.replace(
+      new RegExp(`-${plan.action}$`),
+      '',
+    );
+    const ticketKey = customBranchSlug || artifactName;
+    const ticketContent = [
+      `# ${ticketKey}: ${plan.summary || 'Custom implementation'}`,
+      '',
+      `**Plan Artifact:** ${path.basename(planPath)}`,
+      `**Action:** ${plan.action}`,
+      '',
+      '## Summary',
+      '',
+      plan.summary ||
+        'Custom plan execution context synthesized from artifact.',
+      '',
+      '## Steps',
+      '',
+      ...(plan.steps.length > 0
+        ? plan.steps.map((step, index) => `${index + 1}. ${step}`)
+        : ['1. Follow the custom implementation plan']),
+      '',
+      '## Files Affected',
+      '',
+      ...((plan.filesAffected ?? []).length > 0
+        ? (plan.filesAffected ?? []).map((filePath) => `- ${filePath}`)
+        : ['- (none listed)']),
+      '',
+      '## Risks',
+      '',
+      ...((plan.risks ?? []).length > 0
+        ? (plan.risks ?? []).map((risk) => `- ${risk}`)
+        : ['- Synthetic execution context derived from custom plan artifact']),
+    ].join('\n');
+
+    return {
+      ticketArtifact: {
+        ticketKey,
+        content: ticketContent,
+        path: planPath,
+      },
+      customBranchSlug: ticketKey,
+    };
+  }
+
+  /**
+   * Resolve repo-local file targets for custom dry-run previews.
+   *
+   * @param plan - Parsed plan artifact
+   * @param repoDir - Repository directory selected for execution
+   * @returns Absolute file paths the implementer would target
+   */
+  private resolveDryRunTrackedFiles(
+    plan: ResolutionPlan,
+    repoDir: string,
+  ): string[] {
+    const repoName = path.basename(repoDir);
+    const files = plan.filesAffected ?? [];
+
+    return files.map((filePath) => {
+      const relativePath = filePath.startsWith(`${repoName}/`)
+        ? filePath.slice(repoName.length + 1)
+        : filePath;
+      return path.join(repoDir, relativePath);
+    });
+  }
+
+  /**
+   * Format the branch name used by custom plan execution and dry-run previews.
+   *
+   * @param action - Plan action used to determine branch prefix
+   * @param customBranchSlug - Artifact-derived branch slug
+   * @returns Branch name shown to the user
+   */
+  private formatCustomBranchName(
+    action: ResolutionAction,
+    customBranchSlug: string,
+  ): string {
+    const configuredPrefixMapping = this.configService.get<
+      Record<string, string> | undefined
+    >('branching.prefixMapping');
+    const prefixMapping =
+      configuredPrefixMapping &&
+      typeof configuredPrefixMapping === 'object' &&
+      !Array.isArray(configuredPrefixMapping)
+        ? configuredPrefixMapping
+        : {
+            feature: 'feature',
+            fix: 'bugfix',
+            investigate: 'chore',
+          };
+
+    return `${prefixMapping[action] || 'feature'}/${customBranchSlug}`;
   }
 }

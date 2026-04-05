@@ -84,6 +84,7 @@ async function buildCommand(): Promise<IssueImplementCommand> {
           previewApiCall: jest.fn(),
           previewFileRead: jest.fn(),
           previewFileWrite: jest.fn(),
+          previewGitOperation: jest.fn(),
         },
       },
       {
@@ -339,6 +340,120 @@ describe('IssueImplementCommand', () => {
         }),
       );
     });
+
+    it('calls the implementer for a custom fix plan using a synthetic execution context', async () => {
+      const command = await buildCommand();
+      const consoleWarnSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((input: string) =>
+          String(input).endsWith(
+            path.join('.wf', 'repo-a', 'dark-building-creek-fix.json'),
+          ),
+        );
+      jest.spyOn(require('fs'), 'readFileSync').mockReturnValue(
+        JSON.stringify({
+          action: 'fix',
+          summary: 'Repair the failing custom workflow',
+          steps: ['Update the implement command'],
+          filesAffected: ['repo-a/src/commands/issue-implement.command.ts'],
+          repositoriesAffected: ['repo-a'],
+        }),
+      );
+
+      await command.run(['dark-building-creek-fix.json'], {
+        repos: ['repo-a'],
+      });
+
+      const mockOrchestrator = (command as any)
+        .orchestrator as jest.Mocked<AgentOrchestrator>;
+      expect(mockOrchestrator.implementer.execute).toHaveBeenCalledTimes(1);
+      expect(mockOrchestrator.implementer.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ticketKey: 'dark-building-creek',
+          path: path.join(
+            os.homedir(),
+            '.wf',
+            'repo-a',
+            'dark-building-creek-fix.json',
+          ),
+          content: expect.stringContaining('# dark-building-creek:'),
+        }),
+        expect.objectContaining({
+          action: 'fix',
+          path: path.join(
+            os.homedir(),
+            '.wf',
+            'repo-a',
+            'dark-building-creek-fix.json',
+          ),
+        }),
+        expect.objectContaining({
+          platformName: 'jira',
+          repoDir: '/tmp/consumer-app/repo-a',
+          customBranchSlug: 'dark-building-creek',
+        }),
+      );
+      expect(
+        consoleWarnSpy.mock.calls.some((call) =>
+          String(call[0]).includes(
+            'synthetic execution context for custom plan',
+          ),
+        ),
+      ).toBe(true);
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('previews branch and file work for a custom feature dry-run', async () => {
+      const command = await buildCommand();
+      const dryRunPreview = (command as any)
+        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((input: string) =>
+          String(input).endsWith(
+            path.join('.wf', 'repo-a', 'dark-building-creek-feature.json'),
+          ),
+        );
+      jest
+        .spyOn(require('fs'), 'statSync')
+        .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
+      jest.spyOn(require('fs'), 'readFileSync').mockReturnValue(
+        JSON.stringify({
+          action: 'feature',
+          summary: 'Implement the custom workflow',
+          steps: ['Update the implement command'],
+          filesAffected: ['repo-a/src/commands/issue-implement.command.ts'],
+          repositoriesAffected: ['repo-a'],
+        }),
+      );
+
+      await command.run(['dark-building-creek-feature.json'], {
+        repos: ['repo-a'],
+        dryRun: true,
+      });
+
+      expect(dryRunPreview.previewFileWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePath:
+            '/tmp/consumer-app/repo-a/src/commands/issue-implement.command.ts',
+          operation: 'create',
+        }),
+      );
+      expect(dryRunPreview.showSummary).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gitOperationCount: 1,
+          fileCreatedCount: 1,
+          terminalOutputLines: expect.arrayContaining([
+            expect.stringContaining('Synthetic execution context'),
+            expect.stringContaining('Branch: feature/dark-building-creek'),
+          ]),
+        }),
+      );
+    });
   });
 
   describe('standard plan format support', () => {
@@ -379,6 +494,7 @@ describe('IssueImplementCommand', () => {
               previewApiCall: jest.fn(),
               previewFileRead: jest.fn(),
               previewFileWrite: jest.fn(),
+              previewGitOperation: jest.fn(),
             },
           },
           { provide: AgentOrchestrator, useValue: mockOrchestrator },
@@ -510,6 +626,7 @@ describe('IssueImplementCommand', () => {
               previewApiCall: jest.fn(),
               previewFileRead: jest.fn(),
               previewFileWrite: jest.fn(),
+              previewGitOperation: jest.fn(),
             },
           },
           { provide: AgentOrchestrator, useValue: mockOrchestrator },
