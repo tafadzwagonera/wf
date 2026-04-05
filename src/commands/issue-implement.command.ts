@@ -645,10 +645,16 @@ Return ONLY a valid JSON object:
    */
   private resolveCustomPlanPath(identifier: string, baseDir: string): string {
     const extension = path.extname(identifier).slice(1).toLowerCase();
-    if (!SUPPORTED_PLAN_EXTENSIONS.includes(extension as any)) {
+    const supportedExtension =
+      extension as (typeof SUPPORTED_PLAN_EXTENSIONS)[number];
+    if (extension && !SUPPORTED_PLAN_EXTENSIONS.includes(supportedExtension)) {
       throw new Error(
         'Custom plan artifacts must include a supported file extension: .json, .md, .yaml, or .yml',
       );
+    }
+
+    if (!extension) {
+      return this.resolveCustomPlanStem(identifier, baseDir);
     }
 
     if (path.isAbsolute(identifier)) {
@@ -660,6 +666,43 @@ Return ONLY a valid JSON object:
     }
 
     return path.resolve(baseDir, identifier);
+  }
+
+  /**
+   * Resolve a custom plan artifact stem by scanning supported extensions.
+   *
+   * @param identifier - Raw CLI positional argument without extension
+   * @param baseDir - Repo-aware base directory
+   * @returns Absolute path to the uniquely matched artifact
+   */
+  private resolveCustomPlanStem(identifier: string, baseDir: string): string {
+    const basePath = path.isAbsolute(identifier)
+      ? identifier
+      : path.dirname(identifier) === '.'
+        ? path.join(resolveCustomArtifactDir(baseDir), identifier)
+        : path.resolve(baseDir, identifier);
+    const candidatePaths = SUPPORTED_PLAN_EXTENSIONS.map(
+      (candidateExtension) => `${basePath}.${candidateExtension}`,
+    );
+    const matches = candidatePaths.filter((candidatePath) =>
+      fs.existsSync(candidatePath),
+    );
+
+    if (matches.length === 1) {
+      return matches[0];
+    }
+
+    if (matches.length > 1) {
+      throw new Error(
+        `Multiple custom plan artifacts found for ${identifier}: ${matches
+          .map((candidatePath) => path.basename(candidatePath))
+          .join(', ')}. Use the explicit filename including extension.`,
+      );
+    }
+
+    throw new Error(
+      `Custom plan artifact not found for ${identifier}. Checked: ${candidatePaths.join(', ')}`,
+    );
   }
 
   /**

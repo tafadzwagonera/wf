@@ -134,7 +134,7 @@ describe('IssueImplementCommand', () => {
   });
 
   describe('custom plan identifier validation', () => {
-    it('requires a file extension for non-ticket identifiers', async () => {
+    it('rejects unsupported file extensions for non-ticket identifiers', async () => {
       const command = await buildCommand();
       const exitSpy = jest
         .spyOn(process, 'exit')
@@ -143,15 +143,58 @@ describe('IssueImplementCommand', () => {
         .spyOn(console, 'error')
         .mockImplementation(() => {});
 
-      await command.run(['merry-tinkering-pine-feature'], { dryRun: true });
+      await command.run(['merry-tinkering-pine-feature.txt'], {
+        dryRun: true,
+      });
 
       expect(exitSpy).toHaveBeenCalledWith(1);
       expect(
         consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
-      ).toContain('extension');
+      ).toContain('supported file extension');
 
       exitSpy.mockRestore();
       consoleErrorSpy.mockRestore();
+    });
+
+    it('resolves a custom plan stem by finding the matching supported artifact', async () => {
+      const command = await buildCommand();
+      const dryRunPreview = (command as any)
+        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((input: string) =>
+          String(input).endsWith(
+            path.join('.wf', 'repo-a', 'dark-building-creek-fix.json'),
+          ),
+        );
+      jest
+        .spyOn(require('fs'), 'statSync')
+        .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
+      jest.spyOn(require('fs'), 'readFileSync').mockReturnValue(
+        JSON.stringify({
+          action: 'fix',
+          summary: 'Repair the custom implementation path',
+          steps: ['Route custom plans to the shared implementer'],
+          filesAffected: ['repo-a/src/commands/issue-implement.command.ts'],
+          repositoriesAffected: ['repo-a'],
+        }),
+      );
+
+      await command.run(['dark-building-creek-fix'], {
+        repos: ['repo-a'],
+        dryRun: true,
+      });
+
+      expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePath: path.join(
+            os.homedir(),
+            '.wf',
+            'repo-a',
+            'dark-building-creek-fix.json',
+          ),
+        }),
+      );
     });
   });
 
