@@ -7,7 +7,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
-import { resolveRepoBasePath } from '../agents/utils';
+import { resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
@@ -173,8 +173,12 @@ export class IssueReviewCommand extends CommandRunner {
 
         let fileCreatedCount = 0;
         if (options?.output) {
+          const outputPath = this.resolveOutputPath(
+            options.output,
+            repoDirs[0] ?? process.cwd(),
+          );
           this.dryRunPreview.previewFileWrite({
-            filePath: path.resolve(options.output),
+            filePath: outputPath,
             operation: 'create',
             sizeEstimate: '2–5 KB',
             format: options?.format || 'text',
@@ -294,7 +298,10 @@ export class IssueReviewCommand extends CommandRunner {
 
       // Save to file if requested
       if (options?.output) {
-        const outputPath = path.resolve(options.output);
+        const outputPath = this.resolveOutputPath(
+          options.output,
+          repoDirs[0] ?? process.cwd(),
+        );
         const reviewText = this.formatReviewAsText(review, context);
         fs.writeFileSync(outputPath, reviewText);
         console.log(chalk.green(`\n✓ Review saved to: ${outputPath}\n`));
@@ -623,5 +630,28 @@ export class IssueReviewCommand extends CommandRunner {
     text += `APPROVAL: ${review.approved ? 'APPROVED' : 'NOT APPROVED'}\n`;
 
     return text;
+  }
+
+  /**
+   * Resolve the review output path.
+   *
+   * Filename-only outputs are treated as repo-scoped custom artifacts under
+   * `~/.wf/<repo>/`, while absolute paths and explicit relative paths keep
+   * their filesystem semantics.
+   *
+   * @param output - Raw `--output` CLI value
+   * @param baseDir - Repo-aware base directory
+   * @returns Absolute output path
+   */
+  private resolveOutputPath(output: string, baseDir: string): string {
+    if (path.isAbsolute(output)) {
+      return output;
+    }
+
+    if (path.dirname(output) === '.') {
+      return path.join(resolveCustomArtifactDir(baseDir), output);
+    }
+
+    return path.resolve(output);
   }
 }

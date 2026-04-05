@@ -305,7 +305,7 @@ describe('IssueImplementCommand', () => {
   });
 
   describe('custom plan mode', () => {
-    it('resolves a custom filename from the repo artifact namespace in dry-run mode', async () => {
+    it('resolves a custom filename from the repo custom namespace in dry-run mode', async () => {
       const command = await buildCommand();
       const dryRunPreview = (command as any)
         .dryRunPreview as jest.Mocked<DryRunPreviewService>;
@@ -313,12 +313,7 @@ describe('IssueImplementCommand', () => {
         .spyOn(require('fs'), 'existsSync')
         .mockImplementation((input: string) =>
           String(input).endsWith(
-            path.join(
-              '.wf',
-              'repo-a',
-              'jira',
-              'merry-tinkering-pine-feature.json',
-            ),
+            path.join('.wf', 'repo-a', 'merry-tinkering-pine-feature.json'),
           ),
         );
       jest
@@ -339,7 +334,6 @@ describe('IssueImplementCommand', () => {
             os.homedir(),
             '.wf',
             'repo-a',
-            'jira',
             'merry-tinkering-pine-feature.json',
           ),
         }),

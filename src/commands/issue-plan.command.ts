@@ -8,7 +8,11 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { getPlanArtifactExtension } from '../shared/utils/plan-artifact';
-import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import {
+  resolveArtifactDir,
+  resolveCustomArtifactDir,
+  resolveRepoBasePath,
+} from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import type { ResolutionAction } from '../agents/interfaces';
@@ -23,7 +27,7 @@ import chalk from 'chalk';
 const ISSUE_PLAN_EXAMPLES: CliExample[] = [
   {
     comment: 'Create a custom feature plan from a markdown artifact',
-    command: 'wf issue:plan --action feature --custom jira/bar.md',
+    command: 'wf issue:plan --action feature --custom bar.md',
   },
   {
     comment: 'Plan a fix for a ticket',
@@ -268,7 +272,7 @@ export class IssuePlanCommand extends CommandRunner {
 
       // ── CUSTOM MODE ──────────────────────────────────────────────────────
       if (options?.custom) {
-        const platformDir = resolveArtifactDir(artifactBaseDir, platformName);
+        const customArtifactDir = resolveCustomArtifactDir(artifactBaseDir);
         if (!options.custom.toLowerCase().endsWith('.md')) {
           console.error(
             chalk.red('Error: --custom only accepts Markdown (.md) sources'),
@@ -279,13 +283,14 @@ export class IssuePlanCommand extends CommandRunner {
 
         const customSourcePath = this.resolveCustomSourcePath(
           options.custom,
+          artifactBaseDir,
           options?.repos,
         );
         const planFilename = `${this.generateUniqueCustomPlanStem(
-          platformDir,
+          customArtifactDir,
           action,
         )}-${action}.${extension}`;
-        const planPath = path.join(platformDir, planFilename);
+        const planPath = path.join(customArtifactDir, planFilename);
 
         if (options.dryRun) {
           this.dryRunPreview.showHeader('issue:plan', `--custom (${action})`);
@@ -311,7 +316,7 @@ export class IssuePlanCommand extends CommandRunner {
             ].join('\n'),
           });
           this.dryRunPreview.previewFileWrite({
-            filePath: path.join(platformDir, planFilename),
+            filePath: path.join(customArtifactDir, planFilename),
             operation: 'create',
             sizeEstimate: '2–8 KB',
             format,
@@ -335,8 +340,8 @@ export class IssuePlanCommand extends CommandRunner {
 
         this.logger.info(`Generating custom ${action} plan from markdown...`);
 
-        if (!fs.existsSync(platformDir)) {
-          fs.mkdirSync(platformDir, { recursive: true });
+        if (!fs.existsSync(customArtifactDir)) {
+          fs.mkdirSync(customArtifactDir, { recursive: true });
         }
 
         const customSourceContent = fs.readFileSync(customSourcePath, 'utf-8');
@@ -638,10 +643,15 @@ export class IssuePlanCommand extends CommandRunner {
    * Resolve a custom markdown source using repo-aware local file rules.
    *
    * @param source - Raw `--custom` CLI value
+   * @param baseDir - Repo-aware base directory
    * @param repos - Optional repo list supplied via `--repos`
    * @returns Absolute or cwd-relative source path
    */
-  private resolveCustomSourcePath(source: string, repos?: string[]): string {
+  private resolveCustomSourcePath(
+    source: string,
+    baseDir: string,
+    repos?: string[],
+  ): string {
     if (path.isAbsolute(source)) {
       return source;
     }
@@ -661,6 +671,10 @@ export class IssuePlanCommand extends CommandRunner {
     const cwdCandidate = path.resolve(source);
     if (fs.existsSync(cwdCandidate)) {
       return cwdCandidate;
+    }
+
+    if (path.dirname(source) === '.') {
+      return path.join(resolveCustomArtifactDir(baseDir), source);
     }
 
     return path.resolve(artifactBasePathForSourceFallback(repos), source);

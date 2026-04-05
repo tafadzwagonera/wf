@@ -18,6 +18,15 @@ export const resolveArtifactDir = (
   path.join(getWfHomeDir(), path.basename(path.resolve(baseDir)), platformName);
 
 /**
+ * Resolve the repository-scoped artifact directory used for custom artifacts.
+ *
+ * @param baseDir - Base directory for artifact storage (repo path)
+ * @returns Absolute path to the custom artifact directory under `~/.wf/<app>/`
+ */
+export const resolveCustomArtifactDir = (baseDir: string): string =>
+  path.join(getWfHomeDir(), path.basename(path.resolve(baseDir)));
+
+/**
  * Extract the ticket summary from a markdown ticket file.
  * Matches headings of the form: "# TICKET-123: Summary text"
  *

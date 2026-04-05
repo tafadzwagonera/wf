@@ -30,9 +30,15 @@ jest.mock('chalk', () => {
   return { default: chalk, ...chalk };
 });
 
-jest.mock('../agents/utils', () => ({
-  resolveRepoBasePath: jest.fn().mockReturnValue('/mock/repo'),
-}));
+jest.mock('../agents/utils', () => {
+  const actual = jest.requireActual('../agents/utils');
+  return {
+    ...actual,
+    resolveRepoBasePath: jest.fn((repo?: string) =>
+      repo ? path.join('/mock', repo) : '/mock/repo',
+    ),
+  };
+});
 
 import { Test } from '@nestjs/testing';
 import { IssueReviewCommand } from './issue-review.command';
@@ -42,6 +48,8 @@ import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
+import * as os from 'os';
+import * as path from 'path';
 
 const mockTicket = { key: 'TAD-575', summary: 'Test ticket', description: '' };
 
@@ -57,7 +65,12 @@ async function buildCommand(overrides?: {
   const module = await Test.createTestingModule({
     providers: [
       IssueReviewCommand,
-      { provide: AiService, useValue: {} },
+      {
+        provide: AiService,
+        useValue: {
+          getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
+        },
+      },
       {
         provide: GitService,
         useValue: {
@@ -181,9 +194,69 @@ describe('IssueReviewCommand', () => {
       await command.run([], { repos: ['repo-a', 'repo-b'] });
 
       expect(reviewCurrentRepoSpy).toHaveBeenCalledTimes(2);
-      expect(reviewCurrentRepoSpy).toHaveBeenNthCalledWith(1, '/mock/repo');
-      expect(reviewCurrentRepoSpy).toHaveBeenNthCalledWith(2, '/mock/repo');
+      expect(reviewCurrentRepoSpy).toHaveBeenNthCalledWith(1, '/mock/repo-a');
+      expect(reviewCurrentRepoSpy).toHaveBeenNthCalledWith(2, '/mock/repo-b');
       expect(reviewStageService.reviewDiff).toHaveBeenCalled();
+    });
+  });
+
+  describe('--output path resolution', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('previews a filename-only output under the repo custom namespace in dry-run mode', async () => {
+      const { command } = await buildCommand();
+      const dryRunPreview = (command as any)
+        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+
+      await command.run([], {
+        repos: ['repo-a'],
+        output: 'review.md',
+        dryRun: true,
+      });
+
+      expect(dryRunPreview.previewFileWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePath: path.join(os.homedir(), '.wf', 'repo-a', 'review.md'),
+        }),
+      );
+    });
+
+    it('stores a filename-only output under the repo custom namespace', async () => {
+      const { command } = await buildCommand();
+      const reviewRepoSetSpy = jest
+        .spyOn(command as any, 'reviewRepoSet')
+        .mockResolvedValue('diff content');
+      const writeFileSyncSpy = jest
+        .spyOn(require('fs'), 'writeFileSync')
+        .mockImplementation(() => {});
+
+      await command.run([], { repos: ['repo-a'], output: 'review.md' });
+
+      expect(reviewRepoSetSpy).toHaveBeenCalled();
+      expect(writeFileSyncSpy).toHaveBeenCalledWith(
+        path.join(os.homedir(), '.wf', 'repo-a', 'review.md'),
+        expect.any(String),
+      );
+    });
+
+    it('keeps explicit relative output paths in the filesystem namespace', async () => {
+      const { command } = await buildCommand();
+      const reviewRepoSetSpy = jest
+        .spyOn(command as any, 'reviewRepoSet')
+        .mockResolvedValue('diff content');
+      const writeFileSyncSpy = jest
+        .spyOn(require('fs'), 'writeFileSync')
+        .mockImplementation(() => {});
+
+      await command.run([], { repos: ['repo-a'], output: 'reports/review.md' });
+
+      expect(reviewRepoSetSpy).toHaveBeenCalled();
+      expect(writeFileSyncSpy).toHaveBeenCalledWith(
+        path.resolve('reports/review.md'),
+        expect.any(String),
+      );
     });
   });
 });

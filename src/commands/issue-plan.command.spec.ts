@@ -145,20 +145,48 @@ describe('IssuePlanCommand', () => {
     });
   });
 
-  it('stores custom-mode plans under the cwd namespace when --repos is absent', async () => {
+  it('stores custom-mode plans under the cwd custom namespace when --repos is absent', async () => {
     const { command } = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run([], {
       action: 'fix',
-      custom: 'jira/bar.md',
+      custom: 'bar.md',
       dryRun: true,
     });
 
-    const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
-    expect(path.dirname(preview.filePath)).toBe(
-      path.join(os.homedir(), '.wf', 'consumer-app', 'jira'),
+    const readPreview = dryRunPreview.previewFileRead.mock.calls[0][0];
+    const writePreview = dryRunPreview.previewFileWrite.mock.calls[0][0];
+
+    expect(readPreview.filePath).toBe(
+      path.join(os.homedir(), '.wf', 'consumer-app', 'bar.md'),
+    );
+    expect(path.dirname(writePreview.filePath)).toBe(
+      path.join(os.homedir(), '.wf', 'consumer-app'),
+    );
+  });
+
+  it('stores custom-mode plans under the targeted repo custom namespace when --repos is provided', async () => {
+    const { command } = await buildCommand();
+    const dryRunPreview = (command as any)
+      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+
+    await command.run([], {
+      action: 'fix',
+      custom: 'bar.md',
+      repos: ['repo-a'],
+      dryRun: true,
+    });
+
+    const readPreview = dryRunPreview.previewFileRead.mock.calls[0][0];
+    const writePreview = dryRunPreview.previewFileWrite.mock.calls[0][0];
+
+    expect(readPreview.filePath).toBe(
+      path.join(os.homedir(), '.wf', 'repo-a', 'bar.md'),
+    );
+    expect(path.dirname(writePreview.filePath)).toBe(
+      path.join(os.homedir(), '.wf', 'repo-a'),
     );
   });
 
@@ -173,7 +201,7 @@ describe('IssuePlanCommand', () => {
 
     await command.run(['WBP-1'], {
       action: 'feature',
-      custom: 'jira/bar.md',
+      custom: 'bar.md',
     } as any);
 
     expect(exitSpy).toHaveBeenCalledWith(1);

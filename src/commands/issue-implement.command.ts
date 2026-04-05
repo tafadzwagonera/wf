@@ -11,7 +11,11 @@ import {
   parsePlanArtifact,
   SUPPORTED_PLAN_EXTENSIONS,
 } from '../shared/utils/plan-artifact';
-import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import {
+  resolveArtifactDir,
+  resolveCustomArtifactDir,
+  resolveRepoBasePath,
+} from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import type {
   ResolutionAction,
@@ -176,7 +180,7 @@ export class IssueImplementCommand extends CommandRunner {
       const ticketKey = isTicketKey(identifier) ? identifier : undefined;
       const resolvedPlanPath = ticketKey
         ? undefined
-        : this.resolveCustomPlanPath(identifier, baseDir, platformName);
+        : this.resolveCustomPlanPath(identifier, baseDir);
 
       // ── CUSTOM PLAN MODE ────────────────────────────────────────────────
       if (!ticketKey && resolvedPlanPath) {
@@ -612,18 +616,13 @@ Return ONLY a valid JSON object:
   }
 
   /**
-   * Resolve a custom plan artifact filename using the active artifact namespace.
+   * Resolve a custom plan artifact filename using the active custom namespace.
    *
    * @param identifier - Raw CLI positional argument
    * @param baseDir - Repo-aware base directory
-   * @param platformName - Active platform namespace
    * @returns Resolved plan artifact path
    */
-  private resolveCustomPlanPath(
-    identifier: string,
-    baseDir: string,
-    platformName: string,
-  ): string {
+  private resolveCustomPlanPath(identifier: string, baseDir: string): string {
     const extension = path.extname(identifier).slice(1).toLowerCase();
     if (!SUPPORTED_PLAN_EXTENSIONS.includes(extension as any)) {
       throw new Error(
@@ -636,7 +635,7 @@ Return ONLY a valid JSON object:
     }
 
     if (path.dirname(identifier) === '.') {
-      return path.join(resolveArtifactDir(baseDir, platformName), identifier);
+      return path.join(resolveCustomArtifactDir(baseDir), identifier);
     }
 
     return path.resolve(baseDir, identifier);
