@@ -182,5 +182,39 @@ describe('AiService', () => {
         ],
       });
     });
+
+    it('uses the affected repository names in the plan prompt and forbids raw failing verification commands', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Resolve criteria path handling',
+          steps: ['Add failing test', 'Implement resolver'],
+          estimatedComplexity: 'medium',
+          filesAffected: ['repo-a/src/commands/issue-review.command.ts'],
+          repositoriesAffected: ['repo-a'],
+        }),
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generatePlan('fix', '# WBP-123: Fix criteria resolution', {
+        affectedRepositories: ['repo-a'],
+      });
+
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            '"filesAffected": ["repo-a/src/path/to/file.ts", ...]',
+          ),
+        }),
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'If you need to prove an expected failure, wrap it in a shell assertion that exits 0 when the expected failure occurs.',
+          ),
+        }),
+      );
+    });
   });
 });

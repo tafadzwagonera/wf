@@ -51,6 +51,18 @@ interface IssuePlanOptions {
   dryRun?: boolean;
 }
 
+interface RepoAwarePlan {
+  filesAffected?: string[];
+  repositoriesAffected?: string[];
+  verification?: {
+    targeted?: Array<{
+      id?: string;
+      run?: string;
+      reason?: string;
+    }>;
+  };
+}
+
 const ADJECTIVES = [
   'bold',
   'calm',
@@ -122,6 +134,38 @@ const generateMnemonic = (): string => {
   const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
   return `${pick(ADJECTIVES)}-${pick(VERBS)}-${pick(NOUNS)}`;
 };
+
+/**
+ * Build a formatted plan validation error.
+ *
+ * @param message - Validation failure detail
+ * @returns Error with consistent command-facing wording
+ */
+const createPlanValidationError = (message: string): Error =>
+  new Error(`Generated plan is invalid: ${message}`);
+
+/**
+ * Detect whether a verification reason describes an expected failure case.
+ *
+ * @param value - Free-form verification reason or identifier text
+ * @returns True when the text describes an expected failing command
+ */
+const describesExpectedFailure = (value?: string): boolean =>
+  /expected failure|expect(?:ed)? .*fail|should fail|must fail|non-markdown|reject(?:ed|ion)?|invalid input|exit code 1/i.test(
+    value ?? '',
+  );
+
+/**
+ * Detect whether a verification command contains an assertion wrapper that can
+ * turn an expected failure into an overall success exit code.
+ *
+ * @param command - Verification command text
+ * @returns True when the command appears to assert on failure conditions
+ */
+const usesAssertionWrapper = (command?: string): boolean =>
+  /(?:^|[ (])!|(?:\|\|)|(?:&&)|\bif\b|\bthen\b|\belse\b|\bfi\b|\bexit\s+0\b|\btest\b|\$\?|\bsh\s+-c\b|\bbash\s+-c\b|\bzsh\s+-c\b/.test(
+    command ?? '',
+  );
 
 @Injectable()
 @Command({
@@ -352,6 +396,10 @@ export class IssuePlanCommand extends CommandRunner {
             affectedRepositories: options?.repos,
           },
         );
+        this.validateGeneratedPlan(
+          plan,
+          this.resolveExpectedRepositories(artifactBaseDir, options?.repos),
+        );
 
         let planContent: string;
         if (format === 'json') {
@@ -516,7 +564,12 @@ export class IssuePlanCommand extends CommandRunner {
       const plan = await this.planStageService.generatePlan(ticketContent, {
         action,
         ticketKey,
+        affectedRepositories: options?.repos,
       });
+      this.validateGeneratedPlan(
+        plan,
+        this.resolveExpectedRepositories(artifactBaseDir, options?.repos),
+      );
 
       // Save plan to file
 
@@ -707,6 +760,95 @@ export class IssuePlanCommand extends CommandRunner {
     }
 
     return path.resolve(artifactBasePathForSourceFallback(repos), source);
+  }
+
+  /**
+   * Resolve the set of repository names that are valid for the current plan.
+   *
+   * @param baseDir - Repo-aware base directory
+   * @param repos - Optional repos argument from the CLI
+   * @returns Normalized repository names accepted in plan metadata
+   */
+  private resolveExpectedRepositories(
+    baseDir: string,
+    repos?: string[],
+  ): string[] {
+    const normalizedRepos = (repos ?? [])
+      .map((repo) => path.basename(resolveRepoBasePath(repo)))
+      .filter(Boolean);
+
+    if (normalizedRepos.length > 0) {
+      return [...new Set(normalizedRepos)];
+    }
+
+    return [path.basename(path.resolve(baseDir))];
+  }
+
+  /**
+   * Validate generated plan metadata before persisting it to disk.
+   *
+   * @param plan - Generated plan content
+   * @param expectedRepositories - Repository names allowed for this plan
+   * @returns Nothing; throws when the plan metadata is incompatible
+   */
+  private validateGeneratedPlan(
+    plan: RepoAwarePlan,
+    expectedRepositories: string[],
+  ): void {
+    const repositoriesAffected = plan.repositoriesAffected ?? [];
+    const filesAffected = plan.filesAffected ?? [];
+
+    if (repositoriesAffected.some((repository) => repository === 'repo-name')) {
+      throw createPlanValidationError(
+        'placeholder repository metadata found in repositoriesAffected.',
+      );
+    }
+
+    if (filesAffected.some((filePath) => filePath.startsWith('repo-name/'))) {
+      throw createPlanValidationError(
+        'placeholder repository metadata found in filesAffected.',
+      );
+    }
+
+    if (expectedRepositories.length > 0 && repositoriesAffected.length === 0) {
+      throw createPlanValidationError(
+        `repositoriesAffected must be present and limited to: ${expectedRepositories.join(', ')}.`,
+      );
+    }
+
+    const unexpectedRepositories = repositoriesAffected.filter(
+      (repository) => !expectedRepositories.includes(repository),
+    );
+    if (unexpectedRepositories.length > 0) {
+      throw createPlanValidationError(
+        `repositoriesAffected contains out-of-scope repositories: ${unexpectedRepositories.join(', ')}.`,
+      );
+    }
+
+    const invalidFiles = filesAffected.filter((filePath) => {
+      const [prefix] = filePath.split('/');
+      return !prefix || !repositoriesAffected.includes(prefix);
+    });
+    if (invalidFiles.length > 0) {
+      throw createPlanValidationError(
+        `filesAffected must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidFiles.join(', ')}.`,
+      );
+    }
+
+    const invalidVerificationCommand = plan.verification?.targeted?.find(
+      (check) => {
+        const reasonText = [check.reason, check.id].filter(Boolean).join(' ');
+        return (
+          describesExpectedFailure(reasonText) &&
+          !usesAssertionWrapper(check.run)
+        );
+      },
+    );
+    if (invalidVerificationCommand) {
+      throw createPlanValidationError(
+        `verification command "${invalidVerificationCommand.run}" must assert expected failure inside the command so it exits 0 on success.`,
+      );
+    }
   }
 }
 

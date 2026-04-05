@@ -18,6 +18,19 @@ const stripCodeFences = (content: string): string => {
   return match ? match[1] : content;
 };
 
+/**
+ * Normalize a repository hint for plan prompt examples.
+ *
+ * @param repositories - Optional affected repository list
+ * @returns First repository name or a generic fallback
+ */
+const resolvePlanPromptRepoExample = (repositories?: string[]): string => {
+  const firstRepository = repositories?.find(
+    (repository) => typeof repository === 'string' && repository.trim(),
+  );
+  return firstRepository?.trim() || 'current-repo';
+};
+
 export interface AIRequest {
   prompt: string;
   systemPrompt?: string;
@@ -130,6 +143,9 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     const repoHint = context?.affectedRepositories?.length
       ? `Affected repositories (hint): ${(context.affectedRepositories as string[]).join(', ')}\n\n`
       : '';
+    const repoExample = resolvePlanPromptRepoExample(
+      context?.affectedRepositories as string[] | undefined,
+    );
 
     const prompt = `
 Action: ${action}
@@ -152,6 +168,8 @@ ${repoHint}Create a detailed resolution plan with:
    - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
    - Omit "verification" entirely when no targeted checks or waivers are needed
    - Keep verification tool-agnostic and command-based, e.g. "npm run test:manual -- test-issue-review"
+   - Every verification command must exit 0 when it succeeds
+   - If you need to prove an expected failure, wrap it in a shell assertion that exits 0 when the expected failure occurs.
 
 Return ONLY a valid JSON object with these fields:
 {
@@ -159,8 +177,8 @@ Return ONLY a valid JSON object with these fields:
   "summary": "...",
   "steps": ["step 1", "step 2", ...],
   "estimatedComplexity": "low|medium|high",
-  "filesAffected": ["repo-name/src/path/to/file.ts", ...],
-  "repositoriesAffected": ["repo-name", ...],
+  "filesAffected": ["${repoExample}/src/path/to/file.ts", ...],
+  "repositoriesAffected": ["${repoExample}", ...],
   "risks": ["risk 1", ...],
   "verification": {
     "targeted": [

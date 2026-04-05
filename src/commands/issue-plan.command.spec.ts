@@ -297,7 +297,8 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['src/auth.ts'],
+      filesAffected: ['repo-a/src/auth.ts'],
+      repositoriesAffected: ['repo-a'],
       verification: {
         targeted: [
           {
@@ -325,11 +326,101 @@ describe('IssuePlanCommand', () => {
       {
         action: 'fix',
         ticketKey: 'WBP-1',
-        affectedRepositories: undefined,
+        affectedRepositories: ['repo-a'],
       },
     );
     expect(writeFileSpy).toHaveBeenCalled();
     expect(String(writeFileSpy.mock.calls[0][1])).toContain('"verification"');
+  });
+
+  it('rejects a generated ticket-mode plan with placeholder repository metadata', async () => {
+    const { command, fetchStageService, planStageService } =
+      await buildCommand();
+    const consoleErrorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    const exitSpy = jest
+      .spyOn(process, 'exit')
+      .mockImplementation((() => {}) as any);
+
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['repo-name/src/auth.ts'],
+      repositoriesAffected: ['repo-name'],
+    } as any);
+
+    const writeFileSpy = jest
+      .spyOn(require('fs').promises, 'writeFile')
+      .mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(
+      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
+    ).toContain('placeholder repository metadata');
+
+    consoleErrorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('rejects a generated ticket-mode plan with a non-asserted failing verification command', async () => {
+    const { command, fetchStageService, planStageService } =
+      await buildCommand();
+    const consoleErrorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    const exitSpy = jest
+      .spyOn(process, 'exit')
+      .mockImplementation((() => {}) as any);
+
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['repo-a/src/auth.ts'],
+      repositoriesAffected: ['repo-a'],
+      verification: {
+        targeted: [
+          {
+            id: 'criteria-txt-rejected',
+            run: 'yarn start issue:review --criteria criteria.txt',
+            policy: 'enforced',
+            reason: 'Expect command to fail for non-Markdown criteria',
+          },
+        ],
+      },
+    } as any);
+
+    const writeFileSpy = jest
+      .spyOn(require('fs').promises, 'writeFile')
+      .mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(
+      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
+    ).toContain('must assert expected failure inside the command');
+
+    consoleErrorSpy.mockRestore();
+    exitSpy.mockRestore();
   });
 
   it('deletes sibling standard plans before writing a new ticket plan', async () => {
@@ -350,7 +441,8 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['src/auth.ts'],
+      filesAffected: ['repo-a/src/auth.ts'],
+      repositoriesAffected: ['repo-a'],
     } as any);
 
     jest
