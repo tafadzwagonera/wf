@@ -48,6 +48,7 @@ import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
+import { ErrorHandler } from '../shared/utils/error-handler';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -265,44 +266,96 @@ describe('IssueReviewCommand', () => {
       jest.restoreAllMocks();
     });
 
-    it('rejects --criteria paths that are not markdown files', async () => {
-      const { command } = await buildCommand();
-      const exitSpy = jest
-        .spyOn(process, 'exit')
-        .mockImplementation((() => {}) as any);
-      const consoleErrorSpy = jest
-        .spyOn(console, 'error')
-        .mockImplementation(() => {});
-      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+    describe('--criteria', () => {
+      it('rejects non-markdown paths through the command error handler', async () => {
+        const { command } = await buildCommand();
+        const handleSpy = jest
+          .spyOn(ErrorHandler, 'handle')
+          .mockImplementation(() => {});
+        const readFileSyncSpy = jest.spyOn(require('fs'), 'readFileSync');
+        jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
 
-      await command.run([], { criteria: 'criteria.txt' });
+        await command.run([], { criteria: 'criteria.txt' });
 
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      expect(
-        consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
-      ).toContain(
-        'Criteria source must be a Markdown file (.md): criteria.txt',
-      );
+        expect(readFileSyncSpy).not.toHaveBeenCalled();
+        expect(handleSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            message:
+              'Criteria file must be a Markdown (.md) file: criteria.txt',
+          }),
+        );
+      });
+
+      it('accepts markdown paths', async () => {
+        const { command, reviewStageService } = await buildCommand();
+        jest
+          .spyOn(command as never, 'reviewRepoSet')
+          .mockResolvedValue('diff content');
+        const readFileSyncSpy = jest
+          .spyOn(require('fs'), 'readFileSync')
+          .mockReturnValue('- custom criterion');
+        jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+
+        await command.run([], { criteria: 'criteria.md' });
+
+        expect(readFileSyncSpy).toHaveBeenCalledWith(
+          expect.stringContaining('criteria.md'),
+          'utf-8',
+        );
+        expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            extraCriteria: ['custom criterion'],
+            replaceCriteria: false,
+          }),
+        );
+      });
     });
 
-    it('rejects --replace-criteria paths that are not markdown files', async () => {
-      const { command } = await buildCommand();
-      const exitSpy = jest
-        .spyOn(process, 'exit')
-        .mockImplementation((() => {}) as any);
-      const consoleErrorSpy = jest
-        .spyOn(console, 'error')
-        .mockImplementation(() => {});
-      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+    describe('--replace-criteria', () => {
+      it('rejects non-markdown paths through the command error handler', async () => {
+        const { command } = await buildCommand();
+        const handleSpy = jest
+          .spyOn(ErrorHandler, 'handle')
+          .mockImplementation(() => {});
+        const readFileSyncSpy = jest.spyOn(require('fs'), 'readFileSync');
+        jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
 
-      await command.run([], { replaceCriteria: 'criteria.txt' });
+        await command.run([], { replaceCriteria: 'criteria.txt' });
 
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      expect(
-        consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
-      ).toContain(
-        'Criteria source must be a Markdown file (.md): criteria.txt',
-      );
+        expect(readFileSyncSpy).not.toHaveBeenCalled();
+        expect(handleSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            message:
+              'Criteria file must be a Markdown (.md) file: criteria.txt',
+          }),
+        );
+      });
+
+      it('accepts markdown paths and preserves replace semantics', async () => {
+        const { command, reviewStageService } = await buildCommand();
+        jest
+          .spyOn(command as never, 'reviewRepoSet')
+          .mockResolvedValue('diff content');
+        const readFileSyncSpy = jest
+          .spyOn(require('fs'), 'readFileSync')
+          .mockReturnValue('- replacement criterion');
+        jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+
+        await command.run([], { replaceCriteria: 'criteria.md' });
+
+        expect(readFileSyncSpy).toHaveBeenCalledWith(
+          expect.stringContaining('criteria.md'),
+          'utf-8',
+        );
+        expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            extraCriteria: ['replacement criterion'],
+            replaceCriteria: true,
+          }),
+        );
+      });
     });
   });
 });

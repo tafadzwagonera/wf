@@ -12,7 +12,7 @@ const moduleRequire = createRequire(__filename);
  *
  * @returns Resolves when the CLI command exits
  */
-async function bootstrap(): Promise<void> {
+export async function bootstrap(): Promise<void> {
   const argv = process.argv.slice(2);
   const shouldSkipConfigBootstrap = isHelpInvocation(argv);
 
@@ -28,8 +28,16 @@ async function bootstrap(): Promise<void> {
   await CommandFactory.run(AppModule, ['warn', 'error']);
 }
 
-bootstrap().catch((error: unknown) => {
+/**
+ * Exit the CLI with a non-zero status when bootstrap fails before command handlers run.
+ *
+ * @param error - The startup error that rejected bootstrap
+ * @returns Never returns because the process exits
+ */
+const handleBootstrapError = (error: unknown): never => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(message);
   process.exit(1);
-});
+};
+
+void bootstrap().catch(handleBootstrapError);

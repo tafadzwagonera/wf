@@ -45,14 +45,15 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
  */
 const loadCriteriaFromFile = (filePath: string): string[] => {
   const resolved = path.resolve(filePath);
+
   if (path.extname(resolved).toLowerCase() !== '.md') {
-    throw new Error(
-      `Criteria source must be a Markdown file (.md): ${filePath}`,
-    );
+    throw new Error(`Criteria file must be a Markdown (.md) file: ${filePath}`);
   }
+
   if (!fs.existsSync(resolved)) {
     throw new Error(`Criteria file not found: ${resolved}`);
   }
+
   return fs
     .readFileSync(resolved, 'utf-8')
     .split('\n')
