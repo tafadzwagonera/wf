@@ -1,11 +1,12 @@
 ## API Authentication
-Bitbucket/Jira use Basic Auth (`BITBUCKET_APP_PASSWORD`, `JIRA_API_TOKEN`). Check existing config files before trying other auth approaches.
+`wf.config.*` is the runtime source of truth for provider and platform credentials. Configure Atlassian access under `atlassian.jira.apiToken` and `atlassian.bitbucket.apiToken`, and check the active project config before troubleshooting fallback environment compatibility.
 
 ## Debugging CLI Commands
 When debugging `wf` commands, verify:
 1. `LOG_LEVEL` is valid
-2. The active provider's API key is set: `ANTHROPIC_API_KEY` (default), `GEMINI_API_KEY`, or `DEEPSEEK_API_KEY` — controlled by `AI_PROVIDER`; plus `BITBUCKET_APP_PASSWORD` and `JIRA_API_TOKEN`
-3. Command routing follows the NestJS pattern
+2. The active `wf.config.*` AI entry has the expected `provider`, `apiKey`, `model`, and `default` values, and the required Atlassian credentials are set on the same config file
+3. Anthropic prompt context comes from `CLAUDE.md` files loaded into prompts; it does not replace runtime provider configuration in `wf.config.*`
+4. Command routing follows the NestJS pattern
 
 Reference: `src/commands/issue-plan.command.ts`
 

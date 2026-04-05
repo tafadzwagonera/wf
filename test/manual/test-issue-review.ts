@@ -4,7 +4,9 @@
  * Run: nr test:manual -- test-issue-review
  *
  * Prerequisites:
- *   ANTHROPIC_API_KEY — required only for Test 11 (live AI call).
+ *   Configure a runnable AI provider in `wf.config.*` for Test 11
+ *   (live AI call). If the active review provider is not configured locally,
+ *   the script skips that case instead of failing the path-handling checks.
  *   All other tests use --dry-run or trigger throw paths; no external APIs called.
  *
  * Test 11 reviews a real non-git temp directory created inline by this script.
@@ -99,6 +101,9 @@ async function testIssueReview() {
   const pass = (msg: string) => {
     console.log(`✓ ${msg}\n`);
     passed++;
+  };
+  const skip = (msg: string) => {
+    console.log(`↷ ${msg}\n`);
   };
   const fail = (msg: string) => {
     console.error(`❌ ${msg}\n`);
@@ -247,21 +252,53 @@ async function testIssueReview() {
     else failed++;
 
     // Test 11: Live AI review of a non-git directory — tests the git-waiver fix.
-    // Requires ANTHROPIC_API_KEY. Expects the yellow warning + successful review.
+    // Requires a runnable AI provider through the active wf config. If the
+    // local setup lacks live credentials, skip instead of masking path regressions.
     console.log(
       'Test 11: Live AI review of non-git directory (tests git-waiver fix)',
     );
     console.log(`  Directory: ${nonGitDir}`);
-    try {
-      await command.run([nonGitDir], {});
-      pass('Live review of non-git directory completed successfully');
-    } catch (err: any) {
-      if (err.message.includes('Not a git repository')) {
-        fail(
-          `Test 11 REGRESSION: fix not applied — still throwing: ${err.message}`,
-        );
-      } else {
-        fail(`Test 11: ${err.message}`);
+    {
+      const originalExit = process.exit.bind(process);
+      const originalConsoleError = console.error.bind(console);
+      const errorMessages: string[] = [];
+      let exited = false;
+
+      process.exit = (code?: number | string) => {
+        exited = true;
+        throw new Error(`process.exit(${code ?? ''})`);
+      };
+      console.error = (...args: any[]) => {
+        errorMessages.push(args.join(' '));
+        originalConsoleError(...args);
+      };
+
+      try {
+        await command.run([nonGitDir], {});
+        pass('Live review of non-git directory completed successfully');
+      } catch (err: any) {
+        const combinedErrorOutput = errorMessages.join('\n');
+        if (
+          err.message.includes('Not a git repository') ||
+          combinedErrorOutput.includes('Not a git repository')
+        ) {
+          fail(
+            `Test 11 REGRESSION: fix not applied — still throwing: ${combinedErrorOutput || err.message}`,
+          );
+        } else if (
+          exited &&
+          (combinedErrorOutput.includes('client not initialized') ||
+            combinedErrorOutput.includes('API key not configured'))
+        ) {
+          skip(
+            'Test 11 skipped: active AI provider is not configured for live review in this local wf config',
+          );
+        } else {
+          fail(`Test 11: ${combinedErrorOutput || err.message}`);
+        }
+      } finally {
+        process.exit = originalExit;
+        console.error = originalConsoleError;
       }
     }
 

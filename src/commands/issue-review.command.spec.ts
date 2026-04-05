@@ -48,6 +48,7 @@ import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -57,6 +58,7 @@ async function buildCommand(overrides?: {
   findPullRequestByTicketKey?: jest.Mock;
 }): Promise<{
   command: IssueReviewCommand;
+  gitService: jest.Mocked<GitService>;
   reviewStageService: jest.Mocked<ReviewStageService>;
 }> {
   const findPullRequestByTicketKey =
@@ -125,6 +127,7 @@ async function buildCommand(overrides?: {
 
   return {
     command: module.get(IssueReviewCommand),
+    gitService: module.get(GitService),
     reviewStageService: module.get(ReviewStageService),
   };
 }
@@ -160,28 +163,19 @@ describe('IssueReviewCommand', () => {
   });
 
   describe('source validation and repo targeting', () => {
-    it('rejects filesystem paths as invalid sources', async () => {
+    it('accepts filesystem paths as valid dry-run sources', async () => {
       const { command } = await buildCommand();
-      const exitSpy = jest
-        .spyOn(process, 'exit')
-        .mockImplementation((() => {}) as any);
-      const consoleErrorSpy = jest
-        .spyOn(console, 'error')
-        .mockImplementation(() => {});
-      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+      const dryRunPreview = (command as any)
+        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-review-'));
 
-      await command.run(['../repo-path'], {});
+      try {
+        await command.run([repoDir], { dryRun: true });
 
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      const errorOutput = consoleErrorSpy.mock.calls
-        .map((c) => c.join(' '))
-        .join('\n');
-      expect(errorOutput).toContain(
-        'Expected: ticket key (ABC-123) or PR URL.',
-      );
-
-      exitSpy.mockRestore();
-      consoleErrorSpy.mockRestore();
+        expect(dryRunPreview.showValidationResult).toHaveBeenCalled();
+      } finally {
+        fs.rmSync(repoDir, { recursive: true, force: true });
+      }
     });
 
     it('reviews each resolved repo when --repos is provided without a source', async () => {
@@ -197,6 +191,30 @@ describe('IssueReviewCommand', () => {
       expect(reviewCurrentRepoSpy).toHaveBeenNthCalledWith(1, '/mock/repo-a');
       expect(reviewCurrentRepoSpy).toHaveBeenNthCalledWith(2, '/mock/repo-b');
       expect(reviewStageService.reviewDiff).toHaveBeenCalled();
+    });
+
+    it('reviews non-git directory sources by collecting file contents', async () => {
+      const { command, gitService, reviewStageService } = await buildCommand();
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-review-'));
+
+      fs.writeFileSync(
+        path.join(repoDir, 'index.ts'),
+        'export const greeting = "hello";\n',
+      );
+
+      try {
+        gitService.isGitRepository.mockResolvedValue(false);
+        await command.run([repoDir], {});
+
+        expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+          expect.stringContaining('export const greeting = "hello";'),
+          expect.objectContaining({
+            context: `repository at ${repoDir}`,
+          }),
+        );
+      } finally {
+        fs.rmSync(repoDir, { recursive: true, force: true });
+      }
     });
   });
 

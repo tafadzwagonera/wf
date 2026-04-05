@@ -54,6 +54,8 @@ Create one of these files in the consumer project root:
 
 When multiple files exist, `wf` uses this precedence order from top to bottom.
 
+`wf.config.*` is the source of truth for runtime project configuration. Environment variables remain useful for secret interpolation inside that file, but `.env` or dotenv-style bootstrapping is not the primary configuration model. Provider prompt context files such as `CLAUDE.md` are loaded as AI prompt inputs and do not replace the runtime `ai` config.
+
 ### JavaScript / TypeScript Example
 
 ```ts
@@ -173,6 +175,7 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 ### Defaults and Notes
 
 - Built-in defaults cover provider/model selection, branch prefixes, workflow directory, state/log directories, and log level.
+- Prefer defining runtime settings in `wf.config.*` and use `process.env` or `${VAR_NAME}` only as inputs to that config when you want secrets to stay outside version control.
 - `ai[].provider` selects the backing AI provider for each entry.
 - `ai[].default` is optional when only one provider is configured, and required when two or more providers are configured.
 - `ai[].maxTokens` is only applied to Gemini provider entries using Gemini models; other providers ignore it.
@@ -191,12 +194,14 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 
 - Go to: https://console.anthropic.com/settings/keys
 - Create a new API key
+- Set it in the active `wf.config.*` file, for example `ai: [{ provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY, default: true }]`
 
 **Jira API Token:**
 
 - Go to: https://id.atlassian.com/manage-profile/security/api-tokens
 - Create a new API token
 - Ensure your Jira user has necessary project permissions
+- Set it in `wf.config.*` as `atlassian.jira.apiToken`
 
 **BitBucket API Token** (for BitBucket platform support):
 
