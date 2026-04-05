@@ -45,6 +45,11 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
  */
 const loadCriteriaFromFile = (filePath: string): string[] => {
   const resolved = path.resolve(filePath);
+  if (path.extname(resolved).toLowerCase() !== '.md') {
+    throw new Error(
+      `Criteria source must be a Markdown file (.md): ${filePath}`,
+    );
+  }
   if (!fs.existsSync(resolved)) {
     throw new Error(`Criteria file not found: ${resolved}`);
   }
@@ -95,22 +100,19 @@ export class IssueReviewCommand extends CommandRunner {
       ? options.repos.map((repo) => resolveRepoBasePath(repo))
       : [process.cwd()];
 
-    // Early validation — throws directly so callers can catch without going
-    // through ErrorHandler.handle() → process.exit(1).
-    if (options?.criteria && options?.replaceCriteria) {
-      throw new Error(
-        'Cannot use --criteria and --replace-criteria together. Use one or the other.',
-      );
-    }
-
-    // Pre-load criteria file now to fail fast before any expensive API calls.
-    const extraCriteria: string[] | null = options?.replaceCriteria
-      ? loadCriteriaFromFile(options.replaceCriteria)
-      : options?.criteria
-        ? loadCriteriaFromFile(options.criteria)
-        : null;
-
     try {
+      if (options?.criteria && options?.replaceCriteria) {
+        throw new Error(
+          'Cannot use --criteria and --replace-criteria together. Use one or the other.',
+        );
+      }
+
+      const extraCriteria: string[] | null = options?.replaceCriteria
+        ? loadCriteriaFromFile(options.replaceCriteria)
+        : options?.criteria
+          ? loadCriteriaFromFile(options.criteria)
+          : null;
+
       if (options?.dryRun) {
         this.dryRunPreview.showHeader('issue:review', source || 'current repo');
 

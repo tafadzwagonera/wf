@@ -27,4 +27,9 @@ async function bootstrap(): Promise<void> {
   const { AppModule } = moduleRequire('./app.module');
   await CommandFactory.run(AppModule, ['warn', 'error']);
 }
-bootstrap();
+
+bootstrap().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message);
+  process.exit(1);
+});

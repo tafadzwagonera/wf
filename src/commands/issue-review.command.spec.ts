@@ -259,4 +259,50 @@ describe('IssueReviewCommand', () => {
       );
     });
   });
+
+  describe('criteria file validation', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('rejects --criteria paths that are not markdown files', async () => {
+      const { command } = await buildCommand();
+      const exitSpy = jest
+        .spyOn(process, 'exit')
+        .mockImplementation((() => {}) as any);
+      const consoleErrorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+
+      await command.run([], { criteria: 'criteria.txt' });
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(
+        consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
+      ).toContain(
+        'Criteria source must be a Markdown file (.md): criteria.txt',
+      );
+    });
+
+    it('rejects --replace-criteria paths that are not markdown files', async () => {
+      const { command } = await buildCommand();
+      const exitSpy = jest
+        .spyOn(process, 'exit')
+        .mockImplementation((() => {}) as any);
+      const consoleErrorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+
+      await command.run([], { replaceCriteria: 'criteria.txt' });
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(
+        consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
+      ).toContain(
+        'Criteria source must be a Markdown file (.md): criteria.txt',
+      );
+    });
+  });
 });
