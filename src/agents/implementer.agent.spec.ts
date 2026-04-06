@@ -649,5 +649,178 @@ describe('ImplementerAgent', () => {
 
       expect(aiService.generateFileChange).toHaveBeenCalledTimes(2);
     });
+
+    it('retries only the file implicated by verification diagnostics', async () => {
+      const mockFiles = new Map<string, string>([
+        [
+          '/tmp/repo-a/package.json',
+          JSON.stringify({
+            scripts: {
+              'format:write': 'prettier --write .',
+              'format:check': 'prettier --check .',
+              'lint:fix': 'eslint . --fix',
+              lint: 'eslint .',
+              build: 'tsc -p .',
+            },
+          }),
+        ],
+        [
+          '/tmp/repo-a/src/commands/issue-review.command.ts',
+          'export const message = "Criteria file must be a Markdown (.md) file";\n',
+        ],
+        [
+          '/tmp/repo-a/src/commands/issue-review.command.spec.ts',
+          'expect(message).toContain("Criteria source");\n',
+        ],
+      ]);
+
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((filePath: string) => mockFiles.has(filePath));
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockImplementation((filePath: string) => {
+          const content = mockFiles.get(filePath);
+          if (content === undefined) {
+            throw new Error(`Unexpected read: ${filePath}`);
+          }
+          return content;
+        });
+      jest
+        .spyOn(require('fs'), 'mkdirSync')
+        .mockImplementation(() => undefined as any);
+      jest
+        .spyOn(require('fs'), 'writeFileSync')
+        .mockImplementation((filePath: string, content: string) => {
+          mockFiles.set(filePath, content);
+        });
+
+      aiService.generateFileChange
+        .mockResolvedValueOnce(
+          'export const message = "Criteria file must be a Markdown (.md) file";\n',
+        )
+        .mockResolvedValueOnce(
+          'expect(message).toContain("Criteria file must be a Markdown (.md) file");\n',
+        )
+        .mockResolvedValueOnce(
+          'expect(message).toContain("Criteria file must be a Markdown (.md) file");\nexpect(message).not.toContain("Criteria source");\n',
+        );
+
+      jest
+        .spyOn(agent as any, 'runCommand')
+        .mockResolvedValueOnce({
+          command: 'npm run format:write',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:check',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint:fix',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run build',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command:
+            'yarn test src/commands/issue-review.command.spec.ts --runInBand',
+          exitCode: 1,
+          stdout: [
+            'FAIL src/commands/issue-review.command.spec.ts',
+            'Expected: ObjectContaining {"message": "Criteria file must be a Markdown (.md) file: criteria.txt"}',
+            'Received: [Error: Criteria source must be a Markdown file (.md): criteria.txt]',
+          ].join('\n'),
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:write',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:check',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint:fix',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run build',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command:
+            'yarn test src/commands/issue-review.command.spec.ts --runInBand',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          steps: ['Update command behavior', 'Update issue-review tests'],
+          filesAffected: [
+            'repo-a/src/commands/issue-review.command.ts',
+            'repo-a/src/commands/issue-review.command.spec.ts',
+          ],
+          verification: {
+            targeted: [
+              {
+                id: 'issue-review-command-spec',
+                run: 'yarn test src/commands/issue-review.command.spec.ts --runInBand',
+                policy: 'enforced',
+              },
+            ],
+          },
+        }),
+        {
+          platformName: 'jira',
+          repoDir: '/tmp/repo-a',
+        },
+      );
+
+      expect(aiService.generateFileChange).toHaveBeenCalledTimes(3);
+      expect(aiService.generateFileChange.mock.calls[2][0].filePath).toBe(
+        'src/commands/issue-review.command.spec.ts',
+      );
+      expect(
+        aiService.generateFileChange.mock.calls[2][0].conversationContext,
+      ).toContain('Treat verification diagnostics as evidence of a mismatch');
+      expect(
+        aiService.generateFileChange.mock.calls[2][0].conversationContext,
+      ).toContain('src/commands/issue-review.command.spec.ts');
+    });
   });
 });

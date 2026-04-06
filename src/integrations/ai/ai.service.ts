@@ -438,6 +438,7 @@ Self-review before returning:
 1. Completeness — did you implement every plan step that touches this file?
 2. YAGNI — did you add anything not requested by the plan?
 3. Naming — do all names describe what things do, not how they work?
+4. Verification retries — treat failing diagnostics as evidence to investigate, not as the source of truth. Reconcile them with the current file content and plan intent before editing.
 Handle any issues silently in the code before returning.`;
 
     const prompt = `Ticket context:

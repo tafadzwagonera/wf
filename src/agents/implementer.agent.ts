@@ -204,6 +204,7 @@ export class ImplementerAgent {
       options.repoDir,
     );
     const sceneContext = `${ticket.content}\n\n---\nPlan narration:\n${narration}`;
+    let retryRepoFiles = repoFiles;
     let retryContext = options.conversationContext;
     let previousFailureFingerprint: string | undefined;
     let previousVerificationFailure: VerificationFailure | undefined;
@@ -223,7 +224,7 @@ export class ImplementerAgent {
       attemptNumber += 1
     ) {
       const fileWriteResults = await this.generateRepoFiles({
-        repoFiles,
+        repoFiles: retryRepoFiles,
         repoName,
         repoDir: options.repoDir,
         sceneContext,
@@ -336,9 +337,18 @@ export class ImplementerAgent {
 
       previousFailureFingerprint = failureFingerprint;
       previousVerificationFailure = verificationFailure;
+      retryRepoFiles =
+        this.inferRetryRepoFiles(
+          verificationFailure,
+          repoFiles,
+          repoName,
+          options.repoDir,
+        ) ?? repoFiles;
       retryContext = this.buildRetryContext(
         options.conversationContext,
         verificationFailure,
+        retryRepoFiles,
+        repoName,
       );
       console.log(
         chalk.yellow(
@@ -841,9 +851,55 @@ export class ImplementerAgent {
   private buildRetryContext(
     baseContext: string | undefined,
     failure: VerificationFailure,
+    retryRepoFiles: string[],
+    repoName: string,
   ): string {
     const diagnostics = this.formatVerificationFailureMessage(failure);
-    return [baseContext, diagnostics].filter(Boolean).join('\n\n');
+    const relativeRetryFiles = retryRepoFiles.map((filePath) =>
+      repoName && filePath.startsWith(`${repoName}/`)
+        ? filePath.slice(repoName.length + 1)
+        : filePath,
+    );
+    const retryGuidance = [
+      'Retry guidance:',
+      'Treat verification diagnostics as evidence of a mismatch, not as the source of truth.',
+      'Reconcile the failing expectation with the current implementation and the plan intent before editing.',
+      `Only update the implicated file(s) for this retry: ${relativeRetryFiles.join(', ')}`,
+    ].join('\n');
+
+    return [baseContext, retryGuidance, diagnostics]
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  private inferRetryRepoFiles(
+    failure: VerificationFailure,
+    repoFiles: string[],
+    repoName: string,
+    repoDir?: string,
+  ): string[] | null {
+    const diagnosticText = failure.results
+      .flatMap((result) => [result.stdout, result.stderr])
+      .filter(Boolean)
+      .join('\n');
+
+    const implicatedFiles = repoFiles.filter((filePath) => {
+      const relativePath =
+        repoName && filePath.startsWith(`${repoName}/`)
+          ? filePath.slice(repoName.length + 1)
+          : filePath;
+      const absolutePath = repoDir
+        ? path.join(repoDir, relativePath)
+        : path.resolve(relativePath);
+
+      return (
+        diagnosticText.includes(filePath) ||
+        diagnosticText.includes(relativePath) ||
+        diagnosticText.includes(absolutePath)
+      );
+    });
+
+    return implicatedFiles.length > 0 ? implicatedFiles : null;
   }
 
   /**
