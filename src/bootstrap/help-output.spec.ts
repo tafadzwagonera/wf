@@ -18,18 +18,22 @@ jest.mock('chalk', () => {
   };
 });
 
+import * as path from 'path';
 import { getHelpText } from './help-output';
+import { getCommandHelpCatalog } from './help-catalog-parser';
+
+const catalog = getCommandHelpCatalog(path.join(__dirname, '..', 'commands'));
 
 describe('getHelpText', () => {
   it('returns top-level help when no command is requested', () => {
-    const helpText = getHelpText(['--help']);
+    const helpText = getHelpText(['--help'], catalog);
 
     expect(helpText).toContain('<bold-cyan>Usage:</bold-cyan>');
     expect(helpText).toContain('issue:generate');
   });
 
   it('returns stage-specific help for issue:generate', () => {
-    const helpText = getHelpText(['issue:generate', '--help']);
+    const helpText = getHelpText(['issue:generate', '--help'], catalog);
 
     expect(helpText).toContain(
       '<bold-cyan>Usage:</bold-cyan> <cyan>wf</cyan> issue:generate <sources...> [options]',
@@ -43,7 +47,7 @@ describe('getHelpText', () => {
   });
 
   it('returns stage-specific help for issue:commit', () => {
-    const helpText = getHelpText(['issue:commit', '-h']);
+    const helpText = getHelpText(['issue:commit', '-h'], catalog);
 
     expect(helpText).toContain(
       '<bold-cyan>Usage:</bold-cyan> <cyan>wf</cyan> issue:commit [ticket-key] [options]',
@@ -52,7 +56,7 @@ describe('getHelpText', () => {
   });
 
   it('reflects current issue command flags', () => {
-    const helpText = getHelpText(['issue', '--help']);
+    const helpText = getHelpText(['issue', '--help'], catalog);
 
     expect(helpText).toContain(
       'Complete workflow: fetch, plan, implement, review, and commit.',
@@ -65,8 +69,8 @@ describe('getHelpText', () => {
   });
 
   it('reflects current run and review command flags', () => {
-    const runHelpText = getHelpText(['run', '--help']);
-    const reviewHelpText = getHelpText(['issue:review', '--help']);
+    const runHelpText = getHelpText(['run', '--help'], catalog);
+    const reviewHelpText = getHelpText(['issue:review', '--help'], catalog);
 
     expect(runHelpText).toContain('--auto-execute');
     expect(runHelpText).not.toContain('--auto-approve');
@@ -75,8 +79,8 @@ describe('getHelpText', () => {
   });
 
   it('parses concatenated descriptions and renamed flags directly from source', () => {
-    const fetchHelpText = getHelpText(['issue:fetch', '--help']);
-    const prHelpText = getHelpText(['issue:pr', '--help']);
+    const fetchHelpText = getHelpText(['issue:fetch', '--help'], catalog);
+    const prHelpText = getHelpText(['issue:pr', '--help'], catalog);
 
     expect(fetchHelpText).toContain(
       'Fetch ticket description from a platform. NB: This command will override the locally generated artifact with the ticket description fetched from the specified platform',

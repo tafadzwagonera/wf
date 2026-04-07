@@ -23,7 +23,7 @@
   },
   "scripts": {
     "build": "nest build",
-    "postbuild": "chmod +x dist/main.js",
+    "postbuild": "chmod +x dist/main.js && ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",
     "format:write": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "format": "npm run format:write",
