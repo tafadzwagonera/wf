@@ -10,12 +10,21 @@ import type { PlanVerificationConfig } from '../../shared/utils/verification-man
 /**
  * Strips a single wrapping markdown code fence from LLM output.
  * Handles ```typescript, ```ts, ```js, ```json, and plain ``` fences.
+ * When the model adds preamble or trailing text around the fence, the first
+ * embedded fence block is extracted instead.
  * @param content Raw LLM response string
  * @returns File content without the outermost code fence, or the original string if none is present
  */
 const stripCodeFences = (content: string): string => {
-  const match = content.match(/^```[\w]*\n?([\s\S]*?)```\s*$/);
-  return match ? match[1] : content;
+  // Happy path: the entire response is a single code fence.
+  const exactMatch = content.match(/^```[\w]*\n?([\s\S]*?)```\s*$/);
+  if (exactMatch) return exactMatch[1];
+
+  // Fallback: the model added preamble or trailing text — extract the first fence.
+  const embeddedMatch = content.match(/```[\w]*\n([\s\S]*?)```/);
+  if (embeddedMatch) return embeddedMatch[1];
+
+  return content;
 };
 
 /**

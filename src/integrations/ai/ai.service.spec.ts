@@ -183,6 +183,103 @@ describe('AiService', () => {
       });
     });
 
+    describe('generateFileChange — code fence stripping', () => {
+      const buildAdapter = (responseContent: string): jest.Mocked<LlmAdapter> =>
+        ({
+          execute: jest.fn().mockResolvedValue({ content: responseContent }),
+          executeWithHistory: jest.fn().mockResolvedValue({ content: 'ok' }),
+        }) as unknown as jest.Mocked<LlmAdapter>;
+
+      it('returns the inner code when the entire response is a single code fence', async () => {
+        const service = new AiService(
+          mockLogger,
+          buildAdapter('```ts\nexport const x = 1;\n```'),
+          createConfigService(),
+        );
+
+        const result = await service.generateFileChange({
+          ticketContent: 'ticket',
+          planSteps: ['add export'],
+          filePath: 'src/x.ts',
+          existingContent: '',
+        });
+
+        expect(result).toBe('export const x = 1;\n');
+      });
+
+      it('extracts the code block when the model prepends reasoning text before the fence', async () => {
+        const service = new AiService(
+          mockLogger,
+          buildAdapter(
+            'Looking at the failing tests, I need to update the export.\n```ts\nexport const x = 1;\n```',
+          ),
+          createConfigService(),
+        );
+
+        const result = await service.generateFileChange({
+          ticketContent: 'ticket',
+          planSteps: ['add export'],
+          filePath: 'src/x.ts',
+          existingContent: '',
+        });
+
+        expect(result).toBe('export const x = 1;\n');
+      });
+
+      it('extracts the code block when the model appends trailing text after the fence', async () => {
+        const service = new AiService(
+          mockLogger,
+          buildAdapter('```ts\nexport const x = 1;\n```\nHope this helps!'),
+          createConfigService(),
+        );
+
+        const result = await service.generateFileChange({
+          ticketContent: 'ticket',
+          planSteps: ['add export'],
+          filePath: 'src/x.ts',
+          existingContent: '',
+        });
+
+        expect(result).toBe('export const x = 1;\n');
+      });
+
+      it('extracts the code block when the model wraps the fence in both preamble and trailing text', async () => {
+        const service = new AiService(
+          mockLogger,
+          buildAdapter(
+            'Here is the updated file:\n```ts\nexport const x = 1;\n```\nLet me know if you need anything else.',
+          ),
+          createConfigService(),
+        );
+
+        const result = await service.generateFileChange({
+          ticketContent: 'ticket',
+          planSteps: ['add export'],
+          filePath: 'src/x.ts',
+          existingContent: '',
+        });
+
+        expect(result).toBe('export const x = 1;\n');
+      });
+
+      it('returns the content unchanged when the response contains no code fence', async () => {
+        const service = new AiService(
+          mockLogger,
+          buildAdapter('export const x = 1;'),
+          createConfigService(),
+        );
+
+        const result = await service.generateFileChange({
+          ticketContent: 'ticket',
+          planSteps: ['add export'],
+          filePath: 'src/x.ts',
+          existingContent: '',
+        });
+
+        expect(result).toBe('export const x = 1;');
+      });
+    });
+
     it('uses the affected repository names in the plan prompt and forbids raw failing verification commands', async () => {
       const adapter = createAdapter();
       adapter.execute.mockResolvedValueOnce({
