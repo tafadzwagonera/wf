@@ -863,7 +863,7 @@ export class ImplementerAgent {
     const retryGuidance = [
       'Retry guidance:',
       'Treat verification diagnostics as evidence of a mismatch, not as the source of truth.',
-      'Reconcile the failing expectation with the current implementation and the plan intent before editing.',
+      'Apply the minimum code change that fixes the diagnostic. Do not output explanation, reasoning, or commentary.',
       `Only update the implicated file(s) for this retry: ${relativeRetryFiles.join(', ')}`,
     ].join('\n');
 

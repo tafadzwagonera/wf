@@ -821,6 +821,10 @@ describe('ImplementerAgent', () => {
       expect(
         aiService.generateFileChange.mock.calls[2][0].conversationContext,
       ).toContain('src/commands/issue-review.command.spec.ts');
+
+      expect(
+        aiService.generateFileChange.mock.calls[2][0].conversationContext,
+      ).not.toContain('Reconcile');
     });
   });
 });

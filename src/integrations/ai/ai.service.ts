@@ -443,12 +443,14 @@ Return ONLY the complete updated file content — no explanation, no markdown co
 
 Scene context: you are implementing one file as part of a larger plan. The plan narration is included in the ticket context above. Apply only the steps that are relevant to this specific file.
 
-Self-review before returning:
-1. Completeness — did you implement every plan step that touches this file?
-2. YAGNI — did you add anything not requested by the plan?
-3. Naming — do all names describe what things do, not how they work?
-4. Verification retries — treat failing diagnostics as evidence to investigate, not as the source of truth. Reconcile them with the current file content and plan intent before editing.
-Handle any issues silently in the code before returning.`;
+Your response will be written byte-for-byte to disk as a TypeScript source file.
+Any character that is not valid TypeScript syntax will immediately cause a SyntaxError.
+
+Before returning, silently verify (do not write these checks into the output):
+1. Every plan step relevant to this file is implemented
+2. No unrequested additions (YAGNI)
+3. Names describe what things do, not how they work
+4. Diagnostics inform code edits — do not explain, reason, or comment on them`;
 
     const prompt = `Ticket context:
 ${params.ticketContent.substring(0, 2000)}

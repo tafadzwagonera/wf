@@ -34,8 +34,13 @@ export const resolveCustomArtifactDir = (baseDir: string): string =>
  * @returns The summary text, or 'Implementation' if no match found
  */
 export const extractSummary = (content: string): string => {
-  const match = content.match(/^#\s+[A-Z]+-\d+:\s+(.+)$/m);
-  return match ? match[1] : 'Implementation';
+  const keyedMatch = content.match(/^#\s+[A-Z]+-\d+:\s+(.+)$/m);
+  if (keyedMatch) return keyedMatch[1];
+
+  const headingMatch = content.match(/^#\s+(.+)$/m);
+  if (headingMatch) return headingMatch[1];
+
+  return 'Implementation';
 };
 
 /**

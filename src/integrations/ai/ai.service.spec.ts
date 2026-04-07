@@ -280,6 +280,37 @@ describe('AiService', () => {
       });
     });
 
+    describe('generateFileChange — system prompt', () => {
+      it('contains write-to-disk warning and does not contain "Reconcile" or "Self-review"', async () => {
+        const adapter: jest.Mocked<LlmAdapter> = {
+          execute: jest
+            .fn()
+            .mockResolvedValue({ content: 'export const x = 1;' }),
+          executeWithHistory: jest.fn().mockResolvedValue({ content: 'ok' }),
+        } as unknown as jest.Mocked<LlmAdapter>;
+        const service = new AiService(
+          mockLogger,
+          adapter,
+          createConfigService(),
+        );
+
+        await service.generateFileChange({
+          ticketContent: 'ticket',
+          planSteps: ['add export'],
+          filePath: 'src/x.ts',
+          existingContent: '',
+        });
+
+        expect(adapter.execute).toHaveBeenCalledTimes(1);
+        const call = (adapter.execute as jest.Mock).mock.calls[0][0] as {
+          systemPrompt: string;
+        };
+        expect(call.systemPrompt).toContain('written byte-for-byte to disk');
+        expect(call.systemPrompt).not.toContain('Reconcile');
+        expect(call.systemPrompt).not.toContain('Self-review');
+      });
+    });
+
     it('uses the affected repository names in the plan prompt and forbids raw failing verification commands', async () => {
       const adapter = createAdapter();
       adapter.execute.mockResolvedValueOnce({

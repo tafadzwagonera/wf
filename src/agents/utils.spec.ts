@@ -71,6 +71,26 @@ Example body`;
       'Trip.com Content Mapping: Align Contentful Fields to Trip.com Preview Structure',
     );
   });
+
+  it('falls back to the bare H1 text when the heading has no key prefix', () => {
+    const content = `# Map and validate tour availability fields
+
+## Description
+
+Example body`;
+
+    expect(extractSummary(content)).toBe(
+      'Map and validate tour availability fields',
+    );
+  });
+
+  it('returns Implementation when there is no H1 heading at all', () => {
+    const content = `## Description
+
+Example body`;
+
+    expect(extractSummary(content)).toBe('Implementation');
+  });
 });
 
 describe('slugify', () => {
