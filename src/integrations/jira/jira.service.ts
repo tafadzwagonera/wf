@@ -12,6 +12,26 @@ import { JiraApiError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { PlatformConfigService } from '../platforms/platform-config.service';
 
+/**
+ * Normalize near-markdown formatting that commonly appears in generated Jira
+ * ticket artifacts before converting the content to ADF.
+ *
+ * @param markdown - Raw description content from the ticket artifact
+ * @returns Markdown normalized for the ADF parser
+ */
+const normalizeMarkdownForADF = (markdown: string): string =>
+  markdown
+    .replace(/^\{code(?::([^}\n]+))?\}\s*$/gm, (_match, language?: string) => {
+      const trimmedLanguage = language?.trim();
+      return `\`\`\`${trimmedLanguage ?? ''}`;
+    })
+    .replace(/^\{code\}\s*$/gm, '```')
+    .replace(/^[ \t]*\*\s+/gm, '- ');
+
+interface BuildCreatePayloadOptions {
+  priorityName?: string | null;
+}
+
 @Injectable()
 export class JiraService {
   private baseUrl?: string;
@@ -112,22 +132,10 @@ export class JiraService {
     }
 
     try {
-      const payload = {
-        fields: {
-          project: { key: project },
-          summary: request.summary,
-          description: this.markdownToADF(request.description),
-          issuetype: { name: request.issueType || 'Task' },
-          ...(resolvedPriority && { priority: { name: resolvedPriority } }),
-          ...(request.labels && { labels: request.labels }),
-          ...(request.assignee && {
-            assignee: { accountId: request.assignee },
-          }),
-          ...(request.components && {
-            components: request.components.map((name) => ({ name })),
-          }),
-        },
-      };
+      const payload = this.buildCreatePayload(
+        { ...request, project },
+        { priorityName: resolvedPriority ?? null },
+      );
 
       const url = `${this.baseUrl}/rest/api/3/issue`;
       const response = await firstValueFrom(
@@ -147,21 +155,7 @@ export class JiraService {
         this.logger.warn(
           `Priority rejected by Jira (${request.priority}). Retrying without priority field.`,
         );
-        const retryPayload = {
-          fields: {
-            project: { key: project },
-            summary: request.summary,
-            description: this.markdownToADF(request.description),
-            issuetype: { name: request.issueType || 'Task' },
-            ...(request.labels && { labels: request.labels }),
-            ...(request.assignee && {
-              assignee: { accountId: request.assignee },
-            }),
-            ...(request.components && {
-              components: request.components.map((name) => ({ name })),
-            }),
-          },
-        };
+        const retryPayload = this.buildCreatePayload({ ...request, project });
         const url = `${this.baseUrl}/rest/api/3/issue`;
         const response = await firstValueFrom(
           this.httpService.post(url, retryPayload, {
@@ -175,6 +169,49 @@ export class JiraService {
 
       this.handleJiraError(error, 'create ticket');
     }
+  }
+
+  /**
+   * Build the Jira create-issue payload without performing any network calls.
+   *
+   * @param request - Create ticket request mapped to Jira field names
+   * @param options - Payload options such as a resolved priority name
+   * @returns Jira REST API payload for issue creation
+   */
+  buildCreatePayload(
+    request: CreateTicketRequest,
+    options: BuildCreatePayloadOptions = {},
+  ): { fields: Record<string, unknown> } {
+    const project = request.project || this.defaultProject;
+    if (!project) {
+      throw new JiraApiError(
+        'No project specified and no default project configured',
+      );
+    }
+
+    const priorityName = Object.prototype.hasOwnProperty.call(
+      options,
+      'priorityName',
+    )
+      ? options.priorityName
+      : request.priority;
+
+    return {
+      fields: {
+        project: { key: project },
+        summary: request.summary,
+        description: this.markdownToADF(request.description),
+        issuetype: { name: request.issueType || 'Task' },
+        ...(priorityName && { priority: { name: priorityName } }),
+        ...(request.labels && { labels: request.labels }),
+        ...(request.assignee && {
+          assignee: { accountId: request.assignee },
+        }),
+        ...(request.components && {
+          components: request.components.map((name) => ({ name })),
+        }),
+      },
+    };
   }
 
   async getTicket(ticketKey: string): Promise<JiraTicket> {
@@ -304,7 +341,7 @@ export class JiraService {
     }
 
     const content: any[] = [];
-    const lines = markdown.split('\n');
+    const lines = normalizeMarkdownForADF(markdown).split('\n');
     let i = 0;
 
     while (i < lines.length) {

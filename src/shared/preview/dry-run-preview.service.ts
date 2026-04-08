@@ -8,6 +8,8 @@ import {
   GitOperationPreview,
 } from './preview.interfaces';
 
+const PAYLOAD_PREVIEW_MAX_LINES = 120;
+
 /**
  * Service for displaying dry-run previews with consistent formatting across
  * all issue:* commands.
@@ -44,12 +46,19 @@ export class DryRunPreviewService {
       );
     }
     if (preview.payload && Object.keys(preview.payload).length > 0) {
-      const payloadJson = JSON.stringify(preview.payload, null, 0);
-      const payloadDisplay =
-        payloadJson.length > 120
-          ? `${payloadJson.substring(0, 120)}...`
-          : payloadJson;
-      console.log(chalk.black(`     ↳ Payload: ${payloadDisplay}`));
+      const payloadLines = JSON.stringify(preview.payload, null, 2).split('\n');
+      payloadLines
+        .slice(0, PAYLOAD_PREVIEW_MAX_LINES)
+        .forEach((line, i) =>
+          console.log(
+            chalk.black(
+              `     ${i === 0 ? '↳ Payload: ' : '          '}${line}`,
+            ),
+          ),
+        );
+      if (payloadLines.length > PAYLOAD_PREVIEW_MAX_LINES) {
+        console.log(chalk.black('              ...'));
+      }
     }
   }
 

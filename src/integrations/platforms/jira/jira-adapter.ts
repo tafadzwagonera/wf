@@ -35,16 +35,7 @@ export class JiraAdapter implements PlatformAdapter {
   async createTicket(
     ticket: UniversalTicket,
   ): Promise<PlatformTicketReference> {
-    const request: CreateTicketRequest = {
-      project: ticket.project || '',
-      summary: ticket.title,
-      description: ticket.description,
-      issueType: this.mapTicketTypeToJira(ticket.type),
-      priority: this.mapPriorityToJira(ticket.priority),
-      labels: ticket.labels,
-      assignee: ticket.assignee,
-      components: ticket.components,
-    };
+    const request = this.buildCreateRequest(ticket);
 
     const ticketKey = await this.jiraService.createTicket(request);
 
@@ -54,6 +45,37 @@ export class JiraAdapter implements PlatformAdapter {
       key: ticketKey,
       url: this.getTicketUrl(ticketKey),
     };
+  }
+
+  /**
+   * Map a universal ticket into the Jira create-ticket request shape.
+   *
+   * @param ticket - Universal ticket to convert
+   * @returns Jira create request
+   */
+  buildCreateRequest(ticket: UniversalTicket): CreateTicketRequest {
+    return {
+      project: ticket.project || '',
+      summary: ticket.title,
+      description: ticket.description,
+      issueType: this.mapTicketTypeToJira(ticket.type),
+      priority: this.mapPriorityToJira(ticket.priority),
+      labels: ticket.labels,
+      assignee: ticket.assignee,
+      components: ticket.components,
+    };
+  }
+
+  /**
+   * Build the Jira REST payload used for issue creation without any network I/O.
+   *
+   * @param ticket - Universal ticket to convert
+   * @returns Jira create payload for preview/debugging
+   */
+  buildCreatePayload(ticket: UniversalTicket): {
+    fields: Record<string, unknown>;
+  } {
+    return this.jiraService.buildCreatePayload(this.buildCreateRequest(ticket));
   }
 
   /**

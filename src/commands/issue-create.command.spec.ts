@@ -48,6 +48,7 @@ import { FormatConverterService } from '../common/converters/format-converter.se
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { JiraAdapter } from '../integrations/platforms/jira/jira-adapter';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -64,6 +65,19 @@ const mockTicket = {
   type: 'story',
   priority: 'medium',
   project: 'WBP',
+  description: [
+    '### Summary',
+    'Generated summary',
+    '',
+    '```json',
+    '{',
+    '  "id": "123"',
+    '}',
+    '```',
+    '',
+    '### Acceptance Criteria',
+    '- First item',
+  ].join('\n'),
 };
 
 async function buildCommand(): Promise<IssueCreateCommand> {
@@ -71,6 +85,42 @@ async function buildCommand(): Promise<IssueCreateCommand> {
     providers: [
       IssueCreateCommand,
       { provide: PlatformService, useValue: {} },
+      {
+        provide: JiraAdapter,
+        useValue: {
+          buildCreatePayload: jest.fn((ticket) => ({
+            fields: {
+              project: { key: ticket.project || 'WBP' },
+              summary: ticket.title,
+              description: {
+                type: 'doc',
+                version: 1,
+                content: [
+                  {
+                    type: 'codeBlock',
+                    attrs: { language: 'json' },
+                    content: [{ type: 'text', text: '{\n  "id": "123"\n}' }],
+                  },
+                  {
+                    type: 'bulletList',
+                    content: [
+                      {
+                        type: 'listItem',
+                        content: [
+                          {
+                            type: 'paragraph',
+                            content: [{ type: 'text', text: 'First item' }],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          })),
+        },
+      },
       {
         provide: FormatConverterService,
         useValue: {
@@ -251,5 +301,50 @@ describe('IssueCreateCommand', () => {
     ).toBe(true);
 
     consoleSpy.mockRestore();
+  });
+
+  it('previews the transformed Jira payload during dry runs', async () => {
+    const command = await buildCommand();
+    const dryRunPreview = (command as any)
+      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const jiraAdapter = (command as any).jiraAdapter as {
+      buildCreatePayload: jest.Mock;
+    };
+    const artifactPath = path.join(
+      os.homedir(),
+      '.wf',
+      'consumer-app',
+      'jira',
+      'GENERATED-2026-04-01-46ac9014.md',
+    );
+
+    mockExistsSync.mockImplementation(
+      (input) => String(input) === artifactPath,
+    );
+
+    await command.run(['GENERATED-2026-04-01-46ac9014.md'], {
+      dryRun: true,
+    });
+
+    expect(jiraAdapter.buildCreatePayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Generated ticket',
+      }),
+    );
+    expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          fields: expect.objectContaining({
+            summary: 'Generated ticket',
+            description: expect.objectContaining({
+              content: expect.arrayContaining([
+                expect.objectContaining({ type: 'codeBlock' }),
+                expect.objectContaining({ type: 'bulletList' }),
+              ]),
+            }),
+          }),
+        }),
+      }),
+    );
   });
 });

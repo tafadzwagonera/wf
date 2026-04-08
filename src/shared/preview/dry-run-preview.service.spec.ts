@@ -104,6 +104,26 @@ describe('DryRunPreviewService', () => {
       });
       const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
       expect(calls.some((c) => c.includes('Payload:'))).toBe(true);
+      expect(calls.some((c) => c.includes('"title": "Test"'))).toBe(true);
+    });
+
+    it('renders multi-line payload content instead of truncating to one line', () => {
+      service.previewApiCall({
+        method: 'POST',
+        endpoint: '/x',
+        platform: 'x',
+        description: 'desc',
+        payload: {
+          fields: {
+            description: {
+              content: [{ type: 'codeBlock' }, { type: 'bulletList' }],
+            },
+          },
+        },
+      });
+      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
+      expect(calls.some((c) => c.includes('"codeBlock"'))).toBe(true);
+      expect(calls.some((c) => c.includes('"bulletList"'))).toBe(true);
     });
 
     it('omits payload line when empty', () => {

@@ -240,6 +240,25 @@ describe('IssueGenerateCommand', () => {
         }),
       );
     });
+
+    it('instructs the model to use fenced code blocks and hyphen bullets only', async () => {
+      const command = await buildCommand();
+
+      const prompt = (command as any).buildSynthesisPrompt([
+        {
+          type: 'file',
+          source: './notes.md',
+          content: 'Short notes that require synthesis',
+        },
+      ]);
+
+      expect(prompt).toContain(
+        'Use fenced Markdown code blocks (```lang) for code samples; never use Jira wiki {code} syntax.',
+      );
+      expect(prompt).toContain(
+        'Use `- ` for every unordered bullet item; never use `* ` bullets.',
+      );
+    });
   });
 
   describe('parseRepos', () => {

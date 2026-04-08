@@ -10,6 +10,7 @@ import { TicketType } from '../common/dto/universal-ticket.dto';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { JiraAdapter } from '../integrations/platforms/jira/jira-adapter';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -57,6 +58,7 @@ const ISSUE_CREATE_EXAMPLES: CliExample[] = [
 export class IssueCreateCommand extends CommandRunner {
   constructor(
     private readonly platformService: PlatformService,
+    private readonly jiraAdapter: JiraAdapter,
     private readonly formatConverterService: FormatConverterService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
@@ -141,18 +143,23 @@ export class IssueCreateCommand extends CommandRunner {
           ticket.title?.substring(0, 40),
         );
 
+        const payload =
+          platformName === 'jira'
+            ? this.jiraAdapter.buildCreatePayload(ticket)
+            : {
+                title: ticket.title,
+                type: ticket.type || 'task',
+                priority: ticket.priority || 'medium',
+                project: ticket.project || '<from config>',
+              };
+
         this.dryRunPreview.previewApiCall({
           method: 'POST',
           endpoint: `/${platformName}/issues`,
           platform: platformName,
           description: `Create ticket on ${platformName}`,
           estimatedResponse: '201 Created — ticket key and URL returned',
-          payload: {
-            title: ticket.title,
-            type: ticket.type || 'task',
-            priority: ticket.priority || 'medium',
-            project: ticket.project || '<from config>',
-          },
+          payload,
         });
 
         this.dryRunPreview.showSummary({

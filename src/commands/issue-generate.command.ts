@@ -1116,6 +1116,8 @@ export class IssueGenerateCommand extends CommandRunner {
     prompt += `Rules:\n`;
     prompt += `- Do not add, remove, or rename any heading.\n`;
     prompt += `- Do not wrap the output in a code fence.\n`;
+    prompt += `- Use fenced Markdown code blocks (\`\`\`lang) for code samples; never use Jira wiki {code} syntax.\n`;
+    prompt += `- Use \`- \` for every unordered bullet item; never use \`* \` bullets.\n`;
     prompt += `- The line "## Description" MUST appear exactly once.\n\n`;
     prompt += `Sources to synthesize:\n\n`;
 

@@ -151,12 +151,34 @@ describe('JiraService', () => {
       expect(adf.content[0].content).toHaveLength(3);
     });
 
+    it('should normalize indented star bullets to a Jira bullet list', () => {
+      const markdown = '  * Item 1\n    * Item 2';
+      const adf = service.markdownToADF(markdown);
+
+      expect(adf.content[0].type).toBe('bulletList');
+      expect(adf.content[0].content).toHaveLength(2);
+      expect(adf.content[0].content[0].content[0].content).toEqual([
+        { type: 'text', text: 'Item 1' },
+      ]);
+    });
+
     it('should convert ordered lists to ADF', () => {
       const markdown = '1. First\n2. Second\n3. Third';
       const adf = service.markdownToADF(markdown);
 
       expect(adf.content[0].type).toBe('orderedList');
       expect(adf.content[0].content).toHaveLength(3);
+    });
+
+    it('should normalize Jira wiki code fences to ADF code blocks', () => {
+      const markdown = '{code:json}\n{\n  "id": "123"\n}\n{code}';
+      const adf = service.markdownToADF(markdown);
+
+      expect(adf.content[0]).toEqual({
+        type: 'codeBlock',
+        attrs: { language: 'json' },
+        content: [{ type: 'text', text: '{\n  "id": "123"\n}' }],
+      });
     });
   });
 
@@ -250,6 +272,45 @@ describe('JiraService', () => {
   });
 
   describe('createTicket', () => {
+    it('should build a create payload with adf code blocks and bullet lists', () => {
+      const payload = service.buildCreatePayload({
+        project: 'TEST',
+        summary: 'Test issue',
+        description: [
+          '### Summary',
+          'Generated summary',
+          '',
+          '```json',
+          '{',
+          '  "id": "123"',
+          '}',
+          '```',
+          '',
+          '### Acceptance Criteria',
+          '- First item',
+        ].join('\n'),
+        issueType: 'Bug',
+        priority: 'High',
+      });
+
+      expect(payload).toEqual({
+        fields: expect.objectContaining({
+          project: { key: 'TEST' },
+          summary: 'Test issue',
+          issuetype: { name: 'Bug' },
+          priority: { name: 'High' },
+          description: expect.objectContaining({
+            type: 'doc',
+            version: 1,
+            content: expect.arrayContaining([
+              expect.objectContaining({ type: 'codeBlock' }),
+              expect.objectContaining({ type: 'bulletList' }),
+            ]),
+          }),
+        }),
+      });
+    });
+
     it('should create a ticket successfully', async () => {
       const mockResponse = {
         data: { key: 'TEST-123', id: '10001' },

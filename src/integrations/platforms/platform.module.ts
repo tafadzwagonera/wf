@@ -21,7 +21,7 @@ import { BitBucketAdapter } from './bitbucket/bitbucket-adapter';
     BitBucketPlatformModule,
   ],
   providers: [PlatformService, PlatformConfigService],
-  exports: [PlatformService, PlatformConfigService],
+  exports: [PlatformService, PlatformConfigService, JiraPlatformModule],
 })
 export class PlatformModule implements OnModuleInit {
   constructor(
