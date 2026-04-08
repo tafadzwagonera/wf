@@ -4,7 +4,14 @@ import chalk from 'chalk';
 import { formatCliCommand } from '../shared/utils/cli-command-colors';
 import { CommandHelpEntry } from './help-catalog-parser';
 
-const CATALOG_PATH = path.join(__dirname, 'commands-help.catalog.json');
+const CATALOG_PATH = path.join(
+  __dirname,
+  '..',
+  '..',
+  'dist',
+  'bootstrap',
+  'commands-help.catalog.json',
+);
 const HELP_FLAG_PATTERN = /^--help$|^-h$/;
 
 const loadCatalogFromDisk = (): Record<string, CommandHelpEntry> => {

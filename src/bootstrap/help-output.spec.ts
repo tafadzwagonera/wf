@@ -78,6 +78,13 @@ describe('getHelpText', () => {
     expect(reviewHelpText).toContain('--replace-criteria <path>');
   });
 
+  it('loads the catalog from dist/bootstrap when no catalog argument is supplied', () => {
+    // After `npm run build` the catalog exists at dist/bootstrap/.
+    // With the broken path (src/bootstrap/) this throws.
+    expect(() => getHelpText(['--help'])).not.toThrow();
+    expect(getHelpText(['--help'])).toContain('issue');
+  });
+
   it('parses concatenated descriptions and renamed flags directly from source', () => {
     const fetchHelpText = getHelpText(['issue:fetch', '--help'], catalog);
     const prHelpText = getHelpText(['issue:pr', '--help'], catalog);
