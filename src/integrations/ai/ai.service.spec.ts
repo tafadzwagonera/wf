@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { AiService } from './ai.service';
 import { LoggerService } from '../../shared/logger/logger.service';
 import type { LlmAdapter } from './llm-adapter.interface';
+import type { FixPlan } from '../../agents/interfaces';
 
 describe('AiService', () => {
   const mockLogger = {
@@ -343,6 +344,90 @@ describe('AiService', () => {
           ),
         }),
       );
+    });
+  });
+
+  describe('diagnoseVerificationFailure', () => {
+    it('parses a valid FixPlan JSON response', async () => {
+      const mockFixPlan: FixPlan = {
+        summary: 'Type mismatch in UserService',
+        fixes: [
+          {
+            file: 'src/user/user.service.ts',
+            rationale: 'Return type must be Promise<User> not Promise<void>',
+            relatedFiles: ['src/user/user.interface.ts'],
+          },
+        ],
+      };
+      const mockAdapter = createAdapter();
+      mockAdapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify(mockFixPlan),
+      });
+      const service = new AiService(
+        mockLogger,
+        mockAdapter,
+        createConfigService(),
+      );
+
+      const result = await service.diagnoseVerificationFailure({
+        implicatedFileContents: {
+          'src/user/user.service.ts': 'export class UserService {}',
+        },
+        relatedFileContents: {},
+        testSources: {},
+        diagnostics: 'TS2322: Type void is not assignable to type User.',
+        planSteps: ['Add UserService', 'Implement getUser'],
+      });
+
+      expect(result).toEqual(mockFixPlan);
+    });
+
+    it('strips code fences before JSON.parse', async () => {
+      const mockFixPlan: FixPlan = {
+        summary: 'Missing export',
+        fixes: [
+          { file: 'src/foo.ts', rationale: 'Add export', relatedFiles: [] },
+        ],
+      };
+      const mockAdapter = createAdapter();
+      mockAdapter.execute.mockResolvedValueOnce({
+        content: '```json\n' + JSON.stringify(mockFixPlan) + '\n```',
+      });
+      const service = new AiService(
+        mockLogger,
+        mockAdapter,
+        createConfigService(),
+      );
+
+      const result = await service.diagnoseVerificationFailure({
+        implicatedFileContents: {},
+        relatedFileContents: {},
+        testSources: {},
+        diagnostics: 'Cannot find module foo',
+        planSteps: [],
+      });
+
+      expect(result.summary).toBe('Missing export');
+    });
+
+    it('throws on malformed JSON (caller must handle fallback)', async () => {
+      const mockAdapter = createAdapter();
+      mockAdapter.execute.mockResolvedValueOnce({ content: 'not json at all' });
+      const service = new AiService(
+        mockLogger,
+        mockAdapter,
+        createConfigService(),
+      );
+
+      await expect(
+        service.diagnoseVerificationFailure({
+          implicatedFileContents: {},
+          relatedFileContents: {},
+          testSources: {},
+          diagnostics: 'error',
+          planSteps: [],
+        }),
+      ).rejects.toThrow();
     });
   });
 });

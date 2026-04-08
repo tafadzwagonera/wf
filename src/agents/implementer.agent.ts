@@ -1120,7 +1120,7 @@ export class ImplementerAgent {
         diagnostics,
         planSteps,
       });
-      return fixPlan as FixPlan;
+      return fixPlan;
     } catch (err) {
       console.log(
         chalk.yellow(

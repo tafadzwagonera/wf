@@ -6,6 +6,7 @@ import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
 import type { PlanVerificationConfig } from '../../shared/utils/verification-manifest';
+import type { FixPlan } from '../../agents/interfaces';
 
 /**
  * Strips a single wrapping markdown code fence from LLM output.
@@ -492,11 +493,7 @@ Apply the relevant steps to this file. Return ONLY the complete updated file con
     testSources: Record<string, string>;
     diagnostics: string;
     planSteps: string[];
-  }): Promise<{
-    summary: string;
-    fixes: Array<{ file: string; rationale: string; relatedFiles: string[] }>;
-    testContext?: string;
-  }> {
+  }): Promise<FixPlan> {
     const systemPrompt = `You are an expert TypeScript software engineer diagnosing verification failures.
 Analyse the failing file contents, related type definitions, test sources, and diagnostic output.
 Return ONLY a valid JSON object — no markdown fences, no explanation text.`;
@@ -550,11 +547,7 @@ Diagnose the root cause and return a fix plan:
     });
 
     const stripped = stripCodeFences(response.content.trim());
-    return JSON.parse(stripped) as {
-      summary: string;
-      fixes: Array<{ file: string; rationale: string; relatedFiles: string[] }>;
-      testContext?: string;
-    };
+    return JSON.parse(stripped) as FixPlan;
   }
 
   async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
