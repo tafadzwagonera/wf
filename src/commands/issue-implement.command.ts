@@ -101,8 +101,15 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
   name: 'issue:implement',
   description:
     'Carry out an implementation plan from a ticket-backed or custom plan artifact. ' +
-    'Use a ticket key to execute the standard plan for that ticket, or pass a custom plan artifact filename with extension to synthesize an execution context and run the shared implementer flow. ' +
-    'Run issue:fetch then issue:plan before calling this command for ticket-backed workflows.',
+    'Uses a two-phase retry strategy on verification failure: a diagnosis call ' +
+    'analyses all failing file contents, related type definitions, and test sources, ' +
+    'then generates a structured fix plan used as shared context during re-generation. ' +
+    'Enable the experimental Anthropic agent backend (requires provider: anthropic) ' +
+    'with stages.implement.experimentalAgent: true in wf.config for agentic tool-use ' +
+    'on TypeScript type and test failures. ' +
+    'Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. ' +
+    'Examples: wf issue:implement PROJ-123 | wf issue:implement PROJ-123 --repos my-repo | ' +
+    'wf issue:implement PROJ-123 --repos repo-a repo-b | wf issue:implement my-custom-plan.json',
   arguments: '[ticket-key-or-plan-file]',
 })
 export class IssueImplementCommand extends CommandRunner {
@@ -395,6 +402,9 @@ Return ONLY a valid JSON object:
           {
             platformName,
             repoDir,
+            additionalRepoDirs: (options?.repos ?? [])
+              .slice(1)
+              .map((r) => resolveRepoBasePath(r)),
             customBranchSlug: customExecutionContext.customBranchSlug,
           },
         );
@@ -577,6 +587,9 @@ Return ONLY a valid JSON object:
         {
           platformName,
           repoDir,
+          additionalRepoDirs: (options?.repos ?? [])
+            .slice(1)
+            .map((r) => resolveRepoBasePath(r)),
         },
       );
     } catch (error) {

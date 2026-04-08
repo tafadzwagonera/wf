@@ -475,6 +475,88 @@ Apply the relevant steps to this file. Return ONLY the complete updated file con
     return stripCodeFences(response.content.trim());
   }
 
+  /**
+   * Diagnoses a verification failure and produces a structured fix plan.
+   * Called on retry attempt 2+ so the next generateFileChange() calls share context.
+   *
+   * @param params.implicatedFileContents - Disk state of files mentioned in diagnostics
+   * @param params.relatedFileContents - Depth-1 import-chain files from implicated files
+   * @param params.testSources - Test files relevant to the failure (when test failure detected)
+   * @param params.diagnostics - Raw verification diagnostics text
+   * @param params.planSteps - Original plan steps for context
+   * @returns Structured FixPlan; throws on parse failure (caller falls back to prose retry)
+   */
+  async diagnoseVerificationFailure(params: {
+    implicatedFileContents: Record<string, string>;
+    relatedFileContents: Record<string, string>;
+    testSources: Record<string, string>;
+    diagnostics: string;
+    planSteps: string[];
+  }): Promise<{
+    summary: string;
+    fixes: Array<{ file: string; rationale: string; relatedFiles: string[] }>;
+    testContext?: string;
+  }> {
+    const systemPrompt = `You are an expert TypeScript software engineer diagnosing verification failures.
+Analyse the failing file contents, related type definitions, test sources, and diagnostic output.
+Return ONLY a valid JSON object — no markdown fences, no explanation text.`;
+
+    const implicatedSection = Object.entries(params.implicatedFileContents)
+      .map(([file, content]) => `// ${file}\n${content}`)
+      .join('\n\n---\n\n');
+
+    const relatedSection = Object.entries(params.relatedFileContents)
+      .map(([file, content]) => `// ${file}\n${content}`)
+      .join('\n\n---\n\n');
+
+    const testSection = Object.entries(params.testSources)
+      .map(([file, content]) => `// ${file}\n${content}`)
+      .join('\n\n---\n\n');
+
+    const prompt = `Plan steps:
+${params.planSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+
+Diagnostics:
+${params.diagnostics}
+
+Implicated files (current disk state):
+${implicatedSection || '(none)'}
+
+Related type files (depth-1 imports):
+${relatedSection || '(none)'}
+
+Test sources:
+${testSection || '(none)'}
+
+Diagnose the root cause and return a fix plan:
+{
+  "summary": "One-sentence root-cause description",
+  "fixes": [
+    {
+      "file": "relative/path/to/file.ts",
+      "rationale": "What to change and why",
+      "relatedFiles": ["relative/path/to/sibling.ts"]
+    }
+  ],
+  "testContext": "Optional: what the tests expect that the implementation must satisfy"
+}`;
+
+    const response = await this.execute({
+      prompt,
+      systemPrompt,
+      temperature: 0.2,
+      maxTokens: 4096,
+      stage: 'implement',
+    });
+
+    const stripped = stripCodeFences(response.content.trim());
+    return JSON.parse(stripped) as {
+      summary: string;
+      fixes: Array<{ file: string; rationale: string; relatedFiles: string[] }>;
+      testContext?: string;
+    };
+  }
+
   async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
     const systemPrompt = `You are an expert code reviewer providing constructive feedback.
 Focus on code quality, best practices, potential bugs, and security issues.

@@ -1,6 +1,16 @@
 // src/agents/interfaces.ts
 import { CodeReview, ResolutionPlan } from '../integrations/ai/ai.service';
 
+export interface FixPlan {
+  summary: string;
+  fixes: Array<{
+    file: string;
+    rationale: string;
+    relatedFiles: string[];
+  }>;
+  testContext?: string;
+}
+
 export type ResolutionAction = 'feature' | 'fix' | 'investigate';
 
 export interface TicketArtifact {
@@ -39,6 +49,7 @@ export interface PlannerOptions {
 export interface ImplementerOptions {
   platformName: string;
   repoDir?: string;
+  additionalRepoDirs?: string[];
   suppressHeader?: boolean;
   conversationContext?: string;
   customBranchSlug?: string;
@@ -62,3 +73,16 @@ export interface FindingsArtifact {
 export type ImplementerResult =
   | { type: 'implementation'; branchName: string }
   | { type: 'investigation'; artifact: FindingsArtifact };
+
+export interface IImplementerBackend {
+  generateAndVerify(params: {
+    ticket: TicketArtifact;
+    planArtifact: PlanArtifact;
+    options: ImplementerOptions;
+    verificationScripts: Array<{ id: string; command: string }>;
+    sceneContext: string;
+    repoFiles: string[];
+    repoName: string;
+    trackedFilePaths: string[];
+  }): Promise<{ branchName: string }>;
+}

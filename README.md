@@ -550,6 +550,12 @@ Execute an existing canonical plan artifact. Ticket keys resolve the single stan
 # Execute the standard plan for a ticket
 wf issue:implement WBP-2971
 
+# Execute with a single repository
+wf issue:implement WBP-2971 --repos my-repo
+
+# Execute with multiple repositories (first anchors verification; siblings are context)
+wf issue:implement WBP-2971 --repos repo-a repo-b
+
 # Execute a custom plan artifact
 wf issue:implement merry-tinkering-pine-feature.json
 
@@ -558,6 +564,35 @@ wf issue:implement bold-jumping-wave-fix.yaml
 
 # Preview branch and file work for a custom plan
 wf issue:implement dark-building-creek-fix.json --dry-run
+```
+
+### Retry strategy
+
+`issue:implement` uses a **two-phase retry** strategy when verification fails:
+
+1. **Diagnosis** — the AI receives all failing file contents, related type
+   definitions (depth-1 import chain, up to 10 files), and test sources,
+   and returns a structured fix plan.
+2. **Execution** — each file is regenerated using the fix plan as shared
+   context. Sibling repositories passed via `--repos` are available for
+   cross-repo type reads; writes remain scoped to the primary repository.
+
+#### Experimental: Anthropic agent backend
+
+Set `stages.implement.experimentalAgent: true` in `wf.config.*` to use the
+Anthropic agent backend. The model drives its own inner loop via
+`read_file`, `write_file`, and `run_command` tools, iterating until
+verification passes. Requires `provider: 'anthropic'`; falls back to the
+standard two-phase path for other providers.
+
+```yaml
+stages:
+  implement:
+    experimentalAgent: true
+    afterImplement:
+      baseMaxAttempts: 3
+      maxProgressExtensions: 2
+      absoluteMaxAttempts: 5
 ```
 
 ---

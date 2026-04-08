@@ -11,6 +11,7 @@ import {
   ResolutionAction,
   FindingsArtifact,
   ImplementerResult,
+  FixPlan,
 } from './interfaces';
 import { extractSummary, slugify } from './utils';
 import * as fs from 'fs';
@@ -24,6 +25,7 @@ import {
   VerificationPolicy,
   type VerificationStep,
 } from '../shared/utils/verification-manifest';
+import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 
 const execAsync = promisify(exec);
 const DEFAULT_BASE_MAX_ATTEMPTS = 3;
@@ -31,7 +33,8 @@ const DEFAULT_MAX_PROGRESS_EXTENSIONS = 2;
 const DEFAULT_ABSOLUTE_MAX_ATTEMPTS = 5;
 const DEFAULT_FINGERPRINT_LINE_COUNT = 40;
 const ACTIONABLE_DIAGNOSTIC_PATTERN =
-  /(error|failed|exception|cannot|can't|not found|syntaxerror|referenceerror|typeerror|ts\d+|format|prettier|code style|lint)/i;
+  /(error|failed|exception|cannot|can't|not found|syntaxerror|referenceerror|typeerror|ts\d+|format|prettier|code style|lint|● |expect\(|received|assertion|✕|✗|FAIL\s|0 passing|[0-9]+ failing)/i;
+const MAX_RELATED_TYPE_FILES = 10;
 
 interface VerificationCommandResult {
   command: string;
@@ -204,8 +207,43 @@ export class ImplementerAgent {
       options.repoDir,
     );
     const sceneContext = `${ticket.content}\n\n---\nPlan narration:\n${narration}`;
+
+    // Experimental Anthropic agent backend (behind config flag)
+    const useAgent =
+      this.configService.get<boolean>(
+        'stages.implement.experimentalAgent',
+        false,
+      ) === true;
+    const aiProvider = this.configService.get<string>(
+      'ai.provider',
+      'anthropic',
+    );
+    if (useAgent) {
+      if (aiProvider !== 'anthropic') {
+        console.log(
+          chalk.yellow(
+            `  ⚠ stages.implement.experimentalAgent requires provider: anthropic (current: ${aiProvider}). Falling back to standard two-phase retry.`,
+          ),
+        );
+      } else {
+        const adapter = new AnthropicAgentAdapter(this.configService);
+        const result = await adapter.generateAndVerify({
+          ticket,
+          planArtifact,
+          options,
+          verificationScripts,
+          sceneContext,
+          repoFiles,
+          repoName,
+          trackedFilePaths,
+        });
+        return { type: 'implementation', branchName: result.branchName };
+      }
+    }
+
     let retryRepoFiles = repoFiles;
     let retryContext = options.conversationContext;
+    let retryFixPlan: FixPlan | undefined;
     let previousFailureFingerprint: string | undefined;
     let previousVerificationFailure: VerificationFailure | undefined;
     let lastVerificationFailure: VerificationFailure | undefined;
@@ -230,6 +268,7 @@ export class ImplementerAgent {
         sceneContext,
         planSteps: planArtifact.plan.steps,
         retryContext,
+        fixPlan: retryFixPlan,
       });
 
       if (verificationScripts.length === 0) {
@@ -350,11 +389,22 @@ export class ImplementerAgent {
         retryRepoFiles,
         repoName,
       );
+
+      // Two-phase retry: on attempt 2+ run diagnosis before regeneration
       console.log(
         chalk.yellow(
-          `    Verification failed on attempt ${attemptNumber}. Regenerating files with diagnostics...`,
+          `    Verification failed on attempt ${attemptNumber}. Running two-phase diagnosis...`,
         ),
       );
+      retryFixPlan =
+        (await this.diagnoseRetryFailure(
+          verificationFailure,
+          retryRepoFiles,
+          repoName,
+          planArtifact.plan.steps,
+          options.repoDir,
+          options.additionalRepoDirs,
+        )) ?? undefined;
     }
 
     if ((planArtifact.plan.repositoriesAffected?.length ?? 0) > 0) {
@@ -458,6 +508,7 @@ export class ImplementerAgent {
     sceneContext: string;
     planSteps: string[];
     retryContext?: string;
+    fixPlan?: FixPlan;
   }): Promise<FileWriteResult[]> {
     const results: FileWriteResult[] = [];
 
@@ -478,13 +529,49 @@ export class ImplementerAgent {
         ? fs.readFileSync(absolutePath, 'utf-8')
         : '';
 
+      // Build per-file fix context from FixPlan when available
+      let fixContext: string | undefined;
+      if (params.fixPlan) {
+        const fileFix = params.fixPlan.fixes.find(
+          (f) => f.file === relativePath || f.file === filePath,
+        );
+        const relatedContents = (fileFix?.relatedFiles ?? [])
+          .map((rf) => {
+            const rfAbs = params.repoDir
+              ? path.join(params.repoDir, rf)
+              : path.resolve(rf);
+            if (fs.existsSync(rfAbs)) {
+              return `// ${rf}\n${fs.readFileSync(rfAbs, 'utf-8')}`;
+            }
+            return null;
+          })
+          .filter(Boolean)
+          .join('\n\n---\n\n');
+
+        const parts: string[] = [`Fix plan summary: ${params.fixPlan.summary}`];
+        if (fileFix) {
+          parts.push(`Rationale for this file: ${fileFix.rationale}`);
+        }
+        if (relatedContents) {
+          parts.push(`Related files:\n${relatedContents}`);
+        }
+        if (params.fixPlan.testContext) {
+          parts.push(`Test context: ${params.fixPlan.testContext}`);
+        }
+        fixContext = parts.join('\n\n');
+      }
+
+      const conversationContext =
+        [params.retryContext, fixContext].filter(Boolean).join('\n\n') ||
+        undefined;
+
       console.log(chalk.gray(`\n    → ${filePath}`));
       const updatedContent = await this.aiService.generateFileChange({
         ticketContent: params.sceneContext,
         planSteps: params.planSteps,
         filePath: relativePath,
         existingContent,
-        conversationContext: params.retryContext,
+        conversationContext,
       });
 
       fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
@@ -838,6 +925,209 @@ export class ImplementerAgent {
         stdout: error.stdout?.trim?.() ?? '',
         stderr: error.stderr?.trim?.() ?? error.message ?? '',
       };
+    }
+  }
+
+  /**
+   * Collects current disk contents for files implicated in the failure diagnostics.
+   *
+   * @param repoFiles - All repo files tracked for this run
+   * @param repoName - Repository name prefix
+   * @param repoDir - Repository directory
+   * @returns Map of relative path → file content
+   */
+  private collectImplicatedFileContents(
+    repoFiles: string[],
+    repoName: string,
+    repoDir?: string,
+  ): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const filePath of repoFiles) {
+      const relativePath =
+        repoName && filePath.startsWith(`${repoName}/`)
+          ? filePath.slice(repoName.length + 1)
+          : filePath;
+      const absolutePath = repoDir
+        ? path.join(repoDir, relativePath)
+        : path.resolve(relativePath);
+      if (fs.existsSync(absolutePath)) {
+        result[relativePath] = fs.readFileSync(absolutePath, 'utf-8');
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Resolves depth-1 import-chain files from the implicated files.
+   * Caps at MAX_RELATED_TYPE_FILES total; excludes already-implicated files.
+   *
+   * @param implicatedRelativePaths - Relative paths of implicated files
+   * @param repoDir - Primary repository directory
+   * @param additionalRepoDirs - Sibling repository directories for cross-repo reads
+   * @returns Map of relative path → file content
+   */
+  private collectRelatedTypeFiles(
+    implicatedRelativePaths: string[],
+    repoDir?: string,
+    additionalRepoDirs?: string[],
+  ): Record<string, string> {
+    const allRepoDirs = [repoDir, ...(additionalRepoDirs ?? [])].filter(
+      Boolean,
+    ) as string[];
+    const implicatedSet = new Set(implicatedRelativePaths);
+    const collected: Record<string, string> = {};
+    const importPattern = /from\s+['"]([^'"]+)['"]/g;
+
+    for (const relativePath of implicatedRelativePaths) {
+      if (Object.keys(collected).length >= MAX_RELATED_TYPE_FILES) break;
+      const absolutePath = repoDir
+        ? path.join(repoDir, relativePath)
+        : path.resolve(relativePath);
+      if (!fs.existsSync(absolutePath)) continue;
+
+      const content = fs.readFileSync(absolutePath, 'utf-8');
+      let match: RegExpExecArray | null;
+      while ((match = importPattern.exec(content)) !== null) {
+        if (Object.keys(collected).length >= MAX_RELATED_TYPE_FILES) break;
+        const importPath = match[1];
+        if (importPath.startsWith('.')) {
+          const importDir = path.dirname(absolutePath);
+          for (const ext of ['.ts', '.tsx', '']) {
+            const candidate = path.resolve(importDir, `${importPath}${ext}`);
+            for (const baseDir of allRepoDirs) {
+              const rel = path.relative(baseDir, candidate);
+              if (
+                !rel.startsWith('..') &&
+                !implicatedSet.has(rel) &&
+                !(rel in collected)
+              ) {
+                if (fs.existsSync(candidate)) {
+                  collected[rel] = fs.readFileSync(candidate, 'utf-8');
+                }
+              }
+            }
+          }
+        }
+      }
+      importPattern.lastIndex = 0;
+    }
+
+    return collected;
+  }
+
+  /**
+   * Collects test source files related to the failure, when test patterns are detected.
+   *
+   * @param failure - Verification failure details
+   * @param repoDir - Primary repository directory
+   * @param additionalRepoDirs - Sibling repository directories
+   * @returns Map of relative path → file content (empty when no test failure detected)
+   */
+  private collectTestSources(
+    failure: VerificationFailure,
+    repoDir?: string,
+    additionalRepoDirs?: string[],
+  ): Record<string, string> {
+    const diagnosticText = failure.results
+      .flatMap((r) => [r.stdout, r.stderr])
+      .filter(Boolean)
+      .join('\n');
+
+    const isTestFailure =
+      /● |expect\(|received|assertion|✕|✗|FAIL\s|0 passing|[0-9]+ failing/i.test(
+        diagnosticText,
+      );
+
+    if (!isTestFailure) return {};
+
+    const allRepoDirs = [repoDir, ...(additionalRepoDirs ?? [])].filter(
+      Boolean,
+    ) as string[];
+    const result: Record<string, string> = {};
+
+    for (const baseDir of allRepoDirs) {
+      // Find test files referenced in the diagnostic output
+      const specPattern = /([^\s'"]+\.spec\.[jt]sx?)/g;
+      const testPattern = /([^\s'"]+\.test\.[jt]sx?)/g;
+      const matchedFiles: string[] = [];
+
+      for (const pat of [specPattern, testPattern]) {
+        let m: RegExpExecArray | null;
+        while ((m = pat.exec(diagnosticText)) !== null) {
+          matchedFiles.push(m[1]);
+        }
+      }
+
+      for (const matched of matchedFiles) {
+        const absPath = path.isAbsolute(matched)
+          ? matched
+          : path.resolve(baseDir, matched);
+        if (fs.existsSync(absPath)) {
+          const rel = path.relative(baseDir, absPath);
+          if (!(rel in result)) {
+            result[rel] = fs.readFileSync(absPath, 'utf-8');
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Orchestrates the two-phase diagnosis: collects file evidence then calls AI for a FixPlan.
+   * Returns null when the AI call fails (caller falls back to prose retry).
+   *
+   * @param failure - Verification failure from the last attempt
+   * @param retryRepoFiles - Files targeted for this retry pass
+   * @param repoName - Repository name prefix
+   * @param planSteps - Original plan steps
+   * @param repoDir - Primary repository directory
+   * @param additionalRepoDirs - Sibling repository directories
+   * @returns Structured FixPlan or null on parse failure
+   */
+  private async diagnoseRetryFailure(
+    failure: VerificationFailure,
+    retryRepoFiles: string[],
+    repoName: string,
+    planSteps: string[],
+    repoDir?: string,
+    additionalRepoDirs?: string[],
+  ): Promise<FixPlan | null> {
+    const implicatedFileContents = this.collectImplicatedFileContents(
+      retryRepoFiles,
+      repoName,
+      repoDir,
+    );
+    const implicatedRelativePaths = Object.keys(implicatedFileContents);
+    const relatedFileContents = this.collectRelatedTypeFiles(
+      implicatedRelativePaths,
+      repoDir,
+      additionalRepoDirs,
+    );
+    const testSources = this.collectTestSources(
+      failure,
+      repoDir,
+      additionalRepoDirs,
+    );
+    const diagnostics = this.formatVerificationFailureMessage(failure);
+
+    try {
+      const fixPlan = await this.aiService.diagnoseVerificationFailure({
+        implicatedFileContents,
+        relatedFileContents,
+        testSources,
+        diagnostics,
+        planSteps,
+      });
+      return fixPlan as FixPlan;
+    } catch (err) {
+      console.log(
+        chalk.yellow(
+          `    ⚠ diagnoseVerificationFailure returned malformed JSON; falling back to prose retry. ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+      return null;
     }
   }
 
