@@ -193,6 +193,7 @@ const implementStageSchema = Joi.object<WfImplementStageConfig>({
     .required(),
   model: Joi.string().min(1).required(),
   afterImplement: afterImplementSchema.optional(),
+  experimentalAgent: Joi.boolean().optional(),
 });
 
 const configSchema = Joi.object<WfConfig>({
