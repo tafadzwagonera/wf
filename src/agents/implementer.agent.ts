@@ -58,6 +58,11 @@ interface VerificationProgress {
   summary: string;
 }
 
+interface RetryRepoContext {
+  packageJson?: string;
+  configFiles: Record<string, string>;
+}
+
 interface FileWriteResult {
   filePath: string;
   changed: boolean;
@@ -83,9 +88,11 @@ export class ImplementerAgent {
    *
    * On verification failure, uses a **two-phase retry** strategy (attempt 2+):
    * 1. Diagnosis — collects failing file contents, depth-1 related type files
-   *    (across repoDir and additionalRepoDirs), and test sources, then calls
-   *    the AI for a structured FixPlan.
+   *    (across repoDir and additionalRepoDirs), repo-level test-runner context,
+   *    and test sources, then calls the AI for a structured FixPlan.
    * 2. Execution — re-generates each file using the FixPlan as shared context.
+   *    When diagnostics implicate a spec/test file, the retry scope expands to
+   *    include its paired implementation file, and vice versa.
    *
    * When `stages.implement.experimentalAgent: true` and `ai.provider` is
    * `'anthropic'`, delegates the entire generate-and-verify loop to
@@ -1114,6 +1121,7 @@ export class ImplementerAgent {
       repoDir,
       additionalRepoDirs,
     );
+    const repoContext = this.collectRetryRepoContext(repoDir);
     const diagnostics = this.formatVerificationFailureMessage(failure);
 
     try {
@@ -1121,6 +1129,7 @@ export class ImplementerAgent {
         implicatedFileContents,
         relatedFileContents,
         testSources,
+        repoContext,
         diagnostics,
         planSteps,
       });
@@ -1193,7 +1202,72 @@ export class ImplementerAgent {
       );
     });
 
-    return implicatedFiles.length > 0 ? implicatedFiles : null;
+    if (implicatedFiles.length === 0) {
+      return null;
+    }
+
+    const relativeRepoFiles = repoFiles.map((filePath) =>
+      repoName && filePath.startsWith(`${repoName}/`)
+        ? filePath.slice(repoName.length + 1)
+        : filePath,
+    );
+    const impliedRelativePaths = new Set<string>();
+
+    for (const filePath of implicatedFiles) {
+      const relativePath =
+        repoName && filePath.startsWith(`${repoName}/`)
+          ? filePath.slice(repoName.length + 1)
+          : filePath;
+      impliedRelativePaths.add(relativePath);
+
+      for (const companionPath of this.findRetryCompanionFiles(
+        relativePath,
+        relativeRepoFiles,
+      )) {
+        impliedRelativePaths.add(companionPath);
+      }
+    }
+
+    return repoFiles.filter((filePath) => {
+      const relativePath =
+        repoName && filePath.startsWith(`${repoName}/`)
+          ? filePath.slice(repoName.length + 1)
+          : filePath;
+      return impliedRelativePaths.has(relativePath);
+    });
+  }
+
+  private findRetryCompanionFiles(
+    relativePath: string,
+    repoRelativePaths: string[],
+  ): string[] {
+    const fileExtension = path.extname(relativePath);
+    const fileWithoutExtension = fileExtension
+      ? relativePath.slice(0, -fileExtension.length)
+      : relativePath;
+    const companionBases = new Set<string>();
+
+    if (fileWithoutExtension.endsWith('.spec')) {
+      companionBases.add(fileWithoutExtension.slice(0, -'.spec'.length));
+    } else if (fileWithoutExtension.endsWith('.test')) {
+      companionBases.add(fileWithoutExtension.slice(0, -'.test'.length));
+    } else {
+      companionBases.add(`${fileWithoutExtension}.spec`);
+      companionBases.add(`${fileWithoutExtension}.test`);
+    }
+
+    return repoRelativePaths.filter((candidatePath) => {
+      if (candidatePath === relativePath) {
+        return false;
+      }
+
+      const candidateExtension = path.extname(candidatePath);
+      const candidateWithoutExtension = candidateExtension
+        ? candidatePath.slice(0, -candidateExtension.length)
+        : candidatePath;
+
+      return companionBases.has(candidateWithoutExtension);
+    });
   }
 
   /**
@@ -1281,19 +1355,25 @@ export class ImplementerAgent {
     );
     const stageAdvanced =
       currentFailureScriptIndex > previousFailureScriptIndex;
+    const stageRegressed =
+      currentFailureScriptIndex < previousFailureScriptIndex;
     const diagnosticLinesReduced =
       currentDiagnosticLineCount < previousDiagnosticLineCount;
     const errorClassesImproved =
       resolvedErrorClasses.length > 0 &&
       introducedErrorClasses.length <= resolvedErrorClasses.length;
     const isMeaningful =
-      stageAdvanced ||
+      (!stageRegressed && stageAdvanced) ||
       (params.trackedFilesChanged &&
+        !stageRegressed &&
         (diagnosticLinesReduced || errorClassesImproved));
 
     const reasons: string[] = [];
     if (stageAdvanced) {
       reasons.push('verification advanced to a later script');
+    }
+    if (stageRegressed) {
+      reasons.push('verification regressed to an earlier script');
     }
     if (params.trackedFilesChanged && diagnosticLinesReduced) {
       reasons.push('diagnostic output shrank after file changes');
@@ -1308,7 +1388,41 @@ export class ImplementerAgent {
       isMeaningful,
       summary: isMeaningful
         ? `Progress detected: ${reasons.join('; ')}.`
-        : 'Verification did not advance to a later script or materially reduce the diagnostics.',
+        : stageRegressed
+          ? `Verification regressed to an earlier script. ${reasons.join('; ')}.`
+          : 'Verification did not advance to a later script or materially reduce the diagnostics.',
+    };
+  }
+
+  private collectRetryRepoContext(repoDir?: string): RetryRepoContext {
+    const configFiles: Record<string, string> = {};
+    const candidateConfigFiles = [
+      'jest.config.ts',
+      'jest.config.js',
+      'jest.config.cjs',
+      'jest.config.mjs',
+      'vitest.config.ts',
+      'vitest.config.js',
+      'mocha.opts',
+      '.mocharc.json',
+      '.mocharc.js',
+      'tsconfig.json',
+    ];
+    const packageJsonPath = path.join(repoDir ?? process.cwd(), 'package.json');
+    const packageJson = fs.existsSync(packageJsonPath)
+      ? fs.readFileSync(packageJsonPath, 'utf-8')
+      : undefined;
+
+    for (const fileName of candidateConfigFiles) {
+      const configPath = path.join(repoDir ?? process.cwd(), fileName);
+      if (fs.existsSync(configPath)) {
+        configFiles[fileName] = fs.readFileSync(configPath, 'utf-8');
+      }
+    }
+
+    return {
+      packageJson,
+      configFiles,
     };
   }
 

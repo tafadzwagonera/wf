@@ -491,6 +491,10 @@ Apply the relevant steps to this file. Return ONLY the complete updated file con
     implicatedFileContents: Record<string, string>;
     relatedFileContents: Record<string, string>;
     testSources: Record<string, string>;
+    repoContext?: {
+      packageJson?: string;
+      configFiles: Record<string, string>;
+    };
     diagnostics: string;
     planSteps: string[];
   }): Promise<FixPlan> {
@@ -509,6 +513,9 @@ Return ONLY a valid JSON object — no markdown fences, no explanation text.`;
     const testSection = Object.entries(params.testSources)
       .map(([file, content]) => `// ${file}\n${content}`)
       .join('\n\n---\n\n');
+    const configSection = Object.entries(params.repoContext?.configFiles ?? {})
+      .map(([file, content]) => `// ${file}\n${content}`)
+      .join('\n\n---\n\n');
 
     const prompt = `Plan steps:
 ${params.planSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
@@ -524,6 +531,13 @@ ${relatedSection || '(none)'}
 
 Test sources:
 ${testSection || '(none)'}
+
+Repository context:
+package.json
+${params.repoContext?.packageJson ?? '(none)'}
+
+Config files:
+${configSection || '(none)'}
 
 Diagnose the root cause and return a fix plan:
 {

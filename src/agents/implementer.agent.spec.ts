@@ -811,19 +811,25 @@ describe('ImplementerAgent', () => {
         },
       );
 
-      expect(aiService.generateFileChange).toHaveBeenCalledTimes(3);
+      expect(aiService.generateFileChange).toHaveBeenCalledTimes(4);
       expect(aiService.generateFileChange.mock.calls[2][0].filePath).toBe(
+        'src/commands/issue-review.command.ts',
+      );
+      expect(aiService.generateFileChange.mock.calls[3][0].filePath).toBe(
         'src/commands/issue-review.command.spec.ts',
       );
       expect(
-        aiService.generateFileChange.mock.calls[2][0].conversationContext,
+        aiService.generateFileChange.mock.calls[3][0].conversationContext,
       ).toContain('Treat verification diagnostics as evidence of a mismatch');
       expect(
-        aiService.generateFileChange.mock.calls[2][0].conversationContext,
+        aiService.generateFileChange.mock.calls[3][0].conversationContext,
       ).toContain('src/commands/issue-review.command.spec.ts');
-
       expect(
         aiService.generateFileChange.mock.calls[2][0].conversationContext,
+      ).toContain('src/commands/issue-review.command.ts');
+
+      expect(
+        aiService.generateFileChange.mock.calls[3][0].conversationContext,
       ).not.toContain('Reconcile');
     });
   });
@@ -930,6 +936,76 @@ describe('ImplementerAgent', () => {
     });
   });
 
+  describe('inferRetryRepoFiles', () => {
+    it('includes paired implementation files for implicated specs', () => {
+      const failure = {
+        attempt: 2,
+        results: [
+          {
+            command: 'npm test',
+            exitCode: 1,
+            stdout: 'FAIL src/example.spec.ts',
+            stderr: '',
+          },
+        ],
+      };
+
+      const result = (agent as any).inferRetryRepoFiles(
+        failure,
+        ['repo-a/src/example.ts', 'repo-a/src/example.spec.ts'],
+        'repo-a',
+        '/tmp/repo-a',
+      );
+
+      expect(result).toEqual(
+        expect.arrayContaining([
+          'repo-a/src/example.ts',
+          'repo-a/src/example.spec.ts',
+        ]),
+      );
+    });
+  });
+
+  describe('assessVerificationProgress', () => {
+    it('does not treat regression to an earlier verification script as meaningful progress', () => {
+      const result = (agent as any).assessVerificationProgress({
+        previousFailure: {
+          attempt: 2,
+          results: [
+            {
+              command: 'npm run lint',
+              exitCode: 0,
+              stdout: '',
+              stderr: '',
+            },
+            {
+              command: 'npm run test',
+              exitCode: 1,
+              stdout:
+                'FAIL src/example.spec.ts\nexpect(received).toBe(expected)',
+              stderr: '',
+            },
+          ],
+        },
+        currentFailure: {
+          attempt: 3,
+          results: [
+            {
+              command: 'npm run lint',
+              exitCode: 1,
+              stdout: 'src/example.spec.ts:1:1  error  unused import',
+              stderr: '',
+            },
+          ],
+        },
+        trackedFilesChanged: true,
+      });
+
+      expect(result.isMeaningful).toBe(false);
+      expect(result.summary).toMatch(/regress/i);
+    });
+  });
+
   describe('diagnoseRetryFailure', () => {
     it('returns a FixPlan from the AI service on success', async () => {
       const mockFailure = {
@@ -995,6 +1071,76 @@ describe('ImplementerAgent', () => {
       );
 
       expect(result).toBeNull();
+    });
+
+    it('passes repo context so diagnosis can respect local test conventions', async () => {
+      const mockFailure = {
+        attempt: 2,
+        results: [
+          {
+            command: 'npm run test',
+            exitCode: 1,
+            stdout: "Cannot find module 'vitest'",
+            stderr: '',
+          },
+        ],
+      };
+      const mockFiles = new Map<string, string>([
+        [
+          '/tmp/repo-a/package.json',
+          JSON.stringify({
+            scripts: {
+              test: 'jest',
+            },
+            jest: {
+              testEnvironment: 'node',
+            },
+          }),
+        ],
+        [
+          '/tmp/repo-a/jest.config.ts',
+          'export default { testEnvironment: "node" };\n',
+        ],
+      ]);
+
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((filePath: string) => mockFiles.has(filePath));
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockImplementation((filePath: string) => {
+          const content = mockFiles.get(filePath);
+          if (content === undefined) {
+            throw new Error(`Unexpected read: ${filePath}`);
+          }
+          return content;
+        });
+
+      (aiService as any).diagnoseVerificationFailure = jest
+        .fn()
+        .mockResolvedValue({
+          summary: 'Use Jest conventions',
+          fixes: [],
+        });
+
+      await (agent as any).diagnoseRetryFailure(
+        mockFailure,
+        ['repo-a/src/example.spec.ts'],
+        'repo-a',
+        ['Update example spec'],
+        '/tmp/repo-a',
+      );
+
+      expect(aiService.diagnoseVerificationFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repoContext: expect.objectContaining({
+            packageJson: expect.stringContaining('"test":"jest"'),
+            configFiles: expect.objectContaining({
+              'jest.config.ts': expect.stringContaining('testEnvironment'),
+            }),
+          }),
+        }),
+      );
     });
   });
 

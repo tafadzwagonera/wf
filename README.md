@@ -112,7 +112,9 @@ export default defineConfig({
       provider: 'anthropic',
       model: 'claude-sonnet-4-20250514',
       afterImplement: {
-        maxAttempts: 2,
+        baseMaxAttempts: 3,
+        maxProgressExtensions: 2,
+        absoluteMaxAttempts: 5,
         fingerprintLineCount: 40,
         policyFile: 'verification.policy.json',
         requireStateChangeForRetry: true,
@@ -585,11 +587,24 @@ wf issue:implement dark-building-creek-fix.json --dry-run
 `issue:implement` uses a **two-phase retry** strategy when verification fails:
 
 1. **Diagnosis** — the AI receives all failing file contents, related type
-   definitions (depth-1 import chain, up to 10 files), and test sources,
-   and returns a structured fix plan.
+   definitions (depth-1 import chain, up to 10 files), repo-level test
+   runner context (`package.json` plus common config files such as
+   `jest.config.ts`), and test sources, and returns a structured fix plan.
 2. **Execution** — each file is regenerated using the fix plan as shared
-   context. Sibling repositories passed via `--repos` are available for
-   cross-repo type reads; writes remain scoped to the primary repository.
+   context. When diagnostics implicate a spec/test file, the retry scope
+   expands to its paired implementation file, and vice versa. Sibling
+   repositories passed via `--repos` are available for cross-repo type
+   reads; writes remain scoped to the primary repository.
+
+This makes `wf issue:implement` safer for common source/spec regressions:
+
+```bash
+# Retry a ticket-backed plan with a paired source/spec update
+wf issue:implement WBP-2971 --repos repo-a
+
+# Retry with read-only sibling repo context while still writing only repo-a
+wf issue:implement WBP-2971 --repos repo-a repo-b
+```
 
 #### Experimental: Anthropic agent backend
 

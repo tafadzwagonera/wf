@@ -6,6 +6,7 @@
  * Verifies:
  *   1. Multi-repo plans are rejected with guidance to use issue or per-repo issue:implement
  *   2. Repository verification manifests run in the selected repo and retries carry diagnostics forward
+ *   3. Retry scope widens to paired implementation/spec files when diagnostics implicate a regression test
  */
 
 import { NestFactory } from '@nestjs/core';
@@ -231,7 +232,7 @@ async function main() {
   }
 
   console.log(
-    '\n🧪 Test 3: retry regenerates only the implicated file\n' +
+    '\n🧪 Test 3: retry regenerates paired implementation and test files\n' +
       '─'.repeat(60),
   );
   {
@@ -268,7 +269,8 @@ async function main() {
 
     const ticket: TicketArtifact = {
       ticketKey: 'TEST-VERIFY-003',
-      content: '# TEST-VERIFY-003: Retry only implicated file\n',
+      content:
+        '# TEST-VERIFY-003: Retry paired implementation and test files\n',
       path: path.join(tmpBaseDir, 'TEST-VERIFY-003.md'),
     };
     const planArtifact: PlanArtifact = {
@@ -276,7 +278,7 @@ async function main() {
       path: path.join(tmpBaseDir, 'TEST-VERIFY-003-plan.json'),
       plan: {
         action: 'feature',
-        summary: 'Retry only the implicated file',
+        summary: 'Retry paired implementation and test files',
         steps: ['Update the command and its regression test'],
         estimatedComplexity: 'medium',
         filesAffected: [
@@ -312,7 +314,7 @@ async function main() {
     let targetedAttempts = 0;
 
     aiService.narrateImplementationPlan = async () =>
-      '## Goal\nRetry only the implicated file.\n\n## Approach\nUse diagnostics to narrow the retry.\n\n## Tasks\n1. repo-a/src/commands/issue-review.command.ts — keep the implementation behavior.\n2. repo-a/src/commands/issue-review.command.spec.ts — align the regression test.';
+      '## Goal\nRetry the paired implementation and regression test files.\n\n## Approach\nUse diagnostics to narrow the retry while keeping the source/spec pair in sync.\n\n## Tasks\n1. repo-a/src/commands/issue-review.command.ts — keep the implementation behavior aligned with the regression.\n2. repo-a/src/commands/issue-review.command.spec.ts — align the regression test.';
     aiService.generateFileChange = async (params: {
       filePath: string;
       conversationContext?: string;
@@ -389,10 +391,13 @@ async function main() {
         [
           'src/commands/issue-review.command.ts',
           'src/commands/issue-review.command.spec.ts',
+          'src/commands/issue-review.command.ts',
           'src/commands/issue-review.command.spec.ts',
         ].join(' | ')
       ) {
-        pass('Retry regenerates only the file implicated by diagnostics');
+        pass(
+          'Retry regenerates the paired implementation and regression test files',
+        );
       } else {
         fail('Retry rewrote an unexpected file set', generatedFiles.join('\n'));
       }
@@ -402,10 +407,12 @@ async function main() {
           'Treat verification diagnostics as evidence of a mismatch',
         ) &&
         generateContexts[2]?.includes(
-          'Only update the implicated file(s) for this retry: src/commands/issue-review.command.spec.ts',
+          'Only update the implicated file(s) for this retry: src/commands/issue-review.command.ts, src/commands/issue-review.command.spec.ts',
         )
       ) {
-        pass('Retry guidance scopes the next AI pass to the implicated file');
+        pass(
+          'Retry guidance scopes the next AI pass to the paired implementation and test files',
+        );
       } else {
         fail(
           'Retry guidance did not scope the next AI pass correctly',
