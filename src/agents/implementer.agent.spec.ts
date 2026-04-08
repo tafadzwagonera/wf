@@ -274,6 +274,37 @@ describe('ImplementerAgent', () => {
       );
     });
 
+    it('passes repository test-runner context into file generation prompts', async () => {
+      const mockFiles = installMockRepoFiles();
+      mockFiles.set(
+        '/tmp/repo-a/jest.config.ts',
+        'export default { testEnvironment: "node" };',
+      );
+
+      jest.spyOn(agent as any, 'runCommand').mockResolvedValue({
+        command: 'ok',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      });
+
+      await agent.execute(ticketArtifact, buildPlan(), {
+        platformName: 'jira',
+        repoDir: '/tmp/repo-a',
+      });
+
+      expect(aiService.generateFileChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repoContext: expect.objectContaining({
+            packageJson: expect.stringContaining('"format:write"'),
+            configFiles: expect.objectContaining({
+              'jest.config.ts': 'export default { testEnvironment: "node" };',
+            }),
+          }),
+        }),
+      );
+    });
+
     it('merges manifest baseline with plan targeted checks and skips waived baseline checks', async () => {
       const mockFiles = installMockRepoFiles();
       mockFiles.set(
@@ -1003,6 +1034,77 @@ describe('ImplementerAgent', () => {
 
       expect(result.isMeaningful).toBe(false);
       expect(result.summary).toMatch(/regress/i);
+    });
+
+    it('treats regression as meaningful when higher-severity errors collapse into small lint residue', () => {
+      const result = (agent as any).assessVerificationProgress({
+        previousFailure: {
+          attempt: 2,
+          results: [
+            {
+              command: 'npm run lint',
+              exitCode: 0,
+              stdout: '',
+              stderr: '',
+            },
+            {
+              command: 'npm run test',
+              exitCode: 1,
+              stdout: [
+                'FAIL src/tripcom.service.spec.ts',
+                "Cannot find module 'vitest' or its corresponding type declarations.",
+                'error TS2322: Type string is not assignable to type TourInfo',
+                'error TS2554: Expected 2 arguments, but got 1.',
+                "error TS2307: Cannot find module 'vitest' or its corresponding type declarations.",
+              ].join('\n'),
+              stderr: '',
+            },
+          ],
+        },
+        furthestFailure: {
+          attempt: 2,
+          results: [
+            {
+              command: 'npm run lint',
+              exitCode: 0,
+              stdout: '',
+              stderr: '',
+            },
+            {
+              command: 'npm run test',
+              exitCode: 1,
+              stdout: [
+                'FAIL src/tripcom.service.spec.ts',
+                "Cannot find module 'vitest' or its corresponding type declarations.",
+                'error TS2322: Type string is not assignable to type TourInfo',
+                'error TS2554: Expected 2 arguments, but got 1.',
+                "error TS2307: Cannot find module 'vitest' or its corresponding type declarations.",
+              ].join('\n'),
+              stderr: '',
+            },
+          ],
+        },
+        currentFailure: {
+          attempt: 3,
+          results: [
+            {
+              command: 'npm run lint:fix',
+              exitCode: 1,
+              stdout: [
+                'src/tripcom.service.spec.ts',
+                "9:7  error  'httpService' is assigned a value but never used",
+                "10:7  error  'configService' is assigned a value but never used",
+              ].join('\n'),
+              stderr: '',
+            },
+          ],
+        },
+        trackedFilesChanged: true,
+      });
+
+      expect(result.isMeaningful).toBe(true);
+      expect(result.summary).toMatch(/higher-severity/i);
+      expect(result.summary).toMatch(/lint/i);
     });
   });
 

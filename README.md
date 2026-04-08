@@ -596,6 +596,19 @@ wf issue:implement dark-building-creek-fix.json --dry-run
    repositories passed via `--repos` are available for cross-repo type
    reads; writes remain scoped to the primary repository.
 
+The retry controller is **history-aware**, not just attempt-to-attempt. It
+tracks the deepest verification stage reached so far and the severity of the
+error classes seen there. That means `issue:implement` can keep going when a
+later-stage framework/type failure is resolved and the next pass regresses to
+an earlier script with only small residual lint/type cleanup left, instead of
+stopping just because the failing command moved earlier.
+
+Repo context is also injected into the implement and diagnosis prompts to
+reduce **test framework drift**. If the selected repository advertises Jest via
+`package.json` or `jest.config.*`, retries explicitly tell the model to stay on
+Jest conventions and avoid introducing `vitest` imports unless Vitest is
+already configured, and vice versa.
+
 This makes `wf issue:implement` safer for common source/spec regressions:
 
 ```bash
@@ -604,6 +617,10 @@ wf issue:implement WBP-2971 --repos repo-a
 
 # Retry with read-only sibling repo context while still writing only repo-a
 wf issue:implement WBP-2971 --repos repo-a repo-b
+
+# Re-run an implement stage with repo context so retries can stay aligned with
+# the repo's configured test framework and verification stack
+wf issue:implement WBP-2971 --repos service-tourv3
 ```
 
 #### Experimental: Anthropic agent backend

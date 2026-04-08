@@ -103,7 +103,7 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
     'Carry out an implementation plan from a ticket-backed or custom plan artifact. ' +
     'Uses a two-phase retry strategy on verification failure: a diagnosis call ' +
     'analyses failing file contents, related type definitions, repo test-runner context, and test sources, ' +
-    'then generates a structured fix plan used as shared context during re-generation. Retry scope widens to paired implementation/spec files when diagnostics implicate one side of the pair. ' +
+    'then generates a structured fix plan used as shared context during re-generation. Retry scope widens to paired implementation/spec files when diagnostics implicate one side of the pair, and history-aware progress tracking keeps retrying when deep failures collapse into smaller earlier-stage residual errors. Repo context is also injected into implement/diagnose prompts to reduce Jest/Vitest framework drift. ' +
     'Enable the experimental Anthropic agent backend (requires provider: anthropic) ' +
     'with stages.implement.experimentalAgent: true in wf.config for agentic tool-use ' +
     'on TypeScript type and test failures. ' +

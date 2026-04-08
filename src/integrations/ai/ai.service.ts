@@ -41,6 +41,82 @@ const resolvePlanPromptRepoExample = (repositories?: string[]): string => {
   return firstRepository?.trim() || 'current-repo';
 };
 
+/**
+ * Derive prompt guardrails from repository test-runner/config context so
+ * implement and diagnosis calls stay aligned with the repo's actual tools.
+ *
+ * The current use case is reducing framework drift between Jest and Vitest,
+ * but the guardrail text stays generic enough for future runner detection.
+ *
+ * @param repoContext - package.json plus discovered config files
+ * @returns Prompt guardrail lines to append to system prompts
+ */
+const buildRepoGuardrails = (repoContext?: {
+  packageJson?: string;
+  configFiles: Record<string, string>;
+}): string[] => {
+  if (!repoContext) {
+    return [];
+  }
+
+  const configFileNames = Object.keys(repoContext.configFiles);
+  const packageJson = repoContext.packageJson?.toLowerCase() ?? '';
+  const hasJestConfig = configFileNames.some((fileName) =>
+    /^jest\.config\./.test(fileName),
+  );
+  const hasVitestConfig = configFileNames.some((fileName) =>
+    /^vitest\.config\./.test(fileName),
+  );
+  const mentionsJest = hasJestConfig || /\bjest\b/.test(packageJson);
+  const mentionsVitest = hasVitestConfig || /\bvitest\b/.test(packageJson);
+  const guardrails: string[] = [
+    'Follow the repository package.json scripts and config files exactly when choosing test APIs and imports.',
+  ];
+
+  if (mentionsJest && !mentionsVitest) {
+    guardrails.push('Detected test framework: Jest.');
+    guardrails.push(
+      'Do not import from vitest or use Vitest-only APIs unless the repo already has Vitest configured.',
+    );
+  } else if (mentionsVitest && !mentionsJest) {
+    guardrails.push('Detected test framework: Vitest.');
+    guardrails.push(
+      'Do not import from jest or use Jest-only globals unless the repo already has Jest configured.',
+    );
+  }
+
+  return guardrails;
+};
+
+/**
+ * Render repository context into prompt-friendly text so the model sees the
+ * package scripts and config files that define the repo's test framework.
+ *
+ * @param repoContext - package.json plus discovered config files
+ * @returns Prompt section or an empty string when no context was provided
+ */
+const formatRepoContextSection = (repoContext?: {
+  packageJson?: string;
+  configFiles: Record<string, string>;
+}): string => {
+  if (!repoContext) {
+    return '';
+  }
+
+  const configSection = Object.entries(repoContext.configFiles)
+    .map(([fileName, content]) => `// ${fileName}\n${content}`)
+    .join('\n\n---\n\n');
+
+  return [
+    'Repository context:',
+    'package.json',
+    repoContext.packageJson ?? '(none)',
+    '',
+    'Config files:',
+    configSection || '(none)',
+  ].join('\n');
+};
+
 export interface AIRequest {
   prompt: string;
   systemPrompt?: string;
@@ -438,7 +514,12 @@ Return ONLY the commit message description, nothing else.`;
     filePath: string;
     existingContent: string;
     conversationContext?: string;
+    repoContext?: {
+      packageJson?: string;
+      configFiles: Record<string, string>;
+    };
   }): Promise<string> {
+    const repoGuardrails = buildRepoGuardrails(params.repoContext);
     const systemPrompt = `You are an expert software engineer implementing code changes.
 Return ONLY the complete updated file content — no explanation, no markdown code blocks, no surrounding text.
 
@@ -451,7 +532,8 @@ Before returning, silently verify (do not write these checks into the output):
 1. Every plan step relevant to this file is implemented
 2. No unrequested additions (YAGNI)
 3. Names describe what things do, not how they work
-4. Diagnostics inform code edits — do not explain, reason, or comment on them`;
+4. Diagnostics inform code edits — do not explain, reason, or comment on them
+${repoGuardrails.length > 0 ? `\n5. Repository guardrails:\n${repoGuardrails.map((guardrail) => `- ${guardrail}`).join('\n')}` : ''}`;
 
     const prompt = `Ticket context:
 ${params.ticketContent.substring(0, 2000)}
@@ -459,6 +541,7 @@ ${params.ticketContent.substring(0, 2000)}
 Implementation steps:
 ${params.planSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 ${params.conversationContext ? `\n${params.conversationContext}\n` : ''}
+${params.repoContext ? `\n${formatRepoContextSection(params.repoContext)}\n` : ''}
 File: ${params.filePath}
 Current content:
 ${params.existingContent || '(empty — create this file from scratch)'}
@@ -498,9 +581,11 @@ Apply the relevant steps to this file. Return ONLY the complete updated file con
     diagnostics: string;
     planSteps: string[];
   }): Promise<FixPlan> {
+    const repoGuardrails = buildRepoGuardrails(params.repoContext);
     const systemPrompt = `You are an expert TypeScript software engineer diagnosing verification failures.
 Analyse the failing file contents, related type definitions, test sources, and diagnostic output.
-Return ONLY a valid JSON object — no markdown fences, no explanation text.`;
+Return ONLY a valid JSON object — no markdown fences, no explanation text.
+${repoGuardrails.length > 0 ? `\nRepository guardrails:\n${repoGuardrails.map((guardrail) => `- ${guardrail}`).join('\n')}` : ''}`;
 
     const implicatedSection = Object.entries(params.implicatedFileContents)
       .map(([file, content]) => `// ${file}\n${content}`)
@@ -513,10 +598,6 @@ Return ONLY a valid JSON object — no markdown fences, no explanation text.`;
     const testSection = Object.entries(params.testSources)
       .map(([file, content]) => `// ${file}\n${content}`)
       .join('\n\n---\n\n');
-    const configSection = Object.entries(params.repoContext?.configFiles ?? {})
-      .map(([file, content]) => `// ${file}\n${content}`)
-      .join('\n\n---\n\n');
-
     const prompt = `Plan steps:
 ${params.planSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
@@ -532,12 +613,7 @@ ${relatedSection || '(none)'}
 Test sources:
 ${testSection || '(none)'}
 
-Repository context:
-package.json
-${params.repoContext?.packageJson ?? '(none)'}
-
-Config files:
-${configSection || '(none)'}
+${formatRepoContextSection(params.repoContext)}
 
 Diagnose the root cause and return a fix plan:
 {

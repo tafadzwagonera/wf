@@ -35,6 +35,16 @@ const DEFAULT_FINGERPRINT_LINE_COUNT = 40;
 const ACTIONABLE_DIAGNOSTIC_PATTERN =
   /(error|failed|exception|cannot|can't|not found|syntaxerror|referenceerror|typeerror|ts\d+|format|prettier|code style|lint|● |expect\(|received|assertion|✕|✗|FAIL\s|0 passing|[0-9]+ failing)/i;
 const MAX_RELATED_TYPE_FILES = 10;
+const ERROR_CLASS_SEVERITY: Record<string, number> = {
+  syntax: 6,
+  module: 5,
+  reference: 5,
+  type: 4,
+  test: 3,
+  generic: 3,
+  lint: 2,
+  format: 1,
+};
 
 interface VerificationCommandResult {
   command: string;
@@ -93,6 +103,12 @@ export class ImplementerAgent {
    * 2. Execution — re-generates each file using the FixPlan as shared context.
    *    When diagnostics implicate a spec/test file, the retry scope expands to
    *    include its paired implementation file, and vice versa.
+   *
+   * Retry extension decisions are history-aware, not just attempt-to-attempt:
+   * the agent tracks the deepest verification stage reached so far and the
+   * highest-severity error classes seen there. This allows one more retry when
+   * a deeper test/type/module failure collapses into a smaller earlier-stage
+   * lint/type residue, while still rejecting genuine oscillation.
    *
    * When `stages.implement.experimentalAgent: true` and `ai.provider` is
    * `'anthropic'`, delegates the entire generate-and-verify loop to
@@ -257,6 +273,7 @@ export class ImplementerAgent {
     let retryFixPlan: FixPlan | undefined;
     let previousFailureFingerprint: string | undefined;
     let previousVerificationFailure: VerificationFailure | undefined;
+    let furthestVerificationFailure: VerificationFailure | undefined;
     let lastVerificationFailure: VerificationFailure | undefined;
     let verificationRewroteTrackedFiles = false;
     let progressExtensionsUsed = 0;
@@ -280,6 +297,7 @@ export class ImplementerAgent {
         planSteps: planArtifact.plan.steps,
         retryContext,
         fixPlan: retryFixPlan,
+        repoContext: this.collectRetryRepoContext(options.repoDir),
       });
 
       if (verificationScripts.length === 0) {
@@ -329,6 +347,7 @@ export class ImplementerAgent {
         this.hasActionableDiagnostics(verificationFailure);
       const progress = this.assessVerificationProgress({
         previousFailure: previousVerificationFailure,
+        furthestFailure: furthestVerificationFailure,
         currentFailure: verificationFailure,
         trackedFilesChanged,
       });
@@ -387,6 +406,10 @@ export class ImplementerAgent {
 
       previousFailureFingerprint = failureFingerprint;
       previousVerificationFailure = verificationFailure;
+      furthestVerificationFailure = this.selectFurthestFailure(
+        furthestVerificationFailure,
+        verificationFailure,
+      );
       retryRepoFiles =
         this.inferRetryRepoFiles(
           verificationFailure,
@@ -520,6 +543,7 @@ export class ImplementerAgent {
     planSteps: string[];
     retryContext?: string;
     fixPlan?: FixPlan;
+    repoContext?: RetryRepoContext;
   }): Promise<FileWriteResult[]> {
     const results: FileWriteResult[] = [];
 
@@ -583,6 +607,7 @@ export class ImplementerAgent {
         filePath: relativePath,
         existingContent,
         conversationContext,
+        repoContext: params.repoContext,
       });
 
       fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
@@ -1323,6 +1348,7 @@ export class ImplementerAgent {
    */
   private assessVerificationProgress(params: {
     previousFailure?: VerificationFailure;
+    furthestFailure?: VerificationFailure;
     currentFailure: VerificationFailure;
     trackedFilesChanged: boolean;
   }): VerificationProgress {
@@ -1337,17 +1363,25 @@ export class ImplementerAgent {
     const previousFailureScriptIndex =
       params.previousFailure.results.length - 1;
     const currentFailureScriptIndex = params.currentFailure.results.length - 1;
+    const furthestFailure = params.furthestFailure ?? params.previousFailure;
+    const furthestFailureScriptIndex = furthestFailure.results.length - 1;
     const previousDiagnosticLineCount = this.countDiagnosticLines(
       params.previousFailure,
     );
     const currentDiagnosticLineCount = this.countDiagnosticLines(
       params.currentFailure,
     );
+    const furthestDiagnosticLineCount =
+      this.countDiagnosticLines(furthestFailure);
     const previousErrorClasses = this.extractErrorClasses(
       params.previousFailure,
     );
     const currentErrorClasses = this.extractErrorClasses(params.currentFailure);
+    const furthestErrorClasses = this.extractErrorClasses(furthestFailure);
     const resolvedErrorClasses = [...previousErrorClasses].filter(
+      (errorClass) => !currentErrorClasses.has(errorClass),
+    );
+    const resolvedHigherSeverityClasses = [...furthestErrorClasses].filter(
       (errorClass) => !currentErrorClasses.has(errorClass),
     );
     const introducedErrorClasses = [...currentErrorClasses].filter(
@@ -1357,16 +1391,38 @@ export class ImplementerAgent {
       currentFailureScriptIndex > previousFailureScriptIndex;
     const stageRegressed =
       currentFailureScriptIndex < previousFailureScriptIndex;
+    const regressedFromFurthest =
+      currentFailureScriptIndex < furthestFailureScriptIndex;
     const diagnosticLinesReduced =
       currentDiagnosticLineCount < previousDiagnosticLineCount;
+    const diagnosticsMuchSmallerThanFurthest =
+      currentDiagnosticLineCount < furthestDiagnosticLineCount;
     const errorClassesImproved =
       resolvedErrorClasses.length > 0 &&
       introducedErrorClasses.length <= resolvedErrorClasses.length;
+    const previousHighestSeverity =
+      this.getHighestErrorSeverity(previousErrorClasses);
+    const currentHighestSeverity =
+      this.getHighestErrorSeverity(currentErrorClasses);
+    const furthestHighestSeverity =
+      this.getHighestErrorSeverity(furthestErrorClasses);
+    const severityImprovedFromPrevious =
+      currentHighestSeverity < previousHighestSeverity;
+    const severityImprovedFromFurthest =
+      currentHighestSeverity < furthestHighestSeverity;
+    const convergingResidualRegression =
+      params.trackedFilesChanged &&
+      regressedFromFurthest &&
+      diagnosticsMuchSmallerThanFurthest &&
+      severityImprovedFromFurthest;
     const isMeaningful =
       (!stageRegressed && stageAdvanced) ||
       (params.trackedFilesChanged &&
         !stageRegressed &&
-        (diagnosticLinesReduced || errorClassesImproved));
+        (diagnosticLinesReduced ||
+          errorClassesImproved ||
+          severityImprovedFromPrevious)) ||
+      convergingResidualRegression;
 
     const reasons: string[] = [];
     if (stageAdvanced) {
@@ -1383,6 +1439,21 @@ export class ImplementerAgent {
         `resolved error classes: ${resolvedErrorClasses.join(', ')}`,
       );
     }
+    if (
+      params.trackedFilesChanged &&
+      !stageRegressed &&
+      severityImprovedFromPrevious
+    ) {
+      reasons.push('highest-severity diagnostics decreased');
+    }
+    if (convergingResidualRegression) {
+      reasons.push(
+        `higher-severity failure classes resolved despite regression: ${resolvedHigherSeverityClasses.join(', ') || 'previous blockers removed'}`,
+      );
+      reasons.push(
+        'remaining diagnostics shrank to a smaller residual lint/type failure',
+      );
+    }
 
     return {
       isMeaningful,
@@ -1392,6 +1463,40 @@ export class ImplementerAgent {
           ? `Verification regressed to an earlier script. ${reasons.join('; ')}.`
           : 'Verification did not advance to a later script or materially reduce the diagnostics.',
     };
+  }
+
+  private getHighestErrorSeverity(errorClasses: Set<string>): number {
+    return [...errorClasses].reduce(
+      (highestSeverity, errorClass) =>
+        Math.max(highestSeverity, ERROR_CLASS_SEVERITY[errorClass] ?? 0),
+      0,
+    );
+  }
+
+  private selectFurthestFailure(
+    currentBest: VerificationFailure | undefined,
+    candidate: VerificationFailure,
+  ): VerificationFailure {
+    if (!currentBest) {
+      return candidate;
+    }
+
+    if (candidate.results.length > currentBest.results.length) {
+      return candidate;
+    }
+
+    if (candidate.results.length < currentBest.results.length) {
+      return currentBest;
+    }
+
+    const candidateSeverity = this.getHighestErrorSeverity(
+      this.extractErrorClasses(candidate),
+    );
+    const currentBestSeverity = this.getHighestErrorSeverity(
+      this.extractErrorClasses(currentBest),
+    );
+
+    return candidateSeverity >= currentBestSeverity ? candidate : currentBest;
   }
 
   private collectRetryRepoContext(repoDir?: string): RetryRepoContext {
@@ -1483,6 +1588,9 @@ export class ImplementerAgent {
     }
     if (/cannot find module|module not found|ts2307/.test(diagnosticText)) {
       errorClasses.add('module');
+    }
+    if (/fail\s|expected:|received:|expect\(|assertion/.test(diagnosticText)) {
+      errorClasses.add('test');
     }
 
     if (errorClasses.size === 0 && diagnosticText.trim()) {

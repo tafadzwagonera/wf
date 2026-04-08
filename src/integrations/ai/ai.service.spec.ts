@@ -334,6 +334,48 @@ describe('AiService', () => {
         expect(call.systemPrompt).not.toContain('Reconcile');
         expect(call.systemPrompt).not.toContain('Self-review');
       });
+
+      it('includes explicit test-runner guardrails when repo context indicates Jest', async () => {
+        const adapter: jest.Mocked<LlmAdapter> = {
+          execute: jest
+            .fn()
+            .mockResolvedValue({ content: 'export const x = 1;' }),
+          executeWithHistory: jest.fn().mockResolvedValue({ content: 'ok' }),
+        } as unknown as jest.Mocked<LlmAdapter>;
+        const service = new AiService(
+          mockLogger,
+          adapter,
+          createConfigService(),
+        );
+
+        await service.generateFileChange({
+          ticketContent: 'ticket',
+          planSteps: ['add export'],
+          filePath: 'src/x.spec.ts',
+          existingContent: '',
+          repoContext: {
+            packageJson: JSON.stringify({
+              scripts: { test: 'jest' },
+              devDependencies: { jest: '^30.0.0' },
+            }),
+            configFiles: {
+              'jest.config.ts': 'export default { testEnvironment: "node" };',
+            },
+          },
+        });
+
+        expect(adapter.execute).toHaveBeenCalledTimes(1);
+        const call = (adapter.execute as jest.Mock).mock.calls[0][0] as {
+          systemPrompt: string;
+          prompt: string;
+        };
+        expect(call.systemPrompt).toContain('Detected test framework: Jest');
+        expect(call.systemPrompt).toContain(
+          'Do not import from vitest or use Vitest-only APIs',
+        );
+        expect(call.prompt).toContain('Repository context');
+        expect(call.prompt).toContain('jest.config.ts');
+      });
     });
 
     it('uses the affected repository names in the plan prompt and forbids raw failing verification commands', async () => {
