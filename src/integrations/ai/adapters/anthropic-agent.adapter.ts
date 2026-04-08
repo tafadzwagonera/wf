@@ -11,14 +11,10 @@ import type {
   PlanArtifact,
   ImplementerOptions,
   IImplementerBackend,
+  VerificationScript,
 } from '../../../agents/interfaces';
 
 const execAsync = promisify(exec);
-
-interface VerificationScript {
-  id: string;
-  command: string;
-}
 
 /**
  * Experimental Anthropic Agent SDK adapter for the implementer stage.

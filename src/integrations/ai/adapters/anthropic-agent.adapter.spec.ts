@@ -1,7 +1,11 @@
 // src/integrations/ai/adapters/anthropic-agent.adapter.spec.ts
 import { ConfigService } from '@nestjs/config';
+import Anthropic from '@anthropic-ai/sdk';
 import * as path from 'path';
 import { AnthropicAgentAdapter } from './anthropic-agent.adapter';
+import type { VerificationScript } from '../../../agents/interfaces';
+
+// ── Helpers ───────────────────────────────────────────────────────────────
 
 const makeConfigService = (
   overrides: Record<string, unknown> = {},
@@ -9,32 +13,83 @@ const makeConfigService = (
   const values: Record<string, unknown> = {
     'ai.anthropicApiKey': 'test-key',
     'ai.model': 'claude-sonnet-4-6',
+    'stages.implement.afterImplement.absoluteMaxAttempts': 3,
     ...overrides,
   };
   return {
-    get: jest
-      .fn()
-      .mockImplementation((key: string, fallback?: unknown) =>
-        key in values ? values[key] : fallback,
-      ),
+    get: jest.fn((key: string, fallback?: unknown) =>
+      key in values ? values[key] : fallback,
+    ),
   } as unknown as ConfigService;
 };
 
+const makeToolUseResponse = (
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  toolId = 'tool_1',
+): Anthropic.Message =>
+  ({
+    id: 'msg_1',
+    type: 'message',
+    role: 'assistant',
+    model: 'claude-sonnet-4-6',
+    stop_reason: 'tool_use',
+    stop_sequence: null,
+    usage: { input_tokens: 10, output_tokens: 10 },
+    content: [
+      { type: 'tool_use', id: toolId, name: toolName, input: toolInput },
+    ],
+  }) as unknown as Anthropic.Message;
+
+const makeEndTurnResponse = (): Anthropic.Message =>
+  ({
+    id: 'msg_2',
+    type: 'message',
+    role: 'assistant',
+    model: 'claude-sonnet-4-6',
+    stop_reason: 'end_turn',
+    stop_sequence: null,
+    usage: { input_tokens: 10, output_tokens: 5 },
+    content: [{ type: 'text', text: 'Done.' }],
+  }) as unknown as Anthropic.Message;
+
+/** Minimal params for generateAndVerify. repoDir defaults to /repo/primary. */
+const makeParams = (
+  repoDir = '/repo/primary',
+  verificationScripts: VerificationScript[] = [],
+) => ({
+  ticket: {
+    ticketKey: 'T-1',
+    content: 'ticket',
+    path: '/tmp/ticket.md',
+  },
+  planArtifact: {
+    action: 'fix' as const,
+    path: '/tmp/plan.json',
+    plan: {
+      action: 'fix' as const,
+      summary: 'test',
+      steps: [],
+      estimatedComplexity: 'low' as const,
+    },
+  },
+  options: { platformName: 'jira', repoDir },
+  verificationScripts,
+  sceneContext: 'implement it',
+  repoFiles: [],
+  repoName: 'primary',
+  trackedFilePaths: [],
+});
+
+// ── Tests ─────────────────────────────────────────────────────────────────
+
 describe('AnthropicAgentAdapter', () => {
-  describe('sandbox enforcement', () => {
-    let adapter: AnthropicAgentAdapter;
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
-    beforeEach(() => {
-      adapter = new AnthropicAgentAdapter(makeConfigService());
-    });
-
-    afterEach(() => {
-      jest.restoreAllMocks();
-    });
-
+  describe('sandbox enforcement (path resolver logic)', () => {
     it('allows read_file within repoDir', () => {
-      // Verify the adapter can be instantiated and the repoDir/additionalRepoDirs
-      // validation logic is correct — tested via the inline resolver below
       const repoDir = '/tmp/repo-a';
       const allReadRoots = [repoDir];
       const validPath = '/tmp/repo-a/src/foo.ts';
@@ -42,14 +97,12 @@ describe('AnthropicAgentAdapter', () => {
         (root) => !path.relative(root, validPath).startsWith('..'),
       );
       expect(inAnyRoot).toBe(true);
-      expect(adapter).toBeDefined();
     });
 
-    it('throws on read_file path escape', async () => {
+    it('throws on read_file path escape', () => {
       const repoDir = '/tmp/repo-a';
       const additionalRepoDirs: string[] = [];
 
-      // Build a test-only version of the path resolver logic
       const resolveReadPath = (rawPath: string): string => {
         const abs = path.isAbsolute(rawPath)
           ? rawPath
@@ -137,64 +190,29 @@ describe('AnthropicAgentAdapter', () => {
   });
 
   describe('generateAndVerify', () => {
-    it('delegates to anthropic client and returns branchName', async () => {
-      const mockCreate = jest.fn().mockResolvedValue({
-        stop_reason: 'end_turn',
-        content: [{ type: 'text', text: 'Done' }],
-      });
+    it('delegates to anthropic client and completes when stop_reason is end_turn', async () => {
+      const mockCreate = jest.fn().mockResolvedValue(makeEndTurnResponse());
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
-      // Replace the client with a mock
       (adapter as any).client = { messages: { create: mockCreate } };
 
       jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
 
-      const result = await adapter.generateAndVerify({
-        ticket: {
-          ticketKey: 'TEST-1',
-          content: '# TEST-1\nfix something',
-          path: '/tmp/ticket.md',
-        },
-        planArtifact: {
-          action: 'fix',
-          path: '/tmp/plan.json',
-          plan: {
-            action: 'fix',
-            summary: 'Fix the thing',
-            steps: ['Step 1'],
-            estimatedComplexity: 'low',
-          },
-        },
-        options: {
-          platformName: 'jira',
-          repoDir: '/tmp/repo-a',
-        },
-        verificationScripts: [],
-        sceneContext: 'scene context',
-        repoFiles: [],
-        repoName: 'repo-a',
-        trackedFilePaths: [],
-      });
+      const result = await adapter.generateAndVerify(makeParams());
 
       expect(mockCreate).toHaveBeenCalledTimes(1);
-      expect(result).toHaveProperty('branchName');
+      expect(result).toBeUndefined();
     });
 
     it('stops after absoluteMaxAttempts turns', async () => {
       let callCount = 0;
       const mockCreate = jest.fn().mockImplementation(async () => {
         callCount++;
-        return {
-          stop_reason: 'tool_use',
-          content: [
-            {
-              type: 'tool_use',
-              id: `tool-${callCount}`,
-              name: 'read_file',
-              input: { path: 'nonexistent.ts' },
-            },
-          ],
-        };
+        return makeToolUseResponse(
+          'read_file',
+          { path: 'nonexistent.ts' },
+          `tool-${callCount}`,
+        );
       });
 
       const adapter = new AnthropicAgentAdapter(
@@ -206,32 +224,107 @@ describe('AnthropicAgentAdapter', () => {
 
       jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
 
-      await adapter.generateAndVerify({
-        ticket: {
-          ticketKey: 'TEST-1',
-          content: '# TEST-1',
-          path: '/tmp/ticket.md',
-        },
-        planArtifact: {
-          action: 'fix',
-          path: '/tmp/plan.json',
-          plan: {
-            action: 'fix',
-            summary: 'Fix',
-            steps: ['Step 1'],
-            estimatedComplexity: 'low',
-          },
-        },
-        options: { platformName: 'jira', repoDir: '/tmp/repo-a' },
-        verificationScripts: [],
-        sceneContext: 'ctx',
-        repoFiles: [],
-        repoName: 'repo-a',
-        trackedFilePaths: [],
-      });
+      await adapter.generateAndVerify(makeParams());
 
-      // Should have stopped at absoluteMaxAttempts (3)
       expect(mockCreate).toHaveBeenCalledTimes(3);
+    });
+
+    it('read_file outside sandbox returns path-escape error as tool result', async () => {
+      const repoDir = '/repo/primary';
+      const mockCreate = jest
+        .fn()
+        .mockResolvedValueOnce(
+          makeToolUseResponse('read_file', { path: '../../../etc/passwd' }),
+        )
+        .mockResolvedValueOnce(makeEndTurnResponse());
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      (adapter as any).client = { messages: { create: mockCreate } };
+
+      await adapter.generateAndVerify(makeParams(repoDir));
+
+      // Second call carries the tool_result; find the last user message
+      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+      const lastUserMsg = secondCallMessages[secondCallMessages.length - 1];
+      const toolResults: Array<{ content: string }> = lastUserMsg.content;
+
+      expect(toolResults[0].content).toMatch(/path-escape/);
+    });
+
+    it('write_file outside repoDir returns write-boundary error as tool result', async () => {
+      const repoDir = '/repo/primary';
+      const mockCreate = jest
+        .fn()
+        .mockResolvedValueOnce(
+          makeToolUseResponse('write_file', {
+            path: '/other-repo/src/file.ts',
+            content: 'x',
+          }),
+        )
+        .mockResolvedValueOnce(makeEndTurnResponse());
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      (adapter as any).client = { messages: { create: mockCreate } };
+
+      await adapter.generateAndVerify(makeParams(repoDir));
+
+      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+      const lastUserMsg = secondCallMessages[secondCallMessages.length - 1];
+      const toolResults: Array<{ content: string }> = lastUserMsg.content;
+
+      expect(toolResults[0].content).toMatch(/write-boundary/);
+    });
+
+    it('run_command blocked when not in whitelist returns blocked error as tool result', async () => {
+      const repoDir = '/repo/primary';
+      const mockCreate = jest
+        .fn()
+        .mockResolvedValueOnce(
+          makeToolUseResponse('run_command', { command: 'rm -rf /' }),
+        )
+        .mockResolvedValueOnce(makeEndTurnResponse());
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      (adapter as any).client = { messages: { create: mockCreate } };
+
+      await adapter.generateAndVerify(makeParams(repoDir));
+
+      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+      const lastUserMsg = secondCallMessages[secondCallMessages.length - 1];
+      const toolResults: Array<{ content: string }> = lastUserMsg.content;
+
+      expect(toolResults[0].content).toMatch(/blocked/);
+    });
+
+    it('run_command allowed when in whitelist does not return a blocked error', async () => {
+      const repoDir = '/repo/primary';
+      const verificationScripts: VerificationScript[] = [
+        {
+          id: 'v1',
+          name: 'build',
+          command: 'echo ok',
+          policy: 'enforced',
+          aliases: [],
+        },
+      ];
+
+      const mockCreate = jest
+        .fn()
+        .mockResolvedValueOnce(
+          makeToolUseResponse('run_command', { command: 'echo ok' }),
+        )
+        .mockResolvedValueOnce(makeEndTurnResponse());
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      (adapter as any).client = { messages: { create: mockCreate } };
+
+      await adapter.generateAndVerify(makeParams(repoDir, verificationScripts));
+
+      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+      const lastUserMsg = secondCallMessages[secondCallMessages.length - 1];
+      const toolResults: Array<{ content: string }> = lastUserMsg.content;
+
+      expect(toolResults[0].content).not.toMatch(/blocked/);
     });
   });
 });
