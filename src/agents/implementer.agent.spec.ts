@@ -827,4 +827,263 @@ describe('ImplementerAgent', () => {
       ).not.toContain('Reconcile');
     });
   });
+
+  describe('hasActionableDiagnostics — expanded patterns', () => {
+    const makeFailure = (stdout: string, stderr = '') => ({
+      attempt: 1,
+      results: [{ command: 'npm test', exitCode: 1, stdout, stderr }],
+    });
+
+    it('detects Jest failure marker (●)', () => {
+      const result = (agent as any).hasActionableDiagnostics(
+        makeFailure(
+          '● SomeTest › should pass\n  Expected: true\n  Received: false',
+        ),
+      );
+      expect(result).toBe(true);
+    });
+
+    it('detects "expect(" assertion lines', () => {
+      const result = (agent as any).hasActionableDiagnostics(
+        makeFailure('expect(received).toBe(expected)'),
+      );
+      expect(result).toBe(true);
+    });
+
+    it('detects "0 passing" (Mocha)', () => {
+      const result = (agent as any).hasActionableDiagnostics(
+        makeFailure('0 passing\n2 failing'),
+      );
+      expect(result).toBe(true);
+    });
+
+    it('detects "X failing" (Mocha)', () => {
+      const result = (agent as any).hasActionableDiagnostics(
+        makeFailure('3 failing'),
+      );
+      expect(result).toBe(true);
+    });
+
+    it('detects FAIL prefix (Jest suite header)', () => {
+      const result = (agent as any).hasActionableDiagnostics(
+        makeFailure('FAIL src/foo.spec.ts'),
+      );
+      expect(result).toBe(true);
+    });
+
+    it('returns false for non-actionable output', () => {
+      const result = (agent as any).hasActionableDiagnostics(
+        makeFailure('Process exited with code 1'),
+      );
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('collectRelatedTypeFiles', () => {
+    it('resolves depth-1 relative imports from implicated files', () => {
+      const mockFiles = new Map<string, string>([
+        [
+          '/tmp/repo-a/src/a.ts',
+          "import { B } from './b';\nexport const a = 1;\n",
+        ],
+        ['/tmp/repo-a/src/b.ts', 'export const B = 2;\n'],
+      ]);
+
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((p: string) => mockFiles.has(p));
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockImplementation((p: string) => mockFiles.get(p) ?? '');
+
+      const result = (agent as any).collectRelatedTypeFiles(
+        ['src/a.ts'],
+        '/tmp/repo-a',
+      );
+
+      expect(Object.keys(result)).toContain('src/b.ts');
+    });
+
+    it('excludes already-implicated files from related files', () => {
+      const mockFiles = new Map<string, string>([
+        [
+          '/tmp/repo-a/src/a.ts',
+          "import { B } from './b';\nexport const a = 1;\n",
+        ],
+        ['/tmp/repo-a/src/b.ts', 'export const B = 2;\n'],
+      ]);
+
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((p: string) => mockFiles.has(p));
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockImplementation((p: string) => mockFiles.get(p) ?? '');
+
+      const result = (agent as any).collectRelatedTypeFiles(
+        ['src/a.ts', 'src/b.ts'],
+        '/tmp/repo-a',
+      );
+
+      // b.ts is already implicated, so it should not appear in related files
+      expect(Object.keys(result)).not.toContain('src/b.ts');
+    });
+  });
+
+  describe('diagnoseRetryFailure', () => {
+    it('returns a FixPlan from the AI service on success', async () => {
+      const mockFailure = {
+        attempt: 2,
+        results: [
+          {
+            command: 'npm run build',
+            exitCode: 1,
+            stdout: 'src/a.ts(1,1): error TS2322',
+            stderr: '',
+          },
+        ],
+      };
+
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+
+      (aiService as any).diagnoseVerificationFailure = jest
+        .fn()
+        .mockResolvedValue({
+          summary: 'Type mismatch in a.ts',
+          fixes: [
+            { file: 'src/a.ts', rationale: 'Fix type', relatedFiles: [] },
+          ],
+        });
+
+      const result = await (agent as any).diagnoseRetryFailure(
+        mockFailure,
+        ['repo-a/src/a.ts'],
+        'repo-a',
+        ['Update a.ts'],
+        '/tmp/repo-a',
+      );
+
+      expect(result).not.toBeNull();
+      expect(result.summary).toBe('Type mismatch in a.ts');
+    });
+
+    it('returns null when AI service returns malformed JSON', async () => {
+      const mockFailure = {
+        attempt: 2,
+        results: [
+          {
+            command: 'npm run build',
+            exitCode: 1,
+            stdout: 'error TS2322',
+            stderr: '',
+          },
+        ],
+      };
+
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+
+      (aiService as any).diagnoseVerificationFailure = jest
+        .fn()
+        .mockRejectedValue(new SyntaxError('Unexpected token'));
+
+      const result = await (agent as any).diagnoseRetryFailure(
+        mockFailure,
+        ['repo-a/src/a.ts'],
+        'repo-a',
+        ['Update a.ts'],
+        '/tmp/repo-a',
+      );
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('experimental agent backend selection', () => {
+    it('falls back with a warning when experimentalAgent is true but provider is not anthropic', async () => {
+      const module = await Test.createTestingModule({
+        providers: [
+          ImplementerAgent,
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest
+                .fn()
+                .mockImplementation((key: string, fallback?: unknown) => {
+                  if (key === 'stages.implement.experimentalAgent') return true;
+                  if (key === 'ai.provider') return 'google';
+                  if (key === 'branching.prefixMapping')
+                    return {
+                      feature: 'feature',
+                      fix: 'bugfix',
+                      investigate: 'chore',
+                    };
+                  if (key === 'stages.implement.afterImplement')
+                    return undefined;
+                  return fallback;
+                }),
+            },
+          },
+          {
+            provide: GitService,
+            useValue: {
+              getCurrentBranch: jest.fn().mockResolvedValue('main'),
+              createBranch: jest.fn().mockResolvedValue(undefined),
+            },
+          },
+          {
+            provide: AiService,
+            useValue: {
+              narrateImplementationPlan: jest
+                .fn()
+                .mockResolvedValue('## Goal\nFallback\n'),
+              generateFileChange: jest
+                .fn()
+                .mockResolvedValue('export const x = 1;\n'),
+              generateFindings: jest.fn(),
+            },
+          },
+        ],
+      }).compile();
+
+      const fallbackAgent = module.get(ImplementerAgent);
+
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((p: string) =>
+          ['/tmp/repo-a/package.json', '/tmp/repo-a/src/example.ts'].includes(
+            p,
+          ),
+        );
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockImplementation((p: string) => {
+          if (p === '/tmp/repo-a/package.json')
+            return JSON.stringify({ scripts: {} });
+          return 'export const x = 0;\n';
+        });
+      jest
+        .spyOn(require('fs'), 'mkdirSync')
+        .mockImplementation(() => undefined as any);
+      jest
+        .spyOn(require('fs'), 'writeFileSync')
+        .mockImplementation(() => undefined);
+
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+      await fallbackAgent.execute(
+        ticketArtifact,
+        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+        { platformName: 'jira', repoDir: '/tmp/repo-a' },
+      );
+
+      const warnCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
+      expect(
+        warnCalls.some(
+          (msg) =>
+            msg.includes('experimentalAgent') || msg.includes('Falling back'),
+        ),
+      ).toBe(true);
+    });
+  });
 });

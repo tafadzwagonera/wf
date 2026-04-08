@@ -637,6 +637,9 @@ export class IssueCommand extends CommandRunner {
             {
               platformName,
               repoDir,
+              additionalRepoDirs: (options.repos ?? [])
+                .filter((r) => r !== repo)
+                .map((r) => resolveRepoBasePath(r)),
               suppressHeader: isMultiRepo,
               conversationContext,
             },

@@ -1,5 +1,40 @@
 // src/agents/interfaces.ts
 import { CodeReview, ResolutionPlan } from '../integrations/ai/ai.service';
+import type { VerificationPolicy } from '../shared/utils/verification-manifest';
+
+/**
+ * A resolved verification script entry used by ImplementerAgent and AnthropicAgentAdapter.
+ * Moved here from implementer.agent.ts to avoid circular imports.
+ */
+export interface VerificationScript {
+  id: string;
+  name: string;
+  command: string;
+  policy: VerificationPolicy;
+  reason?: string;
+  aliases: string[];
+}
+
+/** Per-file fix instruction produced by the diagnosis phase. */
+export interface FixPlanEntry {
+  /** Repo-prefixed file path matching filesAffected format (e.g. "repo/src/foo.ts"). */
+  file: string;
+  /** Why this file needs to change. */
+  rationale: string;
+  /** Related files the AI should read as context — may come from any known repo. */
+  relatedFiles: string[];
+}
+
+/**
+ * Structured fix plan returned by the diagnosis AI call.
+ * Used as shared context for all file re-generations on a retry attempt.
+ */
+export interface FixPlan {
+  summary: string;
+  fixes: FixPlanEntry[];
+  /** Test assertion context when the failure includes test output. */
+  testContext?: string;
+}
 
 export type ResolutionAction = 'feature' | 'fix' | 'investigate';
 
@@ -39,6 +74,9 @@ export interface PlannerOptions {
 export interface ImplementerOptions {
   platformName: string;
   repoDir?: string;
+  /** Sibling repository directories available for cross-repo file reads.
+   *  Writes always stay within repoDir. Populated from --repos options. */
+  additionalRepoDirs?: string[];
   suppressHeader?: boolean;
   conversationContext?: string;
   customBranchSlug?: string;
@@ -62,3 +100,21 @@ export interface FindingsArtifact {
 export type ImplementerResult =
   | { type: 'implementation'; branchName: string }
   | { type: 'investigation'; artifact: FindingsArtifact };
+
+/**
+ * Backend contract for the implementation stage.
+ * Both the standard two-phase path and the experimental agent adapter satisfy this.
+ * generateAndVerify is called after the branch is already created by execute().
+ */
+export interface IImplementerBackend {
+  generateAndVerify(params: {
+    ticket: TicketArtifact;
+    planArtifact: PlanArtifact;
+    options: ImplementerOptions;
+    verificationScripts: VerificationScript[];
+    sceneContext: string;
+    repoFiles: string[];
+    repoName: string;
+    trackedFilePaths: string[];
+  }): Promise<void>;
+}
