@@ -30,10 +30,19 @@ describe('AiService', () => {
               model: 'gemini-2.5-pro',
               default: false,
             },
+            {
+              provider: 'anthropic',
+              apiKey: 'anthropic-key',
+              model: 'claude-sonnet-4-20250514',
+              default: false,
+            },
           ],
-          'ai.stages.commit': 'gemini-2.5-pro',
-          'ai.stages.review': 'gemini-2.5-pro',
-          'stages.implement.model': 'gemini-2.5-pro',
+          'ai.stages.commit.provider': 'google',
+          'ai.stages.commit.model': 'gemini-2.5-pro',
+          'ai.stages.review.provider': 'google',
+          'ai.stages.review.model': 'gemini-2.5-pro',
+          'stages.implement.provider': 'anthropic',
+          'stages.implement.model': 'claude-haiku-4-5-20251001',
         };
 
         return key in values ? values[key] : defaultValue;
@@ -67,7 +76,7 @@ describe('AiService', () => {
   });
 
   describe('stage overrides', () => {
-    it('routes review requests to the provider whose model matches the configured stage override', async () => {
+    it('routes review requests to the configured explicit stage target', async () => {
       const adapter = createAdapter();
       const service = new AiService(mockLogger, adapter, createConfigService());
 
@@ -81,7 +90,7 @@ describe('AiService', () => {
       );
     });
 
-    it('routes implement requests using stages.implement.model when configured', async () => {
+    it('routes implement requests using the explicit implement stage target', async () => {
       const adapter = createAdapter();
       const service = new AiService(mockLogger, adapter, createConfigService());
 
@@ -94,14 +103,14 @@ describe('AiService', () => {
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          provider: 'google',
-          model: 'gemini-2.5-pro',
+          provider: 'anthropic',
+          model: 'claude-haiku-4-5-20251001',
           stage: 'implement',
         }),
       );
     });
 
-    it('routes commit requests to the provider whose model matches the configured stage override', async () => {
+    it('routes commit requests to the configured explicit stage target', async () => {
       const adapter = createAdapter();
       const service = new AiService(mockLogger, adapter, createConfigService());
 
@@ -116,6 +125,21 @@ describe('AiService', () => {
           model: 'gemini-2.5-pro',
           stage: 'commit',
         }),
+      );
+    });
+
+    it('fails fast when only a model override is provided', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(
+        service.execute({
+          prompt: 'commit',
+          stage: 'commit',
+          model: 'gpt-5.4',
+        }),
+      ).rejects.toThrow(
+        /provider and model overrides must be supplied together/i,
       );
     });
 

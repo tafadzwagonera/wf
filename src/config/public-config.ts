@@ -8,6 +8,11 @@ export interface WfAiProviderConfig {
   default?: boolean;
 }
 
+export interface WfAiStageTargetConfig {
+  provider: WfAiProviderName;
+  model: string;
+}
+
 export interface WfAtlassianConfig {
   baseUrl?: string;
   email?: string;
@@ -34,8 +39,7 @@ export interface WfAfterImplementConfig {
   scripts?: Record<string, string>;
 }
 
-export interface WfImplementStageConfig {
-  model?: string;
+export interface WfImplementStageConfig extends WfAiStageTargetConfig {
   afterImplement?: WfAfterImplementConfig;
 }
 
@@ -89,7 +93,7 @@ export interface WfConfig {
     userToken?: string;
   };
   stages?: Partial<
-    Record<'plan' | 'review' | 'generate' | 'commit', string>
+    Record<'plan' | 'review' | 'generate' | 'commit', WfAiStageTargetConfig>
   > & {
     implement?: WfImplementStageConfig;
     fetch?: string;

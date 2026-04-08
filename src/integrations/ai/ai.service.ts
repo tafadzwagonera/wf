@@ -564,6 +564,12 @@ Return ONLY a valid JSON object:
     modelOverride?: string,
   ): { provider?: string; model?: string } {
     if (providerOverride || modelOverride) {
+      if (!providerOverride || !modelOverride) {
+        throw new AIError(
+          'AI provider and model overrides must be supplied together.',
+        );
+      }
+
       return {
         provider: providerOverride,
         model: modelOverride,
@@ -577,25 +583,25 @@ Return ONLY a valid JSON object:
       return { provider, model };
     }
 
+    const stageProvider =
+      this.configService.get<string>(`stages.${stage}.provider`) ??
+      this.configService.get<string>(`ai.stages.${stage}.provider`);
     const stageModel =
       this.configService.get<string>(`stages.${stage}.model`) ??
-      this.configService.get<string>(`ai.stages.${stage}`) ??
-      this.configService.get<Record<string, string>>('ai.stages', {})?.[stage];
+      this.configService.get<string>(`ai.stages.${stage}.model`);
 
-    if (!stageModel) {
+    if (!stageProvider && !stageModel) {
       return { provider, model };
     }
 
-    const providers =
-      this.configService.get<
-        Array<{ provider: string; model?: string; default?: boolean }>
-      >('ai.providers', []) ?? [];
-    const matchingProvider = providers.find(
-      (candidate) => candidate.model === stageModel,
-    );
+    if (!stageProvider || !stageModel) {
+      throw new AIError(
+        `AI stage target for "${stage}" must define provider and model together.`,
+      );
+    }
 
     return {
-      provider: matchingProvider?.provider ?? provider,
+      provider: stageProvider,
       model: stageModel,
     };
   }

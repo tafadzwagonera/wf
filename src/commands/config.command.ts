@@ -18,33 +18,6 @@ const discoverConfigPath = (cwd: string): string | null => {
   return discoverWfConfigPath(cwd);
 };
 
-@Command({
-  name: 'config',
-  description: 'Configure agent settings',
-  options: { isDefault: false },
-})
-export class ConfigCommand extends CommandRunner {
-  constructor(
-    private configService: ConfigService,
-    private logger: LoggerService,
-  ) {
-    super();
-  }
-
-  async run(passedParams: string[]): Promise<void> {
-    void passedParams;
-    console.log(chalk.yellow('\nUsage: wf config <subcommand> [args]'));
-    console.log(chalk.gray('\nSubcommands:'));
-    console.log(chalk.gray('  get <key>        Get configuration value'));
-    console.log(chalk.gray('  set <key> <val>  Set configuration value'));
-    console.log(chalk.gray('  list             List all configuration'));
-    console.log(chalk.gray('\nExamples:'));
-    console.log(chalk.gray('  wf config get atlassian.baseUrl'));
-    console.log(chalk.gray('  wf config set atlassian.email user@example.com'));
-    console.log(chalk.gray('  wf config list\n'));
-  }
-}
-
 @SubCommand({
   name: 'get',
   description: 'Get a configuration value',
@@ -163,5 +136,35 @@ export class ConfigListCommand extends CommandRunner {
     if (!value) return '';
     if (value.length <= 8) return '****';
     return value.substring(0, 4) + '****' + value.substring(value.length - 4);
+  }
+}
+
+@Command({
+  name: 'config',
+  description: 'Configure agent settings',
+  options: { isDefault: false },
+  subCommands: [ConfigGetCommand, ConfigSetCommand, ConfigListCommand],
+})
+export class ConfigCommand extends CommandRunner {
+  constructor(
+    private configService: ConfigService,
+    private logger: LoggerService,
+  ) {
+    super();
+  }
+
+  async run(passedParams: string[]): Promise<void> {
+    void this.configService;
+    void this.logger;
+    void passedParams;
+    console.log(chalk.yellow('\nUsage: wf config <subcommand> [args]'));
+    console.log(chalk.gray('\nSubcommands:'));
+    console.log(chalk.gray('  get <key>        Get configuration value'));
+    console.log(chalk.gray('  set <key> <val>  Set configuration value'));
+    console.log(chalk.gray('  list             List all configuration'));
+    console.log(chalk.gray('\nExamples:'));
+    console.log(chalk.gray('  wf config get atlassian.baseUrl'));
+    console.log(chalk.gray('  wf config set atlassian.email user@example.com'));
+    console.log(chalk.gray('  wf config list\n'));
   }
 }

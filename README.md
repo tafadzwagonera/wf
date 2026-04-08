@@ -104,8 +104,12 @@ export default defineConfig({
     directory: '.wf/state',
   },
   stages: {
-    plan: 'claude-sonnet-4-20250514',
+    plan: {
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-20250514',
+    },
     implement: {
+      provider: 'anthropic',
       model: 'claude-sonnet-4-20250514',
       afterImplement: {
         maxAttempts: 2,
@@ -115,7 +119,10 @@ export default defineConfig({
         retryOnSameFailure: false,
       },
     },
-    review: 'gemini-2.5-pro',
+    review: {
+      provider: 'google',
+      model: 'gemini-2.5-pro',
+    },
   },
 });
 ```
@@ -140,11 +147,17 @@ log:
   directory: .wf/logs
   level: info
 stages:
+  plan:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
   implement:
+    provider: anthropic
     model: claude-sonnet-4-20250514
     afterImplement:
       policyFile: verification.policy.json
-  review: gemini-2.5-pro
+  review:
+    provider: google
+    model: gemini-2.5-pro
 ```
 
 Example verification manifest:
@@ -180,13 +193,14 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - `ai[].provider` selects the backing AI provider for each entry.
 - `ai[].default` is optional when only one provider is configured, and required when two or more providers are configured.
 - `ai[].maxTokens` is only applied to Gemini provider entries using Gemini models; other providers ignore it.
-- `stages.plan`, `stages.review`, and `stages.generate` may override the default model with a string value.
-- `stages.implement` must be an object with an optional `model` and optional `afterImplement`.
+- `stages.plan`, `stages.review`, `stages.generate`, and `stages.commit` accept `{ provider, model }`.
+- `stages.implement` accepts `{ provider, model, afterImplement? }`.
+- Stage targets explicitly override the default `ai.provider` and `ai.model`.
 - Prefer `afterImplement.policyFile` to point at a repository-owned verification manifest. This keeps baseline verification policy tool-agnostic and reusable from CI or other executors.
 - `afterImplement.scripts` remains supported as a fallback when a manifest is not present.
 - Manifest baseline checks run in declaration order. Recommended sequence: `format` → `lint --fix` → `lint` → `build`. This removes formatting noise before the final lint/build gate and makes retries focus on real code issues.
 - Prefer portable wrappers such as `npm run lint`, `bash ./scripts/verify.sh`, or `node ./scripts/verify.mjs` instead of relying on executable bits or shell-specific features.
-- `fetch` and `commit` cannot be overridden.
+- `fetch` cannot be overridden.
 - `wf config get` and `wf config list` read the normalized runtime config.
 - `wf config set` is advisory only and points you at the config file to edit.
 

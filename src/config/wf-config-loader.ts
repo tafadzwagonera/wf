@@ -9,6 +9,7 @@ import { ValidationError } from '../shared/utils/errors';
 import type {
   WfAfterImplementConfig,
   WfAiProviderConfig,
+  WfAiStageTargetConfig,
   WfAiProviderName,
   WfConfig,
   WfImplementStageConfig,
@@ -48,7 +49,8 @@ export interface NormalizedAfterImplementConfig {
 }
 
 export interface NormalizedImplementStageConfig {
-  model?: string;
+  provider: WfAiProviderName;
+  model: string;
   afterImplement?: NormalizedAfterImplementConfig;
 }
 
@@ -76,14 +78,14 @@ export interface NormalizedWfConfig {
     deepseekApiKey?: string;
     model: string;
     maxTokens?: number;
-    stages: Partial<Record<SupportedModelStageName, string>>;
+    stages: Partial<Record<SupportedModelStageName, WfAiStageTargetConfig>>;
   };
   stages: {
-    plan?: string;
+    plan?: WfAiStageTargetConfig;
     implement?: NormalizedImplementStageConfig;
-    review?: string;
-    generate?: string;
-    commit?: string;
+    review?: WfAiStageTargetConfig;
+    generate?: WfAiStageTargetConfig;
+    commit?: WfAiStageTargetConfig;
   };
   atlassian: {
     baseUrl?: string;
@@ -178,8 +180,18 @@ const afterImplementSchema = Joi.object<WfAfterImplementConfig>({
     .optional(),
 }).or('policyFile', 'scripts');
 
+const aiStageTargetSchema = Joi.object<WfAiStageTargetConfig>({
+  provider: Joi.string()
+    .valid('anthropic', 'openai', 'google', 'deepseek')
+    .required(),
+  model: Joi.string().min(1).required(),
+});
+
 const implementStageSchema = Joi.object<WfImplementStageConfig>({
-  model: Joi.string().allow('').optional(),
+  provider: Joi.string()
+    .valid('anthropic', 'openai', 'google', 'deepseek')
+    .required(),
+  model: Joi.string().min(1).required(),
   afterImplement: afterImplementSchema.optional(),
 });
 
@@ -249,12 +261,12 @@ const configSchema = Joi.object<WfConfig>({
     userToken: Joi.string().allow('').optional(),
   }).optional(),
   stages: Joi.object({
-    plan: Joi.string().optional(),
+    plan: aiStageTargetSchema.optional(),
     implement: implementStageSchema.optional(),
-    review: Joi.string().optional(),
-    generate: Joi.string().optional(),
+    review: aiStageTargetSchema.optional(),
+    generate: aiStageTargetSchema.optional(),
     fetch: Joi.string().optional(),
-    commit: Joi.string().optional(),
+    commit: aiStageTargetSchema.optional(),
   }).optional(),
 });
 
@@ -529,6 +541,39 @@ const normalizeAfterImplementConfig = (
 };
 
 /**
+ * Validate and normalize an explicit AI stage target against configured providers.
+ *
+ * @param stageName - Workflow stage name for error messages
+ * @param stageTarget - Consumer-authored stage target
+ * @param configuredProviderNames - Providers declared in ai[]
+ * @returns Normalized stage target or undefined when absent
+ */
+const normalizeStageTarget = ({
+  stageName,
+  stageTarget,
+  configuredProviderNames,
+}: {
+  stageName: SupportedStageName;
+  stageTarget?: WfAiStageTargetConfig;
+  configuredProviderNames: Set<WfAiProviderName>;
+}): WfAiStageTargetConfig | undefined => {
+  if (!stageTarget) {
+    return undefined;
+  }
+
+  if (!configuredProviderNames.has(stageTarget.provider)) {
+    throw new ValidationError(
+      `Invalid wf config: ${stageName} stage references provider "${stageTarget.provider}" which is not configured in ai[].`,
+    );
+  }
+
+  return {
+    provider: stageTarget.provider,
+    model: stageTarget.model,
+  };
+};
+
+/**
  * Normalize user config into the runtime shape consumed by Nest ConfigService.
  *
  * @param rawConfig - Consumer-authored config object
@@ -586,25 +631,48 @@ export const normalizeWfConfig = (
     );
   }
 
+  const configuredProviderNames = new Set(
+    providers.map((provider) => provider.provider),
+  );
+
   const aiStages = (['plan', 'review', 'generate', 'commit'] as const).reduce(
     (result, stageName) => {
-      const stageModel = validatedConfig.stages?.[stageName];
-      if (stageModel) {
-        result[stageName] = stageModel;
+      const stageTarget = normalizeStageTarget({
+        stageName,
+        stageTarget: validatedConfig.stages?.[stageName],
+        configuredProviderNames,
+      });
+      if (stageTarget) {
+        result[stageName] = stageTarget;
       }
       return result;
     },
-    {} as Partial<Record<SupportedModelStageName, string>>,
+    {} as Partial<Record<SupportedModelStageName, WfAiStageTargetConfig>>,
   );
 
-  const normalizedImplementStage = validatedConfig.stages?.implement
-    ? {
-        model: validatedConfig.stages.implement.model || undefined,
-        afterImplement: normalizeAfterImplementConfig(
-          validatedConfig.stages.implement.afterImplement,
-        ),
-      }
-    : undefined;
+  const normalizedImplementStage = (() => {
+    const implementStageConfig = validatedConfig.stages?.implement;
+    if (!implementStageConfig) {
+      return undefined;
+    }
+
+    const implementTarget = normalizeStageTarget({
+      stageName: 'implement',
+      stageTarget: implementStageConfig,
+      configuredProviderNames,
+    });
+
+    if (!implementTarget) {
+      return undefined;
+    }
+
+    return {
+      ...implementTarget,
+      afterImplement: normalizeAfterImplementConfig(
+        implementStageConfig.afterImplement,
+      ),
+    };
+  })();
 
   const providerMap = new Map(
     providers.map((provider) => [provider.provider, provider]),
@@ -638,11 +706,11 @@ export const normalizeWfConfig = (
       stages: aiStages,
     },
     stages: {
-      plan: validatedConfig.stages?.plan,
+      plan: aiStages.plan,
       implement: normalizedImplementStage,
-      review: validatedConfig.stages?.review,
-      generate: validatedConfig.stages?.generate,
-      commit: validatedConfig.stages?.commit,
+      review: aiStages.review,
+      generate: aiStages.generate,
+      commit: aiStages.commit,
     },
     atlassian: {
       baseUrl: validatedConfig.atlassian?.baseUrl,

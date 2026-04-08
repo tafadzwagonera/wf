@@ -212,14 +212,31 @@ describe('wf-config-loader', () => {
 
     it('accepts commit stage model overrides', () => {
       const config = normalizeWfConfig({
-        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            default: true,
+          },
+          { provider: 'google', apiKey: 'gemini-key', model: 'gemini-2.5-pro' },
+        ],
         stages: {
-          commit: 'gemini-2.5-pro',
+          commit: {
+            provider: 'google',
+            model: 'gemini-2.5-pro',
+          },
         },
       });
 
-      expect(config.ai.stages.commit).toBe('gemini-2.5-pro');
-      expect(config.stages.commit).toBe('gemini-2.5-pro');
+      expect(config.ai.stages.commit).toEqual({
+        provider: 'google',
+        model: 'gemini-2.5-pro',
+      });
+      expect(config.stages.commit).toEqual({
+        provider: 'google',
+        model: 'gemini-2.5-pro',
+      });
     });
 
     it('rejects legacy string implement stage overrides', () => {
@@ -232,11 +249,114 @@ describe('wf-config-loader', () => {
       ).toThrow(/implement.*object/i);
     });
 
+    it('accepts explicit provider/model objects for AI-driven stage overrides', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            default: true,
+          },
+          {
+            provider: 'google',
+            apiKey: 'gemini-key',
+            model: 'gemini-2.5-pro',
+          },
+          {
+            provider: 'anthropic',
+            apiKey: 'anthropic-key',
+            model: 'claude-sonnet-4-20250514',
+          },
+        ],
+        stages: {
+          plan: {
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-20250514',
+          },
+          review: {
+            provider: 'google',
+            model: 'gemini-2.5-pro',
+          },
+          implement: {
+            provider: 'anthropic',
+            model: 'claude-haiku-4-5-20251001',
+            afterImplement: {
+              policyFile: '.wf/verification.json',
+            },
+          },
+        },
+      });
+
+      expect(config.ai.stages.review).toEqual({
+        provider: 'google',
+        model: 'gemini-2.5-pro',
+      });
+      expect(config.stages.plan).toEqual({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+      });
+      expect(config.stages.implement).toEqual({
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5-20251001',
+        afterImplement: {
+          baseMaxAttempts: 3,
+          maxProgressExtensions: 2,
+          absoluteMaxAttempts: 5,
+          fingerprintLineCount: 40,
+          requireStateChangeForRetry: true,
+          retryOnSameFailure: false,
+          policyFile: '.wf/verification.json',
+          scripts: {},
+        },
+      });
+    });
+
+    it('rejects string review stage overrides', () => {
+      expect(() =>
+        normalizeWfConfig({
+          stages: {
+            review: 'gemini-2.5-pro',
+          } as never,
+        }),
+      ).toThrow(/review/i);
+    });
+
+    it('rejects stage targets that reference providers not configured in ai[]', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [
+            {
+              provider: 'openai',
+              apiKey: 'openai-key',
+              model: 'gpt-5.4',
+              default: true,
+            },
+          ],
+          stages: {
+            review: {
+              provider: 'google',
+              model: 'gemini-2.5-pro',
+            },
+          },
+        }),
+      ).toThrow(/review.*google.*configured/i);
+    });
+
     it('normalizes implement stage model and afterImplement settings', () => {
       const config = normalizeWfConfig({
-        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            default: true,
+          },
+          { provider: 'google', apiKey: 'gemini-key', model: 'gemini-2.5-pro' },
+        ],
         stages: {
           implement: {
+            provider: 'google',
             model: 'gemini-2.5-pro',
             afterImplement: {
               baseMaxAttempts: 3,
@@ -257,6 +377,7 @@ describe('wf-config-loader', () => {
         },
       });
 
+      expect(config.stages.implement?.provider).toBe('google');
       expect(config.stages.implement?.model).toBe('gemini-2.5-pro');
       expect(config.stages.implement?.afterImplement).toEqual({
         baseMaxAttempts: 3,
@@ -281,6 +402,8 @@ describe('wf-config-loader', () => {
         ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
         stages: {
           implement: {
+            provider: 'openai',
+            model: 'gpt-5.4',
             afterImplement: {
               policyFile: '.wf/verification.json',
             } as any,
@@ -344,7 +467,9 @@ describe('wf-config-loader', () => {
           '    model: gemini-2.5-pro',
           '    default: true',
           'stages:',
-          '  review: gemini-2.5-pro',
+          '  review:',
+          '    provider: google',
+          '    model: gemini-2.5-pro',
           '',
         ].join('\n'),
       );
@@ -353,7 +478,10 @@ describe('wf-config-loader', () => {
 
       expect(config.ai.provider).toBe('google');
       expect(config.ai.model).toBe('gemini-2.5-pro');
-      expect(config.ai.stages.review).toBe('gemini-2.5-pro');
+      expect(config.ai.stages.review).toEqual({
+        provider: 'google',
+        model: 'gemini-2.5-pro',
+      });
     });
   });
 });
