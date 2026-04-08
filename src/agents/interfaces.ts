@@ -1,13 +1,37 @@
 // src/agents/interfaces.ts
 import { CodeReview, ResolutionPlan } from '../integrations/ai/ai.service';
 
+/**
+ * A resolved verification script entry used by ImplementerAgent and AnthropicAgentAdapter.
+ * Moved here from implementer.agent.ts to avoid circular imports.
+ */
+export interface VerificationScript {
+  id: string;
+  name: string;
+  command: string;
+  policy: 'enforced' | 'best_effort';
+  reason?: string;
+  aliases: string[];
+}
+
+/** Per-file fix instruction produced by the diagnosis phase. */
+export interface FixPlanEntry {
+  /** Repo-prefixed file path matching filesAffected format (e.g. "repo/src/foo.ts"). */
+  file: string;
+  /** Why this file needs to change. */
+  rationale: string;
+  /** Related files the AI should read as context — may come from any known repo. */
+  relatedFiles: string[];
+}
+
+/**
+ * Structured fix plan returned by the diagnosis AI call.
+ * Used as shared context for all file re-generations on a retry attempt.
+ */
 export interface FixPlan {
   summary: string;
-  fixes: Array<{
-    file: string;
-    rationale: string;
-    relatedFiles: string[];
-  }>;
+  fixes: FixPlanEntry[];
+  /** Test assertion context when the failure includes test output. */
   testContext?: string;
 }
 
@@ -74,15 +98,20 @@ export type ImplementerResult =
   | { type: 'implementation'; branchName: string }
   | { type: 'investigation'; artifact: FindingsArtifact };
 
+/**
+ * Backend contract for the implementation stage.
+ * Both the standard two-phase path and the experimental agent adapter satisfy this.
+ * generateAndVerify is called after the branch is already created by execute().
+ */
 export interface IImplementerBackend {
   generateAndVerify(params: {
     ticket: TicketArtifact;
     planArtifact: PlanArtifact;
     options: ImplementerOptions;
-    verificationScripts: Array<{ id: string; command: string }>;
+    verificationScripts: VerificationScript[];
     sceneContext: string;
     repoFiles: string[];
     repoName: string;
     trackedFilePaths: string[];
-  }): Promise<{ branchName: string }>;
+  }): Promise<void>;
 }
