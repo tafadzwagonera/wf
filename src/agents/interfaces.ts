@@ -73,6 +73,8 @@ export interface PlannerOptions {
 export interface ImplementerOptions {
   platformName: string;
   repoDir?: string;
+  /** Sibling repository directories available for cross-repo file reads.
+   *  Writes always stay within repoDir. Populated from --repos options. */
   additionalRepoDirs?: string[];
   suppressHeader?: boolean;
   conversationContext?: string;
