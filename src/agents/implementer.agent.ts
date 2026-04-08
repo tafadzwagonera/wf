@@ -12,6 +12,7 @@ import {
   FindingsArtifact,
   ImplementerResult,
   FixPlan,
+  VerificationScript,
 } from './interfaces';
 import { extractSummary, slugify } from './utils';
 import * as fs from 'fs';
@@ -22,7 +23,6 @@ import { createHash } from 'crypto';
 import type { NormalizedAfterImplementConfig } from '../config/wf-config-loader';
 import {
   loadVerificationManifest,
-  VerificationPolicy,
   type VerificationStep,
 } from '../shared/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
@@ -56,15 +56,6 @@ interface VerificationOutcome {
 interface VerificationProgress {
   isMeaningful: boolean;
   summary: string;
-}
-
-interface VerificationScript {
-  id: string;
-  name: string;
-  command: string;
-  policy: VerificationPolicy;
-  reason?: string;
-  aliases: string[];
 }
 
 interface FileWriteResult {
