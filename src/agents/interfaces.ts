@@ -1,5 +1,6 @@
 // src/agents/interfaces.ts
 import { CodeReview, ResolutionPlan } from '../integrations/ai/ai.service';
+import type { VerificationPolicy } from '../shared/utils/verification-manifest';
 
 /**
  * A resolved verification script entry used by ImplementerAgent and AnthropicAgentAdapter.
@@ -9,7 +10,7 @@ export interface VerificationScript {
   id: string;
   name: string;
   command: string;
-  policy: 'enforced' | 'best_effort';
+  policy: VerificationPolicy;
   reason?: string;
   aliases: string[];
 }

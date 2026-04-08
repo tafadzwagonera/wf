@@ -227,7 +227,7 @@ export class ImplementerAgent {
         );
       } else {
         const adapter = new AnthropicAgentAdapter(this.configService);
-        const result = await adapter.generateAndVerify({
+        await adapter.generateAndVerify({
           ticket,
           planArtifact,
           options,
@@ -237,7 +237,7 @@ export class ImplementerAgent {
           repoName,
           trackedFilePaths,
         });
-        return { type: 'implementation', branchName: result.branchName };
+        return { type: 'implementation', branchName };
       }
     }
 

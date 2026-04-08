@@ -46,7 +46,7 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
     repoFiles: string[];
     repoName: string;
     trackedFilePaths: string[];
-  }): Promise<{ branchName: string }> {
+  }): Promise<void> {
     const { options, verificationScripts, sceneContext, repoFiles, repoName } =
       params;
 
@@ -307,11 +307,6 @@ Rules:
       ];
     }
 
-    // Return branchName — branch was already created before this adapter was called
-    const branchName =
-      params.planArtifact.plan.summary?.slice(0, 40).replace(/\s+/g, '-') ||
-      'agent-branch';
-
-    return { branchName };
+    // Branch was already created by ImplementerAgent.execute() before this is called.
   }
 }
