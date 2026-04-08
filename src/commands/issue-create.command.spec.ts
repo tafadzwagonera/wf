@@ -333,17 +333,18 @@ describe('IssueCreateCommand', () => {
     );
     expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: expect.objectContaining({
-          fields: expect.objectContaining({
-            summary: 'Generated ticket',
-            description: expect.objectContaining({
-              content: expect.arrayContaining([
-                expect.objectContaining({ type: 'codeBlock' }),
-                expect.objectContaining({ type: 'bulletList' }),
-              ]),
-            }),
-          }),
-        }),
+        payloadPreviewLines: expect.arrayContaining([
+          'Formatting Summary',
+          '  Code blocks: 1',
+          '  Bullet lists: 1',
+          '  Suspicious raw markers: none',
+          'Ticket Preview',
+          '  ### Summary',
+          '  Generated summary',
+          '  ```json',
+          '  ### Acceptance Criteria',
+          '  - First item',
+        ]),
       }),
     );
   });

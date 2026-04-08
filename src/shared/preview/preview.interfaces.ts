@@ -4,7 +4,7 @@ export interface ApiCallPreview {
   platform: string;
   description: string;
   estimatedResponse?: string;
-  payload?: Record<string, unknown>;
+  payloadPreviewLines?: string[];
 }
 
 export interface FileWritePreview {

@@ -100,30 +100,34 @@ describe('DryRunPreviewService', () => {
         endpoint: '/x',
         platform: 'x',
         description: 'desc',
-        payload: { title: 'Test' },
+        payloadPreviewLines: [
+          'Formatting Summary',
+          '  Verdict: looks Jira-safe',
+        ],
       });
       const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
       expect(calls.some((c) => c.includes('Payload:'))).toBe(true);
-      expect(calls.some((c) => c.includes('"title": "Test"'))).toBe(true);
+      expect(calls.some((c) => c.includes('Verdict: looks Jira-safe'))).toBe(
+        true,
+      );
     });
 
-    it('renders multi-line payload content instead of truncating to one line', () => {
+    it('renders payload preview lines below payload with two-space indentation', () => {
       service.previewApiCall({
         method: 'POST',
         endpoint: '/x',
         platform: 'x',
         description: 'desc',
-        payload: {
-          fields: {
-            description: {
-              content: [{ type: 'codeBlock' }, { type: 'bulletList' }],
-            },
-          },
-        },
+        payloadPreviewLines: ['Formatting Summary', '  Code blocks: 1'],
       });
       const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
-      expect(calls.some((c) => c.includes('"codeBlock"'))).toBe(true);
-      expect(calls.some((c) => c.includes('"bulletList"'))).toBe(true);
+      expect(calls.some((c) => c.includes('↳ Payload:'))).toBe(true);
+      expect(calls.some((c) => c.includes('       Formatting Summary'))).toBe(
+        true,
+      );
+      expect(calls.some((c) => c.includes('         Code blocks: 1'))).toBe(
+        true,
+      );
     });
 
     it('omits payload line when empty', () => {
@@ -132,7 +136,6 @@ describe('DryRunPreviewService', () => {
         endpoint: '/x',
         platform: 'x',
         description: 'desc',
-        payload: {},
       });
       const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
       expect(calls.every((c) => !c.includes('Payload:'))).toBe(true);

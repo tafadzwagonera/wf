@@ -8,7 +8,7 @@ import {
   GitOperationPreview,
 } from './preview.interfaces';
 
-const PAYLOAD_PREVIEW_MAX_LINES = 120;
+const PAYLOAD_LINE_PREFIX = '       ';
 
 /**
  * Service for displaying dry-run previews with consistent formatting across
@@ -45,21 +45,12 @@ export class DryRunPreviewService {
         ),
       );
     }
-    if (preview.payload && Object.keys(preview.payload).length > 0) {
-      const payloadLines = JSON.stringify(preview.payload, null, 2).split('\n');
-      payloadLines
-        .slice(0, PAYLOAD_PREVIEW_MAX_LINES)
-        .forEach((line, i) =>
-          console.log(
-            chalk.black(
-              `     ${i === 0 ? '↳ Payload: ' : '          '}${line}`,
-            ),
-          ),
-        );
-      if (payloadLines.length > PAYLOAD_PREVIEW_MAX_LINES) {
-        console.log(chalk.black('              ...'));
-      }
+    if ((preview.payloadPreviewLines?.length ?? 0) > 0) {
+      console.log(chalk.black('     ↳ Payload:'));
     }
+    preview.payloadPreviewLines?.forEach((line) =>
+      console.log(chalk.black(`${PAYLOAD_LINE_PREFIX}${line}`)),
+    );
   }
 
   /**

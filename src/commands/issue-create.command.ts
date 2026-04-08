@@ -23,6 +23,147 @@ interface IssueCreateOptions {
   dryRun?: boolean;
 }
 
+interface DescriptionFormattingStats {
+  headingCount: number;
+  paragraphCount: number;
+  codeBlockCount: number;
+  bulletListCount: number;
+  orderedListCount: number;
+  suspiciousMarkers: string[];
+}
+
+const buildDescriptionFormattingStats = (
+  node: unknown,
+  stats: DescriptionFormattingStats = {
+    headingCount: 0,
+    paragraphCount: 0,
+    codeBlockCount: 0,
+    bulletListCount: 0,
+    orderedListCount: 0,
+    suspiciousMarkers: [],
+  },
+): DescriptionFormattingStats => {
+  if (!node || typeof node !== 'object') {
+    return stats;
+  }
+
+  const adfNode = node as {
+    type?: string;
+    text?: string;
+    content?: unknown[];
+  };
+
+  switch (adfNode.type) {
+    case 'heading':
+      stats.headingCount++;
+      break;
+    case 'paragraph':
+      stats.paragraphCount++;
+      break;
+    case 'codeBlock':
+      stats.codeBlockCount++;
+      break;
+    case 'bulletList':
+      stats.bulletListCount++;
+      break;
+    case 'orderedList':
+      stats.orderedListCount++;
+      break;
+    case 'text':
+      if (typeof adfNode.text === 'string') {
+        if (adfNode.text.includes('{code')) {
+          stats.suspiciousMarkers.push('raw {code} marker found in text node');
+        }
+        if (/^\*\s+/m.test(adfNode.text)) {
+          stats.suspiciousMarkers.push(
+            'raw "*" bullet marker found in paragraph text',
+          );
+        }
+      }
+      break;
+  }
+
+  adfNode.content?.forEach((child) =>
+    buildDescriptionFormattingStats(child, stats),
+  );
+  return stats;
+};
+
+const buildJiraPayloadPreviewLines = (
+  payload: Record<string, unknown>,
+): string[] => {
+  const description = (payload.fields as { description?: unknown } | undefined)
+    ?.description;
+  const stats = buildDescriptionFormattingStats(description);
+  const suspiciousMarkers =
+    stats.suspiciousMarkers.length > 0
+      ? stats.suspiciousMarkers.join('; ')
+      : 'none';
+  const looksJiraSafe =
+    stats.suspiciousMarkers.length === 0 &&
+    stats.codeBlockCount > 0 &&
+    stats.bulletListCount > 0;
+
+  return [
+    'Formatting Summary',
+    `  Headings: ${stats.headingCount}`,
+    `  Paragraphs: ${stats.paragraphCount}`,
+    `  Code blocks: ${stats.codeBlockCount}`,
+    `  Bullet lists: ${stats.bulletListCount}`,
+    `  Ordered lists: ${stats.orderedListCount}`,
+    `  Suspicious raw markers: ${suspiciousMarkers}`,
+    `  Verdict: ${looksJiraSafe ? 'looks Jira-safe' : 'needs review'}`,
+  ];
+};
+
+const buildTicketPreviewLines = (description: string): string[] => {
+  const trimmedDescription = description.trim();
+  if (!trimmedDescription) {
+    return ['Ticket Preview', '  No description content found'];
+  }
+
+  const lines = trimmedDescription.split('\n').map((line) => line.trimEnd());
+  const blocks: string[][] = [];
+  let currentBlock: string[] = [];
+
+  for (const line of lines) {
+    const startsNewSection =
+      currentBlock.length > 0 &&
+      /^#{3,4}\s+/.test(line) &&
+      currentBlock.some((existingLine) => existingLine.trim().length > 0);
+
+    if (startsNewSection) {
+      blocks.push(currentBlock);
+      currentBlock = [line];
+      continue;
+    }
+
+    currentBlock.push(line);
+  }
+
+  if (currentBlock.length > 0) {
+    blocks.push(currentBlock);
+  }
+
+  const previewLines: string[] = [];
+  let usedBlockCount = 0;
+
+  for (const block of blocks) {
+    const nextLength = previewLines.length + block.length;
+    if (usedBlockCount >= 3 || (previewLines.length > 0 && nextLength > 24)) {
+      break;
+    }
+    previewLines.push(...block);
+    usedBlockCount++;
+  }
+
+  if (previewLines.length < lines.length) {
+    previewLines.push('...');
+  }
+
+  return ['Ticket Preview', ...previewLines.map((line) => `  ${line}`)];
+};
+
 const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
@@ -159,7 +300,14 @@ export class IssueCreateCommand extends CommandRunner {
           platform: platformName,
           description: `Create ticket on ${platformName}`,
           estimatedResponse: '201 Created — ticket key and URL returned',
-          payload,
+          payloadPreviewLines:
+            platformName === 'jira'
+              ? [
+                  ...buildJiraPayloadPreviewLines(payload),
+                  '',
+                  ...buildTicketPreviewLines(ticket.description),
+                ]
+              : [],
         });
 
         this.dryRunPreview.showSummary({
