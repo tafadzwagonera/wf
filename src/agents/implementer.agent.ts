@@ -78,14 +78,27 @@ export class ImplementerAgent {
   ) {}
 
   /**
-   * Displays the implementation guide for the given ticket and plan.
-   * Generates a branch name, checks the current git branch, and logs
-   * the implementation steps from the plan. For investigate actions,
-   * calls Claude to generate structured findings and saves a findings artifact.
+   * Executes the implementation plan for the given ticket.
+   * Generates a branch name, runs code generation, and verifies the result.
+   *
+   * On verification failure, uses a **two-phase retry** strategy (attempt 2+):
+   * 1. Diagnosis — collects failing file contents, depth-1 related type files
+   *    (across repoDir and additionalRepoDirs), and test sources, then calls
+   *    the AI for a structured FixPlan.
+   * 2. Execution — re-generates each file using the FixPlan as shared context.
+   *
+   * When `stages.implement.experimentalAgent: true` and `ai.provider` is
+   * `'anthropic'`, delegates the entire generate-and-verify loop to
+   * AnthropicAgentAdapter (tool-use inner loop). Falls back to the standard
+   * two-phase retry path for all other providers.
+   *
+   * For investigate actions, calls the AI to generate structured findings
+   * and saves a findings artifact instead.
    *
    * @param ticket - The fetched ticket artifact containing key and content
    * @param planArtifact - The generated plan artifact with steps and metadata
-   * @param options - Implementation options including the platform name
+   * @param options - Implementation options; `additionalRepoDirs` threads sibling
+   *   repo paths as read-only context (writes stay scoped to `repoDir`)
    * @returns An ImplementerResult: either an implementation with branchName or an investigation artifact
    */
   async execute(

@@ -67,7 +67,9 @@ interface IssueOptions {
 @Command({
   name: 'issue',
   description:
-    'Complete workflow: fetch, plan, implement, review, and commit. Use --from and --to to control stage range.',
+    'Complete workflow: fetch, plan, implement, review, and commit. Use --from and --to to control stage range. ' +
+    'Pass --repos to specify repositories: the first repo anchors artifact storage; all repos are available as ' +
+    'cross-repo read context during implementation (writes stay scoped to the primary repo).',
   arguments: '<ticket-key>',
   options: { isDefault: false },
 })
