@@ -15,6 +15,15 @@ import type {
   IImplementerBackend,
   VerificationScript,
 } from '../../../agents/interfaces';
+import {
+  buildMutationProgressSignal,
+  buildVerificationCommandOrder,
+  buildVerificationProgressSignal,
+  countDiagnosticLines,
+  extractVerificationErrorClasses,
+  formatImplementProgressSignal,
+  type ImplementProgressVerificationSnapshot,
+} from '../../../shared/utils/implement-verification';
 import { loadAiContextConfig } from './load-ai-context-config';
 
 const execAsync = promisify(exec);
@@ -208,6 +217,7 @@ Rules:
 - Never invent or call any other shell command tool.
 - Writes must stay scoped to the primary repository (${repoDir}).
 - Reads may target ${repoDir} and any configured read-only sibling repositories.
+- Treat the returned progress signal as a heuristic: continue when it says 'continue', focus on the latest edited files when it says 'revisit', and stop only when it says 'complete'.
 - When all verification commands pass (exit 0), stop and provide a concise post-edit summary of new, updated, and deleted files.
 
 Task context:
@@ -330,10 +340,16 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       options.additionalRepoDirs ?? [],
     );
     const allowedCommands = buildAllowedCommands(verificationScripts);
+    const verificationCommandOrder =
+      buildVerificationCommandOrder(verificationScripts);
     const fileChangeStatus = new Map<
       string,
       'created' | 'updated' | 'deleted'
     >();
+    const changedFilesSinceLastVerification = new Set<string>();
+    let previousVerificationSnapshot:
+      | ImplementProgressVerificationSnapshot
+      | undefined;
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
 
     if (!apiKey) {
@@ -408,10 +424,27 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         const relativePath = path.relative(toolContext.repoDir, absolutePath);
         const status = existedBefore ? 'updated' : 'created';
         fileChangeStatus.set(relativePath, status);
+        changedFilesSinceLastVerification.add(relativePath);
+        const progress = buildMutationProgressSignal({
+          change: status,
+          path: relativePath,
+          changedFilesSinceLastVerification: [
+            ...changedFilesSinceLastVerification,
+          ],
+        });
         console.log(
           chalk.cyan(`  [openai-agent] File ${status}: ${relativePath}`),
         );
-        return JSON.stringify({ path: relativePath, status }, null, 2);
+        console.log(
+          chalk.cyan(
+            `  [openai-agent] ${formatImplementProgressSignal(progress)}`,
+          ),
+        );
+        return JSON.stringify(
+          { path: relativePath, status, progress },
+          null,
+          2,
+        );
       },
     });
 
@@ -443,11 +476,24 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         await fs.unlink(absolutePath);
         const relativePath = path.relative(toolContext.repoDir, absolutePath);
         fileChangeStatus.set(relativePath, 'deleted');
+        changedFilesSinceLastVerification.add(relativePath);
+        const progress = buildMutationProgressSignal({
+          change: 'deleted',
+          path: relativePath,
+          changedFilesSinceLastVerification: [
+            ...changedFilesSinceLastVerification,
+          ],
+        });
         console.log(
           chalk.cyan(`  [openai-agent] File deleted: ${relativePath}`),
         );
+        console.log(
+          chalk.cyan(
+            `  [openai-agent] ${formatImplementProgressSignal(progress)}`,
+          ),
+        );
         return JSON.stringify(
-          { path: relativePath, status: 'deleted' },
+          { path: relativePath, status: 'deleted', progress },
           null,
           2,
         );
@@ -501,11 +547,33 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         console.log(
           chalk.cyan(`  [openai-agent] Verification running: ${command}`),
         );
+        const commandIndex = verificationCommandOrder.get(command) ?? -1;
         try {
           const { stdout, stderr } = await execAsync(command, {
             cwd: toolContext.repoDir,
             maxBuffer: MAX_BUFFER_IN_BYTES,
           });
+          const currentSnapshot: ImplementProgressVerificationSnapshot = {
+            command,
+            commandIndex,
+            exitCode: 0,
+            diagnosticLineCount: countDiagnosticLines(stdout, stderr),
+            errorClasses: extractVerificationErrorClasses(stdout, stderr),
+          };
+          const progress = buildVerificationProgressSignal({
+            currentSnapshot,
+            previousSnapshot: previousVerificationSnapshot,
+            changedFilesSinceLastVerification: [
+              ...changedFilesSinceLastVerification,
+            ],
+          });
+          previousVerificationSnapshot = currentSnapshot;
+          changedFilesSinceLastVerification.clear();
+          console.log(
+            chalk.cyan(
+              `  [openai-agent] ${formatImplementProgressSignal(progress)}`,
+            ),
+          );
           return JSON.stringify(
             {
               command,
@@ -513,18 +581,43 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
               exitCode: 0,
               stdout: stdout.trim(),
               stderr: stderr.trim(),
+              progress,
             },
             null,
             2,
           );
         } catch (error: any) {
+          const stdout = error.stdout?.trim?.() ?? '';
+          const stderr = error.stderr?.trim?.() ?? error.message ?? '';
+          const currentSnapshot: ImplementProgressVerificationSnapshot = {
+            command,
+            commandIndex,
+            exitCode: error.code ?? 1,
+            diagnosticLineCount: countDiagnosticLines(stdout, stderr),
+            errorClasses: extractVerificationErrorClasses(stdout, stderr),
+          };
+          const progress = buildVerificationProgressSignal({
+            currentSnapshot,
+            previousSnapshot: previousVerificationSnapshot,
+            changedFilesSinceLastVerification: [
+              ...changedFilesSinceLastVerification,
+            ],
+          });
+          previousVerificationSnapshot = currentSnapshot;
+          changedFilesSinceLastVerification.clear();
+          console.log(
+            chalk.cyan(
+              `  [openai-agent] ${formatImplementProgressSignal(progress)}`,
+            ),
+          );
           return JSON.stringify(
             {
               command,
               allowed: true,
               exitCode: error.code ?? 1,
-              stdout: error.stdout?.trim?.() ?? '',
-              stderr: error.stderr?.trim?.() ?? error.message ?? '',
+              stdout,
+              stderr,
+              progress,
             },
             null,
             2,

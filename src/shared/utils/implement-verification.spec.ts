@@ -1,8 +1,15 @@
 import * as fs from 'fs';
 import {
   appendImplementVerificationAttempt,
+  buildMutationProgressSignal,
+  buildStreamProgressSignal,
+  buildVerificationCommandOrder,
+  buildVerificationProgressSignal,
   classifyVerificationFailure,
+  countDiagnosticLines,
+  extractVerificationErrorClasses,
   formatBackendSelection,
+  formatImplementProgressSignal,
   writeImplementVerificationRunFile,
 } from './implement-verification';
 import type {
@@ -92,6 +99,71 @@ describe('implement verification helpers', () => {
       expect(formatBackendSelection(selection)).toBe(
         'Implement backend: openai-agent (configured: openai-agent, provider: openai)',
       );
+    });
+  });
+
+  describe('progress signals', () => {
+    it('marks file mutations as continue signals', () => {
+      const signal = buildMutationProgressSignal({
+        change: 'updated',
+        path: 'src/example.ts',
+        changedFilesSinceLastVerification: ['src/example.ts'],
+      });
+
+      expect(signal.verdict).toBe('continue');
+      expect(formatImplementProgressSignal(signal)).toContain(
+        'progress: continue',
+      );
+    });
+
+    it('marks a successful verification as complete', () => {
+      const signal = buildVerificationProgressSignal({
+        currentSnapshot: {
+          command: 'npm test',
+          commandIndex: 1,
+          exitCode: 0,
+          diagnosticLineCount: 0,
+          errorClasses: new Set(),
+        },
+      });
+
+      expect(signal.verdict).toBe('complete');
+      expect(signal.nextAction).toContain('Stop');
+    });
+
+    it('marks streamed task progress as continue', () => {
+      const signal = buildStreamProgressSignal({
+        kind: 'task_progress',
+        summary: 'Checking file boundaries',
+        lastToolName: 'Edit',
+      });
+
+      expect(signal.verdict).toBe('continue');
+      expect(signal.reasons).toEqual(
+        expect.arrayContaining(['Checking file boundaries', 'last tool: Edit']),
+      );
+    });
+
+    it('builds a verification command order map from the configured scripts', () => {
+      const order = buildVerificationCommandOrder([
+        { command: 'npm test' },
+        { command: 'npm run lint' },
+      ]);
+
+      expect(order.get('npm test')).toBe(0);
+      expect(order.get('npm run lint')).toBe(1);
+    });
+
+    it('counts diagnostics and extracts error classes', () => {
+      expect(countDiagnosticLines('line one\n\nline two', '')).toBe(2);
+      expect(
+        Array.from(
+          extractVerificationErrorClasses(
+            "src/example.ts:1:1 - error TS2322: Type 'string' is not assignable to type 'number'",
+            'eslint: no-unused-vars',
+          ),
+        ),
+      ).toEqual(expect.arrayContaining(['type', 'lint']));
     });
   });
 

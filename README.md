@@ -461,6 +461,9 @@ wf issue:commit WBP-2971
 # Force conventional commits format
 wf issue:commit WBP-2971 --conventional
 
+# Run the commit stage from source with conventional commits enabled
+yarn start issue:commit -c
+
 # Provide a manual message (bypasses AI)
 wf issue:commit WBP-2971 --message "fix: correct null check in auth middleware"
 
@@ -583,6 +586,9 @@ wf issue:implement merry-tinkering-pine-feature.json
 # Execute a custom YAML plan artifact
 wf issue:implement bold-jumping-wave-fix.yaml
 
+# Run the same command from source while developing wf itself
+yarn start issue:implement WBP-2971 --dry-run
+
 # Preview branch and file work for a custom plan
 wf issue:implement dark-building-creek-fix.json --dry-run
 ```
@@ -595,6 +601,7 @@ Runtime backend selection is separate from plan metadata:
 - `stages.implement.provider: openai` selects `openai-agent`.
 - If the experimental flag is disabled, or the provider is neither `anthropic` nor `openai`, the command falls back to the standard two-phase retry backend.
 - When either experimental agent backend is active, the CLI streams task and tool progress lines while the agent is working, so the implementation loop is no longer a black box.
+- Both experimental backends emit heuristic progress signals so the agent can keep moving when verification is trending in the right direction.
 - The OpenAI backend exposes only an exact-match `verify_command` tool for whitelisted verification commands.
 
 Example:
@@ -681,9 +688,11 @@ loads `~/.claude/CLAUDE.md` and the repository-root `CLAUDE.md`; the OpenAI
 backend loads `~/.openai/OPENAI.md` and the repository-root `.openai/OPENAI.md`.
 If a backend-specific file is missing, it logs a yellow warning and continues.
 The OpenAI backend only exposes an exact-match `verify_command` tool for
-verification, so non-whitelisted commands are rejected before execution. If
-the experimental flag is disabled or the provider is anything else,
-`wf issue:implement` falls back to the standard two-phase path.
+verification, so non-whitelisted commands are rejected before execution. Both
+experimental backends emit heuristic progress signals to encourage continued
+work when verification is converging. If the experimental flag is disabled or
+the provider is anything else, `wf issue:implement` falls back to the
+standard two-phase path.
 
 ```yaml
 stages:

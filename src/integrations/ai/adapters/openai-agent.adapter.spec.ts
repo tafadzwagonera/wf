@@ -188,11 +188,16 @@ describe('OpenAIAgentAdapter', () => {
             readRoots: [{ name: path.basename(repoDir), root: repoDir }],
           };
 
-          await writeTool.execute(
+          const writeResult = await writeTool.execute(
             { path: 'src/foo.ts', content: 'updated\n' },
             { context: workspaceContext },
           );
-          await verifyTool.execute(
+          const writeProgress = JSON.parse(writeResult) as {
+            progress: { verdict: string };
+          };
+          expect(writeProgress.progress.verdict).toBe('continue');
+
+          const verificationResult = await verifyTool.execute(
             { command: 'npm test' },
             {
               context: {
@@ -201,6 +206,10 @@ describe('OpenAIAgentAdapter', () => {
               },
             },
           );
+          const verificationProgress = JSON.parse(verificationResult) as {
+            progress: { verdict: string };
+          };
+          expect(verificationProgress.progress.verdict).toBe('complete');
 
           return mockRunResult;
         }),

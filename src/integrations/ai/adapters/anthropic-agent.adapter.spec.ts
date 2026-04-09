@@ -323,6 +323,11 @@ describe('AnthropicAgentAdapter', () => {
         ).toBe(true);
         expect(
           mockLog.mock.calls.some(([message]) =>
+            String(message).includes('progress: continue'),
+          ),
+        ).toBe(true);
+        expect(
+          mockLog.mock.calls.some(([message]) =>
             String(message).includes(
               'Tool progress: Write (2.4s) · task: task-1',
             ),

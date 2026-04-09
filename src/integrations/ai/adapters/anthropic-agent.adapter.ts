@@ -17,6 +17,10 @@ import type {
   IImplementerBackend,
   VerificationScript,
 } from '../../../agents/interfaces';
+import {
+  buildStreamProgressSignal,
+  formatImplementProgressSignal,
+} from '../../../shared/utils/implement-verification';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
@@ -98,13 +102,24 @@ const formatProgressMessage = (message: SDKMessage): string | null => {
     const lastToolLabel = message.last_tool_name
       ? ` · last tool: ${message.last_tool_name}`
       : '';
-    return `  [claude-agent-sdk] Task progress: ${summary}${lastToolLabel}`;
+    const signal = buildStreamProgressSignal({
+      kind: 'task_progress',
+      summary,
+      lastToolName: message.last_tool_name,
+    });
+    return `  [claude-agent-sdk] Task progress: ${summary}${lastToolLabel} · ${formatImplementProgressSignal(signal)}`;
   }
 
   if (message.type === 'tool_progress') {
     const elapsedSeconds = message.elapsed_time_seconds.toFixed(1);
     const taskLabel = message.task_id ? ` · task: ${message.task_id}` : '';
-    return `  [claude-agent-sdk] Tool progress: ${message.tool_name} (${elapsedSeconds}s)${taskLabel}`;
+    const signal = buildStreamProgressSignal({
+      kind: 'tool_progress',
+      toolName: message.tool_name,
+      elapsedTimeSeconds: message.elapsed_time_seconds,
+      taskId: message.task_id,
+    });
+    return `  [claude-agent-sdk] Tool progress: ${message.tool_name} (${elapsedSeconds}s)${taskLabel} · ${formatImplementProgressSignal(signal)}`;
   }
 
   return null;
@@ -206,6 +221,7 @@ Rules:
 - Use Bash only for verification commands that appear in the verification whitelist
 - Writes are allowed only within the primary repository (${repoDir})
 - Reads are allowed from ${repoDir} and any configured read-only sibling repositories
+- Treat streamed progress updates as heuristics: continue when they point to forward motion, revisit when the pass looks stuck, and stop only when the agent returns a final result.
 - When all verification commands pass (exit 0), stop and do not make further changes
 - Return only the code or file content needed for the change, not explanations
 
