@@ -428,35 +428,41 @@ export class ImplementerAgent {
         furthestVerificationFailure,
         verificationFailure,
       );
-      retryRepoFiles =
-        this.inferRetryRepoFiles(
-          verificationFailure,
-          repoFiles,
-          repoName,
-          options.repoDir,
-        ) ?? repoFiles;
-      retryContext = this.buildRetryContext(
-        options.conversationContext,
-        verificationFailure,
-        retryRepoFiles,
-        repoName,
-      );
-
       // Two-phase retry: on attempt 2+ run diagnosis before regeneration
       console.log(
         chalk.yellow(
           `    Verification failed on attempt ${attemptNumber}. Running two-phase diagnosis...`,
         ),
       );
+      const inferredRetryRepoFiles = this.inferRetryRepoFiles(
+        verificationFailure,
+        repoFiles,
+        repoName,
+        options.repoDir,
+      );
       retryFixPlan =
         (await this.diagnoseRetryFailure(
           verificationFailure,
-          retryRepoFiles,
+          inferredRetryRepoFiles ?? retryRepoFiles,
           repoName,
           planArtifact.plan.steps,
           options.repoDir,
           options.additionalRepoDirs,
         )) ?? undefined;
+      retryRepoFiles = this.selectRetryRepoFiles({
+        currentRetryRepoFiles: retryRepoFiles,
+        repoFiles,
+        repoName,
+        repoDir: options.repoDir,
+        failure: verificationFailure,
+        fixPlan: retryFixPlan,
+      });
+      retryContext = this.buildRetryContext(
+        options.conversationContext,
+        verificationFailure,
+        retryRepoFiles,
+        repoName,
+      );
     }
 
     if ((planArtifact.plan.repositoriesAffected?.length ?? 0) > 0) {
@@ -1252,6 +1258,7 @@ export class ImplementerAgent {
       'Treat verification diagnostics as evidence of a mismatch, not as the source of truth.',
       'Apply the minimum code change that fixes the diagnostic. Do not output explanation, reasoning, or commentary.',
       `Only update the implicated file(s) for this retry: ${relativeRetryFiles.join(', ')}`,
+      'Do not widen the change scope beyond those files unless the diagnostics explicitly require it.',
     ].join('\n');
 
     return [baseContext, retryGuidance, diagnostics]
@@ -1319,6 +1326,100 @@ export class ImplementerAgent {
           : filePath;
       return impliedRelativePaths.has(relativePath);
     });
+  }
+
+  /**
+   * Chooses the file set for the next retry attempt.
+   *
+   * Prefers explicit diagnosis output, then the latest path-based diagnostics,
+   * and finally preserves the current narrowed retry scope when newer errors
+   * do not mention any additional files.
+   *
+   * @param params - Retry selection context
+   * @returns Repo-prefixed file paths for the next retry pass
+   */
+  private selectRetryRepoFiles(params: {
+    currentRetryRepoFiles: string[];
+    repoFiles: string[];
+    repoName: string;
+    repoDir?: string;
+    failure: VerificationFailure;
+    fixPlan?: FixPlan;
+  }): string[] {
+    const inferredRetryRepoFiles =
+      this.inferRetryRepoFiles(
+        params.failure,
+        params.repoFiles,
+        params.repoName,
+        params.repoDir,
+      ) ?? [];
+    const fixPlanRetryRepoFiles = this.resolveFixPlanRetryRepoFiles(
+      params.fixPlan,
+      params.repoFiles,
+      params.repoName,
+    );
+
+    if (fixPlanRetryRepoFiles.length > 0) {
+      return fixPlanRetryRepoFiles;
+    }
+
+    if (inferredRetryRepoFiles.length > 0) {
+      return inferredRetryRepoFiles;
+    }
+
+    return params.currentRetryRepoFiles;
+  }
+
+  /**
+   * Maps diagnosis fix-plan entries back to the tracked repo file set.
+   *
+   * Includes paired source/spec companions so source and regression edits stay
+   * synchronized on the next retry attempt.
+   *
+   * @param fixPlan - Structured diagnosis output for the failed verification pass
+   * @param repoFiles - Files assigned to the selected repository
+   * @param repoName - Repository name prefix
+   * @returns Repo-prefixed file paths selected from the fix plan
+   */
+  private resolveFixPlanRetryRepoFiles(
+    fixPlan: FixPlan | undefined,
+    repoFiles: string[],
+    repoName: string,
+  ): string[] {
+    if (!fixPlan || fixPlan.fixes.length === 0) {
+      return [];
+    }
+
+    const repoFileByRelativePath = new Map<string, string>();
+    for (const filePath of repoFiles) {
+      const relativePath =
+        repoName && filePath.startsWith(`${repoName}/`)
+          ? filePath.slice(repoName.length + 1)
+          : filePath;
+      repoFileByRelativePath.set(relativePath, filePath);
+    }
+
+    const selectedRelativePaths = new Set<string>();
+    for (const fix of fixPlan.fixes) {
+      const relativePath =
+        repoName && fix.file.startsWith(`${repoName}/`)
+          ? fix.file.slice(repoName.length + 1)
+          : fix.file;
+      if (!repoFileByRelativePath.has(relativePath)) {
+        continue;
+      }
+
+      selectedRelativePaths.add(relativePath);
+      for (const companionPath of this.findRetryCompanionFiles(relativePath, [
+        ...repoFileByRelativePath.keys(),
+      ])) {
+        selectedRelativePaths.add(companionPath);
+      }
+    }
+
+    return [...selectedRelativePaths]
+      .map((relativePath) => repoFileByRelativePath.get(relativePath))
+      .filter((filePath): filePath is string => Boolean(filePath));
   }
 
   private findRetryCompanionFiles(

@@ -597,9 +597,11 @@ wf issue:implement dark-building-creek-fix.json --dry-run
    `jest.config.ts`), and test sources, and returns a structured fix plan.
 2. **Execution** — each file is regenerated using the fix plan as shared
    context. When diagnostics implicate a spec/test file, the retry scope
-   expands to its paired implementation file, and vice versa. Sibling
-   repositories passed via `--repos` are available for cross-repo type
-   reads; writes remain scoped to the primary repository.
+   expands to its paired implementation file, and vice versa. Once the retry
+   scope has been narrowed, later retries stay pinned to that smallest
+   implicated file set unless newer diagnostics explicitly name additional
+   files. Sibling repositories passed via `--repos` are available for
+   cross-repo type reads; writes remain scoped to the primary repository.
 
 The retry controller is **history-aware**, not just attempt-to-attempt. It
 tracks the deepest verification stage reached so far and the severity of the
@@ -633,6 +635,10 @@ wf issue:implement WBP-2971 --repos repo-a repo-b
 # Re-run an implement stage with repo context so retries can stay aligned with
 # the repo's configured test framework and verification stack
 wf issue:implement WBP-2971 --repos service-tourv3
+
+# Execute a custom plan artifact and let retries stay pinned to the files
+# named by the latest verification failure
+wf issue:implement dark-building-creek-fix.json --repos service-tourv3
 ```
 
 #### Experimental: Anthropic agent backend

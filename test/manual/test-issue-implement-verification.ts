@@ -7,6 +7,7 @@
  *   1. Multi-repo plans are rejected with guidance to use issue or per-repo issue:implement
  *   2. Repository verification manifests run in the selected repo and retries carry diagnostics forward
  *   3. Retry scope widens to paired implementation/spec files when diagnostics implicate a regression test
+ *   4. Once narrowed, retry scope stays pinned to the implicated file set unless later diagnostics name more files
  */
 
 import { NestFactory } from '@nestjs/core';
@@ -429,6 +430,56 @@ async function main() {
       gitService.createBranch = originalCreateBranch;
       (implementer as any).runCommand = originalRunCommand;
       fs.rmSync(tmpBaseDir, { recursive: true, force: true });
+    }
+  }
+
+  console.log(
+    '\n🧪 Test 4: narrowed retry scope stays pinned without new file paths\n' +
+      '─'.repeat(60),
+  );
+  {
+    const result = (implementer as any).selectRetryRepoFiles({
+      currentRetryRepoFiles: [
+        'repo-a/src/commands/issue-review.command.ts',
+        'repo-a/src/commands/issue-review.command.spec.ts',
+      ],
+      repoFiles: [
+        'repo-a/src/commands/issue-review.command.ts',
+        'repo-a/src/commands/issue-review.command.spec.ts',
+        'repo-a/src/commands/issue-review.contract.ts',
+        'repo-a/docs/issue-review.md',
+      ],
+      repoName: 'repo-a',
+      repoDir: '/tmp/repo-a',
+      failure: {
+        attempt: 3,
+        results: [
+          {
+            command: 'npm run test',
+            exitCode: 1,
+            stdout:
+              "error TS2339: Property 'description' does not exist on type 'TourDailyInfo'.",
+            stderr: '',
+          },
+        ],
+      },
+    });
+
+    if (
+      JSON.stringify(result) ===
+      JSON.stringify([
+        'repo-a/src/commands/issue-review.command.ts',
+        'repo-a/src/commands/issue-review.command.spec.ts',
+      ])
+    ) {
+      pass(
+        'Path-less residual diagnostics keep the retry pinned to the current narrowed file set',
+      );
+    } else {
+      fail(
+        'Retry scope widened unexpectedly after path-less residual diagnostics',
+        JSON.stringify(result, null, 2),
+      );
     }
   }
 

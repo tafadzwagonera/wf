@@ -1114,6 +1114,84 @@ describe('ImplementerAgent', () => {
     });
   });
 
+  describe('selectRetryRepoFiles', () => {
+    it('keeps the current narrowed retry set when the next failure has no path match', () => {
+      const result = (agent as any).selectRetryRepoFiles({
+        currentRetryRepoFiles: [
+          'repo-a/src/example.ts',
+          'repo-a/src/example.spec.ts',
+        ],
+        repoFiles: [
+          'repo-a/src/example.ts',
+          'repo-a/src/example.spec.ts',
+          'repo-a/src/example.types.ts',
+          'repo-a/docs/example.mapping.md',
+        ],
+        repoName: 'repo-a',
+        repoDir: '/tmp/repo-a',
+        failure: {
+          attempt: 3,
+          results: [
+            {
+              command: 'npm run test',
+              exitCode: 1,
+              stdout: "error TS2339: Property 'description' does not exist",
+              stderr: '',
+            },
+          ],
+        },
+      });
+
+      expect(result).toEqual([
+        'repo-a/src/example.ts',
+        'repo-a/src/example.spec.ts',
+      ]);
+    });
+
+    it('prefers the fix plan target files over a broader retry set', () => {
+      const result = (agent as any).selectRetryRepoFiles({
+        currentRetryRepoFiles: [
+          'repo-a/src/example.ts',
+          'repo-a/src/example.spec.ts',
+          'repo-a/src/example.types.ts',
+        ],
+        repoFiles: [
+          'repo-a/src/example.ts',
+          'repo-a/src/example.spec.ts',
+          'repo-a/src/example.types.ts',
+        ],
+        repoName: 'repo-a',
+        failure: {
+          attempt: 2,
+          results: [
+            {
+              command: 'npm run lint:fix',
+              exitCode: 1,
+              stdout:
+                "src/example.spec.ts\n1:1  error  'unused' is defined but never used",
+              stderr: '',
+            },
+          ],
+        },
+        fixPlan: {
+          summary: 'Remove stale spec-only imports',
+          fixes: [
+            {
+              file: 'src/example.spec.ts',
+              rationale: 'Trim unused imports from the spec',
+              relatedFiles: ['src/example.ts'],
+            },
+          ],
+        },
+      });
+
+      expect(result).toEqual([
+        'repo-a/src/example.spec.ts',
+        'repo-a/src/example.ts',
+      ]);
+    });
+  });
+
   describe('assessVerificationProgress', () => {
     it('does not treat regression to an earlier verification script as meaningful progress', () => {
       const result = (agent as any).assessVerificationProgress({

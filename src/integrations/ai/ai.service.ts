@@ -585,6 +585,8 @@ Apply the relevant steps to this file. Return ONLY the complete updated file con
     const repoGuardrails = buildRepoGuardrails(params.repoContext);
     const systemPrompt = `You are an expert TypeScript software engineer diagnosing verification failures.
 Analyse the failing file contents, related type definitions, test sources, and diagnostic output.
+Prefer the smallest next-change surface that can satisfy the latest verification failure.
+Do not include documentation, mapping, or unrelated support files unless the diagnostics require edits there.
 Return ONLY a valid JSON object — no markdown fences, no explanation text.
 ${repoGuardrails.length > 0 ? `\nRepository guardrails:\n${repoGuardrails.map((guardrail) => `- ${guardrail}`).join('\n')}` : ''}`;
 
@@ -616,7 +618,7 @@ ${testSection || '(none)'}
 
 ${formatRepoContextSection(params.repoContext)}
 
-Diagnose the root cause and return a fix plan:
+Diagnose the root cause and return a fix plan. List only the files that should change on the next retry pass:
 {
   "summary": "One-sentence root-cause description",
   "fixes": [
