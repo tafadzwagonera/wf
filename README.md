@@ -590,7 +590,7 @@ wf issue:implement dark-building-creek-fix.json --dry-run
 Runtime backend selection is separate from plan metadata:
 
 - `plan.provider` tags the plan/model for analysis and reporting.
-- `stages.implement.experimentalAgent: true` enables the experimental Anthropic agent backend.
+- `stages.implement.experimentalAgent: true` enables the experimental Claude Agent SDK backend.
 - `ai.provider: anthropic` must be active for `wf issue:implement` to select `anthropic-agent`.
 - If the experimental flag is disabled, or the active provider is not `anthropic`, the command falls back to the standard two-phase retry backend.
 
@@ -665,14 +665,15 @@ wf issue:implement WBP-2971 --repos service-tourv3
 wf issue:implement dark-building-creek-fix.json --repos service-tourv3
 ```
 
-#### Experimental: Anthropic agent backend
+#### Experimental: Claude Agent SDK backend
 
 Set `stages.implement.experimentalAgent: true` in `wf.config.*` and keep the
-active AI provider set to `anthropic` to use the Anthropic agent backend. The
-model drives its own inner loop via `read_file`, `write_file`, and
-`run_command` tools, iterating until verification passes. If the active
-provider is anything else, `wf issue:implement` falls back to the standard
-two-phase path.
+active AI provider set to `anthropic` to use the Claude Agent SDK backend. The
+model drives its own inner loop via built-in Claude Code tools, iterating until
+verification passes. The backend explicitly loads `~/.claude/CLAUDE.md` and
+the repository-root `CLAUDE.md`; if either file is missing, it logs a yellow
+warning and continues. If the active provider is anything else,
+`wf issue:implement` falls back to the standard two-phase path.
 
 ```yaml
 stages:

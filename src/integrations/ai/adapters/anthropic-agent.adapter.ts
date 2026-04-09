@@ -1,11 +1,16 @@
 // src/integrations/ai/adapters/anthropic-agent.adapter.ts
 import { ConfigService } from '@nestjs/config';
-import Anthropic from '@anthropic-ai/sdk';
+import {
+  query,
+  type CanUseTool,
+  type SDKResultMessage,
+  type Settings,
+  type SettingSource,
+} from '@anthropic-ai/claude-agent-sdk';
 import chalk from 'chalk';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
+import * as os from 'os';
 import * as path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import type {
   TicketArtifact,
   PlanArtifact,
@@ -14,24 +19,167 @@ import type {
   VerificationScript,
 } from '../../../agents/interfaces';
 
-const execAsync = promisify(exec);
+const CLAUDE_CODE_TOOLS = [
+  'Read',
+  'Write',
+  'Edit',
+  'Bash',
+  'Glob',
+  'Grep',
+  'TodoWrite',
+  'Task',
+  'Agent',
+] as const;
+
+const normalizeCommand = (command: unknown): string =>
+  typeof command === 'string' ? command.trim() : '';
+
+const buildAllowedCommands = (
+  verificationScripts: VerificationScript[],
+): Set<string> =>
+  new Set(
+    verificationScripts
+      .map((script) => script.command.trim())
+      .filter((command) => command.length > 0),
+  );
+
+const buildCanUseTool = (allowedCommands: Set<string>): CanUseTool => {
+  return async (toolName, input) => {
+    if (toolName !== 'Bash') {
+      return { behavior: 'allow' };
+    }
+
+    const command = normalizeCommand(input['command']);
+    if (!command) {
+      return {
+        behavior: 'deny',
+        message: 'Bash command missing a command string.',
+        interrupt: true,
+      };
+    }
+
+    if (!allowedCommands.has(command)) {
+      return {
+        behavior: 'deny',
+        message: `Bash command "${command}" is not in the verification whitelist. Allowed commands: ${[...allowedCommands].join(', ') || '(none configured)'}.`,
+        interrupt: true,
+      };
+    }
+
+    return { behavior: 'allow' };
+  };
+};
+
+const resolveRepoPath = (repoDir: string, rawPath: string): string =>
+  path.isAbsolute(rawPath) ? rawPath : path.resolve(repoDir, rawPath);
+
+const readOptionalFile = async (filePath: string): Promise<string | null> => {
+  try {
+    return await fs.readFile(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+};
+
+const warnMissingClaudeFile = (filePath: string): void => {
+  console.log(chalk.yellow(`⚠️ Missing CLAUDE.md file at ${filePath}`));
+};
+
+const loadClaudeContext = async (repoDir: string): Promise<string> => {
+  const globalClaudePath = path.join(os.homedir(), '.claude', 'CLAUDE.md');
+  const repoClaudePath = path.join(repoDir, 'CLAUDE.md');
+  const [rootClaude, dotClaude] = await Promise.all([
+    readOptionalFile(globalClaudePath),
+    readOptionalFile(repoClaudePath),
+  ]);
+
+  if (rootClaude === null) {
+    warnMissingClaudeFile(globalClaudePath);
+  }
+
+  if (dotClaude === null) {
+    warnMissingClaudeFile(repoClaudePath);
+  }
+
+  const sections = [
+    rootClaude && `## ~/.claude/CLAUDE.md\n${rootClaude.trimEnd()}`,
+    dotClaude && `## CLAUDE.md\n${dotClaude.trimEnd()}`,
+  ].filter(Boolean);
+
+  return sections.join('\n\n');
+};
+
+const formatRepoFileList = (repoFiles: string[], repoName: string): string => {
+  if (repoFiles.length === 0) {
+    return '  (none listed)';
+  }
+
+  return repoFiles
+    .map((filePath) => {
+      const relativePath =
+        repoName && filePath.startsWith(`${repoName}/`)
+          ? filePath.slice(repoName.length + 1)
+          : filePath;
+      return `  - ${relativePath}`;
+    })
+    .join('\n');
+};
+
+const buildSystemPrompt = ({
+  repoDir,
+  repoName,
+  repoFiles,
+  trackedFilePaths,
+  verificationScripts,
+  sceneContext,
+}: {
+  repoDir: string;
+  repoName: string;
+  repoFiles: string[];
+  trackedFilePaths: string[];
+  verificationScripts: VerificationScript[];
+  sceneContext: string;
+}): string => {
+  const fileList = formatRepoFileList(repoFiles, repoName);
+  const trackedFileList = formatRepoFileList(trackedFilePaths, repoName);
+  const verificationList =
+    verificationScripts.length > 0
+      ? verificationScripts.map((script) => `  - ${script.command}`).join('\n')
+      : '  (none configured)';
+
+  return `You are an expert software engineer implementing code changes inside a repository.
+
+Repository directory: ${repoDir}
+Files to implement:
+${fileList}
+
+Tracked files:
+${trackedFileList}
+
+Verification commands (run these to check your work):
+${verificationList}
+
+Rules:
+- Use Read to inspect existing file contents before modifying them
+- Use Write or Edit to write complete updated file contents
+- Use Bash only for verification commands that appear in the verification whitelist
+- Writes are allowed only within the primary repository (${repoDir})
+- Reads are allowed from ${repoDir} and any configured read-only sibling repositories
+- When all verification commands pass (exit 0), stop and do not make further changes
+- Return only the code or file content needed for the change, not explanations
+
+Task context:
+${sceneContext}`;
+};
 
 /**
- * Experimental Anthropic Agent SDK adapter for the implementer stage.
- * The model drives its own inner loop via read_file, write_file, and run_command
- * tools, iterating until verification passes.
- *
- * Read scope:  repoDir + all additionalRepoDirs
- * Write scope: repoDir only
- * Commands:    verification whitelist, cwd = repoDir
+ * Claude Agent SDK-backed implementer backend.
+ * The SDK drives the edit loop directly with built-in Read / Write / Edit / Bash
+ * tools while this adapter constrains the working directory, filesystem access,
+ * and Bash verification commands.
  */
 export class AnthropicAgentAdapter implements IImplementerBackend {
-  private client: Anthropic;
-
-  constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get<string>('ai.anthropicApiKey');
-    this.client = new Anthropic({ apiKey: apiKey || undefined });
-  }
+  constructor(private configService: ConfigService) {}
 
   async generateAndVerify(params: {
     ticket: TicketArtifact;
@@ -48,261 +196,117 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
 
     const repoDir = options.repoDir ?? process.cwd();
     const additionalRepoDirs = options.additionalRepoDirs ?? [];
-    const allReadRoots = [repoDir, ...additionalRepoDirs];
-    const allowedCommands = new Set(verificationScripts.map((s) => s.command));
+    const allowedCommands = buildAllowedCommands(verificationScripts);
+    const apiKey = this.configService.get<string>('ai.anthropicApiKey');
+    const claudeContext = await loadClaudeContext(repoDir);
+
+    if (!apiKey) {
+      throw new Error(
+        'Anthropic Agent SDK backend requires `ai.anthropicApiKey` to be configured.',
+      );
+    }
 
     const model =
       this.configService.get<string>('stages.implement.model') ||
       this.configService.get<string>('ai.model') ||
       'claude-sonnet-4-6';
-    const absoluteMaxAttempts =
-      this.configService.get<number>(
-        'stages.implement.afterImplement.absoluteMaxAttempts',
-      ) ?? 5;
 
-    // ── Tool definitions ──────────────────────────────────────────────────
-
-    const tools: Anthropic.Tool[] = [
-      {
-        name: 'read_file',
-        description:
-          'Read the contents of a file. Allowed paths: repoDir and any additionalRepoDirs.',
-        input_schema: {
-          type: 'object' as const,
-          properties: {
-            path: {
-              type: 'string',
-              description: 'Absolute or repoDir-relative path to the file',
-            },
-          },
-          required: ['path'],
+    const sdkOptions = {
+      cwd: repoDir,
+      model,
+      tools: [...CLAUDE_CODE_TOOLS],
+      allowedTools: [...CLAUDE_CODE_TOOLS],
+      permissionMode: 'acceptEdits' as const,
+      settingSources: ['project'] as SettingSource[],
+      settings: {
+        claudeMdExcludes: [
+          path.join(repoDir, 'CLAUDE.md'),
+          path.join(repoDir, '.claude', 'CLAUDE.md'),
+        ],
+      } satisfies Settings,
+      systemPrompt: {
+        type: 'preset' as const,
+        preset: 'claude_code' as const,
+        append: [
+          claudeContext ? `\n\nRepo AI context:\n${claudeContext}` : '',
+          `\n\n${buildSystemPrompt({
+            repoDir,
+            repoName,
+            repoFiles,
+            trackedFilePaths: params.trackedFilePaths,
+            verificationScripts,
+            sceneContext,
+          })}`,
+        ].join(''),
+      },
+      canUseTool: buildCanUseTool(allowedCommands),
+      env: {
+        ...process.env,
+        ANTHROPIC_API_KEY: apiKey,
+      },
+      sandbox: {
+        enabled: true,
+        failIfUnavailable: true,
+        allowUnsandboxedCommands: false,
+        autoAllowBashIfSandboxed: true,
+        filesystem: {
+          allowRead: [
+            resolveRepoPath(repoDir, '.'),
+            ...additionalRepoDirs.map((dir) => resolveRepoPath(repoDir, dir)),
+          ],
+          allowWrite: [resolveRepoPath(repoDir, '.')],
         },
       },
-      {
-        name: 'write_file',
-        description:
-          'Write content to a file. Allowed paths: repoDir only (writes are not permitted in additionalRepoDirs).',
-        input_schema: {
-          type: 'object' as const,
-          properties: {
-            path: {
-              type: 'string',
-              description: 'Absolute or repoDir-relative path to the file',
-            },
-            content: {
-              type: 'string',
-              description: 'Full file content to write',
-            },
-          },
-          required: ['path', 'content'],
-        },
-      },
-      {
-        name: 'run_command',
-        description:
-          'Run a verification command from the configured whitelist. cwd = repoDir.',
-        input_schema: {
-          type: 'object' as const,
-          properties: {
-            command: {
-              type: 'string',
-              description: `Exact command to run. Allowed: ${[...allowedCommands].join(', ') || '(none configured)'}`,
-            },
-          },
-          required: ['command'],
-        },
-      },
-    ];
-
-    // ── Tool execution ────────────────────────────────────────────────────
-
-    const resolveReadPath = (rawPath: string): string => {
-      const abs = path.isAbsolute(rawPath)
-        ? rawPath
-        : path.resolve(repoDir, rawPath);
-      const inAnyRoot = allReadRoots.some(
-        (root) => !path.relative(root, abs).startsWith('..'),
-      );
-      if (!inAnyRoot) {
-        throw new Error(
-          `read_file path-escape: "${rawPath}" is outside all known repo roots.`,
-        );
-      }
-      return abs;
     };
 
-    const resolveWritePath = (rawPath: string): string => {
-      const abs = path.isAbsolute(rawPath)
-        ? rawPath
-        : path.resolve(repoDir, rawPath);
-      if (path.relative(repoDir, abs).startsWith('..')) {
-        throw new Error(
-          `write_file write-boundary: "${rawPath}" is outside repoDir "${repoDir}".`,
-        );
-      }
-      return abs;
-    };
+    const session = query({
+      prompt: sceneContext,
+      options: sdkOptions,
+    });
 
-    const executeTool = async (
-      toolName: string,
-      toolInput: Record<string, unknown>,
-    ): Promise<string> => {
-      if (toolName === 'read_file') {
-        const rawPath = toolInput['path'] as string;
-        const abs = resolveReadPath(rawPath);
-        if (!fs.existsSync(abs)) {
-          return `(file not found: ${rawPath})`;
-        }
-        return fs.readFileSync(abs, 'utf-8');
-      }
-
-      if (toolName === 'write_file') {
-        const rawPath = toolInput['path'] as string;
-        const content = toolInput['content'] as string;
-        const abs = resolveWritePath(rawPath);
-        fs.mkdirSync(path.dirname(abs), { recursive: true });
-        fs.writeFileSync(abs, content, 'utf-8');
-        console.log(chalk.green(`    ✓ [agent] wrote: ${rawPath}`));
-        return `OK: wrote ${rawPath}`;
-      }
-
-      if (toolName === 'run_command') {
-        const command = toolInput['command'] as string;
-        if (!allowedCommands.has(command)) {
-          throw new Error(
-            `run_command blocked: "${command}" is not in the verification whitelist.`,
-          );
-        }
-        try {
-          const { stdout, stderr } = await execAsync(command, {
-            cwd: repoDir,
-            maxBuffer: 1024 * 1024 * 10,
-          });
-          return (
-            [stdout.trim(), stderr.trim()].filter(Boolean).join('\n') || 'OK'
-          );
-        } catch (err: any) {
-          return [
-            `Exit code: ${err.code ?? 1}`,
-            err.stdout?.trim?.() ?? '',
-            err.stderr?.trim?.() ?? err.message ?? '',
-          ]
-            .filter(Boolean)
-            .join('\n');
-        }
-      }
-
-      return `Unknown tool: ${toolName}`;
-    };
-
-    // ── System prompt ─────────────────────────────────────────────────────
-
-    const fileList = repoFiles
-      .map((f) => {
-        const rel =
-          repoName && f.startsWith(`${repoName}/`)
-            ? f.slice(repoName.length + 1)
-            : f;
-        return `  - ${rel}`;
-      })
-      .join('\n');
-
-    const verificationList = verificationScripts
-      .map((s) => `  - ${s.command}`)
-      .join('\n');
-
-    const systemPrompt = `You are an expert software engineer implementing code changes inside a repository.
-
-Repository directory: ${repoDir}
-Files to implement:
-${fileList || '  (none listed)'}
-
-Verification commands (run these to check your work):
-${verificationList || '  (none configured)'}
-
-Rules:
-- Use read_file to inspect existing file contents before modifying them
-- Use write_file to write complete updated file contents
-- Use run_command to run verification commands
-- Writes are allowed only within the primary repository (${repoDir})
-- Reads are allowed from: ${allReadRoots.join(', ')}
-- When all verification commands pass (exit 0), stop and do not make further changes
-- Return ONLY the complete file content when writing — no explanation, no markdown fences`;
-
-    const userPrompt = sceneContext;
-
-    // ── Agent loop ────────────────────────────────────────────────────────
-
-    let messages: Anthropic.MessageParam[] = [
-      { role: 'user', content: userPrompt },
-    ];
+    let finalResult: SDKResultMessage | undefined;
 
     console.log(
       chalk.bold.cyan(
-        `\n  [experimental agent] Running agent loop (max ${absoluteMaxAttempts} turns)...`,
+        `\n  [claude-agent-sdk] Running agent loop in ${repoDir}...`,
       ),
     );
 
-    for (let turn = 0; turn < absoluteMaxAttempts; turn++) {
-      const response = await this.client.messages.create({
-        model,
-        max_tokens: 8192,
-        system: systemPrompt,
-        tools,
-        messages,
-      });
-
-      if (response.stop_reason === 'end_turn') {
-        console.log(
-          chalk.green(
-            `  [experimental agent] Agent completed in ${turn + 1} turn(s).`,
-          ),
-        );
-        break;
-      }
-
-      if (response.stop_reason !== 'tool_use') {
-        console.log(
-          chalk.yellow(
-            `  [experimental agent] Unexpected stop_reason: ${response.stop_reason}. Ending loop.`,
-          ),
-        );
-        break;
-      }
-
-      // Collect tool results
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const block of response.content) {
-        if (block.type !== 'tool_use') continue;
-        console.log(
-          chalk.gray(
-            `    [agent] tool: ${block.name}(${JSON.stringify(block.input).slice(0, 80)}...)`,
-          ),
-        );
-        let result: string;
-        try {
-          result = await executeTool(
-            block.name,
-            block.input as Record<string, unknown>,
-          );
-        } catch (err) {
-          result = `ERROR: ${err instanceof Error ? err.message : String(err)}`;
-          console.log(chalk.red(`    [agent] ${result}`));
+    try {
+      for await (const message of session) {
+        if (message.type !== 'result') {
+          continue;
         }
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: result,
-        });
-      }
 
-      messages = [
-        ...messages,
-        { role: 'assistant', content: response.content },
-        { role: 'user', content: toolResults },
-      ];
+        finalResult = message;
+        break;
+      }
+    } finally {
+      session.close();
     }
 
-    // Branch was already created by ImplementerAgent.execute() before this is called.
+    if (!finalResult) {
+      throw new Error('Claude Agent SDK finished without returning a result.');
+    }
+
+    if (finalResult.subtype !== 'success' || finalResult.is_error) {
+      const errorSummary =
+        'errors' in finalResult && finalResult.errors.length > 0
+          ? finalResult.errors.join('; ')
+          : 'unknown error';
+      throw new Error(
+        `Claude Agent SDK failed (${finalResult.subtype}): ${errorSummary}`,
+      );
+    }
+
+    console.log(
+      chalk.green(
+        `  [claude-agent-sdk] Agent completed in ${finalResult.num_turns} turn(s).`,
+      ),
+    );
+
+    if (finalResult.result.trim()) {
+      console.log(chalk.gray(finalResult.result.trim()));
+    }
   }
 }

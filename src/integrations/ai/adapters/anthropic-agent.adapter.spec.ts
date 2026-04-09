@@ -1,11 +1,26 @@
 // src/integrations/ai/adapters/anthropic-agent.adapter.spec.ts
 import { ConfigService } from '@nestjs/config';
-import Anthropic from '@anthropic-ai/sdk';
+import {
+  query,
+  type SDKMessage,
+  type SDKResultMessage,
+} from '@anthropic-ai/claude-agent-sdk';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { AnthropicAgentAdapter } from './anthropic-agent.adapter';
 import type { VerificationScript } from '../../../agents/interfaces';
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: jest.fn(),
+}));
+jest.mock('os', () => ({
+  ...jest.requireActual('os'),
+  homedir: jest.fn(),
+}));
+
+const mockQuery = query as jest.MockedFunction<typeof query>;
+const mockHomedir = os.homedir as jest.MockedFunction<typeof os.homedir>;
 
 const makeConfigService = (
   overrides: Record<string, unknown> = {},
@@ -16,6 +31,7 @@ const makeConfigService = (
     'stages.implement.afterImplement.absoluteMaxAttempts': 3,
     ...overrides,
   };
+
   return {
     get: jest.fn((key: string, fallback?: unknown) =>
       key in values ? values[key] : fallback,
@@ -23,37 +39,77 @@ const makeConfigService = (
   } as unknown as ConfigService;
 };
 
-const makeToolUseResponse = (
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  toolId = 'tool_1',
-): Anthropic.Message =>
+const makeResultSuccess = (
+  overrides: Partial<SDKResultMessage> = {},
+): SDKResultMessage =>
   ({
-    id: 'msg_1',
-    type: 'message',
-    role: 'assistant',
-    model: 'claude-sonnet-4-6',
-    stop_reason: 'tool_use',
-    stop_sequence: null,
-    usage: { input_tokens: 10, output_tokens: 10 },
-    content: [
-      { type: 'tool_use', id: toolId, name: toolName, input: toolInput },
-    ],
-  }) as unknown as Anthropic.Message;
-
-const makeEndTurnResponse = (): Anthropic.Message =>
-  ({
-    id: 'msg_2',
-    type: 'message',
-    role: 'assistant',
-    model: 'claude-sonnet-4-6',
+    type: 'result',
+    subtype: 'success',
+    duration_ms: 100,
+    duration_api_ms: 100,
+    is_error: false,
+    num_turns: 2,
+    result: 'Done.',
     stop_reason: 'end_turn',
-    stop_sequence: null,
-    usage: { input_tokens: 10, output_tokens: 5 },
-    content: [{ type: 'text', text: 'Done.' }],
-  }) as unknown as Anthropic.Message;
+    total_cost_usd: 0,
+    usage: {
+      input_tokens: 10,
+      output_tokens: 10,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      server_tool_use: null,
+      service_tier: null,
+      cache_creation: null,
+    },
+    modelUsage: {},
+    permission_denials: [],
+    uuid: '11111111-1111-1111-1111-111111111111',
+    session_id: 'session-1',
+    ...overrides,
+  }) as SDKResultMessage;
 
-/** Minimal params for generateAndVerify. repoDir defaults to /repo/primary. */
+const makeResultError = (
+  overrides: Partial<SDKResultMessage> = {},
+): SDKResultMessage =>
+  ({
+    type: 'result',
+    subtype: 'error_during_execution',
+    duration_ms: 100,
+    duration_api_ms: 100,
+    is_error: true,
+    num_turns: 2,
+    stop_reason: 'error',
+    total_cost_usd: 0,
+    usage: {
+      input_tokens: 10,
+      output_tokens: 10,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      server_tool_use: null,
+      service_tier: null,
+      cache_creation: null,
+    },
+    modelUsage: {},
+    permission_denials: [],
+    errors: ['verification failed'],
+    uuid: '11111111-1111-1111-1111-111111111112',
+    session_id: 'session-2',
+    ...overrides,
+  }) as SDKResultMessage;
+
+const makeSdkSession = (messages: SDKMessage[]) => {
+  let messageIndex = 0;
+
+  return {
+    async *[Symbol.asyncIterator]() {
+      while (messageIndex < messages.length) {
+        yield messages[messageIndex++];
+      }
+    },
+    close: jest.fn(),
+  };
+};
+
 const makeParams = (
   repoDir = '/repo/primary',
   verificationScripts: VerificationScript[] = [],
@@ -73,258 +129,231 @@ const makeParams = (
       estimatedComplexity: 'low' as const,
     },
   },
-  options: { platformName: 'jira', repoDir },
+  options: {
+    platformName: 'jira',
+    repoDir,
+    additionalRepoDirs: ['/repo/shared'],
+  },
   verificationScripts,
   sceneContext: 'implement it',
-  repoFiles: [],
+  repoFiles: ['primary/src/foo.ts'],
   repoName: 'primary',
-  trackedFilePaths: [],
+  trackedFilePaths: ['primary/src/foo.ts'],
 });
 
-// ── Tests ─────────────────────────────────────────────────────────────────
-
 describe('AnthropicAgentAdapter', () => {
-  afterEach(() => {
-    jest.restoreAllMocks();
+  beforeEach(() => {
+    mockHomedir.mockReturnValue(path.join(os.tmpdir(), 'wf-home-default'));
   });
 
-  describe('sandbox enforcement (path resolver logic)', () => {
-    it('allows read_file within repoDir', () => {
-      const repoDir = '/tmp/repo-a';
-      const allReadRoots = [repoDir];
-      const validPath = '/tmp/repo-a/src/foo.ts';
-      const inAnyRoot = allReadRoots.some(
-        (root) => !path.relative(root, validPath).startsWith('..'),
-      );
-      expect(inAnyRoot).toBe(true);
-    });
-
-    it('throws on read_file path escape', () => {
-      const repoDir = '/tmp/repo-a';
-      const additionalRepoDirs: string[] = [];
-
-      const resolveReadPath = (rawPath: string): string => {
-        const abs = path.isAbsolute(rawPath)
-          ? rawPath
-          : path.resolve(repoDir, rawPath);
-        const allReadRoots = [repoDir, ...additionalRepoDirs];
-        const inAnyRoot = allReadRoots.some(
-          (root) => !path.relative(root, abs).startsWith('..'),
-        );
-        if (!inAnyRoot) {
-          throw new Error(
-            `read_file path-escape: "${rawPath}" is outside all known repo roots.`,
-          );
-        }
-        return abs;
-      };
-
-      expect(() => resolveReadPath('/etc/passwd')).toThrow('path-escape');
-      expect(() => resolveReadPath('../../../etc/shadow')).toThrow(
-        'path-escape',
-      );
-    });
-
-    it('throws on write_file path escape', () => {
-      const repoDir = '/tmp/repo-a';
-
-      const resolveWritePath = (rawPath: string): string => {
-        const abs = path.isAbsolute(rawPath)
-          ? rawPath
-          : path.resolve(repoDir, rawPath);
-        if (path.relative(repoDir, abs).startsWith('..')) {
-          throw new Error(
-            `write_file write-boundary: "${rawPath}" is outside repoDir "${repoDir}".`,
-          );
-        }
-        return abs;
-      };
-
-      expect(() => resolveWritePath('../other-repo/file.ts')).toThrow(
-        'write-boundary',
-      );
-      expect(() => resolveWritePath('/etc/crontab')).toThrow('write-boundary');
-    });
-
-    it('does not throw for write within repoDir', () => {
-      const repoDir = '/tmp/repo-a';
-
-      const resolveWritePath = (rawPath: string): string => {
-        const abs = path.isAbsolute(rawPath)
-          ? rawPath
-          : path.resolve(repoDir, rawPath);
-        if (path.relative(repoDir, abs).startsWith('..')) {
-          throw new Error(
-            `write_file write-boundary: "${rawPath}" is outside repoDir "${repoDir}".`,
-          );
-        }
-        return abs;
-      };
-
-      expect(() => resolveWritePath('src/foo.ts')).not.toThrow();
-      expect(resolveWritePath('src/foo.ts')).toBe('/tmp/repo-a/src/foo.ts');
-    });
-
-    it('allows read from additionalRepoDirs', () => {
-      const repoDir = '/tmp/repo-a';
-      const additionalRepoDirs = ['/tmp/repo-b'];
-
-      const resolveReadPath = (rawPath: string): string => {
-        const abs = path.isAbsolute(rawPath)
-          ? rawPath
-          : path.resolve(repoDir, rawPath);
-        const allReadRoots = [repoDir, ...additionalRepoDirs];
-        const inAnyRoot = allReadRoots.some(
-          (root) => !path.relative(root, abs).startsWith('..'),
-        );
-        if (!inAnyRoot) {
-          throw new Error(
-            `read_file path-escape: "${rawPath}" is outside all known repo roots.`,
-          );
-        }
-        return abs;
-      };
-
-      expect(() => resolveReadPath('/tmp/repo-b/src/types.ts')).not.toThrow();
-    });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    mockQuery.mockReset();
+    mockHomedir.mockReset();
   });
 
   describe('generateAndVerify', () => {
-    it('delegates to anthropic client and completes when stop_reason is end_turn', async () => {
-      const mockCreate = jest.fn().mockResolvedValue(makeEndTurnResponse());
+    it('invokes the Claude Agent SDK with repo-scoped access and the verification whitelist', async () => {
+      const mockSession = makeSdkSession([makeResultSuccess()]);
+      mockQuery.mockReturnValue(mockSession as any);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
-      (adapter as any).client = { messages: { create: mockCreate } };
+      await adapter.generateAndVerify(
+        makeParams('/repo/primary', [
+          {
+            id: 'v1',
+            name: 'build',
+            command: 'npm test',
+            policy: 'enforced',
+            aliases: [],
+          },
+        ]),
+      );
 
-      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+      expect(mockQuery).toHaveBeenCalledTimes(1);
 
-      const result = await adapter.generateAndVerify(makeParams());
+      const queryArgs = mockQuery.mock.calls[0][0];
+      const options = queryArgs.options as Record<string, unknown>;
+      const systemPrompt = options.systemPrompt as {
+        type: string;
+        preset: string;
+        append: string;
+      };
+      const sandbox = options.sandbox as {
+        enabled: boolean;
+        failIfUnavailable: boolean;
+        allowUnsandboxedCommands: boolean;
+        autoAllowBashIfSandboxed: boolean;
+        filesystem: {
+          allowRead: string[];
+          allowWrite: string[];
+        };
+      };
+      const settings = options.settings as { claudeMdExcludes: string[] };
+      const canUseTool = options.canUseTool as (
+        toolName: string,
+        input: Record<string, unknown>,
+        context: Record<string, unknown>,
+      ) => Promise<Record<string, unknown>>;
 
-      expect(mockCreate).toHaveBeenCalledTimes(1);
-      expect(result).toBeUndefined();
-    });
+      expect(options.cwd).toBe('/repo/primary');
+      expect(options.model).toBe('claude-sonnet-4-6');
+      expect(options.permissionMode).toBe('acceptEdits');
+      expect(options.tools).toEqual(
+        expect.arrayContaining([
+          'Read',
+          'Write',
+          'Edit',
+          'Bash',
+          'Glob',
+          'Grep',
+          'TodoWrite',
+          'Task',
+          'Agent',
+        ]),
+      );
+      expect(systemPrompt).toMatchObject({
+        type: 'preset',
+        preset: 'claude_code',
+      });
+      expect(systemPrompt.append).toContain(
+        'Repository directory: /repo/primary',
+      );
+      expect(systemPrompt.append).toContain('npm test');
+      expect(systemPrompt.append).toContain('src/foo.ts');
+      expect(settings.claudeMdExcludes).toEqual([
+        '/repo/primary/CLAUDE.md',
+        '/repo/primary/.claude/CLAUDE.md',
+      ]);
+      expect(sandbox).toMatchObject({
+        enabled: true,
+        failIfUnavailable: true,
+        allowUnsandboxedCommands: false,
+        autoAllowBashIfSandboxed: true,
+      });
+      expect(sandbox.filesystem.allowRead).toEqual([
+        '/repo/primary',
+        '/repo/shared',
+      ]);
+      expect(sandbox.filesystem.allowWrite).toEqual(['/repo/primary']);
 
-    it('stops after absoluteMaxAttempts turns', async () => {
-      let callCount = 0;
-      const mockCreate = jest.fn().mockImplementation(async () => {
-        callCount++;
-        return makeToolUseResponse(
-          'read_file',
-          { path: 'nonexistent.ts' },
-          `tool-${callCount}`,
-        );
+      await expect(
+        canUseTool(
+          'Bash',
+          { command: 'npm test' },
+          { signal: new AbortController().signal, toolUseID: 'tool-1' },
+        ),
+      ).resolves.toMatchObject({ behavior: 'allow' });
+
+      await expect(
+        canUseTool(
+          'Bash',
+          { command: 'rm -rf /' },
+          { signal: new AbortController().signal, toolUseID: 'tool-2' },
+        ),
+      ).resolves.toMatchObject({
+        behavior: 'deny',
+        interrupt: true,
       });
 
-      const adapter = new AnthropicAgentAdapter(
-        makeConfigService({
-          'stages.implement.afterImplement.absoluteMaxAttempts': 3,
-        }),
+      expect(mockSession.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws when the SDK returns an execution error', async () => {
+      const mockSession = makeSdkSession([makeResultError()]);
+      mockQuery.mockReturnValue(mockSession as any);
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+
+      await expect(adapter.generateAndVerify(makeParams())).rejects.toThrow(
+        'verification failed',
       );
-      (adapter as any).client = { messages: { create: mockCreate } };
 
-      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
-
-      await adapter.generateAndVerify(makeParams());
-
-      expect(mockCreate).toHaveBeenCalledTimes(3);
+      expect(mockSession.close).toHaveBeenCalledTimes(1);
     });
 
-    it('read_file outside sandbox returns path-escape error as tool result', async () => {
-      const repoDir = '/repo/primary';
-      const mockCreate = jest
-        .fn()
-        .mockResolvedValueOnce(
-          makeToolUseResponse('read_file', { path: '../../../etc/passwd' }),
-        )
-        .mockResolvedValueOnce(makeEndTurnResponse());
+    it('fails fast when the Anthropic API key is missing', async () => {
+      const mockSession = makeSdkSession([makeResultSuccess()]);
+      mockQuery.mockReturnValue(mockSession as any);
 
-      const adapter = new AnthropicAgentAdapter(makeConfigService());
-      (adapter as any).client = { messages: { create: mockCreate } };
+      const adapter = new AnthropicAgentAdapter(
+        makeConfigService({ 'ai.anthropicApiKey': '' }),
+      );
 
-      await adapter.generateAndVerify(makeParams(repoDir));
-
-      // Second call carries the tool_result; find the last user message
-      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
-      const lastUserMsg = secondCallMessages[secondCallMessages.length - 1];
-      const toolResults: Array<{ content: string }> = lastUserMsg.content;
-
-      expect(toolResults[0].content).toMatch(/path-escape/);
+      await expect(adapter.generateAndVerify(makeParams())).rejects.toThrow(
+        /requires `ai\.anthropicApiKey`/,
+      );
+      expect(mockQuery).not.toHaveBeenCalled();
     });
 
-    it('write_file outside repoDir returns write-boundary error as tool result', async () => {
-      const repoDir = '/repo/primary';
-      const mockCreate = jest
-        .fn()
-        .mockResolvedValueOnce(
-          makeToolUseResponse('write_file', {
-            path: '/other-repo/src/file.ts',
-            content: 'x',
-          }),
-        )
-        .mockResolvedValueOnce(makeEndTurnResponse());
+    it('includes global and repo CLAUDE.md content in the system prompt', async () => {
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-claude-'));
+      const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-home-'));
+      fs.mkdirSync(path.join(homeDir, '.claude'), { recursive: true });
+      fs.writeFileSync(
+        path.join(homeDir, '.claude', 'CLAUDE.md'),
+        'global context line',
+        'utf-8',
+      );
+      fs.writeFileSync(
+        path.join(repoDir, 'CLAUDE.md'),
+        'repo context line',
+        'utf-8',
+      );
 
-      const adapter = new AnthropicAgentAdapter(makeConfigService());
-      (adapter as any).client = { messages: { create: mockCreate } };
+      mockHomedir.mockReturnValue(homeDir);
+      const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      await adapter.generateAndVerify(makeParams(repoDir));
+      const mockSession = makeSdkSession([makeResultSuccess()]);
+      mockQuery.mockReturnValue(mockSession as any);
 
-      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
-      const lastUserMsg = secondCallMessages[secondCallMessages.length - 1];
-      const toolResults: Array<{ content: string }> = lastUserMsg.content;
+      try {
+        const adapter = new AnthropicAgentAdapter(makeConfigService());
+        await adapter.generateAndVerify(makeParams(repoDir));
 
-      expect(toolResults[0].content).toMatch(/write-boundary/);
+        const queryArgs = mockQuery.mock.calls[0][0];
+        const options = queryArgs.options as Record<string, unknown>;
+        const systemPrompt = options.systemPrompt as { append: string };
+
+        expect(systemPrompt.append).toContain('Repo AI context:');
+        expect(systemPrompt.append).toContain('## ~/.claude/CLAUDE.md');
+        expect(systemPrompt.append).toContain('global context line');
+        expect(systemPrompt.append).toContain('## CLAUDE.md');
+        expect(systemPrompt.append).toContain('repo context line');
+        expect(mockLog).not.toHaveBeenCalledWith(expect.stringContaining('⚠️'));
+      } finally {
+        mockLog.mockRestore();
+        fs.rmSync(repoDir, { recursive: true, force: true });
+        fs.rmSync(homeDir, { recursive: true, force: true });
+      }
     });
 
-    it('run_command blocked when not in whitelist returns blocked error as tool result', async () => {
-      const repoDir = '/repo/primary';
-      const mockCreate = jest
-        .fn()
-        .mockResolvedValueOnce(
-          makeToolUseResponse('run_command', { command: 'rm -rf /' }),
-        )
-        .mockResolvedValueOnce(makeEndTurnResponse());
+    it('warns when the global CLAUDE.md is missing', async () => {
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-claude-'));
+      fs.writeFileSync(
+        path.join(repoDir, 'CLAUDE.md'),
+        'repo context line',
+        'utf-8',
+      );
 
-      const adapter = new AnthropicAgentAdapter(makeConfigService());
-      (adapter as any).client = { messages: { create: mockCreate } };
+      const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-home-'));
+      mockHomedir.mockReturnValue(homeDir);
+      const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const mockSession = makeSdkSession([makeResultSuccess()]);
+      mockQuery.mockReturnValue(mockSession as any);
 
-      await adapter.generateAndVerify(makeParams(repoDir));
+      try {
+        const adapter = new AnthropicAgentAdapter(makeConfigService());
+        await adapter.generateAndVerify(makeParams(repoDir));
 
-      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
-      const lastUserMsg = secondCallMessages[secondCallMessages.length - 1];
-      const toolResults: Array<{ content: string }> = lastUserMsg.content;
-
-      expect(toolResults[0].content).toMatch(/blocked/);
-    });
-
-    it('run_command allowed when in whitelist does not return a blocked error', async () => {
-      const repoDir = '/repo/primary';
-      const verificationScripts: VerificationScript[] = [
-        {
-          id: 'v1',
-          name: 'build',
-          command: 'echo ok',
-          policy: 'enforced',
-          aliases: [],
-        },
-      ];
-
-      const mockCreate = jest
-        .fn()
-        .mockResolvedValueOnce(
-          makeToolUseResponse('run_command', { command: 'echo ok' }),
-        )
-        .mockResolvedValueOnce(makeEndTurnResponse());
-
-      const adapter = new AnthropicAgentAdapter(makeConfigService());
-      (adapter as any).client = { messages: { create: mockCreate } };
-
-      await adapter.generateAndVerify(makeParams(repoDir, verificationScripts));
-
-      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
-      const lastUserMsg = secondCallMessages[secondCallMessages.length - 1];
-      const toolResults: Array<{ content: string }> = lastUserMsg.content;
-
-      expect(toolResults[0].content).not.toMatch(/blocked/);
+        expect(mockLog).toHaveBeenCalledWith(
+          expect.stringContaining('⚠️ Missing CLAUDE.md file at'),
+        );
+      } finally {
+        mockLog.mockRestore();
+        fs.rmSync(repoDir, { recursive: true, force: true });
+        fs.rmSync(homeDir, { recursive: true, force: true });
+      }
     });
   });
 });

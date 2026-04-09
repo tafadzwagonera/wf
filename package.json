@@ -44,6 +44,7 @@
     "issue:review": "yarn start issue-review"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.97",
     "@anthropic-ai/sdk": "^0.78.0",
     "@google/generative-ai": "^0.24.1",
     "@hapi/joi": "^17.1.1",

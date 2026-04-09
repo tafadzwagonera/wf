@@ -71,11 +71,19 @@ describe('getHelpText', () => {
   it('reflects current run and review command flags', () => {
     const runHelpText = getHelpText(['run', '--help'], catalog);
     const reviewHelpText = getHelpText(['issue:review', '--help'], catalog);
+    const implementHelpText = getHelpText(
+      ['issue:implement', '--help'],
+      catalog,
+    );
 
     expect(runHelpText).toContain('--auto-execute');
     expect(runHelpText).not.toContain('--auto-approve');
     expect(reviewHelpText).toContain('--criteria <path>');
     expect(reviewHelpText).toContain('--replace-criteria <path>');
+    expect(implementHelpText).toContain('Claude Agent SDK backend');
+    expect(implementHelpText).toContain(
+      '~/.claude/CLAUDE.md and the repository-root CLAUDE.md',
+    );
   });
 
   it('loads the catalog from dist/bootstrap when no catalog argument is supplied', () => {

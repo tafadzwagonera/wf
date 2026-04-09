@@ -41,7 +41,7 @@ export interface WfAfterImplementConfig {
 
 export interface WfImplementStageConfig extends WfAiStageTargetConfig {
   afterImplement?: WfAfterImplementConfig;
-  /** Enable the experimental Anthropic Agent SDK backend. Requires provider: 'anthropic'. */
+  /** Enable the experimental Claude Agent SDK backend. Requires provider: 'anthropic'. */
   experimentalAgent?: boolean;
 }
 
