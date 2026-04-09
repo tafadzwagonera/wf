@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ImplementerAgent } from './implementer.agent';
 import { GitService } from '../integrations/git/git.service';
 import { AiService } from '../integrations/ai/ai.service';
+import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import type {
   ImplementBackendSelection,
   ImplementRunArtifact,
@@ -103,6 +104,13 @@ describe('ImplementerAgent', () => {
     agent = module.get(ImplementerAgent);
     gitService = module.get(GitService);
     aiService = module.get(AiService);
+
+    jest
+      .spyOn(require('fs'), 'mkdirSync')
+      .mockImplementation(() => undefined as any);
+    jest
+      .spyOn(require('fs'), 'writeFileSync')
+      .mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -1503,6 +1511,79 @@ describe('ImplementerAgent', () => {
   });
 
   describe('experimental agent backend selection', () => {
+    it('logs the selected anthropic-agent backend when experimentalAgent is enabled with anthropic provider', async () => {
+      const module = await Test.createTestingModule({
+        providers: [
+          ImplementerAgent,
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest
+                .fn()
+                .mockImplementation((key: string, fallback?: unknown) => {
+                  if (key === 'stages.implement.experimentalAgent') return true;
+                  if (key === 'ai.provider') return 'anthropic';
+                  if (key === 'branching.prefixMapping')
+                    return {
+                      feature: 'feature',
+                      fix: 'bugfix',
+                      investigate: 'chore',
+                    };
+                  if (key === 'stages.implement.afterImplement')
+                    return undefined;
+                  return fallback;
+                }),
+            },
+          },
+          {
+            provide: GitService,
+            useValue: {
+              getCurrentBranch: jest.fn().mockResolvedValue('main'),
+              createBranch: jest.fn().mockResolvedValue(undefined),
+            },
+          },
+          {
+            provide: AiService,
+            useValue: {
+              narrateImplementationPlan: jest
+                .fn()
+                .mockResolvedValue('## Goal\nAgent\n'),
+              generateFileChange: jest
+                .fn()
+                .mockResolvedValue('export const x = 1;\n'),
+              generateFindings: jest.fn(),
+            },
+          },
+        ],
+      }).compile();
+
+      const anthropicAgent = module.get(ImplementerAgent);
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+      jest
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue(undefined);
+
+      await anthropicAgent.execute(
+        ticketArtifact,
+        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+        { platformName: 'jira', repoDir: '/tmp/repo-a' },
+      );
+
+      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      expect(
+        logCalls.some((message) =>
+          message.includes('Implement backend: anthropic-agent'),
+        ),
+      ).toBe(true);
+      expect(
+        logCalls.some((message) =>
+          message.includes('selected: anthropic-agent'),
+        ),
+      ).toBe(false);
+    });
+
     it('falls back with a warning when experimentalAgent is true but provider is not anthropic', async () => {
       const module = await Test.createTestingModule({
         providers: [
@@ -1588,6 +1669,18 @@ describe('ImplementerAgent', () => {
             msg.includes('experimentalAgent') || msg.includes('Falling back'),
         ),
       ).toBe(true);
+      expect(
+        warnCalls.some((msg) =>
+          msg.includes(
+            'Implement backend: two-phase (configured: anthropic-agent',
+          ),
+        ),
+      ).toBe(true);
+      expect(require('fs').writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining('/.wf/state/implement-verification/repo-a/'),
+        expect.stringContaining('"backendSelected": "two-phase"'),
+        'utf-8',
+      );
     });
   });
 });

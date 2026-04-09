@@ -5,6 +5,8 @@ import chalk from 'chalk';
 import { GitService } from '../integrations/git/git.service';
 import { AiService } from '../integrations/ai/ai.service';
 import {
+  ImplementBackendSelection,
+  ImplementRunArtifact,
   TicketArtifact,
   PlanArtifact,
   ImplementerOptions,
@@ -15,6 +17,11 @@ import {
   VerificationScript,
 } from './interfaces';
 import { extractSummary, slugify } from './utils';
+import {
+  formatBackendSelection,
+  writeImplementVerificationRunFile,
+} from '../shared/utils/implement-verification';
+import { getWfStateDir } from '../shared/utils/wf-paths';
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
@@ -239,37 +246,48 @@ export class ImplementerAgent {
     );
     const sceneContext = `${ticket.content}\n\n---\nPlan narration:\n${narration}`;
 
-    // Experimental Anthropic agent backend (behind config flag)
-    const useAgent =
-      this.configService.get<boolean>(
-        'stages.implement.experimentalAgent',
-        false,
-      ) === true;
-    const aiProvider = this.configService.get<string>(
-      'ai.provider',
-      'anthropic',
+    const backendSelection = this.resolveImplementBackendSelection();
+    console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));
+
+    const verificationRunFilePath = this.getImplementVerificationRunPath(
+      ticket.ticketKey,
+      options.repoDir,
     );
-    if (useAgent) {
-      if (aiProvider !== 'anthropic') {
-        console.log(
-          chalk.yellow(
-            `  ⚠ stages.implement.experimentalAgent requires provider: anthropic (current: ${aiProvider}). Falling back to standard two-phase retry.`,
-          ),
-        );
-      } else {
-        const adapter = new AnthropicAgentAdapter(this.configService);
-        await adapter.generateAndVerify({
-          ticket,
-          planArtifact,
-          options,
-          verificationScripts,
-          sceneContext,
-          repoFiles,
-          repoName,
-          trackedFilePaths,
-        });
-        return { type: 'implementation', branchName };
-      }
+    this.writeImplementVerificationRunArtifact(verificationRunFilePath, {
+      ticketKey: ticket.ticketKey,
+      repoDir: options.repoDir ?? process.cwd(),
+      backendConfigured: backendSelection.configured,
+      backendSelected: backendSelection.selected,
+      provider: backendSelection.provider,
+      fallbackReason: backendSelection.fallbackReason,
+      verificationScripts: verificationScripts.map(({ id, command }) => ({
+        id,
+        command,
+      })),
+      startedAt: new Date().toISOString(),
+    });
+
+    if (backendSelection.selected === 'anthropic-agent') {
+      const adapter = new AnthropicAgentAdapter(this.configService);
+      await adapter.generateAndVerify({
+        ticket,
+        planArtifact,
+        options,
+        verificationScripts,
+        sceneContext,
+        repoFiles,
+        repoName,
+        trackedFilePaths,
+      });
+      return { type: 'implementation', branchName };
+    }
+
+    if (backendSelection.fallbackReason) {
+      console.log(
+        chalk.yellow(
+          `  ⚠ stages.implement.experimentalAgent requires provider: anthropic (current: ${backendSelection.provider}). Falling back to standard two-phase retry.`,
+        ),
+      );
     }
 
     let retryRepoFiles = repoFiles;
@@ -1723,6 +1741,84 @@ export class ImplementerAgent {
       packageJson,
       configFiles,
     };
+  }
+
+  /**
+   * Resolves which implementation backend should run for the current config.
+   *
+   * @returns Selected backend plus the configuration intent and provider
+   */
+  private resolveImplementBackendSelection(): ImplementBackendSelection {
+    const experimentalAgent =
+      this.configService.get<boolean>(
+        'stages.implement.experimentalAgent',
+        false,
+      ) === true;
+    const provider = this.configService.get<string>('ai.provider', 'anthropic');
+
+    if (!experimentalAgent) {
+      return {
+        configured: 'two-phase' as const,
+        selected: 'two-phase' as const,
+        provider,
+      };
+    }
+
+    if (provider !== 'anthropic') {
+      return {
+        configured: 'anthropic-agent' as const,
+        selected: 'two-phase' as const,
+        provider,
+        fallbackReason: 'provider mismatch',
+      };
+    }
+
+    return {
+      configured: 'anthropic-agent' as const,
+      selected: 'anthropic-agent' as const,
+      provider,
+    };
+  }
+
+  /**
+   * Builds the filesystem path for the current implementation verification run.
+   *
+   * @param ticketKey - Ticket identifier used to scope the persisted run
+   * @param repoDir - Selected repository directory, used for namespacing
+   * @returns Absolute path to the persisted verification run file
+   */
+  private getImplementVerificationRunPath(
+    ticketKey: string,
+    repoDir?: string,
+  ): string {
+    const stateDirectory = this.configService.get<string>(
+      'state.directory',
+      getWfStateDir(),
+    );
+    const repoName = repoDir ? path.basename(repoDir) : 'repo';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+    return path.join(
+      stateDirectory,
+      'implement-verification',
+      repoName,
+      `${ticketKey}-${timestamp}.json`,
+    );
+  }
+
+  /**
+   * Writes the initial run artifact and ensures its directory exists.
+   *
+   * @param filePath - Destination path for the run artifact
+   * @param run - Run metadata to persist before generation starts
+   * @returns Nothing
+   */
+  private writeImplementVerificationRunArtifact(
+    filePath: string,
+    run: ImplementRunArtifact,
+  ): void {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    writeImplementVerificationRunFile(filePath, run);
   }
 
   /**
