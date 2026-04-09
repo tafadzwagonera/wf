@@ -1566,6 +1566,39 @@ describe('ImplementerAgent', () => {
         }),
       );
     });
+
+    it('adds parse-repair guidance to the retry context', () => {
+      const result = (agent as any).buildRetryContext(
+        'base context',
+        {
+          attempt: 2,
+          results: [
+            {
+              command: 'npm run format',
+              exitCode: 1,
+              stdout:
+                '[error] src/example.spec.ts: SyntaxError: Unterminated template literal. (9:13)',
+              stderr: '',
+            },
+          ],
+        },
+        ['repo-a/src/example.spec.ts', 'repo-a/src/example.ts'],
+        'repo-a',
+        {
+          category: 'parse',
+          implicatedFiles: ['repo-a/src/example.spec.ts'],
+          companionFiles: [],
+          rootSignal: 'syntax-error',
+          strategy: 'surgical',
+          confidence: 'high',
+        },
+      );
+
+      expect(result).toContain(
+        'This is a parse-repair retry. Fix the syntax error first and do not rewrite unrelated files.',
+      );
+      expect(result).toContain('Verification classification: parse (surgical)');
+    });
   });
 
   describe('verification retry artifacts', () => {
