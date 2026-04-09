@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
-import { Agent, run, tool } from '@openai/agents';
+import { Agent, OpenAIProvider, Runner, tool } from '@openai/agents';
+import type { StreamedRunResult } from '@openai/agents';
 import chalk from 'chalk';
 import * as fs from 'fs/promises';
 import { exec } from 'child_process';
@@ -341,6 +342,15 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       );
     }
 
+    const modelProvider = new OpenAIProvider({
+      apiKey,
+    });
+    const absoluteMaxAttempts =
+      this.configService.get<number>(
+        'stages.implement.afterImplement.absoluteMaxAttempts',
+      ) ?? 5;
+    const maxTurns = Math.max(20, absoluteMaxAttempts * 4);
+
     const model =
       this.configService.get<string>('stages.implement.model') ||
       this.configService.get<string>('ai.model') ||
@@ -549,9 +559,17 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     ].filter(Boolean);
     const prompt = promptSections.join('\n\n');
 
-    const streamedRun = await run(agent, prompt, {
+    const runner = new Runner({
+      modelProvider,
+    });
+
+    const streamedRun: StreamedRunResult<
+      OpenAiImplementerContext,
+      typeof agent
+    > = await runner.run(agent, prompt, {
       stream: true,
       context,
+      maxTurns,
     });
 
     try {

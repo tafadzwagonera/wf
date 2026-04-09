@@ -8,7 +8,8 @@ import type { VerificationScript } from '../../../agents/interfaces';
 
 jest.mock('@openai/agents', () => ({
   Agent: jest.fn(),
-  run: jest.fn(),
+  OpenAIProvider: jest.fn(),
+  Runner: jest.fn(),
   tool: jest.fn((config: Record<string, unknown>) => config),
 }));
 
@@ -30,7 +31,8 @@ const mockLoadAiContextConfig = loadAiContextConfig as jest.MockedFunction<
 >;
 const {
   Agent: mockAgent,
-  run: mockRun,
+  OpenAIProvider: mockOpenAIProvider,
+  Runner: mockRunner,
   tool: mockTool,
 } = jest.requireMock('@openai/agents');
 const { exec: mockExec } = jest.requireMock('child_process');
@@ -119,6 +121,9 @@ describe('OpenAIAgentAdapter', () => {
     mockHomedir.mockReturnValue(path.join(os.tmpdir(), 'wf-home-default'));
     mockLoadAiContextConfig.mockResolvedValue('');
     mockAgent.mockImplementation((config: Record<string, unknown>) => config);
+    mockOpenAIProvider.mockImplementation(
+      (config: Record<string, unknown>) => config,
+    );
     mockTool.mockImplementation((config: Record<string, unknown>) => config);
     mockExec.mockImplementation(
       (
@@ -143,8 +148,9 @@ describe('OpenAIAgentAdapter', () => {
     jest.restoreAllMocks();
     mockLoadAiContextConfig.mockReset();
     mockHomedir.mockReset();
-    mockRun.mockReset();
     mockAgent.mockReset();
+    mockOpenAIProvider.mockReset();
+    mockRunner.mockReset();
     mockTool.mockReset();
     mockExec.mockReset();
   });
@@ -173,30 +179,33 @@ describe('OpenAIAgentAdapter', () => {
         'Implemented the change and verified it.',
       );
 
-      mockRun.mockImplementation(async (agent: Record<string, unknown>) => {
-        const writeTool = getTool(agent, 'write_file');
-        const verifyTool = getTool(agent, 'verify_command');
-        const workspaceContext = {
-          repoDir,
-          readRoots: [{ name: path.basename(repoDir), root: repoDir }],
-        };
+      mockRunner.mockImplementation((config: Record<string, unknown>) => ({
+        run: jest.fn(async (agent: Record<string, unknown>) => {
+          const writeTool = getTool(agent, 'write_file');
+          const verifyTool = getTool(agent, 'verify_command');
+          const workspaceContext = {
+            repoDir,
+            readRoots: [{ name: path.basename(repoDir), root: repoDir }],
+          };
 
-        await writeTool.execute(
-          { path: 'src/foo.ts', content: 'updated\n' },
-          { context: workspaceContext },
-        );
-        await verifyTool.execute(
-          { command: 'npm test' },
-          {
-            context: {
-              repoDir,
-              allowedVerificationCommands: new Set(['npm test']),
+          await writeTool.execute(
+            { path: 'src/foo.ts', content: 'updated\n' },
+            { context: workspaceContext },
+          );
+          await verifyTool.execute(
+            { command: 'npm test' },
+            {
+              context: {
+                repoDir,
+                allowedVerificationCommands: new Set(['npm test']),
+              },
             },
-          },
-        );
+          );
 
-        return mockRunResult;
-      });
+          return mockRunResult;
+        }),
+        config,
+      }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
       const consoleSpy = jest
@@ -231,6 +240,28 @@ describe('OpenAIAgentAdapter', () => {
             expect.objectContaining({ name: 'delete_file' }),
             expect.objectContaining({ name: 'verify_command' }),
           ]),
+        }),
+      );
+      expect(mockOpenAIProvider).toHaveBeenCalledWith({
+        apiKey: 'test-openai-key',
+      });
+      expect(mockRunner).toHaveBeenCalledWith(
+        expect.objectContaining({
+          modelProvider: expect.objectContaining({
+            apiKey: 'test-openai-key',
+          }),
+        }),
+      );
+      const mockRunnerInstance = mockRunner.mock.results[0]?.value as Record<
+        string,
+        unknown
+      > & { run?: jest.Mock };
+      expect(mockRunnerInstance.run).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          stream: true,
+          maxTurns: 20,
         }),
       );
       expect(mockExec).toHaveBeenCalledTimes(1);
@@ -269,21 +300,24 @@ describe('OpenAIAgentAdapter', () => {
 
       const mockRunResult = makeStreamedRun([], 'Done.');
 
-      mockRun.mockImplementation(async (agent: Record<string, unknown>) => {
-        const verifyTool = getTool(agent, 'verify_command');
-        const result = await verifyTool.execute(
-          { command: 'npm run lint' },
-          {
-            context: {
-              repoDir,
-              allowedVerificationCommands: new Set(['npm test']),
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async (agent: Record<string, unknown>) => {
+          const verifyTool = getTool(agent, 'verify_command');
+          const result = await verifyTool.execute(
+            { command: 'npm run lint' },
+            {
+              context: {
+                repoDir,
+                allowedVerificationCommands: new Set(['npm test']),
+              },
             },
-          },
-        );
+          );
 
-        expect(result).toContain('is not in the verification whitelist');
-        return mockRunResult;
-      });
+          expect(result).toContain('is not in the verification whitelist');
+          return mockRunResult;
+        }),
+        config: {},
+      }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
       const consoleSpy = jest
