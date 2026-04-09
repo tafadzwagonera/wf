@@ -19,6 +19,7 @@ describe('ImplementerAgent', () => {
   let agent: ImplementerAgent;
   let gitService: jest.Mocked<GitService>;
   let aiService: jest.Mocked<AiService>;
+  let mockFsFiles: Map<string, string>;
 
   const ticketArtifact: TicketArtifact = {
     ticketKey: 'WBP-1000',
@@ -43,6 +44,7 @@ describe('ImplementerAgent', () => {
   });
 
   beforeEach(async () => {
+    mockFsFiles = new Map<string, string>();
     const module = await Test.createTestingModule({
       providers: [
         ImplementerAgent,
@@ -109,8 +111,22 @@ describe('ImplementerAgent', () => {
       .spyOn(require('fs'), 'mkdirSync')
       .mockImplementation(() => undefined as any);
     jest
+      .spyOn(require('fs'), 'existsSync')
+      .mockImplementation((filePath: string) => mockFsFiles.has(filePath));
+    jest
+      .spyOn(require('fs'), 'readFileSync')
+      .mockImplementation((filePath: string) => {
+        const content = mockFsFiles.get(filePath);
+        if (content === undefined) {
+          throw new Error(`Unexpected read: ${filePath}`);
+        }
+        return content;
+      });
+    jest
       .spyOn(require('fs'), 'writeFileSync')
-      .mockImplementation(() => undefined);
+      .mockImplementation((filePath: string, content: string) => {
+        mockFsFiles.set(filePath, content);
+      });
   });
 
   afterEach(() => {
@@ -1507,6 +1523,96 @@ describe('ImplementerAgent', () => {
           }),
         }),
       );
+    });
+  });
+
+  describe('verification retry artifacts', () => {
+    it('persists failed attempts and passes classification metadata into diagnosis', async () => {
+      const mockFailure = {
+        attempt: 1,
+        results: [
+          {
+            command: 'npm run lint',
+            exitCode: 1,
+            stdout: '',
+            stderr:
+              '[error] src/example.spec.ts: SyntaxError: Unterminated template literal. (9:13)',
+          },
+        ],
+      };
+      const mockRunFiles = new Map<string, string>();
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((filePath: string) =>
+          mockRunFiles.has(String(filePath)),
+        );
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockImplementation((filePath: string) => {
+          const content = mockRunFiles.get(String(filePath));
+          if (content === undefined) {
+            throw new Error(`Unexpected read: ${filePath}`);
+          }
+          return content;
+        });
+      (require('fs').writeFileSync as jest.Mock).mockImplementation(
+        (filePath: string, content: string) => {
+          if (String(filePath).includes('implement-verification')) {
+            mockRunFiles.set(String(filePath), String(content));
+          }
+        },
+      );
+      const generateRepoFilesSpy = jest
+        .spyOn(agent as any, 'generateRepoFiles')
+        .mockResolvedValue([
+          { filePath: 'repo-a/src/example.ts', changed: true },
+        ]);
+      const verifyImplementationSpy = jest
+        .spyOn(agent as any, 'verifyImplementation')
+        .mockResolvedValueOnce({
+          failure: mockFailure,
+          rewroteTrackedFiles: false,
+        })
+        .mockResolvedValueOnce({
+          failure: null,
+          rewroteTrackedFiles: false,
+        });
+      (aiService as any).diagnoseVerificationFailure = jest
+        .fn()
+        .mockResolvedValue({
+          summary: 'Fix syntax',
+          fixes: [],
+        });
+      const diagnoseSpy = aiService.diagnoseVerificationFailure as jest.Mock;
+      const writeFileSyncSpy = require('fs').writeFileSync as jest.Mock;
+
+      await agent.execute(ticketArtifact, buildPlan(), {
+        platformName: 'jira',
+        repoDir: '/tmp/repo-a',
+      });
+
+      expect(diagnoseSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          classification: expect.objectContaining({
+            category: 'parse',
+            rootSignal: 'syntax-error',
+            strategy: 'surgical',
+          }),
+        }),
+      );
+
+      const artifactWriteCalls = writeFileSyncSpy.mock.calls.filter(
+        ([filePath]) => String(filePath).includes('implement-verification'),
+      );
+      expect(artifactWriteCalls.length).toBeGreaterThanOrEqual(2);
+      expect(
+        artifactWriteCalls.some(([, content]) =>
+          String(content).includes('"attemptNumber": 1'),
+        ),
+      ).toBe(true);
+
+      expect(generateRepoFilesSpy).toHaveBeenCalled();
+      expect(verifyImplementationSpy).toHaveBeenCalled();
     });
   });
 

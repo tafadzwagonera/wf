@@ -7,6 +7,8 @@ import { AiService } from '../integrations/ai/ai.service';
 import {
   ImplementBackendSelection,
   ImplementRunArtifact,
+  VerificationAttemptArtifact,
+  VerificationFailureClassification,
   TicketArtifact,
   PlanArtifact,
   ImplementerOptions,
@@ -18,6 +20,8 @@ import {
 } from './interfaces';
 import { extractSummary, slugify } from './utils';
 import {
+  appendImplementVerificationAttempt,
+  classifyVerificationFailure,
   formatBackendSelection,
   writeImplementVerificationRunFile,
 } from '../shared/utils/implement-verification';
@@ -358,6 +362,19 @@ export class ImplementerAgent {
       }
 
       lastVerificationFailure = verificationFailure;
+      const failingResult =
+        verificationFailure.results[verificationFailure.results.length - 1];
+      const classification = classifyVerificationFailure({
+        command: failingResult?.command ?? '',
+        stdout: verificationFailure.results
+          .map((result) => result.stdout)
+          .filter(Boolean)
+          .join('\n'),
+        stderr: verificationFailure.results
+          .map((result) => result.stderr)
+          .filter(Boolean)
+          .join('\n'),
+      });
       const setupIssue = this.detectVerificationSetupIssue(
         verificationFailure,
         options.repoDir,
@@ -379,6 +396,32 @@ export class ImplementerAgent {
       const trackedFilesChanged =
         fileWriteResults.some((result) => result.changed) ||
         verificationOutcome.rewroteTrackedFiles;
+      const verificationAttemptArtifact: VerificationAttemptArtifact = {
+        ticketKey: ticket.ticketKey,
+        attemptNumber,
+        backend: backendSelection.selected,
+        command: failingResult?.command ?? '',
+        exitCode: failingResult?.exitCode ?? 1,
+        failed: true,
+        classification,
+        fingerprint: failureFingerprint,
+        progress: {
+          advancedStage:
+            (previousVerificationFailure?.results.length ?? 0) <
+            verificationFailure.results.length,
+          reducedDiagnostics: previousVerificationFailure
+            ? this.countDiagnosticLines(verificationFailure) <
+              this.countDiagnosticLines(previousVerificationFailure)
+            : false,
+          narrowedFileSet: retryRepoFiles.length < repoFiles.length,
+        },
+        retryScope: retryRepoFiles,
+        createdAt: new Date().toISOString(),
+      };
+      appendImplementVerificationAttempt(
+        verificationRunFilePath,
+        verificationAttemptArtifact,
+      );
       const hasActionableDiagnostics =
         this.hasActionableDiagnostics(verificationFailure);
       const progress = this.assessVerificationProgress({
@@ -466,6 +509,7 @@ export class ImplementerAgent {
           planArtifact.plan.steps,
           options.repoDir,
           options.additionalRepoDirs,
+          classification,
         )) ?? undefined;
       retryRepoFiles = this.selectRetryRepoFiles({
         currentRetryRepoFiles: retryRepoFiles,
@@ -480,6 +524,7 @@ export class ImplementerAgent {
         verificationFailure,
         retryRepoFiles,
         repoName,
+        classification,
       );
     }
 
@@ -1212,6 +1257,7 @@ export class ImplementerAgent {
     planSteps: string[],
     repoDir?: string,
     additionalRepoDirs?: string[],
+    classification?: VerificationFailureClassification,
   ): Promise<FixPlan | null> {
     const implicatedFileContents = this.collectImplicatedFileContents(
       retryRepoFiles,
@@ -1240,6 +1286,13 @@ export class ImplementerAgent {
         repoContext,
         diagnostics,
         planSteps,
+        classification: classification
+          ? {
+              category: classification.category,
+              rootSignal: classification.rootSignal,
+              strategy: classification.strategy,
+            }
+          : undefined,
       });
       return fixPlan;
     } catch (err) {
@@ -1264,6 +1317,7 @@ export class ImplementerAgent {
     failure: VerificationFailure,
     retryRepoFiles: string[],
     repoName: string,
+    classification?: VerificationFailureClassification,
   ): string {
     const diagnostics = this.formatVerificationFailureMessage(failure);
     const relativeRetryFiles = retryRepoFiles.map((filePath) =>
@@ -1271,10 +1325,25 @@ export class ImplementerAgent {
         ? filePath.slice(repoName.length + 1)
         : filePath,
     );
+    const relativeImplicatedFiles = classification?.implicatedFiles.map(
+      (filePath) =>
+        repoName && filePath.startsWith(`${repoName}/`)
+          ? filePath.slice(repoName.length + 1)
+          : filePath,
+    );
     const retryGuidance = [
       'Retry guidance:',
       'Treat verification diagnostics as evidence of a mismatch, not as the source of truth.',
       'Apply the minimum code change that fixes the diagnostic. Do not output explanation, reasoning, or commentary.',
+      classification
+        ? `Verification classification: ${classification.category} (${classification.strategy})`
+        : 'Verification classification: unknown (broad-context)',
+      classification?.rootSignal
+        ? `Root signal: ${classification.rootSignal}`
+        : 'Root signal: (unclassified)',
+      relativeImplicatedFiles?.length
+        ? `Implicated file(s): ${relativeImplicatedFiles.join(', ')}`
+        : 'Implicated file(s): (none)',
       `Only update the implicated file(s) for this retry: ${relativeRetryFiles.join(', ')}`,
       'Do not widen the change scope beyond those files unless the diagnostics explicitly require it.',
     ].join('\n');

@@ -448,6 +448,47 @@ describe('AiService', () => {
       expect(result).toEqual(mockFixPlan);
     });
 
+    it('includes failure classification metadata in the diagnosis prompt', async () => {
+      const mockAdapter = createAdapter();
+      mockAdapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: 'ok',
+          fixes: [],
+        }),
+      });
+      const service = new AiService(
+        mockLogger,
+        mockAdapter,
+        createConfigService(),
+      );
+
+      await service.diagnoseVerificationFailure({
+        implicatedFileContents: {
+          'src/user/user.service.ts': 'export class UserService {}',
+        },
+        relatedFileContents: {},
+        testSources: {},
+        diagnostics: 'SyntaxError: Unterminated template literal',
+        planSteps: ['Fix syntax'],
+        classification: {
+          category: 'parse',
+          rootSignal: 'syntax-error',
+          strategy: 'surgical',
+        },
+      });
+
+      expect(mockAdapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('Failure classification:'),
+        }),
+      );
+      expect(mockAdapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('Category: parse'),
+        }),
+      );
+    });
+
     it('strips code fences before JSON.parse', async () => {
       const mockFixPlan: FixPlan = {
         summary: 'Missing export',

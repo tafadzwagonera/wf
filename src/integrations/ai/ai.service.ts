@@ -581,6 +581,11 @@ Apply the relevant steps to this file. Return ONLY the complete updated file con
     };
     diagnostics: string;
     planSteps: string[];
+    classification?: {
+      category: string;
+      rootSignal: string;
+      strategy: string;
+    };
   }): Promise<FixPlan> {
     const repoGuardrails = buildRepoGuardrails(params.repoContext);
     const systemPrompt = `You are an expert TypeScript software engineer diagnosing verification failures.
@@ -606,6 +611,9 @@ ${params.planSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
 Diagnostics:
 ${params.diagnostics}
+
+Failure classification:
+${params.classification ? `- Category: ${params.classification.category}\n- Root signal: ${params.classification.rootSignal}\n- Retry strategy: ${params.classification.strategy}` : '- Category: unknown\n- Root signal: n/a\n- Retry strategy: broad-context'}
 
 Implicated files (current disk state):
 ${implicatedSection || '(none)'}
