@@ -1,7 +1,6 @@
 // src/integrations/ai/adapters/anthropic-agent.adapter.spec.ts
 import { ConfigService } from '@nestjs/config';
 import {
-  query,
   type SDKMessage,
   type SDKResultMessage,
 } from '@anthropic-ai/claude-agent-sdk';
@@ -9,17 +8,23 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { AnthropicAgentAdapter } from './anthropic-agent.adapter';
+import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import type { VerificationScript } from '../../../agents/interfaces';
 
 jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: jest.fn(),
+  __esModule: true,
+}));
+jest.mock('./load-anthropic-agent-sdk', () => ({
+  loadAnthropicAgentSdk: jest.fn(),
 }));
 jest.mock('os', () => ({
   ...jest.requireActual('os'),
   homedir: jest.fn(),
 }));
 
-const mockQuery = query as jest.MockedFunction<typeof query>;
+const mockLoadAnthropicAgentSdk = loadAnthropicAgentSdk as jest.MockedFunction<
+  typeof loadAnthropicAgentSdk
+>;
 const mockHomedir = os.homedir as jest.MockedFunction<typeof os.homedir>;
 
 const makeConfigService = (
@@ -97,6 +102,35 @@ const makeResultError = (
     ...overrides,
   }) as SDKResultMessage;
 
+const makeTaskProgressMessage = (): SDKMessage =>
+  ({
+    type: 'system',
+    subtype: 'task_progress',
+    task_id: 'task-1',
+    description: 'Working on progress',
+    summary: 'Checking file boundaries',
+    last_tool_name: 'Edit',
+    usage: {
+      total_tokens: 120,
+      tool_uses: 3,
+      duration_ms: 1500,
+    },
+    uuid: '11111111-1111-1111-1111-111111111113',
+    session_id: 'session-3',
+  }) as SDKMessage;
+
+const makeToolProgressMessage = (): SDKMessage =>
+  ({
+    type: 'tool_progress',
+    tool_use_id: 'tool-use-1',
+    tool_name: 'Write',
+    parent_tool_use_id: null,
+    elapsed_time_seconds: 2.4,
+    task_id: 'task-1',
+    uuid: '11111111-1111-1111-1111-111111111114',
+    session_id: 'session-4',
+  }) as SDKMessage;
+
 const makeSdkSession = (messages: SDKMessage[]) => {
   let messageIndex = 0;
 
@@ -144,18 +178,24 @@ const makeParams = (
 describe('AnthropicAgentAdapter', () => {
   beforeEach(() => {
     mockHomedir.mockReturnValue(path.join(os.tmpdir(), 'wf-home-default'));
+    mockLoadAnthropicAgentSdk.mockResolvedValue({
+      query: jest.fn(),
+    } as never);
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
-    mockQuery.mockReset();
+    mockLoadAnthropicAgentSdk.mockReset();
     mockHomedir.mockReset();
   });
 
   describe('generateAndVerify', () => {
     it('invokes the Claude Agent SDK with repo-scoped access and the verification whitelist', async () => {
       const mockSession = makeSdkSession([makeResultSuccess()]);
-      mockQuery.mockReturnValue(mockSession as any);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       await adapter.generateAndVerify(
@@ -199,6 +239,7 @@ describe('AnthropicAgentAdapter', () => {
       expect(options.cwd).toBe('/repo/primary');
       expect(options.model).toBe('claude-sonnet-4-6');
       expect(options.permissionMode).toBe('acceptEdits');
+      expect(options.agentProgressSummaries).toBe(true);
       expect(options.tools).toEqual(
         expect.arrayContaining([
           'Read',
@@ -259,9 +300,45 @@ describe('AnthropicAgentAdapter', () => {
       expect(mockSession.close).toHaveBeenCalledTimes(1);
     });
 
+    it('streams task and tool progress messages before the final result', async () => {
+      const mockSession = makeSdkSession([
+        makeTaskProgressMessage(),
+        makeToolProgressMessage(),
+        makeResultSuccess(),
+      ]);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+      const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      try {
+        const adapter = new AnthropicAgentAdapter(makeConfigService());
+        await adapter.generateAndVerify(makeParams());
+
+        expect(
+          mockLog.mock.calls.some(([message]) =>
+            String(message).includes('Task progress: Checking file boundaries'),
+          ),
+        ).toBe(true);
+        expect(
+          mockLog.mock.calls.some(([message]) =>
+            String(message).includes(
+              'Tool progress: Write (2.4s) · task: task-1',
+            ),
+          ),
+        ).toBe(true);
+      } finally {
+        mockLog.mockRestore();
+      }
+    });
+
     it('throws when the SDK returns an execution error', async () => {
       const mockSession = makeSdkSession([makeResultError()]);
-      mockQuery.mockReturnValue(mockSession as any);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
 
@@ -274,7 +351,10 @@ describe('AnthropicAgentAdapter', () => {
 
     it('fails fast when the Anthropic API key is missing', async () => {
       const mockSession = makeSdkSession([makeResultSuccess()]);
-      mockQuery.mockReturnValue(mockSession as any);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
 
       const adapter = new AnthropicAgentAdapter(
         makeConfigService({ 'ai.anthropicApiKey': '' }),
@@ -305,7 +385,10 @@ describe('AnthropicAgentAdapter', () => {
       const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       const mockSession = makeSdkSession([makeResultSuccess()]);
-      mockQuery.mockReturnValue(mockSession as any);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
 
       try {
         const adapter = new AnthropicAgentAdapter(makeConfigService());
@@ -340,7 +423,10 @@ describe('AnthropicAgentAdapter', () => {
       mockHomedir.mockReturnValue(homeDir);
       const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
       const mockSession = makeSdkSession([makeResultSuccess()]);
-      mockQuery.mockReturnValue(mockSession as any);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
 
       try {
         const adapter = new AnthropicAgentAdapter(makeConfigService());

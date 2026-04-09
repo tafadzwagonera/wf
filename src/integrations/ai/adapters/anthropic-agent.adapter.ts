@@ -1,7 +1,6 @@
 // src/integrations/ai/adapters/anthropic-agent.adapter.ts
 import { ConfigService } from '@nestjs/config';
 import {
-  query,
   type CanUseTool,
   type SDKResultMessage,
   type Settings,
@@ -18,6 +17,8 @@ import type {
   IImplementerBackend,
   VerificationScript,
 } from '../../../agents/interfaces';
+import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
 const CLAUDE_CODE_TOOLS = [
   'Read',
@@ -83,6 +84,46 @@ const readOptionalFile = async (filePath: string): Promise<string | null> => {
 
 const warnMissingClaudeFile = (filePath: string): void => {
   console.log(chalk.yellow(`⚠️ Missing CLAUDE.md file at ${filePath}`));
+};
+
+/**
+ * Format a streamed progress event for console output.
+ *
+ * @param message - The SDK progress message to format
+ * @returns A human-readable log line, or null when the message is not progress
+ */
+const formatProgressMessage = (message: SDKMessage): string | null => {
+  if (message.type === 'system' && message.subtype === 'task_progress') {
+    const summary = message.summary?.trim() || message.description.trim();
+    const lastToolLabel = message.last_tool_name
+      ? ` · last tool: ${message.last_tool_name}`
+      : '';
+    return `  [claude-agent-sdk] Task progress: ${summary}${lastToolLabel}`;
+  }
+
+  if (message.type === 'tool_progress') {
+    const elapsedSeconds = message.elapsed_time_seconds.toFixed(1);
+    const taskLabel = message.task_id ? ` · task: ${message.task_id}` : '';
+    return `  [claude-agent-sdk] Tool progress: ${message.tool_name} (${elapsedSeconds}s)${taskLabel}`;
+  }
+
+  return null;
+};
+
+/**
+ * Print a streamed progress event when the SDK emits one.
+ *
+ * @param message - The SDK message to inspect
+ * @returns True when the message was handled as progress
+ */
+const logProgressMessage = (message: SDKMessage): boolean => {
+  const formattedMessage = formatProgressMessage(message);
+  if (!formattedMessage) {
+    return false;
+  }
+
+  console.log(chalk.cyan(formattedMessage));
+  return true;
 };
 
 const loadClaudeContext = async (repoDir: string): Promise<string> => {
@@ -217,6 +258,9 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
       tools: [...CLAUDE_CODE_TOOLS],
       allowedTools: [...CLAUDE_CODE_TOOLS],
       permissionMode: 'acceptEdits' as const,
+      // Emit periodic task summaries so the CLI can mirror long-running agent
+      // progress instead of waiting for the final result only.
+      agentProgressSummaries: true,
       settingSources: ['project'] as SettingSource[],
       settings: {
         claudeMdExcludes: [
@@ -259,6 +303,7 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
       },
     };
 
+    const { query } = await loadAnthropicAgentSdk();
     const session = query({
       prompt: sceneContext,
       options: sdkOptions,
@@ -274,6 +319,10 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
 
     try {
       for await (const message of session) {
+        if (logProgressMessage(message)) {
+          continue;
+        }
+
         if (message.type !== 'result') {
           continue;
         }

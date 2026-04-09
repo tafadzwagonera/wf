@@ -593,6 +593,7 @@ Runtime backend selection is separate from plan metadata:
 - `stages.implement.experimentalAgent: true` enables the experimental Claude Agent SDK backend.
 - `ai.provider: anthropic` must be active for `wf issue:implement` to select `anthropic-agent`.
 - If the experimental flag is disabled, or the active provider is not `anthropic`, the command falls back to the standard two-phase retry backend.
+- When `anthropic-agent` is active, the CLI streams task and tool progress lines while the agent is working, so the implementation loop is no longer a black box.
 
 Example:
 
