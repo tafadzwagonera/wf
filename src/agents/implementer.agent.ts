@@ -1949,6 +1949,10 @@ export class ImplementerAgent {
   /**
    * Resolves which implementation backend should run for the current config.
    *
+   * The plan artifact's provider value is treated as metadata for analysis and
+   * reporting only. Backend selection comes from runtime wf config:
+   * `stages.implement.experimentalAgent` and `ai.provider`.
+   *
    * @returns Selected backend plus the configuration intent and provider
    */
   private resolveImplementBackendSelection(): ImplementBackendSelection {

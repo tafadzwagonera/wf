@@ -105,12 +105,12 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
     'analyses failing file contents, related type definitions, repo test-runner context, and test sources, ' +
     'then generates a structured fix plan used as shared context during re-generation. Retry scope widens to paired implementation/spec files when diagnostics implicate one side of the pair, then stays pinned to the smallest implicated file set unless later diagnostics name additional files. History-aware progress tracking keeps retrying when deep failures collapse into smaller earlier-stage residual errors. Repo context is also injected into implement/diagnose prompts to reduce Jest/Vitest framework drift. ' +
     'Verification commands are expected to be repo-root-relative; stale plan artifacts that still embed redundant repo-selection `cd` prefixes are normalized, while cross-repo directory jumps are treated as setup errors. ' +
-    'Enable the experimental Anthropic agent backend (requires provider: anthropic) ' +
-    'with stages.implement.experimentalAgent: true in wf.config for agentic tool-use ' +
-    'on TypeScript type and test failures. ' +
+    'Enable the experimental Anthropic agent backend by setting stages.implement.experimentalAgent: true and selecting provider: anthropic in wf.config; the plan artifact provider only tags the plan/model for analysis and does not drive backend selection. ' +
+    'When the experimental backend is disabled or the provider is not anthropic, issue:implement falls back to the standard two-phase retry path. ' +
     'Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. ' +
     'Examples: wf issue:implement PROJ-123 | wf issue:implement PROJ-123 --repos my-repo | ' +
-    'wf issue:implement PROJ-123 --repos repo-a repo-b | wf issue:implement my-custom-plan.json',
+    'wf issue:implement PROJ-123 --repos repo-a repo-b | wf issue:implement my-custom-plan.json | ' +
+    'wf issue:implement PROJ-123 --dry-run',
   arguments: '[ticket-key-or-plan-file]',
 })
 export class IssueImplementCommand extends CommandRunner {

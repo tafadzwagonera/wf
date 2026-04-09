@@ -587,6 +587,30 @@ wf issue:implement bold-jumping-wave-fix.yaml
 wf issue:implement dark-building-creek-fix.json --dry-run
 ```
 
+Runtime backend selection is separate from plan metadata:
+
+- `plan.provider` tags the plan/model for analysis and reporting.
+- `stages.implement.experimentalAgent: true` enables the experimental Anthropic agent backend.
+- `ai.provider: anthropic` must be active for `wf issue:implement` to select `anthropic-agent`.
+- If the experimental flag is disabled, or the active provider is not `anthropic`, the command falls back to the standard two-phase retry backend.
+
+Example:
+
+```yaml
+ai:
+  - provider: anthropic
+    apiKey: ${ANTHROPIC_API_KEY}
+    model: claude-sonnet-4-6
+    default: true
+stages:
+  implement:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    experimentalAgent: true
+```
+
+The `stages.implement.provider` and `stages.implement.model` values above are runtime implementation settings. The same shape may also appear in generated plan artifacts, but the plan artifact provider is informational and does not change backend selection by itself.
+
 ### Retry strategy
 
 `issue:implement` uses a **two-phase retry** strategy when verification fails:
@@ -643,11 +667,12 @@ wf issue:implement dark-building-creek-fix.json --repos service-tourv3
 
 #### Experimental: Anthropic agent backend
 
-Set `stages.implement.experimentalAgent: true` in `wf.config.*` to use the
-Anthropic agent backend. The model drives its own inner loop via
-`read_file`, `write_file`, and `run_command` tools, iterating until
-verification passes. Requires `provider: 'anthropic'`; falls back to the
-standard two-phase path for other providers.
+Set `stages.implement.experimentalAgent: true` in `wf.config.*` and keep the
+active AI provider set to `anthropic` to use the Anthropic agent backend. The
+model drives its own inner loop via `read_file`, `write_file`, and
+`run_command` tools, iterating until verification passes. If the active
+provider is anything else, `wf issue:implement` falls back to the standard
+two-phase path.
 
 ```yaml
 stages:

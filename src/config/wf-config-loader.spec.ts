@@ -281,6 +281,7 @@ describe('wf-config-loader', () => {
           implement: {
             provider: 'anthropic',
             model: 'claude-haiku-4-5-20251001',
+            experimentalAgent: true,
             afterImplement: {
               policyFile: '.wf/verification.json',
             },
@@ -299,6 +300,7 @@ describe('wf-config-loader', () => {
       expect(config.stages.implement).toEqual({
         provider: 'anthropic',
         model: 'claude-haiku-4-5-20251001',
+        experimentalAgent: true,
         afterImplement: {
           baseMaxAttempts: 3,
           maxProgressExtensions: 2,

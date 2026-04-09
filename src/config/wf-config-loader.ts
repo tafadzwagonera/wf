@@ -52,6 +52,7 @@ export interface NormalizedImplementStageConfig {
   provider: WfAiProviderName;
   model: string;
   afterImplement?: NormalizedAfterImplementConfig;
+  experimentalAgent?: boolean;
 }
 
 export interface NormalizedWfConfig {
@@ -672,6 +673,7 @@ export const normalizeWfConfig = (
       afterImplement: normalizeAfterImplementConfig(
         implementStageConfig.afterImplement,
       ),
+      experimentalAgent: implementStageConfig.experimentalAgent,
     };
   })();
 
