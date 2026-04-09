@@ -81,6 +81,18 @@ describe('implement verification helpers', () => {
         'Implement backend: two-phase (configured: anthropic-agent, provider: openai, reason: provider mismatch)',
       );
     });
+
+    it('formats openai-agent selections', () => {
+      const selection: ImplementBackendSelection = {
+        configured: 'openai-agent',
+        selected: 'openai-agent',
+        provider: 'openai',
+      };
+
+      expect(formatBackendSelection(selection)).toBe(
+        'Implement backend: openai-agent (configured: openai-agent, provider: openai)',
+      );
+    });
   });
 
   describe('writeImplementVerificationRunFile', () => {

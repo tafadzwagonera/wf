@@ -37,6 +37,7 @@ import {
   type VerificationStep,
 } from '../shared/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
+import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 
 const execAsync = promisify(exec);
 const DEFAULT_BASE_MAX_ATTEMPTS = 3;
@@ -125,10 +126,11 @@ export class ImplementerAgent {
    * a deeper test/type/module failure collapses into a smaller earlier-stage
    * lint/type residue, while still rejecting genuine oscillation.
    *
-   * When `stages.implement.experimentalAgent: true` and `ai.provider` is
-   * `'anthropic'`, delegates the entire generate-and-verify loop to
-   * AnthropicAgentAdapter (tool-use inner loop). Falls back to the standard
-   * two-phase retry path for all other providers.
+   * When `stages.implement.experimentalAgent: true` and the implement-stage
+   * provider is `'anthropic'`, delegates the entire generate-and-verify loop
+   * to AnthropicAgentAdapter (tool-use inner loop). When the provider is
+   * `'openai'`, delegates to OpenAIAgentAdapter. All other providers use the
+   * standard two-phase retry path.
    *
    * For investigate actions, calls the AI to generate structured findings
    * and saves a findings artifact instead.
@@ -271,8 +273,14 @@ export class ImplementerAgent {
       startedAt: new Date().toISOString(),
     });
 
-    if (backendSelection.selected === 'anthropic-agent') {
-      const adapter = new AnthropicAgentAdapter(this.configService);
+    if (
+      backendSelection.selected === 'anthropic-agent' ||
+      backendSelection.selected === 'openai-agent'
+    ) {
+      const adapter =
+        backendSelection.selected === 'openai-agent'
+          ? new OpenAIAgentAdapter(this.configService)
+          : new AnthropicAgentAdapter(this.configService);
       await adapter.generateAndVerify({
         ticket,
         planArtifact,
@@ -289,7 +297,7 @@ export class ImplementerAgent {
     if (backendSelection.fallbackReason) {
       console.log(
         chalk.yellow(
-          `  ⚠ stages.implement.experimentalAgent requires provider: anthropic (current: ${backendSelection.provider}). Falling back to standard two-phase retry.`,
+          `  ⚠ stages.implement.experimentalAgent falls back to standard two-phase retry for provider: ${backendSelection.provider}.`,
         ),
       );
     }
@@ -1949,9 +1957,8 @@ export class ImplementerAgent {
   /**
    * Resolves which implementation backend should run for the current config.
    *
-   * The plan artifact's provider value is treated as metadata for analysis and
-   * reporting only. Backend selection comes from runtime wf config:
-   * `stages.implement.experimentalAgent` and `ai.provider`.
+   * Backend selection comes from runtime wf config:
+   * `stages.implement.experimentalAgent` and `stages.implement.provider`.
    *
    * @returns Selected backend plus the configuration intent and provider
    */
@@ -1961,7 +1968,9 @@ export class ImplementerAgent {
         'stages.implement.experimentalAgent',
         false,
       ) === true;
-    const provider = this.configService.get<string>('ai.provider', 'anthropic');
+    const provider =
+      this.configService.get<string>('stages.implement.provider') ??
+      this.configService.get<string>('ai.provider', 'anthropic');
 
     if (!experimentalAgent) {
       return {
@@ -1971,7 +1980,7 @@ export class ImplementerAgent {
       };
     }
 
-    if (provider !== 'anthropic') {
+    if (provider !== 'anthropic' && provider !== 'openai') {
       return {
         configured: 'anthropic-agent' as const,
         selected: 'two-phase' as const,
@@ -1981,8 +1990,14 @@ export class ImplementerAgent {
     }
 
     return {
-      configured: 'anthropic-agent' as const,
-      selected: 'anthropic-agent' as const,
+      configured:
+        provider === 'openai'
+          ? ('openai-agent' as const)
+          : ('anthropic-agent' as const),
+      selected:
+        provider === 'openai'
+          ? ('openai-agent' as const)
+          : ('anthropic-agent' as const),
       provider,
     };
   }

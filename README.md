@@ -590,10 +590,12 @@ wf issue:implement dark-building-creek-fix.json --dry-run
 Runtime backend selection is separate from plan metadata:
 
 - `plan.provider` tags the plan/model for analysis and reporting.
-- `stages.implement.experimentalAgent: true` enables the experimental Claude Agent SDK backend.
-- `ai.provider: anthropic` must be active for `wf issue:implement` to select `anthropic-agent`.
-- If the experimental flag is disabled, or the active provider is not `anthropic`, the command falls back to the standard two-phase retry backend.
-- When `anthropic-agent` is active, the CLI streams task and tool progress lines while the agent is working, so the implementation loop is no longer a black box.
+- `stages.implement.experimentalAgent: true` enables the experimental agent backend.
+- `stages.implement.provider: anthropic` selects `anthropic-agent`.
+- `stages.implement.provider: openai` selects `openai-agent`.
+- If the experimental flag is disabled, or the provider is neither `anthropic` nor `openai`, the command falls back to the standard two-phase retry backend.
+- When either experimental agent backend is active, the CLI streams task and tool progress lines while the agent is working, so the implementation loop is no longer a black box.
+- The OpenAI backend exposes only an exact-match `verify_command` tool for whitelisted verification commands.
 
 Example:
 
@@ -603,10 +605,13 @@ ai:
     apiKey: ${ANTHROPIC_API_KEY}
     model: claude-sonnet-4-6
     default: true
+  - provider: openai
+    apiKey: ${OPENAI_API_KEY}
+    model: gpt-5.4-mini
 stages:
   implement:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
+    provider: openai
+    model: gpt-5.4-mini
     experimentalAgent: true
 ```
 
@@ -666,20 +671,26 @@ wf issue:implement WBP-2971 --repos service-tourv3
 wf issue:implement dark-building-creek-fix.json --repos service-tourv3
 ```
 
-#### Experimental: Claude Agent SDK backend
+#### Experimental: Anthropic and OpenAI agent backends
 
-Set `stages.implement.experimentalAgent: true` in `wf.config.*` and keep the
-active AI provider set to `anthropic` to use the Claude Agent SDK backend. The
-model drives its own inner loop via built-in Claude Code tools, iterating until
-verification passes. The backend explicitly loads `~/.claude/CLAUDE.md` and
-the repository-root `CLAUDE.md`; if either file is missing, it logs a yellow
-warning and continues. If the active provider is anything else,
+Set `stages.implement.experimentalAgent: true` in `wf.config.*` and select
+`stages.implement.provider: anthropic` or `stages.implement.provider: openai`
+to use the experimental agent backend. The agent drives its own inner loop via
+built-in tools, iterating until verification passes. The Anthropic backend
+loads `~/.claude/CLAUDE.md` and the repository-root `CLAUDE.md`; the OpenAI
+backend loads `~/.openai/OPENAI.md` and the repository-root `.openai/OPENAI.md`.
+If a backend-specific file is missing, it logs a yellow warning and continues.
+The OpenAI backend only exposes an exact-match `verify_command` tool for
+verification, so non-whitelisted commands are rejected before execution. If
+the experimental flag is disabled or the provider is anything else,
 `wf issue:implement` falls back to the standard two-phase path.
 
 ```yaml
 stages:
   implement:
     experimentalAgent: true
+    provider: openai
+    model: gpt-5.4-mini
     afterImplement:
       baseMaxAttempts: 3
       maxProgressExtensions: 2

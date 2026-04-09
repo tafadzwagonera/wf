@@ -80,9 +80,12 @@ describe('getHelpText', () => {
     expect(runHelpText).not.toContain('--auto-approve');
     expect(reviewHelpText).toContain('--criteria <path>');
     expect(reviewHelpText).toContain('--replace-criteria <path>');
-    expect(implementHelpText).toContain('Claude Agent SDK backend');
+    expect(implementHelpText).toContain('Anthropic or OpenAI agent backend');
     expect(implementHelpText).toContain(
       '~/.claude/CLAUDE.md and the repository-root CLAUDE.md',
+    );
+    expect(implementHelpText).toContain(
+      '~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md',
     );
   });
 

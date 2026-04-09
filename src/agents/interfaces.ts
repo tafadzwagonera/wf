@@ -41,7 +41,10 @@ export interface FixPlan {
   };
 }
 
-export type ImplementBackendName = 'two-phase' | 'anthropic-agent';
+export type ImplementBackendName =
+  | 'two-phase'
+  | 'anthropic-agent'
+  | 'openai-agent';
 
 export interface ImplementBackendSelection {
   configured: ImplementBackendName;

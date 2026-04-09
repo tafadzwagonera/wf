@@ -54,6 +54,7 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
     "@octokit/rest": "^18",
+    "@openai/agents": "^0.8.3",
     "axios": "^1.13.6",
     "bitbucket": "^2.12.0",
     "boxen": "^5.1.2",
@@ -70,7 +71,8 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "simple-git": "^3.33.0",
-    "yaml": "^2.8.2"
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
