@@ -294,6 +294,11 @@ wf issue:fetch WBP-2971 --dry-run
 
 Generate an AI implementation plan for a ticket, or synthesize a canonical custom plan from a markdown source artifact. Reads from the local artifact saved by `issue:fetch`. If no local ticket artifact exists, it is fetched first.
 
+Targeted verification commands are stored as **repo-root-relative** commands. If
+the plan generator emits a redundant `cd <selected-repo> && ...`, `issue:plan`
+normalizes it before writing the artifact. If a targeted check tries to `cd`
+outside the selected repo, the plan is rejected.
+
 ```bash
 # Specify the resolution action
 wf issue:plan WBP-2971 --action fix
@@ -608,6 +613,13 @@ reduce **test framework drift**. If the selected repository advertises Jest via
 `package.json` or `jest.config.*`, retries explicitly tell the model to stay on
 Jest conventions and avoid introducing `vitest` imports unless Vitest is
 already configured, and vice versa.
+
+Verification commands are expected to run from the selected repository root.
+Recent `issue:plan` builds normalize redundant `cd <repo> && ...` wrappers
+before persisting the plan artifact. `issue:implement` keeps a defense-in-depth
+fallback for older artifacts and fails fast when a targeted verification command
+tries to jump outside the selected repository, because retrying code generation
+cannot fix a mis-scoped verification command.
 
 This makes `wf issue:implement` safer for common source/spec regressions:
 

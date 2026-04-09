@@ -167,13 +167,64 @@ const usesAssertionWrapper = (command?: string): boolean =>
     command ?? '',
   );
 
+const normalizeVerificationRunCommand = (
+  command: string,
+  selectedRepoDir: string,
+): string => {
+  const trimmed = command.trim();
+  const cdPrefixMatch = trimmed.match(/^cd\s+(.+?)\s*&&\s*(.+)$/);
+  if (!cdPrefixMatch) {
+    return trimmed;
+  }
+
+  const [, rawTarget, remainder] = cdPrefixMatch;
+  const target = rawTarget.trim().replace(/^['"]|['"]$/g, '');
+  const normalizedRepoDir = path.resolve(selectedRepoDir);
+  const repoName = path.basename(normalizedRepoDir);
+  const normalizedRelativeTarget =
+    target === repoName || target === `./${repoName}`
+      ? normalizedRepoDir
+      : path.resolve(selectedRepoDir, target);
+  const normalizedAbsoluteTarget = path.resolve(target);
+
+  if (
+    normalizedRelativeTarget === normalizedRepoDir ||
+    normalizedAbsoluteTarget === normalizedRepoDir
+  ) {
+    return remainder.trim();
+  }
+
+  return trimmed;
+};
+
+const escapesSelectedRepo = (
+  command: string,
+  selectedRepoDir: string,
+): boolean => {
+  const trimmed = command.trim();
+  const cdPrefixMatch = trimmed.match(/^cd\s+(.+?)\s*&&\s*(.+)$/);
+  if (!cdPrefixMatch) {
+    return false;
+  }
+
+  const normalized = normalizeVerificationRunCommand(trimmed, selectedRepoDir);
+  if (normalized !== trimmed) {
+    return false;
+  }
+
+  return true;
+};
+
 @Injectable()
 @Command({
   name: 'issue:plan',
   description:
     'Plan ticket implementation from a local artifact. ' +
     'If a local artifact is not found, the command will attempt to fetch it from the primary platform. ' +
-    'Use --force to fetch and recreate artifacts.',
+    'Use --force to fetch and recreate artifacts. ' +
+    'Targeted verification commands are interpreted as repo-root-relative: redundant ' +
+    '`cd <repo>` prefixes are normalized away, while commands that change directories ' +
+    'outside the selected repository are rejected.',
   arguments: '[ticket-key]',
 })
 export class IssuePlanCommand extends CommandRunner {
@@ -398,6 +449,7 @@ export class IssuePlanCommand extends CommandRunner {
         );
         this.validateGeneratedPlan(
           plan,
+          artifactBaseDir,
           this.resolveExpectedRepositories(artifactBaseDir, options?.repos),
         );
 
@@ -568,6 +620,7 @@ export class IssuePlanCommand extends CommandRunner {
       });
       this.validateGeneratedPlan(
         plan,
+        artifactBaseDir,
         this.resolveExpectedRepositories(artifactBaseDir, options?.repos),
       );
 
@@ -786,13 +839,17 @@ export class IssuePlanCommand extends CommandRunner {
 
   /**
    * Validate generated plan metadata before persisting it to disk.
+   * Also normalizes repo-root verification commands so downstream stages see a
+   * portable artifact instead of a consumer-specific `cd <repo> && ...` wrapper.
    *
    * @param plan - Generated plan content
+   * @param selectedRepoDir - Directory used as the repository root for plan execution
    * @param expectedRepositories - Repository names allowed for this plan
    * @returns Nothing; throws when the plan metadata is incompatible
    */
   private validateGeneratedPlan(
     plan: RepoAwarePlan,
+    selectedRepoDir: string,
     expectedRepositories: string[],
   ): void {
     const repositoriesAffected = plan.repositoriesAffected ?? [];
@@ -835,6 +892,16 @@ export class IssuePlanCommand extends CommandRunner {
       );
     }
 
+    if (plan.verification?.targeted?.length) {
+      plan.verification.targeted = plan.verification.targeted.map((check) => ({
+        ...check,
+        run:
+          typeof check.run === 'string'
+            ? normalizeVerificationRunCommand(check.run, selectedRepoDir)
+            : check.run,
+      }));
+    }
+
     const invalidVerificationCommand = plan.verification?.targeted?.find(
       (check) => {
         const reasonText = [check.reason, check.id].filter(Boolean).join(' ');
@@ -847,6 +914,17 @@ export class IssuePlanCommand extends CommandRunner {
     if (invalidVerificationCommand) {
       throw createPlanValidationError(
         `verification command "${invalidVerificationCommand.run}" must assert expected failure inside the command so it exits 0 on success.`,
+      );
+    }
+
+    const escapedRepoVerificationCommand = plan.verification?.targeted?.find(
+      (check) =>
+        typeof check.run === 'string' &&
+        escapesSelectedRepo(check.run, selectedRepoDir),
+    );
+    if (escapedRepoVerificationCommand) {
+      throw createPlanValidationError(
+        `verification command "${escapedRepoVerificationCommand.run}" must not change directories outside the selected repository; commands run from the repo root already.`,
       );
     }
   }

@@ -385,6 +385,123 @@ describe('ImplementerAgent', () => {
       ]);
     });
 
+    it('normalizes targeted verification commands that redundantly cd into the selected repo', async () => {
+      installMockRepoFiles();
+
+      const runCommandSpy = jest
+        .spyOn(agent as any, 'runCommand')
+        .mockResolvedValue({
+          command: 'ok',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          verification: {
+            targeted: [
+              {
+                id: 'tripcom-tests',
+                run: "cd repo-a && npm run test -- --testPathPattern='tripcom'",
+                policy: 'enforced',
+              },
+              {
+                id: 'tripcom-html',
+                run: 'cd /tmp/repo-a && node -e "console.log(\'ok\')"',
+                policy: 'enforced',
+              },
+            ],
+          } as any,
+        } as any),
+        {
+          platformName: 'jira',
+          repoDir: '/tmp/repo-a',
+        },
+      );
+
+      expect(runCommandSpy.mock.calls.map((call) => call[0])).toEqual([
+        'npm run format:write',
+        'npm run format:check',
+        'npm run lint:fix',
+        'npm run lint',
+        'npm run build',
+        "npm run test -- --testPathPattern='tripcom'",
+        `node -e "console.log('ok')"`,
+      ]);
+    });
+
+    it('treats repo-boundary verification command failures as non-retriable setup errors', async () => {
+      installMockRepoFiles();
+
+      aiService.generateFileChange.mockResolvedValueOnce(
+        'export const broken = true;\n',
+      );
+
+      jest
+        .spyOn(agent as any, 'runCommand')
+        .mockResolvedValueOnce({
+          command: 'npm run format:write',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run format:check',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint:fix',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run lint',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'npm run build',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          command: 'cd repo-b && npm run test',
+          exitCode: 1,
+          stdout: '',
+          stderr: '/bin/sh: line 0: cd: repo-b: No such file or directory',
+        });
+
+      await expect(
+        agent.execute(
+          ticketArtifact,
+          buildPlan({
+            verification: {
+              targeted: [
+                {
+                  id: 'bad-targeted-check',
+                  run: 'cd repo-b && npm run test',
+                  policy: 'enforced',
+                },
+              ],
+            } as any,
+          } as any),
+          {
+            platformName: 'jira',
+            repoDir: '/tmp/repo-a',
+          },
+        ),
+      ).rejects.toThrow(/verification command.*repo-b/i);
+
+      expect(aiService.generateFileChange).toHaveBeenCalledTimes(1);
+    });
+
     it('retries with the full configured script sequence after actionable failures', async () => {
       installMockRepoFiles();
 

@@ -68,6 +68,10 @@ interface VerificationProgress {
   summary: string;
 }
 
+interface VerificationSetupIssue {
+  summary: string;
+}
+
 interface RetryRepoContext {
   packageJson?: string;
   configFiles: Record<string, string>;
@@ -336,6 +340,20 @@ export class ImplementerAgent {
       }
 
       lastVerificationFailure = verificationFailure;
+      const setupIssue = this.detectVerificationSetupIssue(
+        verificationFailure,
+        options.repoDir,
+      );
+      if (setupIssue) {
+        throw new Error(
+          this.formatVerificationExitMessage({
+            ticketKey: ticket.ticketKey,
+            repoDir: options.repoDir,
+            summary: setupIssue.summary,
+            failure: verificationFailure,
+          }),
+        );
+      }
       const failureFingerprint = this.buildFailureFingerprint(
         verificationFailure,
         afterImplement?.fingerprintLineCount ?? DEFAULT_FINGERPRINT_LINE_COUNT,
@@ -699,14 +717,55 @@ export class ImplementerAgent {
       (step) => !waiverIds.has(step.id),
     );
 
-    return resolvedSteps.map((step) => ({
-      id: step.id,
-      name: step.id,
-      command: step.run,
-      policy: step.policy,
-      reason: step.reason,
-      aliases: this.findPackageAliases(step.run, packageScripts),
-    }));
+    return resolvedSteps.map((step) => {
+      const normalizedCommand = this.normalizeVerificationCommand(
+        step.run,
+        repoDir,
+      );
+
+      return {
+        id: step.id,
+        name: step.id,
+        command: normalizedCommand,
+        policy: step.policy,
+        reason: step.reason,
+        aliases: this.findPackageAliases(normalizedCommand, packageScripts),
+      };
+    });
+  }
+
+  private normalizeVerificationCommand(
+    command: string,
+    repoDir: string | undefined,
+  ): string {
+    const trimmed = command.trim();
+    if (!repoDir) {
+      return trimmed;
+    }
+
+    const cdPrefixMatch = trimmed.match(/^cd\s+(.+?)\s*&&\s*(.+)$/);
+    if (!cdPrefixMatch) {
+      return trimmed;
+    }
+
+    const [, rawTarget, remainder] = cdPrefixMatch;
+    const target = rawTarget.trim().replace(/^['"]|['"]$/g, '');
+    const normalizedRepoDir = path.resolve(repoDir);
+    const repoName = path.basename(normalizedRepoDir);
+    const normalizedRelativeTarget =
+      target === repoName || target === `./${repoName}`
+        ? normalizedRepoDir
+        : path.resolve(repoDir, target);
+    const normalizedAbsoluteTarget = path.resolve(target);
+
+    if (
+      normalizedRelativeTarget === normalizedRepoDir ||
+      normalizedAbsoluteTarget === normalizedRepoDir
+    ) {
+      return remainder.trim();
+    }
+
+    return trimmed;
   }
 
   private resolveBaselineVerificationSteps(
@@ -1338,6 +1397,40 @@ export class ImplementerAgent {
         .split('\n')
         .some((line) => ACTIONABLE_DIAGNOSTIC_PATTERN.test(line)),
     );
+  }
+
+  private detectVerificationSetupIssue(
+    failure: VerificationFailure,
+    repoDir?: string,
+  ): VerificationSetupIssue | null {
+    const failedResult = failure.results.find(
+      (result) => result.exitCode !== 0,
+    );
+    if (!failedResult) {
+      return null;
+    }
+
+    const cdPrefixMatch = failedResult.command
+      .trim()
+      .match(/^cd\s+(.+?)\s*&&\s*(.+)$/);
+    if (!cdPrefixMatch) {
+      return null;
+    }
+
+    const output = [failedResult.stdout, failedResult.stderr]
+      .filter(Boolean)
+      .join('\n');
+    if (!/no such file or directory|can't cd to|cannot cd to/i.test(output)) {
+      return null;
+    }
+
+    const repoName = repoDir ? path.basename(repoDir) : undefined;
+
+    return {
+      summary: repoName
+        ? `Verification command "${failedResult.command}" assumes a different working directory. issue:implement already runs inside ${repoName}, so fix the verification command instead of retrying code generation.`
+        : `Verification command "${failedResult.command}" assumes a missing working directory. Fix the verification command instead of retrying code generation.`,
+    };
   }
 
   /**

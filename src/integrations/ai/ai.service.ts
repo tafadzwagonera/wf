@@ -254,6 +254,7 @@ ${repoHint}Create a detailed resolution plan with:
    - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
    - Omit "verification" entirely when no targeted checks or waivers are needed
    - Keep verification tool-agnostic and command-based, e.g. "npm run test:manual -- test-issue-review"
+   - Verification commands run from the selected repository root; do not prefix them with "cd <repo>" or any other repo-selection step
    - Every verification command must exit 0 when it succeeds
    - If you need to prove an expected failure, wrap it in a shell assertion that exits 0 when the expected failure occurs.
 
