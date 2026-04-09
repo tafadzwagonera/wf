@@ -299,6 +299,9 @@ export class ImplementerAgent {
     let retryFixPlan: FixPlan | undefined;
     let previousFailureFingerprint: string | undefined;
     let previousVerificationFailure: VerificationFailure | undefined;
+    let previousVerificationClassification:
+      | VerificationFailureClassification
+      | undefined;
     let furthestVerificationFailure: VerificationFailure | undefined;
     let lastVerificationFailure: VerificationFailure | undefined;
     let verificationRewroteTrackedFiles = false;
@@ -437,6 +440,26 @@ export class ImplementerAgent {
         progressExtensionsUsed < maxProgressExtensions &&
         attemptNumber < absoluteMaxAttempts;
 
+      if (
+        this.isRepeatedParseFailure({
+          previousFailureFingerprint,
+          previousClassification: previousVerificationClassification,
+          currentFailureFingerprint: failureFingerprint,
+          currentClassification: classification,
+          repoName,
+        })
+      ) {
+        throw new Error(
+          this.formatVerificationExitMessage({
+            ticketKey: ticket.ticketKey,
+            repoDir: options.repoDir,
+            summary:
+              'Repeated parse failure fingerprint on the same file set. User intervention is required.',
+            failure: verificationFailure,
+          }),
+        );
+      }
+
       if (!hasActionableDiagnostics) {
         throw new Error(
           this.formatVerificationExitMessage({
@@ -485,6 +508,7 @@ export class ImplementerAgent {
 
       previousFailureFingerprint = failureFingerprint;
       previousVerificationFailure = verificationFailure;
+      previousVerificationClassification = classification;
       furthestVerificationFailure = this.selectFurthestFailure(
         furthestVerificationFailure,
         verificationFailure,
@@ -518,6 +542,7 @@ export class ImplementerAgent {
         repoDir: options.repoDir,
         failure: verificationFailure,
         fixPlan: retryFixPlan,
+        classification,
       });
       retryContext = this.buildRetryContext(
         options.conversationContext,
@@ -1341,6 +1366,9 @@ export class ImplementerAgent {
       classification?.rootSignal
         ? `Root signal: ${classification.rootSignal}`
         : 'Root signal: (unclassified)',
+      classification?.category === 'parse'
+        ? 'This is a parse-repair retry. Fix the syntax error first and do not rewrite unrelated files.'
+        : '',
       relativeImplicatedFiles?.length
         ? `Implicated file(s): ${relativeImplicatedFiles.join(', ')}`
         : 'Implicated file(s): (none)',
@@ -1432,7 +1460,66 @@ export class ImplementerAgent {
     repoDir?: string;
     failure: VerificationFailure;
     fixPlan?: FixPlan;
+    classification?: VerificationFailureClassification;
   }): string[] {
+    if (
+      params.classification?.category === 'parse' &&
+      params.classification.implicatedFiles.length > 0
+    ) {
+      const repoFileByRelativePath = new Map<string, string>();
+      for (const filePath of params.repoFiles) {
+        const relativePath =
+          params.repoName && filePath.startsWith(`${params.repoName}/`)
+            ? filePath.slice(params.repoName.length + 1)
+            : filePath;
+        repoFileByRelativePath.set(relativePath, filePath);
+      }
+
+      const parseScope = new Set<string>();
+      const relativeRepoFiles = params.repoFiles.map((filePath) =>
+        params.repoName && filePath.startsWith(`${params.repoName}/`)
+          ? filePath.slice(params.repoName.length + 1)
+          : filePath,
+      );
+
+      for (const filePath of params.classification.implicatedFiles) {
+        const relativePath = this.normalizeRetryRelativePath(
+          filePath,
+          params.repoName,
+        );
+        parseScope.add(
+          repoFileByRelativePath.get(relativePath) ??
+            (params.repoName
+              ? `${params.repoName}/${relativePath}`
+              : relativePath),
+        );
+
+        for (const companionPath of this.findRetryCompanionFiles(
+          relativePath,
+          relativeRepoFiles,
+        )) {
+          parseScope.add(
+            repoFileByRelativePath.get(companionPath) ??
+              (params.repoName
+                ? `${params.repoName}/${companionPath}`
+                : companionPath),
+          );
+        }
+      }
+
+      const parseRetryRepoFiles = params.repoFiles.filter((filePath) => {
+        const relativePath = this.normalizeRetryRelativePath(
+          filePath,
+          params.repoName,
+        );
+        return parseScope.has(filePath) || parseScope.has(relativePath);
+      });
+
+      if (parseRetryRepoFiles.length > 0) {
+        return parseRetryRepoFiles;
+      }
+    }
+
     const inferredRetryRepoFiles =
       this.inferRetryRepoFiles(
         params.failure,
@@ -1507,6 +1594,53 @@ export class ImplementerAgent {
     return [...selectedRelativePaths]
       .map((relativePath) => repoFileByRelativePath.get(relativePath))
       .filter((filePath): filePath is string => Boolean(filePath));
+  }
+
+  private normalizeRetryRelativePath(
+    filePath: string,
+    repoName: string,
+  ): string {
+    return repoName && filePath.startsWith(`${repoName}/`)
+      ? filePath.slice(repoName.length + 1)
+      : filePath;
+  }
+
+  private isRepeatedParseFailure(params: {
+    previousFailureFingerprint?: string;
+    previousClassification?: VerificationFailureClassification;
+    currentFailureFingerprint: string;
+    currentClassification: VerificationFailureClassification;
+    repoName: string;
+  }): boolean {
+    if (
+      params.previousClassification?.category !== 'parse' ||
+      params.currentClassification.category !== 'parse' ||
+      !params.previousFailureFingerprint ||
+      params.previousFailureFingerprint !== params.currentFailureFingerprint
+    ) {
+      return false;
+    }
+
+    const previousParseScope = new Set(
+      params.previousClassification.implicatedFiles.map((filePath) =>
+        this.normalizeRetryRelativePath(filePath, params.repoName),
+      ),
+    );
+    const currentParseScope = new Set(
+      params.currentClassification.implicatedFiles.map((filePath) =>
+        this.normalizeRetryRelativePath(filePath, params.repoName),
+      ),
+    );
+
+    return this.sameFileSet(previousParseScope, currentParseScope);
+  }
+
+  private sameFileSet(left: Set<string>, right: Set<string>): boolean {
+    return (
+      left.size > 0 &&
+      left.size === right.size &&
+      [...left].every((filePath) => right.has(filePath))
+    );
   }
 
   private findRetryCompanionFiles(

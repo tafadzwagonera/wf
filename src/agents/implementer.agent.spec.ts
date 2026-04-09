@@ -1275,6 +1275,48 @@ describe('ImplementerAgent', () => {
         'repo-a/src/example.ts',
       ]);
     });
+
+    it('pins parse retries to the implicated file and its companion source file', () => {
+      const result = (agent as any).selectRetryRepoFiles({
+        currentRetryRepoFiles: [
+          'repo-a/src/example.spec.ts',
+          'repo-a/src/example.ts',
+          'repo-a/src/extra.ts',
+        ],
+        repoFiles: [
+          'repo-a/src/example.spec.ts',
+          'repo-a/src/example.ts',
+          'repo-a/src/extra.ts',
+        ],
+        repoName: 'repo-a',
+        repoDir: '/tmp/repo-a',
+        failure: {
+          attempt: 2,
+          results: [
+            {
+              command: 'npm run format',
+              exitCode: 1,
+              stdout:
+                '[error] src/example.spec.ts: SyntaxError: Unterminated template literal. (9:13)',
+              stderr: '',
+            },
+          ],
+        },
+        classification: {
+          category: 'parse',
+          implicatedFiles: ['repo-a/src/example.spec.ts'],
+          companionFiles: [],
+          rootSignal: 'syntax-error',
+          strategy: 'surgical',
+          confidence: 'high',
+        },
+      });
+
+      expect(result).toEqual([
+        'repo-a/src/example.spec.ts',
+        'repo-a/src/example.ts',
+      ]);
+    });
   });
 
   describe('assessVerificationProgress', () => {
@@ -1613,6 +1655,73 @@ describe('ImplementerAgent', () => {
 
       expect(generateRepoFilesSpy).toHaveBeenCalled();
       expect(verifyImplementationSpy).toHaveBeenCalled();
+    });
+
+    it('stops on repeated parse fingerprints for the same implicated file set', async () => {
+      const mockFailure = {
+        attempt: 1,
+        results: [
+          {
+            command: 'npm run lint',
+            exitCode: 1,
+            stdout: '',
+            stderr:
+              '[error] src/example.spec.ts: SyntaxError: Unterminated template literal. (9:13)',
+          },
+        ],
+      };
+      const mockRunFiles = new Map<string, string>();
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((filePath: string) =>
+          mockRunFiles.has(String(filePath)),
+        );
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockImplementation((filePath: string) => {
+          const content = mockRunFiles.get(String(filePath));
+          if (content === undefined) {
+            throw new Error(`Unexpected read: ${filePath}`);
+          }
+          return content;
+        });
+      (require('fs').writeFileSync as jest.Mock).mockImplementation(
+        (filePath: string, content: string) => {
+          if (String(filePath).includes('implement-verification')) {
+            mockRunFiles.set(String(filePath), String(content));
+          }
+        },
+      );
+      jest
+        .spyOn(agent as any, 'generateRepoFiles')
+        .mockResolvedValue([
+          { filePath: 'repo-a/src/example.ts', changed: true },
+        ]);
+      jest
+        .spyOn(agent as any, 'verifyImplementation')
+        .mockResolvedValueOnce({
+          failure: mockFailure,
+          rewroteTrackedFiles: false,
+        })
+        .mockResolvedValueOnce({
+          failure: mockFailure,
+          rewroteTrackedFiles: false,
+        });
+      (aiService as any).diagnoseVerificationFailure = jest
+        .fn()
+        .mockResolvedValue({
+          summary: 'Fix syntax',
+          fixes: [],
+        });
+
+      await expect(
+        agent.execute(ticketArtifact, buildPlan(), {
+          platformName: 'jira',
+          repoDir: '/tmp/repo-a',
+        }),
+      ).rejects.toThrow(
+        'Repeated parse failure fingerprint on the same file set',
+      );
     });
   });
 
