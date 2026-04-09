@@ -3,7 +3,16 @@ import { ConfigService } from '@nestjs/config';
 import { ImplementerAgent } from './implementer.agent';
 import { GitService } from '../integrations/git/git.service';
 import { AiService } from '../integrations/ai/ai.service';
-import type { PlanArtifact, TicketArtifact } from './interfaces';
+import type {
+  ImplementBackendSelection,
+  ImplementRunArtifact,
+  PlanArtifact,
+  RetryScopeStrategy,
+  TicketArtifact,
+  VerificationAttemptArtifact,
+  VerificationFailureCategory,
+  VerificationFailureClassification,
+} from './interfaces';
 
 describe('ImplementerAgent', () => {
   let agent: ImplementerAgent;
@@ -98,6 +107,58 @@ describe('ImplementerAgent', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  describe('shared verification contracts', () => {
+    it('accepts backend selection and verification artifact shapes', () => {
+      const mockBackendSelection: ImplementBackendSelection = {
+        configured: 'anthropic-agent',
+        selected: 'two-phase',
+        provider: 'openai',
+        fallbackReason: 'provider mismatch',
+      };
+      const mockCategory: VerificationFailureCategory = 'parse';
+      const mockStrategy: RetryScopeStrategy = 'surgical';
+      const mockClassification: VerificationFailureClassification = {
+        category: mockCategory,
+        implicatedFiles: ['repo-a/src/example.ts'],
+        companionFiles: ['repo-a/src/example.spec.ts'],
+        rootSignal: 'syntax-error',
+        strategy: mockStrategy,
+        confidence: 'high',
+      };
+      const mockRunArtifact: ImplementRunArtifact = {
+        ticketKey: 'WBP-1000',
+        repoDir: '/tmp/repo-a',
+        backendConfigured: mockBackendSelection.configured,
+        backendSelected: mockBackendSelection.selected,
+        provider: mockBackendSelection.provider,
+        fallbackReason: mockBackendSelection.fallbackReason,
+        verificationScripts: [{ id: 'lint', command: 'npm run lint' }],
+        startedAt: new Date().toISOString(),
+      };
+      const mockAttemptArtifact: VerificationAttemptArtifact = {
+        ticketKey: mockRunArtifact.ticketKey,
+        attemptNumber: 1,
+        backend: mockBackendSelection.selected,
+        command: 'npm run lint',
+        exitCode: 1,
+        failed: true,
+        classification: mockClassification,
+        fingerprint: 'abc123',
+        progress: {
+          advancedStage: false,
+          reducedDiagnostics: true,
+          narrowedFileSet: true,
+        },
+        retryScope: ['repo-a/src/example.ts'],
+        createdAt: new Date().toISOString(),
+      };
+
+      expect(mockBackendSelection.selected).toBe('two-phase');
+      expect(mockRunArtifact.backendConfigured).toBe('anthropic-agent');
+      expect(mockAttemptArtifact.classification.category).toBe('parse');
+    });
   });
 
   describe('single-repo boundary', () => {

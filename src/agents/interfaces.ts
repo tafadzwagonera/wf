@@ -34,6 +34,70 @@ export interface FixPlan {
   fixes: FixPlanEntry[];
   /** Test assertion context when the failure includes test output. */
   testContext?: string;
+  classification?: {
+    category: VerificationFailureCategory;
+    rootSignal: string;
+    strategy: RetryScopeStrategy;
+  };
+}
+
+export type ImplementBackendName = 'two-phase' | 'anthropic-agent';
+
+export interface ImplementBackendSelection {
+  configured: ImplementBackendName;
+  selected: ImplementBackendName;
+  provider: string;
+  fallbackReason?: string;
+}
+
+export type VerificationFailureCategory =
+  | 'parse'
+  | 'lint'
+  | 'typecheck'
+  | 'test-compile'
+  | 'test-runtime'
+  | 'build'
+  | 'command'
+  | 'unknown';
+
+export type RetryScopeStrategy = 'surgical' | 'paired-files' | 'broad-context';
+
+export interface VerificationFailureClassification {
+  category: VerificationFailureCategory;
+  implicatedFiles: string[];
+  companionFiles: string[];
+  rootSignal: string;
+  strategy: RetryScopeStrategy;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface ImplementRunArtifact {
+  ticketKey: string;
+  repoDir: string;
+  backendConfigured: ImplementBackendName;
+  backendSelected: ImplementBackendName;
+  provider: string;
+  fallbackReason?: string;
+  verificationScripts: Array<{ id: string; command: string }>;
+  startedAt: string;
+}
+
+export interface VerificationAttemptArtifact {
+  ticketKey: string;
+  attemptNumber: number;
+  backend: ImplementBackendName;
+  command: string;
+  exitCode: number;
+  failed: boolean;
+  classification: VerificationFailureClassification;
+  fingerprint: string;
+  progress: {
+    advancedStage: boolean;
+    reducedDiagnostics: boolean;
+    narrowedFileSet: boolean;
+  };
+  retryScope: string[];
+  createdAt: string;
 }
 
 export type ResolutionAction = 'feature' | 'fix' | 'investigate';
