@@ -224,7 +224,12 @@ export class JiraAdapter implements PlatformAdapter {
   }
 
   /**
-   * Map UniversalTicket priority to Jira priority
+   * Map a normalized wf priority to Jira's create/update payload values.
+   *
+   * Jira does not guarantee a fixed priority list across instances, so this
+   * adapter only provides the platform-local fallback mapping. The Jira
+   * service performs runtime resolution against the instance's configured
+   * priorities when creating tickets.
    */
   private mapPriorityToJira(priority?: TicketPriority): string {
     if (!priority) return JIRA_NEUTRAL_PRIORITY;
@@ -241,7 +246,10 @@ export class JiraAdapter implements PlatformAdapter {
   }
 
   /**
-   * Map Jira priority to UniversalTicket priority
+   * Map a Jira priority name back to the normalized wf priority enum.
+   *
+   * Jira priority names are instance-specific, so we collapse them into the
+   * shared internal priority vocabulary rather than preserving raw names.
    */
   private mapJiraPriorityToUniversal(jiraPriority: string): TicketPriority {
     const normalizedPriority = jiraPriority.toLowerCase();

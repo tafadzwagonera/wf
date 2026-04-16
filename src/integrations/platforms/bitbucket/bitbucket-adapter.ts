@@ -419,7 +419,8 @@ export class BitBucketAdapter implements PlatformAdapter {
   }
 
   /**
-   * Map UniversalTicket priority to BitBucket priority
+   * Map the normalized wf priority vocabulary to Bitbucket's fixed priority
+   * labels.
    */
   private mapPriorityToBitBucket(priority?: TicketPriority): string {
     if (!priority) return 'major';
@@ -436,7 +437,7 @@ export class BitBucketAdapter implements PlatformAdapter {
   }
 
   /**
-   * Map BitBucket priority to UniversalTicket priority
+   * Map Bitbucket's priority labels back into the normalized wf vocabulary.
    */
   private mapBitBucketPriorityToUniversal(
     bitbucketPriority: string,

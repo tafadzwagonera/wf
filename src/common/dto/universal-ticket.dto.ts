@@ -17,6 +17,12 @@ export enum TicketType {
   SUBTASK = 'subtask',
 }
 
+/**
+ * Normalized priority values used inside wf.
+ *
+ * These values are intentionally platform-agnostic. Adapters map them to the
+ * exact priority names supported by each external system at runtime.
+ */
 export enum TicketPriority {
   HIGHEST = 'highest',
   HIGH = 'high',
@@ -59,6 +65,12 @@ export class UniversalTicket {
   @IsString()
   status?: string;
 
+  /**
+   * Normalized priority for cross-platform workflows.
+   *
+   * This is not a Jira priority name. Jira, Bitbucket, and GitHub adapters
+   * resolve or translate it to a platform-specific value when needed.
+   */
   @IsOptional()
   @IsEnum(TicketPriority)
   priority?: TicketPriority;

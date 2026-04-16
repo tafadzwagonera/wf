@@ -376,7 +376,10 @@ export class GitHubAdapter implements PlatformAdapter {
   }
 
   /**
-   * Extract priority from GitHub labels
+   * Extract the normalized wf priority from GitHub labels.
+   *
+   * GitHub does not have a native issue priority field, so the adapter
+   * encodes and decodes priority through labels.
    */
   private extractPriorityFromLabels(labels: any[]): TicketPriority {
     const priorityLabel = labels.find((l) => {
