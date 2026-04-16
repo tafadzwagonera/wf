@@ -306,6 +306,9 @@ wf issue:plan WBP-2971 --action fix
 # Create a custom feature plan from a markdown artifact
 wf issue:plan --action feature --custom jira/bar.md
 
+# Prefer the repo-scoped custom artifact when a repo is supplied
+wf issue:plan --action feature --custom bar.md --repos repo-a
+
 # Save the custom plan as YAML
 wf issue:plan --action fix --custom docs/notes.md --format yaml
 
@@ -330,6 +333,8 @@ wf issue:plan WBP-2971 --action fix --dry-run
 | `-p, --platform <platform>` | Platform to fetch from if local artifact not found             | `PRIMARY_PLATFORM` |
 | `-f, --format <format>`     | Plan output format: `json \| md \| yaml`                       | `json`             |
 | `-r, --repos <repos...>`    | Space-separated repositories (`workspace/repo` or `repo-name`) | required           |
+
+When `--repos` is present, filename-only custom sources are resolved against the repo-scoped `~/.wf/<repo>/` artifact directory before cwd-relative paths.
 
 **Output:** saves to `./<platform>/<hash>-<action>-plan.<format>` for both ticket-backed and custom plans. A sidecar `.<format>.sources.json` manifest records the original ticket key or custom source name so `issue:implement` can resolve the artifact later.
 

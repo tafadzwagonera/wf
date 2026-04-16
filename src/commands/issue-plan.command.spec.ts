@@ -191,6 +191,30 @@ describe('IssuePlanCommand', () => {
     );
   });
 
+  it('prefers the targeted repo custom namespace over cwd when --repos is provided', async () => {
+    const { command } = await buildCommand();
+    const repoName = 'repo-a';
+    const sourceName = 'bar.md';
+    const cwdCandidate = path.join('/tmp/consumer-app', sourceName);
+    const repoCandidate = path.join(os.homedir(), '.wf', repoName, sourceName);
+    const existsSyncSpy = jest
+      .spyOn(require('fs'), 'existsSync')
+      .mockImplementation((input: string) => {
+        const filePath = String(input);
+        return filePath === cwdCandidate || filePath === repoCandidate;
+      });
+
+    const resolvedPath = (command as any).resolveCustomSourcePath(
+      sourceName,
+      '/tmp/consumer-app',
+      [repoName],
+    );
+
+    expect(resolvedPath).toBe(repoCandidate);
+
+    existsSyncSpy.mockRestore();
+  });
+
   it('rejects ticket-key + --custom together', async () => {
     const { command } = await buildCommand();
     const exitSpy = jest

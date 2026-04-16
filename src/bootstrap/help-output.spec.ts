@@ -70,12 +70,18 @@ describe('getHelpText', () => {
 
   it('reflects current run and review command flags', () => {
     const runHelpText = getHelpText(['run', '--help'], catalog);
+    const planHelpText = getHelpText(['issue:plan', '--help'], catalog);
     const reviewHelpText = getHelpText(['issue:review', '--help'], catalog);
     const implementHelpText = getHelpText(
       ['issue:implement', '--help'],
       catalog,
     );
 
+    expect(planHelpText).toContain(
+      'Plan ticket implementation from a local artifact or repo-scoped custom artifact.',
+    );
+    expect(planHelpText).toContain('--custom <source.md>');
+    expect(planHelpText).toContain('--repos <repos...>');
     expect(runHelpText).toContain('--auto-execute');
     expect(runHelpText).not.toContain('--auto-approve');
     expect(reviewHelpText).toContain('--criteria <path>');

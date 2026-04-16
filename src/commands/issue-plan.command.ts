@@ -36,6 +36,10 @@ const ISSUE_PLAN_EXAMPLES: CliExample[] = [
     command: 'wf issue:plan --action feature --custom bar.md',
   },
   {
+    comment: 'Prefer the repo-scoped custom artifact when a repo is supplied',
+    command: 'wf issue:plan --action feature --custom bar.md --repos repo-a',
+  },
+  {
     comment: 'Plan a fix for a ticket',
     command: 'wf issue:plan WBP-2971 --action fix',
   },
@@ -225,7 +229,7 @@ const escapesSelectedRepo = (
 @Command({
   name: 'issue:plan',
   description:
-    'Plan ticket implementation from a local artifact. ' +
+    'Plan ticket implementation from a local artifact or repo-scoped custom artifact. ' +
     'If a local artifact is not found, the command will attempt to fetch it from the primary platform. ' +
     'Use --force to fetch and recreate artifacts. ' +
     'Targeted verification commands are interpreted as repo-root-relative: redundant ' +
@@ -861,6 +865,9 @@ export class IssuePlanCommand extends CommandRunner {
   /**
    * Resolve a custom markdown source using repo-aware local file rules.
    *
+   * Filename-only sources prefer the targeted repo's `~/.wf/<repo>/` custom
+   * artifact namespace when `--repos` is supplied.
+   *
    * @param source - Raw `--custom` CLI value
    * @param baseDir - Repo-aware base directory
    * @param repos - Optional repo list supplied via `--repos`
@@ -875,16 +882,25 @@ export class IssuePlanCommand extends CommandRunner {
       return source;
     }
 
-    const matches = (repos ?? [])
-      .map((repo) => path.join(resolveRepoBasePath(repo), source))
-      .filter((candidate) => fs.existsSync(candidate));
-    if (matches.length > 1) {
-      throw new Error(
-        `Custom source "${source}" matches multiple repositories: ${matches.join(', ')}`,
-      );
-    }
-    if (matches.length === 1) {
-      return matches[0];
+    if (repos?.length && path.dirname(source) === '.') {
+      const matches = (repos ?? [])
+        .map((repo) =>
+          path.join(
+            resolveCustomArtifactDir(resolveRepoBasePath(repo)),
+            source,
+          ),
+        )
+        .filter((candidate) => fs.existsSync(candidate));
+
+      if (matches.length > 1) {
+        throw new Error(
+          `Custom source "${source}" matches multiple repositories: ${matches.join(', ')}`,
+        );
+      }
+
+      if (matches.length === 1) {
+        return matches[0];
+      }
     }
 
     const cwdCandidate = path.resolve(source);
