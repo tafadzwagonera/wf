@@ -42,6 +42,7 @@ jest.mock('fs', () => {
   return {
     ...actual,
     existsSync: jest.fn(actual.existsSync),
+    readdirSync: jest.fn(actual.readdirSync),
     promises: {
       ...actual.promises,
       mkdir: jest.fn(actual.promises.mkdir),
@@ -70,6 +71,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { SlackService } from '../integrations/slack/slack.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { hashGeneratedTicketSources } from '../shared/utils/generated-ticket-artifact';
 import inquirer from 'inquirer';
 import * as os from 'os';
 import * as path from 'path';
@@ -199,9 +201,13 @@ describe('IssueGenerateCommand', () => {
     originalStdinIsTTY = process.stdin.isTTY;
     originalStdoutIsTTY = process.stdout.isTTY;
     (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReset();
+    (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockReset();
     (
       fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
     ).mockImplementation(jest.requireActual('fs').existsSync);
+    (
+      fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>
+    ).mockImplementation(() => []);
   });
 
   afterEach(() => {
@@ -281,6 +287,9 @@ describe('IssueGenerateCommand', () => {
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
     expect(path.dirname(preview.filePath)).toBe(
       path.join(os.homedir(), '.wf', 'consumer-app', 'jira'),
+    );
+    expect(path.basename(preview.filePath)).toMatch(
+      /^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}-ticket-description\.md$/,
     );
   });
 
@@ -537,6 +546,52 @@ describe('IssueGenerateCommand', () => {
 
       errorHandlerSpy.mockRestore();
     });
+  });
+
+  it('saves the readable artifact stem and a reversible source manifest', async () => {
+    const command = await buildCommand();
+    const ticket = {
+      title: 'Generated Title',
+      description: 'Generated summary',
+      type: 'task',
+      priority: 'medium',
+    } as any;
+
+    (
+      fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>
+    ).mockReturnValue([]);
+
+    const savedPath = await (command as any).saveTicketLocally(
+      ticket,
+      'jira',
+      'md',
+      ['https://example.com/spec', './notes.md'],
+    );
+
+    expect(path.basename(savedPath)).toMatch(
+      /^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}-ticket-description\.md$/,
+    );
+
+    const artifactWrite = writeFileSpy.mock.calls.find(
+      ([filePath]) =>
+        String(filePath).endsWith('ticket-description.md') &&
+        !String(filePath).endsWith('.sources.json'),
+    );
+    const manifestWrite = writeFileSpy.mock.calls.find(([filePath]) =>
+      String(filePath).endsWith('.sources.json'),
+    );
+
+    expect(artifactWrite).toBeDefined();
+    expect(manifestWrite).toBeDefined();
+
+    const manifest = JSON.parse(String(manifestWrite?.[1]));
+    expect(manifest.sources).toEqual([
+      'https://example.com/spec',
+      './notes.md',
+    ]);
+    expect(manifest.hash).toBe(
+      hashGeneratedTicketSources(['https://example.com/spec', './notes.md']),
+    );
   });
 
   describe('Slack source handling', () => {

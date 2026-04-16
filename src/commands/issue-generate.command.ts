@@ -11,6 +11,13 @@ import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import {
+  buildGeneratedTicketArtifactFilename,
+  buildGeneratedTicketManifestFilename,
+  buildGeneratedTicketManifestPath,
+  buildGeneratedTicketSourceManifest,
+  hashGeneratedTicketSources,
+} from '../shared/utils/generated-ticket-artifact';
+import {
   UniversalTicket,
   TicketType,
 } from '../common/dto/universal-ticket.dto';
@@ -19,7 +26,6 @@ import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
-import { createHash } from 'crypto';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 /** Minimum description length (chars) for a ticket to bypass AI synthesis. */
@@ -238,10 +244,17 @@ export class IssueGenerateCommand extends CommandRunner {
         let fileCreatedCount = 0;
 
         if (options?.save) {
-          const timestamp = new Date().toISOString().split('T')[0];
+          const timestamp = new Date();
+          const artifactFilename = buildGeneratedTicketArtifactFilename(
+            timestamp,
+            passedParams,
+            format,
+          );
+          const manifestFilename =
+            buildGeneratedTicketManifestFilename(artifactFilename);
           const filePath = path.join(
             resolveArtifactDir(artifactBaseDir, platformName),
-            `GENERATED-${timestamp}-preview.${format}`,
+            artifactFilename,
           );
           this.dryRunPreview.previewFileWrite({
             filePath,
@@ -250,6 +263,27 @@ export class IssueGenerateCommand extends CommandRunner {
             format,
             contentPreview: generatedPreview,
           });
+          this.dryRunPreview.previewFileWrite({
+            filePath: path.join(
+              resolveArtifactDir(artifactBaseDir, platformName),
+              manifestFilename,
+            ),
+            operation: 'create',
+            sizeEstimate: '1–2 KB',
+            format: 'json',
+            contentPreview: JSON.stringify(
+              buildGeneratedTicketSourceManifest(
+                filePath,
+                platformName,
+                format,
+                passedParams,
+                timestamp,
+              ),
+              null,
+              2,
+            ),
+          });
+          fileCreatedCount++;
           fileCreatedCount++;
         }
 
@@ -272,7 +306,7 @@ export class IssueGenerateCommand extends CommandRunner {
           terminalOutputLines: [
             ...(options?.save
               ? [
-                  '✓ Ticket saved to: <platform-dir>/GENERATED-<date>-<title>.<format>',
+                  '✓ Ticket saved to: <platform-dir>/YYYY-MM-DD-<hash>-ticket-description.<format>',
                 ]
               : []),
             ...(options?.output
@@ -695,21 +729,6 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   /**
-   * Returns the first 8 hex chars of the SHA-256 digest of the ordered
-   * source arguments, giving a short, stable, filesystem-safe identifier.
-   *
-   * @param sources - Raw CLI positional arguments (e.g. ['TAD-101', './notes.md'])
-   * @returns 8-character lowercase hex string
-   */
-  private hashSources(sources: string[]): string {
-    const hash = createHash('sha256');
-    for (const source of sources) {
-      hash.update(source);
-    }
-    return hash.digest('hex').slice(0, 8);
-  }
-
-  /**
    * Convert Slack messages into the text format used for synthesis artifacts.
    *
    * @param messages - Slack messages to serialize
@@ -807,8 +826,9 @@ export class IssueGenerateCommand extends CommandRunner {
     );
     await fs.promises.mkdir(platformDir, { recursive: true });
 
-    const hash8 = this.hashSources(sources);
+    const hash8 = hashGeneratedTicketSources(sources);
     const extension = format === 'md' ? 'md' : format;
+    const timestamp = new Date();
 
     // Find an existing artifact with the same source hash and overwrite it,
     // avoiding duplicate files when the command is retried with identical inputs.
@@ -816,7 +836,7 @@ export class IssueGenerateCommand extends CommandRunner {
       .readdirSync(platformDir)
       .find((name) =>
         new RegExp(
-          `^GENERATED-\\d{4}-\\d{2}-\\d{2}-${hash8}\\.${extension}$`,
+          `^\\d{4}-\\d{2}-\\d{2}-${hash8}-ticket-description\\.${extension}$`,
         ).test(name),
       );
 
@@ -824,16 +844,28 @@ export class IssueGenerateCommand extends CommandRunner {
     if (existingFilename) {
       artifactPath = path.join(platformDir, existingFilename);
     } else {
-      const timestamp = new Date().toISOString().split('T')[0];
       artifactPath = path.join(
         platformDir,
-        `GENERATED-${timestamp}-${hash8}.${extension}`,
+        buildGeneratedTicketArtifactFilename(timestamp, sources, format),
       );
     }
 
     const converter = this.formatConverterService.getConverter(format);
     const content = converter.serialize(ticket);
     await fs.promises.writeFile(artifactPath, content, 'utf-8');
+    const manifestPath = buildGeneratedTicketManifestPath(artifactPath);
+    const manifest = buildGeneratedTicketSourceManifest(
+      artifactPath,
+      platformName,
+      format,
+      sources,
+      timestamp,
+    );
+    await fs.promises.writeFile(
+      manifestPath,
+      JSON.stringify(manifest, null, 2),
+      'utf-8',
+    );
 
     return artifactPath;
   }

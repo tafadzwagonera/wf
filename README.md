@@ -417,6 +417,9 @@ wf issue:generate https://example.com/spec ./notes.md WBP-2971
 # Save to platform directory
 wf issue:generate ./requirements.md --save
 
+# Look up the original sources for a generated artifact hash
+wf issue:generate:lookup 1a2b3c4d
+
 # Override metadata and save to a specific file
 wf issue:generate ./requirements.md \
   --title "Add OAuth2 support" \
@@ -433,17 +436,19 @@ wf issue:generate https://example.com/spec ./notes.md --dry-run
 
 **Options:**
 
-| Flag                        | Description                                                     | Default                 |
-| --------------------------- | --------------------------------------------------------------- | ----------------------- |
-| `-f, --format <format>`     | Output format: `json \| md \| yaml \| xml`                      | `DEFAULT_OUTPUT_FORMAT` |
-| `-o, --output <path>`       | Save generated ticket to a file                                 | stdout                  |
-| `--save`                    | Save to `./<platform>/GENERATED-<date>-<title>.<format>`        | —                       |
-| `-p, --platform <platform>` | Platform for ticket-key sources                                 | `PRIMARY_PLATFORM`      |
-| `-t, --title <title>`       | Override the AI-generated title                                 | —                       |
-| `--type <type>`             | Override ticket type: `task \| bug \| story \| epic`            | —                       |
-| `--priority <priority>`     | Override priority: `highest \| high \| medium \| low \| lowest` | —                       |
-| `--repo <repo>`             | Bitbucket repository for ticket-key sources                     | —                       |
-| `--dry-run`                 | Preview without fetching or writing                             | —                       |
+| Flag                        | Description                                                          | Default                 |
+| --------------------------- | -------------------------------------------------------------------- | ----------------------- |
+| `-f, --format <format>`     | Output format: `json \| md \| yaml \| xml`                           | `DEFAULT_OUTPUT_FORMAT` |
+| `-o, --output <path>`       | Save generated ticket to a file                                      | stdout                  |
+| `--save`                    | Save to `./<platform>/YYYY-MM-DD-<hash>-ticket-description.<format>` | —                       |
+| `-p, --platform <platform>` | Platform for ticket-key sources                                      | `PRIMARY_PLATFORM`      |
+| `-t, --title <title>`       | Override the AI-generated title                                      | —                       |
+| `--type <type>`             | Override ticket type: `task \| bug \| story \| epic`                 | —                       |
+| `--priority <priority>`     | Override priority: `highest \| high \| medium \| low \| lowest`      | —                       |
+| `--repo <repo>`             | Bitbucket repository for ticket-key sources                          | —                       |
+| `--dry-run`                 | Preview without fetching or writing                                  | —                       |
+
+Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list.
 
 ---
 

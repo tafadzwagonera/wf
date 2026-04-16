@@ -16,6 +16,7 @@ import { IssueImplementCommand } from './issue-implement.command';
 import { IssueReviewCommand } from './issue-review.command';
 import { IssueCommand } from './issue.command';
 import { IssueGenerateCommand } from './issue-generate.command';
+import { IssueGenerateLookupCommand } from './issue-generate-lookup.command';
 import { IssueCommitCommand } from './issue-commit.command';
 import { IssuePrCommand } from './issue-pr.command';
 import { IssueCowsayCommand } from './issue-cowsay.command';
@@ -62,6 +63,7 @@ import { WorkflowStagesModule } from '../workflows/stages/workflow-stages.module
     IssueReviewCommand,
     IssueCommand,
     IssueGenerateCommand,
+    IssueGenerateLookupCommand,
     IssueCommitCommand,
     IssuePrCommand,
     IssueCowsayCommand,
