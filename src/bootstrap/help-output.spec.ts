@@ -39,7 +39,7 @@ describe('getHelpText', () => {
       '<bold-cyan>Usage:</bold-cyan> <cyan>wf</cyan> issue:generate <sources...> [options]',
     );
     expect(helpText).toContain(
-      'Generate ticket descriptions from multiple sources',
+      'Generate ticket descriptions from local files, repo-scoped artifacts, URLs, Jira keys',
     );
     expect(helpText).toContain('--title <title>');
     expect(helpText).toContain('<bold-cyan>Examples:</bold-cyan>');

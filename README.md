@@ -412,7 +412,7 @@ retries once without the priority field so ticket creation can still succeed.
 
 #### `wf issue:generate <sources...>`
 
-Synthesize a ticket description from one or more sources using AI. Sources can be local files, URLs, or existing ticket keys.
+Synthesize a ticket description from one or more sources using AI. Sources can be local files, repo-scoped artifacts under `~/.wf/<repo>/`, URLs, or existing ticket keys.
 
 ```bash
 # Generate from a URL
@@ -420,6 +420,9 @@ wf issue:generate https://example.com/spec
 
 # Generate from multiple sources (URL + local file + existing ticket)
 wf issue:generate https://example.com/spec ./notes.md WBP-2971
+
+# Generate from a repo-scoped artifact in the targeted repo namespace
+wf issue:generate itinerary-pdf-generation.md -r service-tourv3
 
 # Save to platform directory
 wf issue:generate ./requirements.md --save
@@ -456,6 +459,7 @@ wf issue:generate https://example.com/spec ./notes.md --dry-run
 | `--dry-run`                 | Preview without fetching or writing                                  | —                       |
 
 Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list.
+When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path.
 
 ---
 

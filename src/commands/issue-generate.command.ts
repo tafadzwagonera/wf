@@ -7,7 +7,11 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { SlackService } from '../integrations/slack/slack.service';
-import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import {
+  resolveArtifactDir,
+  resolveCustomArtifactDir,
+  resolveRepoBasePath,
+} from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import {
@@ -40,6 +44,10 @@ const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
   {
     comment: 'Generate ticket from a URL',
     command: 'wf issue:generate https://example.com/spec',
+  },
+  {
+    comment: 'Generate from a repo-scoped artifact',
+    command: 'wf issue:generate itinerary-pdf-generation.md -r service-tourv3',
   },
   {
     comment: 'Save with overridden title',
@@ -77,7 +85,7 @@ interface LocalSourceResolution {
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from multiple sources (local files, URLs, Jira keys)',
+    'Generate ticket descriptions from local files, repo-scoped artifacts, URLs, Jira keys',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -873,6 +881,9 @@ export class IssueGenerateCommand extends CommandRunner {
   /**
    * Resolve a raw source argument into concrete sources for fetching.
    *
+   * Filename-only sources are checked against repo-scoped `~/.wf/<repo>/`
+   * artifacts before the live checkout path and cwd-relative fallback.
+   *
    * @param source - Raw CLI source argument
    * @param repos - Optional repos supplied via `--repos`
    * @param silent - When true, fail instead of prompting on ambiguity
@@ -932,11 +943,36 @@ export class IssueGenerateCommand extends CommandRunner {
 
     const resolvedRepos = this.resolveRepos(repos);
     const matches = resolvedRepos
-      .map((repo) => ({
-        repoInput: repo.input,
-        filePath: path.join(repo.basePath, source),
-      }))
-      .filter(({ filePath }) => fs.existsSync(filePath));
+      .map((repo) => {
+        const artifactCandidate = path.join(
+          resolveCustomArtifactDir(repo.basePath),
+          source,
+        );
+        if (fs.existsSync(artifactCandidate)) {
+          return {
+            repoInput: repo.input,
+            filePath: artifactCandidate,
+          };
+        }
+
+        const repoCandidate = path.join(repo.basePath, source);
+        if (fs.existsSync(repoCandidate)) {
+          return {
+            repoInput: repo.input,
+            filePath: repoCandidate,
+          };
+        }
+
+        return null;
+      })
+      .filter(
+        (
+          match,
+        ): match is {
+          repoInput: string;
+          filePath: string;
+        } => match !== null,
+      );
 
     if (matches.length === 0) {
       return { concreteSources: [], matchedRepoInputs: [] };

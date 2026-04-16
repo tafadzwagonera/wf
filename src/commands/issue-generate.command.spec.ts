@@ -311,6 +311,38 @@ describe('IssueGenerateCommand', () => {
   });
 
   describe('repo-aware local source resolution', () => {
+    it('resolves a filename-only source to the repo-scoped artifact directory', async () => {
+      const command = await buildCommand();
+      const repoName = 'service-tourv3';
+      const repoBasePath = path.join('/tmp/consumer-app', repoName);
+      const sourceName = 'itinerary-pdf-generation.md';
+      const expectedSourcePath = path.join(
+        os.homedir(),
+        '.wf',
+        repoName,
+        sourceName,
+      );
+
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) => {
+        const filePath = String(input);
+        return (
+          filePath === repoBasePath ||
+          filePath === path.join(repoBasePath, sourceName) ||
+          filePath === expectedSourcePath
+        );
+      });
+
+      const resolvedSources = await (command as any).resolveSourceInputs(
+        sourceName,
+        [repoName],
+        false,
+      );
+
+      expect(resolvedSources).toEqual([expectedSourcePath]);
+    });
+
     it('prefers repo matches over cwd when --repos is provided', async () => {
       const command = await buildCommand();
       (
