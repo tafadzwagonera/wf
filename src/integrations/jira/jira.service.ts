@@ -155,7 +155,12 @@ export class JiraService {
         this.logger.warn(
           `Priority rejected by Jira (${request.priority}). Retrying without priority field.`,
         );
-        const retryPayload = this.buildCreatePayload({ ...request, project });
+        // Some Jira schemes reject valid-looking priorities during create.
+        // Retry once without priority so ticket creation can still succeed.
+        const retryPayload = this.buildCreatePayload(
+          { ...request, project },
+          { priorityName: null },
+        );
         const url = `${this.baseUrl}/rest/api/3/issue`;
         const response = await firstValueFrom(
           this.httpService.post(url, retryPayload, {

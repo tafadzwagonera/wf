@@ -476,6 +476,39 @@ describe('JiraService', () => {
       const payload = mockHttpService.post.mock.calls[0][1];
       expect(payload.fields.priority).toEqual({ name: 'High' });
     });
+
+    it('should retry without priority when Jira rejects the priority field', async () => {
+      mockHttpService.get.mockReturnValue(
+        of({
+          data: [{ id: '3', name: 'Medium' }],
+        }),
+      );
+
+      mockHttpService.post
+        .mockImplementationOnce(() =>
+          throwError(() => ({
+            response: {
+              status: 400,
+              data: { errors: { priority: 'Priority is not valid' } },
+            },
+          })),
+        )
+        .mockImplementationOnce((_url: string, payload: any) => {
+          expect(payload.fields.priority).toBeUndefined();
+          return of({ data: { key: 'WBP-200' } });
+        });
+
+      const key = await service.createTicket({
+        project: 'WBP',
+        summary: 'Test ticket',
+        description: 'desc',
+        issueType: 'Task',
+        priority: 'Medium',
+      });
+
+      expect(key).toBe('WBP-200');
+      expect(mockHttpService.post).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('resolveValidPriorityName', () => {
