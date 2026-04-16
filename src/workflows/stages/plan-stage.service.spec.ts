@@ -1,6 +1,10 @@
 import { Test } from '@nestjs/testing';
 import { AiService } from '../../integrations/ai/ai.service';
 import { PlanStageService } from './plan-stage.service';
+import {
+  buildPlanArtifactManifestPath,
+  hashPlanArtifactSources,
+} from '../../shared/utils/plan-artifact';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -90,12 +94,31 @@ describe('PlanStageService', () => {
     );
 
     expect(
-      fs.readFileSync(path.join(tempDir, 'WBP-123-plan-fix.json'), 'utf-8'),
+      fs.readFileSync(
+        path.join(
+          tempDir,
+          `${hashPlanArtifactSources(['WBP-123'])}-fix-plan.json`,
+        ),
+        'utf-8',
+      ),
     ).toBe(JSON.stringify(mockPlan, null, 2));
+    expect(
+      fs.existsSync(
+        buildPlanArtifactManifestPath(
+          path.join(
+            tempDir,
+            `${hashPlanArtifactSources(['WBP-123'])}-fix-plan.json`,
+          ),
+        ),
+      ),
+    ).toBe(true);
     expect(artifact).toEqual({
       plan: mockPlan,
       action: 'fix',
-      path: path.join(tempDir, 'WBP-123-plan-fix.json'),
+      path: path.join(
+        tempDir,
+        `${hashPlanArtifactSources(['WBP-123'])}-fix-plan.json`,
+      ),
       fromCache: false,
     });
   });

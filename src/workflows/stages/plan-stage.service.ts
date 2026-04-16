@@ -3,8 +3,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AiService, ResolutionPlan } from '../../integrations/ai/ai.service';
 import {
+  buildPlanArtifactFilename,
+  buildPlanArtifactManifest,
   parsePlanArtifact,
-  SUPPORTED_PLAN_EXTENSIONS,
+  hashPlanArtifactSources,
+  resolvePlanArtifactReference,
+  writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
 import {
   PlanArtifact,
@@ -38,7 +42,17 @@ export class PlanStageService {
     ticket: TicketArtifact,
     options: PlannerOptions,
   ): Promise<PlanArtifact> {
-    const planPath = ticket.path.replace('.md', `-plan-${options.action}.json`);
+    const artifactDir = path.dirname(ticket.path);
+    const sourceName = ticket.ticketKey;
+    const planHash = hashPlanArtifactSources([sourceName]);
+    const planPath = path.join(
+      artifactDir,
+      buildPlanArtifactFilename({
+        hash: planHash,
+        action: options.action,
+        format: 'json',
+      }),
+    );
 
     if (options.skipExisting && fs.existsSync(planPath)) {
       return {
@@ -49,6 +63,42 @@ export class PlanStageService {
       };
     }
 
+    if (options.skipExisting) {
+      try {
+        const existing = resolvePlanArtifactReference(sourceName, {
+          artifactDir,
+          action: options.action,
+        });
+        const plan = this.readPlan(existing.artifactPath);
+        fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
+        writePlanArtifactManifest(
+          buildPlanArtifactManifest(
+            planPath,
+            options.action,
+            'json',
+            planHash,
+            sourceName,
+            'ticket',
+            new Date(),
+          ),
+        );
+        this.deleteLegacyPlanArtifacts(
+          artifactDir,
+          sourceName,
+          options.action,
+          planPath,
+        );
+        return {
+          plan,
+          action: options.action,
+          path: planPath,
+          fromCache: true,
+        };
+      } catch {
+        // No existing plan artifact could be resolved; fall through to generation.
+      }
+    }
+
     const plan = await this.generatePlan(ticket.content, {
       action: options.action,
       ticketKey: ticket.ticketKey,
@@ -56,6 +106,23 @@ export class PlanStageService {
     });
 
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
+    writePlanArtifactManifest(
+      buildPlanArtifactManifest(
+        planPath,
+        options.action,
+        'json',
+        planHash,
+        sourceName,
+        'ticket',
+        new Date(),
+      ),
+    );
+    this.deleteLegacyPlanArtifacts(
+      artifactDir,
+      sourceName,
+      options.action,
+      planPath,
+    );
     return { plan, action: options.action, path: planPath, fromCache: false };
   }
 
@@ -63,72 +130,31 @@ export class PlanStageService {
     ticketPath: string,
     action?: ResolutionAction,
   ): PlanArtifact {
-    if (action) {
-      const planPath = ticketPath.replace('.md', `-plan-${action}.json`);
-      if (!fs.existsSync(planPath)) {
-        throw new Error(
-          `Plan file not found: ${path.basename(planPath)}\nRun with --from plan --action ${action} first.`,
-        );
-      }
+    const artifactDir = path.dirname(ticketPath);
+    const sourceName = path.basename(ticketPath, '.md');
+    const resolved = resolvePlanArtifactReference(sourceName, {
+      artifactDir,
+      action,
+    });
 
-      const plan = this.readPlan(planPath);
-      const resolvedAction = (plan.action as ResolutionAction) || action;
-      return { plan, action: resolvedAction, path: planPath };
+    const plan = this.readPlan(resolved.artifactPath);
+    if (action && plan.action !== action) {
+      throw new Error(
+        `Plan action mismatch for ${path.basename(resolved.artifactPath)}: expected ${action}, found ${plan.action}.`,
+      );
     }
 
-    return this.discoverPlanArtifact(ticketPath);
+    return {
+      plan,
+      action: plan.action,
+      path: resolved.artifactPath,
+      fromCache: resolved.isLegacy,
+    };
   }
 
   extractSummary(content: string): string {
     const match = content.match(/^#\s+[A-Z]+-\d+:\s+(.+)$/m);
     return match ? match[1] : 'Implementation';
-  }
-
-  private discoverPlanArtifact(ticketPath: string): PlanArtifact {
-    const baseDir = path.dirname(ticketPath);
-    const baseName = path.basename(ticketPath, '.md');
-    const actions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
-
-    const found = actions
-      .flatMap((action) =>
-        SUPPORTED_PLAN_EXTENSIONS.map((extension) => {
-          const planPath = path.join(
-            baseDir,
-            `${baseName}-plan-${action}.${extension}`,
-          );
-          return fs.existsSync(planPath)
-            ? {
-                action,
-                path: planPath,
-              }
-            : null;
-        }),
-      )
-      .filter(Boolean) as Array<{
-      action: ResolutionAction;
-      path: string;
-    }>;
-
-    if (found.length === 0) {
-      throw new Error(
-        'No plan file found for ticket.\nRun with --from plan --action <feature|fix|investigate> first.',
-      );
-    }
-
-    if (found.length > 1) {
-      throw new Error(
-        `Multiple plan files found for ticket: ${found
-          .map((artifact) => path.basename(artifact.path))
-          .join(', ')}.\nRe-run issue:plan to replace stale artifacts.`,
-      );
-    }
-
-    const selected = found[0];
-    return {
-      plan: this.readPlan(selected.path),
-      action: selected.action,
-      path: selected.path,
-    };
   }
 
   private readPlan(planPath: string): ResolutionPlan {
@@ -140,6 +166,59 @@ export class PlanStageService {
           ? error.message
           : `Plan file is not valid: ${path.basename(planPath)}`,
       );
+    }
+  }
+
+  private deleteLegacyPlanArtifacts(
+    artifactDir: string,
+    sourceName: string,
+    action: ResolutionAction,
+    retainedPlanPath: string,
+  ): void {
+    const siblingHash = hashPlanArtifactSources([sourceName]);
+    const extensions: Array<'json' | 'md' | 'yaml' | 'yml'> = [
+      'json',
+      'md',
+      'yaml',
+      'yml',
+    ];
+    const siblingActions: ResolutionAction[] = [
+      'feature',
+      'fix',
+      'investigate',
+    ];
+
+    for (const siblingAction of siblingActions) {
+      for (const extension of extensions) {
+        const hashedSiblingPath = path.join(
+          artifactDir,
+          buildPlanArtifactFilename({
+            hash: siblingHash,
+            action: siblingAction,
+            format: extension,
+          }),
+        );
+        const legacySiblingPath = path.join(
+          artifactDir,
+          `${sourceName}-plan-${siblingAction}.${extension}`,
+        );
+
+        for (const siblingPath of [hashedSiblingPath, legacySiblingPath]) {
+          if (
+            siblingPath === retainedPlanPath ||
+            siblingAction === action ||
+            !fs.existsSync(siblingPath)
+          ) {
+            continue;
+          }
+
+          fs.unlinkSync(siblingPath);
+          const manifestPath = siblingPath.replace(/\.[^.]+$/, '.sources.json');
+          if (fs.existsSync(manifestPath)) {
+            fs.unlinkSync(manifestPath);
+          }
+        }
+      }
     }
   }
 }

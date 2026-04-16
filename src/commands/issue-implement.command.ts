@@ -9,6 +9,8 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import {
   isTicketKey,
   parsePlanArtifact,
+  buildPlanArtifactResolutionNotice,
+  resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
   SUPPORTED_PLAN_EXTENSIONS,
 } from '../shared/utils/plan-artifact';
 import {
@@ -26,6 +28,7 @@ import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
+import type { PlanArtifactReference } from '../shared/utils/plan-artifact';
 
 const loadPlanFile = (filePath: string): ResolutionPlan => {
   if (!fs.existsSync(filePath)) {
@@ -40,39 +43,6 @@ const loadPlanFile = (filePath: string): ResolutionPlan => {
         : `Plan file is not valid: ${filePath}`,
     );
   }
-};
-
-/** Resolve the single standard plan file for a ticket. */
-const discoverStandardPlan = (
-  dir: string,
-  key: string,
-): { action: ResolutionAction; filePath: string } | null => {
-  const candidates: ResolutionAction[] = ['feature', 'fix', 'investigate'];
-  const found = candidates
-    .flatMap((action) =>
-      SUPPORTED_PLAN_EXTENSIONS.map((extension) => ({
-        action,
-        filePath: path.join(dir, `${key}-plan-${action}.${extension}`),
-      })),
-    )
-    .filter(({ filePath }) => fs.existsSync(filePath))
-    .sort((left, right) => left.filePath.localeCompare(right.filePath));
-
-  if (found.length === 0) {
-    return null;
-  }
-
-  if (found.length > 1) {
-    throw new Error(
-      `Multiple standard plan artifacts found for ${key}: ${found
-        .map(({ filePath }) => path.basename(filePath))
-        .join(
-          ', ',
-        )}. Re-run wf issue:plan ${key} --action <feature|fix|investigate> to replace stale plans.`,
-    );
-  }
-
-  return found[0];
 };
 
 interface IssueImplementOptions {
@@ -100,7 +70,7 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
 @Command({
   name: 'issue:implement',
   description:
-    'Carry out an implementation plan from a ticket-backed or custom plan artifact. ' +
+    'Carry out an implementation plan from a ticket-backed, hashed, or custom plan artifact. ' +
     'Uses a two-phase retry strategy on verification failure: a diagnosis call ' +
     'analyses failing file contents, related type definitions, repo test-runner context, and test sources, ' +
     'then generates a structured fix plan used as shared context during re-generation. Retry scope widens to paired implementation/spec files when diagnostics implicate one side of the pair, then stays pinned to the smallest implicated file set unless later diagnostics name additional files. History-aware progress tracking keeps retrying when deep failures collapse into smaller earlier-stage residual errors. Repo context is also injected into implement/diagnose prompts to reduce Jest/Vitest framework drift. ' +
@@ -109,10 +79,11 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
     'Enable the experimental Anthropic or OpenAI agent backend by setting stages.implement.experimentalAgent: true and selecting stages.implement.provider: anthropic or openai in wf.config; the plan artifact provider only tags the plan/model for analysis and does not drive backend selection. The Anthropic backend explicitly loads ~/.claude/CLAUDE.md and the repository-root CLAUDE.md, warning when either file is missing. The OpenAI backend loads ~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md with the same warning behavior and only exposes an exact-match verify_command tool for whitelisted verification commands. When running from source, use `yarn start issue:implement ...` for the implementation stage and `yarn start issue:commit -c` to stage the final conventional commit once the work is accepted. ' +
     'When the experimental backend is disabled or the provider is not anthropic or openai, issue:implement falls back to the standard two-phase retry path. ' +
     'Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. ' +
-    'Examples: wf issue:implement PROJ-123 | wf issue:implement PROJ-123 --repos my-repo | ' +
-    'wf issue:implement PROJ-123 --repos repo-a repo-b | wf issue:implement my-custom-plan.json | ' +
+    'When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. ' +
+    'Examples: wf issue:implement PROJ-123 | wf issue:implement 1a2b3c4d-fix-plan.json | ' +
+    'wf issue:implement PROJ-123 --repos my-repo | wf issue:implement PROJ-123 --repos repo-a repo-b | ' +
     'wf issue:implement PROJ-123 --dry-run',
-  arguments: '[ticket-key-or-plan-file]',
+  arguments: '[ticket-key-or-plan-token]',
 })
 export class IssueImplementCommand extends CommandRunner {
   constructor(
@@ -192,27 +163,61 @@ export class IssueImplementCommand extends CommandRunner {
       }
 
       const baseDir = resolveRepoBasePath(options?.repos?.[0]);
+      const platformDir = resolveArtifactDir(baseDir, platformName);
+      const customArtifactDir = resolveCustomArtifactDir(baseDir);
       const ticketKey = isTicketKey(identifier) ? identifier : undefined;
-      const resolvedPlanPath = ticketKey
-        ? undefined
-        : this.resolveCustomPlanPath(identifier, baseDir);
+      let resolvedPlanReference: PlanArtifactReference | null = null;
+      let plan: ResolutionPlan | undefined;
 
       // ── CUSTOM PLAN MODE ────────────────────────────────────────────────
-      if (!ticketKey && resolvedPlanPath) {
-        const plan = loadPlanFile(resolvedPlanPath);
+      if (!ticketKey) {
+        resolvedPlanReference = this.resolvePlanArtifactReferenceAcrossDirs(
+          identifier,
+          platformDir,
+          customArtifactDir,
+          baseDir,
+        );
+
+        if (!resolvedPlanReference) {
+          throw new Error(
+            `Plan artifact not found for ${identifier}. Run wf issue:plan first or provide a supported plan filename.`,
+          );
+        }
+
+        const notice = buildPlanArtifactResolutionNotice({
+          artifactPath: resolvedPlanReference.artifactPath,
+          action: resolvedPlanReference.action,
+          isLegacy: resolvedPlanReference.isLegacy,
+          ticketKey: resolvedPlanReference.ticketKey,
+          customArtifactName: resolvedPlanReference.customArtifactName,
+          sourceName: resolvedPlanReference.sourceName,
+        });
+        if (notice) {
+          console.log(chalk.yellow(`⚠️  ${notice}`));
+        }
+
+        plan = loadPlanFile(resolvedPlanReference.artifactPath);
+      }
+
+      if (resolvedPlanReference?.sourceKind === 'custom' && plan) {
         const repoDir = resolveRepoBasePath(options?.repos?.[0]);
         const customExecutionContext =
-          this.buildSyntheticCustomExecutionContext(resolvedPlanPath, plan);
+          this.buildSyntheticCustomExecutionContext(
+            resolvedPlanReference.artifactPath,
+            plan,
+          );
 
         if (options?.dryRun) {
           this.dryRunPreview.showHeader('issue:implement', identifier);
 
-          const planExists = fs.existsSync(resolvedPlanPath);
+          const planExists = fs.existsSync(resolvedPlanReference.artifactPath);
           this.dryRunPreview.previewFileRead({
-            filePath: resolvedPlanPath,
+            filePath: resolvedPlanReference.artifactPath,
             exists: planExists,
             sizeInKb: planExists
-              ? (fs.statSync(resolvedPlanPath).size / 1024).toFixed(2)
+              ? (
+                  fs.statSync(resolvedPlanReference.artifactPath).size / 1024
+                ).toFixed(2)
               : '0',
           });
 
@@ -221,7 +226,7 @@ export class IssueImplementCommand extends CommandRunner {
           const isInvestigateDryRun = plan.action === 'investigate';
 
           if (isInvestigateDryRun) {
-            const findingsPath = resolvedPlanPath.replace(
+            const findingsPath = resolvedPlanReference.artifactPath.replace(
               '.json',
               '-findings-and-recommendations.json',
             );
@@ -291,7 +296,7 @@ export class IssueImplementCommand extends CommandRunner {
               fileModifiedCount: modifiedFileCount,
               gitOperationCount: 1,
               terminalOutputLines: [
-                `⚠️ Synthetic execution context for custom plan ${path.basename(resolvedPlanPath)}`,
+                `⚠️ Synthetic execution context for custom plan ${path.basename(resolvedPlanReference.artifactPath)}`,
                 `Branch: ${this.formatCustomBranchName(plan.action, customExecutionContext.customBranchSlug)}`,
                 '🔧 Implementation Guide',
                 '─'.repeat(70),
@@ -317,7 +322,7 @@ export class IssueImplementCommand extends CommandRunner {
 
         // Investigation: generate findings instead of showing implementation guide
         if (plan.action === 'investigate') {
-          const findingsPath = resolvedPlanPath.replace(
+          const findingsPath = resolvedPlanReference.artifactPath.replace(
             '.json',
             '-findings-and-recommendations.json',
           );
@@ -389,14 +394,14 @@ Return ONLY a valid JSON object:
 
         console.log(
           chalk.yellow(
-            `⚠️ Created synthetic execution context for custom plan ${path.basename(resolvedPlanPath)}. Branch naming will use artifact stem "${customExecutionContext.customBranchSlug}".`,
+            `⚠️ Created synthetic execution context for custom plan ${path.basename(resolvedPlanReference.artifactPath)}. Branch naming will use artifact stem "${customExecutionContext.customBranchSlug}".`,
           ),
         );
 
         const planArtifact: PlanArtifact = {
           plan,
           action: plan.action,
-          path: resolvedPlanPath,
+          path: resolvedPlanReference.artifactPath,
         };
         await this.orchestrator.implementer.execute(
           customExecutionContext.ticketArtifact,
@@ -413,15 +418,11 @@ Return ONLY a valid JSON object:
         return;
       }
 
-      if (!ticketKey) {
-        throw new Error('Ticket key is required for standard plan execution');
-      }
-
       // ── MODE B & C: ticketKey present ──────────────────────────────────
-      const platformDir = resolveArtifactDir(baseDir, platformName);
       warnOnVerificationRepoBoundary(options?.repos);
-      const ticketPath = path.join(platformDir, `${ticketKey}.md`);
-      const discovered = discoverStandardPlan(platformDir, ticketKey);
+      const resolvedTicketKey =
+        ticketKey ?? resolvedPlanReference?.ticketKey ?? identifier;
+      const ticketPath = path.join(platformDir, `${resolvedTicketKey}.md`);
       // Preflight Check 1: ticket artifact must exist (gates both live + dry-run)
       if (!fs.existsSync(ticketPath)) {
         console.error(
@@ -436,28 +437,51 @@ Return ONLY a valid JSON object:
         return;
       }
 
-      if (!discovered) {
+      resolvedPlanReference =
+        resolvedPlanReference ??
+        this.resolvePlanArtifactReferenceAcrossDirs(
+          resolvedTicketKey,
+          platformDir,
+          customArtifactDir,
+          baseDir,
+        );
+
+      if (!resolvedPlanReference) {
         console.error(
-          chalk.red(`Error: No plan artifact found for ${ticketKey}.`),
+          chalk.red(`Error: No plan artifact found for ${resolvedTicketKey}.`),
         );
         console.error(
           chalk.yellow(
-            `Run:   wf issue:plan ${ticketKey} --action <feature|fix|investigate>${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`,
+            `Run:   wf issue:plan ${resolvedTicketKey} --action <feature|fix|investigate>${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`,
           ),
         );
         console.error(
           chalk.yellow(
-            `Then:  wf issue:implement ${ticketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`,
+            `Then:  wf issue:implement ${resolvedTicketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`,
           ),
         );
         process.exit(1);
         return;
       }
-      const action: ResolutionAction = discovered.action;
-      const planPath = discovered.filePath;
+
+      const notice = buildPlanArtifactResolutionNotice({
+        artifactPath: resolvedPlanReference.artifactPath,
+        action: resolvedPlanReference.action,
+        isLegacy: resolvedPlanReference.isLegacy,
+        ticketKey: resolvedPlanReference.ticketKey,
+        customArtifactName: resolvedPlanReference.customArtifactName,
+        sourceName: resolvedPlanReference.sourceName,
+      });
+      if (notice) {
+        console.log(chalk.yellow(`⚠️  ${notice}`));
+      }
+
+      plan = plan ?? loadPlanFile(resolvedPlanReference.artifactPath);
+      const action: ResolutionAction = plan.action;
+      const planPath = resolvedPlanReference.artifactPath;
 
       if (options?.dryRun) {
-        this.dryRunPreview.showHeader('issue:implement', ticketKey);
+        this.dryRunPreview.showHeader('issue:implement', resolvedTicketKey);
 
         // Ticket: always a file-read (preflight check guarantees it exists)
         this.dryRunPreview.previewFileRead({
@@ -467,13 +491,13 @@ Return ONLY a valid JSON object:
         });
 
         // Plan source: Mode B reads from --plan flag; Mode C reads from discovered path
-        if (resolvedPlanPath) {
-          const planExists = fs.existsSync(resolvedPlanPath);
+        if (resolvedPlanReference.artifactPath) {
+          const planExists = fs.existsSync(planPath);
           this.dryRunPreview.previewFileRead({
-            filePath: resolvedPlanPath,
+            filePath: planPath,
             exists: planExists,
             sizeInKb: planExists
-              ? (fs.statSync(resolvedPlanPath).size / 1024).toFixed(2)
+              ? (fs.statSync(planPath).size / 1024).toFixed(2)
               : '0',
           });
         } else {
@@ -487,7 +511,7 @@ Return ONLY a valid JSON object:
 
         // For investigate: also preview findings API call and file write
         if (action === 'investigate') {
-          const findingsPath = (resolvedPlanPath ?? planPath).replace(
+          const findingsPath = planPath.replace(
             '.json',
             '-findings-and-recommendations.json',
           );
@@ -533,7 +557,7 @@ Return ONLY a valid JSON object:
           terminalOutputLines: [
             ...(action === 'investigate'
               ? [
-                  `✓ Investigation findings saved to: ${(resolvedPlanPath ?? planPath).replace('.json', '-findings-and-recommendations.json')}`,
+                  `✓ Investigation findings saved to: ${planPath.replace('.json', '-findings-and-recommendations.json')}`,
                 ]
               : [
                   '',
@@ -551,37 +575,21 @@ Return ONLY a valid JSON object:
         return;
       }
 
-      this.logger.info(`Implementing ticket ${ticketKey}...`);
+      this.logger.info(`Implementing ticket ${resolvedTicketKey}...`);
       const repoDir = resolveRepoBasePath(options?.repos?.[0]);
 
       const ticketContent = await fs.promises.readFile(ticketPath, 'utf-8');
       const ticketArtifact: TicketArtifact = {
-        ticketKey,
+        ticketKey: resolvedTicketKey,
         content: ticketContent,
         path: ticketPath,
       };
 
-      let planArtifact: PlanArtifact;
-
-      if (resolvedPlanPath) {
-        // Mode B: load plan from --plan path
-
-        const plan = loadPlanFile(resolvedPlanPath);
-        planArtifact = {
-          plan,
-          action: plan.action,
-          path: resolvedPlanPath,
-        };
-      } else {
-        // Mode C: load plan from disk (plan artifact verified by preflight check)
-
-        const plan = loadPlanFile(planPath);
-        planArtifact = {
-          plan,
-          action: plan.action,
-          path: planPath,
-        };
-      }
+      const planArtifact: PlanArtifact = {
+        plan,
+        action,
+        path: planPath,
+      };
 
       await this.orchestrator.implementer.execute(
         ticketArtifact,
@@ -681,6 +689,59 @@ Return ONLY a valid JSON object:
     }
 
     return path.resolve(baseDir, identifier);
+  }
+
+  /**
+   * Resolve a plan artifact from the standard and custom artifact namespaces.
+   *
+   * @param identifier - Raw CLI positional argument
+   * @param platformDir - Standard platform artifact directory
+   * @param customArtifactDir - Custom artifact directory
+   * @returns Resolved plan artifact reference or null when not found
+   */
+  private resolvePlanArtifactReferenceAcrossDirs(
+    identifier: string,
+    platformDir: string,
+    customArtifactDir: string,
+    baseDir: string,
+  ): PlanArtifactReference | null {
+    const candidateDirs = isTicketKey(identifier)
+      ? [platformDir]
+      : [platformDir, customArtifactDir];
+
+    for (const artifactDir of candidateDirs) {
+      try {
+        return resolvePlanArtifactReferenceInDir(identifier, { artifactDir });
+      } catch {
+        continue;
+      }
+    }
+
+    if (!isTicketKey(identifier)) {
+      const directPlanPath = this.resolveCustomPlanPath(identifier, baseDir);
+      if (fs.existsSync(directPlanPath)) {
+        const artifactStem = path.basename(
+          directPlanPath,
+          path.extname(directPlanPath),
+        );
+        const actionMatch = artifactStem.match(/-(feature|fix|investigate)$/i);
+        return {
+          action: (actionMatch?.[1] as ResolutionAction) || 'fix',
+          artifactPath: directPlanPath,
+          format: path.extname(directPlanPath).slice(1).toLowerCase() as
+            | 'json'
+            | 'md'
+            | 'yaml'
+            | 'yml',
+          hash: path.basename(directPlanPath, path.extname(directPlanPath)),
+          sourceKind: 'custom',
+          sourceName: artifactStem.replace(/-(feature|fix|investigate)$/i, ''),
+          isLegacy: true,
+        };
+      }
+    }
+
+    return null;
   }
 
   /**
