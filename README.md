@@ -381,8 +381,11 @@ Create a ticket on a platform from a structured input file. Supports `.json`, `.
 # Create from a JSON file on the primary platform
 wf issue:create ticket.json
 
-# Create on a specific platform and project
-wf issue:create ticket.md --platform jira --project WBP
+# Create on a specific platform and Jira project
+wf issue:create ticket.md --platform jira --ticket-project WBP
+
+# Create on Jira with an explicit issue type override
+wf issue:create ticket.md --platform jira --ticket-project WBP --type story
 
 # Override the issue type at creation time
 wf issue:create ticket.yaml --platform github --type bug
@@ -393,13 +396,17 @@ wf issue:create ticket.json --dry-run
 
 **Options:**
 
-| Flag                        | Description                                                                        | Default            |
-| --------------------------- | ---------------------------------------------------------------------------------- | ------------------ |
-| `-p, --platform <platform>` | Target platform: `jira \| github \| bitbucket`                                     | `PRIMARY_PLATFORM` |
-| `-r, --repos <repos...>`    | Only the first repo is used for artifact lookup; extras are ignored with a warning | current repo       |
-| `--project <project>`       | Project key (Jira) or `workspace/repo` (Bitbucket)                                 | from input file    |
-| `-t, --type <type>`         | Issue type: `task \| bug \| story \| todo`                                         | from input file    |
-| `--dry-run`                 | Validate and preview without creating                                              | —                  |
+| Flag                         | Description                                                                        | Default            |
+| ---------------------------- | ---------------------------------------------------------------------------------- | ------------------ |
+| `-p, --platform <platform>`  | Target platform: `jira \| github \| bitbucket`                                     | `PRIMARY_PLATFORM` |
+| `-r, --repos <repos...>`     | Only the first repo is used for artifact lookup; extras are ignored with a warning | current repo       |
+| `--ticket-project <project>` | Project key (Jira) or `workspace/repo` (Bitbucket)                                 | from input file    |
+| `-t, --type <type>`          | Issue type: `task \| bug \| story \| todo`                                         | from input file    |
+| `--dry-run`                  | Validate and preview without creating                                              | —                  |
+
+When creating Jira tickets, `wf` first resolves the requested priority against
+the Jira instance. If Jira still rejects the priority during creation, `wf`
+retries once without the priority field so ticket creation can still succeed.
 
 ---
 
@@ -548,27 +555,27 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 
 **Options:**
 
-| Flag                        | Description                                                                          | Default            |
-| --------------------------- | ------------------------------------------------------------------------------------ | ------------------ |
-| `--from <stage>`            | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit`         | —                  |
-| `--to <stage>`              | Stop stage (inclusive)                                                               | `commit`           |
+| Flag                        | Description                                                                                                                              | Default            |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `--from <stage>`            | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit`                                                             | —                  |
+| `--to <stage>`              | Stop stage (inclusive)                                                                                                                   | `commit`           |
 | `--action <action>`         | Resolution action: `feature \| fix \| investigate` — required when `plan` stage runs, optional when resuming from a hashed plan artifact | —                  |
-| `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket`                                              | `PRIMARY_PLATFORM` |
-| `--pr`                      | Create PR after commit stage                                                         | false              |
-| `--chat-mode`               | Open AI chat after `plan` and `review` stages                                        | —                  |
-| `--force`                   | Recreate artifacts instead of using the default skip-existing behavior               | false              |
-| `--dry-run`                 | Preview every stage without making changes, including branch and file work           | —                  |
-| `-r, --repos <repos...>`    | First repo anchors artifact storage; all repos are used as workflow context          | current repo       |
+| `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket`                                                                                                  | `PRIMARY_PLATFORM` |
+| `--pr`                      | Create PR after commit stage                                                                                                             | false              |
+| `--chat-mode`               | Open AI chat after `plan` and `review` stages                                                                                            | —                  |
+| `--force`                   | Recreate artifacts instead of using the default skip-existing behavior                                                                   | false              |
+| `--dry-run`                 | Preview every stage without making changes, including branch and file work                                                               | —                  |
+| `-r, --repos <repos...>`    | First repo anchors artifact storage; all repos are used as workflow context                                                              | current repo       |
 
 **Stage order and artifacts:**
 
-| Stage       | Artifact                                                    |
-| ----------- | ----------------------------------------------------------- |
-| `fetch`     | `./<platform>/<ticket-key>.md`                              |
+| Stage       | Artifact                                                                         |
+| ----------- | -------------------------------------------------------------------------------- |
+| `fetch`     | `./<platform>/<ticket-key>.md`                                                   |
 | `plan`      | `./<platform>/<hash>-<action>-plan.json` with a `.sources.json` sidecar manifest |
-| `implement` | working tree updates in the selected repo plus branch setup |
-| `review`    | `./<platform>/<ticket-key>-review.md`                       |
-| `commit`    | _(display only — commit commands printed for confirmation)_ |
+| `implement` | working tree updates in the selected repo plus branch setup                      |
+| `review`    | `./<platform>/<ticket-key>-review.md`                                            |
+| `commit`    | _(display only — commit commands printed for confirmation)_                      |
 
 **Branch naming:** `issue` generates a branch name in the format `<prefix>/<TICKET-KEY>__<slug>`, where prefix is controlled by `BRANCH_PREFIX_*` env vars (`feature`, `bugfix`, `chore`).
 

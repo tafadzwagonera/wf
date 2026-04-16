@@ -180,8 +180,9 @@ const ISSUE_CREATE_EXAMPLES: CliExample[] = [
     command: 'wf issue:create ticket.json',
   },
   {
-    comment: 'Create on specific platform',
-    command: 'wf issue:create ticket.md --platform jira --type story',
+    comment: 'Create on a specific platform and override the Jira project',
+    command:
+      'wf issue:create ticket.md --platform jira --ticket-project WBP --type story',
   },
 ];
 
