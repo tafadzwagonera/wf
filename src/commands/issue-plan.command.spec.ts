@@ -49,6 +49,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
+import { hashPlanArtifactSources } from '../shared/utils/plan-artifact';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -253,6 +254,23 @@ describe('IssuePlanCommand', () => {
 
     expect(path.dirname(ticketPreview.filePath)).toBe(expectedDir);
     expect(path.dirname(planPreview.filePath)).toBe(expectedDir);
+  });
+
+  it('writes hashed ticket-mode plan filenames in dry-run mode', async () => {
+    const { command } = await buildCommand();
+    const dryRunPreview = (command as any)
+      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+
+    await command.run(['WBP-1'], {
+      action: 'fix',
+      repos: ['repo-a'],
+      dryRun: true,
+    });
+
+    const planPreview = dryRunPreview.previewFileWrite.mock.calls[1][0];
+    expect(path.basename(planPreview.filePath)).toBe(
+      `${hashPlanArtifactSources(['WBP-1'])}-fix-plan.json`,
+    );
   });
 
   it('stores ticket-mode plans under the repo-name namespace for long-format repos', async () => {

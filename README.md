@@ -331,7 +331,7 @@ wf issue:plan WBP-2971 --action fix --dry-run
 | `-f, --format <format>`     | Plan output format: `json \| md \| yaml`                       | `json`             |
 | `-r, --repos <repos...>`    | Space-separated repositories (`workspace/repo` or `repo-name`) | required           |
 
-**Output:** saves to `./<platform>/<ticket-key>-plan-<action>.<format>` for ticket-backed plans, or `<mnemonic>-<action>.<format>` for custom plans (for example, `merry-tinkering-pine-feature.json`).
+**Output:** saves to `./<platform>/<hash>-<action>-plan.<format>` for both ticket-backed and custom plans. A sidecar `.<format>.sources.json` manifest records the original ticket key or custom source name so `issue:implement` can resolve the artifact later.
 
 ---
 
@@ -515,7 +515,7 @@ wf issue:pr WBP-2971 --dry-run
 
 ---
 
-#### `wf issue <ticket-key>`
+#### `wf issue <ticket-key-or-plan-token>`
 
 Orchestrate the full issue workflow in a single command. Runs any contiguous range of stages: `fetch → plan → implement → review → commit`.
 
@@ -528,6 +528,9 @@ wf issue WBP-2971 --from plan --to review --action fix
 
 # Resume from implement (auto-discovers existing plan)
 wf issue WBP-2971 --from implement
+
+# Resume from a hashed plan artifact without --action
+wf issue 1a2b3c4d-fix-plan.json --from implement
 
 # Force refresh even when local artifacts already exist
 wf issue WBP-2971 --from fetch --action fix --force
@@ -549,7 +552,7 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 | --------------------------- | ------------------------------------------------------------------------------------ | ------------------ |
 | `--from <stage>`            | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit`         | —                  |
 | `--to <stage>`              | Stop stage (inclusive)                                                               | `commit`           |
-| `--action <action>`         | Resolution action: `feature \| fix \| investigate` — required when `plan` stage runs | —                  |
+| `--action <action>`         | Resolution action: `feature \| fix \| investigate` — required when `plan` stage runs, optional when resuming from a hashed plan artifact | —                  |
 | `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket`                                              | `PRIMARY_PLATFORM` |
 | `--pr`                      | Create PR after commit stage                                                         | false              |
 | `--chat-mode`               | Open AI chat after `plan` and `review` stages                                        | —                  |
@@ -562,7 +565,7 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 | Stage       | Artifact                                                    |
 | ----------- | ----------------------------------------------------------- |
 | `fetch`     | `./<platform>/<ticket-key>.md`                              |
-| `plan`      | `./<platform>/<ticket-key>-plan-<action>.json`              |
+| `plan`      | `./<platform>/<hash>-<action>-plan.json` with a `.sources.json` sidecar manifest |
 | `implement` | working tree updates in the selected repo plus branch setup |
 | `review`    | `./<platform>/<ticket-key>-review.md`                       |
 | `commit`    | _(display only — commit commands printed for confirmation)_ |
@@ -571,9 +574,9 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 
 ---
 
-#### `wf issue:implement <ticket-key-or-plan-file>`
+#### `wf issue:implement <ticket-key-or-plan-token>`
 
-Execute an existing canonical plan artifact. Ticket keys resolve the single standard plan for that ticket. Custom plans must be passed as explicit artifact filenames including extension; `fix` and `feature` plans synthesize an execution context and run the shared implementation flow.
+Execute an existing canonical plan artifact. Ticket keys resolve the single standard plan for that ticket. Hashed plan tokens and hashed filenames resolve through the local manifest and can be resumed without `--action`; legacy custom filenames still resolve during migration.
 
 ```bash
 # Execute the standard plan for a ticket
@@ -585,18 +588,20 @@ wf issue:implement WBP-2971 --repos my-repo
 # Execute with multiple repositories (first anchors verification; siblings are context)
 wf issue:implement WBP-2971 --repos repo-a repo-b
 
-# Execute a custom plan artifact
-wf issue:implement merry-tinkering-pine-feature.json
+# Execute a hashed plan artifact
+wf issue:implement 1a2b3c4d-feature-plan.json
 
-# Execute a custom YAML plan artifact
-wf issue:implement bold-jumping-wave-fix.yaml
+# Resume from a hashed plan token
+wf issue:implement 1a2b3c4d
 
 # Run the same command from source while developing wf itself
 yarn start issue:implement WBP-2971 --dry-run
 
 # Preview branch and file work for a custom plan
-wf issue:implement dark-building-creek-fix.json --dry-run
+wf issue:implement 1a2b3c4d-fix-plan.json --dry-run
 ```
+
+When a hashed plan artifact is detected, the CLI prints a yellow warning with the decoded artifact and action so you can confirm the resolved plan before implementation starts. Supplying `--action` alongside a hashed artifact still performs a strict validation check against the filename and manifest contents.
 
 Runtime backend selection is separate from plan metadata:
 
@@ -1044,7 +1049,7 @@ yarn test:e2e
 **5. "Plan file not found"**
 
 - Run `issue:plan` (or `issue --from plan`) before running `implement` or later stages
-- If you specified `--action fix` at plan time, use the same action when resuming: `issue WBP-2971 --from implement --action fix`
+- If you resume from a ticket key, keep `--action` aligned with the existing plan; if you resume from a hashed plan artifact, the action is decoded automatically and `--action` becomes optional
 
 **6. "Workspace required"**
 

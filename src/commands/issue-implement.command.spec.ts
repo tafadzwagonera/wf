@@ -48,6 +48,10 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
+import {
+  buildPlanArtifactManifestPath,
+  hashPlanArtifactSources,
+} from '../shared/utils/plan-artifact';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -192,6 +196,80 @@ describe('IssueImplementCommand', () => {
             '.wf',
             'repo-a',
             'dark-building-creek-fix.json',
+          ),
+        }),
+      );
+    });
+
+    it('resolves a hashed standard plan artifact without requiring --action', async () => {
+      const command = await buildCommand();
+      const dryRunPreview = (command as any)
+        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+      const hash = hashPlanArtifactSources(['WBP-0001']);
+      const artifactDir = path.join(os.homedir(), '.wf', 'repo-a', 'jira');
+      const planPath = path.join(artifactDir, `${hash}-fix-plan.json`);
+      const manifestPath = buildPlanArtifactManifestPath(planPath);
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation(
+          (input: string) =>
+            String(input) === artifactDir ||
+            String(input) === planPath ||
+            String(input) === manifestPath ||
+            String(input).endsWith('WBP-0001.md'),
+        );
+      jest
+        .spyOn(require('fs'), 'readdirSync')
+        .mockReturnValue([path.basename(manifestPath)] as any);
+      jest
+        .spyOn(require('fs'), 'statSync')
+        .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockImplementation((input: any) => {
+          const filePath = String(input);
+          if (filePath.endsWith('WBP-0001.md')) {
+            return '# WBP-0001: Fix login\n\n## Description\n\nRestore auth flow';
+          }
+          if (filePath === manifestPath) {
+            return JSON.stringify({
+              artifactPath: planPath,
+              action: 'fix',
+              createdAt: new Date('2026-04-16T00:00:00.000Z').toISOString(),
+              format: 'json',
+              hash,
+              sourceKind: 'ticket',
+              sourceName: 'WBP-0001',
+              ticketKey: 'WBP-0001',
+              platformName: 'jira',
+            });
+          }
+          return JSON.stringify({
+            action: 'fix',
+            summary: 'Repair the cached plan',
+            steps: ['Patch the login flow'],
+            filesAffected: ['repo-a/src/auth.ts'],
+            repositoriesAffected: ['repo-a'],
+          });
+        });
+
+      jest
+        .spyOn(require('fs').promises, 'writeFile')
+        .mockResolvedValue(undefined);
+
+      await command.run([`${hash}-fix-plan.json`], {
+        repos: ['repo-a'],
+        dryRun: true,
+      });
+
+      expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePath: path.join(
+            os.homedir(),
+            '.wf',
+            'repo-a',
+            'jira',
+            `${hash}-fix-plan.json`,
           ),
         }),
       );

@@ -9,6 +9,10 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import {
+  isTicketKey,
+  resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
+} from '../shared/utils/plan-artifact';
 import { parseReposOption } from './utils/repos-option';
 import { ConfigService } from '@nestjs/config';
 import { AiService } from '../integrations/ai/ai.service';
@@ -33,6 +37,10 @@ const ISSUE_EXAMPLES: CliExample[] = [
   {
     comment: 'Resume from implement stage',
     command: 'wf issue WBP-2971 --from implement --action fix --platform jira',
+  },
+  {
+    comment: 'Resume from a hashed plan artifact without --action',
+    command: 'wf issue 1a2b3c4d-fix-plan.json --from implement',
   },
 ];
 
@@ -69,8 +77,8 @@ interface IssueOptions {
   description:
     'Complete workflow: fetch, plan, implement, review, and commit. Use --from and --to to control stage range. ' +
     'Pass --repos to specify repositories: the first repo anchors artifact storage; all repos are available as ' +
-    'cross-repo read context during implementation (writes stay scoped to the primary repo).',
-  arguments: '<ticket-key>',
+    'cross-repo read context during implementation (writes stay scoped to the primary repo). Resuming from `--from implement` can accept a ticket key, a hashed plan token, or a hashed plan filename; if `--action` is provided, it is validated against the resolved artifact.',
+  arguments: '<ticket-key-or-plan-token>',
   options: { isDefault: false },
 })
 export class IssueCommand extends CommandRunner {
@@ -88,7 +96,7 @@ export class IssueCommand extends CommandRunner {
   @Option({
     flags: '-a, --action <action>',
     description:
-      'Resolution action type (feature|fix|investigate) - required for PLAN stage',
+      'Resolution action type (feature|fix|investigate) - required for PLAN stage, optional when resuming from a hashed plan artifact',
   })
   parseAction(val: string): string {
     return val;
@@ -166,7 +174,7 @@ export class IssueCommand extends CommandRunner {
   async run(passedParams: string[], options?: IssueOptions): Promise<void> {
     printExamples(ISSUE_EXAMPLES);
 
-    const ticketKey = passedParams[0];
+    let ticketKey = passedParams[0];
 
     if (!ticketKey) {
       console.error(chalk.red('Error: Ticket key is required'));
@@ -211,6 +219,8 @@ export class IssueCommand extends CommandRunner {
         options?.platform ||
         this.configService.get<string>('platforms.primary') ||
         'jira';
+      const repoBaseDir = resolveRepoBasePath(options.repos?.[0]);
+      const platformDir = resolveArtifactDir(repoBaseDir, platformName);
 
       // Validate stage range
       const fromIndex = STAGE_ORDER.indexOf(fromStage);
@@ -223,6 +233,33 @@ export class IssueCommand extends CommandRunner {
       }
 
       const stagesToRun = this.getStagesToRun(fromStage, toStage);
+
+      if (
+        !isTicketKey(ticketKey) &&
+        stagesToRun.some((stage) =>
+          [
+            WorkflowStage.IMPLEMENT,
+            WorkflowStage.REVIEW,
+            WorkflowStage.COMMIT,
+          ].includes(stage),
+        )
+      ) {
+        try {
+          const resolvedReference = resolvePlanArtifactReferenceInDir(
+            ticketKey,
+            {
+              artifactDir: platformDir,
+            },
+          );
+          if (resolvedReference.ticketKey) {
+            ticketKey = resolvedReference.ticketKey;
+          }
+        } catch {
+          throw new Error(
+            `Plan artifact not found for ${ticketKey}. Run wf issue:plan first or provide a supported plan filename.`,
+          );
+        }
+      }
 
       // Validate action only if PLAN stage will run
       let action: ResolutionAction | undefined;
@@ -260,10 +297,6 @@ export class IssueCommand extends CommandRunner {
         action = options.action as ResolutionAction;
       }
       // If action not provided and PLAN stage not running, it will be auto-discovered later
-
-      // Resolve base directory: use the first repo when provided,
-      // otherwise fall back to the current working directory.
-      const repoBaseDir = resolveRepoBasePath(options.repos?.[0]);
 
       const repoList: (string | undefined)[] = options.repos?.length
         ? options.repos
@@ -648,7 +681,7 @@ export class IssueCommand extends CommandRunner {
           );
 
           // Investigation workflows end at the IMPLEMENT stage
-          if (implementerResult.type === 'investigation') {
+          if (implementerResult?.type === 'investigation') {
             console.log(
               chalk.bold.green(
                 '\n✓ Investigation workflow complete — no further stages will run',

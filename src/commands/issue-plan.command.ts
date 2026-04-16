@@ -23,6 +23,12 @@ import * as os from 'os';
 import * as path from 'path';
 import * as YAML from 'yaml';
 import chalk from 'chalk';
+import {
+  buildPlanArtifactFilename,
+  buildPlanArtifactManifest,
+  hashPlanArtifactSources,
+  writePlanArtifactManifest,
+} from '../shared/utils/plan-artifact';
 
 const ISSUE_PLAN_EXAMPLES: CliExample[] = [
   {
@@ -381,10 +387,15 @@ export class IssuePlanCommand extends CommandRunner {
           artifactBaseDir,
           options?.repos,
         );
-        const planFilename = `${this.generateUniqueCustomPlanStem(
+        const customSourceName = this.generateUniqueCustomPlanStem(
           customArtifactDir,
           action,
-        )}-${action}.${extension}`;
+        );
+        const planFilename = buildPlanArtifactFilename({
+          hash: hashPlanArtifactSources([customSourceName]),
+          action,
+          format: extension,
+        });
         const planPath = path.join(customArtifactDir, planFilename);
 
         if (options.dryRun) {
@@ -463,6 +474,24 @@ export class IssuePlanCommand extends CommandRunner {
         }
 
         await fs.promises.writeFile(planPath, planContent, 'utf-8');
+        writePlanArtifactManifest(
+          buildPlanArtifactManifest(
+            planPath,
+            action,
+            format,
+            hashPlanArtifactSources([customSourceName]),
+            customSourceName,
+            'custom',
+            new Date(),
+          ),
+        );
+        this.deleteSiblingPlanArtifacts(
+          customArtifactDir,
+          customSourceName,
+          'custom',
+          action,
+          planPath,
+        );
         this.logger.success(`✓ Plan saved to: ${planPath}`);
         this.logger.info(`\nPlan Summary:`);
         this.logger.info(`  Action: ${plan.action}`);
@@ -478,9 +507,14 @@ export class IssuePlanCommand extends CommandRunner {
       // Check for local artifact or fetch
       const platformDir = resolveArtifactDir(artifactBaseDir, platformName);
       const ticketPath = path.join(platformDir, `${ticketKey}.md`);
+      const planSourceName = ticketKey;
       const planPath = path.join(
         platformDir,
-        `${ticketKey}-plan-${action}.${extension}`,
+        buildPlanArtifactFilename({
+          hash: hashPlanArtifactSources([planSourceName]),
+          action,
+          format: extension,
+        }),
       );
       const ticketExists = fs.existsSync(ticketPath);
       const needsFetch = options?.force || !ticketExists;
@@ -635,8 +669,26 @@ export class IssuePlanCommand extends CommandRunner {
         planContent = this.formatPlanAsMarkdown(plan);
       }
 
-      this.deleteSiblingStandardPlans(platformDir, ticketKey, planPath);
       await fs.promises.writeFile(planPath, planContent, 'utf-8');
+      writePlanArtifactManifest(
+        buildPlanArtifactManifest(
+          planPath,
+          action,
+          format,
+          hashPlanArtifactSources([planSourceName]),
+          planSourceName,
+          'ticket',
+          new Date(),
+          platformName,
+        ),
+      );
+      this.deleteSiblingPlanArtifacts(
+        platformDir,
+        planSourceName,
+        'ticket',
+        action,
+        planPath,
+      );
 
       this.logger.success(`✓ Plan saved to: ${planPath}`);
       this.logger.info(`\nPlan Summary:`);
@@ -726,26 +778,58 @@ export class IssuePlanCommand extends CommandRunner {
    * @param retainedPlanPath - Newly selected standard plan path
    * @returns void
    */
-  private deleteSiblingStandardPlans(
+  private deleteSiblingPlanArtifacts(
     platformDir: string,
-    ticketKey: string,
+    sourceName: string,
+    sourceKind: 'ticket' | 'custom',
+    currentAction: ResolutionAction,
     retainedPlanPath: string,
   ): void {
     const actions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
-    const extensions: Array<'json' | 'md' | 'yaml'> = ['json', 'md', 'yaml'];
+    const extensions: Array<'json' | 'md' | 'yaml' | 'yml'> = [
+      'json',
+      'md',
+      'yaml',
+      'yml',
+    ];
+    const planHash = hashPlanArtifactSources([sourceName]);
 
     for (const siblingAction of actions) {
       for (const extension of extensions) {
-        const siblingPath = path.join(
+        const hashedSiblingPath = path.join(
           platformDir,
-          `${ticketKey}-plan-${siblingAction}.${extension}`,
+          buildPlanArtifactFilename({
+            hash: planHash,
+            action: siblingAction,
+            format: extension,
+          }),
         );
-        if (siblingPath === retainedPlanPath || !fs.existsSync(siblingPath)) {
-          continue;
-        }
+        const legacySiblingPath = path.join(
+          platformDir,
+          sourceKind === 'ticket'
+            ? `${sourceName}-plan-${siblingAction}.${extension}`
+            : `${sourceName}-${siblingAction}.${extension}`,
+        );
 
-        this.logger.warn(`Deleting stale standard plan: ${siblingPath}`);
-        fs.unlinkSync(siblingPath);
+        for (const siblingPath of [hashedSiblingPath, legacySiblingPath]) {
+          if (
+            siblingPath === retainedPlanPath ||
+            siblingAction === currentAction ||
+            !fs.existsSync(siblingPath)
+          ) {
+            continue;
+          }
+
+          this.logger.warn(`Deleting stale plan artifact: ${siblingPath}`);
+          fs.unlinkSync(siblingPath);
+          const siblingManifestPath = path.join(
+            platformDir,
+            `${path.basename(siblingPath).replace(/\.[^.]+$/, '')}.sources.json`,
+          );
+          if (fs.existsSync(siblingManifestPath)) {
+            fs.unlinkSync(siblingManifestPath);
+          }
+        }
       }
     }
   }

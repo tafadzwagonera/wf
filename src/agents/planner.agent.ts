@@ -9,6 +9,7 @@ import {
   ResolutionAction,
 } from './interfaces';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
+import { buildPlanArtifactResolutionNotice } from '../shared/utils/plan-artifact';
 
 @Injectable()
 export class PlannerAgent {
@@ -59,6 +60,15 @@ export class PlannerAgent {
    */
   loadFromDisk(ticketPath: string, action?: ResolutionAction): PlanArtifact {
     const artifact = this.planStageService.loadPlanArtifact(ticketPath, action);
+    const notice = buildPlanArtifactResolutionNotice({
+      action: artifact.action,
+      artifactPath: artifact.path,
+      isLegacy: !!artifact.fromCache,
+      ticketKey: path.basename(ticketPath, path.extname(ticketPath)),
+    });
+    if (notice) {
+      console.log(chalk.yellow(`⚠️  ${notice}`));
+    }
     console.log(chalk.gray(`🤖 Using plan: ${path.basename(artifact.path)}`));
     return artifact;
   }
