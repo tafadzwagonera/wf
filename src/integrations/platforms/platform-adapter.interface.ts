@@ -133,6 +133,18 @@ export interface PlatformAdapter {
   ): Promise<string | null>;
 
   /**
+   * Find all open pull requests whose source branch or title contains the ticket key.
+   * Optional — only for platforms that support PR search by branch/title.
+   * @param ticketKey Ticket key to search for (e.g. "WBP-2955")
+   * @param repoOverride Optional repo in platform-specific format; falls back to default
+   * @returns Array of matching PR URLs in deterministic order
+   */
+  findPullRequestsByTicketKey?(
+    ticketKey: string,
+    repoOverride?: string,
+  ): Promise<string[]>;
+
+  /**
    * Create a pull request on the platform.
    * Optional — only for platforms that support PR creation.
    *

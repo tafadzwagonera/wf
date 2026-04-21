@@ -1,6 +1,11 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
-import { AiService, CodeIssue } from '../integrations/ai/ai.service';
+import inquirer from 'inquirer';
+import {
+  AiService,
+  CodeIssue,
+  CodeReview,
+} from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -26,14 +31,35 @@ interface IssueReviewOptions {
   replaceCriteria?: string;
 }
 
+interface ReviewTarget {
+  title: string;
+  diff: string;
+  context: string;
+  adapterName?: string;
+  commentRef?: string;
+}
+
+interface ReviewedTarget extends ReviewTarget {
+  review: CodeReview;
+}
+
+type TraceProvenance = 'evidence-based' | 'best-effort' | 'unavailable';
+
+interface DiscoveredPullRequestTarget {
+  adapterName: string;
+  commentRef: string;
+  title: string;
+  context: string;
+}
+
 const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   {
     comment: 'Review current repo changes',
     command: 'wf issue:review',
   },
   {
-    comment: 'Review with ticket context',
-    command: 'wf issue:review WBP-2971 --platform jira --format md',
+    comment: 'Review a ticket and its associated pull requests',
+    command: 'wf issue:review WBP-2971 --platform jira --repos service-tourv3',
   },
 ];
 
@@ -68,13 +94,14 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 
 /**
  * Review code changes in the current or selected repositories, optionally
- * adding ticket context or reviewing a pull request URL directly.
+ * adding ticket context, reviewing ticket-associated pull requests, or
+ * reviewing a pull request URL directly.
  */
 @Injectable()
 @Command({
   name: 'issue:review',
   description:
-    'AI-powered code review of local repository changes or pull request diffs',
+    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs',
   arguments: '[source]',
   options: { isDefault: false },
 })
@@ -97,8 +124,9 @@ export class IssueReviewCommand extends CommandRunner {
     printExamples(ISSUE_REVIEW_EXAMPLES);
 
     const source = passedParams[0];
-    const repoDirs = options?.repos?.length
-      ? options.repos.map((repo) => resolveRepoBasePath(repo))
+    const repoInputs = options?.repos?.length ? options.repos : [];
+    const repoDirs = repoInputs.length
+      ? repoInputs.map((repo) => resolveRepoBasePath(repo))
       : [process.cwd()];
 
     try {
@@ -131,6 +159,14 @@ export class IssueReviewCommand extends CommandRunner {
             description: 'Fetch ticket details for review context',
             estimatedResponse: '200 OK — ticket title and description',
           });
+          this.dryRunPreview.previewApiCall({
+            method: 'GET',
+            endpoint: '<ticket-associated pull requests>',
+            platform: 'Primary platform adapters',
+            description:
+              'Discover associated open pull requests for the ticket',
+            estimatedResponse: '200 OK — 0..n pull request URLs',
+          });
         } else if (this.isUrl(source)) {
           this.dryRunPreview.previewApiCall({
             method: 'GET',
@@ -155,21 +191,22 @@ export class IssueReviewCommand extends CommandRunner {
             '  "summary": "<review summary>",',
             '  "approved": true,',
             '  "issues": [],',
+            '  "traceProvenance": "best-effort",',
+            '  "callStack": ["..."],',
+            '  "stateTransition": { "...": "..." },',
             '  "suggestions": ["..."]',
             '}',
           ].join('\n'),
         });
 
-        const willPostComment =
-          options?.comment && source && this.isBitbucketSource(source);
+        const willPostComment = Boolean(options?.comment && source);
 
         if (willPostComment) {
           this.dryRunPreview.previewApiCall({
             method: 'POST',
-            endpoint:
-              '/2.0/repositories/{workspace}/{repo}/pullrequests/{id}/comments',
-            platform: 'Bitbucket',
-            description: 'Post review summary as PR comment',
+            endpoint: '<pull-request comments endpoint>',
+            platform: 'Supported PR platforms',
+            description: 'Post review summary as a PR comment',
             estimatedResponse: '201 Created',
           });
         }
@@ -195,7 +232,23 @@ export class IssueReviewCommand extends CommandRunner {
               '## Issues Found',
               '(none)',
               '',
-              'Status: ✓ Approved',
+              '## Call Stack',
+              'Provenance: best-effort',
+              'Best effort: call stack is reconstructed from review context and AI output.',
+              'Hindrance: the review command does not capture a runtime execution trace.',
+              '- (none)',
+              '',
+              '## State Transition',
+              'Provenance: best-effort',
+              'Best effort: state transitions are inferred from the reviewed diff and AI output.',
+              'Hindrance: the review pipeline does not emit a machine-verified state trace.',
+              '{ }',
+              '',
+              '## Suggestions',
+              '(none)',
+              '',
+              '## Approval Status',
+              '✓ Approved',
             ].join('\n'),
           });
           fileCreatedCount++;
@@ -217,6 +270,9 @@ export class IssueReviewCommand extends CommandRunner {
             '',
             '✓ No issues found',
             '',
+            'Call Stack: provenance best-effort',
+            'State Transition: provenance best-effort',
+            '',
             'Approval Status: ✓ APPROVED',
           ],
         });
@@ -225,45 +281,114 @@ export class IssueReviewCommand extends CommandRunner {
         return;
       }
 
-      let diff: string;
-      let context: string;
-      let bitbucketCommentRef: string | undefined;
+      const reviewTargets: ReviewTarget[] = [];
 
       if (!source) {
         // Mode 1: No argument - review current repo changes
         console.log(
           chalk.bold.cyan('\n🔍 Reviewing Current Repository Changes\n'),
         );
-        diff = await this.reviewRepoSet(repoDirs);
-        context = this.buildRepoContext(repoDirs, 'current repository changes');
+        const diff = await this.reviewRepoSet(repoDirs);
+        reviewTargets.push({
+          title: 'Current repository changes',
+          diff,
+          context: this.buildRepoContext(
+            repoDirs,
+            'current repository changes',
+          ),
+        });
       } else if (this.isUrl(source)) {
         // Mode 2: PR URL - review GitHub/BitBucket PR
         console.log(chalk.bold.cyan(`\n🔍 Reviewing Pull Request\n`));
         console.log(chalk.gray(`  URL: ${source}\n`));
-        diff = await this.reviewPullRequest(source);
-        context = `pull request: ${source}`;
-        if (source.includes('bitbucket.org')) {
-          bitbucketCommentRef = source;
-        }
+        reviewTargets.push({
+          title: this.formatPullRequestTitle(source),
+          diff: await this.reviewPullRequest(source),
+          context: `pull request: ${source}`,
+          adapterName: this.resolveAdapterNameForPullRequestUrl(source),
+          commentRef: source,
+        });
       } else if (this.isTicketKey(source)) {
-        // Mode 3: Ticket key - fetch ticket context, then review local repo changes
+        // Mode 3: Ticket key - fetch ticket context, then review associated PRs or local changes
         console.log(
           chalk.bold.cyan(`\n🔍 Reviewing Changes for Ticket: ${source}\n`),
         );
 
-        console.log(chalk.gray(`  Fetching ticket ${source}...\n`));
-        const ticket = await this.platformService
-          .getDefaultAdapter()
-          .getTicket(source);
-        diff = await this.reviewRepoSet(repoDirs);
-        context = `${this.buildTicketContext(ticket)}\n\n${this.buildRepoContext(repoDirs, 'repositories under review')}`;
+        const ticketAdapter = options?.platform
+          ? this.platformService.getAdapter(options.platform)
+          : this.platformService.getDefaultAdapter();
+
+        console.log(
+          chalk.gray(
+            `  Fetching ticket ${source} from ${ticketAdapter.getPlatformName()}...\n`,
+          ),
+        );
+        const ticket = await ticketAdapter.getTicket(source);
+        if (!ticket) {
+          throw new Error(`Ticket lookup failed for ${source}`);
+        }
+
+        const ticketReviewContext = this.buildTicketContext(ticket);
+        const discoveredPullRequests = await this.discoverTicketPullRequests(
+          source,
+          repoInputs,
+        );
+
+        if (discoveredPullRequests.length > 0) {
+          console.log(
+            chalk.gray(
+              `  Found ${discoveredPullRequests.length} open pull request(s) for ${source}\n`,
+            ),
+          );
+
+          for (const pullRequest of discoveredPullRequests) {
+            try {
+              const diff = await this.reviewPullRequest(pullRequest.commentRef);
+              reviewTargets.push({
+                title: pullRequest.title,
+                diff,
+                context: `${ticketReviewContext}\n\n${pullRequest.context}`,
+                adapterName: pullRequest.adapterName,
+                commentRef: pullRequest.commentRef,
+              });
+            } catch (error: any) {
+              console.log(
+                chalk.yellow(
+                  `⚠️  Skipping ${pullRequest.title}: ${error.message}`,
+                ),
+              );
+            }
+          }
+        } else {
+          console.log(
+            chalk.yellow(
+              `⚠️ No open pull requests were found for ticket ${source}`,
+            ),
+          );
+
+          const fallbackDecision = await this.promptTicketFallbackAction();
+          if (fallbackDecision === 'return') {
+            return;
+          }
+
+          const diff = await this.reviewRepoSet(repoDirs);
+          reviewTargets.push({
+            title: 'Local repository changes',
+            diff,
+            context: `${ticketReviewContext}\n\n${this.buildRepoContext(repoDirs, 'repositories under review')}`,
+          });
+        }
       } else {
         throw new Error(
           `Invalid source: ${source}. Expected: ticket key (ABC-123) or PR URL.`,
         );
       }
 
-      if (!diff || diff.trim().length === 0) {
+      const reviewableTargets = reviewTargets.filter(
+        (target) => target.diff.trim().length > 0,
+      );
+
+      if (reviewableTargets.length === 0) {
         console.log(chalk.yellow('⚠️  No changes to review'));
         console.log(
           chalk.gray(
@@ -275,29 +400,23 @@ export class IssueReviewCommand extends CommandRunner {
 
       console.log(chalk.cyan('🤖 Analyzing changes with AI...\n'));
 
-      const review = await this.reviewStageService.reviewDiff(diff, {
-        context,
-        extraCriteria: extraCriteria ?? undefined,
-        replaceCriteria: Boolean(options?.replaceCriteria),
-      });
+      const reviewedTargets: ReviewedTarget[] = [];
+      for (const target of reviewableTargets) {
+        const review = await this.reviewStageService.reviewDiff(target.diff, {
+          context: target.context,
+          extraCriteria: extraCriteria ?? undefined,
+          replaceCriteria: Boolean(options?.replaceCriteria),
+        });
 
-      console.log(chalk.green('✓ Code review complete\n'));
+        reviewedTargets.push({ ...target, review });
+        this.displayReview(review, target.title);
 
-      // Display review results
-      this.displayReview(review);
-
-      // Post comment to Bitbucket if requested
-      if (options?.comment) {
-        if (bitbucketCommentRef) {
-          await this.postBitbucketComment(bitbucketCommentRef, review);
-        } else {
-          console.log(
-            chalk.yellow(
-              '  ⚠️  --comment skipped: no Bitbucket PR associated with this review\n',
-            ),
-          );
+        if (options?.comment) {
+          await this.postReviewComment(target, review);
         }
       }
+
+      console.log(chalk.green('✓ Code review complete\n'));
 
       // Save to file if requested
       if (options?.output) {
@@ -305,7 +424,7 @@ export class IssueReviewCommand extends CommandRunner {
           options.output,
           repoDirs[0] ?? process.cwd(),
         );
-        const reviewText = this.formatReviewAsText(review, context);
+        const reviewText = this.formatReviewAsText(reviewedTargets);
         fs.writeFileSync(outputPath, reviewText);
         console.log(chalk.green(`\n✓ Review saved to: ${outputPath}\n`));
       }
@@ -316,7 +435,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   @Option({
     flags: '--comment',
-    description: 'Post review as a comment on the Bitbucket PR',
+    description: 'Post review as a comment on supported pull requests',
   })
   parseComment(): boolean {
     return true;
@@ -357,7 +476,8 @@ export class IssueReviewCommand extends CommandRunner {
 
   @Option({
     flags: '-p, --platform <platform>',
-    description: 'Platform (jira|github|bitbucket)',
+    description:
+      'Platform (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary platform',
   })
   parsePlatform(val: string): string {
     return val;
@@ -392,82 +512,245 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   /**
-   * Post the AI review as a Bitbucket PR comment.
-   * @param prUrl Bitbucket PR URL to comment on
+   * Resolve the trace provenance from AI output, defaulting to best-effort
+   * when structured trace data is present but no explicit provenance exists.
+   * @param review The AI review result
+   * @returns Provenance label for trace sections
+   */
+  private resolveTraceProvenance(review: CodeReview): TraceProvenance {
+    if (review.traceProvenance) {
+      return review.traceProvenance;
+    }
+
+    if (
+      review.callStack?.length ||
+      Object.keys(review.stateTransition ?? {}).length
+    ) {
+      return 'best-effort';
+    }
+
+    return 'unavailable';
+  }
+
+  /**
+   * Render a provenance note for trace sections.
+   * @param review The AI review result
+   * @param colorized Whether terminal colors should be applied
+   * @returns Rendered provenance note block
+   */
+  private formatTraceProvenanceNote(
+    review: CodeReview,
+    colorized: boolean,
+  ): string {
+    const provenance = this.resolveTraceProvenance(review);
+    const line =
+      provenance === 'evidence-based'
+        ? 'Provenance: evidence-based (agent-backed trace data)'
+        : provenance === 'best-effort'
+          ? 'Provenance: best-effort (generated without an execution-trace backend)'
+          : 'Provenance: unavailable (no structured trace data was returned)';
+
+    if (!colorized) {
+      return `  ${line}`;
+    }
+
+    if (provenance === 'evidence-based') {
+      return chalk.green(`  ${line}`);
+    }
+
+    if (provenance === 'best-effort') {
+      return chalk.yellow(`  ${line}`);
+    }
+
+    return chalk.gray(`  ${line}`);
+  }
+
+  /**
+   * Render the supporting note block for a trace section based on provenance.
+   * @param review The AI review result
+   * @param colorized Whether terminal colors should be applied
+   * @param sectionLabel Human-friendly section label
+   * @returns Supporting note block for the trace section
+   */
+  private formatTraceSectionNotes(
+    review: CodeReview,
+    colorized: boolean,
+    sectionLabel: 'call stack' | 'state transition',
+  ): string[] {
+    const provenance = this.resolveTraceProvenance(review);
+    const provenanceNote = this.formatTraceProvenanceNote(review, colorized);
+
+    if (provenance === 'evidence-based') {
+      const evidenceLine = colorized
+        ? chalk.green(
+            `  Evidence: generated by the selected execution backend for the ${sectionLabel} section.`,
+          )
+        : `  Evidence: generated by the selected execution backend for the ${sectionLabel} section.`;
+
+      return [provenanceNote, evidenceLine];
+    }
+
+    if (provenance === 'unavailable') {
+      const unavailableLine = colorized
+        ? chalk.gray(
+            `  Trace unavailable: no structured ${sectionLabel} data was returned.`,
+          )
+        : `  Trace unavailable: no structured ${sectionLabel} data was returned.`;
+
+      return [provenanceNote, unavailableLine];
+    }
+
+    const bestEffortText =
+      sectionLabel === 'call stack'
+        ? 'Best effort: call stack is reconstructed from review context and AI output.'
+        : 'Best effort: state transitions are inferred from the reviewed diff and AI output.';
+    const hindranceText =
+      sectionLabel === 'call stack'
+        ? 'Hindrance: the review command does not capture a runtime execution trace.'
+        : 'Hindrance: the review pipeline does not emit a machine-verified state trace.';
+
+    return [
+      provenanceNote,
+      this.formatBestEffortNote(bestEffortText, hindranceText, colorized),
+    ];
+  }
+
+  /**
+   * Post the AI review as a pull request comment when the adapter supports it.
+   * @param target Review target metadata
    * @param review The AI review result
    */
-  private async postBitbucketComment(
-    prUrl: string,
-    review: any,
+  private async postReviewComment(
+    target: ReviewTarget,
+    review: CodeReview,
   ): Promise<void> {
-    const adapter = this.platformService.getAdapter('bitbucket');
+    const commentBody = this.formatReviewAsComment(review);
+    const adapterName =
+      target.adapterName ??
+      this.resolveAdapterNameForPullRequestUrl(target.commentRef ?? '');
+
+    if (!adapterName) {
+      console.log(
+        chalk.yellow(
+          `  ⚠️  --comment skipped for ${target.title}: no supported PR adapter was resolved\n`,
+        ),
+      );
+      return;
+    }
+
+    let adapter: any;
+    try {
+      adapter = this.platformService.getAdapter(adapterName);
+    } catch (error: any) {
+      console.log(
+        chalk.yellow(
+          `  ⚠️  --comment skipped for ${target.title}: ${error.message}\n`,
+        ),
+      );
+      return;
+    }
+    if (!adapter.createComment) {
+      console.log(
+        chalk.yellow(
+          `  ⚠️  --comment skipped for ${target.title}: comment API is not supported by ${adapterName}\n`,
+        ),
+      );
+      return;
+    }
+
+    try {
+      await adapter.createComment(
+        target.commentRef ?? target.title,
+        commentBody,
+      );
+    } catch (error: any) {
+      console.log(
+        chalk.yellow(
+          `  ⚠️  --comment skipped for ${target.title}: ${error.message}\n`,
+        ),
+      );
+      return;
+    }
 
     const inlineIssues: CodeIssue[] = (review.issues ?? []).filter(
-      (i: CodeIssue) =>
-        (i.severity === 'error' || i.severity === 'warning') &&
-        i.file != null &&
-        i.line != null &&
-        i.line > 0,
+      (issue: CodeIssue) =>
+        (issue.severity === 'error' || issue.severity === 'warning') &&
+        issue.file != null &&
+        issue.line != null &&
+        issue.line > 0,
     );
 
     if (inlineIssues.length > 0 && adapter.createInlineComment) {
       console.log(
         chalk.cyan(
-          `💬 Posting ${inlineIssues.length} inline comment(s) to Bitbucket...\n`,
+          `💬 Posting ${inlineIssues.length} inline comment(s) to ${adapterName}...\n`,
         ),
       );
+
       for (const issue of inlineIssues) {
-        const body = issue.message;
         try {
           await adapter.createInlineComment(
-            prUrl,
+            target.commentRef ?? target.title,
             issue.file!,
             issue.line!,
-            body,
+            issue.message,
           );
-        } catch (err: any) {
+        } catch (error: any) {
           console.log(
             chalk.yellow(
-              `  ⚠️  Inline comment skipped (${issue.file}:${issue.line}): ${err.message}\n`,
+              `  ⚠️  Inline comment skipped (${issue.file}:${issue.line}): ${error.message}\n`,
             ),
           );
         }
       }
-      console.log(chalk.green('✓ Inline comments posted\n'));
     }
   }
 
   /**
-   * Format an AI review as a Bitbucket-ready markdown comment.
-   * Omits the approval status section.
+   * Format an AI review as a comment body for PR platforms.
    * @param review The AI review result
    * @returns Markdown string
    */
-  private formatReviewAsComment(review: any): string {
-    let body = '';
+  private formatReviewAsComment(review: CodeReview): string {
+    const lines: string[] = ['## AI Code Review', ''];
+    lines.push(`**Summary:** ${review.summary}`);
+    lines.push('');
+    lines.push('### Issues');
 
-    if (review.issues && review.issues.length > 0) {
-      body += `\n### Issues (${review.issues.length})\n`;
-      review.issues.forEach((issue: any) => {
+    if (review.issues.length > 0) {
+      for (const issue of review.issues) {
         const location = issue.file
-          ? ` — ${issue.file}${issue.line ? `:${issue.line}` : ''}`
+          ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})`
           : '';
-        body += `- ${issue.message}${location}\n`;
-      });
+        lines.push(`- [${issue.severity}] ${issue.message}${location}`);
+      }
+    } else {
+      lines.push('- None');
     }
 
-    return body;
-  }
+    lines.push('');
+    lines.push('### Call Stack');
+    lines.push(this.formatCallStackPlain(review));
+    lines.push('');
+    lines.push('### State Transition');
+    lines.push(this.formatStateTransitionPlain(review));
+    lines.push('');
+    lines.push('### Suggestions');
 
-  /**
-   * Check if string is a Bitbucket source (URL or issue reference)
-   */
-  private isBitbucketSource(str: string): boolean {
-    return (
-      str.includes('bitbucket.org') ||
-      /^\d+$/.test(str) ||
-      /^[^/]+\/[^#]+#\d+$/.test(str)
+    if (review.suggestions.length > 0) {
+      for (const suggestion of review.suggestions) {
+        lines.push(`- ${suggestion}`);
+      }
+    } else {
+      lines.push('- None');
+    }
+
+    lines.push('');
+    lines.push(
+      `**Approval Status:** ${review.approved ? '✓ Approved' : '✗ Changes needed'}`,
     );
+
+    return lines.join('\n');
   }
 
   /**
@@ -533,6 +816,184 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   /**
+   * Discover all pull requests associated with a ticket across registered adapters.
+   * @param ticketKey Ticket key to search for
+   * @param repoInputs Raw repo arguments supplied on the command line
+   * @returns Stable list of PR metadata objects
+   */
+  private async discoverTicketPullRequests(
+    ticketKey: string,
+    repoInputs: string[],
+  ): Promise<DiscoveredPullRequestTarget[]> {
+    const adapters = [...this.platformService.getAllAdapters().entries()]
+      .filter(
+        ([, adapter]) =>
+          typeof adapter.findPullRequestsByTicketKey === 'function',
+      )
+      .sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
+
+    const repoHints = repoInputs.length
+      ? repoInputs.map((repo) => this.normalizeRepoHint(repo))
+      : [undefined];
+
+    const discovered = new Map<string, DiscoveredPullRequestTarget>();
+
+    for (const repoHint of repoHints) {
+      for (const [adapterName, adapter] of adapters) {
+        let pullRequestUrls: string[] = [];
+        try {
+          pullRequestUrls = await adapter.findPullRequestsByTicketKey!(
+            ticketKey,
+            repoHint,
+          );
+        } catch (error: any) {
+          console.log(
+            chalk.yellow(
+              `⚠️  PR discovery skipped for ${adapterName}${repoHint ? ` (${repoHint})` : ''}: ${error.message}`,
+            ),
+          );
+          continue;
+        }
+
+        for (const url of pullRequestUrls) {
+          const cacheKey = `${adapterName}:${url}`;
+          if (discovered.has(cacheKey)) {
+            continue;
+          }
+
+          discovered.set(cacheKey, {
+            adapterName,
+            commentRef: url,
+            title: this.formatPullRequestTitle(url),
+            context: `pull request: ${url}`,
+          });
+        }
+      }
+    }
+
+    return [...discovered.values()].sort((left, right) => {
+      const adapterComparison = left.adapterName.localeCompare(
+        right.adapterName,
+      );
+      if (adapterComparison !== 0) {
+        return adapterComparison;
+      }
+
+      const numberComparison =
+        this.extractPullRequestNumber(left.commentRef) -
+        this.extractPullRequestNumber(right.commentRef);
+      if (numberComparison !== 0) {
+        return numberComparison;
+      }
+
+      return left.commentRef.localeCompare(right.commentRef);
+    });
+  }
+
+  /**
+   * Ask the user how ticket review should proceed when no pull request is found.
+   * Falls back to returning without review when the session is non-interactive.
+   * @returns The selected fallback action
+   */
+  private async promptTicketFallbackAction(): Promise<'local' | 'return'> {
+    if (!this.isInteractiveSession()) {
+      console.log(
+        chalk.yellow(
+          '⚠️  Non-interactive session; returning without local review',
+        ),
+      );
+      return 'return';
+    }
+
+    const answers = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'decision',
+        message: 'No pull request was found. What would you like to do?',
+        choices: [
+          { name: 'Review local changes', value: 'local' },
+          { name: 'Return without reviewing', value: 'return' },
+        ],
+      },
+    ]);
+
+    return answers.decision as 'local' | 'return';
+  }
+
+  /**
+   * Determine whether the current process can prompt the user interactively.
+   * @returns True when stdin and stdout are attached to a TTY
+   */
+  private isInteractiveSession(): boolean {
+    return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  }
+
+  /**
+   * Normalize a repo hint so PR discovery can reuse local repo names.
+   * @param repo Raw repo argument
+   * @returns PR lookup hint
+   */
+  private normalizeRepoHint(repo: string): string {
+    if (
+      path.isAbsolute(repo) ||
+      repo.includes(path.sep) ||
+      repo.startsWith('.')
+    ) {
+      return path.basename(repo);
+    }
+
+    return repo;
+  }
+
+  /**
+   * Resolve the adapter name for a pull request URL.
+   * @param url Pull request URL
+   * @returns Adapter name or undefined when unsupported
+   */
+  private resolveAdapterNameForPullRequestUrl(url: string): string | undefined {
+    if (url.includes('github.com')) {
+      return 'github';
+    }
+
+    if (url.includes('bitbucket.org')) {
+      return 'bitbucket';
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Format a pull request title for grouped output.
+   * @param url Pull request URL
+   * @returns Human-friendly title string
+   */
+  private formatPullRequestTitle(url: string): string {
+    const adapterName = this.resolveAdapterNameForPullRequestUrl(url);
+    const pullRequestNumber = this.extractPullRequestNumber(url);
+
+    if (adapterName === 'github') {
+      return `GitHub PR #${pullRequestNumber}`;
+    }
+
+    if (adapterName === 'bitbucket') {
+      return `Bitbucket PR #${pullRequestNumber}`;
+    }
+
+    return `Pull Request: ${url}`;
+  }
+
+  /**
+   * Extract a numeric pull request identifier from a PR URL.
+   * @param url Pull request URL
+   * @returns Pull request number or Number.MAX_SAFE_INTEGER if unavailable
+   */
+  private extractPullRequestNumber(url: string): number {
+    const match = url.match(/\/pull\/(\d+)|\/pull-requests\/(\d+)/);
+    const value = match?.[1] ?? match?.[2];
+    return value ? parseInt(value, 10) : Number.MAX_SAFE_INTEGER;
+  }
+
+  /**
    * Check if string is a URL
    */
   private isUrl(str: string): boolean {
@@ -547,15 +1008,209 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   /**
+   * Render a best-effort note with an explicit hindrance statement.
+   * @param bestEffortText Best-effort description
+   * @param hindranceText Hindrance description
+   * @param colorized Whether terminal colors should be applied
+   * @returns Rendered note text
+   */
+  private formatBestEffortNote(
+    bestEffortText: string,
+    hindranceText: string,
+    colorized: boolean,
+  ): string {
+    if (!colorized) {
+      return `  ${bestEffortText}\n  ${hindranceText}`;
+    }
+
+    return [
+      chalk.yellow(`  ${bestEffortText}`),
+      chalk.gray(`  ${hindranceText}`),
+    ].join('\n');
+  }
+
+  /**
+   * Apply semantic colors to a call stack branch marker.
+   * @param branch Branch marker
+   * @returns Colorized branch marker
+   */
+  private colorizeBranch(branch: string): string {
+    return chalk.blueBright(branch);
+  }
+
+  /**
+   * Apply semantic colors to a call stack frame.
+   * @param frame Frame description
+   * @returns Colorized frame text
+   */
+  private colorizeCallStackFrame(frame: string): string {
+    return chalk.whiteBright(frame);
+  }
+
+  /**
+   * Apply muted formatting to a single informational line.
+   * @param line Plain text line
+   * @returns Muted line
+   */
+  private colorizeMutedLine(line: string): string {
+    return chalk.gray(line);
+  }
+
+  /**
+   * Colorize a JSON-like state transition structure for terminal output.
+   * @param stateTransition Structured state transition object
+   * @returns Pretty-printed and colorized text
+   */
+  private colorizeJsonLike(stateTransition: Record<string, unknown>): string {
+    return JSON.stringify(stateTransition, null, 2)
+      .split('\n')
+      .map((line) => this.colorizeJsonLine(line))
+      .join('\n');
+  }
+
+  /**
+   * Colorize an individual JSON-like line using semantic colors.
+   * @param line JSON-like line
+   * @returns Colorized line
+   */
+  private colorizeJsonLine(line: string): string {
+    if (!line.trim()) {
+      return line;
+    }
+
+    let rendered = line;
+    rendered = rendered.replace(/"([^"]+)":/g, (_match, key: string) =>
+      chalk.cyan(`"${key}":`),
+    );
+    rendered = rendered.replace(
+      /: "([^"]+)"/g,
+      (_match, value: string) => `: ${chalk.green(`"${value}"`)}`,
+    );
+    rendered = rendered.replace(
+      /: (true|false)/g,
+      (_match, value: string) => `: ${chalk.magenta(value)}`,
+    );
+    rendered = rendered.replace(
+      /: (\d+)/g,
+      (_match, value: string) => `: ${chalk.yellow(value)}`,
+    );
+
+    return rendered;
+  }
+
+  /**
+   * Format the call stack as a tree-like visual block.
+   * @param review The AI review result
+   * @returns Tree-like text block
+   */
+  private formatCallStackInline(review: CodeReview): string {
+    const lines = this.formatTraceSectionNotes(review, true, 'call stack');
+    const callStack = review.callStack;
+
+    if (!callStack?.length) {
+      lines.push(
+        this.colorizeMutedLine('  (no structured call stack was returned)'),
+      );
+      return lines.join('\n');
+    }
+
+    lines.push(
+      ...callStack.map((frame, index) => {
+        const branch = index === callStack.length - 1 ? '└─' : '├─';
+        return `  ${this.colorizeBranch(branch)} ${this.colorizeCallStackFrame(frame)}`;
+      }),
+    );
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Format the call stack as plain text for markdown artifacts.
+   * @param review The AI review result
+   * @returns Plain-text tree-like block
+   */
+  private formatCallStackPlain(review: CodeReview): string {
+    const lines = this.formatTraceSectionNotes(review, false, 'call stack');
+    const callStack = review.callStack;
+
+    if (!callStack?.length) {
+      lines.push('  (no structured call stack was returned)');
+      return lines.join('\n');
+    }
+
+    lines.push(
+      ...callStack.map((frame, index) => {
+        const branch = index === callStack.length - 1 ? '└─' : '├─';
+        return `  ${branch} ${frame}`;
+      }),
+    );
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Format the state transition as a JSON-like visual block.
+   * @param review The AI review result
+   * @returns Pretty-printed JSON block
+   */
+  private formatStateTransitionInline(review: CodeReview): string {
+    const lines = this.formatTraceSectionNotes(
+      review,
+      true,
+      'state transition',
+    );
+    const stateTransition = review.stateTransition;
+
+    if (!stateTransition || Object.keys(stateTransition).length === 0) {
+      lines.push(this.colorizeMutedLine('  {}'));
+      return lines.join('\n');
+    }
+
+    lines.push(this.colorizeJsonLike(stateTransition));
+    return lines.join('\n');
+  }
+
+  /**
+   * Format the state transition as plain text for markdown artifacts.
+   * @param review The AI review result
+   * @returns Plain-text JSON-like block
+   */
+  private formatStateTransitionPlain(review: CodeReview): string {
+    const lines = this.formatTraceSectionNotes(
+      review,
+      false,
+      'state transition',
+    );
+    const stateTransition = review.stateTransition;
+
+    if (!stateTransition || Object.keys(stateTransition).length === 0) {
+      lines.push('  {}');
+      return lines.join('\n');
+    }
+
+    lines.push(
+      JSON.stringify(stateTransition, null, 2)
+        .split('\n')
+        .map((line) => `  ${line}`)
+        .join('\n'),
+    );
+    return lines.join('\n');
+  }
+
+  /**
    * Display review results
    */
-  private displayReview(review: any): void {
+  private displayReview(review: CodeReview, heading?: string): void {
+    if (heading) {
+      console.log(chalk.bold.cyan(`\n${heading}\n`));
+    }
+
     console.log(chalk.bold('Summary:'));
     console.log(chalk.bold.cyan('  ' + review.summary));
 
-    if (review.issues && review.issues.length > 0) {
+    if (review.issues.length > 0) {
       console.log(chalk.bold('\nIssues Found:'));
-      review.issues.forEach((issue: any) => {
+      review.issues.forEach((issue: CodeIssue) => {
         const severityColor =
           issue.severity === 'error'
             ? chalk.red
@@ -577,11 +1232,19 @@ export class IssueReviewCommand extends CommandRunner {
       console.log(chalk.green('\n✓ No issues found'));
     }
 
-    if (review.suggestions && review.suggestions.length > 0) {
+    console.log(chalk.bold('\nCall Stack:'));
+    console.log(this.formatCallStackInline(review));
+
+    console.log(chalk.bold('\nState Transition:'));
+    console.log(this.formatStateTransitionInline(review));
+
+    if (review.suggestions.length > 0) {
       console.log(chalk.bold('\nSuggestions:'));
-      review.suggestions.forEach((suggestion: any) => {
+      review.suggestions.forEach((suggestion: string) => {
         console.log(chalk.cyan(`  💡 ${suggestion}`));
       });
+    } else {
+      console.log(chalk.green('\n✓ No suggestions'));
     }
 
     console.log(
@@ -601,17 +1264,40 @@ export class IssueReviewCommand extends CommandRunner {
   /**
    * Format review as text for file output
    */
-  private formatReviewAsText(review: any, context: string): string {
+  private formatReviewAsText(reviewedTargets: ReviewedTarget[]): string {
     let text = `Code Review Report\n`;
-    text += `Context: ${context}\n`;
+    text += `Context: ${reviewedTargets
+      .map((target) => target.title)
+      .join(', ')}\n`;
     text += `Generated: ${new Date().toISOString()}\n`;
     text += `\n${'='.repeat(70)}\n\n`;
 
+    reviewedTargets.forEach((target, index) => {
+      if (index > 0) {
+        text += `\n${'='.repeat(70)}\n\n`;
+      }
+
+      text += `TARGET: ${target.title}\n`;
+      text += `Context: ${target.context}\n\n`;
+      text += this.formatReviewBlockText(target.review);
+    });
+
+    return text;
+  }
+
+  /**
+   * Format a single review result as text.
+   * @param review The AI review result
+   * @returns Review block text
+   */
+  private formatReviewBlockText(review: CodeReview): string {
+    let text = '';
+
     text += `SUMMARY:\n${review.summary}\n\n`;
 
-    if (review.issues && review.issues.length > 0) {
+    if (review.issues.length > 0) {
       text += `ISSUES FOUND (${review.issues.length}):\n`;
-      review.issues.forEach((issue: any, index: number) => {
+      review.issues.forEach((issue: CodeIssue, index: number) => {
         text += `\n${index + 1}. [${issue.severity.toUpperCase()}] ${issue.message}\n`;
         if (issue.file) {
           text += `   File: ${issue.file}${issue.line ? `:${issue.line}` : ''}\n`;
@@ -622,15 +1308,20 @@ export class IssueReviewCommand extends CommandRunner {
       text += 'ISSUES: None\n\n';
     }
 
-    if (review.suggestions && review.suggestions.length > 0) {
+    text += `CALL STACK:\n${this.formatCallStackPlain(review)}\n\n`;
+    text += `STATE TRANSITION:\n${this.formatStateTransitionPlain(review)}\n\n`;
+
+    if (review.suggestions.length > 0) {
       text += `SUGGESTIONS (${review.suggestions.length}):\n`;
-      review.suggestions.forEach((suggestion: any, index: number) => {
+      review.suggestions.forEach((suggestion: string, index: number) => {
         text += `${index + 1}. ${suggestion}\n`;
       });
       text += '\n';
+    } else {
+      text += 'SUGGESTIONS: None\n\n';
     }
 
-    text += `APPROVAL: ${review.approved ? 'APPROVED' : 'NOT APPROVED'}\n`;
+    text += `APPROVAL STATUS: ${review.approved ? 'APPROVED' : 'NOT APPROVED'}\n`;
 
     return text;
   }

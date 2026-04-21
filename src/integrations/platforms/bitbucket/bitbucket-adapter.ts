@@ -246,7 +246,26 @@ export class BitBucketAdapter implements PlatformAdapter {
     ticketKey: string,
     repoOverride?: string,
   ): Promise<string | null> {
+    const matches = await this.findPullRequestsByTicketKey(
+      ticketKey,
+      repoOverride,
+    );
+
+    return matches[0] ?? null;
+  }
+
+  /**
+   * Find open pull requests whose source branch or title contains the ticket key.
+   * @param ticketKey Ticket key to search for (e.g. "WBP-2955")
+   * @param repoOverride Optional repo in "workspace/repo" format; falls back to default
+   * @returns Matching PR URLs sorted by pull request id
+   */
+  async findPullRequestsByTicketKey(
+    ticketKey: string,
+    repoOverride?: string,
+  ): Promise<string[]> {
     const { workspace, repo } = this.parseProjectOrDefault(repoOverride);
+    const pullRequestUrls = new Set<string>();
 
     // Search 1: branch name contains ticket key (open PRs only)
     const byBranch = await this.bitbucket.pullrequests.list({
@@ -254,9 +273,12 @@ export class BitBucketAdapter implements PlatformAdapter {
       repo_slug: repo,
       q: `source.branch.name ~ "${ticketKey}" AND state = "OPEN"`,
     });
-    if (byBranch.data.values?.length) {
-      return byBranch.data.values[0].links?.html?.href ?? null;
-    }
+    byBranch.data.values?.forEach((pullRequest: any) => {
+      const url = pullRequest.links?.html?.href;
+      if (url) {
+        pullRequestUrls.add(url);
+      }
+    });
 
     // Search 2: PR title contains ticket key (fallback)
     const byTitle = await this.bitbucket.pullrequests.list({
@@ -264,11 +286,19 @@ export class BitBucketAdapter implements PlatformAdapter {
       repo_slug: repo,
       q: `title ~ "${ticketKey}" AND state = "OPEN"`,
     });
-    if (byTitle.data.values?.length) {
-      return byTitle.data.values[0].links?.html?.href ?? null;
-    }
 
-    return null;
+    byTitle.data.values?.forEach((pullRequest: any) => {
+      const url = pullRequest.links?.html?.href;
+      if (url) {
+        pullRequestUrls.add(url);
+      }
+    });
+
+    return [...pullRequestUrls].sort((left, right) => {
+      const leftId = this.extractPullRequestId(left);
+      const rightId = this.extractPullRequestId(right);
+      return leftId - rightId || left.localeCompare(right);
+    });
   }
 
   /**
@@ -284,6 +314,11 @@ export class BitBucketAdapter implements PlatformAdapter {
     });
 
     return response.data as unknown as string;
+  }
+
+  private extractPullRequestId(url: string): number {
+    const match = url.match(/pull-requests\/(\d+)/);
+    return match ? parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
   }
 
   /**

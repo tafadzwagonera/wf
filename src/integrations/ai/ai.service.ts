@@ -175,6 +175,9 @@ export interface ResolutionPlan {
 export interface CodeReview {
   summary: string;
   issues: CodeIssue[];
+  traceProvenance?: 'evidence-based' | 'best-effort' | 'unavailable';
+  callStack?: string[];
+  stateTransition?: Record<string, unknown>;
   suggestions: string[];
   approved: boolean;
 }
@@ -666,26 +669,38 @@ ${diff.substring(0, 5000)} ${diff.length > 5000 ? '...(truncated)' : ''}
 Review Guidelines:
 ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
 
-Provide a code review with:
-1. A brief summary of the changes
-2. Any issues found (errors, warnings, or info)
-3. Suggestions for improvement
-4. Whether the code is approved
+    Provide a code review with:
+    1. A brief summary of the changes
+    2. Any issues found (errors, warnings, or info)
+    3. A trace provenance label: evidence-based, best-effort, or unavailable
+    4. A tree-like call stack that explains how the review flow reached the finding
+    5. A JSON-like state transition object that captures the review progression
+    6. Suggestions for improvement
+    7. Whether the code is approved
 
-Return ONLY a valid JSON object:
-{
-  "summary": "...",
-  "issues": [
+    Return ONLY a valid JSON object:
+    {
+      "summary": "...",
+      "issues": [
     {
       "severity": "error|warning|info",
       "message": "...",
-      "file": "optional",
-      "line": optional_number
-    }
-  ],
-  "suggestions": ["suggestion 1", ...],
-  "approved": true|false
-}`;
+          "file": "optional",
+          "line": optional_number
+        }
+      ],
+      "traceProvenance": "evidence-based|best-effort|unavailable",
+      "callStack": ["step 1", "step 2", "..."],
+      "stateTransition": {
+        "from": "initial",
+        "to": "reviewed",
+        "steps": [
+          { "state": "initial", "next": "diff loaded" }
+        ]
+      },
+      "suggestions": ["suggestion 1", ...],
+      "approved": true|false
+    }`;
 
     const response = await this.execute({
       prompt,

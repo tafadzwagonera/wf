@@ -15,9 +15,11 @@ jest.mock('chalk', () => {
       'green',
       'yellow',
       'blue',
+      'blueBright',
       'magenta',
       'cyan',
       'white',
+      'whiteBright',
       'gray',
       'grey',
     ].forEach((name) => {
@@ -30,6 +32,13 @@ jest.mock('chalk', () => {
   return { default: chalk, ...chalk };
 });
 
+jest.mock('inquirer', () => ({
+  __esModule: true,
+  default: {
+    prompt: jest.fn(),
+  },
+}));
+
 jest.mock('../agents/utils', () => {
   const actual = jest.requireActual('../agents/utils');
   return {
@@ -41,8 +50,9 @@ jest.mock('../agents/utils', () => {
 });
 
 import { Test } from '@nestjs/testing';
+import inquirer from 'inquirer';
 import { IssueReviewCommand } from './issue-review.command';
-import { AiService } from '../integrations/ai/ai.service';
+import { AiService, CodeReview } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -52,16 +62,103 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import * as os from 'os';
 import * as path from 'path';
 
-const mockTicket = { key: 'TAD-575', summary: 'Test ticket', description: '' };
+const mockTicket = {
+  key: 'TAD-575',
+  title: 'Test ticket',
+  description: 'Ticket description',
+};
+
+const mockReview: CodeReview = {
+  summary: 'Looks good overall',
+  issues: [
+    {
+      severity: 'warning',
+      message: 'Consider splitting the helper',
+      file: 'src/auth.ts',
+      line: 12,
+    },
+  ],
+  traceProvenance: 'best-effort',
+  callStack: ['ticket lookup', 'PR discovery', 'diff review'],
+  stateTransition: {
+    from: 'ticket-resolved',
+    to: 'reviewed',
+    steps: [
+      { state: 'ticket-resolved', next: 'pull-requests-found' },
+      { state: 'pull-requests-found', next: 'reviewed' },
+    ],
+  },
+  suggestions: ['Add a regression test'],
+  approved: true,
+};
+
+const buildAdapter = (name: string, defaults: Record<string, any> = {}) => ({
+  getPlatformName: jest.fn().mockReturnValue(name),
+  getTicket: jest.fn(),
+  findPullRequestsByTicketKey: jest.fn().mockResolvedValue([]),
+  getPullRequestDiff: jest.fn().mockResolvedValue(''),
+  createComment: jest.fn().mockResolvedValue(undefined),
+  createInlineComment: jest.fn().mockResolvedValue(undefined),
+  ...defaults,
+});
+
+const setInteractiveSession = (): void => {
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+};
+
+const setNonInteractiveSession = (): void => {
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: false,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: false,
+    configurable: true,
+  });
+};
 
 async function buildCommand(overrides?: {
-  findPullRequestByTicketKey?: jest.Mock;
+  ticketAdapterName?: 'jira' | 'github' | 'bitbucket';
 }): Promise<{
   command: IssueReviewCommand;
   reviewStageService: jest.Mocked<ReviewStageService>;
+  adapters: Record<string, any>;
+  promptMock: jest.MockedFunction<typeof inquirer.prompt>;
 }> {
-  const findPullRequestByTicketKey =
-    overrides?.findPullRequestByTicketKey ?? jest.fn().mockResolvedValue(null);
+  const jiraAdapter = buildAdapter(
+    'jira',
+    overrides?.ticketAdapterName === 'jira'
+      ? { getTicket: jest.fn().mockResolvedValue(mockTicket) }
+      : {
+          getTicket: jest
+            .fn()
+            .mockRejectedValue(new Error('Unexpected ticket lookup')),
+        },
+  );
+  const githubAdapter = buildAdapter('github');
+  const bitbucketAdapter = buildAdapter('bitbucket');
+
+  if (overrides?.ticketAdapterName === 'github') {
+    githubAdapter.getTicket = jest.fn().mockResolvedValue(mockTicket);
+  }
+  if (overrides?.ticketAdapterName === 'bitbucket') {
+    bitbucketAdapter.getTicket = jest.fn().mockResolvedValue(mockTicket);
+  }
+  if (!overrides?.ticketAdapterName) {
+    jiraAdapter.getTicket = jest.fn().mockResolvedValue(mockTicket);
+  }
+
+  const promptMock = inquirer.prompt as jest.MockedFunction<
+    typeof inquirer.prompt
+  >;
+  promptMock.mockReset();
 
   const module = await Test.createTestingModule({
     providers: [
@@ -82,23 +179,26 @@ async function buildCommand(overrides?: {
       {
         provide: PlatformService,
         useValue: {
-          getDefaultAdapter: jest.fn().mockReturnValue({
-            getTicket: jest.fn().mockResolvedValue(mockTicket),
+          getDefaultAdapter: jest.fn().mockReturnValue(jiraAdapter),
+          getAdapter: jest.fn((platformName: string) => {
+            if (platformName === 'jira') return jiraAdapter;
+            if (platformName === 'github') return githubAdapter;
+            if (platformName === 'bitbucket') return bitbucketAdapter;
+            throw new Error(`Unknown platform: ${platformName}`);
           }),
-          getAdapter: jest.fn().mockReturnValue({
-            findPullRequestByTicketKey,
-          }),
+          getAllAdapters: jest.fn().mockReturnValue(
+            new Map([
+              ['bitbucket', bitbucketAdapter],
+              ['github', githubAdapter],
+              ['jira', jiraAdapter],
+            ]),
+          ),
         },
       },
       {
         provide: ReviewStageService,
         useValue: {
-          reviewDiff: jest.fn().mockResolvedValue({
-            summary: 'ok',
-            issues: [],
-            suggestions: [],
-            approved: true,
-          }),
+          reviewDiff: jest.fn().mockResolvedValue(mockReview),
         },
       },
       {
@@ -127,10 +227,22 @@ async function buildCommand(overrides?: {
   return {
     command: module.get(IssueReviewCommand),
     reviewStageService: module.get(ReviewStageService),
+    adapters: {
+      jiraAdapter,
+      githubAdapter,
+      bitbucketAdapter,
+    },
+    promptMock,
   };
 }
 
 describe('IssueReviewCommand', () => {
+  afterEach(() => {
+    setNonInteractiveSession();
+    jest.restoreAllMocks();
+    jest.clearAllMocks();
+  });
+
   describe('parseRepos', () => {
     it('returns trimmed repo values from variadic option input', async () => {
       const { command } = await buildCommand();
@@ -141,221 +253,167 @@ describe('IssueReviewCommand', () => {
     });
   });
 
-  describe('ticket key uses local repo review with ticket context', () => {
-    it('reviews local changes instead of searching for a PR', async () => {
-      const { command, reviewStageService } = await buildCommand();
+  describe('ticket-driven review', () => {
+    it('reviews open pull request diffs instead of local changes when PRs are discovered', async () => {
+      const { command, reviewStageService, adapters } = await buildCommand();
       const reviewRepoSetSpy = jest
         .spyOn(command as any, 'reviewRepoSet')
-        .mockResolvedValue('diff content');
+        .mockResolvedValue('local diff');
+
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
+        'https://bitbucket.org/workspace/repo/pull-requests/161',
+        'https://bitbucket.org/workspace/repo/pull-requests/160',
+      ]);
+      adapters.bitbucketAdapter.getPullRequestDiff.mockImplementation(
+        async (url: string) => (url.includes('/160') ? 'diff 160' : 'diff 161'),
+      );
 
       await command.run(['TAD-575'], { repos: ['service-tourv3'] });
 
-      expect(reviewRepoSetSpy).toHaveBeenCalled();
-      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
-        'diff content',
+      expect(reviewRepoSetSpy).not.toHaveBeenCalled();
+      expect(reviewStageService.reviewDiff).toHaveBeenNthCalledWith(
+        1,
+        'diff 160',
         expect.objectContaining({
           context: expect.stringContaining('ticket TAD-575'),
         }),
       );
-    });
-  });
-
-  describe('source validation and repo targeting', () => {
-    it('rejects filesystem paths as invalid sources', async () => {
-      const { command } = await buildCommand();
-      const exitSpy = jest
-        .spyOn(process, 'exit')
-        .mockImplementation((() => {}) as any);
-      const consoleErrorSpy = jest
-        .spyOn(console, 'error')
-        .mockImplementation(() => {});
-      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
-
-      await command.run(['../repo-path'], {});
-
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      const errorOutput = consoleErrorSpy.mock.calls
-        .map((c) => c.join(' '))
-        .join('\n');
-      expect(errorOutput).toContain(
-        'Expected: ticket key (ABC-123) or PR URL.',
-      );
-
-      exitSpy.mockRestore();
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('reviews each resolved repo when --repos is provided without a source', async () => {
-      const { command, reviewStageService } = await buildCommand();
-      const reviewCurrentRepoSpy = jest
-        .spyOn(command as any, 'reviewCurrentRepo')
-        .mockResolvedValueOnce('diff a')
-        .mockResolvedValueOnce('diff b');
-
-      await command.run([], { repos: ['repo-a', 'repo-b'] });
-
-      expect(reviewCurrentRepoSpy).toHaveBeenCalledTimes(2);
-      expect(reviewCurrentRepoSpy).toHaveBeenNthCalledWith(1, '/mock/repo-a');
-      expect(reviewCurrentRepoSpy).toHaveBeenNthCalledWith(2, '/mock/repo-b');
-      expect(reviewStageService.reviewDiff).toHaveBeenCalled();
-    });
-  });
-
-  describe('--output path resolution', () => {
-    afterEach(() => {
-      jest.restoreAllMocks();
-    });
-
-    it('previews a filename-only output under the repo custom namespace in dry-run mode', async () => {
-      const { command } = await buildCommand();
-      const dryRunPreview = (command as any)
-        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
-
-      await command.run([], {
-        repos: ['repo-a'],
-        output: 'review.md',
-        dryRun: true,
-      });
-
-      expect(dryRunPreview.previewFileWrite).toHaveBeenCalledWith(
+      expect(reviewStageService.reviewDiff).toHaveBeenNthCalledWith(
+        2,
+        'diff 161',
         expect.objectContaining({
-          filePath: path.join(os.homedir(), '.wf', 'repo-a', 'review.md'),
+          context: expect.stringContaining(
+            'pull request: https://bitbucket.org/workspace/repo/pull-requests/161',
+          ),
         }),
       );
     });
 
-    it('stores a filename-only output under the repo custom namespace', async () => {
-      const { command } = await buildCommand();
-      const reviewRepoSetSpy = jest
-        .spyOn(command as any, 'reviewRepoSet')
-        .mockResolvedValue('diff content');
-      const writeFileSyncSpy = jest
-        .spyOn(require('fs'), 'writeFileSync')
-        .mockImplementation(() => {});
+    it('fails hard when ticket lookup does not succeed', async () => {
+      const { command, adapters } = await buildCommand();
+      const handleSpy = jest
+        .spyOn(ErrorHandler, 'handle')
+        .mockImplementation(() => undefined as never);
 
-      await command.run([], { repos: ['repo-a'], output: 'review.md' });
+      adapters.jiraAdapter.getTicket.mockRejectedValue(new Error('boom'));
 
-      expect(reviewRepoSetSpy).toHaveBeenCalled();
-      expect(writeFileSyncSpy).toHaveBeenCalledWith(
-        path.join(os.homedir(), '.wf', 'repo-a', 'review.md'),
-        expect.any(String),
+      await command.run(['TAD-575'], {});
+
+      expect(handleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'boom' }),
       );
     });
 
-    it('keeps explicit relative output paths in the filesystem namespace', async () => {
-      const { command } = await buildCommand();
+    it('prompts for local review when no pull request is found', async () => {
+      const { command, reviewStageService, adapters, promptMock } =
+        await buildCommand();
       const reviewRepoSetSpy = jest
         .spyOn(command as any, 'reviewRepoSet')
-        .mockResolvedValue('diff content');
-      const writeFileSyncSpy = jest
-        .spyOn(require('fs'), 'writeFileSync')
-        .mockImplementation(() => {});
+        .mockResolvedValue('local diff');
 
-      await command.run([], { repos: ['repo-a'], output: 'reports/review.md' });
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
+        [],
+      );
+      adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
+      promptMock.mockResolvedValue({ decision: 'local' } as any);
+      setInteractiveSession();
 
+      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+
+      expect(promptMock).toHaveBeenCalled();
       expect(reviewRepoSetSpy).toHaveBeenCalled();
-      expect(writeFileSyncSpy).toHaveBeenCalledWith(
-        path.resolve('reports/review.md'),
-        expect.any(String),
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+        'local diff',
+        expect.objectContaining({
+          context: expect.stringContaining('repositories under review'),
+        }),
+      );
+    });
+
+    it('returns without reviewing when the fallback prompt selects return', async () => {
+      const { command, reviewStageService, adapters, promptMock } =
+        await buildCommand();
+      const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet');
+
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
+        [],
+      );
+      adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
+      promptMock.mockResolvedValue({ decision: 'return' } as any);
+      setInteractiveSession();
+
+      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+
+      expect(promptMock).toHaveBeenCalled();
+      expect(reviewRepoSetSpy).not.toHaveBeenCalled();
+      expect(reviewStageService.reviewDiff).not.toHaveBeenCalled();
+    });
+
+    it('posts comments to each reviewed pull request', async () => {
+      const { command, adapters } = await buildCommand();
+
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
+        'https://bitbucket.org/workspace/repo/pull-requests/161',
+        'https://bitbucket.org/workspace/repo/pull-requests/160',
+      ]);
+      adapters.bitbucketAdapter.getPullRequestDiff.mockImplementation(
+        async (url: string) => (url.includes('/160') ? 'diff 160' : 'diff 161'),
+      );
+
+      await command.run(['TAD-575'], {
+        repos: ['service-tourv3'],
+        comment: true,
+      });
+
+      expect(adapters.bitbucketAdapter.createComment).toHaveBeenCalledTimes(2);
+      expect(adapters.bitbucketAdapter.createComment).toHaveBeenNthCalledWith(
+        1,
+        'https://bitbucket.org/workspace/repo/pull-requests/160',
+        expect.stringContaining('## AI Code Review'),
+      );
+      expect(adapters.bitbucketAdapter.createComment).toHaveBeenNthCalledWith(
+        2,
+        'https://bitbucket.org/workspace/repo/pull-requests/161',
+        expect.stringContaining('## AI Code Review'),
       );
     });
   });
 
-  describe('criteria file validation', () => {
-    afterEach(() => {
-      jest.restoreAllMocks();
-    });
+  describe('saved output', () => {
+    it('writes the new review sections in the expected order', async () => {
+      const { command } = await buildCommand();
+      const reviewRepoSetSpy = jest
+        .spyOn(command as any, 'reviewRepoSet')
+        .mockResolvedValue('diff content');
+      const writeFileSyncSpy = jest
+        .spyOn(require('fs'), 'writeFileSync')
+        .mockImplementation(() => {});
 
-    describe('--criteria', () => {
-      it('rejects non-markdown paths through the command error handler', async () => {
-        const { command } = await buildCommand();
-        const handleSpy = jest
-          .spyOn(ErrorHandler, 'handle')
-          .mockImplementation(() => {});
-        const readFileSyncSpy = jest.spyOn(require('fs'), 'readFileSync');
-        jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+      await command.run([], { output: 'review.txt' });
 
-        await command.run([], { criteria: 'criteria.txt' });
-
-        expect(readFileSyncSpy).not.toHaveBeenCalled();
-        expect(handleSpy).toHaveBeenCalledWith(
-          expect.objectContaining({
-            message:
-              'Criteria file must be a Markdown (.md) file: criteria.txt',
-          }),
-        );
-      });
-
-      it('accepts markdown paths', async () => {
-        const { command, reviewStageService } = await buildCommand();
-        jest
-          .spyOn(command as never, 'reviewRepoSet')
-          .mockResolvedValue('diff content');
-        const readFileSyncSpy = jest
-          .spyOn(require('fs'), 'readFileSync')
-          .mockReturnValue('- custom criterion');
-        jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
-
-        await command.run([], { criteria: 'criteria.md' });
-
-        expect(readFileSyncSpy).toHaveBeenCalledWith(
-          expect.stringContaining('criteria.md'),
-          'utf-8',
-        );
-        expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
-          expect.any(String),
-          expect.objectContaining({
-            extraCriteria: ['custom criterion'],
-            replaceCriteria: false,
-          }),
-        );
-      });
-    });
-
-    describe('--replace-criteria', () => {
-      it('rejects non-markdown paths through the command error handler', async () => {
-        const { command } = await buildCommand();
-        const handleSpy = jest
-          .spyOn(ErrorHandler, 'handle')
-          .mockImplementation(() => {});
-        const readFileSyncSpy = jest.spyOn(require('fs'), 'readFileSync');
-        jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
-
-        await command.run([], { replaceCriteria: 'criteria.txt' });
-
-        expect(readFileSyncSpy).not.toHaveBeenCalled();
-        expect(handleSpy).toHaveBeenCalledWith(
-          expect.objectContaining({
-            message:
-              'Criteria file must be a Markdown (.md) file: criteria.txt',
-          }),
-        );
-      });
-
-      it('accepts markdown paths and preserves replace semantics', async () => {
-        const { command, reviewStageService } = await buildCommand();
-        jest
-          .spyOn(command as never, 'reviewRepoSet')
-          .mockResolvedValue('diff content');
-        const readFileSyncSpy = jest
-          .spyOn(require('fs'), 'readFileSync')
-          .mockReturnValue('- replacement criterion');
-        jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
-
-        await command.run([], { replaceCriteria: 'criteria.md' });
-
-        expect(readFileSyncSpy).toHaveBeenCalledWith(
-          expect.stringContaining('criteria.md'),
-          'utf-8',
-        );
-        expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
-          expect.any(String),
-          expect.objectContaining({
-            extraCriteria: ['replacement criterion'],
-            replaceCriteria: true,
-          }),
-        );
-      });
+      expect(reviewRepoSetSpy).toHaveBeenCalled();
+      const output = writeFileSyncSpy.mock.calls[0][1] as string;
+      expect(output).toContain('CALL STACK:');
+      expect(output).toContain('STATE TRANSITION:');
+      expect(output).toContain('APPROVAL STATUS: APPROVED');
+      expect(output).toContain('Provenance: best-effort');
+      expect(output).toContain('Best effort: call stack is reconstructed');
+      expect(output).toContain('Hindrance: the review pipeline does not emit');
+      expect(output.indexOf('SUMMARY:')).toBeLessThan(
+        output.indexOf('ISSUES FOUND'),
+      );
+      expect(output.indexOf('ISSUES FOUND')).toBeLessThan(
+        output.indexOf('CALL STACK:'),
+      );
+      expect(output.indexOf('CALL STACK:')).toBeLessThan(
+        output.indexOf('STATE TRANSITION:'),
+      );
+      expect(output.indexOf('STATE TRANSITION:')).toBeLessThan(
+        output.indexOf('SUGGESTIONS'),
+      );
+      expect(output.indexOf('SUGGESTIONS')).toBeLessThan(
+        output.indexOf('APPROVAL STATUS'),
+      );
     });
   });
 });

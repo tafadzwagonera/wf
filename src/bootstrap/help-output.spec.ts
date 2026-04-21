@@ -86,6 +86,12 @@ describe('getHelpText', () => {
     expect(runHelpText).not.toContain('--auto-approve');
     expect(reviewHelpText).toContain('--criteria <path>');
     expect(reviewHelpText).toContain('--replace-criteria <path>');
+    expect(reviewHelpText).toContain(
+      'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs',
+    );
+    expect(reviewHelpText).toContain(
+      'Platform (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary platform',
+    );
     expect(implementHelpText).toContain('Anthropic or OpenAI agent backend');
     expect(implementHelpText).toContain(
       '~/.claude/CLAUDE.md and the repository-root CLAUDE.md',

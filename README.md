@@ -342,12 +342,12 @@ When `--repos` is present, filename-only custom sources are resolved against the
 
 #### `wf issue:review [source]`
 
-AI-powered code review. Accepts two source modes:
+AI-powered code review. Accepts three source modes:
 
 | Source                 | Description                                                                          |
 | ---------------------- | ------------------------------------------------------------------------------------ |
 | _(none)_               | Review staged/unstaged changes in the current repo, or all repos listed in `--repos` |
-| `ABC-123`              | Review local repo changes with ticket context                                        |
+| `ABC-123`              | Fetch ticket context and review associated pull requests, or prompt for local review |
 | `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request                                  |
 
 ```bash
@@ -355,7 +355,10 @@ AI-powered code review. Accepts two source modes:
 wf issue:review
 
 # Review with ticket context
-wf issue:review WBP-2971
+wf issue:review WBP-2971 --platform jira
+
+# Review a ticket and its associated PRs across repos
+wf issue:review WBP-2971 --platform jira --repos service-tourv3
 
 # Review a GitHub PR
 wf issue:review https://github.com/owner/repo/pull/42
@@ -373,8 +376,13 @@ wf issue:review --dry-run
 | ------------------------ | ---------------------------------------------------------------------------------- | ------------ |
 | `-f, --format <format>`  | Output format: `text \| json \| md`                                                | `text`       |
 | `-o, --output <path>`    | Save review to a file                                                              | stdout       |
+| `-p, --platform <platform>` | Platform used to resolve a ticket source; defaults to the configured primary platform | primary platform |
 | `-r, --repos <repos...>` | First repo anchors local review context; all repos are inspected for local changes | current repo |
 | `--dry-run`              | Preview without calling the AI                                                     | —            |
+
+When a ticket key is supplied, `issue:review` fetches ticket context from the configured platform, looks for associated open pull requests in deterministic order, and reviews those PR diffs first. If no PR is found, the command warns and prompts whether to review local changes or return without reviewing.
+
+The current review output includes `Call Stack` and `State Transition` sections before `Suggestions`, and `Approval Status` after `Suggestions`. Those trace sections are currently best-effort and are labeled as such until an execution backend can provide evidence-based trace data.
 
 ---
 

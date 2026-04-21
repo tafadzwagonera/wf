@@ -164,6 +164,7 @@ export class GitHubAdapter implements PlatformAdapter {
       PlatformFeature.UPDATE_TICKET,
       PlatformFeature.SEARCH_TICKETS,
       PlatformFeature.GET_PULL_REQUEST,
+      PlatformFeature.CREATE_COMMENT,
       PlatformFeature.ADD_LABELS,
       PlatformFeature.ASSIGN_TICKET,
       PlatformFeature.CREATE_PULL_REQUEST,
@@ -221,6 +222,65 @@ export class GitHubAdapter implements PlatformAdapter {
     });
 
     return response.data as unknown as string;
+  }
+
+  /**
+   * Post a comment on a GitHub pull request or issue.
+   * @param reference PR URL or issue reference
+   * @param body Markdown comment body
+   */
+  async createComment(reference: string, body: string): Promise<void> {
+    if (reference.includes('github.com') && reference.includes('/pull/')) {
+      const { owner, repo, prNumber } = this.parsePullRequestUrl(reference);
+      await this.octokit.issues.createComment({
+        owner,
+        repo,
+        issue_number: prNumber,
+        body,
+      });
+      return;
+    }
+
+    const { owner, repo, issueNumber } = this.parseReference(reference);
+    await this.octokit.issues.createComment({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      body,
+    });
+  }
+
+  /**
+   * Find open pull requests whose title or branch contains the ticket key.
+   * @param ticketKey Ticket key to search for
+   * @param repoOverride Optional repo in "owner/repo" format; falls back to default
+   * @returns Matching PR URLs sorted by pull request number
+   */
+  async findPullRequestsByTicketKey(
+    ticketKey: string,
+    repoOverride?: string,
+  ): Promise<string[]> {
+    const { owner, repo } = this.parseProjectOrDefault(repoOverride);
+    const query = `repo:${owner}/${repo} is:pr is:open "${ticketKey}"`;
+    const response = await this.octokit.search.issuesAndPullRequests({
+      q: query,
+      per_page: 50,
+    });
+
+    const pullRequestUrls = new Set<string>();
+    response.data.items.forEach((item) => {
+      if (!item.html_url?.includes('/pull/')) {
+        return;
+      }
+
+      pullRequestUrls.add(item.html_url);
+    });
+
+    return [...pullRequestUrls].sort((left, right) => {
+      const leftNumber = this.extractPullRequestNumber(left);
+      const rightNumber = this.extractPullRequestNumber(right);
+      return leftNumber - rightNumber || left.localeCompare(right);
+    });
   }
 
   /**
@@ -329,6 +389,11 @@ export class GitHubAdapter implements PlatformAdapter {
       repo: match[2],
       prNumber: parseInt(match[3], 10),
     };
+  }
+
+  private extractPullRequestNumber(url: string): number {
+    const match = url.match(/\/pull\/(\d+)/);
+    return match ? parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
   }
 
   /**

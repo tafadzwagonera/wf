@@ -9,6 +9,16 @@ describe('ReviewStageService', () => {
   const mockReview = {
     summary: 'Looks good overall',
     issues: [],
+    traceProvenance: 'best-effort',
+    callStack: ['ticket lookup', 'PR discovery', 'diff review'],
+    stateTransition: {
+      from: 'ticket-resolved',
+      to: 'reviewed',
+      steps: [
+        { state: 'ticket-resolved', next: 'pull-requests-found' },
+        { state: 'pull-requests-found', next: 'reviewed' },
+      ],
+    },
     suggestions: ['Add one more regression test'],
     approved: true,
   };
@@ -72,6 +82,28 @@ describe('ReviewStageService', () => {
     expect(
       fs.readFileSync(path.join(tempDir, 'WBP-123-review.md'), 'utf-8'),
     ).toContain('# Code Review: WBP-123');
+
+    const reviewMarkdown = fs.readFileSync(
+      path.join(tempDir, 'WBP-123-review.md'),
+      'utf-8',
+    );
+    expect(reviewMarkdown.indexOf('## Summary')).toBeLessThan(
+      reviewMarkdown.indexOf('## Issues'),
+    );
+    expect(reviewMarkdown.indexOf('## Issues')).toBeLessThan(
+      reviewMarkdown.indexOf('## Call Stack'),
+    );
+    expect(reviewMarkdown).toContain('Provenance: best-effort');
+    expect(reviewMarkdown.indexOf('## Call Stack')).toBeLessThan(
+      reviewMarkdown.indexOf('## State Transition'),
+    );
+    expect(reviewMarkdown.indexOf('## State Transition')).toBeLessThan(
+      reviewMarkdown.indexOf('## Suggestions'),
+    );
+    expect(reviewMarkdown.indexOf('## Suggestions')).toBeLessThan(
+      reviewMarkdown.indexOf('## Approval Status'),
+    );
+    expect(reviewMarkdown).toContain('Provenance: best-effort');
     expect(artifact.path).toBe(path.join(tempDir, 'WBP-123-review.md'));
     expect(artifact.approved).toBe(true);
   });
