@@ -382,7 +382,7 @@ wf issue:review --dry-run
 
 When a ticket key is supplied, `issue:review` fetches ticket context from the configured platform, looks for associated open pull requests in deterministic order, and reviews those PR diffs first. If no PR is found, the command warns and prompts whether to review local changes or return without reviewing.
 
-The current review output includes `Call Stack` and `State Transition` sections before `Suggestions`, and `Approval Status` after `Suggestions`. Those trace sections are currently best-effort and are labeled as such until an execution backend can provide evidence-based trace data.
+The current review output includes `Call Stack` and `State Transition` sections before `Suggestions`, and `Approval Status` after `Suggestions`. Those trace sections are intended to describe the changed code path itself. If the model cannot ground them in concrete identifiers from the diff, the CLI downgrades them to `unavailable` instead of surfacing reviewer-analysis text.
 
 ---
 

@@ -413,6 +413,143 @@ describe('AiService', () => {
     });
   });
 
+  describe('reviewCode trace validation', () => {
+    it('asks for code-path traces and rejects reviewer-analysis language in the prompt', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.reviewCode(
+        `
+diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.ts
+@@
++export async function eventPaymentRecorded() {
++  return addPaymentToBooking();
++}
+`,
+        ['guideline'],
+      );
+
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('walks the changed code path'),
+        }),
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'Do not return review-process steps such as "diff loaded"',
+          ),
+        }),
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'Evidence-based traces must mention concrete identifiers from the diff.',
+          ),
+        }),
+      );
+    });
+
+    it('downgrades reviewer-analysis traces to unavailable', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: 'ok',
+          issues: [],
+          traceProvenance: 'evidence-based',
+          callStack: [
+            'Analyzing payment.controller.ts for changes to event handling.',
+            'Diff loaded and reviewed.',
+            'Issues found.',
+          ],
+          stateTransition: {
+            from: 'initial',
+            to: 'reviewed',
+            steps: [
+              { state: 'initial', next: 'diff_loaded' },
+              { state: 'diff_loaded', next: 'reviewed' },
+            ],
+          },
+          suggestions: [],
+          approved: true,
+        }),
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const review = await service.reviewCode(
+        `
+diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.ts
+@@
++export async function eventPaymentRecorded() {
++  return addPaymentToBooking();
++}
+`,
+        ['guideline'],
+      );
+
+      expect(review.traceProvenance).toBe('unavailable');
+      expect(review.callStack).toEqual([]);
+      expect(review.stateTransition).toEqual({});
+    });
+
+    it('preserves concrete code-path traces when they anchor to the diff', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: 'ok',
+          issues: [],
+          traceProvenance: 'evidence-based',
+          callStack: [
+            'eventPaymentRecorded()',
+            'addPaymentToBooking()',
+            'booking retry loop',
+          ],
+          stateTransition: {
+            from: 'eventPaymentRecorded',
+            to: 'addPaymentToBooking',
+            steps: [
+              {
+                state: 'eventPaymentRecorded',
+                next: 'addPaymentToBooking',
+              },
+            ],
+          },
+          suggestions: [],
+          approved: true,
+        }),
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const review = await service.reviewCode(
+        `
+diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.ts
+@@
++export async function eventPaymentRecorded() {
++  return addPaymentToBooking();
++}
+`,
+        ['guideline'],
+      );
+
+      expect(review.traceProvenance).toBe('evidence-based');
+      expect(review.callStack).toEqual([
+        'eventPaymentRecorded()',
+        'addPaymentToBooking()',
+        'booking retry loop',
+      ]);
+      expect(review.stateTransition).toEqual({
+        from: 'eventPaymentRecorded',
+        to: 'addPaymentToBooking',
+        steps: [
+          {
+            state: 'eventPaymentRecorded',
+            next: 'addPaymentToBooking',
+          },
+        ],
+      });
+    });
+  });
+
   describe('diagnoseVerificationFailure', () => {
     it('parses a valid FixPlan JSON response', async () => {
       const mockFixPlan: FixPlan = {

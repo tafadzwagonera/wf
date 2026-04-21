@@ -117,6 +117,126 @@ const formatRepoContextSection = (repoContext?: {
   ].join('\n');
 };
 
+const REVIEW_TRACE_META_PATTERNS: RegExp[] = [
+  /\banalyz(?:e|ed|ing|is)?\b/i,
+  /\breviewer?\b/i,
+  /\bdiff[_\s-]?loaded\b/i,
+  /\bdiff review\b/i,
+  /\bticket lookup\b/i,
+  /\bpr discovery\b/i,
+  /\bcode review complete\b/i,
+  /\bissues? found\b/i,
+  /\bsuggestions?\b/i,
+  /\bapproval status\b/i,
+  /\breview flow\b/i,
+  /\breview process\b/i,
+  /\breviewed\b/i,
+];
+
+const REVIEW_TRACE_ANCHOR_PATTERNS: RegExp[] = [
+  /(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g,
+  /\bclass\s+([A-Za-z_$][\w$]*)/g,
+  /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g,
+  /\b(?:public|private|protected)?\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(/g,
+  /\b(?:this\.)?([A-Za-z_$][\w$]*)\s*=\s*/g,
+];
+
+const REVIEW_TRACE_STOP_WORDS = new Set([
+  'async',
+  'await',
+  'break',
+  'case',
+  'catch',
+  'class',
+  'const',
+  'continue',
+  'constructor',
+  'default',
+  'delete',
+  'do',
+  'else',
+  'false',
+  'finally',
+  'for',
+  'function',
+  'if',
+  'import',
+  'let',
+  'new',
+  'null',
+  'protected',
+  'private',
+  'public',
+  'return',
+  'static',
+  'super',
+  'switch',
+  'this',
+  'throw',
+  'true',
+  'try',
+  'undefined',
+  'var',
+  'while',
+  'with',
+]);
+
+const extractReviewTraceAnchors = (diff: string): string[] => {
+  const anchors = new Set<string>();
+
+  for (const pattern of REVIEW_TRACE_ANCHOR_PATTERNS) {
+    for (const match of diff.matchAll(pattern)) {
+      const candidate = match[1]?.trim();
+      if (!candidate) {
+        continue;
+      }
+
+      const lowered = candidate.toLowerCase();
+      if (REVIEW_TRACE_STOP_WORDS.has(lowered)) {
+        continue;
+      }
+
+      anchors.add(lowered);
+    }
+  }
+
+  return [...anchors];
+};
+
+const traceContainsCodeAnchors = (
+  traceText: string,
+  anchors: string[],
+): boolean => anchors.some((anchor) => traceText.includes(anchor));
+
+const traceContainsReviewerAnalysisLanguage = (traceText: string): boolean =>
+  REVIEW_TRACE_META_PATTERNS.some((pattern) => pattern.test(traceText));
+
+const sanitizeCodeReviewTrace = (
+  review: CodeReview,
+  diff: string,
+): CodeReview => {
+  const traceText = JSON.stringify({
+    callStack: review.callStack ?? [],
+    stateTransition: review.stateTransition ?? {},
+  }).toLowerCase();
+  const anchors = extractReviewTraceAnchors(diff);
+  const hasCodeAnchors =
+    anchors.length > 0 && traceContainsCodeAnchors(traceText, anchors);
+  const hasReviewerAnalysisLanguage =
+    traceContainsReviewerAnalysisLanguage(traceText);
+
+  if (!hasCodeAnchors || hasReviewerAnalysisLanguage) {
+    return {
+      ...review,
+      traceProvenance: 'unavailable',
+      callStack: [],
+      stateTransition: {},
+    };
+  }
+
+  return review;
+};
+
 export interface AIRequest {
   prompt: string;
   systemPrompt?: string;
@@ -666,17 +786,23 @@ Code Changes:
 ${diff.substring(0, 5000)} ${diff.length > 5000 ? '...(truncated)' : ''}
 \`\`\`
 
-Review Guidelines:
+    Review Guidelines:
 ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
 
     Provide a code review with:
     1. A brief summary of the changes
     2. Any issues found (errors, warnings, or info)
     3. A trace provenance label: evidence-based, best-effort, or unavailable
-    4. A tree-like call stack that explains how the review flow reached the finding
-    5. A JSON-like state transition object that captures the review progression
+    4. A tree-like call stack that walks the changed code path, starting from concrete functions, handlers, or methods in the diff
+    5. A JSON-like state transition object that captures the changed code's state progression, not the reviewer's analysis flow
     6. Suggestions for improvement
     7. Whether the code is approved
+
+    Important trace rules:
+    - Describe the code under review, not the review process.
+    - Do not return review-process steps such as "diff loaded", "analyzing", "reviewed", or "issues found" in callStack or stateTransition.
+    - If the changed code cannot be traced confidently, set traceProvenance to "unavailable" and return empty callStack and stateTransition fields.
+    - Evidence-based traces must mention concrete identifiers from the diff.
 
     Return ONLY a valid JSON object:
     {
@@ -692,10 +818,10 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
       "traceProvenance": "evidence-based|best-effort|unavailable",
       "callStack": ["step 1", "step 2", "..."],
       "stateTransition": {
-        "from": "initial",
-        "to": "reviewed",
+        "from": "eventPaymentRecorded",
+        "to": "addPaymentToBooking",
         "steps": [
-          { "state": "initial", "next": "diff loaded" }
+          { "state": "eventPaymentRecorded", "next": "addPaymentToBooking" }
         ]
       },
       "suggestions": ["suggestion 1", ...],
@@ -711,7 +837,8 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
 
     try {
       const stripped = stripCodeFences(response.content.trim());
-      return JSON.parse(stripped) as CodeReview;
+      const parsed = JSON.parse(stripped) as CodeReview;
+      return sanitizeCodeReviewTrace(parsed, diff);
     } catch (error) {
       this.logger.error('Failed to parse code review response', error);
       throw new AIError('Failed to parse code review from AI response', {

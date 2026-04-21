@@ -396,9 +396,15 @@ describe('IssueReviewCommand', () => {
       expect(output).toContain('CALL STACK:');
       expect(output).toContain('STATE TRANSITION:');
       expect(output).toContain('APPROVAL STATUS: APPROVED');
-      expect(output).toContain('Provenance: best-effort');
-      expect(output).toContain('Best effort: call stack is reconstructed');
-      expect(output).toContain('Hindrance: the review pipeline does not emit');
+      expect(output).toContain(
+        'Provenance: best-effort (code-path trace inferred from the diff and AI output)',
+      );
+      expect(output).toContain(
+        'Best effort: call stack is inferred from the changed code and AI output.',
+      );
+      expect(output).toContain(
+        'Hindrance: there is no runtime execution trace backend in this path.',
+      );
       expect(output.indexOf('SUMMARY:')).toBeLessThan(
         output.indexOf('ISSUES FOUND'),
       );
@@ -413,6 +419,38 @@ describe('IssueReviewCommand', () => {
       );
       expect(output.indexOf('SUGGESTIONS')).toBeLessThan(
         output.indexOf('APPROVAL STATUS'),
+      );
+    });
+
+    it('renders unavailable trace sections when no code-path trace can be inferred', async () => {
+      const { command } = await buildCommand();
+      const mockDiff =
+        'diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.ts';
+
+      const output = (command as any).formatReviewAsText([
+        {
+          title: 'Bitbucket PR #160',
+          context:
+            'pull request: https://bitbucket.org/workspace/repo/pull-requests/160',
+          diff: mockDiff,
+          review: {
+            ...mockReview,
+            traceProvenance: 'unavailable',
+            callStack: [],
+            stateTransition: {},
+          },
+        },
+      ]);
+
+      expect(output).toContain('CALL STACK:');
+      expect(output).toContain(
+        'Provenance: unavailable (no concrete code-path trace could be inferred from the diff)',
+      );
+      expect(output).toContain(
+        'Trace unavailable: no concrete code-path trace could be inferred for the call stack section.',
+      );
+      expect(output).toContain(
+        'Trace unavailable: no concrete code-path trace could be inferred for the state transition section.',
       );
     });
   });
