@@ -85,4 +85,19 @@ describe('BitBucketAdapter', () => {
       expect(call._body.content.raw).toBe('inline note');
     });
   });
+
+  describe('parseProjectOrDefault', () => {
+    it('accepts a repo-only value when defaultWorkspace is configured', () => {
+      expect((adapter as any).parseProjectOrDefault('testrepo')).toEqual({
+        workspace: 'testworkspace',
+        repo: 'testrepo',
+      });
+    });
+
+    it('rejects a missing repository even when defaultWorkspace is configured', () => {
+      expect(() => (adapter as any).parseProjectOrDefault()).toThrow(
+        'No BitBucket repository specified. Provide the repository as "workspace/repo" or pass --repos <repo> so the configured workspace can be used.',
+      );
+    });
+  });
 });

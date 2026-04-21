@@ -52,6 +52,12 @@ interface DiscoveredPullRequestTarget {
   context: string;
 }
 
+interface PullRequestDiscoveryResult {
+  pullRequests: DiscoveredPullRequestTarget[];
+  attemptedLookupCount: number;
+  missingRepoScopeErrors: string[];
+}
+
 const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   {
     comment: 'Review current repo changes',
@@ -59,12 +65,17 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   },
   {
     comment:
-      'Review a ticket and associated pull requests from configured adapters',
+      'Review a ticket and associated pull requests from configured adapters using a remote repo hint',
     command: 'yarn start issue:review WBP-3057 -r service-bookingv3',
   },
   {
-    comment: 'Review a ticket and its associated pull requests',
+    comment: 'Review a ticket and its associated pull requests across repos',
     command: 'wf issue:review WBP-2971 --platform jira --repos service-tourv3',
+  },
+  {
+    comment:
+      'Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd',
+    command: 'yarn start issue:review CTRL-280 -r api-gateway-v1',
   },
 ];
 
@@ -332,10 +343,22 @@ export class IssueReviewCommand extends CommandRunner {
         }
 
         const ticketReviewContext = this.buildTicketContext(ticket);
-        const discoveredPullRequests = await this.discoverTicketPullRequests(
+        const discoveryResult = await this.discoverTicketPullRequests(
           source,
           repoInputs,
         );
+        const discoveredPullRequests = discoveryResult.pullRequests;
+
+        if (
+          discoveredPullRequests.length === 0 &&
+          discoveryResult.attemptedLookupCount === 0 &&
+          discoveryResult.missingRepoScopeErrors.length > 0 &&
+          repoInputs.length === 0
+        ) {
+          throw new Error(
+            `Pull request discovery for ticket ${source} requires a repository. Pass --repos <repo> so wf can search the correct remote repository instead of guessing from the current directory.`,
+          );
+        }
 
         if (discoveredPullRequests.length > 0) {
           console.log(
@@ -363,6 +386,19 @@ export class IssueReviewCommand extends CommandRunner {
             }
           }
         } else {
+          const unresolvedRepoInputs =
+            repoInputs.length > 0
+              ? this.findUnresolvedLocalRepoInputs(repoInputs)
+              : [];
+          if (unresolvedRepoInputs.length > 0) {
+            const unresolvedRepoList = unresolvedRepoInputs
+              .map((repo) => `'${repo}'`)
+              .join(', ');
+            throw new Error(
+              `Repository ${unresolvedRepoList} was provided for ticket review but was not found as a local path or sibling directory. Check out the repository locally before falling back to local review.`,
+            );
+          }
+
           console.log(
             chalk.yellow(
               `⚠️ No open pull requests were found for ticket ${source}`,
@@ -498,7 +534,7 @@ export class IssueReviewCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated repositories; first repo anchors local review context and all repos are inspected for local changes',
+      'Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk',
     required: false,
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
@@ -828,7 +864,7 @@ export class IssueReviewCommand extends CommandRunner {
   private async discoverTicketPullRequests(
     ticketKey: string,
     repoInputs: string[],
-  ): Promise<DiscoveredPullRequestTarget[]> {
+  ): Promise<PullRequestDiscoveryResult> {
     const adapters = [
       ...this.platformService.getPullRequestDiscoveryAdapters().entries(),
     ].sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
@@ -838,6 +874,8 @@ export class IssueReviewCommand extends CommandRunner {
       : [undefined];
 
     const discovered = new Map<string, DiscoveredPullRequestTarget>();
+    let attemptedLookupCount = 0;
+    const missingRepoScopeErrors: string[] = [];
 
     for (const repoHint of repoHints) {
       for (const [adapterName, adapter] of adapters) {
@@ -848,6 +886,9 @@ export class IssueReviewCommand extends CommandRunner {
             repoHint,
           );
         } catch (error: any) {
+          if (this.isMissingPullRequestRepoScopeError(error)) {
+            missingRepoScopeErrors.push(error.message);
+          }
           console.log(
             chalk.yellow(
               `⚠️ PR discovery skipped for ${adapterName}${repoHint ? ` (${repoHint})` : ''}: ${error.message}`,
@@ -855,6 +896,8 @@ export class IssueReviewCommand extends CommandRunner {
           );
           continue;
         }
+
+        attemptedLookupCount += 1;
 
         for (const url of pullRequestUrls) {
           const cacheKey = `${adapterName}:${url}`;
@@ -872,7 +915,7 @@ export class IssueReviewCommand extends CommandRunner {
       }
     }
 
-    return [...discovered.values()].sort((left, right) => {
+    const pullRequests = [...discovered.values()].sort((left, right) => {
       const adapterComparison = left.adapterName.localeCompare(
         right.adapterName,
       );
@@ -889,10 +932,36 @@ export class IssueReviewCommand extends CommandRunner {
 
       return left.commentRef.localeCompare(right.commentRef);
     });
+
+    return {
+      pullRequests,
+      attemptedLookupCount,
+      missingRepoScopeErrors,
+    };
   }
 
   /**
-   * Ask the user how ticket review should proceed when no pull request is found.
+   * Detect repo-scope precondition errors from PR discovery adapters.
+   * @param error Unknown adapter failure
+   * @returns True when the adapter needs an explicit repository or default repo
+   */
+  private isMissingPullRequestRepoScopeError(error: unknown): boolean {
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+          ? error
+          : '';
+
+    return [
+      'No BitBucket repository specified.',
+      'No GitHub repository specified and no default repository configured.',
+    ].some((pattern) => message.includes(pattern));
+  }
+
+  /**
+   * Ask the user how ticket review should proceed when no pull request is found
+   * and local fallback is still valid for the selected repositories.
    * Falls back to returning without review when the session is non-interactive.
    * @returns The selected fallback action
    */
@@ -944,6 +1013,45 @@ export class IssueReviewCommand extends CommandRunner {
     }
 
     return repo;
+  }
+
+  /**
+   * Find repo inputs that do not resolve to a real local path.
+   * @param repoInputs Raw `--repos` values
+   * @returns Repo inputs that would fall back to cwd
+   */
+  private findUnresolvedLocalRepoInputs(repoInputs: string[]): string[] {
+    return repoInputs.filter((repo) => !this.canResolveRepoLocally(repo));
+  }
+
+  /**
+   * Determine whether a repo input maps to an existing local directory.
+   * Mirrors resolveRepoBasePath lookup without accepting cwd fallback.
+   * @param repo Repository name or path
+   * @returns True when the repo resolves locally
+   */
+  private canResolveRepoLocally(repo: string): boolean {
+    const tryResolvePath = (candidate: string): boolean => {
+      if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
+        return true;
+      }
+
+      const relPath = path.resolve(process.cwd(), candidate);
+      if (fs.existsSync(relPath)) {
+        return true;
+      }
+
+      const siblingPath = path.resolve(process.cwd(), '..', candidate);
+      return fs.existsSync(siblingPath);
+    };
+
+    if (tryResolvePath(repo)) {
+      return true;
+    }
+
+    const repoSegments = repo.split(/\//).filter(Boolean);
+    const localRepoName = repoSegments.length > 1 ? repoSegments[1] : null;
+    return localRepoName ? tryResolvePath(localRepoName) : false;
   }
 
   /**

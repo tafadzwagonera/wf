@@ -347,7 +347,7 @@ AI-powered code review. Accepts three source modes:
 | Source                 | Description                                                                          |
 | ---------------------- | ------------------------------------------------------------------------------------ |
 | _(none)_               | Review staged/unstaged changes in the current repo, or all repos listed in `--repos` |
-| `ABC-123`              | Fetch ticket context and review associated pull requests, or prompt for local review |
+| `ABC-123`              | Fetch ticket context and review associated pull requests; `--repos` provides remote PR-discovery hints and local fallback roots |
 | `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request                                  |
 
 ```bash
@@ -362,6 +362,9 @@ yarn start issue:review WBP-3057 -r service-bookingv3
 
 # Review a ticket and its associated PRs across repos
 wf issue:review WBP-2971 --platform jira --repos service-tourv3
+
+# Review a ticket PR remotely without a local checkout
+yarn start issue:review CTRL-280 -r api-gateway-v1
 
 # Review a GitHub PR
 wf issue:review https://github.com/owner/repo/pull/42
@@ -380,10 +383,19 @@ wf issue:review --dry-run
 | `-f, --format <format>`     | Output format: `text \| json \| md`                                                   | `text`           |
 | `-o, --output <path>`       | Save review to a file                                                                 | stdout           |
 | `-p, --platform <platform>` | Platform used to resolve a ticket source; defaults to the configured primary platform | primary platform |
-| `-r, --repos <repos...>`    | First repo anchors local review context; all repos are inspected for local changes    | current repo     |
+| `-r, --repos <repos...>`    | Remote PR-discovery hints for ticket review; local review roots when those repos exist on disk | current repo |
 | `--dry-run`                 | Preview without calling the AI                                                        | —                |
 
-When a ticket key is supplied, `issue:review` fetches ticket context from the configured platform, then fans out PR discovery across registered adapters that have explicit credentials in `wf.config.*`. It reviews matching PR diffs first, in deterministic order. If no PR is found, the command warns and prompts whether to review local changes or return without reviewing.
+When a ticket key is supplied, `issue:review` fetches ticket context from the configured platform, then fans out PR discovery across registered adapters that have explicit credentials in `wf.config.*`. It reviews matching PR diffs first, in deterministic order.
+
+`--repos` serves two roles in ticket mode:
+
+- it provides the remote repository hints used for PR discovery
+- when the same repositories exist locally, it also defines the local roots for fallback review
+
+If no `--repos` value is supplied and adapters cannot determine a remote repository on their own, the command now exits with an actionable error instead of guessing from the current directory.
+
+If `--repos` is supplied for ticket review but a listed repository is not available as a local path or sibling directory, remote PR review can still succeed. However, if no PR is found, the command now exits with an actionable error instead of falling back to reviewing the current directory.
 
 The current review output includes `Call Stack` and `State Transition` sections before `Suggestions`, and `Approval Status` after `Suggestions`. Those trace sections are intended to describe the changed code path itself using concrete callable units and effect leaves. If the model cannot ground them in concrete identifiers from the diff, the CLI downgrades them to `unavailable` instead of surfacing reviewer-analysis text.
 

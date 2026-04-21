@@ -364,17 +364,19 @@ export class BitBucketAdapter implements PlatformAdapter {
     workspace: string;
     repo: string;
   } {
-    if (project && project.includes('/')) {
-      const [workspace, repo] = project.split('/');
+    const normalizedProject = project?.trim();
+
+    if (normalizedProject && normalizedProject.includes('/')) {
+      const [workspace, repo] = normalizedProject.split('/');
       return { workspace, repo };
     }
 
-    if (project && this.defaultWorkspace) {
-      return { workspace: this.defaultWorkspace, repo: project };
+    if (normalizedProject && this.defaultWorkspace) {
+      return { workspace: this.defaultWorkspace, repo: normalizedProject };
     }
 
     throw new Error(
-      'No BitBucket repository specified. Provide the repository as "workspace/repo".',
+      'No BitBucket repository specified. Provide the repository as "workspace/repo" or pass --repos <repo> so the configured workspace can be used.',
     );
   }
 

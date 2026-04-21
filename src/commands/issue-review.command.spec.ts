@@ -59,6 +59,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { resolveRepoBasePath } from '../agents/utils';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -334,6 +335,77 @@ describe('IssueReviewCommand', () => {
           context: expect.stringContaining('repositories under review'),
         }),
       );
+    });
+
+    it('fails when ticket review would fall back to local changes for an unresolved repo input', async () => {
+      const { command, reviewStageService, adapters, promptMock } =
+        await buildCommand();
+      const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet');
+      const handleSpy = jest
+        .spyOn(ErrorHandler, 'handle')
+        .mockImplementation(() => undefined as never);
+      const resolveRepoBasePathMock =
+        resolveRepoBasePath as jest.MockedFunction<typeof resolveRepoBasePath>;
+
+      resolveRepoBasePathMock.mockImplementation((repo?: string) =>
+        repo === 'api-gateway-v1'
+          ? process.cwd()
+          : repo
+            ? path.join('/mock', repo)
+            : '/mock/repo',
+      );
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
+        [],
+      );
+      adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
+      setInteractiveSession();
+
+      await command.run(['TAD-575'], { repos: ['api-gateway-v1'] });
+
+      expect(handleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining(
+            "Repository 'api-gateway-v1' was provided for ticket review but was not found as a local path or sibling directory.",
+          ),
+        }),
+      );
+      expect(promptMock).not.toHaveBeenCalled();
+      expect(reviewRepoSetSpy).not.toHaveBeenCalled();
+      expect(reviewStageService.reviewDiff).not.toHaveBeenCalled();
+    });
+
+    it('fails with an actionable error when discovery cannot run without remote repo scope', async () => {
+      const { command, reviewStageService, adapters, promptMock } =
+        await buildCommand();
+      const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet');
+      const handleSpy = jest
+        .spyOn(ErrorHandler, 'handle')
+        .mockImplementation(() => undefined as never);
+
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockRejectedValue(
+        new Error(
+          'No BitBucket repository specified. Provide the repository as "workspace/repo".',
+        ),
+      );
+      adapters.githubAdapter.findPullRequestsByTicketKey.mockRejectedValue(
+        new Error(
+          'No GitHub repository specified and no default repository configured. Provide project as "owner/repo" or set github.defaultRepo in wf.config.*.',
+        ),
+      );
+      setInteractiveSession();
+
+      await command.run(['TAD-575'], {});
+
+      expect(handleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining(
+            'Pull request discovery for ticket TAD-575 requires a repository',
+          ),
+        }),
+      );
+      expect(promptMock).not.toHaveBeenCalled();
+      expect(reviewRepoSetSpy).not.toHaveBeenCalled();
+      expect(reviewStageService.reviewDiff).not.toHaveBeenCalled();
     });
 
     it('fans out only across credentialed pull-request discovery adapters', async () => {
