@@ -26,6 +26,11 @@ const ISSUE_COMMIT_EXAMPLES: CliExample[] = [
     command: 'wf issue:commit WBP-2971',
   },
   {
+    comment:
+      'Run the commit stage from source with conventional commits enabled',
+    command: 'yarn start issue:commit -c',
+  },
+  {
     comment: 'Force conventional format',
     command: 'wf issue:commit WBP-2971 --conventional --platform jira',
   },

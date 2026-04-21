@@ -29,6 +29,99 @@ const stripCodeFences = (content: string): string => {
 };
 
 /**
+ * Extract the first balanced JSON object from arbitrary text.
+ * Ignores braces inside JSON strings so wrapper text can be skipped safely.
+ * @param content Raw content that may contain a JSON object
+ * @returns First balanced JSON object substring, or null when none is found
+ */
+const extractFirstJsonObject = (content: string): string | null => {
+  let braceDepth = 0;
+  let startIndex = -1;
+  let inString = false;
+  let isEscaped = false;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const char = content[index];
+
+    if (startIndex === -1) {
+      if (char === '{') {
+        startIndex = index;
+        braceDepth = 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        isEscaped = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{') {
+      braceDepth += 1;
+      continue;
+    }
+
+    if (char !== '}') {
+      continue;
+    }
+
+    braceDepth -= 1;
+    if (braceDepth === 0) {
+      return content.slice(startIndex, index + 1);
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Parse JSON from an LLM response after removing common wrapper text or fences.
+ * @param content Raw LLM response content
+ * @returns Parsed JSON payload
+ * @throws SyntaxError when no valid JSON object can be parsed
+ */
+const parseJsonResponse = <T>(content: string): T => {
+  const trimmedContent = content.trim();
+  const strippedContent = stripCodeFences(trimmedContent);
+  const candidates = [
+    strippedContent,
+    extractFirstJsonObject(strippedContent),
+    extractFirstJsonObject(trimmedContent),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as T;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new SyntaxError('No valid JSON object found in AI response');
+};
+
+/**
  * Normalize a repository hint for plan prompt examples.
  *
  * @param repositories - Optional affected repository list
@@ -803,6 +896,11 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     - Do not return review-process steps such as "diff loaded", "analyzing", "reviewed", or "issues found" in callStack or stateTransition.
     - If the changed code cannot be traced confidently, set traceProvenance to "unavailable" and return empty callStack and stateTransition fields.
     - Evidence-based traces must mention concrete identifiers from the diff.
+    - Use concrete code identifiers as callStack nodes, such as Class.method(...), functionName(...), or Client.method(...).
+    - When external effects matter, attach them as leaf frames beneath the method that performs them, for example HttpClient.get(...), POST /endpoint, or SQL query execution.
+    - Prefer executable units over prose: avoid frames like "validates request", "maps response", or "calls external API" unless the concrete method name is unavailable in the diff.
+    - Keep the tree in execution tense by naming the callable units and effect leaves, not by narrating what the reviewer thinks the code does.
+    - For detailed traces, include important intermediate methods, mappers, helpers, and client calls when they materially affect the changed path.
 
     Return ONLY a valid JSON object:
     {
@@ -836,8 +934,7 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     });
 
     try {
-      const stripped = stripCodeFences(response.content.trim());
-      const parsed = JSON.parse(stripped) as CodeReview;
+      const parsed = parseJsonResponse<CodeReview>(response.content);
       return sanitizeCodeReviewTrace(parsed, diff);
     } catch (error) {
       this.logger.error('Failed to parse code review response', error);

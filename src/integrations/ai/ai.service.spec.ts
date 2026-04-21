@@ -414,6 +414,55 @@ describe('AiService', () => {
   });
 
   describe('reviewCode trace validation', () => {
+    it('parses the first valid JSON payload when extra fenced output trails the review', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: `\`\`\`json
+{
+  "summary": "ok",
+  "issues": [],
+  "traceProvenance": "evidence-based",
+  "callStack": ["eventPaymentRecorded()", "addPaymentToBooking()"],
+  "stateTransition": {
+    "from": "eventPaymentRecorded",
+    "to": "addPaymentToBooking",
+    "steps": [
+      {
+        "state": "eventPaymentRecorded",
+        "next": "addPaymentToBooking"
+      }
+    ]
+  },
+  "suggestions": [],
+  "approved": true
+}
+\`\`\`
+\`\`\`text
+review complete
+\`\`\`
+`,
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const review = await service.reviewCode(
+        `
+diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.ts
+@@
++export async function eventPaymentRecorded() {
++  return addPaymentToBooking();
++}
+`,
+        ['guideline'],
+      );
+
+      expect(review.summary).toBe('ok');
+      expect(review.approved).toBe(true);
+      expect(review.callStack).toEqual([
+        'eventPaymentRecorded()',
+        'addPaymentToBooking()',
+      ]);
+    });
+
     it('asks for code-path traces and rejects reviewer-analysis language in the prompt', async () => {
       const adapter = createAdapter();
       const service = new AiService(mockLogger, adapter, createConfigService());
@@ -445,6 +494,27 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
         expect.objectContaining({
           prompt: expect.stringContaining(
             'Evidence-based traces must mention concrete identifiers from the diff.',
+          ),
+        }),
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'Use concrete code identifiers as callStack nodes, such as Class.method(...), functionName(...), or Client.method(...).',
+          ),
+        }),
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'When external effects matter, attach them as leaf frames beneath the method that performs them',
+          ),
+        }),
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'Prefer executable units over prose: avoid frames like "validates request", "maps response", or "calls external API" unless the concrete method name is unavailable in the diff.',
           ),
         }),
       );

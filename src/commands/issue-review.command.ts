@@ -58,6 +58,11 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
     command: 'wf issue:review',
   },
   {
+    comment:
+      'Review a ticket and associated pull requests from configured adapters',
+    command: 'yarn start issue:review WBP-3057 -r service-bookingv3',
+  },
+  {
     comment: 'Review a ticket and its associated pull requests',
     command: 'wf issue:review WBP-2971 --platform jira --repos service-tourv3',
   },
@@ -814,7 +819,8 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   /**
-   * Discover all pull requests associated with a ticket across registered adapters.
+   * Discover all pull requests associated with a ticket across registered
+   * adapters that have explicit credentials configured in wf.config.*.
    * @param ticketKey Ticket key to search for
    * @param repoInputs Raw repo arguments supplied on the command line
    * @returns Stable list of PR metadata objects
@@ -823,12 +829,9 @@ export class IssueReviewCommand extends CommandRunner {
     ticketKey: string,
     repoInputs: string[],
   ): Promise<DiscoveredPullRequestTarget[]> {
-    const adapters = [...this.platformService.getAllAdapters().entries()]
-      .filter(
-        ([, adapter]) =>
-          typeof adapter.findPullRequestsByTicketKey === 'function',
-      )
-      .sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
+    const adapters = [
+      ...this.platformService.getPullRequestDiscoveryAdapters().entries(),
+    ].sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
 
     const repoHints = repoInputs.length
       ? repoInputs.map((repo) => this.normalizeRepoHint(repo))
@@ -847,7 +850,7 @@ export class IssueReviewCommand extends CommandRunner {
         } catch (error: any) {
           console.log(
             chalk.yellow(
-              `⚠️  PR discovery skipped for ${adapterName}${repoHint ? ` (${repoHint})` : ''}: ${error.message}`,
+              `⚠️ PR discovery skipped for ${adapterName}${repoHint ? ` (${repoHint})` : ''}: ${error.message}`,
             ),
           );
           continue;

@@ -78,4 +78,51 @@ export class PlatformService {
   getAllAdapters(): Map<string, PlatformAdapter> {
     return new Map(this.adapters);
   }
+
+  /**
+   * Get registered adapters that support pull-request discovery and have
+   * explicit credentials configured in wf.config.*.
+   *
+   * Credentials indicate clear usage intent. Incidental settings such as
+   * default repositories or workspaces do not.
+   *
+   * @returns Map of platform name to adapter instance
+   */
+  getPullRequestDiscoveryAdapters(): Map<string, PlatformAdapter> {
+    return new Map(
+      [...this.adapters.entries()].filter(
+        ([platformName, adapter]) =>
+          typeof adapter.findPullRequestsByTicketKey === 'function' &&
+          this.hasPullRequestDiscoveryCredentials(platformName),
+      ),
+    );
+  }
+
+  /**
+   * Determine whether a platform has explicit credentials for PR discovery.
+   * @param platformName Platform identifier
+   * @returns True when the platform has configured auth credentials
+   */
+  private hasPullRequestDiscoveryCredentials(platformName: string): boolean {
+    if (platformName === 'github') {
+      return Boolean(this.configService.get<string>('github.token')?.trim());
+    }
+
+    if (platformName === 'bitbucket') {
+      return Boolean(
+        this.configService.get<string>('atlassian.email')?.trim() &&
+        this.configService.get<string>('atlassian.bitbucket.apiToken')?.trim(),
+      );
+    }
+
+    if (platformName === 'jira') {
+      return Boolean(
+        this.configService.get<string>('atlassian.email')?.trim() &&
+        (this.configService.get<string>('atlassian.jira.apiToken')?.trim() ||
+          this.configService.get<string>('atlassian.apiToken')?.trim()),
+      );
+    }
+
+    return false;
+  }
 }

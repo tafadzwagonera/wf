@@ -186,6 +186,12 @@ async function buildCommand(overrides?: {
             if (platformName === 'bitbucket') return bitbucketAdapter;
             throw new Error(`Unknown platform: ${platformName}`);
           }),
+          getPullRequestDiscoveryAdapters: jest.fn().mockReturnValue(
+            new Map([
+              ['bitbucket', bitbucketAdapter],
+              ['github', githubAdapter],
+            ]),
+          ),
           getAllAdapters: jest.fn().mockReturnValue(
             new Map([
               ['bitbucket', bitbucketAdapter],
@@ -327,6 +333,37 @@ describe('IssueReviewCommand', () => {
         expect.objectContaining({
           context: expect.stringContaining('repositories under review'),
         }),
+      );
+    });
+
+    it('fans out only across credentialed pull-request discovery adapters', async () => {
+      const { command, reviewStageService, adapters, promptMock } =
+        await buildCommand();
+      const reviewRepoSetSpy = jest
+        .spyOn(command as any, 'reviewRepoSet')
+        .mockResolvedValue('local diff');
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
+        [],
+      );
+      promptMock.mockResolvedValue({ decision: 'local' } as any);
+      setInteractiveSession();
+
+      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+
+      expect(reviewRepoSetSpy).toHaveBeenCalled();
+      expect(
+        adapters.githubAdapter.findPullRequestsByTicketKey,
+      ).toHaveBeenCalled();
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+        'local diff',
+        expect.objectContaining({
+          context: expect.stringContaining('repositories under review'),
+        }),
+      );
+      expect(consoleLogSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('PR discovery skipped for github'),
       );
     });
 

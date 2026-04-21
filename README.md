@@ -357,6 +357,9 @@ wf issue:review
 # Review with ticket context
 wf issue:review WBP-2971 --platform jira
 
+# Review a ticket from source with repo-scoped PR discovery
+yarn start issue:review WBP-3057 -r service-bookingv3
+
 # Review a ticket and its associated PRs across repos
 wf issue:review WBP-2971 --platform jira --repos service-tourv3
 
@@ -372,17 +375,17 @@ wf issue:review --dry-run
 
 **Options:**
 
-| Flag                     | Description                                                                        | Default      |
-| ------------------------ | ---------------------------------------------------------------------------------- | ------------ |
-| `-f, --format <format>`  | Output format: `text \| json \| md`                                                | `text`       |
-| `-o, --output <path>`    | Save review to a file                                                              | stdout       |
+| Flag                        | Description                                                                           | Default          |
+| --------------------------- | ------------------------------------------------------------------------------------- | ---------------- |
+| `-f, --format <format>`     | Output format: `text \| json \| md`                                                   | `text`           |
+| `-o, --output <path>`       | Save review to a file                                                                 | stdout           |
 | `-p, --platform <platform>` | Platform used to resolve a ticket source; defaults to the configured primary platform | primary platform |
-| `-r, --repos <repos...>` | First repo anchors local review context; all repos are inspected for local changes | current repo |
-| `--dry-run`              | Preview without calling the AI                                                     | —            |
+| `-r, --repos <repos...>`    | First repo anchors local review context; all repos are inspected for local changes    | current repo     |
+| `--dry-run`                 | Preview without calling the AI                                                        | —                |
 
-When a ticket key is supplied, `issue:review` fetches ticket context from the configured platform, looks for associated open pull requests in deterministic order, and reviews those PR diffs first. If no PR is found, the command warns and prompts whether to review local changes or return without reviewing.
+When a ticket key is supplied, `issue:review` fetches ticket context from the configured platform, then fans out PR discovery across registered adapters that have explicit credentials in `wf.config.*`. It reviews matching PR diffs first, in deterministic order. If no PR is found, the command warns and prompts whether to review local changes or return without reviewing.
 
-The current review output includes `Call Stack` and `State Transition` sections before `Suggestions`, and `Approval Status` after `Suggestions`. Those trace sections are intended to describe the changed code path itself. If the model cannot ground them in concrete identifiers from the diff, the CLI downgrades them to `unavailable` instead of surfacing reviewer-analysis text.
+The current review output includes `Call Stack` and `State Transition` sections before `Suggestions`, and `Approval Status` after `Suggestions`. Those trace sections are intended to describe the changed code path itself using concrete callable units and effect leaves. If the model cannot ground them in concrete identifiers from the diff, the CLI downgrades them to `unavailable` instead of surfacing reviewer-analysis text.
 
 ---
 
@@ -425,7 +428,7 @@ retries once without the priority field so ticket creation can still succeed.
 
 #### `wf issue:generate <sources...>`
 
- Synthesize a ticket description from one or more sources using AI. Sources can be local files, repo-scoped artifacts under `~/.wf/<repo>/` when `--repos` is supplied, URLs, or existing ticket keys.
+Synthesize a ticket description from one or more sources using AI. Sources can be local files, repo-scoped artifacts under `~/.wf/<repo>/` when `--repos` is supplied, URLs, or existing ticket keys.
 
 ```bash
 # Generate from a URL
@@ -459,17 +462,17 @@ wf issue:generate https://example.com/spec ./notes.md --dry-run
 
 **Options:**
 
-| Flag                        | Description                                                          | Default                 |
-| --------------------------- | -------------------------------------------------------------------- | ----------------------- |
-| `-f, --format <format>`     | Output format: `json \| md \| yaml \| xml`                           | `DEFAULT_OUTPUT_FORMAT` |
-| `-o, --output <path>`       | Save generated ticket to a file                                      | stdout                  |
-| `--save`                    | Save to `./<platform>/YYYY-MM-DD-<hash>-ticket-description.<format>` | —                       |
-| `-p, --platform <platform>` | Platform for ticket-key sources                                      | `PRIMARY_PLATFORM`      |
-| `-t, --title <title>`       | Override the AI-generated title                                      | —                       |
-| `--type <type>`             | Override ticket type: `task \| bug \| story \| epic`                 | —                       |
-| `--priority <priority>`     | Override priority: `highest \| high \| medium \| low \| lowest`      | —                       |
+| Flag                        | Description                                                                                  | Default                 |
+| --------------------------- | -------------------------------------------------------------------------------------------- | ----------------------- |
+| `-f, --format <format>`     | Output format: `json \| md \| yaml \| xml`                                                   | `DEFAULT_OUTPUT_FORMAT` |
+| `-o, --output <path>`       | Save generated ticket to a file                                                              | stdout                  |
+| `--save`                    | Save to `./<platform>/YYYY-MM-DD-<hash>-ticket-description.<format>`                         | —                       |
+| `-p, --platform <platform>` | Platform for ticket-key sources                                                              | `PRIMARY_PLATFORM`      |
+| `-t, --title <title>`       | Override the AI-generated title                                                              | —                       |
+| `--type <type>`             | Override ticket type: `task \| bug \| story \| epic`                                         | —                       |
+| `--priority <priority>`     | Override priority: `highest \| high \| medium \| low \| lowest`                              | —                       |
 | `-r, --repos <repos...>`    | Repo context for repo-scoped artifacts; first repo also anchors Bitbucket ticket-key sources | current repo            |
-| `--dry-run`                 | Preview without fetching or writing                                  | —                       |
+| `--dry-run`                 | Preview without fetching or writing                                                          | —                       |
 
 Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list.
 When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, unresolved bare filenames stay cwd-relative and the command now tells you to retry with `--repos <repo>` when the source looks like a repo-scoped artifact.
