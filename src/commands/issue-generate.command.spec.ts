@@ -476,6 +476,75 @@ describe('IssueGenerateCommand', () => {
     });
   });
 
+  describe('unresolved local source diagnostics', () => {
+    it('explains that unresolved artifact filenames require --repos', async () => {
+      const command = await buildCommand();
+      const errorHandlerSpy = jest
+        .spyOn(ErrorHandler, 'handle')
+        .mockImplementation((() => {
+          throw new Error('handled');
+        }) as any);
+
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockReturnValue(false);
+
+      await expect(
+        command.run(['2026-04-05-broadened-ai-config-docs-cleanup-plan.md']),
+      ).rejects.toThrow('handled');
+
+      expect(errorHandlerSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining(
+            '2026-04-05-broadened-ai-config-docs-cleanup-plan.md',
+          ),
+        }),
+      );
+      expect(errorHandlerSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('--repos'),
+        }),
+      );
+
+      errorHandlerSpy.mockRestore();
+    });
+
+    it('does not preview AI synthesis in dry-run mode when no source resolves', async () => {
+      const command = await buildCommand();
+      const dryRunPreview = (command as any)
+        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+      const errorHandlerSpy = jest
+        .spyOn(ErrorHandler, 'handle')
+        .mockImplementation((() => {
+          throw new Error('handled');
+        }) as any);
+
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockReturnValue(false);
+
+      await expect(
+        command.run(['2026-04-05-broadened-ai-config-docs-cleanup-plan.md'], {
+          dryRun: true,
+        }),
+      ).rejects.toThrow('handled');
+
+      expect(dryRunPreview.previewApiCall).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'POST',
+          endpoint: '/v1/messages',
+        }),
+      );
+      expect(errorHandlerSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('--repos'),
+        }),
+      );
+
+      errorHandlerSpy.mockRestore();
+    });
+  });
+
   describe('multi-repo save targets', () => {
     it('prompts for save targets only after synthesis succeeds', async () => {
       const command = await buildCommand();

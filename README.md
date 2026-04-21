@@ -417,7 +417,7 @@ retries once without the priority field so ticket creation can still succeed.
 
 #### `wf issue:generate <sources...>`
 
-Synthesize a ticket description from one or more sources using AI. Sources can be local files, repo-scoped artifacts under `~/.wf/<repo>/`, URLs, or existing ticket keys.
+ Synthesize a ticket description from one or more sources using AI. Sources can be local files, repo-scoped artifacts under `~/.wf/<repo>/` when `--repos` is supplied, URLs, or existing ticket keys.
 
 ```bash
 # Generate from a URL
@@ -460,11 +460,11 @@ wf issue:generate https://example.com/spec ./notes.md --dry-run
 | `-t, --title <title>`       | Override the AI-generated title                                      | —                       |
 | `--type <type>`             | Override ticket type: `task \| bug \| story \| epic`                 | —                       |
 | `--priority <priority>`     | Override priority: `highest \| high \| medium \| low \| lowest`      | —                       |
-| `--repo <repo>`             | Bitbucket repository for ticket-key sources                          | —                       |
+| `-r, --repos <repos...>`    | Repo context for repo-scoped artifacts; first repo also anchors Bitbucket ticket-key sources | current repo            |
 | `--dry-run`                 | Preview without fetching or writing                                  | —                       |
 
 Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list.
-When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path.
+When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, unresolved bare filenames stay cwd-relative and the command now tells you to retry with `--repos <repo>` when the source looks like a repo-scoped artifact.
 
 ---
 

@@ -46,7 +46,7 @@ const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
     command: 'wf issue:generate https://example.com/spec',
   },
   {
-    comment: 'Generate from a repo-scoped artifact',
+    comment: 'Generate from a repo-scoped artifact (requires -r, --repos)',
     command: 'wf issue:generate itinerary-pdf-generation.md -r service-tourv3',
   },
   {
@@ -78,14 +78,17 @@ interface LocalSourceResolution {
   matchedRepoInputs: string[];
 }
 
+class UnresolvedSourceError extends Error {}
+
 /**
  * Command to generate ticket descriptions from multiple sources
- * Supports local files, URLs, Jira keys, and AI synthesis
+ * Supports local files, repo-scoped artifacts via `--repos`, URLs, Jira keys,
+ * and AI synthesis.
  */
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts, URLs, Jira keys',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, Jira keys',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -145,6 +148,11 @@ export class IssueGenerateCommand extends CommandRunner {
             source,
             options?.repos,
             options?.silent ?? false,
+          );
+          this.assertResolvableSourceSelection(
+            source,
+            resolvedSources,
+            options?.repos,
           );
 
           for (const resolvedSource of resolvedSources) {
@@ -525,6 +533,7 @@ export class IssueGenerateCommand extends CommandRunner {
           repos,
           silent,
         );
+        this.assertResolvableSourceSelection(source, resolvedSources, repos);
 
         if (resolvedSources.length === 0) {
           console.log(chalk.yellow('    ⚠ Skipped: no sources selected'));
@@ -541,6 +550,10 @@ export class IssueGenerateCommand extends CommandRunner {
           console.log(chalk.green(`    ✓ Fetched (${content.type})`));
         }
       } catch (error) {
+        if (error instanceof UnresolvedSourceError) {
+          throw error;
+        }
+
         console.log(chalk.yellow(`    ⚠ Failed: ${error.message}`));
       }
     }
@@ -882,7 +895,8 @@ export class IssueGenerateCommand extends CommandRunner {
    * Resolve a raw source argument into concrete sources for fetching.
    *
    * Filename-only sources are checked against repo-scoped `~/.wf/<repo>/`
-   * artifacts before the live checkout path and cwd-relative fallback.
+   * artifacts only when `--repos` is supplied, before the live checkout path
+   * and cwd-relative fallback.
    *
    * @param source - Raw CLI source argument
    * @param repos - Optional repos supplied via `--repos`
@@ -922,6 +936,82 @@ export class IssueGenerateCommand extends CommandRunner {
     }
 
     return [];
+  }
+
+  /**
+   * Raise a specific error when a local-looking source cannot be resolved.
+   *
+   * @param source - Raw CLI source argument
+   * @param resolvedSources - Concrete paths or identifiers derived from the source
+   * @param repos - Optional repos supplied via `--repos`
+   * @returns Nothing; throws when the source should surface actionable guidance
+   */
+  private assertResolvableSourceSelection(
+    source: string,
+    resolvedSources: string[],
+    repos?: string[],
+  ): void {
+    if (resolvedSources.length > 0) {
+      return;
+    }
+
+    if (!this.isUnresolvedLocalSourceCandidate(source, repos)) {
+      return;
+    }
+
+    throw new UnresolvedSourceError(
+      this.buildUnresolvedSourceMessage(source, repos),
+    );
+  }
+
+  /**
+   * Check whether a source token should receive local artifact guidance.
+   *
+   * @param source - Raw CLI source argument
+   * @param repos - Optional repos supplied via `--repos`
+   * @returns True when the unresolved source looks like a local artifact/file
+   */
+  private isUnresolvedLocalSourceCandidate(
+    source: string,
+    repos?: string[],
+  ): boolean {
+    if (repos?.length) {
+      return false;
+    }
+
+    if (
+      path.isAbsolute(source) ||
+      SLACK_PERMALINK.test(source) ||
+      SLACK_CHANNEL_URL.test(source) ||
+      source.startsWith('http://') ||
+      source.startsWith('https://') ||
+      /^[A-Z]+-\d+$/i.test(source)
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Build the actionable error shown when a local artifact name cannot resolve.
+   *
+   * @param source - Raw CLI source argument
+   * @param repos - Optional repos supplied via `--repos`
+   * @returns User-facing error message
+   */
+  private buildUnresolvedSourceMessage(
+    source: string,
+    repos?: string[],
+  ): string {
+    const suggestedRepo =
+      repos?.[0] ?? path.basename(resolveRepoBasePath(repos?.[0]));
+
+    return (
+      `Source "${source}" could not be resolved from the current directory. ` +
+      'If this is a repo-scoped artifact under ~/.wf/<repo>/, re-run with ' +
+      `--repos <repo> (for example: wf issue:generate ${source} -r ${suggestedRepo}).`
+    );
   }
 
   /**
