@@ -664,6 +664,7 @@ Runtime backend selection is separate from plan metadata:
 - Omitting `agent` or setting it to `false` keeps the standard two-phase retry backend.
 - When the agent backend is active, the CLI streams task and tool progress lines while the agent is working, so the implementation loop is no longer a black box.
 - The OpenAI backend exposes only an exact-match `verify_command` tool for whitelisted verification commands.
+- On completion the OpenAI agent emits a structured summary with four sections: **What I changed**, **Verification run**, **Files** (updated / new / deleted), and **Assumptions / risk note**. If no file writes occurred, the CLI prints `File summary: no file changes were made.`
 
 Example:
 

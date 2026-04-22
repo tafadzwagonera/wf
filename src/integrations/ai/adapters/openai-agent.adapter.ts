@@ -218,7 +218,21 @@ Rules:
 - Writes must stay scoped to the primary repository (${repoDir}).
 - Reads may target ${repoDir} and any configured read-only sibling repositories.
 - Treat the returned progress signal as a heuristic: continue when it says 'continue', focus on the latest edited files when it says 'revisit', and stop only when it says 'complete'.
-- When all verification commands pass (exit 0), stop and provide a concise post-edit summary of new, updated, and deleted files.
+- When all verification commands pass (exit 0) — or when you determine no file changes are required — stop and output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.
+
+### What I changed
+<Bullet list of actual edits made. If nothing was changed, write: "No file content changes were required.">
+
+### Verification run
+<Bullet list of commands run with ✅ (pass) or ❌ (fail). Omit if no commands ran.>
+
+### Files
+- **Updated:** <comma-separated list or "none">
+- **New:** <comma-separated list or "none">
+- **Deleted:** <comma-separated list or "none">
+
+### Assumptions / risk note
+<Any assumptions made or risks identified. Write "None." if there are none.>
 
 Task context:
 ${sceneContext}`;
@@ -648,7 +662,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     const promptSections = [
       openAiContext ? openAiContext.trimEnd() : '',
       `Ticket key: ${params.ticket.ticketKey}`,
-      sceneContext,
+      'Implement the changes described in your instructions now. Call read_file on each target file before editing, then use write_file to apply changes, then verify_command for each verification step. Do not output any text or plan before calling your first tool.',
     ].filter(Boolean);
     const prompt = promptSections.join('\n\n');
 
@@ -731,6 +745,8 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     if (fileSummaryLines.length > 0) {
       console.log(chalk.bold('\n  File summary:'));
       fileSummaryLines.forEach((line) => console.log(chalk.cyan(line)));
+    } else {
+      console.log(chalk.gray('\n  File summary: no file changes were made.'));
     }
 
     if (verificationScripts.length > 0) {
