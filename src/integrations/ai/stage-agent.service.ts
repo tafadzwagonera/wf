@@ -421,11 +421,16 @@ Return only the requested ticket markdown and preserve the required heading stru
       name: 'list_files',
       description: 'List files in the current repository workspace.',
       parameters: z.object({
-        root: z.string().optional(),
+        root: z
+          .string()
+          .min(1)
+          .describe(
+            'Repository subdirectory to list; use "." for the repo root.',
+          ),
       }),
       async execute(input, runContext) {
         const toolContext = runContext?.context as OpenAiStageContext;
-        const relativeRoot = input.root?.trim() || '.';
+        const relativeRoot = input.root.trim() || '.';
         const command =
           `rg --files ${relativeRoot === '.' ? '' : relativeRoot}`.trim();
         const { stdout } = await execAsync(command, {
@@ -441,11 +446,16 @@ Return only the requested ticket markdown and preserve the required heading stru
       description: 'Search repository files with ripgrep.',
       parameters: z.object({
         pattern: z.string().min(1),
-        root: z.string().optional(),
+        root: z
+          .string()
+          .min(1)
+          .describe(
+            'Repository subdirectory to search; use "." for the repo root.',
+          ),
       }),
       async execute(input, runContext) {
         const toolContext = runContext?.context as OpenAiStageContext;
-        const relativeRoot = input.root?.trim() || '.';
+        const relativeRoot = input.root.trim() || '.';
         const command = `rg -n ${JSON.stringify(input.pattern)} ${relativeRoot}`;
         const { stdout } = await execAsync(command, {
           cwd: toolContext.repoDir,
