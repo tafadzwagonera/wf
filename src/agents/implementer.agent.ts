@@ -155,7 +155,11 @@ export class ImplementerAgent {
       console.log(chalk.gray('─'.repeat(70)));
     }
 
-    this.validateImplementationScope(planArtifact, options.repoDir);
+    this.validateImplementationScope(
+      planArtifact,
+      options.repoDir,
+      options.allowMultiRepoScope,
+    );
 
     const summary = extractSummary(ticket.content);
     const branchName = options.customBranchSlug
@@ -581,15 +585,20 @@ export class ImplementerAgent {
   private validateImplementationScope(
     planArtifact: PlanArtifact,
     repoDir?: string,
+    allowMultiRepoScope?: boolean,
   ): void {
     const repoName = repoDir ? path.basename(repoDir) : '';
     const repositoriesAffected = [
       ...new Set(planArtifact.plan.repositoriesAffected ?? []),
     ];
-    if (repositoriesAffected.length > 1) {
+    if (repositoriesAffected.length > 1 && !allowMultiRepoScope) {
       throw new Error(
         `issue:implement only verifies a single repository. This plan affects multiple repositories: ${repositoriesAffected.join(', ')}. Use wf issue or run wf issue:implement separately per repository.`,
       );
+    }
+
+    if (allowMultiRepoScope) {
+      return;
     }
 
     if (!repoName) {

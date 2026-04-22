@@ -147,6 +147,8 @@ export interface ImplementerOptions {
   suppressHeader?: boolean;
   conversationContext?: string;
   customBranchSlug?: string;
+  /** When true, skips single-repo boundary guards. Set only by IssueCommand's per-repo loop. */
+  allowMultiRepoScope?: boolean;
 }
 
 export interface ReviewerOptions {

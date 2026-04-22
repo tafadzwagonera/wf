@@ -677,6 +677,7 @@ export class IssueCommand extends CommandRunner {
                 .map((r) => resolveRepoBasePath(r)),
               suppressHeader: isMultiRepo,
               conversationContext,
+              allowMultiRepoScope: isMultiRepo,
             },
           );
 

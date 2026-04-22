@@ -585,6 +585,9 @@ wf issue WBP-2971 --from fetch --action investigate --chat-mode
 wf issue 123 --from fetch --to review --action fix \
   --platform bitbucket --repos myworkspace/myrepo
 
+# Multi-repo: implement stage runs once per repo in sequence
+wf issue WBP-3070 --from implement --action feature -r terraform-aws service-document-v1
+
 # Preview the full workflow without making changes
 wf issue WBP-2971 --from fetch --action fix --dry-run
 ```
@@ -601,7 +604,7 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 | `--chat-mode`               | Open AI chat after `plan` and `review` stages                                                                                            | —                  |
 | `--force`                   | Recreate artifacts instead of using the default skip-existing behavior                                                                   | false              |
 | `--dry-run`                 | Preview every stage without making changes, including branch and file work                                                               | —                  |
-| `-r, --repos <repos...>`    | First repo anchors artifact storage; all repos are used as workflow context                                                              | current repo       |
+| `-r, --repos <repos...>`    | First repo anchors artifact storage; when multiple repos are given, the implement stage runs once per repo in sequence                   | current repo       |
 
 **Stage order and artifacts:**
 
@@ -643,6 +646,8 @@ yarn start issue:implement WBP-2971 --dry-run
 # Preview branch and file work for a custom plan
 wf issue:implement 1a2b3c4d-fix-plan.json --dry-run
 ```
+
+`issue:implement` only supports plans that affect a single repository. If the plan's `repositoriesAffected` lists more than one repo, the command exits with an error. Use `wf issue -r <repos...>` to run implementation per repo when the plan spans multiple repositories.
 
 When a hashed plan artifact is detected, the CLI prints a yellow warning with the decoded artifact and action so you can confirm the resolved plan before implementation starts. Supplying `--action` alongside a hashed artifact still performs a strict validation check against the filename and manifest contents.
 

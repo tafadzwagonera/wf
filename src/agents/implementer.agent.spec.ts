@@ -222,6 +222,48 @@ describe('ImplementerAgent', () => {
         'issue:implement can only modify and verify files for repo-a. Found paths for other repositories: repo-b/src/example.ts. Use wf issue or run wf issue:implement separately per repository.',
       );
     });
+
+    it('allowMultiRepoScope bypasses the multi-repo count guard', async () => {
+      jest
+        .spyOn(agent as any, 'prepareVerificationScripts')
+        .mockReturnValue([]);
+
+      await expect(
+        agent.execute(
+          ticketArtifact,
+          buildPlan({
+            filesAffected: ['repo-a/src/example.ts', 'repo-b/src/example.ts'],
+            repositoriesAffected: ['repo-a', 'repo-b'],
+          }),
+          {
+            platformName: 'jira',
+            repoDir: '/tmp/repo-a',
+            allowMultiRepoScope: true,
+          },
+        ),
+      ).resolves.not.toThrow();
+    });
+
+    it('allowMultiRepoScope bypasses the offending-paths guard', async () => {
+      jest
+        .spyOn(agent as any, 'prepareVerificationScripts')
+        .mockReturnValue([]);
+
+      await expect(
+        agent.execute(
+          ticketArtifact,
+          buildPlan({
+            filesAffected: ['repo-b/src/x.ts'],
+            repositoriesAffected: ['repo-a'],
+          }),
+          {
+            platformName: 'jira',
+            repoDir: '/tmp/repo-a',
+            allowMultiRepoScope: true,
+          },
+        ),
+      ).resolves.not.toThrow();
+    });
   });
 
   describe('custom branch slug', () => {

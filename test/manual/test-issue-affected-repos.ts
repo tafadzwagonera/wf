@@ -216,9 +216,12 @@ async function testIssueAffectedRepos() {
     }
   }
 
-  // Test 3: Multi-repo plan is rejected with updated issue guidance
+  // Test 3: Multi-repo issue orchestration loop bypasses the single-repo guard
+  // When `wf issue` is called with multiple --repos, allowMultiRepoScope:true
+  // is passed to ImplementerAgent so the per-repo loop proceeds without error,
+  // even when the plan's repositoriesAffected lists more than one repo.
   console.log(
-    'Test 3: explicit repos + multi-repo plan → issue guidance is shown',
+    'Test 3: explicit multi-repos + multi-repo plan → issue orchestration proceeds (no single-repo error)',
   );
   {
     const { tmpRoot, homeDir, cleanup } = makeFixtures({
@@ -239,18 +242,19 @@ async function testIssueAffectedRepos() {
           repos: ['repo-a', 'repo-b'],
         }),
       );
+      const hasMultiRepoError = output.includes(
+        'issue:implement only verifies a single repository',
+      );
       if (
-        output.includes(
-          'This plan affects multiple repositories: repo-b, repo-c',
-        ) &&
-        output.includes(
-          'Use wf issue or run wf issue:implement separately per repository',
-        )
+        !hasMultiRepoError &&
+        output.includes('STAGE 3: Implementation Guide')
       ) {
-        pass('Multi-repo plan is rejected with issue guidance');
+        pass(
+          'Multi-repo issue orchestration proceeds without the single-repo boundary error',
+        );
       } else {
         fail(
-          `Test 3: expected multi-repo guidance in output. Output:\n${output}`,
+          `Test 3: expected IMPLEMENT to run for each repo without a single-repo error. Output:\n${output}`,
         );
       }
     } finally {
