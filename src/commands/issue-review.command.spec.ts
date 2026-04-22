@@ -482,6 +482,28 @@ describe('IssueReviewCommand', () => {
       expect(reviewStageService.reviewDiff).not.toHaveBeenCalled();
     });
 
+    it('logs the standardized non-interactive warning before returning', async () => {
+      const { command, reviewStageService, adapters, promptMock } =
+        await buildCommand();
+      const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet');
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
+        [],
+      );
+      adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
+      setNonInteractiveSession();
+
+      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '⚠️ Non-interactive session; returning without local review',
+      );
+      expect(promptMock).not.toHaveBeenCalled();
+      expect(reviewRepoSetSpy).not.toHaveBeenCalled();
+      expect(reviewStageService.reviewDiff).not.toHaveBeenCalled();
+    });
+
     it('posts comments to each reviewed pull request', async () => {
       const { command, adapters } = await buildCommand();
 

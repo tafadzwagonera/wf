@@ -55,7 +55,9 @@ describe('resolveRepoBasePath', () => {
     existsSync.mockReturnValue(false);
 
     expect(resolveRepoBasePath('workspace/repo-a')).toBe('/tmp/current-app');
-    expect(consoleLogSpy).toHaveBeenCalled();
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      "⚠️ Repository 'workspace/repo-a' not found as a path or sibling directory. Using current directory.",
+    );
   });
 });
 

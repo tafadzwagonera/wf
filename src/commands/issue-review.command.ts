@@ -379,7 +379,7 @@ export class IssueReviewCommand extends CommandRunner {
             } catch (error: any) {
               console.log(
                 chalk.yellow(
-                  `⚠️  Skipping ${pullRequest.title}: ${error.message}`,
+                  `⚠️ Skipping ${pullRequest.title}: ${error.message}`,
                 ),
               );
             }
@@ -428,7 +428,7 @@ export class IssueReviewCommand extends CommandRunner {
       );
 
       if (reviewableTargets.length === 0) {
-        console.log(chalk.yellow('⚠️  No changes to review'));
+        console.log(chalk.yellow('⚠️ No changes to review'));
         console.log(
           chalk.gray(
             'Make sure you have changes to review (commits, staged, or unstaged)\n',
@@ -671,7 +671,7 @@ export class IssueReviewCommand extends CommandRunner {
     if (!adapterName) {
       console.log(
         chalk.yellow(
-          `  ⚠️  --comment skipped for ${target.title}: no supported PR adapter was resolved\n`,
+          `⚠️ --comment skipped for ${target.title}: no supported PR adapter was resolved`,
         ),
       );
       return;
@@ -683,7 +683,7 @@ export class IssueReviewCommand extends CommandRunner {
     } catch (error: any) {
       console.log(
         chalk.yellow(
-          `  ⚠️  --comment skipped for ${target.title}: ${error.message}\n`,
+          `⚠️ --comment skipped for ${target.title}: ${error.message}`,
         ),
       );
       return;
@@ -691,7 +691,7 @@ export class IssueReviewCommand extends CommandRunner {
     if (!adapter.createComment) {
       console.log(
         chalk.yellow(
-          `  ⚠️  --comment skipped for ${target.title}: comment API is not supported by ${adapterName}\n`,
+          `⚠️ --comment skipped for ${target.title}: comment API is not supported by ${adapterName}`,
         ),
       );
       return;
@@ -705,7 +705,7 @@ export class IssueReviewCommand extends CommandRunner {
     } catch (error: any) {
       console.log(
         chalk.yellow(
-          `  ⚠️  --comment skipped for ${target.title}: ${error.message}\n`,
+          `⚠️ --comment skipped for ${target.title}: ${error.message}`,
         ),
       );
       return;
@@ -737,7 +737,7 @@ export class IssueReviewCommand extends CommandRunner {
         } catch (error: any) {
           console.log(
             chalk.yellow(
-              `  ⚠️  Inline comment skipped (${issue.file}:${issue.line}): ${error.message}\n`,
+              `⚠️ Inline comment skipped (${issue.file}:${issue.line}): ${error.message}`,
             ),
           );
         }
@@ -969,7 +969,7 @@ export class IssueReviewCommand extends CommandRunner {
     if (!this.isInteractiveSession()) {
       console.log(
         chalk.yellow(
-          '⚠️  Non-interactive session; returning without local review',
+          '⚠️ Non-interactive session; returning without local review',
         ),
       );
       return 'return';
@@ -1411,7 +1411,7 @@ export class IssueReviewCommand extends CommandRunner {
 
     if (!review.approved) {
       console.log(
-        chalk.yellow('\n⚠️  Address the issues above before proceeding'),
+        chalk.yellow('\n⚠️ Address the issues above before proceeding'),
       );
     }
 
