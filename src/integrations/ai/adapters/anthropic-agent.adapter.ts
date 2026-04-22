@@ -222,8 +222,21 @@ Rules:
 - Writes are allowed only within the primary repository (${repoDir})
 - Reads are allowed from ${repoDir} and any configured read-only sibling repositories
 - Treat streamed progress updates as heuristics: continue when they point to forward motion, revisit when the pass looks stuck, and stop only when the agent returns a final result.
-- When all verification commands pass (exit 0), stop and do not make further changes
-- Return only the code or file content needed for the change, not explanations
+- When all verification commands pass (exit 0) — or when you determine no file changes are required — stop and output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.
+
+### What I changed
+<Bullet list of actual edits made. If nothing was changed, write: "No file content changes were required.">
+
+### Verification run
+<Bullet list of commands run with ✅ (pass) or ❌ (fail). Omit if no commands ran.>
+
+### Files
+- **Updated:** <comma-separated list or "none">
+- **New:** <comma-separated list or "none">
+- **Deleted:** <comma-separated list or "none">
+
+### Assumptions / risk note
+<Any assumptions made or risks identified. Write "None." if there are none.>
 
 Task context:
 ${sceneContext}`;
@@ -321,7 +334,8 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
 
     const { query } = await loadAnthropicAgentSdk();
     const session = query({
-      prompt: sceneContext,
+      prompt:
+        'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes, then Bash for each verification step. Do not output any text or plan before making your first tool call.',
       options: sdkOptions,
     });
 
@@ -370,8 +384,16 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
       ),
     );
 
-    if (finalResult.result.trim()) {
-      console.log(chalk.gray(finalResult.result.trim()));
+    const summary = finalResult.result.trim();
+    if (summary) {
+      console.log(chalk.bold('\n  Summary:'));
+      summary.split('\n').forEach((line) => {
+        if (line.trim()) {
+          console.log(chalk.cyan(`    ${line}`));
+        }
+      });
+    } else {
+      console.log(chalk.gray('\n  File summary: no file changes were made.'));
     }
   }
 }
