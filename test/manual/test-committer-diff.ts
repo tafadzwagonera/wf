@@ -244,6 +244,84 @@ async function main() {
         committedFiles,
       );
     }
+
+    // ── Test 7: wf.config.* files are never staged/committed ──────────────
+    console.log('\n─'.repeat(30));
+    console.log('Test 7: wf.config.* exclusion from commits\n');
+
+    // Simulate the implementer agent creating wf config files in the target repo
+    const wfConfigFiles = [
+      'wf.config.js',
+      'wf.config.mjs',
+      'wf.config.ts',
+      'wf.config.mts',
+      'wf.config.yaml',
+      'wf.config.yml',
+    ];
+    for (const cfgFile of wfConfigFiles) {
+      fs.writeFileSync(
+        path.join(tmpDir, cfgFile),
+        `// wf tooling config — should never be committed\nmodule.exports = {};\n`,
+      );
+    }
+
+    // Make another source change so there is something real to commit
+    fs.writeFileSync(
+      initialFile,
+      [
+        'export const updatePax = (pax: any) => {',
+        '  // v3: even stricter',
+        '  if (pax.travelers === 1 && pax.roomShare === "Double bed room") {',
+        '    throw new Error("Solo travelers cannot select double room");',
+        '  }',
+        '  return pax;',
+        '};',
+      ].join('\n'),
+    );
+
+    output = '';
+    const originalWrite3 = process.stdout.write.bind(process.stdout);
+    (process.stdout.write as any) = (chunk: any) => {
+      output += String(chunk);
+      return originalWrite3(chunk);
+    };
+
+    try {
+      await committer.execute('TEST-003', tmpDir, ticketContext);
+    } finally {
+      (process.stdout.write as any) = originalWrite3;
+    }
+
+    let committedFiles3: string;
+    try {
+      committedFiles3 = execSync('git show --name-only --format="" HEAD', {
+        cwd: tmpDir,
+        encoding: 'utf-8',
+      }).trim();
+    } catch {
+      committedFiles3 = '';
+    }
+
+    const leakedConfig = wfConfigFiles.find((f) => committedFiles3.includes(f));
+    if (!leakedConfig) {
+      pass('wf.config.* files were NOT committed');
+    } else {
+      fail(
+        `wf config file leaked into commit: ${leakedConfig}`,
+        committedFiles3,
+      );
+    }
+
+    if (committedFiles3.includes('passenger.service.ts')) {
+      pass(
+        'Source file passenger.service.ts WAS committed alongside wf config files',
+      );
+    } else {
+      fail(
+        'Source file was not committed — wf.config.* exclusion too broad',
+        committedFiles3,
+      );
+    }
   } finally {
     await app.close();
     if (tmpDir && fs.existsSync(tmpDir)) {

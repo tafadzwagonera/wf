@@ -159,8 +159,21 @@ export class GitService {
         await git.add(options.files);
       } else if (!status.staged.length && status.files.length > 0) {
         // Add all modified files if nothing is staged, excluding .wf/** runtime
-        // artifacts that wf writes into the consuming app's directory.
-        await git.raw(['add', '--', '.', ':!.wf/**']);
+        // artifacts and wf config files that wf writes into the consuming app's
+        // directory. See src/config/wf-config-loader.ts for the full list of
+        // recognized config file names.
+        await git.raw([
+          'add',
+          '--',
+          '.',
+          ':!.wf/**',
+          ':!wf.config.js',
+          ':!wf.config.mjs',
+          ':!wf.config.ts',
+          ':!wf.config.mts',
+          ':!wf.config.yaml',
+          ':!wf.config.yml',
+        ]);
       }
 
       // Check if there are changes to commit
@@ -212,7 +225,15 @@ export class GitService {
   }
 
   /**
-   * Stage all modified and new files, excluding .wf/** runtime artifacts.
+   * Stage all modified and new files, excluding wf tooling artifacts:
+   * - `.wf/**` — runtime state/log directories written by wf
+   * - `wf.config.{js,mjs,ts,mts,yaml,yml}` — wf CLI config files that the
+   *   implementer agent may create inside a target repo; these are tooling
+   *   inputs, not code changes for the ticket.
+   *
+   * See `src/config/wf-config-loader.ts` for the canonical list of recognized
+   * config file names. Any new extension added there must also be added here.
+   *
    * Safe to call when nothing is staged yet; idempotent if run again.
    *
    * @param cwd - Optional repository directory; defaults to process.cwd()
@@ -220,7 +241,18 @@ export class GitService {
   async stageAll(cwd?: string): Promise<void> {
     try {
       const git = cwd ? simpleGit(cwd) : this.git;
-      await git.raw(['add', '--', '.', ':!.wf/**']);
+      await git.raw([
+        'add',
+        '--',
+        '.',
+        ':!.wf/**',
+        ':!wf.config.js',
+        ':!wf.config.mjs',
+        ':!wf.config.ts',
+        ':!wf.config.mts',
+        ':!wf.config.yaml',
+        ':!wf.config.yml',
+      ]);
     } catch (error) {
       throw new GitError('Failed to stage all changes', error);
     }
