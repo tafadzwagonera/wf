@@ -6,7 +6,8 @@
  * Verifies:
  *   1. .wf/** runtime artifacts are excluded from staging
  *   2. All six wf.config.* file variants are excluded from staging
- *   3. Real source files ARE staged (exclusions are not too broad)
+ *   3. dist/ build output is excluded from staging
+ *   4. Real source files ARE staged (exclusions are not too broad)
  *
  * No AI / API keys required — exercises GitService.stageAll() directly.
  */
@@ -83,6 +84,11 @@ async function main() {
       );
     }
 
+    // dist/ build output
+    const distDir = path.join(tmpDir, 'dist');
+    fs.mkdirSync(distDir, { recursive: true });
+    fs.writeFileSync(path.join(distDir, 'index.js'), '"use strict";\n');
+
     // ── Call stageAll ──────────────────────────────────────────────────────
     const gitService = app.get(GitService);
     await gitService.stageAll(tmpDir);
@@ -118,6 +124,13 @@ async function main() {
       } else {
         fail(`${cfgFile} leaked into staged files`, staged);
       }
+    }
+
+    // 4. dist/ build output is NOT staged
+    if (!staged.includes('dist/')) {
+      pass('dist/ build output was NOT staged');
+    } else {
+      fail('dist/ build output leaked into staged files', staged);
     }
   } finally {
     await app.close();

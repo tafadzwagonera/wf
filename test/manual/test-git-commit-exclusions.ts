@@ -7,8 +7,9 @@
  *   1. commit() auto-stages only real source files when nothing is pre-staged
  *   2. .wf/** runtime artifacts are excluded from the commit
  *   3. All six wf.config.* variants are excluded from the commit
- *   4. Already-staged files are used as-is (pre-staged branch)
- *   5. Commit succeeds without using git pathspec exclude magic
+ *   4. dist/ build output is excluded from the commit
+ *   5. Already-staged files are used as-is (pre-staged branch)
+ *   6. Commit succeeds without using git pathspec exclude magic
  *
  * No AI / API keys required — exercises GitService.commit() directly.
  */
@@ -102,6 +103,11 @@ async function main() {
       );
     }
 
+    // dist/ build output
+    const distDir = path.join(dir1, 'dist');
+    fs.mkdirSync(distDir, { recursive: true });
+    fs.writeFileSync(path.join(distDir, 'index.js'), '"use strict";\n');
+
     await gitService.commit({
       message: 'test: auto-stage scenario',
       cwd: dir1,
@@ -128,6 +134,12 @@ async function main() {
       } else {
         fail(`${cfgFile} leaked into commit`, files1);
       }
+    }
+
+    if (!files1.includes('dist/')) {
+      pass('dist/ build output was NOT committed');
+    } else {
+      fail('dist/ build output leaked into commit', files1);
     }
 
     // ── Scenario 2: pre-staged files are used as-is ────────────────────────

@@ -392,7 +392,7 @@ wf issue:review --dry-run
 
 When a ticket key is supplied, `issue:review` fetches ticket context from the configured platform, then fans out PR discovery across registered adapters that have explicit credentials in `wf.config.*`. It reviews matching PR diffs first, in deterministic order.
 
-**Staged file exclusions:** before computing the diff for review, `issue:review` stages all local changes while automatically excluding wf tooling artifacts: `.wf/**` runtime directories and `wf.config.{js,mjs,ts,mts,yaml,yml}` files. These files are created by wf itself inside target repos and are not part of the ticket's code changes.
+**Staged file exclusions:** before computing the diff for review, `issue:review` stages all local changes while automatically excluding wf tooling artifacts: `.wf/**` runtime directories, `wf.config.{js,mjs,ts,mts,yaml,yml}` files, and `dist/` build output. These files are created by wf itself inside target repos and are not part of the ticket's code changes.
 
 `--repos` serves two roles in ticket mode:
 
@@ -533,7 +533,7 @@ wf issue:commit --dry-run
 
 **Branch detection:** ticket keys are extracted from the branch name using the pattern `[A-Z]+-\d+` (e.g., `feature/WBP-2971__add-oauth` → `WBP-2971`).
 
-**Staged file exclusions:** when no files are pre-staged, `issue:commit` stages all local changes while automatically excluding wf tooling artifacts: `.wf/**` runtime directories and `wf.config.{js,mjs,ts,mts,yaml,yml}` files. These are tooling inputs created by wf inside target repos and should never appear in ticket commits.
+**Staged file exclusions:** when no files are pre-staged, `issue:commit` stages all local changes while automatically excluding wf tooling artifacts: `.wf/**` runtime directories, `wf.config.{js,mjs,ts,mts,yaml,yml}` files, and `dist/` build output. These are tooling inputs created by wf inside target repos and should never appear in ticket commits.
 
 ---
 

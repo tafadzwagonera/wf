@@ -226,6 +226,7 @@ export class GitService {
    * - `wf.config.{js,mjs,ts,mts,yaml,yml}` — wf CLI config files that the
    *   implementer agent may create inside a target repo; these are tooling
    *   inputs, not code changes for the ticket.
+   * - `dist/` — compiled build output that should not be committed to tickets
    *
    * Exclusions are applied by filtering the paths returned by `git.status()`
    * against {@link GitService.EXCLUDED_PATHS} and passing the filtered list
@@ -262,11 +263,12 @@ export class GitService {
    * Regex that matches paths that must never be staged by wf:
    * - `.wf/` or `.wf\` prefix — runtime state/log artifacts
    * - `wf.config.{js,mjs,ts,mts,yaml,yml}` — tooling config files
+   * - `dist/` or `dist\` prefix — compiled build output
    *
    * Uses `[/\\]` so it handles both POSIX and Windows path separators.
    */
   private static readonly EXCLUDED_PATHS =
-    /^\.wf[/\\]|^wf\.config\.(js|mjs|ts|mts|yaml|yml)$/;
+    /^\.wf[/\\]|^wf\.config\.(js|mjs|ts|mts|yaml|yml)$|^dist[/\\]/;
 
   /**
    * Filter a list of file paths, removing any that match {@link EXCLUDED_PATHS}.
