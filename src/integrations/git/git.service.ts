@@ -162,18 +162,12 @@ export class GitService {
         // artifacts and wf config files that wf writes into the consuming app's
         // directory. See src/config/wf-config-loader.ts for the full list of
         // recognized config file names.
-        await git.raw([
-          'add',
-          '--',
-          '.',
-          ':!.wf/**',
-          ':!wf.config.js',
-          ':!wf.config.mjs',
-          ':!wf.config.ts',
-          ':!wf.config.mts',
-          ':!wf.config.yaml',
-          ':!wf.config.yml',
-        ]);
+        const filesToAdd = this.filterStageable(
+          status.files.map((f) => f.path),
+        );
+        if (filesToAdd.length > 0) {
+          await git.add(filesToAdd);
+        }
       }
 
       // Check if there are changes to commit
@@ -191,7 +185,9 @@ export class GitService {
       if (error instanceof GitError) {
         throw error;
       }
-      throw new GitError('Failed to create commit', error);
+      const e = error as Record<string, unknown>;
+      const detail = e?.git ?? e?.message ?? error;
+      throw new GitError('Failed to create commit', detail);
     }
   }
 
@@ -231,8 +227,14 @@ export class GitService {
    *   implementer agent may create inside a target repo; these are tooling
    *   inputs, not code changes for the ticket.
    *
+   * Exclusions are applied by filtering the paths returned by `git.status()`
+   * against {@link GitService.EXCLUDED_PATHS} and passing the filtered list
+   * directly to `git.add()`. This avoids pathspec exclude magic (`:!` prefix)
+   * which has known portability issues on macOS and with certain git versions.
+   *
    * See `src/config/wf-config-loader.ts` for the canonical list of recognized
-   * config file names. Any new extension added there must also be added here.
+   * config file names. Any new extension added there must also be added here,
+   * and the {@link GitService.EXCLUDED_PATHS} regex must be updated to match.
    *
    * Safe to call when nothing is staged yet; idempotent if run again.
    *
@@ -241,21 +243,39 @@ export class GitService {
   async stageAll(cwd?: string): Promise<void> {
     try {
       const git = cwd ? simpleGit(cwd) : this.git;
-      await git.raw([
-        'add',
-        '--',
-        '.',
-        ':!.wf/**',
-        ':!wf.config.js',
-        ':!wf.config.mjs',
-        ':!wf.config.ts',
-        ':!wf.config.mts',
-        ':!wf.config.yaml',
-        ':!wf.config.yml',
-      ]);
+      const status = await git.status();
+      const filesToAdd = this.filterStageable(status.files.map((f) => f.path));
+      if (filesToAdd.length > 0) {
+        await git.add(filesToAdd);
+      }
     } catch (error) {
-      throw new GitError('Failed to stage all changes', error);
+      if (error instanceof GitError) {
+        throw error;
+      }
+      const e = error as Record<string, unknown>;
+      const detail = e?.git ?? e?.message ?? error;
+      throw new GitError('Failed to stage all changes', detail);
     }
+  }
+
+  /**
+   * Regex that matches paths that must never be staged by wf:
+   * - `.wf/` or `.wf\` prefix — runtime state/log artifacts
+   * - `wf.config.{js,mjs,ts,mts,yaml,yml}` — tooling config files
+   *
+   * Uses `[/\\]` so it handles both POSIX and Windows path separators.
+   */
+  private static readonly EXCLUDED_PATHS =
+    /^\.wf[/\\]|^wf\.config\.(js|mjs|ts|mts|yaml|yml)$/;
+
+  /**
+   * Filter a list of file paths, removing any that match {@link EXCLUDED_PATHS}.
+   *
+   * @param paths - File paths as returned by `StatusResult.files[n].path`
+   * @returns Paths that are safe to pass to `git.add()`
+   */
+  private filterStageable(paths: string[]): string[] {
+    return paths.filter((p) => !GitService.EXCLUDED_PATHS.test(p));
   }
 
   async stashChanges(message?: string): Promise<void> {
