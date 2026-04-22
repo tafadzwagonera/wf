@@ -141,9 +141,6 @@ export class IssueReviewCommand extends CommandRunner {
 
     const source = passedParams[0];
     const repoInputs = options?.repos?.length ? options.repos : [];
-    const repoDirs = repoInputs.length
-      ? repoInputs.map((repo) => resolveRepoBasePath(repo))
-      : [process.cwd()];
 
     try {
       if (options?.criteria && options?.replaceCriteria) {
@@ -162,6 +159,7 @@ export class IssueReviewCommand extends CommandRunner {
         this.dryRunPreview.showHeader('issue:review', source || 'current repo');
 
         if (!source) {
+          const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
           console.log(
             chalk.gray(
               `   Source  : working tree diff in ${repoDirs.length} repo(s)\n`,
@@ -231,7 +229,7 @@ export class IssueReviewCommand extends CommandRunner {
         if (options?.output) {
           const outputPath = this.resolveOutputPath(
             options.output,
-            repoDirs[0] ?? process.cwd(),
+            this.resolveOutputBaseDir(source, repoInputs),
           );
           this.dryRunPreview.previewFileWrite({
             filePath: outputPath,
@@ -298,6 +296,7 @@ export class IssueReviewCommand extends CommandRunner {
       const reviewTargets: ReviewTarget[] = [];
 
       if (!source) {
+        const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
         // Mode 1: No argument - review current repo changes
         console.log(
           chalk.bold.cyan('\n🔍 Reviewing Current Repository Changes\n'),
@@ -410,6 +409,7 @@ export class IssueReviewCommand extends CommandRunner {
             return;
           }
 
+          const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
           const diff = await this.reviewRepoSet(repoDirs);
           reviewTargets.push({
             title: 'Local repository changes',
@@ -461,7 +461,7 @@ export class IssueReviewCommand extends CommandRunner {
       if (options?.output) {
         const outputPath = this.resolveOutputPath(
           options.output,
-          repoDirs[0] ?? process.cwd(),
+          this.resolveOutputBaseDir(source, repoInputs),
         );
         const reviewText = this.formatReviewAsText(reviewedTargets);
         fs.writeFileSync(outputPath, reviewText);
@@ -1016,6 +1016,17 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   /**
+   * Resolve repository directories for local review operations.
+   * @param repoInputs Raw `--repos` values
+   * @returns Existing repo directories or cwd fallback when no repo was supplied
+   */
+  private resolveLocalReviewRepoDirs(repoInputs: string[]): string[] {
+    return repoInputs.length
+      ? repoInputs.map((repo) => resolveRepoBasePath(repo))
+      : [process.cwd()];
+  }
+
+  /**
    * Find repo inputs that do not resolve to a real local path.
    * @param repoInputs Raw `--repos` values
    * @returns Repo inputs that would fall back to cwd
@@ -1025,33 +1036,70 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   /**
+   * Resolve the base directory used for relative output paths.
+   * Ticket review prefers an existing local repo when one is available, but
+   * falls back silently to cwd for remote-only review flows.
+   * @param source Review source
+   * @param repoInputs Raw `--repos` values
+   * @returns Base directory for relative output files
+   */
+  private resolveOutputBaseDir(
+    source: string | undefined,
+    repoInputs: string[],
+  ): string {
+    if (source && this.isTicketKey(source)) {
+      const firstLocalRepoDir = repoInputs
+        .map((repo) => this.resolveExistingLocalRepoDir(repo))
+        .find((repoDir) => repoDir != null);
+      return firstLocalRepoDir ?? process.cwd();
+    }
+
+    const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
+    return repoDirs[0] ?? process.cwd();
+  }
+
+  /**
    * Determine whether a repo input maps to an existing local directory.
    * Mirrors resolveRepoBasePath lookup without accepting cwd fallback.
    * @param repo Repository name or path
    * @returns True when the repo resolves locally
    */
   private canResolveRepoLocally(repo: string): boolean {
-    const tryResolvePath = (candidate: string): boolean => {
+    return this.resolveExistingLocalRepoDir(repo) != null;
+  }
+
+  /**
+   * Resolve a repo input to an existing local directory without warning.
+   * @param repo Repository name or path
+   * @returns Absolute local directory or null when unresolved
+   */
+  private resolveExistingLocalRepoDir(repo: string): string | null {
+    const resolvePath = (candidate: string): string | null => {
       if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
-        return true;
+        return candidate;
       }
 
       const relPath = path.resolve(process.cwd(), candidate);
       if (fs.existsSync(relPath)) {
-        return true;
+        return relPath;
       }
 
       const siblingPath = path.resolve(process.cwd(), '..', candidate);
-      return fs.existsSync(siblingPath);
+      if (fs.existsSync(siblingPath)) {
+        return siblingPath;
+      }
+
+      return null;
     };
 
-    if (tryResolvePath(repo)) {
-      return true;
+    const repoDir = resolvePath(repo);
+    if (repoDir) {
+      return repoDir;
     }
 
     const repoSegments = repo.split(/\//).filter(Boolean);
     const localRepoName = repoSegments.length > 1 ? repoSegments[1] : null;
-    return localRepoName ? tryResolvePath(localRepoName) : false;
+    return localRepoName ? resolvePath(localRepoName) : null;
   }
 
   /**

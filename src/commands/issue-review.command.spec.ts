@@ -296,6 +296,30 @@ describe('IssueReviewCommand', () => {
       );
     });
 
+    it('does not warn about cwd fallback when remote ticket PR review succeeds without a local checkout', async () => {
+      const { command, adapters } = await buildCommand();
+      const resolveRepoBasePathMock =
+        resolveRepoBasePath as jest.MockedFunction<typeof resolveRepoBasePath>;
+
+      resolveRepoBasePathMock.mockImplementation((repo?: string) =>
+        repo === 'api-gateway-v1'
+          ? process.cwd()
+          : repo
+            ? path.join('/mock', repo)
+            : '/mock/repo',
+      );
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
+        'https://bitbucket.org/workspace/repo/pull-requests/43',
+      ]);
+      adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 43');
+
+      await command.run(['TAD-575'], { repos: ['api-gateway-v1'] });
+
+      expect(resolveRepoBasePathMock).not.toHaveBeenCalledWith(
+        'api-gateway-v1',
+      );
+    });
+
     it('fails hard when ticket lookup does not succeed', async () => {
       const { command, adapters } = await buildCommand();
       const handleSpy = jest
