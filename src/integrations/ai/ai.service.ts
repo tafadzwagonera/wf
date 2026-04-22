@@ -16,7 +16,7 @@ import type { FixPlan } from '../../agents/interfaces';
  * @param content Raw LLM response string
  * @returns File content without the outermost code fence, or the original string if none is present
  */
-const stripCodeFences = (content: string): string => {
+export const stripCodeFences = (content: string): string => {
   // Happy path: the entire response is a single code fence.
   const exactMatch = content.match(/^```[\w]*\n?([\s\S]*?)```\s*$/);
   if (exactMatch) return exactMatch[1];
@@ -98,7 +98,7 @@ const extractFirstJsonObject = (content: string): string | null => {
  * @returns Parsed JSON payload
  * @throws SyntaxError when no valid JSON object can be parsed
  */
-const parseJsonResponse = <T>(content: string): T => {
+export const parseJsonResponse = <T>(content: string): T => {
   const trimmedContent = content.trim();
   const strippedContent = stripCodeFences(trimmedContent);
   const candidates = [
@@ -304,7 +304,7 @@ const traceContainsCodeAnchors = (
 const traceContainsReviewerAnalysisLanguage = (traceText: string): boolean =>
   REVIEW_TRACE_META_PATTERNS.some((pattern) => pattern.test(traceText));
 
-const sanitizeCodeReviewTrace = (
+export const sanitizeCodeReviewTrace = (
   review: CodeReview,
   diff: string,
 ): CodeReview => {
@@ -388,6 +388,7 @@ export interface ResolutionPlan {
 export interface CodeReview {
   summary: string;
   issues: CodeIssue[];
+  executionMode?: 'standard' | 'agent';
   traceProvenance?: 'evidence-based' | 'best-effort' | 'unavailable';
   callStack?: string[];
   stateTransition?: Record<string, unknown>;
@@ -935,7 +936,10 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
 
     try {
       const parsed = parseJsonResponse<CodeReview>(response.content);
-      return sanitizeCodeReviewTrace(parsed, diff);
+      return {
+        ...sanitizeCodeReviewTrace(parsed, diff),
+        executionMode: 'standard',
+      };
     } catch (error) {
       this.logger.error('Failed to parse code review response', error);
       throw new AIError('Failed to parse code review from AI response', {

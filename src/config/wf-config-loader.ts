@@ -36,6 +36,22 @@ type SupportedStageName =
   | 'generate'
   | 'commit';
 type SupportedModelStageName = Exclude<SupportedStageName, 'implement'>;
+const AGENT_SUPPORTED_STAGES = new Set<SupportedStageName>([
+  'plan',
+  'implement',
+  'review',
+  'generate',
+]);
+const AGENT_SUPPORTED_PROVIDERS = new Set<WfAiProviderName>([
+  'anthropic',
+  'openai',
+]);
+
+export interface NormalizedAiStageTargetConfig {
+  provider: WfAiProviderName;
+  model: string;
+  agent: boolean;
+}
 
 export interface NormalizedAfterImplementConfig {
   baseMaxAttempts: number;
@@ -51,8 +67,8 @@ export interface NormalizedAfterImplementConfig {
 export interface NormalizedImplementStageConfig {
   provider: WfAiProviderName;
   model: string;
+  agent: boolean;
   afterImplement?: NormalizedAfterImplementConfig;
-  experimentalAgent?: boolean;
 }
 
 export interface NormalizedWfConfig {
@@ -79,14 +95,16 @@ export interface NormalizedWfConfig {
     deepseekApiKey?: string;
     model: string;
     maxTokens?: number;
-    stages: Partial<Record<SupportedModelStageName, WfAiStageTargetConfig>>;
+    stages: Partial<
+      Record<SupportedModelStageName, NormalizedAiStageTargetConfig>
+    >;
   };
   stages: {
-    plan?: WfAiStageTargetConfig;
+    plan?: NormalizedAiStageTargetConfig;
     implement?: NormalizedImplementStageConfig;
-    review?: WfAiStageTargetConfig;
-    generate?: WfAiStageTargetConfig;
-    commit?: WfAiStageTargetConfig;
+    review?: NormalizedAiStageTargetConfig;
+    generate?: NormalizedAiStageTargetConfig;
+    commit?: NormalizedAiStageTargetConfig;
   };
   atlassian: {
     baseUrl?: string;
@@ -185,16 +203,17 @@ const aiStageTargetSchema = Joi.object<WfAiStageTargetConfig>({
   provider: Joi.string()
     .valid('anthropic', 'openai', 'google', 'deepseek')
     .required(),
-  model: Joi.string().min(1).required(),
+  model: Joi.string().min(1).optional(),
+  agent: Joi.boolean().optional(),
 });
 
 const implementStageSchema = Joi.object<WfImplementStageConfig>({
   provider: Joi.string()
     .valid('anthropic', 'openai', 'google', 'deepseek')
     .required(),
-  model: Joi.string().min(1).required(),
+  model: Joi.string().min(1).optional(),
+  agent: Joi.boolean().optional(),
   afterImplement: afterImplementSchema.optional(),
-  experimentalAgent: Joi.boolean().optional(),
 });
 
 const configSchema = Joi.object<WfConfig>({
@@ -554,11 +573,13 @@ const normalizeStageTarget = ({
   stageName,
   stageTarget,
   configuredProviderNames,
+  configuredProvidersByName,
 }: {
   stageName: SupportedStageName;
   stageTarget?: WfAiStageTargetConfig;
   configuredProviderNames: Set<WfAiProviderName>;
-}): WfAiStageTargetConfig | undefined => {
+  configuredProvidersByName: Map<WfAiProviderName, { model: string }>;
+}): NormalizedAiStageTargetConfig | undefined => {
   if (!stageTarget) {
     return undefined;
   }
@@ -569,9 +590,30 @@ const normalizeStageTarget = ({
     );
   }
 
+  const providerConfig = configuredProvidersByName.get(stageTarget.provider);
+  const model = stageTarget.model ?? providerConfig?.model;
+  if (!model) {
+    throw new ValidationError(
+      `Invalid wf config: ${stageName} stage must define model or configure a default model for provider "${stageTarget.provider}" in ai[].`,
+    );
+  }
+
+  const agent = stageTarget.agent === true;
+  if (agent && !AGENT_SUPPORTED_STAGES.has(stageName)) {
+    throw new ValidationError(
+      `Invalid wf config: ${stageName} stage does not support agent execution.`,
+    );
+  }
+  if (agent && !AGENT_SUPPORTED_PROVIDERS.has(stageTarget.provider)) {
+    throw new ValidationError(
+      `Invalid wf config: ${stageName} stage with agent: true is unsupported for provider "${stageTarget.provider}".`,
+    );
+  }
+
   return {
     provider: stageTarget.provider,
-    model: stageTarget.model,
+    model,
+    agent,
   };
 };
 
@@ -636,6 +678,9 @@ export const normalizeWfConfig = (
   const configuredProviderNames = new Set(
     providers.map((provider) => provider.provider),
   );
+  const configuredProvidersByName = new Map(
+    providers.map((provider) => [provider.provider, { model: provider.model }]),
+  );
 
   const aiStages = (['plan', 'review', 'generate', 'commit'] as const).reduce(
     (result, stageName) => {
@@ -643,13 +688,16 @@ export const normalizeWfConfig = (
         stageName,
         stageTarget: validatedConfig.stages?.[stageName],
         configuredProviderNames,
+        configuredProvidersByName,
       });
       if (stageTarget) {
         result[stageName] = stageTarget;
       }
       return result;
     },
-    {} as Partial<Record<SupportedModelStageName, WfAiStageTargetConfig>>,
+    {} as Partial<
+      Record<SupportedModelStageName, NormalizedAiStageTargetConfig>
+    >,
   );
 
   const normalizedImplementStage = (() => {
@@ -662,6 +710,7 @@ export const normalizeWfConfig = (
       stageName: 'implement',
       stageTarget: implementStageConfig,
       configuredProviderNames,
+      configuredProvidersByName,
     });
 
     if (!implementTarget) {
@@ -673,7 +722,6 @@ export const normalizeWfConfig = (
       afterImplement: normalizeAfterImplementConfig(
         implementStageConfig.afterImplement,
       ),
-      experimentalAgent: implementStageConfig.experimentalAgent,
     };
   })();
 

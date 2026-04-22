@@ -67,6 +67,7 @@ import { IssueGenerateCommand } from './issue-generate.command';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { FormatConverterService } from '../common/converters/format-converter.service';
 import { AiService } from '../integrations/ai/ai.service';
+import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { SlackService } from '../integrations/slack/slack.service';
@@ -79,7 +80,13 @@ import * as fs from 'fs';
 
 const mockCwd = '/tmp/consumer-app';
 
-async function buildCommand(): Promise<IssueGenerateCommand> {
+async function buildCommand(options?: {
+  generateAgentEnabled?: boolean;
+}): Promise<{
+  command: IssueGenerateCommand;
+  mockAiService: Record<string, jest.Mock>;
+  mockStageAgentService: Record<string, jest.Mock>;
+}> {
   const mockSlackService = {
     fetchThread: jest.fn(),
     fetchChannelHistory: jest.fn(),
@@ -124,6 +131,50 @@ async function buildCommand(): Promise<IssueGenerateCommand> {
       ].join('\n'),
     }),
   };
+  const mockStageAgentService = {
+    isEnabledForStage: jest.fn((stage: string) =>
+      stage === 'generate' ? options?.generateAgentEnabled === true : false,
+    ),
+    generateFromPrompt: jest
+      .fn()
+      .mockResolvedValue(
+        [
+          '# Agent Generated Title',
+          '',
+          '**Type:** task',
+          '**Priority:** medium',
+          '',
+          '## Description',
+          '',
+          '### Summary',
+          'Agent generated summary',
+          '',
+          '#### Technical Details',
+          'None',
+          '',
+          '### Acceptance Criteria',
+          '- None',
+          '',
+          '### Unit Test Scope',
+          '- None',
+          '',
+          '#### Dependencies',
+          '- None',
+          '',
+          '### Risks & Assumptions',
+          '- None',
+          '',
+          '### Affected Repositories',
+          '- None',
+          '',
+          '#### References',
+          '- None',
+          '',
+          '#### Out of Scope',
+          '- None',
+        ].join('\n'),
+      ),
+  };
   const module = await Test.createTestingModule({
     providers: [
       IssueGenerateCommand,
@@ -145,6 +196,10 @@ async function buildCommand(): Promise<IssueGenerateCommand> {
       {
         provide: AiService,
         useValue: mockAiService,
+      },
+      {
+        provide: StageAgentService,
+        useValue: mockStageAgentService,
       },
       {
         provide: ConfigService,
@@ -180,7 +235,11 @@ async function buildCommand(): Promise<IssueGenerateCommand> {
     ],
   }).compile();
 
-  return module.get(IssueGenerateCommand);
+  return {
+    command: module.get(IssueGenerateCommand),
+    mockAiService,
+    mockStageAgentService,
+  };
 }
 
 describe('IssueGenerateCommand', () => {
@@ -228,7 +287,7 @@ describe('IssueGenerateCommand', () => {
 
   describe('AI stage routing', () => {
     it('uses the generate stage override when synthesizing ticket content', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       const aiService = (command as any).aiService as jest.Mocked<AiService>;
 
       await (command as any).synthesizeWithAI([
@@ -247,8 +306,31 @@ describe('IssueGenerateCommand', () => {
       );
     });
 
+    it('uses the stage agent service when generate agent mode is enabled', async () => {
+      const { command, mockAiService, mockStageAgentService } =
+        await buildCommand({
+          generateAgentEnabled: true,
+        });
+
+      await (command as any).synthesizeWithAI([
+        {
+          type: 'file',
+          source: './notes.md',
+          content: 'Short notes that require synthesis',
+        },
+        {
+          type: 'file',
+          source: './more-notes.md',
+          content: 'Another source to avoid the single-source bypass',
+        },
+      ]);
+
+      expect(mockStageAgentService.generateFromPrompt).toHaveBeenCalledTimes(1);
+      expect(mockAiService.execute).not.toHaveBeenCalled();
+    });
+
     it('instructs the model to use fenced code blocks and hyphen bullets only', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
 
       const prompt = (command as any).buildSynthesisPrompt([
         {
@@ -269,7 +351,7 @@ describe('IssueGenerateCommand', () => {
 
   describe('parseRepos', () => {
     it('returns trimmed repo values from variadic option input', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
 
       expect(
         command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any),
@@ -278,7 +360,7 @@ describe('IssueGenerateCommand', () => {
   });
 
   it('stores saved generated artifacts under the cwd namespace by default', async () => {
-    const command = await buildCommand();
+    const { command } = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
@@ -294,7 +376,7 @@ describe('IssueGenerateCommand', () => {
   });
 
   it('stores saved generated artifacts under the targeted repo namespace when --repos is provided', async () => {
-    const command = await buildCommand();
+    const { command } = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
@@ -312,7 +394,7 @@ describe('IssueGenerateCommand', () => {
 
   describe('repo-aware local source resolution', () => {
     it('resolves a filename-only source to the repo-scoped artifact directory', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       const repoName = 'service-tourv3';
       const repoBasePath = path.join('/tmp/consumer-app', repoName);
       const sourceName = 'itinerary-pdf-generation.md';
@@ -344,7 +426,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('prefers repo matches over cwd when --repos is provided', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       (
         fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
       ).mockImplementation((input) => {
@@ -368,7 +450,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('allows selecting multiple repo matches for synthesis in interactive mode', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       const promptMock = inquirer.prompt as jest.MockedFunction<
         typeof inquirer.prompt
       >;
@@ -413,7 +495,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('fails in silent mode when a relative source matches multiple repos', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       (
         fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
       ).mockImplementation((input) => {
@@ -436,7 +518,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('does not treat ~/.wf artifacts as local source files', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       (
         fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
       ).mockImplementation((input) => {
@@ -450,7 +532,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('warns when a repo identifier cannot be resolved', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       (
         fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
       ).mockImplementation((input) => {
@@ -478,7 +560,7 @@ describe('IssueGenerateCommand', () => {
 
   describe('unresolved local source diagnostics', () => {
     it('explains that unresolved artifact filenames require --repos', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       const errorHandlerSpy = jest
         .spyOn(ErrorHandler, 'handle')
         .mockImplementation((() => {
@@ -510,7 +592,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('does not preview AI synthesis in dry-run mode when no source resolves', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       const dryRunPreview = (command as any)
         .dryRunPreview as jest.Mocked<DryRunPreviewService>;
       const errorHandlerSpy = jest
@@ -547,7 +629,7 @@ describe('IssueGenerateCommand', () => {
 
   describe('multi-repo save targets', () => {
     it('prompts for save targets only after synthesis succeeds', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       const aiService = (command as any).aiService as jest.Mocked<AiService>;
       const saveTicketLocallySpy = jest
         .spyOn(command as any, 'saveTicketLocally')
@@ -604,7 +686,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('fails in silent mode when --save targets multiple repos', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       const errorHandlerSpy = jest
         .spyOn(ErrorHandler, 'handle')
         .mockImplementation((() => {
@@ -650,7 +732,7 @@ describe('IssueGenerateCommand', () => {
   });
 
   it('saves the readable artifact stem and a reversible source manifest', async () => {
-    const command = await buildCommand();
+    const { command } = await buildCommand();
     const ticket = {
       title: 'Generated Title',
       description: 'Generated summary',
@@ -697,7 +779,7 @@ describe('IssueGenerateCommand', () => {
 
   describe('Slack source handling', () => {
     it('formats bare Slack archive URLs as chronological conversation artifacts with thread-style filenames', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       const slackService = (command as any)
         .slackService as jest.Mocked<SlackService>;
 
@@ -752,7 +834,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('keeps Slack thread permalinks on the existing thread fetch path', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       const slackService = (command as any)
         .slackService as jest.Mocked<SlackService>;
 
@@ -780,7 +862,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('shows Slack history API preview for bare Slack channel archive URLs in dry-run mode', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       const dryRunPreview = (command as any)
         .dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
@@ -809,7 +891,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('stops instead of synthesizing an empty ticket when all Slack sources fail', async () => {
-      const command = await buildCommand();
+      const { command } = await buildCommand();
       const slackService = (command as any)
         .slackService as jest.Mocked<SlackService>;
       const aiService = (command as any).aiService as jest.Mocked<AiService>;

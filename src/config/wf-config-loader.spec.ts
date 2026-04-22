@@ -232,10 +232,12 @@ describe('wf-config-loader', () => {
       expect(config.ai.stages.commit).toEqual({
         provider: 'google',
         model: 'gemini-2.5-pro',
+        agent: false,
       });
       expect(config.stages.commit).toEqual({
         provider: 'google',
         model: 'gemini-2.5-pro',
+        agent: false,
       });
     });
 
@@ -249,7 +251,7 @@ describe('wf-config-loader', () => {
       ).toThrow(/implement.*object/i);
     });
 
-    it('accepts explicit provider/model objects for AI-driven stage overrides', () => {
+    it('accepts explicit stage objects with optional agent flag', () => {
       const config = normalizeWfConfig({
         ai: [
           {
@@ -273,6 +275,7 @@ describe('wf-config-loader', () => {
           plan: {
             provider: 'anthropic',
             model: 'claude-sonnet-4-20250514',
+            agent: false,
           },
           review: {
             provider: 'google',
@@ -281,7 +284,7 @@ describe('wf-config-loader', () => {
           implement: {
             provider: 'anthropic',
             model: 'claude-haiku-4-5-20251001',
-            experimentalAgent: true,
+            agent: true,
             afterImplement: {
               policyFile: '.wf/verification.json',
             },
@@ -292,15 +295,17 @@ describe('wf-config-loader', () => {
       expect(config.ai.stages.review).toEqual({
         provider: 'google',
         model: 'gemini-2.5-pro',
+        agent: false,
       });
       expect(config.stages.plan).toEqual({
         provider: 'anthropic',
         model: 'claude-sonnet-4-20250514',
+        agent: false,
       });
       expect(config.stages.implement).toEqual({
         provider: 'anthropic',
         model: 'claude-haiku-4-5-20251001',
-        experimentalAgent: true,
+        agent: true,
         afterImplement: {
           baseMaxAttempts: 3,
           maxProgressExtensions: 2,
@@ -381,6 +386,7 @@ describe('wf-config-loader', () => {
 
       expect(config.stages.implement?.provider).toBe('google');
       expect(config.stages.implement?.model).toBe('gemini-2.5-pro');
+      expect(config.stages.implement?.agent).toBe(false);
       expect(config.stages.implement?.afterImplement).toEqual({
         baseMaxAttempts: 3,
         maxProgressExtensions: 2,
@@ -423,6 +429,102 @@ describe('wf-config-loader', () => {
         policyFile: '.wf/verification.json',
         scripts: {},
       });
+    });
+
+    it('rejects deprecated stages.implement.experimentalAgent', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+          stages: {
+            implement: {
+              provider: 'openai',
+              model: 'gpt-5.4',
+              experimentalAgent: true,
+            } as never,
+          },
+        }),
+      ).toThrow(/experimentalAgent/i);
+    });
+
+    it('defaults stage agent flag to false when omitted', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            default: true,
+          },
+        ],
+        stages: {
+          review: {
+            provider: 'openai',
+            model: 'gpt-5.4',
+          },
+        },
+      });
+
+      expect(config.stages.review?.agent).toBe(false);
+      expect(config.ai.stages.review?.agent).toBe(false);
+    });
+
+    it('resolves missing stage model from configured provider defaults', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            default: true,
+          },
+          {
+            provider: 'anthropic',
+            apiKey: 'anthropic-key',
+            model: 'claude-sonnet-4-20250514',
+          },
+        ],
+        stages: {
+          review: {
+            provider: 'openai',
+            agent: true,
+          },
+          plan: {
+            provider: 'anthropic',
+          },
+        },
+      });
+
+      expect(config.stages.review).toEqual({
+        provider: 'openai',
+        model: 'gpt-5.4',
+        agent: true,
+      });
+      expect(config.stages.plan).toEqual({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+        agent: false,
+      });
+    });
+
+    it('fails fast when agent mode is enabled for unsupported providers', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [
+            {
+              provider: 'google',
+              apiKey: 'gemini-key',
+              model: 'gemini-2.5-pro',
+              default: true,
+            },
+          ],
+          stages: {
+            review: {
+              provider: 'google',
+              agent: true,
+            },
+          },
+        }),
+      ).toThrow(/agent: true.*google/i);
     });
   });
 
@@ -483,6 +585,7 @@ describe('wf-config-loader', () => {
       expect(config.ai.stages.review).toEqual({
         provider: 'google',
         model: 'gemini-2.5-pro',
+        agent: false,
       });
     });
   });

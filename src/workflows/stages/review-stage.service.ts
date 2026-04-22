@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AiService, CodeReview } from '../../integrations/ai/ai.service';
 import { ReviewArtifact, TicketArtifact } from '../../agents/interfaces';
+import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 
 const DEFAULT_REVIEW_GUIDELINES = [
   'Clarity: Would another developer understand this instantly?',
@@ -23,7 +25,11 @@ interface ReviewDiffOptions {
 
 @Injectable()
 export class ReviewStageService {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly configService: ConfigService,
+    private readonly stageAgentService: StageAgentService,
+  ) {}
 
   async reviewDiff(
     diff: string,
@@ -37,7 +43,15 @@ export class ReviewStageService {
           ...(options.extraCriteria ?? []),
         ];
 
-    return this.aiService.reviewCode(diff, guidelines);
+    const review = this.stageAgentService.isEnabledForStage('review')
+      ? await this.stageAgentService.reviewCode(diff, guidelines)
+      : await this.aiService.reviewCode(diff, guidelines);
+    const agentEnabled =
+      this.configService.get<boolean>('stages.review.agent', false) === true;
+    return {
+      ...review,
+      executionMode: agentEnabled ? 'agent' : 'standard',
+    };
   }
 
   createReviewArtifact(
@@ -90,18 +104,20 @@ ${review.approved ? '✓ Approved' : '✗ Changes needed'}
   }
 
   private resolveTraceProvenance(review: CodeReview): string {
+    const hasStructuredTrace =
+      Boolean(review.callStack?.length) ||
+      Object.keys(review.stateTransition ?? {}).length > 0;
+    if (!hasStructuredTrace || review.traceProvenance === 'unavailable') {
+      return 'unavailable';
+    }
+
+    if (review.executionMode === 'agent') return 'evidence-based';
+
     if (review.traceProvenance) {
       return review.traceProvenance;
     }
 
-    if (
-      review.callStack?.length ||
-      Object.keys(review.stateTransition ?? {}).length
-    ) {
-      return 'best-effort';
-    }
-
-    return 'unavailable';
+    return 'best-effort';
   }
 
   private formatTraceProvenance(review: CodeReview): string {
@@ -109,6 +125,7 @@ ${review.approved ? '✓ Approved' : '✗ Changes needed'}
 
     if (provenance === 'evidence-based') {
       return [
+        `> Execution mode: ${review.executionMode ?? 'standard'}.`,
         '> Provenance: evidence-based (code-path trace backed by the execution backend).',
         '> Evidence: the trace is grounded in the changed code path.',
       ].join('\n');
@@ -116,12 +133,14 @@ ${review.approved ? '✓ Approved' : '✗ Changes needed'}
 
     if (provenance === 'best-effort') {
       return [
+        `> Execution mode: ${review.executionMode ?? 'standard'}.`,
         '> Provenance: best-effort (code-path trace inferred from the diff and AI output).',
         '> Hindrance: there is no runtime execution trace backend in this path.',
       ].join('\n');
     }
 
     return [
+      `> Execution mode: ${review.executionMode ?? 'standard'}.`,
       '> Provenance: unavailable (no concrete code-path trace could be inferred from the diff).',
       '> Hindrance: the review pipeline did not return a code-path trace payload.',
     ].join('\n');

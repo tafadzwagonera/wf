@@ -10,7 +10,8 @@ export interface WfAiProviderConfig {
 
 export interface WfAiStageTargetConfig {
   provider: WfAiProviderName;
-  model: string;
+  model?: string;
+  agent?: boolean;
 }
 
 export interface WfAtlassianConfig {
@@ -41,8 +42,6 @@ export interface WfAfterImplementConfig {
 
 export interface WfImplementStageConfig extends WfAiStageTargetConfig {
   afterImplement?: WfAfterImplementConfig;
-  /** Enable the experimental agent backend. Supports provider: 'anthropic' or 'openai'. */
-  experimentalAgent?: boolean;
 }
 
 export interface WfConfig {

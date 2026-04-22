@@ -117,7 +117,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 @Command({
   name: 'issue:review',
   description:
-    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs',
+    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with explicit trace provenance in the output',
   arguments: '[source]',
   options: { isDefault: false },
 })
@@ -557,18 +557,20 @@ export class IssueReviewCommand extends CommandRunner {
    * @returns Provenance label for trace sections
    */
   private resolveTraceProvenance(review: CodeReview): TraceProvenance {
+    const hasStructuredTrace =
+      Boolean(review.callStack?.length) ||
+      Object.keys(review.stateTransition ?? {}).length > 0;
+    if (!hasStructuredTrace || review.traceProvenance === 'unavailable') {
+      return 'unavailable';
+    }
+
+    if (review.executionMode === 'agent') {
+      return 'evidence-based';
+    }
     if (review.traceProvenance) {
       return review.traceProvenance;
     }
-
-    if (
-      review.callStack?.length ||
-      Object.keys(review.stateTransition ?? {}).length
-    ) {
-      return 'best-effort';
-    }
-
-    return 'unavailable';
+    return 'best-effort';
   }
 
   /**
@@ -582,26 +584,29 @@ export class IssueReviewCommand extends CommandRunner {
     colorized: boolean,
   ): string {
     const provenance = this.resolveTraceProvenance(review);
+    const executionMode = review.executionMode ?? 'standard';
+    const modeLine = `Execution mode: ${executionMode}`;
     const line =
       provenance === 'evidence-based'
         ? 'Provenance: evidence-based (code-path trace backed by the execution backend)'
         : provenance === 'best-effort'
           ? 'Provenance: best-effort (code-path trace inferred from the diff and AI output)'
           : 'Provenance: unavailable (no concrete code-path trace could be inferred from the diff)';
+    const rendered = [`  ${modeLine}`, `  ${line}`];
 
     if (!colorized) {
-      return `  ${line}`;
+      return rendered.join('\n');
     }
 
     if (provenance === 'evidence-based') {
-      return chalk.green(`  ${line}`);
+      return `${chalk.green(`  ${modeLine}`)}\n${chalk.green(`  ${line}`)}`;
     }
 
     if (provenance === 'best-effort') {
-      return chalk.yellow(`  ${line}`);
+      return `${chalk.yellow(`  ${modeLine}`)}\n${chalk.yellow(`  ${line}`)}`;
     }
 
-    return chalk.gray(`  ${line}`);
+    return `${chalk.gray(`  ${modeLine}`)}\n${chalk.gray(`  ${line}`)}`;
   }
 
   /**

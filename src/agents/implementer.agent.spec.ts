@@ -1759,8 +1759,8 @@ describe('ImplementerAgent', () => {
     });
   });
 
-  describe('experimental agent backend selection', () => {
-    it('logs the selected anthropic-agent backend when experimentalAgent is enabled with anthropic provider', async () => {
+  describe('stage agent backend selection', () => {
+    it('logs the selected anthropic-agent backend when stages.implement.agent is enabled with anthropic provider', async () => {
       const module = await Test.createTestingModule({
         providers: [
           ImplementerAgent,
@@ -1770,7 +1770,7 @@ describe('ImplementerAgent', () => {
               get: jest
                 .fn()
                 .mockImplementation((key: string, fallback?: unknown) => {
-                  if (key === 'stages.implement.experimentalAgent') return true;
+                  if (key === 'stages.implement.agent') return true;
                   if (key === 'ai.provider') return 'anthropic';
                   if (key === 'branching.prefixMapping')
                     return {
@@ -1833,7 +1833,7 @@ describe('ImplementerAgent', () => {
       ).toBe(false);
     });
 
-    it('falls back with a warning when experimentalAgent is true but provider is not anthropic', async () => {
+    it('fails fast when stages.implement.agent is true but provider is unsupported', async () => {
       const module = await Test.createTestingModule({
         providers: [
           ImplementerAgent,
@@ -1843,7 +1843,7 @@ describe('ImplementerAgent', () => {
               get: jest
                 .fn()
                 .mockImplementation((key: string, fallback?: unknown) => {
-                  if (key === 'stages.implement.experimentalAgent') return true;
+                  if (key === 'stages.implement.agent') return true;
                   if (key === 'ai.provider') return 'google';
                   if (key === 'branching.prefixMapping')
                     return {
@@ -1881,59 +1881,22 @@ describe('ImplementerAgent', () => {
 
       const fallbackAgent = module.get(ImplementerAgent);
 
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((p: string) =>
-          ['/tmp/repo-a/package.json', '/tmp/repo-a/src/example.ts'].includes(
-            p,
-          ),
-        );
-      jest
-        .spyOn(require('fs'), 'readFileSync')
-        .mockImplementation((p: string) => {
-          if (p === '/tmp/repo-a/package.json')
-            return JSON.stringify({ scripts: {} });
-          return 'export const x = 0;\n';
-        });
-      jest
-        .spyOn(require('fs'), 'mkdirSync')
-        .mockImplementation(() => undefined as any);
-      jest
-        .spyOn(require('fs'), 'writeFileSync')
-        .mockImplementation(() => undefined);
-
       const consoleSpy = jest
         .spyOn(console, 'log')
         .mockImplementation(() => {});
-      await fallbackAgent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { platformName: 'jira', repoDir: '/tmp/repo-a' },
-      );
-
-      const warnCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
-      expect(
-        warnCalls.some(
-          (msg) =>
-            msg.includes('experimentalAgent') ||
-            msg.toLowerCase().includes('falls back'),
+      await expect(
+        fallbackAgent.execute(
+          ticketArtifact,
+          buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+          { platformName: 'jira', repoDir: '/tmp/repo-a' },
         ),
-      ).toBe(true);
-      expect(
-        warnCalls.some((msg) =>
-          msg.includes(
-            'Implement backend: two-phase (configured: anthropic-agent',
-          ),
-        ),
-      ).toBe(true);
-      expect(require('fs').writeFileSync).toHaveBeenCalledWith(
-        expect.stringContaining('/.wf/state/implement-verification/repo-a/'),
-        expect.stringContaining('"backendSelected": "two-phase"'),
-        'utf-8',
+      ).rejects.toThrow(/unsupported for provider "google"/i);
+      expect(consoleSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('falls back'),
       );
     });
 
-    it('logs and selects the openai-agent backend when experimentalAgent is enabled with openai provider', async () => {
+    it('logs and selects the openai-agent backend when stages.implement.agent is enabled with openai provider', async () => {
       const module = await Test.createTestingModule({
         providers: [
           ImplementerAgent,
@@ -1943,7 +1906,7 @@ describe('ImplementerAgent', () => {
               get: jest
                 .fn()
                 .mockImplementation((key: string, fallback?: unknown) => {
-                  if (key === 'stages.implement.experimentalAgent') return true;
+                  if (key === 'stages.implement.agent') return true;
                   if (key === 'stages.implement.provider') return 'openai';
                   if (key === 'ai.provider') return 'anthropic';
                   if (key === 'branching.prefixMapping')

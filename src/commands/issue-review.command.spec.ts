@@ -341,6 +341,7 @@ describe('IssueReviewCommand', () => {
       const reviewRepoSetSpy = jest
         .spyOn(command as any, 'reviewRepoSet')
         .mockResolvedValue('local diff');
+      jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(true);
 
       adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
         [],
@@ -439,6 +440,7 @@ describe('IssueReviewCommand', () => {
         .spyOn(command as any, 'reviewRepoSet')
         .mockResolvedValue('local diff');
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(true);
 
       adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
         [],
@@ -467,6 +469,7 @@ describe('IssueReviewCommand', () => {
       const { command, reviewStageService, adapters, promptMock } =
         await buildCommand();
       const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet');
+      jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(true);
 
       adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
         [],
@@ -487,6 +490,7 @@ describe('IssueReviewCommand', () => {
         await buildCommand();
       const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet');
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(true);
 
       adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
         [],
@@ -554,6 +558,7 @@ describe('IssueReviewCommand', () => {
       expect(output).toContain(
         'Provenance: best-effort (code-path trace inferred from the diff and AI output)',
       );
+      expect(output).toContain('Execution mode: standard');
       expect(output).toContain(
         'Best effort: call stack is inferred from the changed code and AI output.',
       );
@@ -601,6 +606,7 @@ describe('IssueReviewCommand', () => {
       expect(output).toContain(
         'Provenance: unavailable (no concrete code-path trace could be inferred from the diff)',
       );
+      expect(output).toContain('Execution mode: standard');
       expect(output).toContain(
         'Trace unavailable: no concrete code-path trace could be inferred for the call stack section.',
       );

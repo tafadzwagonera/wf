@@ -7,6 +7,7 @@ import { AnthropicAdapter } from './adapters/anthropic.adapter';
 import { OpenAIAdapter } from './adapters/openai.adapter';
 import { GeminiAdapter } from './adapters/gemini.adapter';
 import { DeepSeekAdapter } from './adapters/deepseek.adapter';
+import { StageAgentService } from './stage-agent.service';
 
 @Module({
   imports: [ConversationModule],
@@ -17,8 +18,9 @@ import { DeepSeekAdapter } from './adapters/deepseek.adapter';
     DeepSeekAdapter,
     LlmAdapterFactory,
     AiService,
+    StageAgentService,
     LoggerService,
   ],
-  exports: [AiService, ConversationModule],
+  exports: [AiService, StageAgentService, ConversationModule],
 })
 export class AIModule {}

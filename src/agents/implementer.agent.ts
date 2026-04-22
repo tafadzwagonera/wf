@@ -126,7 +126,7 @@ export class ImplementerAgent {
    * a deeper test/type/module failure collapses into a smaller earlier-stage
    * lint/type residue, while still rejecting genuine oscillation.
    *
-   * When `stages.implement.experimentalAgent: true` and the implement-stage
+   * When `stages.implement.agent: true` and the implement-stage
    * provider is `'anthropic'`, delegates the entire generate-and-verify loop
    * to AnthropicAgentAdapter (tool-use inner loop). When the provider is
    * `'openai'`, delegates to OpenAIAgentAdapter. All other providers use the
@@ -292,14 +292,6 @@ export class ImplementerAgent {
         trackedFilePaths,
       });
       return { type: 'implementation', branchName };
-    }
-
-    if (backendSelection.fallbackReason) {
-      console.log(
-        chalk.yellow(
-          `  ⚠ stages.implement.experimentalAgent falls back to standard two-phase retry for provider: ${backendSelection.provider}.`,
-        ),
-      );
     }
 
     let retryRepoFiles = repoFiles;
@@ -1958,21 +1950,18 @@ export class ImplementerAgent {
    * Resolves which implementation backend should run for the current config.
    *
    * Backend selection comes from runtime wf config:
-   * `stages.implement.experimentalAgent` and `stages.implement.provider`.
+   * `stages.implement.agent` and `stages.implement.provider`.
    *
    * @returns Selected backend plus the configuration intent and provider
    */
   private resolveImplementBackendSelection(): ImplementBackendSelection {
-    const experimentalAgent =
-      this.configService.get<boolean>(
-        'stages.implement.experimentalAgent',
-        false,
-      ) === true;
+    const stageAgentEnabled =
+      this.configService.get<boolean>('stages.implement.agent', false) === true;
     const provider =
       this.configService.get<string>('stages.implement.provider') ??
       this.configService.get<string>('ai.provider', 'anthropic');
 
-    if (!experimentalAgent) {
+    if (!stageAgentEnabled) {
       return {
         configured: 'two-phase' as const,
         selected: 'two-phase' as const,
@@ -1981,12 +1970,9 @@ export class ImplementerAgent {
     }
 
     if (provider !== 'anthropic' && provider !== 'openai') {
-      return {
-        configured: 'anthropic-agent' as const,
-        selected: 'two-phase' as const,
-        provider,
-        fallbackReason: 'provider mismatch',
-      };
+      throw new Error(
+        `Implement stage agent backend is unsupported for provider "${provider}". Configure stages.implement.provider as anthropic or openai, or disable stages.implement.agent.`,
+      );
     }
 
     return {

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AiService, ResolutionPlan } from '../../integrations/ai/ai.service';
+import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import {
   buildPlanArtifactFilename,
   buildPlanArtifactManifest,
@@ -25,12 +26,24 @@ interface GeneratePlanOptions {
 
 @Injectable()
 export class PlanStageService {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly stageAgentService: StageAgentService,
+  ) {}
 
   async generatePlan(
     ticketContent: string,
     options: GeneratePlanOptions,
   ): Promise<ResolutionPlan> {
+    if (this.stageAgentService.isEnabledForStage('plan')) {
+      return this.stageAgentService.generatePlan({
+        action: options.action,
+        issueContent: ticketContent,
+        ticketKey: options.ticketKey,
+        affectedRepositories: options.affectedRepositories,
+      });
+    }
+
     return this.aiService.generatePlan(options.action as any, ticketContent, {
       ticketKey: options.ticketKey,
       summary: this.extractSummary(ticketContent),

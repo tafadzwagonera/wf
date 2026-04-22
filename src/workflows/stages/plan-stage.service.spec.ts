@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { AiService } from '../../integrations/ai/ai.service';
 import { PlanStageService } from './plan-stage.service';
+import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import {
   buildPlanArtifactManifestPath,
   hashPlanArtifactSources,
@@ -29,7 +30,7 @@ describe('PlanStageService', () => {
     risks: ['Regression in login flow'],
   };
 
-  const buildService = async () => {
+  const buildService = async (agentEnabled: boolean = false) => {
     const module = await Test.createTestingModule({
       providers: [
         PlanStageService,
@@ -39,12 +40,20 @@ describe('PlanStageService', () => {
             generatePlan: jest.fn().mockResolvedValue(mockPlan),
           },
         },
+        {
+          provide: StageAgentService,
+          useValue: {
+            isEnabledForStage: jest.fn().mockReturnValue(agentEnabled),
+            generatePlan: jest.fn().mockResolvedValue(mockPlan),
+          },
+        },
       ],
     }).compile();
 
     return {
       service: module.get(PlanStageService),
       aiService: module.get(AiService),
+      stageAgentService: module.get(StageAgentService),
     };
   };
 
@@ -73,6 +82,24 @@ describe('PlanStageService', () => {
         affectedRepositories: ['repo-a', 'repo-b'],
       },
     );
+  });
+
+  it('uses the stage agent service when plan agent mode is enabled', async () => {
+    const { service, aiService, stageAgentService } = await buildService(true);
+
+    await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-321',
+      affectedRepositories: ['repo-a'],
+    });
+
+    expect(stageAgentService.generatePlan).toHaveBeenCalledWith({
+      action: 'fix',
+      issueContent: 'Ticket body',
+      ticketKey: 'WBP-321',
+      affectedRepositories: ['repo-a'],
+    });
+    expect(aiService.generatePlan).not.toHaveBeenCalled();
   });
 
   it('persists a JSON plan artifact and returns cache metadata', async () => {

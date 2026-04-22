@@ -7,6 +7,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { SlackService } from '../integrations/slack/slack.service';
+import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import {
   resolveArtifactDir,
   resolveCustomArtifactDir,
@@ -88,7 +89,7 @@ class UnresolvedSourceError extends Error {}
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, Jira keys',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys; can use an agent backend when stages.generate.agent: true is configured',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -101,6 +102,7 @@ export class IssueGenerateCommand extends CommandRunner {
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
     private readonly slackService: SlackService,
+    private readonly stageAgentService: StageAgentService,
   ) {
     super();
   }
@@ -1230,15 +1232,19 @@ export class IssueGenerateCommand extends CommandRunner {
     const prompt = this.buildSynthesisPrompt(sources);
 
     // Call AI to synthesize
-    const response = await this.aiService.execute({
-      prompt: prompt,
-      maxTokens: 4096,
-      stage: 'generate',
-    });
+    const responseContent = this.stageAgentService.isEnabledForStage('generate')
+      ? await this.stageAgentService.generateFromPrompt(prompt)
+      : (
+          await this.aiService.execute({
+            prompt: prompt,
+            maxTokens: 4096,
+            stage: 'generate',
+          })
+        ).content;
 
     // Parse AI response as markdown (default) and convert to UniversalTicket
     const mdConverter = this.formatConverterService.getConverter('md');
-    const ticket = mdConverter.parse(response.content);
+    const ticket = mdConverter.parse(responseContent);
 
     return ticket;
   }

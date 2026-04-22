@@ -1,6 +1,8 @@
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { AiService } from '../../integrations/ai/ai.service';
 import { ReviewStageService } from './review-stage.service';
+import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -23,14 +25,33 @@ describe('ReviewStageService', () => {
     approved: true,
   };
 
-  const buildService = async () => {
+  const buildService = async (agentEnabled: boolean = false) => {
     const module = await Test.createTestingModule({
       providers: [
         ReviewStageService,
         {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, fallback?: unknown) => {
+              if (key === 'stages.review.agent') return agentEnabled;
+              return fallback;
+            }),
+          },
+        },
+        {
           provide: AiService,
           useValue: {
             reviewCode: jest.fn().mockResolvedValue(mockReview),
+          },
+        },
+        {
+          provide: StageAgentService,
+          useValue: {
+            isEnabledForStage: jest.fn().mockReturnValue(agentEnabled),
+            reviewCode: jest.fn().mockResolvedValue({
+              ...mockReview,
+              executionMode: 'agent',
+            }),
           },
         },
       ],
@@ -39,6 +60,7 @@ describe('ReviewStageService', () => {
     return {
       service: module.get(ReviewStageService),
       aiService: module.get(AiService),
+      stageAgentService: module.get(StageAgentService),
     };
   };
 
@@ -94,6 +116,7 @@ describe('ReviewStageService', () => {
       reviewMarkdown.indexOf('## Call Stack'),
     );
     expect(reviewMarkdown).toContain('Provenance: best-effort');
+    expect(reviewMarkdown).toContain('Execution mode: standard');
     expect(reviewMarkdown.indexOf('## Call Stack')).toBeLessThan(
       reviewMarkdown.indexOf('## State Transition'),
     );
@@ -106,5 +129,32 @@ describe('ReviewStageService', () => {
     expect(reviewMarkdown).toContain('Provenance: best-effort');
     expect(artifact.path).toBe(path.join(tempDir, 'WBP-123-review.md'));
     expect(artifact.approved).toBe(true);
+  });
+
+  it('marks agent-backed traces as evidence-based when trace payload exists', async () => {
+    const { service, aiService, stageAgentService } = await buildService(true);
+    const review = await service.reviewDiff('diff --git a/file b/file', {
+      context: 'ticket WBP-124: Agent-backed review',
+    });
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-agent-'));
+    const ticketPath = path.join(tempDir, 'WBP-124.md');
+    fs.writeFileSync(ticketPath, '# WBP-124: Agent-backed review');
+
+    const artifact = service.createReviewArtifact(
+      {
+        ticketKey: 'WBP-124',
+        content: '# WBP-124: Agent-backed review',
+        path: ticketPath,
+      },
+      review,
+    );
+
+    const reviewMarkdown = fs.readFileSync(artifact.path, 'utf-8');
+    expect(stageAgentService.reviewCode).toHaveBeenCalled();
+    expect(aiService.reviewCode).not.toHaveBeenCalled();
+    expect(review.executionMode).toBe('agent');
+    expect(reviewMarkdown).toContain('Execution mode: agent');
+    expect(reviewMarkdown).toContain('Provenance: evidence-based');
   });
 });

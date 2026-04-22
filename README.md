@@ -111,6 +111,7 @@ export default defineConfig({
     implement: {
       provider: 'anthropic',
       model: 'claude-sonnet-4-20250514',
+      agent: true,
       afterImplement: {
         baseMaxAttempts: 3,
         maxProgressExtensions: 2,
@@ -124,6 +125,7 @@ export default defineConfig({
     review: {
       provider: 'google',
       model: 'gemini-2.5-pro',
+      agent: false,
     },
   },
 });
@@ -155,11 +157,13 @@ stages:
   implement:
     provider: anthropic
     model: claude-sonnet-4-20250514
+    agent: true
     afterImplement:
       policyFile: verification.policy.json
   review:
     provider: google
     model: gemini-2.5-pro
+    agent: false
 ```
 
 Example verification manifest:
@@ -195,8 +199,8 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - `ai[].provider` selects the backing AI provider for each entry.
 - `ai[].default` is optional when only one provider is configured, and required when two or more providers are configured.
 - `ai[].maxTokens` is only applied to Gemini provider entries using Gemini models; other providers ignore it.
-- `stages.plan`, `stages.review`, `stages.generate`, and `stages.commit` accept `{ provider, model }`.
-- `stages.implement` accepts `{ provider, model, afterImplement? }`.
+- `stages.generate`, `stages.plan`, `stages.review`, and `stages.implement` accept `{ provider, model, agent? }`.
+- `stages.commit` accepts `{ provider, model }`.
 - Stage targets explicitly override the default `ai.provider` and `ai.model`.
 - Prefer `afterImplement.policyFile` to point at a repository-owned verification manifest. This keeps baseline verification policy tool-agnostic and reusable from CI or other executors.
 - `afterImplement.scripts` remains supported as a fallback when a manifest is not present.
@@ -397,7 +401,7 @@ If no `--repos` value is supplied and adapters cannot determine a remote reposit
 
 If `--repos` is supplied for ticket review but a listed repository is not available as a local path or sibling directory, remote PR review can still succeed. However, if no PR is found, the command now exits with an actionable error instead of falling back to reviewing the current directory.
 
-The current review output includes `Call Stack` and `State Transition` sections before `Suggestions`, and `Approval Status` after `Suggestions`. Those trace sections are intended to describe the changed code path itself using concrete callable units and effect leaves. If the model cannot ground them in concrete identifiers from the diff, the CLI downgrades them to `unavailable` instead of surfacing reviewer-analysis text.
+The current review output keeps `Call Stack` and `State Transition` in the same order before `Suggestions`, with `Approval Status` after `Suggestions`. Each trace section now includes explicit provenance text so the output says whether the trace is evidence-based from an agent backend, best-effort from the standard SDK path, or unavailable.
 
 ---
 
@@ -645,12 +649,11 @@ When a hashed plan artifact is detected, the CLI prints a yellow warning with th
 Runtime backend selection is separate from plan metadata:
 
 - `plan.provider` tags the plan/model for analysis and reporting.
-- `stages.implement.experimentalAgent: true` enables the experimental agent backend.
-- `stages.implement.provider: anthropic` selects `anthropic-agent`.
-- `stages.implement.provider: openai` selects `openai-agent`.
-- If the experimental flag is disabled, or the provider is neither `anthropic` nor `openai`, the command falls back to the standard two-phase retry backend.
-- When either experimental agent backend is active, the CLI streams task and tool progress lines while the agent is working, so the implementation loop is no longer a black box.
-- Both experimental backends emit heuristic progress signals so the agent can keep moving when verification is trending in the right direction.
+- `stages.implement.agent: true` enables the agent backend.
+- `stages.implement.provider: anthropic` selects the Anthropic agent backend.
+- `stages.implement.provider: openai` selects the OpenAI agent backend.
+- Omitting `agent` or setting it to `false` keeps the standard two-phase retry backend.
+- When the agent backend is active, the CLI streams task and tool progress lines while the agent is working, so the implementation loop is no longer a black box.
 - The OpenAI backend exposes only an exact-match `verify_command` tool for whitelisted verification commands.
 
 Example:
@@ -668,7 +671,7 @@ stages:
   implement:
     provider: openai
     model: gpt-5.4-mini
-    experimentalAgent: true
+    agent: true
 ```
 
 The `stages.implement.provider` and `stages.implement.model` values above are runtime implementation settings. The same shape may also appear in generated plan artifacts, but the plan artifact provider is informational and does not change backend selection by itself.
@@ -727,28 +730,25 @@ wf issue:implement WBP-2971 --repos service-tourv3
 wf issue:implement dark-building-creek-fix.json --repos service-tourv3
 ```
 
-#### Experimental: Anthropic and OpenAI agent backends
+#### Agent-backed implementation
 
-Set `stages.implement.experimentalAgent: true` in `wf.config.*` and select
+Set `stages.implement.agent: true` in `wf.config.*` and select
 `stages.implement.provider: anthropic` or `stages.implement.provider: openai`
-to use the experimental agent backend. The agent drives its own inner loop via
-built-in tools, iterating until verification passes. The Anthropic backend
-loads `~/.claude/CLAUDE.md` and the repository-root `CLAUDE.md`; the OpenAI
-backend loads `~/.openai/OPENAI.md` and the repository-root `.openai/OPENAI.md`.
-If a backend-specific file is missing, it logs a yellow warning and continues.
-The OpenAI backend only exposes an exact-match `verify_command` tool for
-verification, so non-whitelisted commands are rejected before execution. Both
-experimental backends emit heuristic progress signals to encourage continued
-work when verification is converging. If the experimental flag is disabled or
-the provider is anything else, `wf issue:implement` falls back to the
-standard two-phase path.
+to use the agent backend. The agent drives its own inner loop via built-in
+tools, iterating until verification passes. The Anthropic backend loads
+`~/.claude/CLAUDE.md` and the repository-root `CLAUDE.md`; the OpenAI backend
+loads `~/.openai/OPENAI.md` and the repository-root `.openai/OPENAI.md`. If a
+backend-specific file is missing, it logs a yellow warning and continues. The
+OpenAI backend only exposes an exact-match `verify_command` tool for
+verification, so non-whitelisted commands are rejected before execution.
+Omitting `agent` or setting it to `false` keeps the standard two-phase path.
 
 ```yaml
 stages:
   implement:
-    experimentalAgent: true
     provider: openai
     model: gpt-5.4-mini
+    agent: true
     afterImplement:
       baseMaxAttempts: 3
       maxProgressExtensions: 2
