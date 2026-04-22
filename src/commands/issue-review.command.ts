@@ -156,14 +156,15 @@ export class IssueReviewCommand extends CommandRunner {
           : null;
 
       if (options?.dryRun) {
-        this.dryRunPreview.showHeader('issue:review', source || 'current repo');
+        const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
+        const reviewScopeLabel = source
+          ? source
+          : `current repo (${this.formatRepoScope(repoDirs)})`;
+        this.dryRunPreview.showHeader('issue:review', reviewScopeLabel);
 
         if (!source) {
-          const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
           console.log(
-            chalk.gray(
-              `   Source  : working tree diff in ${repoDirs.length} repo(s)\n`,
-            ),
+            chalk.gray(`   Repository: ${this.formatRepoScope(repoDirs)}\n`),
           );
         } else if (this.isTicketKey(source)) {
           this.dryRunPreview.previewApiCall({
@@ -299,11 +300,16 @@ export class IssueReviewCommand extends CommandRunner {
         const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
         // Mode 1: No argument - review current repo changes
         console.log(
+          chalk.gray(`  Repository: ${this.formatRepoScope(repoDirs)}\n`),
+        );
+        console.log(
           chalk.bold.cyan('\n🔍 Reviewing Current Repository Changes\n'),
         );
         const diff = await this.reviewRepoSet(repoDirs);
         reviewTargets.push({
-          title: 'Current repository changes',
+          title: `Current repository changes (${this.formatRepoScope(
+            repoDirs,
+          )})`,
           diff,
           context: this.buildRepoContext(
             repoDirs,
@@ -410,9 +416,14 @@ export class IssueReviewCommand extends CommandRunner {
           }
 
           const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
+          console.log(
+            chalk.gray(`  Repository: ${this.formatRepoScope(repoDirs)}\n`),
+          );
           const diff = await this.reviewRepoSet(repoDirs);
           reviewTargets.push({
-            title: 'Local repository changes',
+            title: `Local repository changes (${this.formatRepoScope(
+              repoDirs,
+            )})`,
             diff,
             context: `${ticketReviewContext}\n\n${this.buildRepoContext(repoDirs, 'repositories under review')}`,
           });
@@ -853,10 +864,19 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   private buildRepoContext(repoDirs: string[], label: string): string {
-    const repoNames = repoDirs
-      .map((repoDir) => path.basename(repoDir))
+    const repoDescriptions = repoDirs
+      .map((repoDir) => `${path.basename(repoDir)} (${repoDir})`)
       .join(', ');
-    return `${label}: ${repoNames}`;
+    return `${label}: ${repoDescriptions}`;
+  }
+
+  /**
+   * Render a concise absolute repository scope for review headers.
+   * @param repoDirs Resolved repository directories being reviewed
+   * @returns Human-readable repository scope string
+   */
+  private formatRepoScope(repoDirs: string[]): string {
+    return repoDirs.map((repoDir) => path.resolve(repoDir)).join(', ');
   }
 
   /**

@@ -132,6 +132,14 @@ async function buildCommand(overrides?: {
   reviewStageService: jest.Mocked<ReviewStageService>;
   adapters: Record<string, any>;
   promptMock: jest.MockedFunction<typeof inquirer.prompt>;
+  dryRunPreview: {
+    showHeader: jest.Mock;
+    showSummary: jest.Mock;
+    showValidationResult: jest.Mock;
+    previewApiCall: jest.Mock;
+    previewFileRead: jest.Mock;
+    previewFileWrite: jest.Mock;
+  };
 }> {
   const jiraAdapter = buildAdapter(
     'jira',
@@ -231,6 +239,8 @@ async function buildCommand(overrides?: {
     ],
   }).compile();
 
+  const dryRunPreview = module.get(DryRunPreviewService);
+
   return {
     command: module.get(IssueReviewCommand),
     reviewStageService: module.get(ReviewStageService),
@@ -240,6 +250,7 @@ async function buildCommand(overrides?: {
       bitbucketAdapter,
     },
     promptMock,
+    dryRunPreview,
   };
 }
 
@@ -539,6 +550,21 @@ describe('IssueReviewCommand', () => {
   });
 
   describe('saved output', () => {
+    it('includes the absolute repo root in the dry-run header for local review', async () => {
+      const { command, dryRunPreview } = await buildCommand();
+
+      await command.run([], { dryRun: true });
+
+      expect(dryRunPreview.showHeader).toHaveBeenCalledWith(
+        'issue:review',
+        expect.stringContaining(process.cwd()),
+      );
+      expect(dryRunPreview.showHeader).toHaveBeenCalledWith(
+        'issue:review',
+        expect.stringContaining('current repo'),
+      );
+    });
+
     it('writes the new review sections in the expected order', async () => {
       const { command } = await buildCommand();
       const reviewRepoSetSpy = jest
