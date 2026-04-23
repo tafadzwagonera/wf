@@ -7,6 +7,10 @@ import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
 import type { PlanVerificationConfig } from '../../shared/utils/verification-manifest';
 import type { FixPlan } from '../../agents/interfaces';
+import type {
+  ReviewTraceCallStackNode,
+  ReviewTraceStateTransition,
+} from './review-trace';
 
 /**
  * Strips a single wrapping markdown code fence from LLM output.
@@ -390,8 +394,8 @@ export interface CodeReview {
   issues: CodeIssue[];
   executionMode?: 'standard' | 'agent';
   traceProvenance?: 'evidence-based' | 'best-effort' | 'unavailable';
-  callStack?: string[];
-  stateTransition?: Record<string, unknown>;
+  callStack?: ReviewTraceCallStackNode[];
+  stateTransition?: ReviewTraceStateTransition;
   suggestions: string[];
   approved: boolean;
 }
@@ -887,8 +891,8 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     1. A brief summary of the changes
     2. Any issues found (errors, warnings, or info)
     3. A trace provenance label: evidence-based, best-effort, or unavailable
-    4. A tree-like call stack that walks the changed code path, starting from concrete functions, handlers, or methods in the diff
-    5. A JSON-like state transition object that captures the changed code's state progression, not the reviewer's analysis flow
+    4. A nested tree-like call stack that walks the changed code path, starting from concrete functions, handlers, or methods in the diff
+    5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack, not the reviewer's analysis flow
     6. Suggestions for improvement
     7. Whether the code is approved
 
@@ -897,11 +901,15 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     - Do not return review-process steps such as "diff loaded", "analyzing", "reviewed", or "issues found" in callStack or stateTransition.
     - If the changed code cannot be traced confidently, set traceProvenance to "unavailable" and return empty callStack and stateTransition fields.
     - Evidence-based traces must mention concrete identifiers from the diff.
-    - Use concrete code identifiers as callStack nodes, such as Class.method(...), functionName(...), or Client.method(...).
-    - When external effects matter, attach them as leaf frames beneath the method that performs them, for example HttpClient.get(...), POST /endpoint, or SQL query execution.
-    - Prefer executable units over prose: avoid frames like "validates request", "maps response", or "calls external API" unless the concrete method name is unavailable in the diff.
+    - Use concrete code identifiers as callStack node labels, such as Class.method(...), functionName(...), or Client.method(...).
+    - Nest child callStack nodes under the parent frame that directly invokes or depends on them.
+    - When external effects matter, attach them as leaf nodes beneath the method that performs them, for example HttpClient.get(...), POST /endpoint, or SQL query execution.
+    - Prefer executable units over prose: avoid nodes like "validates request", "maps response", or "calls external API" unless the concrete method name is unavailable in the diff.
     - Keep the tree in execution tense by naming the callable units and effect leaves, not by narrating what the reviewer thinks the code does.
+    - For the state transition tree, use the same frame labels and capture the variable changes observed at each frame.
+    - Use \`captured\` for the variables or objects observed at a frame, and \`changes\` for the values that changed between the current frame and the previous one.
     - For detailed traces, include important intermediate methods, mappers, helpers, and client calls when they materially affect the changed path.
+    - Prefer multiple distinct tree levels when downstream dependencies are nested.
 
     Return ONLY a valid JSON object:
     {
@@ -915,12 +923,34 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
         }
       ],
       "traceProvenance": "evidence-based|best-effort|unavailable",
-      "callStack": ["step 1", "step 2", "..."],
+      "callStack": [
+        {
+          "frame": "Class.method(...)",
+          "children": [
+            {
+              "frame": "Child.method(...)",
+              "children": []
+            }
+          ]
+        }
+      ],
       "stateTransition": {
-        "from": "eventPaymentRecorded",
-        "to": "addPaymentToBooking",
+        "from": "entry-frame",
+        "to": "exit-frame",
         "steps": [
-          { "state": "eventPaymentRecorded", "next": "addPaymentToBooking" }
+          {
+            "frame": "Class.method(...)",
+            "captured": {
+              "some.dep": "Dep { ... }"
+            },
+            "changes": {
+              "some.dep": {
+                "before": "old value",
+                "after": "new value"
+              }
+            },
+            "children": []
+          }
         ]
       },
       "suggestions": ["suggestion 1", ...],

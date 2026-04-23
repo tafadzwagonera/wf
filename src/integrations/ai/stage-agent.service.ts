@@ -178,8 +178,8 @@ Provide a code review with:
 1. A brief summary of the changes
 2. Any issues found
 3. A trace provenance label: evidence-based, best-effort, or unavailable
-4. A tree-like call stack that walks the changed code path
-5. A JSON-like state transition object for the changed code path
+4. A nested tree-like call stack that walks the changed code path
+5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack
 6. Suggestions for improvement
 7. Whether the code is approved
 
@@ -195,11 +195,34 @@ Return ONLY a valid JSON object:
     }
   ],
   "traceProvenance": "evidence-based|best-effort|unavailable",
-  "callStack": ["step 1", "step 2"],
+  "callStack": [
+    {
+      "frame": "Class.method(...)",
+      "children": [
+        {
+          "frame": "Child.method(...)",
+          "children": []
+        }
+      ]
+    }
+  ],
   "stateTransition": {
     "from": "state-a",
     "to": "state-b",
-    "steps": [{ "state": "state-a", "next": "state-b" }]
+    "steps": [
+      {
+        "frame": "Class.method(...)",
+        "captured": {
+          "some.dep": "Dep { ... }"
+        },
+        "changes": {
+          "some.dep": {
+            "before": "old value",
+            "after": "new value"
+          }
+        }
+      }
+    ]
   },
   "suggestions": ["suggestion 1"],
   "approved": true

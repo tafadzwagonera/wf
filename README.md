@@ -348,11 +348,11 @@ When `--repos` is present, filename-only custom sources are resolved against the
 
 AI-powered code review. Accepts three source modes:
 
-| Source                 | Description                                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------ |
-| _(none)_               | Review staged/unstaged changes in the current repo, or all repos listed in `--repos` |
+| Source                 | Description                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| _(none)_               | Review staged/unstaged changes in the current repo, or all repos listed in `--repos`                                            |
 | `ABC-123`              | Fetch ticket context and review associated pull requests; `--repos` provides remote PR-discovery hints and local fallback roots |
-| `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request                                  |
+| `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request                                                                             |
 
 ```bash
 # Review current repository changes
@@ -361,10 +361,10 @@ wf issue:review
 # Review with ticket context
 wf issue:review WBP-2971 --platform jira
 
-# Review a ticket from source with repo-scoped PR discovery
+# Review a ticket from source with repo-scoped PR discovery across credentialed adapters
 yarn start issue:review WBP-3057 -r service-bookingv3
 
-# Review a ticket and its associated PRs across repos
+# Review a ticket and its associated PRs across credentialed repos
 wf issue:review WBP-2971 --platform jira --repos service-tourv3
 
 # Review a ticket PR remotely without a local checkout
@@ -382,15 +382,15 @@ wf issue:review --dry-run
 
 **Options:**
 
-| Flag                        | Description                                                                           | Default          |
-| --------------------------- | ------------------------------------------------------------------------------------- | ---------------- |
-| `-f, --format <format>`     | Output format: `text \| json \| md`                                                   | `text`           |
-| `-o, --output <path>`       | Save review to a file                                                                 | stdout           |
-| `-p, --platform <platform>` | Platform used to resolve a ticket source; defaults to the configured primary platform | primary platform |
-| `-r, --repos <repos...>`    | Remote PR-discovery hints for ticket review; local review roots when those repos exist on disk | current repo |
-| `--dry-run`                 | Preview without calling the AI                                                        | —                |
+| Flag                        | Description                                                                                    | Default          |
+| --------------------------- | ---------------------------------------------------------------------------------------------- | ---------------- |
+| `-f, --format <format>`     | Output format: `text \| json \| md`                                                            | `text`           |
+| `-o, --output <path>`       | Save review to a file                                                                          | stdout           |
+| `-p, --platform <platform>` | Platform used to resolve a ticket source; defaults to the configured primary platform          | primary platform |
+| `-r, --repos <repos...>`    | Remote PR-discovery hints for ticket review; local review roots when those repos exist on disk | current repo     |
+| `--dry-run`                 | Preview without calling the AI                                                                 | —                |
 
-When a ticket key is supplied, `issue:review` fetches ticket context from the configured platform, then fans out PR discovery across registered adapters that have explicit credentials in `wf.config.*`. It reviews matching PR diffs first, in deterministic order.
+When a ticket key is supplied, `issue:review` fetches ticket context from the configured platform, then fans out PR discovery across registered adapters that have explicit credentials in `wf.config.*`. It reviews matching PR diffs first, in deterministic order, and the trace output uses nested call stacks plus frame-aligned state transitions so downstream dependencies and variable changes stay visible together.
 
 **Staged file exclusions:** before computing the diff for review, `issue:review` stages all local changes while automatically excluding wf tooling artifacts: `.wf/**` runtime directories, `wf.config.{js,mjs,ts,mts,yaml,yml}` files, and `dist/` build output. These files are created by wf itself inside target repos and are not part of the ticket's code changes.
 
@@ -403,7 +403,7 @@ If no `--repos` value is supplied and adapters cannot determine a remote reposit
 
 If `--repos` is supplied for ticket review but a listed repository is not available as a local path or sibling directory, remote PR review can still succeed. However, if no PR is found, the command now exits with an actionable error instead of falling back to reviewing the current directory.
 
-The current review output keeps `Call Stack` and `State Transition` in the same order before `Suggestions`, with `Approval Status` after `Suggestions`. Each trace section now includes explicit provenance text so the output says whether the trace is evidence-based from an agent backend, best-effort from the standard SDK path, or unavailable.
+The current review output keeps `Call Stack` and `State Transition` in the same order before `Suggestions`, with `Approval Status` after `Suggestions`. Each trace section now includes explicit provenance text so the output says whether the trace is evidence-based from an agent backend, best-effort from the standard SDK path, or unavailable. The `Call Stack` section renders as a nested tree of concrete frames, and `State Transition` shows the variable changes observed at each frame.
 
 ---
 

@@ -500,21 +500,21 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Use concrete code identifiers as callStack nodes, such as Class.method(...), functionName(...), or Client.method(...).',
+            'Use concrete code identifiers as callStack node labels, such as Class.method(...), functionName(...), or Client.method(...).',
           ),
         }),
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'When external effects matter, attach them as leaf frames beneath the method that performs them',
+            'Nest child callStack nodes under the parent frame that directly invokes or depends on them.',
           ),
         }),
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Prefer executable units over prose: avoid frames like "validates request", "maps response", or "calls external API" unless the concrete method name is unavailable in the diff.',
+            'Use `captured` for the variables or objects observed at a frame, and `changes` for the values that changed between the current frame and the previous one.',
           ),
         }),
       );
@@ -528,16 +528,49 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
           issues: [],
           traceProvenance: 'evidence-based',
           callStack: [
-            'Analyzing payment.controller.ts for changes to event handling.',
-            'Diff loaded and reviewed.',
-            'Issues found.',
+            {
+              frame:
+                'Analyzing payment.controller.ts for changes to event handling.',
+              children: [
+                {
+                  frame: 'Diff loaded and reviewed.',
+                  children: [
+                    {
+                      frame: 'Issues found.',
+                    },
+                  ],
+                },
+              ],
+            },
           ],
           stateTransition: {
             from: 'initial',
             to: 'reviewed',
             steps: [
-              { state: 'initial', next: 'diff_loaded' },
-              { state: 'diff_loaded', next: 'reviewed' },
+              {
+                frame:
+                  'Analyzing payment.controller.ts for changes to event handling.',
+                captured: {
+                  diffLoaded: true,
+                },
+                changes: {
+                  reviewState: {
+                    before: 'initial',
+                    after: 'diff_loaded',
+                  },
+                },
+                children: [
+                  {
+                    frame: 'Diff loaded and reviewed.',
+                    changes: {
+                      reviewState: {
+                        before: 'diff_loaded',
+                        after: 'reviewed',
+                      },
+                    },
+                  },
+                ],
+              },
             ],
           },
           suggestions: [],
@@ -570,17 +603,46 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
           issues: [],
           traceProvenance: 'evidence-based',
           callStack: [
-            'eventPaymentRecorded()',
-            'addPaymentToBooking()',
-            'booking retry loop',
+            {
+              frame: 'eventPaymentRecorded()',
+              children: [
+                {
+                  frame: 'addPaymentToBooking()',
+                  children: [
+                    {
+                      frame: 'booking retry loop',
+                    },
+                  ],
+                },
+              ],
+            },
           ],
           stateTransition: {
             from: 'eventPaymentRecorded',
             to: 'addPaymentToBooking',
             steps: [
               {
-                state: 'eventPaymentRecorded',
-                next: 'addPaymentToBooking',
+                frame: 'eventPaymentRecorded()',
+                captured: {
+                  bookingId: 'booking-123',
+                },
+                changes: {
+                  paymentState: {
+                    before: 'recorded',
+                    after: 'linking',
+                  },
+                },
+                children: [
+                  {
+                    frame: 'addPaymentToBooking()',
+                    changes: {
+                      paymentState: {
+                        before: 'linking',
+                        after: 'linked',
+                      },
+                    },
+                  },
+                ],
               },
             ],
           },
@@ -603,17 +665,46 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       expect(review.traceProvenance).toBe('evidence-based');
       expect(review.callStack).toEqual([
-        'eventPaymentRecorded()',
-        'addPaymentToBooking()',
-        'booking retry loop',
+        {
+          frame: 'eventPaymentRecorded()',
+          children: [
+            {
+              frame: 'addPaymentToBooking()',
+              children: [
+                {
+                  frame: 'booking retry loop',
+                },
+              ],
+            },
+          ],
+        },
       ]);
       expect(review.stateTransition).toEqual({
         from: 'eventPaymentRecorded',
         to: 'addPaymentToBooking',
         steps: [
           {
-            state: 'eventPaymentRecorded',
-            next: 'addPaymentToBooking',
+            frame: 'eventPaymentRecorded()',
+            captured: {
+              bookingId: 'booking-123',
+            },
+            changes: {
+              paymentState: {
+                before: 'recorded',
+                after: 'linking',
+              },
+            },
+            children: [
+              {
+                frame: 'addPaymentToBooking()',
+                changes: {
+                  paymentState: {
+                    before: 'linking',
+                    after: 'linked',
+                  },
+                },
+              },
+            ],
           },
         ],
       });

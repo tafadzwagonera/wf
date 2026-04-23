@@ -6,6 +6,10 @@ import {
   CodeIssue,
   CodeReview,
 } from '../integrations/ai/ai.service';
+import {
+  formatReviewCallStack,
+  formatReviewStateTransition,
+} from '../integrations/ai/review-trace';
 import { GitService } from '../integrations/git/git.service';
 import { PlatformService } from '../integrations/platforms/platform.service';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -65,11 +69,12 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   },
   {
     comment:
-      'Review a ticket and associated pull requests from configured adapters using a remote repo hint',
+      'Review a ticket and associated pull requests from credentialed adapters using a remote repo hint',
     command: 'yarn start issue:review WBP-3057 -r service-bookingv3',
   },
   {
-    comment: 'Review a ticket and its associated pull requests across repos',
+    comment:
+      'Review a ticket and its associated pull requests across credentialed repos',
     command: 'wf issue:review WBP-2971 --platform jira --repos service-tourv3',
   },
   {
@@ -117,7 +122,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 @Command({
   name: 'issue:review',
   description:
-    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with explicit trace provenance in the output',
+    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance in the output',
   arguments: '[source]',
   options: { isDefault: false },
 })
@@ -207,8 +212,16 @@ export class IssueReviewCommand extends CommandRunner {
             '  "approved": true,',
             '  "issues": [],',
             '  "traceProvenance": "evidence-based|best-effort|unavailable",',
-            '  "callStack": ["..."],',
-            '  "stateTransition": { "...": "..." },',
+            '  "callStack": [{ "frame": "...", "children": [] }],',
+            '  "stateTransition": {',
+            '    "from": "...",',
+            '    "to": "...",',
+            '    "steps": [{',
+            '      "frame": "...",',
+            '      "captured": { "...": "..." },',
+            '      "changes": { "...": { "before": "...", "after": "..." } }',
+            '    }]',
+            '  },',
             '  "suggestions": ["..."]',
             '}',
           ].join('\n'),
@@ -250,12 +263,12 @@ export class IssueReviewCommand extends CommandRunner {
               '## Call Stack',
               'Provenance: code-path trace or unavailable',
               'Code-path trace: grounded in the changed code or marked unavailable.',
-              '- (none)',
+              '- (no structured call stack was returned)',
               '',
               '## State Transition',
               'Provenance: code-path trace or unavailable',
               'Code-path trace: grounded in the changed code or marked unavailable.',
-              '{ }',
+              '(no structured state transition was returned)',
               '',
               '## Suggestions',
               '(none)',
@@ -1221,15 +1234,6 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   /**
-   * Apply semantic colors to a call stack frame.
-   * @param frame Frame description
-   * @returns Colorized frame text
-   */
-  private colorizeCallStackFrame(frame: string): string {
-    return chalk.gray(frame);
-  }
-
-  /**
    * Apply muted formatting to a single informational line.
    * @param line Plain text line
    * @returns Muted line
@@ -1239,45 +1243,34 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   /**
-   * Colorize a JSON-like state transition structure for terminal output.
-   * @param stateTransition Structured state transition object
+   * Colorize a structured trace line for terminal output.
+   * @param line Plain text trace line
    * @returns Pretty-printed and colorized text
    */
-  private colorizeJsonLike(stateTransition: Record<string, unknown>): string {
-    return JSON.stringify(stateTransition, null, 2)
-      .split('\n')
-      .map((line) => this.colorizeJsonLine(line))
-      .join('\n');
-  }
-
-  /**
-   * Colorize an individual JSON-like line using semantic colors.
-   * @param line JSON-like line
-   * @returns Colorized line
-   */
-  private colorizeJsonLine(line: string): string {
+  private colorizeTraceLine(line: string): string {
     if (!line.trim()) {
       return line;
     }
 
-    let rendered = line;
-    rendered = rendered.replace(/"([^"]+)":/g, (_match, key: string) =>
-      chalk.cyan(`"${key}":`),
-    );
-    rendered = rendered.replace(
-      /: "([^"]+)"/g,
-      (_match, value: string) => `: ${chalk.green(`"${value}"`)}`,
-    );
-    rendered = rendered.replace(
-      /: (true|false)/g,
-      (_match, value: string) => `: ${chalk.magenta(value)}`,
-    );
-    rendered = rendered.replace(
-      /: (\d+)/g,
-      (_match, value: string) => `: ${chalk.yellow(value)}`,
-    );
+    const branchMatch = line.match(/^(\s*)(├─|└─)\s*(.*)$/);
+    if (branchMatch) {
+      const [, indent, branch, rest] = branchMatch;
+      return `${indent}${this.colorizeBranch(branch)} ${chalk.gray(rest)}`;
+    }
 
-    return rendered;
+    const labelMatch = line.match(/^(\s*)(from|to|captured|changes):\s*(.*)$/);
+    if (labelMatch) {
+      const [, indent, label, rest] = labelMatch;
+      return `${indent}${chalk.cyan(`${label}:`)} ${rest ? chalk.gray(rest) : ''}`.trimEnd();
+    }
+
+    const keyValueMatch = line.match(/^(\s*)(.+?)\s*=\s*(.*)$/);
+    if (keyValueMatch) {
+      const [, indent, key, rest] = keyValueMatch;
+      return `${indent}${chalk.cyan(key)} = ${chalk.gray(rest)}`;
+    }
+
+    return chalk.gray(line);
   }
 
   /**
@@ -1287,21 +1280,16 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private formatCallStackInline(review: CodeReview): string {
     const lines = this.formatTraceSectionNotes(review, true, 'call stack');
-    const callStack = review.callStack;
+    const callStack = formatReviewCallStack(review.callStack);
 
-    if (!callStack?.length) {
+    if (!callStack.length) {
       lines.push(
         this.colorizeMutedLine('  (no structured call stack was returned)'),
       );
       return lines.join('\n');
     }
 
-    lines.push(
-      ...callStack.map((frame, index) => {
-        const branch = index === callStack.length - 1 ? '└─' : '├─';
-        return `  ${this.colorizeBranch(branch)} ${this.colorizeCallStackFrame(frame)}`;
-      }),
-    );
+    lines.push(...callStack.map((line) => `  ${this.colorizeTraceLine(line)}`));
 
     return lines.join('\n');
   }
@@ -1313,27 +1301,22 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private formatCallStackPlain(review: CodeReview): string {
     const lines = this.formatTraceSectionNotes(review, false, 'call stack');
-    const callStack = review.callStack;
+    const callStack = formatReviewCallStack(review.callStack);
 
-    if (!callStack?.length) {
+    if (!callStack.length) {
       lines.push('  (no structured call stack was returned)');
       return lines.join('\n');
     }
 
-    lines.push(
-      ...callStack.map((frame, index) => {
-        const branch = index === callStack.length - 1 ? '└─' : '├─';
-        return `  ${branch} ${frame}`;
-      }),
-    );
+    lines.push(...callStack.map((line) => `  ${line}`));
 
     return lines.join('\n');
   }
 
   /**
-   * Format the state transition as a JSON-like visual block.
+   * Format the state transition as a frame-aligned visual block.
    * @param review The AI review result
-   * @returns Pretty-printed JSON block
+   * @returns Pretty-printed trace block
    */
   private formatStateTransitionInline(review: CodeReview): string {
     const lines = this.formatTraceSectionNotes(
@@ -1341,21 +1324,27 @@ export class IssueReviewCommand extends CommandRunner {
       true,
       'state transition',
     );
-    const stateTransition = review.stateTransition;
+    const stateTransition = formatReviewStateTransition(review.stateTransition);
 
-    if (!stateTransition || Object.keys(stateTransition).length === 0) {
-      lines.push(this.colorizeMutedLine('  {}'));
+    if (!stateTransition.length) {
+      lines.push(
+        this.colorizeMutedLine(
+          '  (no structured state transition was returned)',
+        ),
+      );
       return lines.join('\n');
     }
 
-    lines.push(this.colorizeJsonLike(stateTransition));
+    lines.push(
+      ...stateTransition.map((line) => `  ${this.colorizeTraceLine(line)}`),
+    );
     return lines.join('\n');
   }
 
   /**
    * Format the state transition as plain text for markdown artifacts.
    * @param review The AI review result
-   * @returns Plain-text JSON-like block
+   * @returns Plain-text trace block
    */
   private formatStateTransitionPlain(review: CodeReview): string {
     const lines = this.formatTraceSectionNotes(
@@ -1363,19 +1352,14 @@ export class IssueReviewCommand extends CommandRunner {
       false,
       'state transition',
     );
-    const stateTransition = review.stateTransition;
+    const stateTransition = formatReviewStateTransition(review.stateTransition);
 
-    if (!stateTransition || Object.keys(stateTransition).length === 0) {
-      lines.push('  {}');
+    if (!stateTransition.length) {
+      lines.push('  (no structured state transition was returned)');
       return lines.join('\n');
     }
 
-    lines.push(
-      JSON.stringify(stateTransition, null, 2)
-        .split('\n')
-        .map((line) => `  ${line}`)
-        .join('\n'),
-    );
+    lines.push(...stateTransition.map((line) => `  ${line}`));
     return lines.join('\n');
   }
 

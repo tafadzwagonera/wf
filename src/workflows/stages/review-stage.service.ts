@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AiService, CodeReview } from '../../integrations/ai/ai.service';
+import {
+  formatReviewCallStack,
+  formatReviewStateTransition,
+} from '../../integrations/ai/review-trace';
 import { ReviewArtifact, TicketArtifact } from '../../agents/interfaces';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 
@@ -146,37 +150,21 @@ ${review.approved ? '✓ Approved' : '✗ Changes needed'}
     ].join('\n');
   }
 
-  private formatCallStackMarkdown(callStack?: string[]): string {
-    const lines: string[] = [];
-
-    if (!callStack?.length) {
-      lines.push('- (no structured call stack was returned)');
-      return lines.join('\n');
-    }
-
-    callStack.forEach((frame, index) => {
-      const branch = index === callStack.length - 1 ? '└─' : '├─';
-      lines.push(`- ${branch} ${frame}`);
-    });
-
-    return lines.join('\n');
+  private formatCallStackMarkdown(callStack?: CodeReview['callStack']): string {
+    const lines = formatReviewCallStack(callStack);
+    return lines.length > 0
+      ? lines.join('\n')
+      : '- (no structured call stack was returned)';
   }
 
   private formatStateTransitionMarkdown(
-    stateTransition?: Record<string, unknown>,
+    stateTransition?: CodeReview['stateTransition'],
   ): string {
-    const lines: string[] = [];
-
-    if (!stateTransition || Object.keys(stateTransition).length === 0) {
-      lines.push('```json');
-      lines.push('{}');
-      lines.push('```');
-      return lines.join('\n');
+    const lines = formatReviewStateTransition(stateTransition);
+    if (lines.length === 0) {
+      return '```text\n(no structured state transition was returned)\n```';
     }
 
-    lines.push('```json');
-    lines.push(JSON.stringify(stateTransition, null, 2));
-    lines.push('```');
     return lines.join('\n');
   }
 }

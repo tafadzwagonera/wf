@@ -12,13 +12,131 @@ describe('ReviewStageService', () => {
     summary: 'Looks good overall',
     issues: [],
     traceProvenance: 'best-effort',
-    callStack: ['ticket lookup', 'PR discovery', 'diff review'],
+    callStack: [
+      {
+        frame: 'TripcomController.syncProduct(productCode, slug)',
+        children: [
+          {
+            frame: 'TripcomService.syncProductContent(productCode, slug)',
+            children: [
+              {
+                frame: 'TripcomService.getTourBySlug(slug)',
+                children: [
+                  {
+                    frame: 'AgentApiClient.fetchAgentApiData()',
+                    children: [
+                      {
+                        frame:
+                          'HttpClient.get(GET https://agentapi.expatexplore.com/agent/1.0/data)',
+                      },
+                    ],
+                  },
+                ],
+              },
+              {
+                frame: 'TripcomMapper.mapAgentApiToTripcom(productCode, tour)',
+                children: [
+                  {
+                    frame:
+                      'TripcomMapper.mapGalleryToMedias(tour.gallery, tour.title)',
+                    children: [
+                      {
+                        frame: 'Array.prototype.slice(0, 10)',
+                      },
+                    ],
+                  },
+                  {
+                    frame: 'TripcomMapper.mapItineraryToTourInfoList(tour)',
+                  },
+                  {
+                    frame: 'TripcomMapper.mapIncludedToClauses(tour)',
+                  },
+                ],
+              },
+              {
+                frame: 'TripcomApiClient.syncProduct(mappedProduct)',
+                children: [
+                  {
+                    frame:
+                      'HttpClient.post(POST {TRIPCOM_API_URL}/syncProduct)',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
     stateTransition: {
-      from: 'ticket-resolved',
-      to: 'reviewed',
+      from: 'canonicalCustomerId',
+      to: 'ProfileResponse.linkedProfiles',
       steps: [
-        { state: 'ticket-resolved', next: 'pull-requests-found' },
-        { state: 'pull-requests-found', next: 'reviewed' },
+        {
+          frame:
+            'CanonicalProfileRepository.findLinkedProfiles(canonicalCustomerId)',
+          captured: {
+            canonicalCustomerId: '123',
+          },
+          changes: {
+            'firstName.dep': {
+              after: {
+                version: 1,
+                subs: 'Link_1',
+                subsHead: 'Link_1',
+                sc: 1,
+              },
+            },
+          },
+          children: [
+            {
+              frame:
+                'CanonicalLinkRepository.find({ where: { canonicalCustomerId, linkStatus: CanonicalLinkStatus.Merged } })',
+              changes: {
+                'lastName.dep': {
+                  after: {
+                    version: 1,
+                    subs: 'Link_2',
+                    subsHead: 'Link_2',
+                    sc: 1,
+                  },
+                },
+              },
+              children: [
+                {
+                  frame:
+                    'CanonicalProfileRepository.findLinkedProfiles(...): In([...customerIds]) -> AppGoldenCustomerProfile[]',
+                  changes: {
+                    'fullName.dep': {
+                      before: {
+                        version: 1,
+                      },
+                      after: {
+                        version: 0,
+                        subs: 'Link_3',
+                        subsHead: 'Link_3',
+                        computed: 'fullName',
+                        sc: 1,
+                      },
+                    },
+                  },
+                  children: [
+                    {
+                      frame: 'ProfileResponseDto.linkedProfiles',
+                      captured: {
+                        'fullName._value': 'Jane Smith',
+                      },
+                      children: [
+                        {
+                          frame: 'LinkedProfileSummaryDto',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
       ],
     },
     suggestions: ['Add one more regression test'],
@@ -120,6 +238,14 @@ describe('ReviewStageService', () => {
     expect(reviewMarkdown.indexOf('## Call Stack')).toBeLessThan(
       reviewMarkdown.indexOf('## State Transition'),
     );
+    expect(reviewMarkdown).toContain(
+      'TripcomController.syncProduct(productCode, slug)',
+    );
+    expect(reviewMarkdown).toContain(
+      'CanonicalProfileRepository.findLinkedProfiles(canonicalCustomerId)',
+    );
+    expect(reviewMarkdown).toContain('firstName.dep =');
+    expect(reviewMarkdown).toContain('fullName._value = Jane Smith');
     expect(reviewMarkdown.indexOf('## State Transition')).toBeLessThan(
       reviewMarkdown.indexOf('## Suggestions'),
     );
