@@ -7,7 +7,8 @@
  *   1. .wf/** runtime artifacts are excluded from staging
  *   2. All six wf.config.* file variants are excluded from staging
  *   3. dist/ build output is excluded from staging
- *   4. Real source files ARE staged (exclusions are not too broad)
+ *   4. .gitignore is excluded from staging
+ *   5. Real source files ARE staged (exclusions are not too broad)
  *
  * No AI / API keys required — exercises GitService.stageAll() directly.
  */
@@ -89,6 +90,9 @@ async function main() {
     fs.mkdirSync(distDir, { recursive: true });
     fs.writeFileSync(path.join(distDir, 'index.js'), '"use strict";\n');
 
+    // .gitignore — managed by repo owner, must not be staged by wf
+    fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n');
+
     // ── Call stageAll ──────────────────────────────────────────────────────
     const gitService = app.get(GitService);
     await gitService.stageAll(tmpDir);
@@ -131,6 +135,13 @@ async function main() {
       pass('dist/ build output was NOT staged');
     } else {
       fail('dist/ build output leaked into staged files', staged);
+    }
+
+    // 5. .gitignore is NOT staged
+    if (!staged.includes('.gitignore')) {
+      pass('.gitignore was NOT staged');
+    } else {
+      fail('.gitignore leaked into staged files', staged);
     }
   } finally {
     await app.close();

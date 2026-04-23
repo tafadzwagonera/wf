@@ -227,6 +227,7 @@ export class GitService {
    *   implementer agent may create inside a target repo; these are tooling
    *   inputs, not code changes for the ticket.
    * - `dist/` — compiled build output that should not be committed to tickets
+   * - `.gitignore` — managed by the repo owner; wf must not alter ignore rules
    *
    * Exclusions are applied by filtering the paths returned by `git.status()`
    * against {@link GitService.EXCLUDED_PATHS} and passing the filtered list
@@ -264,11 +265,12 @@ export class GitService {
    * - `.wf/` or `.wf\` prefix — runtime state/log artifacts
    * - `wf.config.{js,mjs,ts,mts,yaml,yml}` — tooling config files
    * - `dist/` or `dist\` prefix — compiled build output
+   * - `.gitignore` — git ignore rules are managed by the repo owner, not wf
    *
    * Uses `[/\\]` so it handles both POSIX and Windows path separators.
    */
   private static readonly EXCLUDED_PATHS =
-    /^\.wf[/\\]|^wf\.config\.(js|mjs|ts|mts|yaml|yml)$|^dist[/\\]/;
+    /^\.wf[/\\]|^wf\.config\.(js|mjs|ts|mts|yaml|yml)$|^dist[/\\]|^\.gitignore$/;
 
   /**
    * Filter a list of file paths, removing any that match {@link EXCLUDED_PATHS}.
