@@ -452,6 +452,9 @@ Synthesize a ticket description from one or more sources using AI. Sources can b
 # Generate from a URL
 wf issue:generate https://example.com/spec
 
+# Generate from a Slack thread permalink with query params
+wf issue:generate "https://workspace.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53"
+
 # Generate from multiple sources (URL + local file + existing ticket)
 wf issue:generate https://example.com/spec ./notes.md WBP-2971
 
@@ -494,6 +497,7 @@ wf issue:generate https://example.com/spec ./notes.md --dry-run
 
 Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list.
 When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, unresolved bare filenames stay cwd-relative and the command now tells you to retry with `--repos <repo>` when the source looks like a repo-scoped artifact.
+Slack permalinks that include query parameters should be quoted when invoked from shells such as `zsh` or `bash`.
 
 ---
 

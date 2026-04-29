@@ -36,15 +36,18 @@ import { getWfHomeDir } from '../shared/utils/wf-paths';
 /** Minimum description length (chars) for a ticket to bypass AI synthesis. */
 const MIN_DESCRIPTION_LENGTH = 100;
 const SLACK_CHANNEL_HISTORY_LIMIT = 50;
-const SLACK_PERMALINK =
-  /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
-const SLACK_CHANNEL_URL =
-  /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/?$/i;
+const SLACK_THREAD_PATH = /^\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
+const SLACK_CHANNEL_PATH = /^\/archives\/([A-Z0-9]+)\/?$/i;
 
 const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
   {
     comment: 'Generate ticket from a URL',
     command: 'wf issue:generate https://example.com/spec',
+  },
+  {
+    comment: 'Generate from a Slack thread permalink with query params',
+    command:
+      'wf issue:generate "https://workspace.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53"',
   },
   {
     comment: 'Generate from a repo-scoped artifact (requires -r, --repos)',
@@ -78,6 +81,19 @@ interface LocalSourceResolution {
   concreteSources: string[];
   matchedRepoInputs: string[];
 }
+
+interface SlackThreadSourceMatch {
+  kind: 'thread';
+  channelId: string;
+  threadTs: string;
+}
+
+interface SlackChannelSourceMatch {
+  kind: 'channel';
+  channelId: string;
+}
+
+type SlackSourceMatch = SlackThreadSourceMatch | SlackChannelSourceMatch;
 
 class UnresolvedSourceError extends Error {}
 
@@ -158,9 +174,10 @@ export class IssueGenerateCommand extends CommandRunner {
           );
 
           for (const resolvedSource of resolvedSources) {
-            if (SLACK_PERMALINK.test(resolvedSource)) {
-              const [, channelId, seconds, micros] =
-                resolvedSource.match(SLACK_PERMALINK)!;
+            const slackSourceMatch = this.parseSlackSource(resolvedSource);
+
+            if (slackSourceMatch?.kind === 'thread') {
+              const [seconds, micros] = slackSourceMatch.threadTs.split('.');
               this.dryRunPreview.previewApiCall({
                 method: 'GET',
                 endpoint: 'https://slack.com/api/conversations.replies',
@@ -171,7 +188,7 @@ export class IssueGenerateCommand extends CommandRunner {
               this.dryRunPreview.previewFileWrite({
                 filePath: path.join(
                   resolveArtifactDir(artifactBaseDir, 'slack'),
-                  `slack-thread-${channelId}-${seconds}-${micros}.md`,
+                  `slack-thread-${slackSourceMatch.channelId}-${seconds}-${micros}.md`,
                 ),
                 operation: 'create',
                 sizeEstimate: '1–20 KB',
@@ -180,8 +197,7 @@ export class IssueGenerateCommand extends CommandRunner {
                   '[<ts>] <user>: <message>\n[<ts>] <user>: <reply>',
               });
               apiCallCount++;
-            } else if (SLACK_CHANNEL_URL.test(resolvedSource)) {
-              const [, channelId] = resolvedSource.match(SLACK_CHANNEL_URL)!;
+            } else if (slackSourceMatch?.kind === 'channel') {
               this.dryRunPreview.previewApiCall({
                 method: 'GET',
                 endpoint: 'https://slack.com/api/conversations.history',
@@ -192,7 +208,7 @@ export class IssueGenerateCommand extends CommandRunner {
               this.dryRunPreview.previewFileWrite({
                 filePath: path.join(
                   resolveArtifactDir(artifactBaseDir, 'slack'),
-                  `slack-thread-${channelId}-<oldest-message-ts>.md`,
+                  `slack-thread-${slackSourceMatch.channelId}-<oldest-message-ts>.md`,
                 ),
                 operation: 'create',
                 sizeEstimate: '1–20 KB',
@@ -593,17 +609,22 @@ export class IssueGenerateCommand extends CommandRunner {
     repo?: string,
   ): Promise<SourceContent> {
     // Check if it's a Slack thread permalink (must come before generic URL check)
-    const slackMatch = source.match(SLACK_PERMALINK);
-    if (slackMatch) {
-      const channelId = slackMatch[1];
-      const threadTs = `${slackMatch[2]}.${slackMatch[3]}`;
-      return await this.fetchFromSlack(source, channelId, threadTs, repo);
+    const slackSourceMatch = this.parseSlackSource(source);
+    if (slackSourceMatch?.kind === 'thread') {
+      return await this.fetchFromSlack(
+        source,
+        slackSourceMatch.channelId,
+        slackSourceMatch.threadTs,
+        repo,
+      );
     }
 
-    const slackChannelMatch = source.match(SLACK_CHANNEL_URL);
-    if (slackChannelMatch) {
-      const channelId = slackChannelMatch[1];
-      return await this.fetchFromSlackChannel(source, channelId, repo);
+    if (slackSourceMatch?.kind === 'channel') {
+      return await this.fetchFromSlackChannel(
+        source,
+        slackSourceMatch.channelId,
+        repo,
+      );
     }
 
     // Check if it's a URL
@@ -911,8 +932,7 @@ export class IssueGenerateCommand extends CommandRunner {
     silent = false,
   ): Promise<string[]> {
     if (
-      SLACK_PERMALINK.test(source) ||
-      SLACK_CHANNEL_URL.test(source) ||
+      this.parseSlackSource(source) !== null ||
       source.startsWith('http://') ||
       source.startsWith('https://') ||
       /^[A-Z]+-\d+$/i.test(source)
@@ -983,8 +1003,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
     if (
       path.isAbsolute(source) ||
-      SLACK_PERMALINK.test(source) ||
-      SLACK_CHANNEL_URL.test(source) ||
+      this.parseSlackSource(source) !== null ||
       source.startsWith('http://') ||
       source.startsWith('https://') ||
       /^[A-Z]+-\d+$/i.test(source)
@@ -1108,6 +1127,47 @@ export class IssueGenerateCommand extends CommandRunner {
       concreteSources: selectedSources,
       matchedRepoInputs: selectedRepoInputs,
     };
+  }
+
+  /**
+   * Parse a Slack source URL into the supported thread or channel forms.
+   * Query params on Slack permalinks are ignored so pasted thread URLs still
+   * resolve to the existing thread-fetch flow.
+   *
+   * @param source - Raw CLI source argument
+   * @returns Slack source metadata when the URL is supported; otherwise null
+   */
+  private parseSlackSource(source: string): SlackSourceMatch | null {
+    let parsedUrl: URL;
+
+    try {
+      parsedUrl = new URL(source);
+    } catch {
+      return null;
+    }
+
+    if (!parsedUrl.hostname.endsWith('.slack.com')) {
+      return null;
+    }
+
+    const slackThreadMatch = parsedUrl.pathname.match(SLACK_THREAD_PATH);
+    if (slackThreadMatch) {
+      return {
+        kind: 'thread',
+        channelId: slackThreadMatch[1],
+        threadTs: `${slackThreadMatch[2]}.${slackThreadMatch[3]}`,
+      };
+    }
+
+    const slackChannelMatch = parsedUrl.pathname.match(SLACK_CHANNEL_PATH);
+    if (slackChannelMatch) {
+      return {
+        kind: 'channel',
+        channelId: slackChannelMatch[1],
+      };
+    }
+
+    return null;
   }
 
   /**

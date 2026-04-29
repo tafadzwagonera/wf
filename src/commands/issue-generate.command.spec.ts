@@ -861,6 +861,34 @@ describe('IssueGenerateCommand', () => {
       expect(slackService.fetchChannelHistory).not.toHaveBeenCalled();
     });
 
+    it('routes Slack thread permalinks with query params to the existing thread fetch path', async () => {
+      const { command } = await buildCommand();
+      const slackService = (command as any)
+        .slackService as jest.Mocked<SlackService>;
+
+      slackService.fetchThread.mockResolvedValue({
+        channelId: 'C0AP5MMCP53',
+        threadTs: '1775650646.860809',
+        messages: [
+          {
+            ts: '1775650646.860809',
+            user: 'U123',
+            text: 'Thread permalink with query params',
+          },
+        ],
+      });
+
+      await (command as any).fetchSource(
+        'https://touraxis.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53',
+      );
+
+      expect(slackService.fetchThread).toHaveBeenCalledWith(
+        'C0AP5MMCP53',
+        '1775650646.860809',
+      );
+      expect(slackService.fetchChannelHistory).not.toHaveBeenCalled();
+    });
+
     it('shows Slack history API preview for bare Slack channel archive URLs in dry-run mode', async () => {
       const { command } = await buildCommand();
       const dryRunPreview = (command as any)
@@ -884,6 +912,47 @@ describe('IssueGenerateCommand', () => {
             'consumer-app',
             'slack',
             'slack-thread-C0AP5MMCP53-<oldest-message-ts>.md',
+          ),
+          format: 'md',
+        }),
+      );
+    });
+
+    it('shows Slack thread API preview for Slack thread permalinks with query params in dry-run mode', async () => {
+      const { command } = await buildCommand();
+      const dryRunPreview = (command as any)
+        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+
+      await command.run(
+        [
+          'https://touraxis.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53',
+        ],
+        {
+          dryRun: true,
+        },
+      );
+
+      expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: 'https://slack.com/api/conversations.replies',
+          platform: 'Slack',
+        }),
+      );
+      expect(dryRunPreview.previewApiCall).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint:
+            'https://touraxis.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53',
+          platform: 'Web',
+        }),
+      );
+      expect(dryRunPreview.previewFileWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePath: path.join(
+            os.homedir(),
+            '.wf',
+            'consumer-app',
+            'slack',
+            'slack-thread-C0AP5MMCP53-1775650646-860809.md',
           ),
           format: 'md',
         }),
