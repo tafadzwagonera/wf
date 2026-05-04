@@ -56,6 +56,7 @@ describe('ReviewerAgent', () => {
       'diff --git a/file b/file',
       expect.objectContaining({
         context: 'ticket WBP-123',
+        repoDir: '/tmp/repo',
       }),
     );
   });

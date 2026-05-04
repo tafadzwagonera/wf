@@ -73,6 +73,7 @@ export class ReviewerAgent {
 
     const review = await this.reviewStageService.reviewDiff(diff, {
       context: `ticket ${ticket.ticketKey}`,
+      repoDir: options.repoDir,
     });
 
     console.log(chalk.green('\n✓ Review complete'));

@@ -261,6 +261,7 @@ describe('ReviewStageService', () => {
     const { service, aiService, stageAgentService } = await buildService(true);
     const review = await service.reviewDiff('diff --git a/file b/file', {
       context: 'ticket WBP-124: Agent-backed review',
+      repoDir: '/tmp/repo',
     });
 
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-agent-'));
@@ -278,6 +279,11 @@ describe('ReviewStageService', () => {
 
     const reviewMarkdown = fs.readFileSync(artifact.path, 'utf-8');
     expect(stageAgentService.reviewCode).toHaveBeenCalled();
+    expect(stageAgentService.reviewCode).toHaveBeenCalledWith(
+      'diff --git a/file b/file',
+      expect.any(Array),
+      '/tmp/repo',
+    );
     expect(aiService.reviewCode).not.toHaveBeenCalled();
     expect(review.executionMode).toBe('agent');
     expect(reviewMarkdown).toContain('Execution mode: agent');

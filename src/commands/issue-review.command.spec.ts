@@ -411,6 +411,7 @@ describe('IssueReviewCommand', () => {
         'diff 160',
         expect.objectContaining({
           context: expect.stringContaining('ticket TAD-575'),
+          repoDir: expect.stringContaining('service-tourv3'),
         }),
       );
       expect(reviewStageService.reviewDiff).toHaveBeenNthCalledWith(
@@ -421,6 +422,29 @@ describe('IssueReviewCommand', () => {
             'pull request: https://bitbucket.org/workspace/repo/pull-requests/161',
           ),
         }),
+      );
+    });
+
+    it('uses the current repo name as a discovery hint when --repos is omitted', async () => {
+      const { command, adapters } = await buildCommand();
+      const handleSpy = jest
+        .spyOn(ErrorHandler, 'handle')
+        .mockImplementation(() => undefined as never);
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
+        [],
+      );
+      adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
+      setNonInteractiveSession();
+
+      await command.run(['TAD-575'], {});
+
+      expect(
+        adapters.bitbucketAdapter.findPullRequestsByTicketKey,
+      ).toHaveBeenCalledWith('TAD-575', path.basename(process.cwd()));
+      expect(handleSpy).not.toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '⚠️ Non-interactive session; returning without local review',
       );
     });
 

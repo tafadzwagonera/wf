@@ -25,6 +25,7 @@ interface ReviewDiffOptions {
   context: string;
   extraCriteria?: string[];
   replaceCriteria?: boolean;
+  repoDir?: string;
 }
 
 @Injectable()
@@ -48,7 +49,11 @@ export class ReviewStageService {
         ];
 
     const review = this.stageAgentService.isEnabledForStage('review')
-      ? await this.stageAgentService.reviewCode(diff, guidelines)
+      ? await this.stageAgentService.reviewCode(
+          diff,
+          guidelines,
+          options.repoDir,
+        )
       : await this.aiService.reviewCode(diff, guidelines);
     const agentEnabled =
       this.configService.get<boolean>('stages.review.agent', false) === true;

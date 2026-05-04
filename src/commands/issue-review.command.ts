@@ -39,6 +39,7 @@ interface ReviewTarget {
   title: string;
   diff: string;
   context: string;
+  repoDir?: string;
   adapterName?: string;
   commentRef?: string;
 }
@@ -54,6 +55,7 @@ interface DiscoveredPullRequestTarget {
   commentRef: string;
   title: string;
   context: string;
+  repoDir?: string;
 }
 
 interface PullRequestDiscoveryResult {
@@ -337,6 +339,7 @@ export class IssueReviewCommand extends CommandRunner {
           title: this.formatPullRequestTitle(source),
           diff: await this.reviewPullRequest(source),
           context: `pull request: ${source}`,
+          repoDir: this.resolveLocalRepoDirForReview(repoInputs),
           adapterName: this.resolveAdapterNameForPullRequestUrl(source),
           commentRef: source,
         });
@@ -392,6 +395,7 @@ export class IssueReviewCommand extends CommandRunner {
                 title: pullRequest.title,
                 diff,
                 context: `${ticketReviewContext}\n\n${pullRequest.context}`,
+                repoDir: pullRequest.repoDir,
                 adapterName: pullRequest.adapterName,
                 commentRef: pullRequest.commentRef,
               });
@@ -439,6 +443,7 @@ export class IssueReviewCommand extends CommandRunner {
             )})`,
             diff,
             context: `${ticketReviewContext}\n\n${this.buildRepoContext(repoDirs, 'repositories under review')}`,
+            repoDir: repoDirs[0],
           });
         }
       } else {
@@ -469,6 +474,7 @@ export class IssueReviewCommand extends CommandRunner {
           context: target.context,
           extraCriteria: extraCriteria ?? undefined,
           replaceCriteria: Boolean(options?.replaceCriteria),
+          repoDir: target.repoDir,
         });
 
         reviewedTargets.push({ ...target, review });
@@ -907,9 +913,7 @@ export class IssueReviewCommand extends CommandRunner {
       ...this.platformService.getPullRequestDiscoveryAdapters().entries(),
     ].sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
 
-    const repoHints = repoInputs.length
-      ? repoInputs.map((repo) => this.normalizeRepoHint(repo))
-      : [undefined];
+    const repoHints = this.resolveTicketDiscoveryRepoHints(repoInputs);
 
     const discovered = new Map<string, DiscoveredPullRequestTarget>();
     let attemptedLookupCount = 0;
@@ -948,6 +952,9 @@ export class IssueReviewCommand extends CommandRunner {
             commentRef: url,
             title: this.formatPullRequestTitle(url),
             context: `pull request: ${url}`,
+            repoDir: repoHint
+              ? (this.resolveExistingLocalRepoDir(repoHint) ?? undefined)
+              : undefined,
           });
         }
       }
@@ -976,6 +983,48 @@ export class IssueReviewCommand extends CommandRunner {
       attemptedLookupCount,
       missingRepoScopeErrors,
     };
+  }
+
+  /**
+   * Resolve ticket PR discovery hints.
+   * Uses explicit --repos values when supplied; otherwise infers the current
+   * repository name from cwd to avoid adapter calls with an undefined repo.
+   * @param repoInputs Raw --repos values
+   * @returns Stable repo hints for adapter discovery
+   */
+  private resolveTicketDiscoveryRepoHints(repoInputs: string[]): string[] {
+    if (repoInputs.length > 0) {
+      return repoInputs.map((repo) => this.normalizeRepoHint(repo));
+    }
+
+    const fallbackRepo = this.inferCurrentRepositoryName();
+    return fallbackRepo ? [fallbackRepo] : [];
+  }
+
+  /**
+   * Infer the current repository name from the working directory.
+   * @returns Basename of cwd, or null when unavailable
+   */
+  private inferCurrentRepositoryName(): string | null {
+    const repoName = path.basename(process.cwd()).trim();
+    return repoName.length > 0 ? repoName : null;
+  }
+
+  /**
+   * Resolve a local repository directory for remote PR review context.
+   * Prefers explicit --repos values and falls back to the current directory
+   * only when no repo input is available.
+   * @param repoInputs Raw --repos values
+   * @returns Existing local repo directory or undefined
+   */
+  private resolveLocalRepoDirForReview(
+    repoInputs: string[],
+  ): string | undefined {
+    if (repoInputs.length > 0) {
+      return this.resolveExistingLocalRepoDir(repoInputs[0]) ?? undefined;
+    }
+
+    return process.cwd();
   }
 
   /**

@@ -164,7 +164,11 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     }
   }
 
-  async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
+  async reviewCode(
+    diff: string,
+    guidelines: string[],
+    repoDir?: string,
+  ): Promise<CodeReview> {
     const prompt = `
 Code Changes:
 \`\`\`
@@ -237,6 +241,7 @@ Ignore JSON or markdown files under .wf/ and platform artifact directories.`;
       stage: 'review',
       prompt,
       systemPrompt,
+      repoDir,
     });
 
     try {
@@ -291,6 +296,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     stage: AgentStageName;
     prompt: string;
     systemPrompt: string;
+    repoDir?: string;
   }): Promise<string> {
     const provider = this.resolveStageProvider(params.stage);
     if (provider === 'anthropic') {
@@ -304,6 +310,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     stage: AgentStageName;
     prompt: string;
     systemPrompt: string;
+    repoDir?: string;
   }): Promise<string> {
     const apiKey = this.configService.get<string>('ai.anthropicApiKey');
     if (!apiKey) {
@@ -319,19 +326,25 @@ Return only the requested ticket markdown and preserve the required heading stru
       'anthropic',
       true,
     );
+    const resolvedRepoDir = params.repoDir ?? process.cwd();
+    const allowInspection = Boolean(params.repoDir);
+    const anthropicTools = allowInspection ? [...ANTHROPIC_STAGE_TOOLS] : [];
+    const anthropicSystemPrompt = allowInspection
+      ? params.systemPrompt
+      : `${params.systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
     const { query } = await loadAnthropicAgentSdk();
     const session = query({
       prompt: params.prompt,
       options: {
-        cwd: process.cwd(),
+        cwd: resolvedRepoDir,
         model,
-        tools: [...ANTHROPIC_STAGE_TOOLS],
-        allowedTools: [...ANTHROPIC_STAGE_TOOLS],
+        tools: anthropicTools,
+        allowedTools: anthropicTools,
         permissionMode: 'acceptEdits',
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: [anthropicContext, params.systemPrompt]
+          append: [anthropicContext, anthropicSystemPrompt]
             .filter(Boolean)
             .join('\n\n'),
         },
@@ -363,7 +376,7 @@ Return only the requested ticket markdown and preserve the required heading stru
           allowUnsandboxedCommands: false,
           autoAllowBashIfSandboxed: true,
           filesystem: {
-            allowRead: [process.cwd()],
+            allowRead: allowInspection ? [resolvedRepoDir] : [],
             allowWrite: [],
           },
         },
@@ -399,6 +412,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     stage: AgentStageName;
     prompt: string;
     systemPrompt: string;
+    repoDir?: string;
   }): Promise<string> {
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
     if (!apiKey) {
@@ -415,8 +429,13 @@ Return only the requested ticket markdown and preserve the required heading stru
       'openai',
       true,
     );
+    const resolvedRepoDir = params.repoDir ?? process.cwd();
+    const allowInspection = Boolean(params.repoDir);
+    const openAiSystemPrompt = allowInspection
+      ? params.systemPrompt
+      : `${params.systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
     const context: OpenAiStageContext = {
-      repoDir: process.cwd(),
+      repoDir: resolvedRepoDir,
     };
 
     const readFileTool = tool({
@@ -530,11 +549,13 @@ Return only the requested ticket markdown and preserve the required heading stru
       name: `wf ${params.stage} openai agent backend`,
       handoffDescription:
         'Uses read-only tools to inspect the repository and answer the current stage prompt.',
-      instructions: [openAiContext, params.systemPrompt]
+      instructions: [openAiContext, openAiSystemPrompt]
         .filter(Boolean)
         .join('\n\n'),
       model,
-      tools: [readFileTool, listFilesTool, searchFilesTool, runCommandTool],
+      tools: allowInspection
+        ? [readFileTool, listFilesTool, searchFilesTool, runCommandTool]
+        : [],
       toolUseBehavior: 'run_llm_again',
       resetToolChoice: true,
     });
