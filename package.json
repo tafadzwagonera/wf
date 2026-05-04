@@ -24,6 +24,11 @@
   "scripts": {
     "build": "nest build",
     "postbuild": "chmod +x dist/main.js && ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",
+    "help:catalog": "ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",
+    "docs:sync": "ts-node -r tsconfig-paths/register scripts/sync-issue-command-docs.ts",
+    "docs:check": "ts-node -r tsconfig-paths/register scripts/sync-issue-command-docs.ts --check",
+    "generated-docs:sync": "npm run help:catalog && npm run docs:sync",
+    "generated-docs:check": "npm run generated-docs:sync && git diff --exit-code -- README.md docs/commands-help.catalog.json",
     "format:write": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "format": "npm run format:write",

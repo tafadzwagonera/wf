@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Check generated command docs
+        run: npm run generated-docs:check
+
       - name: Run tests
         run: yarn test --passWithNoTests
 

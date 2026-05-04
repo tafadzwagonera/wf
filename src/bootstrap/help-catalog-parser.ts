@@ -4,8 +4,18 @@ import * as path from 'path';
 export interface CommandHelpEntry {
   description: string;
   usage: string;
-  options?: string[];
-  examples?: string[];
+  options?: CommandHelpOption[];
+  examples?: CommandHelpExample[];
+}
+
+export interface CommandHelpOption {
+  flags: string;
+  description: string;
+}
+
+export interface CommandHelpExample {
+  comment?: string;
+  command: string;
 }
 
 const STRING_LITERAL_PATTERN =
@@ -186,21 +196,40 @@ const parseObjectProperties = (block: string): Map<string, string> => {
   return properties;
 };
 
-const extractExamples = (source: string): string[] =>
-  Array.from(
-    source.matchAll(/command:\s*('(?:\\.|[^'])*'|"(?:\\.|[^"])*")/g),
-  ).map((match) => unquoteStringLiteral(match[1]));
+const extractExamples = (source: string): CommandHelpExample[] => {
+  const examplesArrayMatch = source.match(
+    /const\s+\w+_EXAMPLES\s*:\s*CliExample\[\]\s*=\s*\[(.*?)\];/s,
+  );
+  if (!examplesArrayMatch) {
+    return [];
+  }
+
+  return Array.from(examplesArrayMatch[1].matchAll(/\{([\s\S]*?)\}/g))
+    .map((match) => parseObjectProperties(match[1]))
+    .map((properties) => ({
+      comment: evaluateStringExpression(properties.get('comment')),
+      command: evaluateStringExpression(properties.get('command')),
+    }))
+    .filter(
+      (
+        example,
+      ): example is {
+        comment: string | undefined;
+        command: string;
+      } => Boolean(example.command),
+    )
+    .map((example) =>
+      example.comment
+        ? { comment: example.comment, command: example.command }
+        : { command: example.command },
+    );
+};
 
 const formatFlagForHelp = (flagsExpression?: string): string | undefined => {
   const flags = evaluateStringExpression(flagsExpression);
   if (!flags) return undefined;
 
-  const longFlag = flags
-    .split(',')
-    .map((segment) => segment.trim())
-    .find((segment) => segment.startsWith('--'));
-
-  return longFlag ?? flags.trim();
+  return flags.trim();
 };
 
 const buildUsage = ({
@@ -267,18 +296,12 @@ export const getCommandHelpCatalog = (
     const options = extractDecoratorBlocks(source, 'Option')
       .map((block) => parseObjectProperties(block))
       .map((properties) => ({
-        flag: formatFlagForHelp(properties.get('flags')),
+        flags: formatFlagForHelp(properties.get('flags')),
         description: evaluateStringExpression(properties.get('description')),
       }))
-      .filter(
-        (
-          option,
-        ): option is {
-          flag: string;
-          description: string;
-        } => Boolean(option.flag && option.description),
-      )
-      .map((option) => `${option.flag.padEnd(18)} ${option.description}`);
+      .filter((option): option is CommandHelpOption =>
+        Boolean(option.flags && option.description),
+      );
 
     const examples = extractExamples(source);
 

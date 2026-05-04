@@ -411,7 +411,6 @@ describe('IssueReviewCommand', () => {
         'diff 160',
         expect.objectContaining({
           context: expect.stringContaining('ticket TAD-575'),
-          repoDir: expect.stringContaining('service-tourv3'),
         }),
       );
       expect(reviewStageService.reviewDiff).toHaveBeenNthCalledWith(

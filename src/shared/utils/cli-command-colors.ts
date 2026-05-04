@@ -3,13 +3,22 @@ import chalk from 'chalk';
 const COMMAND_TOKEN_PATTERN = /"[^"]*"|'[^']*'|[^\s]+/g;
 
 /**
- * Color a CLI command string using the shared help/example visual language.
+ * Split a CLI command string into shell-like tokens while preserving quoted values.
  *
  * @param command - Full CLI command text
- * @returns ANSI-colored command string
+ * @returns Ordered command tokens
  */
-export const formatCliCommand = (command: string): string => {
-  const tokens = command.match(COMMAND_TOKEN_PATTERN) ?? [];
+export const tokenizeCliCommand = (command: string): string[] =>
+  command.match(COMMAND_TOKEN_PATTERN) ?? [];
+
+/**
+ * Apply the shared help/example color theme to CLI command tokens.
+ *
+ * @param command - Full CLI command text
+ * @returns ANSI-colored command tokens
+ */
+export const formatCliCommandTokens = (command: string): string[] => {
+  const tokens = tokenizeCliCommand(command);
   const coloredTokens: string[] = [];
   let previousWasFlag = false;
 
@@ -38,5 +47,14 @@ export const formatCliCommand = (command: string): string => {
     previousWasFlag = false;
   }
 
-  return coloredTokens.join(' ');
+  return coloredTokens;
 };
+
+/**
+ * Color a CLI command string using the shared help/example visual language.
+ *
+ * @param command - Full CLI command text
+ * @returns ANSI-colored command string
+ */
+export const formatCliCommand = (command: string): string =>
+  formatCliCommandTokens(command).join(' ');

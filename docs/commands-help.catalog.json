@@ -1,0 +1,472 @@
+{
+  "config": {
+    "description": "Configure agent settings",
+    "usage": "wf config <get|set|list> [args]"
+  },
+  "history": {
+    "description": "Show workflow execution history",
+    "usage": "wf history [options]",
+    "options": [
+      {
+        "flags": "-s, --status <status>",
+        "description": "Filter by status (completed, running, failed, cancelled)"
+      },
+      {
+        "flags": "-l, --limit <number>",
+        "description": "Maximum number of results (default: 20)"
+      },
+      {
+        "flags": "-w, --workflow <name>",
+        "description": "Filter by workflow name"
+      }
+    ]
+  },
+  "issue:commit": {
+    "description": "Create git commit with AI-generated message (auto-detects ticket from branch)",
+    "usage": "wf issue:commit [ticket-key] [options]",
+    "options": [
+      {
+        "flags": "-c, --conventional",
+        "description": "Force conventional commits format"
+      },
+      {
+        "flags": "--dry-run",
+        "description": "Preview the commit operation without making changes"
+      },
+      {
+        "flags": "-m, --message <message>",
+        "description": "Manual commit message (bypasses AI generation)"
+      },
+      {
+        "flags": "--no-ai",
+        "description": "Disable AI generation and require manual message"
+      },
+      {
+        "flags": "-p, --platform <platform>",
+        "description": "Platform (jira|github|bitbucket)"
+      },
+      {
+        "flags": "-r, --repos <repos...>",
+        "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning"
+      }
+    ],
+    "examples": [
+      {
+        "comment": "AI-generated commit message",
+        "command": "wf issue:commit WBP-2971"
+      },
+      {
+        "comment": "Run the commit stage from source with conventional commits enabled",
+        "command": "yarn start issue:commit -c"
+      },
+      {
+        "comment": "Force conventional format",
+        "command": "wf issue:commit WBP-2971 --conventional --platform jira"
+      }
+    ]
+  },
+  "issue:cowsay": {
+    "description": "Smoke-test command — verifies wf is installed and invocable",
+    "usage": "wf issue:cowsay"
+  },
+  "issue:create": {
+    "description": "Create tickets on various platforms from standardized input",
+    "usage": "wf issue:create <input> [options]",
+    "options": [
+      {
+        "flags": "--dry-run",
+        "description": "Validate without creating - preview only"
+      },
+      {
+        "flags": "-p, --platform <platform>",
+        "description": "Target platform (jira|github|bitbucket) - default from env"
+      },
+      {
+        "flags": "-r, --repos <repos...>",
+        "description": "Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning"
+      },
+      {
+        "flags": "--ticket-project <project>",
+        "description": "Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file"
+      },
+      {
+        "flags": "-t, --type <type>",
+        "description": "Issue type (task|bug|story|todo) - overrides input file"
+      }
+    ],
+    "examples": [
+      {
+        "comment": "Create ticket from JSON on primary platform",
+        "command": "wf issue:create ticket.json"
+      },
+      {
+        "comment": "Create on a specific platform and override the Jira project",
+        "command": "wf issue:create ticket.md --platform jira --ticket-project WBP --type story"
+      }
+    ]
+  },
+  "issue:fetch": {
+    "description": "Fetch ticket description from a platform. NB: This command will override the locally generated artifact with the ticket description fetched from the specified platform",
+    "usage": "wf issue:fetch <ticket-key> [options]",
+    "options": [
+      {
+        "flags": "--dry-run",
+        "description": "Preview the fetch operation without making changes"
+      },
+      {
+        "flags": "-f, --format <format>",
+        "description": "Output format (json|md|yaml|xml)"
+      },
+      {
+        "flags": "-p, --platform <platform>",
+        "description": "Target platform (jira|github|bitbucket)"
+      },
+      {
+        "flags": "-r, --repos <repos...>",
+        "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning"
+      }
+    ],
+    "examples": [
+      {
+        "comment": "Fetch ticket from primary platform",
+        "command": "wf issue:fetch WBP-2971"
+      },
+      {
+        "comment": "Specify platform and format",
+        "command": "wf issue:fetch WBP-2971 --platform jira --format md"
+      }
+    ]
+  },
+  "issue:generate:lookup": {
+    "description": "Lookup the original source list for a generated ticket artifact hash",
+    "usage": "wf issue:generate:lookup <token> [options]",
+    "options": [
+      {
+        "flags": "-p, --platform <platform>",
+        "description": "Platform namespace to inspect"
+      },
+      {
+        "flags": "-r, --repos <repos...>",
+        "description": "Space-separated repositories; only the first repo is used for lookup scope"
+      }
+    ],
+    "examples": [
+      {
+        "comment": "Look up the sources for a generated artifact hash",
+        "command": "wf issue:generate:lookup 1a2b3c4d"
+      }
+    ]
+  },
+  "issue:generate": {
+    "description": "Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys; can use an agent backend when stages.generate.agent: true is configured",
+    "usage": "wf issue:generate <sources...> [options]",
+    "options": [
+      {
+        "flags": "--dry-run",
+        "description": "Preview the generate operation without making changes"
+      },
+      {
+        "flags": "-f, --format <format>",
+        "description": "Output format (json|md|yaml|xml) - default from env"
+      },
+      {
+        "flags": "-o, --output <path>",
+        "description": "Output file path - default: stdout"
+      },
+      {
+        "flags": "-p, --platform <platform>",
+        "description": "Platform for ticket sources (jira|github|bitbucket)"
+      },
+      {
+        "flags": "--priority <priority>",
+        "description": "Override ticket priority (highest|high|medium|low|lowest)"
+      },
+      {
+        "flags": "-r, --repos <repos...>",
+        "description": "Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)"
+      },
+      {
+        "flags": "--save",
+        "description": "Save generated ticket to platform directory"
+      },
+      {
+        "flags": "-s, --silent",
+        "description": "Disable interactive prompts and fail on ambiguity"
+      },
+      {
+        "flags": "-t, --title <title>",
+        "description": "Override generated title with custom title"
+      },
+      {
+        "flags": "--type <type>",
+        "description": "Override ticket type (task|bug|story|epic)"
+      }
+    ],
+    "examples": [
+      {
+        "comment": "Generate ticket from a URL",
+        "command": "wf issue:generate https://example.com/spec"
+      },
+      {
+        "comment": "Generate from a Slack thread permalink with query params",
+        "command": "wf issue:generate \"https://workspace.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53\""
+      },
+      {
+        "comment": "Generate from a repo-scoped artifact (requires -r, --repos)",
+        "command": "wf issue:generate itinerary-pdf-generation.md -r service-tourv3"
+      },
+      {
+        "comment": "Save with overridden title",
+        "command": "wf issue:generate ./requirements.md --title \"Add OAuth2\" --save"
+      }
+    ]
+  },
+  "issue:implement": {
+    "description": "Carry out an implementation plan from a ticket-backed, hashed, or custom plan artifact. Uses a two-phase retry strategy on verification failure: a diagnosis call analyses failing file contents, related type definitions, repo test-runner context, and test sources, then generates a structured fix plan used as shared context during re-generation. Retry scope widens to paired implementation/spec files when diagnostics implicate one side of the pair, then stays pinned to the smallest implicated file set unless later diagnostics name additional files. History-aware progress tracking keeps retrying when deep failures collapse into smaller earlier-stage residual errors. Repo context is also injected into implement/diagnose prompts to reduce Jest/Vitest framework drift. When the Anthropic or OpenAI agent backend is active, progress events are streamed to the terminal so you can follow task and tool activity while edits are being generated, and both backends emit heuristic progress signals to encourage forward motion when verification is converging. Verification commands are expected to be repo-root-relative; stale plan artifacts that still embed redundant repo-selection `cd` prefixes are normalized, while cross-repo directory jumps are treated as setup errors. Enable the Anthropic or OpenAI agent backend by setting stages.implement.agent: true and selecting stages.implement.provider: anthropic or openai in wf.config; the plan artifact provider only tags the plan/model for analysis and does not drive backend selection. The Anthropic backend explicitly loads ~/.claude/CLAUDE.md and the repository-root CLAUDE.md, warning when either file is missing. The OpenAI backend loads ~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md with the same warning behavior and only exposes an exact-match verify_command tool for whitelisted verification commands. When running from source, use `yarn start issue:implement ...` for the implementation stage and `yarn start issue:commit -c` to stage the final conventional commit once the work is accepted. When the agent backend is disabled, issue:implement uses the standard two-phase retry path. Unsupported providers with stages.implement.agent: true fail fast. Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. Examples: wf issue:implement PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | wf issue:implement PROJ-123 --repos my-repo | wf issue:implement PROJ-123 --repos repo-a repo-b | wf issue:implement PROJ-123 --dry-run",
+    "usage": "wf issue:implement [ticket-key-or-plan-token] [options]",
+    "options": [
+      {
+        "flags": "-p, --platform <platform>",
+        "description": "Platform to fetch from if local artifact not found"
+      },
+      {
+        "flags": "--dry-run",
+        "description": "Preview branch, file, and investigation work without making changes"
+      },
+      {
+        "flags": "-r, --repos <repos...>",
+        "description": "Space-separated repositories; first repo anchors artifact lookup, all repos remain available as implementation context"
+      }
+    ]
+  },
+  "issue:plan": {
+    "description": "Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary platform. Use --force to fetch and recreate artifacts. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.",
+    "usage": "wf issue:plan [ticket-key] [options]",
+    "options": [
+      {
+        "flags": "-a, --action <action>",
+        "description": "Resolution action (feature|fix|investigate)"
+      },
+      {
+        "flags": "-c, --custom <source.md>",
+        "description": "Custom markdown source artifact to synthesize into a canonical plan (mutually exclusive with <ticket-key>)"
+      },
+      {
+        "flags": "--dry-run",
+        "description": "Preview the plan operation without making changes"
+      },
+      {
+        "flags": "--force",
+        "description": "Force fetch and recreate ticket artifact before planning"
+      },
+      {
+        "flags": "-f, --format <format>",
+        "description": "Output format for plan (json|md|yaml)"
+      },
+      {
+        "flags": "-p, --platform <platform>",
+        "description": "Platform to fetch from if local artifact not found"
+      },
+      {
+        "flags": "-r, --repos <repos...>",
+        "description": "Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)"
+      }
+    ],
+    "examples": [
+      {
+        "comment": "Create a custom feature plan from a markdown artifact",
+        "command": "wf issue:plan --action feature --custom bar.md"
+      },
+      {
+        "comment": "Prefer the repo-scoped custom artifact when a repo is supplied",
+        "command": "wf issue:plan --action feature --custom bar.md --repos repo-a"
+      },
+      {
+        "comment": "Plan a fix for a ticket",
+        "command": "wf issue:plan WBP-2971 --action fix"
+      },
+      {
+        "comment": "Force re-fetch before planning",
+        "command": "wf issue:plan WBP-2971 --action fix --force --platform jira"
+      }
+    ]
+  },
+  "issue:pr": {
+    "description": "Create a pull request from a plan artifact (auto-detects ticket from branch)",
+    "usage": "wf issue:pr [ticket-key] [options]",
+    "options": [
+      {
+        "flags": "-a, --action <action>",
+        "description": "Resolution action type (feature|fix|investigate)"
+      },
+      {
+        "flags": "-b, --base <base>",
+        "description": "Target branch for the PR (default: main)"
+      },
+      {
+        "flags": "--dry-run",
+        "description": "Preview the PR creation without making changes"
+      },
+      {
+        "flags": "-p, --platform <platform>",
+        "description": "Platform (jira|github|bitbucket)"
+      },
+      {
+        "flags": "-r, --repos <repos...>",
+        "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning"
+      },
+      {
+        "flags": "-t, --title <title>",
+        "description": "Override the PR title"
+      }
+    ],
+    "examples": [
+      {
+        "comment": "Create a PR from a fix plan",
+        "command": "wf issue:pr WBP-2971 --action fix"
+      },
+      {
+        "comment": "Dry-run to preview PR title and body",
+        "command": "wf issue:pr WBP-2971 --dry-run"
+      }
+    ]
+  },
+  "issue:review": {
+    "description": "AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance in the output",
+    "usage": "wf issue:review [source] [options]",
+    "options": [
+      {
+        "flags": "--comment",
+        "description": "Post review as a comment on supported pull requests"
+      },
+      {
+        "flags": "--criteria <path>",
+        "description": "Path to a markdown file with additional review criteria to append to the defaults"
+      },
+      {
+        "flags": "--dry-run",
+        "description": "Preview the review operation without making changes"
+      },
+      {
+        "flags": "-f, --format <format>",
+        "description": "Output format (text|json|md) - default: text"
+      },
+      {
+        "flags": "-o, --output <path>",
+        "description": "Save review to file"
+      },
+      {
+        "flags": "-p, --platform <platform>",
+        "description": "Platform (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary platform"
+      },
+      {
+        "flags": "--replace-criteria <path>",
+        "description": "Path to a markdown file whose criteria replace the default review guidelines entirely"
+      },
+      {
+        "flags": "-r, --repos <repos...>",
+        "description": "Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk"
+      }
+    ],
+    "examples": [
+      {
+        "comment": "Review current repo changes",
+        "command": "wf issue:review"
+      },
+      {
+        "comment": "Review a ticket and associated pull requests from credentialed adapters using a remote repo hint",
+        "command": "yarn start issue:review WBP-3057 -r service-bookingv3"
+      },
+      {
+        "comment": "Review a ticket and its associated pull requests across credentialed repos",
+        "command": "wf issue:review WBP-2971 --platform jira --repos service-tourv3"
+      },
+      {
+        "comment": "Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd",
+        "command": "yarn start issue:review CTRL-280 -r api-gateway-v1"
+      }
+    ]
+  },
+  "issue": {
+    "description": "Complete workflow: fetch, plan, implement, review, and commit. Use --from and --to to control stage range. Pass --repos to specify repositories: the first repo anchors artifact storage; all repos are available as cross-repo read context during implementation (writes stay scoped to the primary repo). Resuming from `--from implement` can accept a ticket key, a hashed plan token, or a hashed plan filename; if `--action` is provided, it is validated against the resolved artifact.",
+    "usage": "wf issue <ticket-key-or-plan-token> [options]",
+    "options": [
+      {
+        "flags": "-a, --action <action>",
+        "description": "Resolution action type (feature|fix|investigate) - required for PLAN stage, optional when resuming from a hashed plan artifact"
+      },
+      {
+        "flags": "--chat-mode",
+        "description": "Enable interactive chat mode at key stages (plan, review)"
+      },
+      {
+        "flags": "--dry-run",
+        "description": "Preview the full workflow without making changes"
+      },
+      {
+        "flags": "--force",
+        "description": "Force refetch and recreate all local artifacts, ignoring any cached files"
+      },
+      {
+        "flags": "--from <stage>",
+        "description": "Start from stage (fetch|plan|implement|review|commit) [REQUIRED]"
+      },
+      {
+        "flags": "-p, --platform <platform>",
+        "description": "Platform to use (jira|github|bitbucket)"
+      },
+      {
+        "flags": "--pr",
+        "description": "After the COMMIT stage, print a hint to run wf issue:pr"
+      },
+      {
+        "flags": "-r, --repos <repos...>",
+        "description": "Space-separated repositories; the first repo anchors artifact storage and all repos are used as workflow context"
+      },
+      {
+        "flags": "--to <stage>",
+        "description": "Stop at stage (fetch|plan|implement|review|commit) - defaults to commit"
+      }
+    ],
+    "examples": [
+      {
+        "comment": "Run full workflow from fetch",
+        "command": "wf issue WBP-2971 --from fetch --action fix"
+      },
+      {
+        "comment": "Resume from implement stage",
+        "command": "wf issue WBP-2971 --from implement --action fix --platform jira"
+      },
+      {
+        "comment": "Resume from a hashed plan artifact without --action",
+        "command": "wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement"
+      }
+    ]
+  },
+  "list": {
+    "description": "List available workflows",
+    "usage": "wf list"
+  },
+  "resume": {
+    "description": "Resume a paused or failed workflow execution",
+    "usage": "wf resume <execution-id>"
+  },
+  "run": {
+    "description": "Execute a workflow",
+    "usage": "wf run <workflow-name> [options]",
+    "options": [
+      {
+        "flags": "-p, --params <json>",
+        "description": "Parameters as JSON string"
+      },
+      {
+        "flags": "-a, --auto-execute",
+        "description": "Skip approval gates (auto-execution mode)"
+      },
+      {
+        "flags": "-d, --dry-run",
+        "description": "Show workflow steps without executing"
+      }
+    ]
+  }
+}

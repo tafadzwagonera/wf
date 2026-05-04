@@ -265,30 +265,26 @@ The issue API is a suite of commands for the full ticket lifecycle: fetch → pl
 
 #### `wf issue:fetch <ticket-key>`
 
-Fetch a ticket from a platform and save it as a local artifact. **Overwrites any existing local artifact.**
+<!-- BEGIN GENERATED COMMAND DOCS: issue:fetch -->
+Fetch ticket description from a platform. NB: This command will override the locally generated artifact with the ticket description fetched from the specified platform
 
 ```bash
-# Fetch using the primary platform from wf.config.*
+# Fetch ticket from primary platform
 wf issue:fetch WBP-2971
 
-# Specify platform and output format
+# Specify platform and format
 wf issue:fetch WBP-2971 --platform jira --format md
-
-# Fetch a Bitbucket issue with a repo override
-wf issue:fetch 123 --platform bitbucket --repo myworkspace/myrepo
-
-# Preview what would happen without fetching
-wf issue:fetch WBP-2971 --dry-run
 ```
 
 **Options:**
 
-| Flag                        | Description                                                    | Default                 |
-| --------------------------- | -------------------------------------------------------------- | ----------------------- |
-| `-f, --format <format>`     | Output format: `json \| md \| yaml \| xml`                     | `DEFAULT_OUTPUT_FORMAT` |
-| `-p, --platform <platform>` | Source platform: `jira \| github \| bitbucket`                 | `PRIMARY_PLATFORM`      |
-| `-r, --repos <repos...>`    | Space-separated repositories (`workspace/repo` or `repo-name`) | required                |
-| `--dry-run`                 | Preview the fetch without writing files                        | —                       |
+| Flag | Description |
+| ---- | ----------- |
+| `--dry-run` | Preview the fetch operation without making changes |
+| `-f, --format <format>` | Output format (json\|md\|yaml\|xml) |
+| `-p, --platform <platform>` | Target platform (jira\|github\|bitbucket) |
+| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
+<!-- END GENERATED COMMAND DOCS: issue:fetch -->
 
 **Output:** saves to `./<platform>/<ticket-key>.<format>` (e.g., `./jira/WBP-2971.md`).
 
@@ -296,47 +292,40 @@ wf issue:fetch WBP-2971 --dry-run
 
 #### `wf issue:plan <ticket-key>`
 
-Generate an AI implementation plan for a ticket, or synthesize a canonical custom plan from a markdown source artifact. Reads from the local artifact saved by `issue:fetch`. If no local ticket artifact exists, it is fetched first.
+<!-- BEGIN GENERATED COMMAND DOCS: issue:plan -->
+Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary platform. Use --force to fetch and recreate artifacts. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.
+
+```bash
+# Create a custom feature plan from a markdown artifact
+wf issue:plan --action feature --custom bar.md
+
+# Prefer the repo-scoped custom artifact when a repo is supplied
+wf issue:plan --action feature --custom bar.md --repos repo-a
+
+# Plan a fix for a ticket
+wf issue:plan WBP-2971 --action fix
+
+# Force re-fetch before planning
+wf issue:plan WBP-2971 --action fix --force --platform jira
+```
+
+**Options:**
+
+| Flag | Description |
+| ---- | ----------- |
+| `-a, --action <action>` | Resolution action (feature\|fix\|investigate) |
+| `-c, --custom <source.md>` | Custom markdown source artifact to synthesize into a canonical plan (mutually exclusive with <ticket-key>) |
+| `--dry-run` | Preview the plan operation without making changes |
+| `--force` | Force fetch and recreate ticket artifact before planning |
+| `-f, --format <format>` | Output format for plan (json\|md\|yaml) |
+| `-p, --platform <platform>` | Platform to fetch from if local artifact not found |
+| `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
+<!-- END GENERATED COMMAND DOCS: issue:plan -->
 
 Targeted verification commands are stored as **repo-root-relative** commands. If
 the plan generator emits a redundant `cd <selected-repo> && ...`, `issue:plan`
 normalizes it before writing the artifact. If a targeted check tries to `cd`
 outside the selected repo, the plan is rejected.
-
-```bash
-# Specify the resolution action
-wf issue:plan WBP-2971 --action fix
-
-# Create a custom feature plan from a markdown artifact
-wf issue:plan --action feature --custom jira/bar.md
-
-# Prefer the repo-scoped custom artifact when a repo is supplied
-wf issue:plan --action feature --custom bar.md --repos repo-a
-
-# Save the custom plan as YAML
-wf issue:plan --action fix --custom docs/notes.md --format yaml
-
-# Save the plan in YAML instead of JSON
-wf issue:plan WBP-2971 --action investigate --format yaml
-
-# Force re-fetch of the ticket artifact before planning
-wf issue:plan WBP-2971 --action investigate --force
-
-# Preview without making changes
-wf issue:plan WBP-2971 --action fix --dry-run
-```
-
-**Options:**
-
-| Flag                        | Description                                                    | Default            |
-| --------------------------- | -------------------------------------------------------------- | ------------------ |
-| `-a, --action <action>`     | Resolution action: `feature \| fix \| investigate`             | required           |
-| `-c, --custom <source.md>`  | Custom markdown source artifact for plan synthesis             | —                  |
-| `--dry-run`                 | Preview without generating or writing files                    | —                  |
-| `--force`                   | Force fetch and recreate ticket artifact before planning       | —                  |
-| `-p, --platform <platform>` | Platform to fetch from if local artifact not found             | `PRIMARY_PLATFORM` |
-| `-f, --format <format>`     | Plan output format: `json \| md \| yaml`                       | `json`             |
-| `-r, --repos <repos...>`    | Space-separated repositories (`workspace/repo` or `repo-name`) | required           |
 
 When `--repos` is present, filename-only custom sources are resolved against the repo-scoped `~/.wf/<repo>/` artifact directory before cwd-relative paths.
 
@@ -346,49 +335,44 @@ When `--repos` is present, filename-only custom sources are resolved against the
 
 #### `wf issue:review [source]`
 
-AI-powered code review. Accepts three source modes:
+<!-- BEGIN GENERATED COMMAND DOCS: issue:review -->
+AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance in the output
+
+```bash
+# Review current repo changes
+wf issue:review
+
+# Review a ticket and associated pull requests from credentialed adapters using a remote repo hint
+yarn start issue:review WBP-3057 -r service-bookingv3
+
+# Review a ticket and its associated pull requests across credentialed repos
+wf issue:review WBP-2971 --platform jira --repos service-tourv3
+
+# Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd
+yarn start issue:review CTRL-280 -r api-gateway-v1
+```
+
+**Options:**
+
+| Flag | Description |
+| ---- | ----------- |
+| `--comment` | Post review as a comment on supported pull requests |
+| `--criteria <path>` | Path to a markdown file with additional review criteria to append to the defaults |
+| `--dry-run` | Preview the review operation without making changes |
+| `-f, --format <format>` | Output format (text\|json\|md) - default: text |
+| `-o, --output <path>` | Save review to file |
+| `-p, --platform <platform>` | Platform (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary platform |
+| `--replace-criteria <path>` | Path to a markdown file whose criteria replace the default review guidelines entirely |
+| `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
+<!-- END GENERATED COMMAND DOCS: issue:review -->
+
+Accepts three source modes:
 
 | Source                 | Description                                                                                                                     |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | _(none)_               | Review staged/unstaged changes in the current repo, or all repos listed in `--repos`                                            |
 | `ABC-123`              | Fetch ticket context and review associated pull requests; `--repos` provides remote PR-discovery hints and local fallback roots |
 | `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request                                                                             |
-
-```bash
-# Review current repository changes
-wf issue:review
-
-# Review with ticket context
-wf issue:review WBP-2971 --platform jira
-
-# Review a ticket from source with repo-scoped PR discovery across credentialed adapters
-yarn start issue:review WBP-3057 -r service-bookingv3
-
-# Review a ticket and its associated PRs across credentialed repos
-wf issue:review WBP-2971 --platform jira --repos service-tourv3
-
-# Review a ticket PR remotely without a local checkout
-yarn start issue:review CTRL-280 -r api-gateway-v1
-
-# Review a GitHub PR
-wf issue:review https://github.com/owner/repo/pull/42
-
-# Save review output to file
-wf issue:review WBP-2971 --output ./jira/WBP-2971-review.md
-
-# Preview without performing review
-wf issue:review --dry-run
-```
-
-**Options:**
-
-| Flag                        | Description                                                                                    | Default          |
-| --------------------------- | ---------------------------------------------------------------------------------------------- | ---------------- |
-| `-f, --format <format>`     | Output format: `text \| json \| md`                                                            | `text`           |
-| `-o, --output <path>`       | Save review to a file                                                                          | stdout           |
-| `-p, --platform <platform>` | Platform used to resolve a ticket source; defaults to the configured primary platform          | primary platform |
-| `-r, --repos <repos...>`    | Remote PR-discovery hints for ticket review; local review roots when those repos exist on disk | current repo     |
-| `--dry-run`                 | Preview without calling the AI                                                                 | —                |
 
 When a ticket key is supplied, `issue:review` fetches ticket context from the configured platform, then fans out PR discovery across registered adapters that have explicit credentials in `wf.config.*`. It reviews matching PR diffs first, in deterministic order, and the trace output uses nested call stacks plus frame-aligned state transitions so downstream dependencies and variable changes stay visible together.
 
@@ -409,34 +393,27 @@ The current review output keeps `Call Stack` and `State Transition` in the same 
 
 #### `wf issue:create <input>`
 
-Create a ticket on a platform from a structured input file. Supports `.json`, `.yaml`, `.md`, and `.xml` formats.
+<!-- BEGIN GENERATED COMMAND DOCS: issue:create -->
+Create tickets on various platforms from standardized input
 
 ```bash
-# Create from a JSON file on the primary platform
+# Create ticket from JSON on primary platform
 wf issue:create ticket.json
 
-# Create on a specific platform and Jira project
-wf issue:create ticket.md --platform jira --ticket-project WBP
-
-# Create on Jira with an explicit issue type override
+# Create on a specific platform and override the Jira project
 wf issue:create ticket.md --platform jira --ticket-project WBP --type story
-
-# Override the issue type at creation time
-wf issue:create ticket.yaml --platform github --type bug
-
-# Validate without creating
-wf issue:create ticket.json --dry-run
 ```
 
 **Options:**
 
-| Flag                         | Description                                                                        | Default            |
-| ---------------------------- | ---------------------------------------------------------------------------------- | ------------------ |
-| `-p, --platform <platform>`  | Target platform: `jira \| github \| bitbucket`                                     | `PRIMARY_PLATFORM` |
-| `-r, --repos <repos...>`     | Only the first repo is used for artifact lookup; extras are ignored with a warning | current repo       |
-| `--ticket-project <project>` | Project key (Jira) or `workspace/repo` (Bitbucket)                                 | from input file    |
-| `-t, --type <type>`          | Issue type: `task \| bug \| story \| todo`                                         | from input file    |
-| `--dry-run`                  | Validate and preview without creating                                              | —                  |
+| Flag | Description |
+| ---- | ----------- |
+| `--dry-run` | Validate without creating - preview only |
+| `-p, --platform <platform>` | Target platform (jira\|github\|bitbucket) - default from env |
+| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning |
+| `--ticket-project <project>` | Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file |
+| `-t, --type <type>` | Issue type (task\|bug\|story\|todo) - overrides input file |
+<!-- END GENERATED COMMAND DOCS: issue:create -->
 
 When creating Jira tickets, `wf` first resolves the requested priority against
 the Jira instance. If Jira still rejects the priority during creation, `wf`
@@ -446,54 +423,38 @@ retries once without the priority field so ticket creation can still succeed.
 
 #### `wf issue:generate <sources...>`
 
-Synthesize a ticket description from one or more sources using AI. Sources can be local files, repo-scoped artifacts under `~/.wf/<repo>/` when `--repos` is supplied, URLs, or existing ticket keys.
+<!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->
+Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys; can use an agent backend when stages.generate.agent: true is configured
 
 ```bash
-# Generate from a URL
+# Generate ticket from a URL
 wf issue:generate https://example.com/spec
 
 # Generate from a Slack thread permalink with query params
 wf issue:generate "https://workspace.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53"
 
-# Generate from multiple sources (URL + local file + existing ticket)
-wf issue:generate https://example.com/spec ./notes.md WBP-2971
-
-# Generate from a repo-scoped artifact in the targeted repo namespace
+# Generate from a repo-scoped artifact (requires -r, --repos)
 wf issue:generate itinerary-pdf-generation.md -r service-tourv3
 
-# Save to platform directory
-wf issue:generate ./requirements.md --save
-
-# Look up the original sources for a generated artifact hash
-wf issue:generate:lookup 1a2b3c4d
-
-# Override metadata and save to a specific file
-wf issue:generate ./requirements.md \
-  --title "Add OAuth2 support" \
-  --type story \
-  --priority high \
-  --output ./jira/GENERATED-oauth2.md
-
-# Fetch Bitbucket issues as sources
-wf issue:generate 123 456 --platform bitbucket --repo myrepo --save
-
-# Preview without fetching or generating
-wf issue:generate https://example.com/spec ./notes.md --dry-run
+# Save with overridden title
+wf issue:generate ./requirements.md --title "Add OAuth2" --save
 ```
 
 **Options:**
 
-| Flag                        | Description                                                                                  | Default                 |
-| --------------------------- | -------------------------------------------------------------------------------------------- | ----------------------- |
-| `-f, --format <format>`     | Output format: `json \| md \| yaml \| xml`                                                   | `DEFAULT_OUTPUT_FORMAT` |
-| `-o, --output <path>`       | Save generated ticket to a file                                                              | stdout                  |
-| `--save`                    | Save to `./<platform>/YYYY-MM-DD-<hash>-ticket-description.<format>`                         | —                       |
-| `-p, --platform <platform>` | Platform for ticket-key sources                                                              | `PRIMARY_PLATFORM`      |
-| `-t, --title <title>`       | Override the AI-generated title                                                              | —                       |
-| `--type <type>`             | Override ticket type: `task \| bug \| story \| epic`                                         | —                       |
-| `--priority <priority>`     | Override priority: `highest \| high \| medium \| low \| lowest`                              | —                       |
-| `-r, --repos <repos...>`    | Repo context for repo-scoped artifacts; first repo also anchors Bitbucket ticket-key sources | current repo            |
-| `--dry-run`                 | Preview without fetching or writing                                                          | —                       |
+| Flag | Description |
+| ---- | ----------- |
+| `--dry-run` | Preview the generate operation without making changes |
+| `-f, --format <format>` | Output format (json\|md\|yaml\|xml) - default from env |
+| `-o, --output <path>` | Output file path - default: stdout |
+| `-p, --platform <platform>` | Platform for ticket sources (jira\|github\|bitbucket) |
+| `--priority <priority>` | Override ticket priority (highest\|high\|medium\|low\|lowest) |
+| `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
+| `--save` | Save generated ticket to platform directory |
+| `-s, --silent` | Disable interactive prompts and fail on ambiguity |
+| `-t, --title <title>` | Override generated title with custom title |
+| `--type <type>` | Override ticket type (task\|bug\|story\|epic) |
+<!-- END GENERATED COMMAND DOCS: issue:generate -->
 
 Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list.
 When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, unresolved bare filenames stay cwd-relative and the command now tells you to retry with `--repos <repo>` when the source looks like a repo-scoped artifact.
@@ -503,37 +464,31 @@ Slack permalinks that include query parameters should be quoted when invoked fro
 
 #### `wf issue:commit [ticket-key]`
 
-Create a git commit with an AI-generated message. Automatically detects the ticket key from the current branch name if not provided.
+<!-- BEGIN GENERATED COMMAND DOCS: issue:commit -->
+Create git commit with AI-generated message (auto-detects ticket from branch)
 
 ```bash
-# AI-generated message, ticket auto-detected from branch
-wf issue:commit
-
-# Explicit ticket key
+# AI-generated commit message
 wf issue:commit WBP-2971
-
-# Force conventional commits format
-wf issue:commit WBP-2971 --conventional
 
 # Run the commit stage from source with conventional commits enabled
 yarn start issue:commit -c
 
-# Provide a manual message (bypasses AI)
-wf issue:commit WBP-2971 --message "fix: correct null check in auth middleware"
-
-# Preview without committing
-wf issue:commit --dry-run
+# Force conventional format
+wf issue:commit WBP-2971 --conventional --platform jira
 ```
 
 **Options:**
 
-| Flag                      | Description                                                                               | Default      |
-| ------------------------- | ----------------------------------------------------------------------------------------- | ------------ |
-| `-m, --message <message>` | Manual commit message — bypasses AI generation                                            | —            |
-| `--no-ai`                 | Require a manual `--message` (error if omitted)                                           | —            |
-| `--conventional`          | Force conventional commits format (`<type>(<scope>): <description>`)                      | —            |
-| `-r, --repos <repos...>`  | Only the first repo is used as the commit working tree; extras are ignored with a warning | current repo |
-| `--dry-run`               | Preview the commit without staging or committing                                          | —            |
+| Flag | Description |
+| ---- | ----------- |
+| `-c, --conventional` | Force conventional commits format |
+| `--dry-run` | Preview the commit operation without making changes |
+| `-m, --message <message>` | Manual commit message (bypasses AI generation) |
+| `--no-ai` | Disable AI generation and require manual message |
+| `-p, --platform <platform>` | Platform (jira\|github\|bitbucket) |
+| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
+<!-- END GENERATED COMMAND DOCS: issue:commit -->
 
 **Branch detection:** ticket keys are extracted from the branch name using the pattern `[A-Z]+-\d+` (e.g., `feature/WBP-2971__add-oauth` → `WBP-2971`).
 
@@ -543,26 +498,28 @@ wf issue:commit --dry-run
 
 #### `wf issue:pr [ticket-key]`
 
-Create a pull request on the hosting platform with the ticket key in the title and plan artifact as the body.
+<!-- BEGIN GENERATED COMMAND DOCS: issue:pr -->
+Create a pull request from a plan artifact (auto-detects ticket from branch)
 
 ```bash
-# Create a PR using the ticket key
-wf issue:pr WBP-2971
+# Create a PR from a fix plan
+wf issue:pr WBP-2971 --action fix
 
-# Preview the PR without creating it
+# Dry-run to preview PR title and body
 wf issue:pr WBP-2971 --dry-run
 ```
 
 **Options:**
 
-| Flag                        | Description                                                    | Default            |
-| --------------------------- | -------------------------------------------------------------- | ------------------ |
-| `-a, --action <action>`     | Resolution action used to locate the plan artifact             | `implement`        |
-| `-b, --base <branch>`       | Base branch for the pull request                               | default branch     |
-| `--dry-run`                 | Preview the PR without creating it                             | —                  |
-| `-p, --platform <platform>` | Target platform: `github \| bitbucket`                         | `PRIMARY_PLATFORM` |
-| `-r, --repos <repos...>`    | Only the first repo is used; extras are ignored with a warning | —                  |
-| `-t, --title <title>`       | Override the auto-generated PR title                           | —                  |
+| Flag | Description |
+| ---- | ----------- |
+| `-a, --action <action>` | Resolution action type (feature\|fix\|investigate) |
+| `-b, --base <base>` | Target branch for the PR (default: main) |
+| `--dry-run` | Preview the PR creation without making changes |
+| `-p, --platform <platform>` | Platform (jira\|github\|bitbucket) |
+| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
+| `-t, --title <title>` | Override the PR title |
+<!-- END GENERATED COMMAND DOCS: issue:pr -->
 
 ---
 
@@ -602,27 +559,27 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 
 **Options:**
 
-| Flag                        | Description                                                                                                                              | Default            |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `--from <stage>`            | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit`                                                             | —                  |
-| `--to <stage>`              | Stop stage (inclusive)                                                                                                                   | `commit`           |
+| Flag                        | Description                                                                                                                                        | Default            |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `--from <stage>`            | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit`                                                                       | —                  |
+| `--to <stage>`              | Stop stage (inclusive)                                                                                                                             | `commit`           |
 | `--action <action>`         | Resolution action: `feature \| fix \| investigate` — required when `plan` stage runs, optional when resuming from a canonical hashed plan artifact | —                  |
-| `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket`                                                                                                  | `PRIMARY_PLATFORM` |
-| `--pr`                      | Create PR after commit stage                                                                                                             | false              |
-| `--chat-mode`               | Open AI chat after `plan` and `review` stages                                                                                            | —                  |
-| `--force`                   | Recreate artifacts instead of using the default skip-existing behavior                                                                   | false              |
-| `--dry-run`                 | Preview every stage without making changes, including branch and file work                                                               | —                  |
-| `-r, --repos <repos...>`    | First repo anchors artifact storage; when multiple repos are given, the implement stage runs once per repo in sequence                   | current repo       |
+| `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket`                                                                                                            | `PRIMARY_PLATFORM` |
+| `--pr`                      | Create PR after commit stage                                                                                                                       | false              |
+| `--chat-mode`               | Open AI chat after `plan` and `review` stages                                                                                                      | —                  |
+| `--force`                   | Recreate artifacts instead of using the default skip-existing behavior                                                                             | false              |
+| `--dry-run`                 | Preview every stage without making changes, including branch and file work                                                                         | —                  |
+| `-r, --repos <repos...>`    | First repo anchors artifact storage; when multiple repos are given, the implement stage runs once per repo in sequence                             | current repo       |
 
 **Stage order and artifacts:**
 
-| Stage       | Artifact                                                                         |
-| ----------- | -------------------------------------------------------------------------------- |
-| `fetch`     | `./<platform>/<ticket-key>.md`                                                   |
+| Stage       | Artifact                                                                                    |
+| ----------- | ------------------------------------------------------------------------------------------- |
+| `fetch`     | `./<platform>/<ticket-key>.md`                                                              |
 | `plan`      | `./<platform>/YYYY-MM-DD-<hash>-<action>-plan.json` with a `.sources.json` sidecar manifest |
-| `implement` | working tree updates in the selected repo plus branch setup                      |
-| `review`    | `./<platform>/<ticket-key>-review.md`                                            |
-| `commit`    | _(display only — commit commands printed for confirmation)_                      |
+| `implement` | working tree updates in the selected repo plus branch setup                                 |
+| `review`    | `./<platform>/<ticket-key>-review.md`                                                       |
+| `commit`    | _(display only — commit commands printed for confirmation)_                                 |
 
 **Branch naming:** `issue` generates a branch name in the format `<prefix>/<TICKET-KEY>__<slug>`, where prefix is controlled by `BRANCH_PREFIX_*` env vars (`feature`, `bugfix`, `chore`).
 
@@ -630,27 +587,17 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 
 #### `wf issue:implement <ticket-key-or-plan-token>`
 
-Execute an existing canonical plan artifact. Ticket keys resolve the standard plan for that ticket. Canonical hashed filenames resolve through the local manifest and can be resumed without `--action`.
+<!-- BEGIN GENERATED COMMAND DOCS: issue:implement -->
+Carry out an implementation plan from a ticket-backed, hashed, or custom plan artifact. Uses a two-phase retry strategy on verification failure: a diagnosis call analyses failing file contents, related type definitions, repo test-runner context, and test sources, then generates a structured fix plan used as shared context during re-generation. Retry scope widens to paired implementation/spec files when diagnostics implicate one side of the pair, then stays pinned to the smallest implicated file set unless later diagnostics name additional files. History-aware progress tracking keeps retrying when deep failures collapse into smaller earlier-stage residual errors. Repo context is also injected into implement/diagnose prompts to reduce Jest/Vitest framework drift. When the Anthropic or OpenAI agent backend is active, progress events are streamed to the terminal so you can follow task and tool activity while edits are being generated, and both backends emit heuristic progress signals to encourage forward motion when verification is converging. Verification commands are expected to be repo-root-relative; stale plan artifacts that still embed redundant repo-selection `cd` prefixes are normalized, while cross-repo directory jumps are treated as setup errors. Enable the Anthropic or OpenAI agent backend by setting stages.implement.agent: true and selecting stages.implement.provider: anthropic or openai in wf.config; the plan artifact provider only tags the plan/model for analysis and does not drive backend selection. The Anthropic backend explicitly loads ~/.claude/CLAUDE.md and the repository-root CLAUDE.md, warning when either file is missing. The OpenAI backend loads ~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md with the same warning behavior and only exposes an exact-match verify_command tool for whitelisted verification commands. When running from source, use `yarn start issue:implement ...` for the implementation stage and `yarn start issue:commit -c` to stage the final conventional commit once the work is accepted. When the agent backend is disabled, issue:implement uses the standard two-phase retry path. Unsupported providers with stages.implement.agent: true fail fast. Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. Examples: wf issue:implement PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | wf issue:implement PROJ-123 --repos my-repo | wf issue:implement PROJ-123 --repos repo-a repo-b | wf issue:implement PROJ-123 --dry-run
 
-```bash
-# Execute the standard plan for a ticket
-wf issue:implement WBP-2971
+**Options:**
 
-# Execute with a single repository
-wf issue:implement WBP-2971 --repos my-repo
-
-# Execute with multiple repositories (first anchors verification; siblings are context)
-wf issue:implement WBP-2971 --repos repo-a repo-b
-
-# Execute a canonical hashed plan artifact
-wf issue:implement 2026-05-04-1a2b3c4d-feature-plan.json
-
-# Run the same command from source while developing wf itself
-yarn start issue:implement WBP-2971 --dry-run
-
-# Preview branch and file work for a canonical plan artifact
-wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json --dry-run
-```
+| Flag | Description |
+| ---- | ----------- |
+| `-p, --platform <platform>` | Platform to fetch from if local artifact not found |
+| `--dry-run` | Preview branch, file, and investigation work without making changes |
+| `-r, --repos <repos...>` | Space-separated repositories; first repo anchors artifact lookup, all repos remain available as implementation context |
+<!-- END GENERATED COMMAND DOCS: issue:implement -->
 
 `issue:implement` only supports plans that affect a single repository. If the plan's `repositoriesAffected` lists more than one repo, the command exits with an error. Use `wf issue -r <repos...>` to run implementation per repo when the plan spans multiple repositories.
 

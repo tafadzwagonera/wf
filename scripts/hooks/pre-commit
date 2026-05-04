@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# pre-commit hook: Run linting and warn about .wf/ files
+# pre-commit hook: Run linting, enforce generated docs freshness, and warn about .wf/ files
 
 # Run linting
 echo "Running linting..."
@@ -11,6 +11,30 @@ if [ $LINT_EXIT_CODE -ne 0 ]; then
     echo ""
     echo "ERROR: Linting failed. Fix errors before committing."
     echo ""
+    exit 1
+fi
+
+# Regenerate generated docs/help artifacts and fail on drift
+echo "Regenerating command docs and help artifacts..."
+npm run generated-docs:sync
+DOCS_SYNC_EXIT_CODE=$?
+
+if [ $DOCS_SYNC_EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo "ERROR: Failed to regenerate command docs/help artifacts."
+    echo ""
+    exit 1
+fi
+
+git diff --exit-code -- README.md docs/commands-help.catalog.json > /dev/null 2>&1
+DOCS_DIFF_EXIT_CODE=$?
+
+if [ $DOCS_DIFF_EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo "ERROR: Generated command docs/help artifacts changed."
+    echo "Run \`npm run generated-docs:sync\`, review the updates, stage them, and retry."
+    echo ""
+    git diff -- README.md docs/commands-help.catalog.json
     exit 1
 fi
 
