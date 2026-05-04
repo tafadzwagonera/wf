@@ -60,7 +60,7 @@ const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
 ];
 
 interface IssueGenerateOptions {
-  format?: string;
+  format?: OutputFormat;
   output?: string;
   save?: boolean;
   silent?: boolean;
@@ -71,6 +71,7 @@ interface IssueGenerateOptions {
   repos?: string[];
   dryRun?: boolean;
 }
+type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 interface ResolvedRepo {
   input: string;
@@ -460,10 +461,16 @@ export class IssueGenerateCommand extends CommandRunner {
 
   @Option({
     flags: '-f, --format <format>',
-    description: 'Output format (json|md|yaml|xml) - default from env',
+    description: 'Output format (json|md|yaml|yml) - default from env',
   })
-  parseFormat(val: string): string {
-    return val;
+  parseFormat(format: string): OutputFormat {
+    const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
+    if (!validFormats.includes(format as OutputFormat)) {
+      throw new Error(
+        `Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`,
+      );
+    }
+    return format as OutputFormat;
   }
 
   @Option({
@@ -713,7 +720,7 @@ export class IssueGenerateCommand extends CommandRunner {
     const ext = path.extname(filePath).toLowerCase();
 
     // Try to parse as ticket if it's a supported format
-    if (['.json', '.yaml', '.yml', '.md', '.xml'].includes(ext)) {
+    if (['.json', '.yaml', '.yml', '.md'].includes(ext)) {
       try {
         const format = this.formatConverterService.detectFormat(filePath);
         if (format) {

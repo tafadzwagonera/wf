@@ -224,7 +224,7 @@ const configSchema = Joi.object<WfConfig>({
       .optional(),
   }).optional(),
   output: Joi.object({
-    defaultFormat: Joi.string().optional(),
+    defaultFormat: Joi.string().valid('json', 'md', 'yaml', 'yml').optional(),
   }).optional(),
   ai: Joi.array().items(providerSchema).optional(),
   atlassian: Joi.object({

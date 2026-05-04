@@ -281,7 +281,7 @@ wf issue:fetch WBP-2971 --platform jira --format md
 | Flag | Description |
 | ---- | ----------- |
 | `--dry-run` | Preview the fetch operation without making changes |
-| `-f, --format <format>` | Output format (json\|md\|yaml\|xml) |
+| `-f, --format <format>` | Output format (json\|md\|yaml\|yml) |
 | `-p, --platform <platform>` | Target platform (jira\|github\|bitbucket) |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 <!-- END GENERATED COMMAND DOCS: issue:fetch -->
@@ -317,7 +317,7 @@ wf issue:plan WBP-2971 --action fix --force --platform jira
 | `-c, --custom <source.md>` | Custom markdown source artifact to synthesize into a canonical plan (mutually exclusive with <ticket-key>) |
 | `--dry-run` | Preview the plan operation without making changes |
 | `--force` | Force fetch and recreate ticket artifact before planning |
-| `-f, --format <format>` | Output format for plan (json\|md\|yaml) |
+| `-f, --format <format>` | Output format for plan (json\|md\|yaml\|yml) |
 | `-p, --platform <platform>` | Platform to fetch from if local artifact not found |
 | `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
 <!-- END GENERATED COMMAND DOCS: issue:plan -->
@@ -359,7 +359,7 @@ yarn start issue:review CTRL-280 -r api-gateway-v1
 | `--comment` | Post review as a comment on supported pull requests |
 | `--criteria <path>` | Path to a markdown file with additional review criteria to append to the defaults |
 | `--dry-run` | Preview the review operation without making changes |
-| `-f, --format <format>` | Output format (text\|json\|md) - default: text |
+| `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
 | `-o, --output <path>` | Save review to file |
 | `-p, --platform <platform>` | Platform (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary platform |
 | `--replace-criteria <path>` | Path to a markdown file whose criteria replace the default review guidelines entirely |
@@ -445,7 +445,7 @@ wf issue:generate ./requirements.md --title "Add OAuth2" --save
 | Flag | Description |
 | ---- | ----------- |
 | `--dry-run` | Preview the generate operation without making changes |
-| `-f, --format <format>` | Output format (json\|md\|yaml\|xml) - default from env |
+| `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default from env |
 | `-o, --output <path>` | Output file path - default: stdout |
 | `-p, --platform <platform>` | Platform for ticket sources (jira\|github\|bitbucket) |
 | `--priority <priority>` | Override ticket priority (highest\|high\|medium\|low\|lowest) |

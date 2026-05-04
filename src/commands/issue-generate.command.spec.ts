@@ -285,6 +285,23 @@ describe('IssueGenerateCommand', () => {
     jest.restoreAllMocks();
   });
 
+  describe('parseFormat', () => {
+    it('accepts json|md|yaml|yml', async () => {
+      const { command } = await buildCommand();
+
+      expect(command.parseFormat('json')).toBe('json');
+      expect(command.parseFormat('md')).toBe('md');
+      expect(command.parseFormat('yaml')).toBe('yaml');
+      expect(command.parseFormat('yml')).toBe('yml');
+    });
+
+    it('rejects xml', async () => {
+      const { command } = await buildCommand();
+
+      expect(() => command.parseFormat('xml')).toThrow('Invalid format');
+    });
+  });
+
   describe('AI stage routing', () => {
     it('uses the generate stage override when synthesizing ticket content', async () => {
       const { command } = await buildCommand();

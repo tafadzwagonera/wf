@@ -7,7 +7,7 @@ export enum TicketFormat {
   JSON = 'json',
   MARKDOWN = 'md',
   YAML = 'yaml',
-  XML = 'xml',
+  YML = 'yml',
 }
 
 /**
@@ -31,7 +31,7 @@ export interface FormatConverter {
   serialize(ticket: UniversalTicket): string;
 
   /**
-   * Get the format name (e.g., "json", "md", "yaml", "xml")
+   * Get the format name (e.g., "json", "md", "yaml", "yml")
    * @returns Format identifier
    */
   getFormatName(): string;

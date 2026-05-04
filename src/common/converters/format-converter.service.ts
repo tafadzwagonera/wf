@@ -23,13 +23,17 @@ export class FormatConverterService {
 
   /**
    * Get a converter for a specific format
-   * @param format Format identifier (e.g., "json", "md", "yaml", "xml")
+   * @param format Format identifier (e.g., "json", "md", "yaml", "yml")
    * @returns Format converter instance
    * @throws BadRequestException if format is not supported
    */
   getConverter(format?: string): FormatConverter {
-    const targetFormat =
+    const requestedFormat =
       format || this.configService.get<string>('output.defaultFormat', 'md');
+    const targetFormat =
+      requestedFormat.trim().toLowerCase() === 'yml'
+        ? 'yaml'
+        : requestedFormat.trim().toLowerCase();
 
     const converter = this.converters.get(targetFormat);
     if (!converter) {
@@ -86,6 +90,9 @@ export class FormatConverterService {
   detectFormat(filename: string): string | null {
     const ext = filename.split('.').pop()?.toLowerCase();
     if (!ext) return null;
+    if (ext === 'yml') {
+      return 'yml';
+    }
 
     for (const [format, converter] of this.converters.entries()) {
       if (converter.getFileExtension() === `.${ext}`) {

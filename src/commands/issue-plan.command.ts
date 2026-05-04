@@ -49,7 +49,7 @@ const ISSUE_PLAN_EXAMPLES: CliExample[] = [
   },
 ];
 
-type OutputFormat = 'json' | 'md' | 'yaml';
+type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 interface IssuePlanOptions {
   action: ResolutionAction;
@@ -292,10 +292,10 @@ export class IssuePlanCommand extends CommandRunner {
 
   @Option({
     flags: '-f, --format <format>',
-    description: 'Output format for plan (json|md|yaml)',
+    description: 'Output format for plan (json|md|yaml|yml)',
   })
   parseFormat(format: string): OutputFormat {
-    const validFormats: OutputFormat[] = ['json', 'md', 'yaml'];
+    const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
     if (!validFormats.includes(format as OutputFormat)) {
       throw new Error(
         `Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`,

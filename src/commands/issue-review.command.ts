@@ -23,9 +23,12 @@ import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as YAML from 'yaml';
+
+type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 interface IssueReviewOptions {
-  format?: string;
+  format?: OutputFormat;
   output?: string;
   dryRun?: boolean;
   comment?: boolean;
@@ -251,7 +254,7 @@ export class IssueReviewCommand extends CommandRunner {
             filePath: outputPath,
             operation: 'create',
             sizeEstimate: '2–5 KB',
-            format: options?.format || 'text',
+            format: options?.format || 'md',
             contentPreview: [
               'Code Review Report',
               'Context: <source>',
@@ -489,12 +492,16 @@ export class IssueReviewCommand extends CommandRunner {
 
       // Save to file if requested
       if (options?.output) {
+        const outputFormat = options?.format ?? 'md';
         const outputPath = this.resolveOutputPath(
           options.output,
           this.resolveOutputBaseDir(source, repoInputs),
         );
-        const reviewText = this.formatReviewAsText(reviewedTargets);
-        fs.writeFileSync(outputPath, reviewText);
+        const reviewOutput = this.formatReviewOutput(
+          reviewedTargets,
+          outputFormat,
+        );
+        fs.writeFileSync(outputPath, reviewOutput);
         console.log(chalk.green(`\n✓ Review saved to: ${outputPath}\n`));
       }
     } catch (error) {
@@ -529,10 +536,16 @@ export class IssueReviewCommand extends CommandRunner {
 
   @Option({
     flags: '-f, --format <format>',
-    description: 'Output format (text|json|md) - default: text',
+    description: 'Output format (json|md|yaml|yml) - default: md',
   })
-  parseFormat(val: string): string {
-    return val;
+  parseFormat(format: string): OutputFormat {
+    const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
+    if (!validFormats.includes(format as OutputFormat)) {
+      throw new Error(
+        `Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`,
+      );
+    }
+    return format as OutputFormat;
   }
 
   @Option({
@@ -1498,6 +1511,28 @@ export class IssueReviewCommand extends CommandRunner {
     });
 
     return text;
+  }
+
+  /**
+   * Format review output in the requested serialization format.
+   *
+   * @param reviewedTargets Reviewed targets with analysis payloads
+   * @param format Requested output format
+   * @returns Serialized review output
+   */
+  private formatReviewOutput(
+    reviewedTargets: ReviewedTarget[],
+    format: OutputFormat,
+  ): string {
+    if (format === 'json') {
+      return JSON.stringify(reviewedTargets, null, 2);
+    }
+
+    if (format === 'yaml' || format === 'yml') {
+      return YAML.stringify(reviewedTargets);
+    }
+
+    return this.formatReviewAsText(reviewedTargets);
   }
 
   /**

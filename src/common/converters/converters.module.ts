@@ -3,7 +3,6 @@ import { ConfigModule } from '@nestjs/config';
 import { FormatConverterService } from './format-converter.service';
 import { JsonConverter } from './json/json-converter';
 import { YamlConverter } from './yaml/yaml-converter';
-import { XmlConverter } from './xml/xml-converter';
 import { MarkdownConverter } from './markdown/markdown-converter';
 
 /**
@@ -16,7 +15,6 @@ import { MarkdownConverter } from './markdown/markdown-converter';
     FormatConverterService,
     JsonConverter,
     YamlConverter,
-    XmlConverter,
     MarkdownConverter,
   ],
   exports: [FormatConverterService],
@@ -26,7 +24,6 @@ export class ConvertersModule implements OnModuleInit {
     private readonly formatConverterService: FormatConverterService,
     private readonly jsonConverter: JsonConverter,
     private readonly yamlConverter: YamlConverter,
-    private readonly xmlConverter: XmlConverter,
     private readonly markdownConverter: MarkdownConverter,
   ) {}
 
@@ -36,7 +33,6 @@ export class ConvertersModule implements OnModuleInit {
   onModuleInit() {
     this.formatConverterService.registerConverter(this.jsonConverter);
     this.formatConverterService.registerConverter(this.yamlConverter);
-    this.formatConverterService.registerConverter(this.xmlConverter);
     this.formatConverterService.registerConverter(this.markdownConverter);
   }
 }

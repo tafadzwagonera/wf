@@ -37,7 +37,7 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
   }
 };
 
-type OutputFormat = 'json' | 'md' | 'yaml' | 'xml';
+type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 interface IssueFetchOptions {
   format?: OutputFormat;
@@ -75,10 +75,10 @@ export class IssueFetchCommand extends CommandRunner {
 
   @Option({
     flags: '-f, --format <format>',
-    description: 'Output format (json|md|yaml|xml)',
+    description: 'Output format (json|md|yaml|yml)',
   })
   parseFormat(format: string): OutputFormat {
-    const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'xml'];
+    const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
     if (!validFormats.includes(format as OutputFormat)) {
       throw new Error(
         `Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`,
@@ -210,10 +210,8 @@ export class IssueFetchCommand extends CommandRunner {
         return JSON.stringify(ticket, null, 2);
 
       case 'yaml':
+      case 'yml':
         return YAML.stringify(ticket);
-
-      case 'xml':
-        return this.toXML(ticket);
 
       case 'md':
       default:
@@ -237,36 +235,6 @@ export class IssueFetchCommand extends CommandRunner {
     md += `## Description\n\n${ticket.description || 'No description provided'}\n`;
 
     return md;
-  }
-
-  private toXML(obj: any, rootName = 'ticket'): string {
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<${rootName}>\n`;
-
-    for (const [key, value] of Object.entries(obj)) {
-      if (Array.isArray(value)) {
-        xml += `  <${key}>\n`;
-        for (const item of value) {
-          xml += `    <item>${this.escapeXML(String(item))}</item>\n`;
-        }
-        xml += `  </${key}>\n`;
-      } else if (typeof value === 'object' && value !== null) {
-        xml += `  <${key}>${JSON.stringify(value)}</${key}>\n`;
-      } else {
-        xml += `  <${key}>${this.escapeXML(String(value))}</${key}>\n`;
-      }
-    }
-
-    xml += `</${rootName}>`;
-    return xml;
-  }
-
-  private escapeXML(str: string): string {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;');
   }
 
   /**
@@ -301,15 +269,14 @@ export class IssueFetchCommand extends CommandRunner {
         'description: <description>',
       ].join('\n');
     }
-    if (format === 'xml') {
+    if (format === 'yml') {
       return [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<ticket>',
-        `  <key>${ticketKey}</key>`,
-        '  <title>&lt;title&gt;</title>',
-        '  <type>&lt;type&gt;</type>',
-        '  ...',
-        '</ticket>',
+        `key: ${ticketKey}`,
+        'title: <title>',
+        'type: <type>',
+        'status: <status>',
+        'priority: <priority>',
+        'description: <description>',
       ].join('\n');
     }
     // markdown (default)

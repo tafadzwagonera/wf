@@ -11,7 +11,7 @@ const issueGenerateEntry: CommandHelpEntry = {
   options: [
     {
       flags: '-f, --format <format>',
-      description: 'Output format (json|md|yaml|xml) - default from env',
+      description: 'Output format (json|md|yaml|yml) - default from env',
     },
     {
       flags: '-r, --repos <repos...>',

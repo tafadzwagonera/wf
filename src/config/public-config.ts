@@ -50,7 +50,7 @@ export interface WfConfig {
     enabled?: Array<'jira' | 'github' | 'bitbucket'>;
   };
   output?: {
-    defaultFormat?: string;
+    defaultFormat?: 'json' | 'md' | 'yaml' | 'yml';
   };
   ai?: WfAiProviderConfig[];
   atlassian?: WfAtlassianConfig;

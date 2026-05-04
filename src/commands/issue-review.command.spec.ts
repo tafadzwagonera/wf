@@ -378,6 +378,24 @@ describe('IssueReviewCommand', () => {
     jest.clearAllMocks();
   });
 
+  describe('parseFormat', () => {
+    it('accepts json|md|yaml|yml', async () => {
+      const { command } = await buildCommand();
+
+      expect(command.parseFormat('json')).toBe('json');
+      expect(command.parseFormat('md')).toBe('md');
+      expect(command.parseFormat('yaml')).toBe('yaml');
+      expect(command.parseFormat('yml')).toBe('yml');
+    });
+
+    it('rejects xml and text', async () => {
+      const { command } = await buildCommand();
+
+      expect(() => command.parseFormat('xml')).toThrow('Invalid format');
+      expect(() => command.parseFormat('text')).toThrow('Invalid format');
+    });
+  });
+
   describe('parseRepos', () => {
     it('returns trimmed repo values from variadic option input', async () => {
       const { command } = await buildCommand();
