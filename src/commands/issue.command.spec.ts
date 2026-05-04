@@ -133,6 +133,8 @@ describe('IssueCommand', () => {
     const command = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
 
     await command.run(['WBP-1'], {
       from: 'fetch',
@@ -153,6 +155,8 @@ describe('IssueCommand', () => {
     const command = await buildCommand();
     const dryRunPreview = (command as any)
       .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
 
     await command.run(['WBP-1'], {
       from: 'fetch',
@@ -174,7 +178,7 @@ describe('IssueCommand', () => {
     const hash = hashPlanArtifactSources(['WBP-1']);
     const artifactDir = path.join(os.homedir(), '.wf', 'repo-a', 'jira');
     const ticketPath = path.join(artifactDir, 'WBP-1.md');
-    const planPath = path.join(artifactDir, `${hash}-fix-plan.json`);
+    const planPath = path.join(artifactDir, `2026-04-16-${hash}-fix-plan.json`);
     const manifestPath = buildPlanArtifactManifestPath(planPath);
     const ticketMarkdown =
       '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow';
@@ -297,7 +301,7 @@ describe('IssueCommand', () => {
         return '';
       });
 
-    await command.run([`${hash}-fix-plan.json`], {
+    await command.run([`2026-04-16-${hash}-fix-plan.json`], {
       from: 'implement',
       to: 'implement',
       repos: ['repo-a'],

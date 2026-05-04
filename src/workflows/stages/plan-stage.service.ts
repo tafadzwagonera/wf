@@ -58,23 +58,6 @@ export class PlanStageService {
     const artifactDir = path.dirname(ticket.path);
     const sourceName = ticket.ticketKey;
     const planHash = hashPlanArtifactSources([sourceName]);
-    const planPath = path.join(
-      artifactDir,
-      buildPlanArtifactFilename({
-        hash: planHash,
-        action: options.action,
-        format: 'json',
-      }),
-    );
-
-    if (options.skipExisting && fs.existsSync(planPath)) {
-      return {
-        plan: this.readPlan(planPath),
-        action: options.action,
-        path: planPath,
-        fromCache: true,
-      };
-    }
 
     if (options.skipExisting) {
       try {
@@ -82,29 +65,10 @@ export class PlanStageService {
           artifactDir,
           action: options.action,
         });
-        const plan = this.readPlan(existing.artifactPath);
-        fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
-        writePlanArtifactManifest(
-          buildPlanArtifactManifest(
-            planPath,
-            options.action,
-            'json',
-            planHash,
-            sourceName,
-            'ticket',
-            new Date(),
-          ),
-        );
-        this.deleteLegacyPlanArtifacts(
-          artifactDir,
-          sourceName,
-          options.action,
-          planPath,
-        );
         return {
-          plan,
+          plan: this.readPlan(existing.artifactPath),
           action: options.action,
-          path: planPath,
+          path: existing.artifactPath,
           fromCache: true,
         };
       } catch {
@@ -118,6 +82,17 @@ export class PlanStageService {
       affectedRepositories: options.affectedRepositories,
     });
 
+    const createdAt = new Date();
+    const planPath = path.join(
+      artifactDir,
+      buildPlanArtifactFilename({
+        createdAt,
+        hash: planHash,
+        action: options.action,
+        format: 'json',
+      }),
+    );
+
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
     writePlanArtifactManifest(
       buildPlanArtifactManifest(
@@ -127,12 +102,12 @@ export class PlanStageService {
         planHash,
         sourceName,
         'ticket',
-        new Date(),
+        createdAt,
       ),
     );
-    this.deleteLegacyPlanArtifacts(
+    this.deleteStalePlanArtifacts(
       artifactDir,
-      sourceName,
+      planHash,
       options.action,
       planPath,
     );
@@ -161,7 +136,7 @@ export class PlanStageService {
       plan,
       action: plan.action,
       path: resolved.artifactPath,
-      fromCache: resolved.isLegacy,
+      fromCache: true,
     };
   }
 
@@ -182,55 +157,37 @@ export class PlanStageService {
     }
   }
 
-  private deleteLegacyPlanArtifacts(
+  private deleteStalePlanArtifacts(
     artifactDir: string,
-    sourceName: string,
+    sourceHash: string,
     action: ResolutionAction,
     retainedPlanPath: string,
   ): void {
-    const siblingHash = hashPlanArtifactSources([sourceName]);
-    const extensions: Array<'json' | 'md' | 'yaml' | 'yml'> = [
-      'json',
-      'md',
-      'yaml',
-      'yml',
-    ];
-    const siblingActions: ResolutionAction[] = [
-      'feature',
-      'fix',
-      'investigate',
-    ];
+    if (!fs.existsSync(artifactDir)) {
+      return;
+    }
 
-    for (const siblingAction of siblingActions) {
-      for (const extension of extensions) {
-        const hashedSiblingPath = path.join(
-          artifactDir,
-          buildPlanArtifactFilename({
-            hash: siblingHash,
-            action: siblingAction,
-            format: extension,
-          }),
-        );
-        const legacySiblingPath = path.join(
-          artifactDir,
-          `${sourceName}-plan-${siblingAction}.${extension}`,
-        );
+    const candidateFiles = fs
+      .readdirSync(artifactDir)
+      .filter((name) => name.endsWith('.json'));
+    const stalePattern = new RegExp(
+      `^(?:\\d{4}-\\d{2}-\\d{2}-)?${sourceHash}-${action}-plan\\.json$`,
+      'i',
+    );
 
-        for (const siblingPath of [hashedSiblingPath, legacySiblingPath]) {
-          if (
-            siblingPath === retainedPlanPath ||
-            siblingAction === action ||
-            !fs.existsSync(siblingPath)
-          ) {
-            continue;
-          }
+    for (const name of candidateFiles) {
+      if (!stalePattern.test(name)) {
+        continue;
+      }
+      const siblingPath = path.join(artifactDir, name);
+      if (siblingPath === retainedPlanPath || !fs.existsSync(siblingPath)) {
+        continue;
+      }
 
-          fs.unlinkSync(siblingPath);
-          const manifestPath = siblingPath.replace(/\.[^.]+$/, '.sources.json');
-          if (fs.existsSync(manifestPath)) {
-            fs.unlinkSync(manifestPath);
-          }
-        }
+      fs.unlinkSync(siblingPath);
+      const manifestPath = siblingPath.replace(/\.[^.]+$/, '.sources.json');
+      if (fs.existsSync(manifestPath)) {
+        fs.unlinkSync(manifestPath);
       }
     }
   }

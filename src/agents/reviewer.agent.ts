@@ -60,7 +60,15 @@ export class ReviewerAgent {
 
     const status = await this.gitService.getStatus(options.repoDir);
     if (status.files.length === 0) {
-      console.log(chalk.yellow('⚠️  No uncommitted changes to review'));
+      if (options.skipExisting === false) {
+        console.log(
+          chalk.yellow(
+            '⚠️  --force requested, but no uncommitted changes are available for review regeneration',
+          ),
+        );
+      } else {
+        console.log(chalk.yellow('⚠️  No uncommitted changes to review'));
+      }
       return null;
     }
 

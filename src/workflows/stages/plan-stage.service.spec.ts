@@ -106,7 +106,12 @@ describe('PlanStageService', () => {
     const { service } = await buildService();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-'));
     const ticketPath = path.join(tempDir, 'WBP-123.md');
+    const planPath = path.join(
+      tempDir,
+      `2026-04-16-${hashPlanArtifactSources(['WBP-123'])}-fix-plan.json`,
+    );
     fs.writeFileSync(ticketPath, '# WBP-123: Fix auth redirect');
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-16T00:00:00.000Z'));
 
     const artifact = await service.createPlanArtifact(
       {
@@ -119,33 +124,16 @@ describe('PlanStageService', () => {
         affectedRepositories: ['repo-a'],
       },
     );
+    jest.useRealTimers();
 
-    expect(
-      fs.readFileSync(
-        path.join(
-          tempDir,
-          `${hashPlanArtifactSources(['WBP-123'])}-fix-plan.json`,
-        ),
-        'utf-8',
-      ),
-    ).toBe(JSON.stringify(mockPlan, null, 2));
-    expect(
-      fs.existsSync(
-        buildPlanArtifactManifestPath(
-          path.join(
-            tempDir,
-            `${hashPlanArtifactSources(['WBP-123'])}-fix-plan.json`,
-          ),
-        ),
-      ),
-    ).toBe(true);
+    expect(fs.readFileSync(planPath, 'utf-8')).toBe(
+      JSON.stringify(mockPlan, null, 2),
+    );
+    expect(fs.existsSync(buildPlanArtifactManifestPath(planPath))).toBe(true);
     expect(artifact).toEqual({
       plan: mockPlan,
       action: 'fix',
-      path: path.join(
-        tempDir,
-        `${hashPlanArtifactSources(['WBP-123'])}-fix-plan.json`,
-      ),
+      path: planPath,
       fromCache: false,
     });
   });

@@ -10,6 +10,8 @@ import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import {
+  buildPlanArtifactFilename,
+  hashPlanArtifactSources,
   isTicketKey,
   resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
 } from '../shared/utils/plan-artifact';
@@ -40,7 +42,7 @@ const ISSUE_EXAMPLES: CliExample[] = [
   },
   {
     comment: 'Resume from a hashed plan artifact without --action',
-    command: 'wf issue 1a2b3c4d-fix-plan.json --from implement',
+    command: 'wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement',
   },
 ];
 
@@ -361,10 +363,28 @@ export class IssueCommand extends CommandRunner {
               );
             }
           } else if (stage === WorkflowStage.PLAN) {
-            const planPath = action
-              ? path.join(platformDir, `${ticketKey}-plan-${action}.json`)
-              : path.join(platformDir, `${ticketKey}-plan-feature.json`);
-            const artifactExists = fs.existsSync(planPath);
+            const planHash = hashPlanArtifactSources([ticketKey]);
+            const defaultAction = action ?? 'feature';
+            const defaultPlanPath = path.join(
+              platformDir,
+              buildPlanArtifactFilename({
+                hash: planHash,
+                action: defaultAction,
+                format: 'json',
+              }),
+            );
+            const resolvedPlan = (() => {
+              try {
+                return resolvePlanArtifactReferenceInDir(ticketKey, {
+                  artifactDir: platformDir,
+                  action: defaultAction,
+                });
+              } catch {
+                return null;
+              }
+            })();
+            const planPath = resolvedPlan?.artifactPath ?? defaultPlanPath;
+            const artifactExists = resolvedPlan !== null;
 
             if (skipExisting && artifactExists) {
               this.dryRunPreview.showSkipped('artifact exists');
@@ -838,25 +858,23 @@ export class IssueCommand extends CommandRunner {
       }
 
       case WorkflowStage.PLAN:
-        if (!action) {
-          // Try to find any plan file
-          const actions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
-          for (const a of actions) {
-            const planPath = path.join(
-              platformDir,
-              `${ticketKey}-plan-${a}.json`,
-            );
-            if (fs.existsSync(planPath)) {
-              return { exists: true, path: planPath };
-            }
-          }
-          return { exists: false, path: '' };
-        } else {
+        try {
+          const resolved = resolvePlanArtifactReferenceInDir(ticketKey, {
+            artifactDir: platformDir,
+            action,
+          });
+          return { exists: true, path: resolved.artifactPath };
+        } catch {
+          const defaultAction = action ?? 'feature';
           const planPath = path.join(
             platformDir,
-            `${ticketKey}-plan-${action}.json`,
+            buildPlanArtifactFilename({
+              hash: hashPlanArtifactSources([ticketKey]),
+              action: defaultAction,
+              format: 'json',
+            }),
           );
-          return { exists: fs.existsSync(planPath), path: planPath };
+          return { exists: false, path: planPath };
         }
 
       case WorkflowStage.REVIEW: {

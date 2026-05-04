@@ -60,27 +60,28 @@ describe('plan artifact helpers', () => {
   it('builds hashed plan filenames from the hash and action', () => {
     expect(
       buildPlanArtifactFilename({
+        createdAt: new Date('2026-04-16T00:00:00.000Z'),
         hash: '1a2b3c4d',
         action: 'fix',
         format: 'json',
       }),
-    ).toBe('1a2b3c4d-fix-plan.json');
+    ).toBe('2026-04-16-1a2b3c4d-fix-plan.json');
   });
 
   it('builds a manifest filename alongside the plan artifact', () => {
-    expect(buildPlanArtifactManifestFilename('1a2b3c4d-fix-plan.json')).toBe(
-      '1a2b3c4d-fix-plan.sources.json',
-    );
+    expect(
+      buildPlanArtifactManifestFilename('2026-04-16-1a2b3c4d-fix-plan.json'),
+    ).toBe('2026-04-16-1a2b3c4d-fix-plan.sources.json');
     expect(
       buildPlanArtifactManifestPath(
-        '/tmp/consumer/.wf/jira/1a2b3c4d-fix-plan.json',
+        '/tmp/consumer/.wf/jira/2026-04-16-1a2b3c4d-fix-plan.json',
       ),
-    ).toBe('/tmp/consumer/.wf/jira/1a2b3c4d-fix-plan.sources.json');
+    ).toBe('/tmp/consumer/.wf/jira/2026-04-16-1a2b3c4d-fix-plan.sources.json');
   });
 
   it('resolves plan metadata from a hashed manifest', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-'));
-    const planPath = path.join(tempDir, '1a2b3c4d-fix-plan.json');
+    const planPath = path.join(tempDir, '2026-04-16-1a2b3c4d-fix-plan.json');
     const manifestPath = buildPlanArtifactManifestPath(planPath);
 
     fs.writeFileSync(
@@ -119,5 +120,13 @@ describe('plan artifact helpers', () => {
       sourceName: 'WBP-123',
       isLegacy: false,
     });
+  });
+
+  it('rejects non-canonical short hashed identifiers', () => {
+    expect(() =>
+      resolvePlanArtifactReference('1a2b3c4d-fix-plan.json', {
+        artifactDir: '/tmp',
+      }),
+    ).toThrow('Non-canonical plan identifier');
   });
 });

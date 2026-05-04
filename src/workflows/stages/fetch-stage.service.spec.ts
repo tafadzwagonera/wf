@@ -83,4 +83,24 @@ describe('FetchStageService', () => {
       '# WBP-123: Fix broken auth flow',
     );
   });
+
+  it('reuses the existing artifact when skipExisting is true', async () => {
+    const { service, adapter } = await buildService();
+    const tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-fetch-'));
+    const baseDir = path.join(tempBaseDir, 'consumer-app');
+    const artifactDir = path.join(os.homedir(), '.wf', 'consumer-app', 'jira');
+    fs.mkdirSync(artifactDir, { recursive: true });
+    const ticketPath = path.join(artifactDir, 'WBP-123.md');
+    fs.writeFileSync(ticketPath, '# WBP-123: Cached Ticket');
+
+    const artifact = await service.fetchArtifact('WBP-123', {
+      platformName: 'jira',
+      baseDir,
+      skipExisting: true,
+    });
+
+    expect(artifact.fromCache).toBe(true);
+    expect(artifact.content).toContain('Cached Ticket');
+    expect(adapter.getTicket).not.toHaveBeenCalled();
+  });
 });

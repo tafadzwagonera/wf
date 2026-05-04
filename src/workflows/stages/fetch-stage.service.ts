@@ -43,6 +43,7 @@ export class FetchStageService {
         ticketKey,
         content: fs.readFileSync(ticketPath, 'utf-8'),
         path: ticketPath,
+        fromCache: true,
       };
     }
 
@@ -59,6 +60,7 @@ export class FetchStageService {
       ticketKey,
       content,
       path: ticketPath,
+      fromCache: false,
     };
   }
 
@@ -81,6 +83,7 @@ export class FetchStageService {
       ticketKey,
       content: fs.readFileSync(ticketPath, 'utf-8'),
       path: ticketPath,
+      fromCache: true,
     };
   }
 

@@ -12,8 +12,10 @@ import { normalizePlanVerification } from './verification-manifest';
 const VALID_ACTIONS: ResolutionAction[] = ['feature', 'fix', 'investigate'];
 const VALID_COMPLEXITIES = ['low', 'medium', 'high'] as const;
 const PLAN_ARTIFACT_MANIFEST_EXTENSION = '.sources.json';
-const LEGACY_PLAN_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
-const HASHED_PLAN_STEM = /^([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
+const PLAN_ARTIFACT_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
+const CANONICAL_PLAN_STEM =
+  /^(\d{4}-\d{2}-\d{2})-([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
+const SHORT_HASHED_PLAN_STEM = /^([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 
 type PlanComplexity = (typeof VALID_COMPLEXITIES)[number];
 type PlanArtifactFormat = 'json' | 'md' | 'yaml' | 'yml';
@@ -52,6 +54,7 @@ export interface ResolvePlanArtifactOptions {
 }
 
 export interface BuildPlanArtifactFilenameOptions {
+  createdAt?: Date | string;
   hash: string;
   action: ResolutionAction;
   format: PlanArtifactFormat;
@@ -123,7 +126,9 @@ export const hashPlanArtifactSources = (sources: string[]): string =>
 export const buildPlanArtifactFilename = (
   options: BuildPlanArtifactFilenameOptions,
 ): string =>
-  `${options.hash.trim().toLowerCase()}-${options.action}-plan.${normalizeFormat(options.format)}`;
+  `${resolveDatePrefix(options.createdAt)}-${options.hash
+    .trim()
+    .toLowerCase()}-${options.action}-plan.${normalizeFormat(options.format)}`;
 
 /**
  * Build the sidecar manifest filename for a hashed plan artifact.
@@ -276,10 +281,30 @@ const normalizeFormat = (format: string): string =>
 const stripArtifactExtension = (fileName: string): string =>
   fileName.replace(/\.[^.]+$/, '');
 
-const parseHashedStem = (
+const parseCanonicalStem = (
+  stem: string,
+): { datePrefix: string; hash: string; action: ResolutionAction } | null => {
+  const match = stem.match(CANONICAL_PLAN_STEM);
+  if (!match) {
+    return null;
+  }
+
+  const [, datePrefix, hash, action] = match;
+  if (!hash || !action || !VALID_ACTIONS.includes(action as ResolutionAction)) {
+    return null;
+  }
+
+  return {
+    datePrefix,
+    hash: hash.toLowerCase(),
+    action: action as ResolutionAction,
+  };
+};
+
+const parseShortHashedStem = (
   stem: string,
 ): { hash: string; action: ResolutionAction } | null => {
-  const match = stem.match(HASHED_PLAN_STEM);
+  const match = stem.match(SHORT_HASHED_PLAN_STEM);
   if (!match) {
     return null;
   }
@@ -311,7 +336,7 @@ const resolveActionFromIdentifier = (
     return action;
   }
 
-  return parseHashedStem(identifierStem)?.action;
+  return parseCanonicalStem(identifierStem)?.action;
 };
 
 const readManifestCandidates = (artifactDir: string): PlanArtifactManifest[] =>
@@ -348,8 +373,6 @@ const matchesManifestIdentifier = (
       return (
         candidate === normalizedIdentifier ||
         candidate === identifierStem.toLowerCase() ||
-        candidate.startsWith(normalizedIdentifier) ||
-        candidate.startsWith(identifierStem.toLowerCase()) ||
         matchesGeneratedTicketToken(normalizedIdentifier, candidate) ||
         matchesGeneratedTicketToken(identifierStem, candidate)
       );
@@ -358,7 +381,7 @@ const matchesManifestIdentifier = (
     return true;
   }
 
-  const parsedStem = parseHashedStem(identifierStem);
+  const parsedStem = parseCanonicalStem(identifierStem);
   if (parsedStem) {
     return manifest.hash.toLowerCase() === parsedStem.hash;
   }
@@ -366,38 +389,19 @@ const matchesManifestIdentifier = (
   return false;
 };
 
-const buildLegacyCandidates = (
-  artifactDir: string,
-  identifierStem: string,
-  requestedAction?: ResolutionAction,
-): string[] => {
-  const actions = requestedAction ? [requestedAction] : VALID_ACTIONS;
-  const legacyCandidateBases = [identifierStem];
+const isCanonicalArtifactPath = (artifactPath: string): boolean => {
+  const extension = path.extname(artifactPath).slice(1).toLowerCase();
+  if (
+    !PLAN_ARTIFACT_EXTENSIONS.includes(
+      extension as (typeof PLAN_ARTIFACT_EXTENSIONS)[number],
+    )
+  ) {
+    return false;
+  }
 
-  return legacyCandidateBases.flatMap((base) =>
-    actions.flatMap((action) =>
-      LEGACY_PLAN_EXTENSIONS.flatMap((extension) => [
-        path.join(artifactDir, `${base}-plan-${action}.${extension}`),
-        path.join(artifactDir, `${base}-${action}.${extension}`),
-      ]),
-    ),
-  );
+  const artifactStem = stripArtifactExtension(path.basename(artifactPath));
+  return parseCanonicalStem(artifactStem) !== null;
 };
-
-const buildHashedCandidates = (
-  artifactDir: string,
-  hash: string,
-  action: ResolutionAction,
-): string[] =>
-  LEGACY_PLAN_EXTENSIONS.map((extension) =>
-    path.join(
-      artifactDir,
-      buildPlanArtifactFilename({ hash, action, format: extension }),
-    ),
-  );
-
-const identifySourceKind = (identifierStem: string): PlanArtifactSourceKind =>
-  isTicketKey(identifierStem) ? 'ticket' : 'custom';
 
 const resolveManifestMatch = (
   artifactDir: string,
@@ -405,13 +409,15 @@ const resolveManifestMatch = (
   requestedAction?: ResolutionAction,
 ): PlanArtifactReference | null => {
   const normalizedIdentifier = identifierStem.trim().toLowerCase();
-  const candidates = readManifestCandidates(artifactDir).filter((manifest) =>
-    matchesManifestIdentifier(
-      manifest,
-      identifierStem,
-      normalizedIdentifier,
-      requestedAction,
-    ),
+  const candidates = readManifestCandidates(artifactDir).filter(
+    (manifest) =>
+      isCanonicalArtifactPath(manifest.artifactPath) &&
+      matchesManifestIdentifier(
+        manifest,
+        identifierStem,
+        normalizedIdentifier,
+        requestedAction,
+      ),
   );
 
   if (candidates.length === 0) {
@@ -443,136 +449,6 @@ const resolveManifestMatch = (
   };
 };
 
-const resolveLegacyMatch = (
-  artifactDir: string,
-  identifierStem: string,
-  requestedAction?: ResolutionAction,
-): PlanArtifactReference | null => {
-  const normalizedStem = identifierStem.trim();
-  const sourceKind = identifySourceKind(normalizedStem);
-  const actions = requestedAction ? [requestedAction] : VALID_ACTIONS;
-  const candidatePaths =
-    sourceKind === 'ticket'
-      ? actions.flatMap((action) =>
-          LEGACY_PLAN_EXTENSIONS.map((extension) =>
-            path.join(
-              artifactDir,
-              `${normalizedStem}-plan-${action}.${extension}`,
-            ),
-          ),
-        )
-      : actions.flatMap((action) =>
-          LEGACY_PLAN_EXTENSIONS.map((extension) =>
-            path.join(artifactDir, `${normalizedStem}-${action}.${extension}`),
-          ),
-        );
-
-  const existing = candidatePaths.filter((candidatePath) =>
-    fs.existsSync(candidatePath),
-  );
-  if (existing.length === 0) {
-    return null;
-  }
-
-  if (existing.length > 1) {
-    throw new Error(
-      `Multiple legacy plan artifacts found for '${identifierStem}': ${existing
-        .map((candidatePath) => path.basename(candidatePath))
-        .join(
-          ', ',
-        )}. Use the explicit hashed filename or remove stale artifacts.`,
-    );
-  }
-
-  const artifactPath = existing[0];
-  const matchedStem = stripArtifactExtension(path.basename(artifactPath));
-  const parsedHashedStem = parseHashedStem(matchedStem);
-  const action =
-    requestedAction ??
-    parsedHashedStem?.action ??
-    extractLegacyAction(matchedStem);
-
-  if (!action) {
-    throw new Error(
-      `Unable to resolve action for legacy plan artifact '${path.basename(artifactPath)}'.`,
-    );
-  }
-
-  return {
-    action,
-    artifactPath,
-    format: path
-      .extname(artifactPath)
-      .slice(1)
-      .toLowerCase() as PlanArtifactFormat,
-    hash: parsedHashedStem?.hash ?? hashPlanArtifactSources([normalizedStem]),
-    manifestPath: undefined,
-    sourceKind,
-    sourceName: normalizedStem,
-    ticketKey: sourceKind === 'ticket' ? normalizedStem : undefined,
-    customArtifactName: sourceKind === 'custom' ? normalizedStem : undefined,
-    isLegacy: true,
-  };
-};
-
-const extractLegacyAction = (
-  artifactStem: string,
-): ResolutionAction | undefined => {
-  const match = artifactStem.match(/-(feature|fix|investigate)$/i);
-  if (!match) {
-    return undefined;
-  }
-
-  const [, action] = match;
-  return VALID_ACTIONS.includes(action as ResolutionAction)
-    ? (action as ResolutionAction)
-    : undefined;
-};
-
-const resolveHashedMatch = (
-  artifactDir: string,
-  identifierStem: string,
-  requestedAction?: ResolutionAction,
-): PlanArtifactReference | null => {
-  const parsedStem = parseHashedStem(identifierStem);
-  const hashToken = parsedStem?.hash ?? identifierStem.trim().toLowerCase();
-  const action = requestedAction ?? parsedStem?.action;
-  if (!action) {
-    return null;
-  }
-
-  const candidatePaths = buildHashedCandidates(artifactDir, hashToken, action);
-  const existing = candidatePaths.filter((candidatePath) =>
-    fs.existsSync(candidatePath),
-  );
-  if (existing.length === 0) {
-    return null;
-  }
-
-  if (existing.length > 1) {
-    throw new Error(
-      `Multiple hashed plan artifacts found for '${identifierStem}' and action '${action}': ${existing
-        .map((candidatePath) => path.basename(candidatePath))
-        .join(', ')}. Use the explicit filename including extension.`,
-    );
-  }
-
-  const artifactPath = existing[0];
-  return {
-    action,
-    artifactPath,
-    format: path
-      .extname(artifactPath)
-      .slice(1)
-      .toLowerCase() as PlanArtifactFormat,
-    hash: hashToken,
-    manifestPath: buildPlanArtifactManifestPath(artifactPath),
-    sourceKind: 'ticket',
-    sourceName: parsedStem?.hash ?? hashToken,
-    isLegacy: false,
-  };
-};
-
 /**
  * Resolve a plan artifact from a ticket key, hash token, or hashed filename stem.
  *
@@ -592,6 +468,11 @@ export const resolvePlanArtifactReference = (
     identifierStem,
     options.action,
   );
+  if (parseShortHashedStem(identifierStem)) {
+    throw new Error(
+      `Non-canonical plan identifier '${identifier}'. Use YYYY-MM-DD-<hash>-<action>-plan.<ext>.`,
+    );
+  }
 
   const manifestMatch = resolveManifestMatch(
     artifactDir,
@@ -602,35 +483,29 @@ export const resolvePlanArtifactReference = (
     return manifestMatch;
   }
 
-  const hashedMatch = resolveHashedMatch(
-    artifactDir,
-    identifierStem,
-    requestedAction,
-  );
-  if (hashedMatch) {
-    return hashedMatch;
-  }
-
-  const legacyMatch = resolveLegacyMatch(
-    artifactDir,
-    identifierStem,
-    requestedAction,
-  );
-  if (legacyMatch) {
-    return legacyMatch;
-  }
-
-  const candidateList = [
-    ...buildHashedCandidates(
-      artifactDir,
-      identifierStem,
-      requestedAction ?? 'fix',
-    ),
-    ...buildLegacyCandidates(artifactDir, identifierStem, requestedAction),
-  ];
+  const candidateList =
+    requestedAction && isTicketKey(identifierStem)
+      ? PLAN_ARTIFACT_EXTENSIONS.map(
+          (extension) =>
+            `YYYY-MM-DD-${hashPlanArtifactSources([identifierStem])}-${requestedAction}-plan.${extension}`,
+        )
+      : ['YYYY-MM-DD-<hash>-<action>-plan.<ext>'];
   throw new Error(
-    `Plan artifact not found for '${identifier}'. Checked: ${candidateList.join(', ')}`,
+    `Plan artifact not found for '${identifier}' in ${artifactDir}. Checked: ${candidateList.join(', ')}`,
   );
+};
+
+const resolveDatePrefix = (createdAt?: Date | string): string => {
+  const date =
+    createdAt instanceof Date
+      ? createdAt
+      : typeof createdAt === 'string'
+        ? new Date(createdAt)
+        : new Date();
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid createdAt value for plan artifact: ${createdAt}`);
+  }
+  return date.toISOString().slice(0, 10);
 };
 
 /**

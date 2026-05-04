@@ -207,7 +207,10 @@ describe('IssueImplementCommand', () => {
         .dryRunPreview as jest.Mocked<DryRunPreviewService>;
       const hash = hashPlanArtifactSources(['WBP-0001']);
       const artifactDir = path.join(os.homedir(), '.wf', 'repo-a', 'jira');
-      const planPath = path.join(artifactDir, `${hash}-fix-plan.json`);
+      const planPath = path.join(
+        artifactDir,
+        `2026-04-16-${hash}-fix-plan.json`,
+      );
       const manifestPath = buildPlanArtifactManifestPath(planPath);
       jest
         .spyOn(require('fs'), 'existsSync')
@@ -257,7 +260,7 @@ describe('IssueImplementCommand', () => {
         .spyOn(require('fs').promises, 'writeFile')
         .mockResolvedValue(undefined);
 
-      await command.run([`${hash}-fix-plan.json`], {
+      await command.run([`2026-04-16-${hash}-fix-plan.json`], {
         repos: ['repo-a'],
         dryRun: true,
       });
@@ -269,7 +272,7 @@ describe('IssueImplementCommand', () => {
             '.wf',
             'repo-a',
             'jira',
-            `${hash}-fix-plan.json`,
+            `2026-04-16-${hash}-fix-plan.json`,
           ),
         }),
       );
@@ -383,17 +386,49 @@ describe('IssueImplementCommand', () => {
     });
 
     it('previews two file-reads and shows summary with zero counts when both artifacts exist (feature plan)', async () => {
+      const hash = hashPlanArtifactSources(['WBP-0001']);
+      const canonicalPlanPath = path.join(
+        os.homedir(),
+        '.wf',
+        'repo-a',
+        'jira',
+        `2026-04-16-${hash}-feature-plan.json`,
+      );
+      const canonicalManifestPath =
+        buildPlanArtifactManifestPath(canonicalPlanPath);
       // Allow ticket .md and only the feature plan so discoverPlanAction resolves
       // to action='feature' (investigate is first in candidates and would win with
       // equal mtimeMs if we simply mockReturnValue(true)).
       existsSyncSpy.mockImplementation(
         (p: string) =>
           String(p).endsWith('WBP-0001.md') ||
-          String(p).endsWith('WBP-0001-plan-feature.json'),
+          String(p).endsWith('/jira') ||
+          String(p) === canonicalPlanPath ||
+          String(p) === canonicalManifestPath,
       );
+      jest
+        .spyOn(require('fs'), 'readdirSync')
+        .mockReturnValue([path.basename(canonicalManifestPath)] as any);
       jest
         .spyOn(require('fs'), 'statSync')
         .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
+      jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockImplementation((input: any) => {
+          if (String(input) === canonicalManifestPath) {
+            return JSON.stringify({
+              artifactPath: canonicalPlanPath,
+              action: 'feature',
+              createdAt: new Date('2026-04-16T00:00:00.000Z').toISOString(),
+              format: 'json',
+              hash,
+              sourceKind: 'ticket',
+              sourceName: 'WBP-0001',
+              ticketKey: 'WBP-0001',
+            });
+          }
+          return JSON.stringify({ action: 'feature' });
+        });
 
       await command.run(['WBP-0001'], { dryRun: true, repos: ['repo-a'] });
 
@@ -405,17 +440,46 @@ describe('IssueImplementCommand', () => {
     });
 
     it('shows apiCallCount: 1 and fileCreatedCount: 1 for investigate plan dry-run', async () => {
+      const hash = hashPlanArtifactSources(['WBP-0001']);
+      const canonicalPlanPath = path.join(
+        os.homedir(),
+        '.wf',
+        'repo-a',
+        'jira',
+        `2026-04-16-${hash}-investigate-plan.json`,
+      );
+      const canonicalManifestPath =
+        buildPlanArtifactManifestPath(canonicalPlanPath);
       existsSyncSpy.mockImplementation(
         (p: string) =>
           String(p).endsWith('WBP-0001.md') ||
-          String(p).endsWith('WBP-0001-plan-investigate.json'),
+          String(p).endsWith('/jira') ||
+          String(p) === canonicalPlanPath ||
+          String(p) === canonicalManifestPath,
       );
+      jest
+        .spyOn(require('fs'), 'readdirSync')
+        .mockReturnValue([path.basename(canonicalManifestPath)] as any);
       jest
         .spyOn(require('fs'), 'statSync')
         .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
       jest
         .spyOn(require('fs'), 'readFileSync')
-        .mockReturnValue(JSON.stringify({ action: 'investigate' }));
+        .mockImplementation((input: any) => {
+          if (String(input) === canonicalManifestPath) {
+            return JSON.stringify({
+              artifactPath: canonicalPlanPath,
+              action: 'investigate',
+              createdAt: new Date('2026-04-16T00:00:00.000Z').toISOString(),
+              format: 'json',
+              hash,
+              sourceKind: 'ticket',
+              sourceName: 'WBP-0001',
+              ticketKey: 'WBP-0001',
+            });
+          }
+          return JSON.stringify({ action: 'investigate' });
+        });
 
       await command.run(['WBP-0001'], { dryRun: true, repos: ['repo-a'] });
 
@@ -579,6 +643,17 @@ describe('IssueImplementCommand', () => {
 
   describe('standard plan format support', () => {
     it('loads a markdown standard plan artifact when json is absent', async () => {
+      const hash = hashPlanArtifactSources(['WBP-0001']);
+      const canonicalPlanName = `2026-04-16-${hash}-feature-plan.md`;
+      const canonicalPlanPath = path.join(
+        os.homedir(),
+        '.wf',
+        'repo-a',
+        'jira',
+        canonicalPlanName,
+      );
+      const canonicalManifestPath =
+        buildPlanArtifactManifestPath(canonicalPlanPath);
       const mockOrchestrator = {
         implementer: { execute: jest.fn().mockResolvedValue(undefined) },
         planner: { execute: jest.fn() },
@@ -629,9 +704,14 @@ describe('IssueImplementCommand', () => {
           const filePath = String(input);
           return (
             filePath.endsWith('WBP-0001.md') ||
-            filePath.endsWith('WBP-0001-plan-feature.md')
+            filePath === canonicalPlanPath ||
+            filePath === canonicalManifestPath ||
+            filePath.endsWith('/jira')
           );
         });
+      jest
+        .spyOn(require('fs'), 'readdirSync')
+        .mockReturnValue([path.basename(canonicalManifestPath)] as any);
       jest
         .spyOn(require('fs'), 'statSync')
         .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
@@ -640,8 +720,21 @@ describe('IssueImplementCommand', () => {
         .mockResolvedValue('# WBP-0001\n**Ticket:** WBP-0001\n');
       jest
         .spyOn(require('fs'), 'readFileSync')
-        .mockReturnValue(
-          [
+        .mockImplementation((input: any) => {
+          const filePath = String(input);
+          if (filePath === canonicalManifestPath) {
+            return JSON.stringify({
+              artifactPath: canonicalPlanPath,
+              action: 'feature',
+              createdAt: new Date('2026-04-16T00:00:00.000Z').toISOString(),
+              format: 'md',
+              hash,
+              sourceKind: 'ticket',
+              sourceName: 'WBP-0001',
+              ticketKey: 'WBP-0001',
+            });
+          }
+          return [
             '# Implementation Plan',
             '',
             '**Action:** feature',
@@ -654,22 +747,14 @@ describe('IssueImplementCommand', () => {
             '## Steps',
             '',
             '1. First step',
-          ].join('\n'),
-        );
+          ].join('\n');
+        });
 
       await command.run(['WBP-0001'], { repos: ['repo-a'] });
 
       expect(mockOrchestrator.implementer.execute).toHaveBeenCalledTimes(1);
       const [, planArg] = mockOrchestrator.implementer.execute.mock.calls[0];
-      expect(planArg.path).toBe(
-        path.join(
-          os.homedir(),
-          '.wf',
-          'repo-a',
-          'jira',
-          'WBP-0001-plan-feature.md',
-        ),
-      );
+      expect(planArg.path).toBe(canonicalPlanPath);
       expect(planArg.plan.steps).toEqual(['First step']);
     });
   });
@@ -697,14 +782,29 @@ describe('IssueImplementCommand', () => {
     });
 
     it('reads ticket and plan from disk and calls implementer when both artifacts exist', async () => {
+      const hash = hashPlanArtifactSources(['WBP-0001']);
+      const canonicalPlanPath = path.join(
+        os.homedir(),
+        '.wf',
+        'repo-a',
+        'jira',
+        `2026-04-16-${hash}-feature-plan.json`,
+      );
+      const canonicalManifestPath =
+        buildPlanArtifactManifestPath(canonicalPlanPath);
       // Allow ticket .md and only the feature plan so discoverPlanAction resolves
       // to action='feature' (investigate is first in the candidates array and would
       // win when all mtimeMs are equal if we simply mockReturnValue(true)).
       existsSyncSpy.mockImplementation(
         (p: string) =>
           String(p).endsWith('WBP-0001.md') ||
-          String(p).endsWith('WBP-0001-plan-feature.json'),
+          String(p).endsWith('/jira') ||
+          String(p) === canonicalPlanPath ||
+          String(p) === canonicalManifestPath,
       );
+      jest
+        .spyOn(require('fs'), 'readdirSync')
+        .mockReturnValue([path.basename(canonicalManifestPath)] as any);
       // statSync is called by discoverPlanAction's sort — prevent real fs access
       jest
         .spyOn(require('fs'), 'statSync')
@@ -714,7 +814,22 @@ describe('IssueImplementCommand', () => {
         .mockResolvedValue('# WBP-0001\n**Ticket:** WBP-0001\n');
       jest
         .spyOn(require('fs'), 'readFileSync')
-        .mockReturnValue(JSON.stringify({ action: 'feature', steps: [] }));
+        .mockImplementation((input: any) => {
+          const filePath = String(input);
+          if (filePath === canonicalManifestPath) {
+            return JSON.stringify({
+              artifactPath: canonicalPlanPath,
+              action: 'feature',
+              createdAt: new Date('2026-04-16T00:00:00.000Z').toISOString(),
+              format: 'json',
+              hash,
+              sourceKind: 'ticket',
+              sourceName: 'WBP-0001',
+              ticketKey: 'WBP-0001',
+            });
+          }
+          return JSON.stringify({ action: 'feature', steps: [] });
+        });
 
       const mockOrchestrator = {
         implementer: { execute: jest.fn().mockResolvedValue(undefined) },
@@ -765,15 +880,7 @@ describe('IssueImplementCommand', () => {
         path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-0001.md'),
       );
       expect(planArg.action).toBe('feature');
-      expect(planArg.path).toBe(
-        path.join(
-          os.homedir(),
-          '.wf',
-          'repo-a',
-          'jira',
-          'WBP-0001-plan-feature.json',
-        ),
-      );
+      expect(planArg.path).toBe(canonicalPlanPath);
       expect(mockOrchestrator.implementer.execute).toHaveBeenCalledWith(
         expect.any(Object),
         expect.any(Object),
@@ -790,6 +897,16 @@ describe('IssueImplementCommand', () => {
   describe('ticket mode with multiple repos', () => {
     it('warns that only the first repository will be verified', async () => {
       const command = await buildCommand();
+      const hash = hashPlanArtifactSources(['WBP-0001']);
+      const canonicalPlanPath = path.join(
+        os.homedir(),
+        '.wf',
+        'repo-a',
+        'jira',
+        `2026-04-16-${hash}-feature-plan.json`,
+      );
+      const canonicalManifestPath =
+        buildPlanArtifactManifestPath(canonicalPlanPath);
       const consoleSpy = jest
         .spyOn(console, 'log')
         .mockImplementation(() => {});
@@ -798,8 +915,13 @@ describe('IssueImplementCommand', () => {
         .mockImplementation(
           (p: string) =>
             String(p).endsWith('WBP-0001.md') ||
-            String(p).endsWith('WBP-0001-plan-feature.json'),
+            String(p).endsWith('/jira') ||
+            String(p) === canonicalPlanPath ||
+            String(p) === canonicalManifestPath,
         );
+      jest
+        .spyOn(require('fs'), 'readdirSync')
+        .mockReturnValue([path.basename(canonicalManifestPath)] as any);
       jest
         .spyOn(require('fs'), 'statSync')
         .mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
@@ -808,7 +930,22 @@ describe('IssueImplementCommand', () => {
         .mockResolvedValue('# WBP-0001\n**Ticket:** WBP-0001\n');
       jest
         .spyOn(require('fs'), 'readFileSync')
-        .mockReturnValue(JSON.stringify({ action: 'feature', steps: [] }));
+        .mockImplementation((input: any) => {
+          const filePath = String(input);
+          if (filePath === canonicalManifestPath) {
+            return JSON.stringify({
+              artifactPath: canonicalPlanPath,
+              action: 'feature',
+              createdAt: new Date('2026-04-16T00:00:00.000Z').toISOString(),
+              format: 'json',
+              hash,
+              sourceKind: 'ticket',
+              sourceName: 'WBP-0001',
+              ticketKey: 'WBP-0001',
+            });
+          }
+          return JSON.stringify({ action: 'feature', steps: [] });
+        });
 
       await command.run(['WBP-0001'], { repos: ['repo-a', 'repo-b'] });
 

@@ -109,6 +109,7 @@ export interface TicketArtifact {
   ticketKey: string;
   content: string;
   path: string;
+  fromCache?: boolean;
 }
 
 export interface PlanArtifact {

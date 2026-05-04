@@ -26,7 +26,18 @@ export class FetcherAgent {
       options,
     );
     const titleMatch = artifact.content.match(/^#\s+[^:]+:\s+(.+)$/m);
-    console.log(chalk.green('✓ Ticket fetched'));
+    if (artifact.fromCache) {
+      console.log(
+        chalk.yellow(`⚠️  Using existing FETCH artifact: ${artifact.path}`),
+      );
+    } else if (options.skipExisting === false) {
+      console.log(
+        chalk.yellow(`⚠️  --force enabled; overwrote ticket artifact`),
+      );
+      console.log(chalk.green('✓ Ticket refetched'));
+    } else {
+      console.log(chalk.green('✓ Ticket fetched'));
+    }
     console.log(
       chalk.bold('  Title:'),
       chalk.bold.cyan(titleMatch?.[1] ?? ticketKey),

@@ -80,7 +80,7 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
     'When the agent backend is disabled, issue:implement uses the standard two-phase retry path. Unsupported providers with stages.implement.agent: true fail fast. ' +
     'Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. ' +
     'When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. ' +
-    'Examples: wf issue:implement PROJ-123 | wf issue:implement 1a2b3c4d-fix-plan.json | ' +
+    'Examples: wf issue:implement PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | ' +
     'wf issue:implement PROJ-123 --repos my-repo | wf issue:implement PROJ-123 --repos repo-a repo-b | ' +
     'wf issue:implement PROJ-123 --dry-run',
   arguments: '[ticket-key-or-plan-token]',

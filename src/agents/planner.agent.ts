@@ -36,7 +36,18 @@ export class PlannerAgent {
       options,
     );
 
-    console.log(chalk.green('✓ Plan generated'));
+    if (artifact.fromCache) {
+      console.log(
+        chalk.yellow(`⚠️  Skipping PLAN - artifact exists: ${artifact.path}`),
+      );
+    } else if (options.skipExisting === false) {
+      console.log(
+        chalk.yellow('⚠️  --force enabled; regenerated plan artifact'),
+      );
+      console.log(chalk.green('✓ Plan generated'));
+    } else {
+      console.log(chalk.green('✓ Plan generated'));
+    }
     console.log(
       chalk.bold('  Summary:'),
       chalk.bold.cyan(artifact.plan.summary),
