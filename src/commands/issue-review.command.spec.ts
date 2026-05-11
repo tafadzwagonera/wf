@@ -542,6 +542,9 @@ describe('IssueReviewCommand', () => {
       const { command, reviewStageService, adapters, promptMock } =
         await buildCommand();
       const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet');
+      jest
+        .spyOn(command as any, 'canResolveRepoLocally')
+        .mockReturnValue(false);
       const handleSpy = jest
         .spyOn(ErrorHandler, 'handle')
         .mockImplementation(() => undefined as never);
