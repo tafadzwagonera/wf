@@ -186,8 +186,9 @@ const ISSUE_CREATE_EXAMPLES: CliExample[] = [
       'wf issue:create ticket.md --platform jira --ticket-project WBP --type story',
   },
   {
-    comment: 'Override priority at invocation time',
-    command: 'wf issue:create ticket.json --priority highest',
+    comment: 'Create Jira ticket with project-specific priority resolution',
+    command:
+      'wf issue:create ticket.md --platform jira --ticket-project WBP --priority medium',
   },
 ];
 
@@ -400,7 +401,8 @@ export class IssueCreateCommand extends CommandRunner {
 
   @Option({
     flags: '--priority <priority>',
-    description: 'Override ticket priority (highest|high|medium|low|lowest)',
+    description:
+      'Override normalized ticket priority (highest|high|medium|low|lowest); Jira resolves it to an allowed project value',
   })
   parsePriority(val: string): string {
     return val;

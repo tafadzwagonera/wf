@@ -516,6 +516,114 @@ describe('JiraService', () => {
   });
 
   describe('createTicket priority handling', () => {
+    it('should resolve medium to Minor when create metadata allows Minor but not Medium', async () => {
+      mockHttpService.get
+        .mockReturnValueOnce(
+          of({
+            data: {
+              issueTypes: [{ id: '10001', name: 'Task' }],
+            },
+          }),
+        )
+        .mockReturnValueOnce(
+          of({
+            data: {
+              fields: {
+                priority: {
+                  allowedValues: [
+                    { id: '1', name: 'Major' },
+                    { id: '2', name: 'Minor' },
+                    { id: '3', name: 'Trivial' },
+                  ],
+                },
+              },
+            },
+          }),
+        );
+      mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-102' } }));
+
+      const key = await service.createTicket({
+        project: 'WBP',
+        summary: 'Test ticket',
+        description: 'desc',
+        issueType: 'Task',
+        priority: 'medium',
+      });
+
+      expect(key).toBe('WBP-102');
+      const payload = mockHttpService.post.mock.calls[0][1];
+      expect(payload.fields.priority).toEqual({ name: 'Minor' });
+    });
+
+    it('should prefer an exact allowed priority value over aliases', async () => {
+      mockHttpService.get
+        .mockReturnValueOnce(
+          of({
+            data: {
+              issueTypes: [{ id: '10001', name: 'Task' }],
+            },
+          }),
+        )
+        .mockReturnValueOnce(
+          of({
+            data: {
+              fields: {
+                priority: {
+                  allowedValues: [
+                    { id: '1', name: 'Medium' },
+                    { id: '2', name: 'Minor' },
+                  ],
+                },
+              },
+            },
+          }),
+        );
+      mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-103' } }));
+
+      const key = await service.createTicket({
+        project: 'WBP',
+        summary: 'Test ticket',
+        description: 'desc',
+        issueType: 'Task',
+        priority: 'medium',
+      });
+
+      expect(key).toBe('WBP-103');
+      const payload = mockHttpService.post.mock.calls[0][1];
+      expect(payload.fields.priority).toEqual({ name: 'Medium' });
+    });
+
+    it('should omit priority when create metadata does not expose the priority field', async () => {
+      mockHttpService.get
+        .mockReturnValueOnce(
+          of({
+            data: {
+              issueTypes: [{ id: '10001', name: 'Task' }],
+            },
+          }),
+        )
+        .mockReturnValueOnce(
+          of({
+            data: {
+              fields: {},
+            },
+          }),
+        );
+      mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-104' } }));
+
+      const key = await service.createTicket({
+        project: 'WBP',
+        summary: 'Test ticket',
+        description: 'desc',
+        issueType: 'Task',
+        priority: 'medium',
+      });
+
+      expect(key).toBe('WBP-104');
+      const payload = mockHttpService.post.mock.calls[0][1];
+      expect(payload.fields.priority).toBeUndefined();
+    });
+
     it('should omit priority when no matching priority name is found', async () => {
       // Priority lookup returns no match
       mockHttpService.get.mockReturnValue(
@@ -567,12 +675,26 @@ describe('JiraService', () => {
       expect(payload.fields.priority).toEqual({ name: 'High' });
     });
 
-    it('should retry without priority when Jira rejects the priority field', async () => {
-      mockHttpService.get.mockReturnValue(
-        of({
-          data: [{ id: '3', name: 'Medium' }],
-        }),
-      );
+    it('should retry without priority when Jira rejects a resolved priority field', async () => {
+      mockHttpService.get
+        .mockReturnValueOnce(
+          of({
+            data: {
+              issueTypes: [{ id: '10001', name: 'Task' }],
+            },
+          }),
+        )
+        .mockReturnValueOnce(
+          of({
+            data: {
+              fields: {
+                priority: {
+                  allowedValues: [{ id: '3', name: 'Medium' }],
+                },
+              },
+            },
+          }),
+        );
 
       mockHttpService.post
         .mockImplementationOnce(() =>

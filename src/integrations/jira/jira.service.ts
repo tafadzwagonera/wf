@@ -32,6 +32,31 @@ interface BuildCreatePayloadOptions {
   priorityName?: string | null;
 }
 
+const PRIORITY_ALIAS_NAMES = {
+  highest: ['Highest', 'Blocker', 'Critical'],
+  high: ['High', 'Major'],
+  medium: ['Medium', 'Minor'],
+  low: ['Low', 'Trivial'],
+  lowest: ['Lowest', 'Trivial'],
+} as const;
+
+type JiraCreateIssueType = {
+  id: string;
+  name: string;
+};
+
+type JiraAllowedPriority = {
+  id?: string;
+  name: string;
+};
+
+type JiraCreateField = {
+  key?: string;
+  fieldId?: string;
+  name?: string;
+  allowedValues?: JiraAllowedPriority[];
+};
+
 @Injectable()
 export class JiraService {
   private baseUrl?: string;
@@ -99,6 +124,196 @@ export class JiraService {
     }
   }
 
+  /**
+   * Resolve a requested priority against the priorities allowed when creating
+   * the target project's issue type.
+   *
+   * @param projectKey - Jira project key used for the create request
+   * @param issueTypeName - Jira issue type name used for the create request
+   * @param requestedPriority - User-requested or adapter-mapped priority name
+   * @returns Allowed Jira priority name, or undefined when priority is unavailable
+   */
+  async resolveCreatePriorityName(
+    projectKey: string,
+    issueTypeName: string,
+    requestedPriority: string,
+  ): Promise<string | undefined> {
+    try {
+      const issueTypeId = await this.resolveCreateIssueTypeId(
+        projectKey,
+        issueTypeName,
+      );
+      if (!issueTypeId) {
+        return this.resolveValidPriorityName(requestedPriority);
+      }
+
+      const allowedPriorities = await this.fetchCreateAllowedPriorities(
+        projectKey,
+        issueTypeId,
+      );
+      if (!allowedPriorities) {
+        return undefined;
+      }
+
+      return this.matchAllowedPriority(requestedPriority, allowedPriorities);
+    } catch {
+      return this.resolveValidPriorityName(requestedPriority);
+    }
+  }
+
+  /**
+   * Resolve an issue type name to its Jira ID for create metadata lookups.
+   *
+   * @param projectKey - Jira project key
+   * @param issueTypeName - Jira issue type name to match case-insensitively
+   * @returns Jira issue type ID, or undefined when no match is available
+   */
+  private async resolveCreateIssueTypeId(
+    projectKey: string,
+    issueTypeName: string,
+  ): Promise<string | undefined> {
+    const url = `${this.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(
+      projectKey,
+    )}/issuetypes`;
+    const response = await firstValueFrom(
+      this.httpService.get(url, { headers: this.getAuthHeaders() }),
+    );
+    const issueTypes = this.extractCreateIssueTypes(response.data);
+    const lowerIssueTypeName = issueTypeName.toLowerCase();
+    return issueTypes.find(
+      (issueType) => issueType.name.toLowerCase() === lowerIssueTypeName,
+    )?.id;
+  }
+
+  /**
+   * Fetch allowed priority values from Jira create metadata.
+   *
+   * @param projectKey - Jira project key
+   * @param issueTypeId - Jira issue type ID
+   * @returns Allowed priority values, undefined when priority is not on screen
+   */
+  private async fetchCreateAllowedPriorities(
+    projectKey: string,
+    issueTypeId: string,
+  ): Promise<JiraAllowedPriority[] | undefined> {
+    const url = `${this.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(
+      projectKey,
+    )}/issuetypes/${encodeURIComponent(issueTypeId)}`;
+    const response = await firstValueFrom(
+      this.httpService.get(url, { headers: this.getAuthHeaders() }),
+    );
+    const priorityField = this.extractCreatePriorityField(response.data);
+    return priorityField?.allowedValues;
+  }
+
+  /**
+   * Extract issue type records from Jira's create metadata response.
+   *
+   * @param data - Raw Jira create issue-types response
+   * @returns Issue type records with IDs and names
+   */
+  private extractCreateIssueTypes(data: unknown): JiraCreateIssueType[] {
+    const issueTypes = (data as { issueTypes?: unknown })?.issueTypes;
+    if (!Array.isArray(issueTypes)) {
+      return [];
+    }
+
+    return issueTypes.filter((issueType): issueType is JiraCreateIssueType =>
+      Boolean(
+        issueType &&
+        typeof issueType === 'object' &&
+        typeof (issueType as JiraCreateIssueType).id === 'string' &&
+        typeof (issueType as JiraCreateIssueType).name === 'string',
+      ),
+    );
+  }
+
+  /**
+   * Extract the priority field from Jira's create field metadata.
+   *
+   * @param data - Raw Jira create fields response
+   * @returns Priority field metadata, or undefined when absent
+   */
+  private extractCreatePriorityField(
+    data: unknown,
+  ): JiraCreateField | undefined {
+    const fields = (data as { fields?: unknown })?.fields;
+    if (Array.isArray(fields)) {
+      return fields.find((field): field is JiraCreateField =>
+        this.isPriorityCreateField(field),
+      );
+    }
+
+    const priorityField = (fields as { priority?: unknown } | undefined)
+      ?.priority;
+    return this.isCreateFieldWithAllowedValues(priorityField)
+      ? priorityField
+      : undefined;
+  }
+
+  /**
+   * Check whether a create metadata field is Jira's priority field.
+   *
+   * @param field - Raw create metadata field
+   * @returns True when the field represents priority and has allowed values
+   */
+  private isPriorityCreateField(field: unknown): field is JiraCreateField {
+    if (!this.isCreateFieldWithAllowedValues(field)) return false;
+
+    const createField = field;
+    const fieldKey = createField.key ?? createField.fieldId;
+    const isPriority =
+      fieldKey === 'priority' || createField.name?.toLowerCase() === 'priority';
+    return isPriority;
+  }
+
+  /**
+   * Check whether a create metadata value is a field with allowed values.
+   *
+   * @param field - Raw create metadata field
+   * @returns True when the field has an allowed values array
+   */
+  private isCreateFieldWithAllowedValues(
+    field: unknown,
+  ): field is JiraCreateField {
+    return Boolean(
+      field &&
+      typeof field === 'object' &&
+      Array.isArray((field as JiraCreateField).allowedValues),
+    );
+  }
+
+  /**
+   * Match a requested priority to an allowed Jira create priority.
+   *
+   * @param requestedPriority - Requested priority name
+   * @param allowedPriorities - Priority values allowed by create metadata
+   * @returns Matched Jira priority name, or undefined when no match exists
+   */
+  private matchAllowedPriority(
+    requestedPriority: string,
+    allowedPriorities: JiraAllowedPriority[],
+  ): string | undefined {
+    const lowerRequestedPriority = requestedPriority.toLowerCase();
+    const exactMatch = allowedPriorities.find(
+      (priority) => priority.name.toLowerCase() === lowerRequestedPriority,
+    );
+    if (exactMatch) {
+      return exactMatch.name;
+    }
+
+    const aliasNames =
+      PRIORITY_ALIAS_NAMES[
+        lowerRequestedPriority as keyof typeof PRIORITY_ALIAS_NAMES
+      ] ?? [];
+    const lowerAliasNames = new Set(
+      aliasNames.map((aliasName) => aliasName.toLowerCase()),
+    );
+    return allowedPriorities.find((priority) =>
+      lowerAliasNames.has(priority.name.toLowerCase()),
+    )?.name;
+  }
+
   private getAuthHeaders() {
     const auth = Buffer.from(`${this.email}:${this.apiToken}`).toString(
       'base64',
@@ -120,13 +335,17 @@ export class JiraService {
       );
     }
 
-    // Resolve priority against the Jira instance's priority scheme
+    // Resolve priority against create metadata for the selected project/type.
     let resolvedPriority: string | undefined;
     if (request.priority) {
-      resolvedPriority = await this.resolveValidPriorityName(request.priority);
+      resolvedPriority = await this.resolveCreatePriorityName(
+        project,
+        request.issueType || 'Task',
+        request.priority,
+      );
       if (!resolvedPriority) {
         this.logger.warn(
-          `Priority "${request.priority}" not found in Jira priority scheme. Creating ticket without priority.`,
+          `Priority "${request.priority}" is not allowed for ${project} ${request.issueType || 'Task'} creates. Creating ticket without priority.`,
         );
       }
     }

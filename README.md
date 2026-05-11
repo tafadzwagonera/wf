@@ -403,8 +403,8 @@ wf issue:create ticket.json
 # Create on a specific platform and override the Jira project
 wf issue:create ticket.md --platform jira --ticket-project WBP --type story
 
-# Override priority at invocation time
-wf issue:create ticket.json --priority highest
+# Create Jira ticket with project-specific priority resolution
+wf issue:create ticket.md --platform jira --ticket-project WBP --priority medium
 ```
 
 **Options:**
@@ -416,12 +416,14 @@ wf issue:create ticket.json --priority highest
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning |
 | `--ticket-project <project>` | Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file |
 | `-t, --type <type>` | Issue type (task\|bug\|story\|todo) - overrides input file |
-| `--priority <priority>` | Override ticket priority (highest\|high\|medium\|low\|lowest) |
+| `--priority <priority>` | Override normalized ticket priority (highest\|high\|medium\|low\|lowest); Jira resolves it to an allowed project value |
 <!-- END GENERATED COMMAND DOCS: issue:create -->
 
-When creating Jira tickets, `wf` first resolves the requested priority against
-the Jira instance. If Jira still rejects the priority during creation, `wf`
-retries once without the priority field so ticket creation can still succeed.
+When creating Jira tickets, `wf` resolves the requested priority against Jira
+create metadata for the target project and issue type. Exact allowed names win
+first; otherwise normalized values such as `medium` can resolve to project
+values such as `Minor`. If priority is hidden from the create screen or Jira
+still rejects it, `wf` creates the ticket without a priority field.
 
 ---
 

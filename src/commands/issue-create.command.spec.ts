@@ -442,4 +442,38 @@ describe('IssueCreateCommand', () => {
       }),
     );
   });
+
+  it('passes normalized command priority and ticket project to the Jira adapter', async () => {
+    const command = await buildCommand();
+    const platformService = (command as any)
+      .platformService as jest.Mocked<PlatformService>;
+    const artifactPath = path.join(
+      os.homedir(),
+      '.wf',
+      'consumer-app',
+      'jira',
+      'GENERATED-2026-04-01-46ac9014.md',
+    );
+
+    mockExistsSync.mockImplementation(
+      (input) => String(input) === artifactPath,
+    );
+
+    await command.run(['GENERATED-2026-04-01-46ac9014.md'], {
+      priority: 'medium',
+      ticketProject: 'WBP',
+      platform: 'jira',
+    });
+
+    const mockAdapter = (platformService.getAdapter as jest.Mock).mock
+      .results[0].value as {
+      createTicket: jest.Mock;
+    };
+    expect(mockAdapter.createTicket).toHaveBeenCalledWith(
+      expect.objectContaining({
+        priority: 'medium',
+        project: 'WBP',
+      }),
+    );
+  });
 });
