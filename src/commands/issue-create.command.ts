@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
-import { TicketType } from '../common/dto/universal-ticket.dto';
+import { TicketPriority, TicketType } from '../common/dto/universal-ticket.dto';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
@@ -19,6 +19,7 @@ interface IssueCreateOptions {
   platform?: string;
   repos?: string[];
   ticketProject?: string;
+  priority?: string;
   type?: string;
   dryRun?: boolean;
 }
@@ -184,6 +185,10 @@ const ISSUE_CREATE_EXAMPLES: CliExample[] = [
     command:
       'wf issue:create ticket.md --platform jira --ticket-project WBP --type story',
   },
+  {
+    comment: 'Override priority at invocation time',
+    command: 'wf issue:create ticket.json --priority highest',
+  },
 ];
 
 /**
@@ -273,6 +278,9 @@ export class IssueCreateCommand extends CommandRunner {
       }
       if (options?.type) {
         ticket.type = options.type as TicketType;
+      }
+      if (options?.priority) {
+        ticket.priority = options.priority as TicketPriority;
       }
 
       // Get platform adapter
@@ -387,6 +395,14 @@ export class IssueCreateCommand extends CommandRunner {
     description: 'Issue type (task|bug|story|todo) - overrides input file',
   })
   parseType(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '--priority <priority>',
+    description: 'Override ticket priority (highest|high|medium|low|lowest)',
+  })
+  parsePriority(val: string): string {
     return val;
   }
 }

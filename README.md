@@ -402,6 +402,9 @@ wf issue:create ticket.json
 
 # Create on a specific platform and override the Jira project
 wf issue:create ticket.md --platform jira --ticket-project WBP --type story
+
+# Override priority at invocation time
+wf issue:create ticket.json --priority highest
 ```
 
 **Options:**
@@ -413,6 +416,7 @@ wf issue:create ticket.md --platform jira --ticket-project WBP --type story
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning |
 | `--ticket-project <project>` | Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file |
 | `-t, --type <type>` | Issue type (task\|bug\|story\|todo) - overrides input file |
+| `--priority <priority>` | Override ticket priority (highest\|high\|medium\|low\|lowest) |
 <!-- END GENERATED COMMAND DOCS: issue:create -->
 
 When creating Jira tickets, `wf` first resolves the requested priority against

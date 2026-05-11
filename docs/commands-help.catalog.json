@@ -92,6 +92,10 @@
       {
         "flags": "-t, --type <type>",
         "description": "Issue type (task|bug|story|todo) - overrides input file"
+      },
+      {
+        "flags": "--priority <priority>",
+        "description": "Override ticket priority (highest|high|medium|low|lowest)"
       }
     ],
     "examples": [
@@ -102,6 +106,10 @@
       {
         "comment": "Create on a specific platform and override the Jira project",
         "command": "wf issue:create ticket.md --platform jira --ticket-project WBP --type story"
+      },
+      {
+        "comment": "Override priority at invocation time",
+        "command": "wf issue:create ticket.json --priority highest"
       }
     ]
   },
