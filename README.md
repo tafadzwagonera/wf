@@ -969,7 +969,7 @@ yarn build
 yarn test
 
 # Run TypeScript checks
-yarn typescript
+yarn typecheck
 
 # Run tests with coverage
 yarn test:cov
