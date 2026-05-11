@@ -125,6 +125,7 @@ describe('implement verification helpers', () => {
           diagnosticLineCount: 0,
           errorClasses: new Set(),
         },
+        changedFilesSinceLastVerification: [],
       });
 
       expect(signal.verdict).toBe('complete');

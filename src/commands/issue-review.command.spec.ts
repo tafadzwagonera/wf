@@ -356,7 +356,14 @@ async function buildCommand(overrides?: {
     ],
   }).compile();
 
-  const dryRunPreview = module.get(DryRunPreviewService);
+  const dryRunPreview = module.get<{
+    showHeader: jest.Mock;
+    showSummary: jest.Mock;
+    showValidationResult: jest.Mock;
+    previewApiCall: jest.Mock;
+    previewFileRead: jest.Mock;
+    previewFileWrite: jest.Mock;
+  }>(DryRunPreviewService);
 
   return {
     command: module.get(IssueReviewCommand),

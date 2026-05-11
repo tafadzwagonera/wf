@@ -1,9 +1,12 @@
 // test/manual/test-chat-ui-description-styling.ts
 import chalk from 'chalk';
+import type { AiService } from '../../src/integrations/ai/ai.service';
 import { ChatUIService } from '../../src/integrations/ai/conversation/chat-ui.service';
 import type { ConversationMessage } from '../../src/integrations/ai/conversation/interfaces';
 
-const service = new ChatUIService();
+const service = new ChatUIService({
+  getProviderShortName: () => 'AI',
+} as AiService);
 
 const mockMessage: ConversationMessage = {
   role: 'assistant',

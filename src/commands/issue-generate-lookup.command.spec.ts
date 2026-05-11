@@ -110,7 +110,9 @@ describe('IssueGenerateLookupCommand', () => {
     ).mockReturnValue(true);
     (
       fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>
-    ).mockReturnValue(['2026-04-16-1a2b3c4d-ticket-description.sources.json']);
+    ).mockReturnValue([
+      '2026-04-16-1a2b3c4d-ticket-description.sources.json',
+    ] as any);
     (
       fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>
     ).mockReturnValue(

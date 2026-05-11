@@ -968,6 +968,9 @@ yarn build
 # Run tests
 yarn test
 
+# Run TypeScript checks
+yarn typescript
+
 # Run tests with coverage
 yarn test:cov
 ```
@@ -1007,14 +1010,17 @@ yarn test:cov
 ### Manual Testing
 
 ```bash
+# Run a named manual smoke test
+yarn test:manual test-issue-create-jira-adf-smoke
+
 # Test Jira integration
-yarn ts-node -r tsconfig-paths/register test/manual/test-jira.ts
+yarn test:manual test-jira
 
 # Test action executors
-yarn ts-node -r tsconfig-paths/register test/manual/test-executors.ts
+yarn test:manual test-executors
 
 # Diagnose Jira permissions
-yarn ts-node -r tsconfig-paths/register test/manual/diagnose-jira-permissions.ts
+yarn test:manual diagnose-jira-permissions
 ```
 
 ### Integration Tests

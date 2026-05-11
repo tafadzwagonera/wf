@@ -81,10 +81,22 @@ const mockTicket = {
 };
 
 async function buildCommand(): Promise<IssueCreateCommand> {
+  const mockPlatformAdapter = {
+    createTicket: jest.fn().mockResolvedValue({
+      platform: 'jira',
+      key: 'WBP-123',
+      id: 'WBP-123',
+      url: 'https://test.atlassian.net/browse/WBP-123',
+    }),
+  };
+  const mockPlatformService = {
+    getAdapter: jest.fn().mockReturnValue(mockPlatformAdapter),
+  };
+
   const module = await Test.createTestingModule({
     providers: [
       IssueCreateCommand,
-      { provide: PlatformService, useValue: {} },
+      { provide: PlatformService, useValue: mockPlatformService },
       {
         provide: JiraAdapter,
         useValue: {
@@ -126,7 +138,25 @@ async function buildCommand(): Promise<IssueCreateCommand> {
         useValue: {
           detectFormat: jest.fn().mockReturnValue('md'),
           getConverter: jest.fn().mockReturnValue({
-            parse: jest.fn().mockReturnValue({ ...mockTicket }),
+            parse: jest.fn((content: string) => {
+              if (!content.includes('Create service document storage')) {
+                return { ...mockTicket };
+              }
+
+              const description = content
+                .split(/^## Description$/m)
+                .slice(1)
+                .join('## Description')
+                .trim();
+
+              return {
+                ...mockTicket,
+                title: 'Create service document storage',
+                type: 'story',
+                priority: 'medium',
+                description,
+              };
+            }),
           }),
         },
       },
@@ -345,6 +375,70 @@ describe('IssueCreateCommand', () => {
           '  ### Acceptance Criteria',
           '  - First item',
         ]),
+      }),
+    );
+  });
+
+  it('creates a Jira ticket from a repo-scoped generated artifact path', async () => {
+    const command = await buildCommand();
+    const platformService = (command as any)
+      .platformService as jest.Mocked<PlatformService>;
+    const artifactPath = path.join(
+      os.homedir(),
+      '.wf',
+      'service-document-v1',
+      'jira',
+      '2026-05-05-d22a1c03-ticket-description.md',
+    );
+    const artifactContent = [
+      '# Create service document storage',
+      '',
+      '**Type:** story',
+      '**Priority:** medium',
+      '',
+      '## Description',
+      '### Summary',
+      'Create a persisted service document flow.',
+      '',
+      '```typescript',
+      'export class CreateServiceDocumentDto {',
+      '  serviceId: string;',
+      '}',
+      '```',
+      '',
+      '### Technical Details',
+      '- **Storage selection:** Persist documents in the existing service document namespace.',
+      '',
+      '### Acceptance Criteria',
+      '- Documents can be created from the API.',
+      '',
+      '### Unit Test Scope',
+      '- DTO validation covers required fields.',
+    ].join('\n');
+
+    mockExistsSync.mockImplementation(
+      (input) => String(input) === artifactPath,
+    );
+    mockReadFileSync.mockReturnValue(artifactContent);
+
+    await command.run(['2026-05-05-d22a1c03-ticket-description.md'], {
+      repos: ['service-document-v1'],
+      ticketProject: 'WBP',
+    });
+
+    expect(mockReadFileSync).toHaveBeenCalledWith(artifactPath, 'utf-8');
+    expect(platformService.getAdapter).toHaveBeenCalledWith('jira');
+    const mockAdapter = (platformService.getAdapter as jest.Mock).mock
+      .results[0].value as {
+      createTicket: jest.Mock;
+    };
+    expect(mockAdapter.createTicket).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Create service document storage',
+        project: 'WBP',
+        description: expect.stringContaining(
+          '- **Storage selection:** Persist documents',
+        ),
       }),
     );
   });

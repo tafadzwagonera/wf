@@ -50,10 +50,15 @@ const mockWorkflow: Workflow = {
     autoExecutionMode: false,
     version: '1.0',
   },
+  invocation: {
+    command: 'wf run test-workflow',
+    parameters: [],
+  },
   steps: [
     {
       id: 'step-1',
       title: 'Build',
+      order: 1,
       instructions: ['Run npm run build'],
       requiresApproval: false,
       retryable: true,
@@ -62,12 +67,14 @@ const mockWorkflow: Workflow = {
     {
       id: 'step-2',
       title: 'Deploy',
+      order: 2,
       instructions: [],
       requiresApproval: true,
       retryable: false,
       actions: [],
     },
   ],
+  evaluationCriteria: [],
 };
 
 describe('RunCommand', () => {

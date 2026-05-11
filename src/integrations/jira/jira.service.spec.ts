@@ -12,6 +12,29 @@ describe('JiraService', () => {
   let httpService: HttpService;
   let configService: ConfigService;
 
+  /**
+   * Flatten ADF nodes so tests can assert the actual payload shape without
+   * coupling to every surrounding block.
+   *
+   * @param node - ADF node, array, or primitive value to inspect
+   * @returns A flat list of object nodes found in the input
+   */
+  const collectAdfNodes = (node: unknown): Array<Record<string, any>> => {
+    if (!node || typeof node !== 'object') {
+      return [];
+    }
+
+    if (Array.isArray(node)) {
+      return node.flatMap(collectAdfNodes);
+    }
+
+    const objectNode = node as Record<string, any>;
+    return [
+      objectNode,
+      ...Object.values(objectNode).flatMap((value) => collectAdfNodes(value)),
+    ];
+  };
+
   const mockConfigService = {
     get: jest.fn((key: string) => {
       const config: Record<string, any> = {
@@ -338,6 +361,73 @@ describe('JiraService', () => {
           }),
         }),
         expect.any(Object),
+      );
+    });
+
+    it('should post generated service-document markdown as Jira ADF', async () => {
+      jest
+        .spyOn(service, 'resolveValidPriorityName')
+        .mockResolvedValue('Medium');
+      mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-123' } }));
+
+      await service.createTicket({
+        project: 'WBP',
+        summary: 'Create service document storage',
+        description: [
+          '### Summary',
+          'Create a persisted service document flow.',
+          '',
+          '```typescript',
+          'export class CreateServiceDocumentDto {',
+          '  serviceId: string;',
+          '}',
+          '```',
+          '',
+          '### Technical Details',
+          '- **Storage selection:** Persist documents in the existing service document namespace.',
+          '- **Validation:** Reject missing service identifiers before writing.',
+          '',
+          '### Acceptance Criteria',
+          '- Documents can be created from the API.',
+          '- Invalid payloads return validation errors.',
+          '',
+          '### Unit Test Scope',
+          '- DTO validation covers required fields.',
+          '- Repository failures are surfaced clearly.',
+        ].join('\n'),
+        issueType: 'Story',
+        priority: 'medium',
+      });
+
+      const payload = mockHttpService.post.mock.calls[0][1];
+      const description = payload.fields.description;
+      const adfNodes = collectAdfNodes(description);
+      const serializedPayload = JSON.stringify(payload);
+      const leakedBulletText = adfNodes.some(
+        (node) =>
+          node.type === 'text' &&
+          typeof node.text === 'string' &&
+          node.text.startsWith('- **Storage selection:**'),
+      );
+      const storageSelectionText = adfNodes.find(
+        (node) => node.type === 'text' && node.text === 'Storage selection:',
+      );
+
+      expect(description.type).toBe('doc');
+      expect(adfNodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'heading' }),
+          expect.objectContaining({ type: 'codeBlock' }),
+          expect.objectContaining({ type: 'bulletList' }),
+        ]),
+      );
+      expect(serializedPayload).not.toContain('{noformat}');
+      expect(serializedPayload).not.toContain('{code}');
+      expect(leakedBulletText).toBe(false);
+      expect(storageSelectionText).toEqual(
+        expect.objectContaining({
+          marks: [{ type: 'strong' }],
+        }),
       );
     });
 
