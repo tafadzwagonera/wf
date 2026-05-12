@@ -110,6 +110,10 @@
       {
         "comment": "Create Jira ticket with project-specific priority resolution",
         "command": "wf issue:create ticket.md --platform jira --ticket-project WBP --priority medium"
+      },
+      {
+        "comment": "Dry-run a repo-scoped generated Jira artifact before creation",
+        "command": "wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run"
       }
     ]
   },

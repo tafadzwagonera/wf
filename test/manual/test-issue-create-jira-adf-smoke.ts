@@ -70,7 +70,7 @@ const createJiraService = (): {
 };
 
 const jestResolvePriority = (service: JiraService): void => {
-  service.resolveValidPriorityName = async () => 'Medium';
+  service.resolveCreatePriorityName = async () => 'Medium';
 };
 
 async function main() {

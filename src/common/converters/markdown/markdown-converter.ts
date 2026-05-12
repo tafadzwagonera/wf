@@ -7,6 +7,7 @@ import {
   TicketType,
   TicketPriority,
 } from '../../dto/universal-ticket.dto';
+import { stripInlineMarkdownDelimiters } from '../../utils/markdown-text';
 
 const SYNTHETIC_TITLE_LABEL_PATTERN = /^(?:title|heading)\s*:\s*(.+)$/i;
 
@@ -18,7 +19,7 @@ const SYNTHETIC_TITLE_LABEL_PATTERN = /^(?:title|heading)\s*:\s*(.+)$/i;
  */
 const normalizeMarkdownTitle = (title: string): string => {
   const match = title.trim().match(SYNTHETIC_TITLE_LABEL_PATTERN);
-  return match?.[1]?.trim() || title.trim();
+  return stripInlineMarkdownDelimiters(match?.[1] ?? title);
 };
 
 /**

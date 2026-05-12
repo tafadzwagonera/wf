@@ -75,6 +75,11 @@ const buildDescriptionFormattingStats = (
         if (adfNode.text.includes('{code')) {
           stats.suspiciousMarkers.push('raw {code} marker found in text node');
         }
+        if (adfNode.text.includes('{{') || adfNode.text.includes('}}')) {
+          stats.suspiciousMarkers.push(
+            'raw "{{...}}" inline code marker found in text node',
+          );
+        }
         if (/^\*\s+/m.test(adfNode.text)) {
           stats.suspiciousMarkers.push(
             'raw "*" bullet marker found in paragraph text',
@@ -102,8 +107,7 @@ const buildJiraPayloadPreviewLines = (
       : 'none';
   const looksJiraSafe =
     stats.suspiciousMarkers.length === 0 &&
-    stats.codeBlockCount > 0 &&
-    stats.bulletListCount > 0;
+    stats.headingCount + stats.codeBlockCount + stats.bulletListCount > 0;
 
   return [
     'Formatting Summary',
@@ -189,6 +193,11 @@ const ISSUE_CREATE_EXAMPLES: CliExample[] = [
     comment: 'Create Jira ticket with project-specific priority resolution',
     command:
       'wf issue:create ticket.md --platform jira --ticket-project WBP --priority medium',
+  },
+  {
+    comment: 'Dry-run a repo-scoped generated Jira artifact before creation',
+    command:
+      'wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run',
   },
 ];
 

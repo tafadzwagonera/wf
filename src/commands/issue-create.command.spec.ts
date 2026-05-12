@@ -443,6 +443,92 @@ describe('IssueCreateCommand', () => {
     );
   });
 
+  it('treats Jira markdown with headings and bullets as safe without requiring code blocks', async () => {
+    const command = await buildCommand();
+    const dryRunPreview = (command as any)
+      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const jiraAdapter = (command as any).jiraAdapter as {
+      buildCreatePayload: jest.Mock;
+    };
+    const artifactPath = path.join(
+      os.homedir(),
+      '.wf',
+      'terraform-aws',
+      'jira',
+      '2026-05-12-d38b5be9-ticket-description.md',
+    );
+    const artifactContent = [
+      '# Fix `service-document` startup failures',
+      '',
+      '**Type:** bug',
+      '**Priority:** low',
+      '',
+      '## Description',
+      '### Summary',
+      '',
+      'The `service-document` ECS task fails during startup.',
+      '',
+      '#### Technical Details',
+      '',
+      '- Increase the ECS service `health_check_grace_period_seconds`.',
+    ].join('\n');
+
+    mockExistsSync.mockImplementation(
+      (input) => String(input) === artifactPath,
+    );
+    mockReadFileSync.mockReturnValue(artifactContent);
+    jiraAdapter.buildCreatePayload.mockReturnValueOnce({
+      fields: {
+        description: {
+          type: 'doc',
+          version: 1,
+          content: [
+            {
+              type: 'heading',
+              attrs: { level: 3 },
+              content: [{ type: 'text', text: 'Summary' }],
+            },
+            {
+              type: 'bulletList',
+              content: [
+                {
+                  type: 'listItem',
+                  content: [
+                    {
+                      type: 'paragraph',
+                      content: [
+                        {
+                          type: 'text',
+                          text: 'Increase the ECS service health_check_grace_period_seconds.',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    await command.run(['2026-05-12-d38b5be9-ticket-description.md'], {
+      repos: ['terraform-aws'],
+      dryRun: true,
+    });
+
+    expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payloadPreviewLines: expect.arrayContaining([
+          '  Code blocks: 0',
+          '  Bullet lists: 1',
+          '  Suspicious raw markers: none',
+          '  Verdict: looks Jira-safe',
+        ]),
+      }),
+    );
+  });
+
   it('passes normalized command priority and ticket project to the Jira adapter', async () => {
     const command = await buildCommand();
     const platformService = (command as any)

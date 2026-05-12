@@ -405,6 +405,9 @@ wf issue:create ticket.md --platform jira --ticket-project WBP --type story
 
 # Create Jira ticket with project-specific priority resolution
 wf issue:create ticket.md --platform jira --ticket-project WBP --priority medium
+
+# Dry-run a repo-scoped generated Jira artifact before creation
+wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run
 ```
 
 **Options:**
@@ -424,6 +427,12 @@ create metadata for the target project and issue type. Exact allowed names win
 first; otherwise normalized values such as `medium` can resolve to project
 values such as `Minor`. If priority is hidden from the create screen or Jira
 still rejects it, `wf` creates the ticket without a priority field.
+
+For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF
+before sending the create request. Inline Markdown delimiters in plain-text
+fields such as summaries are stripped, and inline-code spans in descriptions are
+sent as plain text to avoid Jira wiki marker leaks like `{{value}}`. Use
+`--dry-run` to inspect the formatting summary before creating a ticket.
 
 ---
 

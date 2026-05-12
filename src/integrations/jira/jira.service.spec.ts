@@ -144,13 +144,13 @@ describe('JiraService', () => {
       ]);
     });
 
-    it('should convert inline code to ADF', () => {
+    it('should convert inline code delimiters to plain ADF text', () => {
       const markdown = 'Use `npm install` to install';
       const adf = service.markdownToADF(markdown);
 
       expect(adf.content[0].content).toEqual([
         { type: 'text', text: 'Use ' },
-        { type: 'text', text: 'npm install', marks: [{ type: 'code' }] },
+        { type: 'text', text: 'npm install' },
         { type: 'text', text: ' to install' },
       ]);
     });
@@ -429,6 +429,68 @@ describe('JiraService', () => {
           marks: [{ type: 'strong' }],
         }),
       );
+    });
+
+    it('should post health-check ticket markdown without Jira wiki marker leaks', async () => {
+      jest.spyOn(service, 'resolveCreatePriorityName').mockResolvedValue('Low');
+      mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-3090' } }));
+
+      await service.createTicket({
+        project: 'WBP',
+        summary:
+          'Fix `service-document` startup failures: health-check grace period too short',
+        description: [
+          '### Summary',
+          '',
+          'The `service-document` ECS task fails to remain healthy during startup because ECS marks the task unhealthy before the Node.js process has fully initialised, causing repeated restarts.',
+          '',
+          'The `customer-service-identity` task previously required a longer health-check grace period for the same reason; `service-document` needs the same treatment.',
+          '',
+          '#### Technical Details',
+          '',
+          '- Increase the ECS service `health_check_grace_period_seconds` for `service-document`. Use the `customer-service-identity` Terraform module as the reference pattern.',
+          '',
+          '### Acceptance Criteria',
+          '',
+          '- ECS health checks pass on first deployment without triggering a restart loop.',
+        ].join('\n'),
+        issueType: 'Bug',
+        priority: 'low',
+      });
+
+      const payload = mockHttpService.post.mock.calls[0][1];
+      const adfNodes = collectAdfNodes(payload.fields.description);
+      const rawBulletParagraph = adfNodes.some(
+        (node) =>
+          node.type === 'text' &&
+          typeof node.text === 'string' &&
+          /^[*-]\s/.test(node.text),
+      );
+      const wikiInlineCodeText = adfNodes.some(
+        (node) =>
+          node.type === 'text' &&
+          typeof node.text === 'string' &&
+          (node.text.includes('{{') || node.text.includes('}}')),
+      );
+      const inlineCodeMark = adfNodes.some(
+        (node) =>
+          node.type === 'text' &&
+          Array.isArray(node.marks) &&
+          node.marks.some((mark) => mark.type === 'code'),
+      );
+
+      expect(payload.fields.summary).toBe(
+        'Fix service-document startup failures: health-check grace period too short',
+      );
+      expect(adfNodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'heading' }),
+          expect.objectContaining({ type: 'bulletList' }),
+        ]),
+      );
+      expect(wikiInlineCodeText).toBe(false);
+      expect(rawBulletParagraph).toBe(false);
+      expect(inlineCodeMark).toBe(false);
     });
 
     it('should throw error when Jira is not configured', async () => {

@@ -8,6 +8,20 @@ describe('MarkdownConverter', () => {
   });
 
   describe('parse', () => {
+    it('strips inline markdown delimiters from the parsed title', () => {
+      const ticket =
+        converter.parse(`# Fix \`service-document\` startup failures
+
+**Type:** bug
+**Priority:** low
+
+## Description
+
+Body`);
+
+      expect(ticket.title).toBe('Fix service-document startup failures');
+    });
+
     it('strips a generated heading label from the parsed title', () => {
       const ticket = converter.parse(`# Heading: Actual title
 

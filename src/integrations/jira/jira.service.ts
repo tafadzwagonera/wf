@@ -11,6 +11,7 @@ import {
 import { JiraApiError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { PlatformConfigService } from '../platforms/platform-config.service';
+import { stripInlineMarkdownDelimiters } from '../../common/utils/markdown-text';
 
 /**
  * Normalize near-markdown formatting that commonly appears in generated Jira
@@ -423,7 +424,7 @@ export class JiraService {
     return {
       fields: {
         project: { key: project },
-        summary: request.summary,
+        summary: stripInlineMarkdownDelimiters(request.summary),
         description: this.markdownToADF(request.description),
         issuetype: { name: request.issueType || 'Task' },
         ...(priorityName && { priority: { name: priorityName } }),
@@ -721,7 +722,6 @@ export class JiraService {
         content.push({
           type: 'text',
           text: codeText,
-          marks: [{ type: 'code' }],
         });
         i++;
         continue;
