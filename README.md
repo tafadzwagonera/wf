@@ -408,6 +408,9 @@ wf issue:create ticket.md --platform jira --ticket-project WBP --priority medium
 
 # Dry-run a repo-scoped generated Jira artifact before creation
 wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run
+
+# Live smoke-test a Jira description update using a generated artifact
+nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
 ```
 
 **Options:**
@@ -431,7 +434,8 @@ still rejects it, `wf` creates the ticket without a priority field.
 For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF
 before sending the create request. Inline Markdown delimiters in plain-text
 fields such as summaries are stripped, and inline-code spans in descriptions are
-sent as plain text to avoid Jira wiki marker leaks like `{{value}}`. Use
+preserved as Jira ADF inline code marks without leaking Jira wiki markers like
+`{{value}}`. Use
 `--dry-run` to inspect the formatting summary before creating a ticket.
 
 ---
@@ -1027,6 +1031,9 @@ yarn test:cov
 ```bash
 # Run a named manual smoke test
 yarn test:manual test-issue-create-jira-adf-smoke
+
+# Live smoke-test a Jira description update from a generated artifact
+nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
 
 # Test Jira integration
 yarn test:manual test-jira

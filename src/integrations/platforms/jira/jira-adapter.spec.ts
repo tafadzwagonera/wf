@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { JiraAdapter } from './jira-adapter';
 import { JiraService } from '../../jira/jira.service';
+import { UniversalTicket } from '../../../common/dto/universal-ticket.dto';
 
 describe('JiraAdapter', () => {
   let adapter: JiraAdapter;
@@ -58,6 +59,21 @@ describe('JiraAdapter', () => {
       } as any);
 
       expect(ref.url).toBe('/browse/WBP-998');
+    });
+  });
+
+  describe('updateTicket', () => {
+    it('should map description updates through JiraService.updateTicket', async () => {
+      await adapter.updateTicket(
+        'WBP-3092',
+        new UniversalTicket({
+          description: '### Summary\nAdapter update path',
+        }),
+      );
+
+      expect(mockJiraService.updateTicket).toHaveBeenCalledWith('WBP-3092', {
+        description: '### Summary\nAdapter update path',
+      });
     });
   });
 });

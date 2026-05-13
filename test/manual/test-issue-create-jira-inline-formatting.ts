@@ -136,7 +136,7 @@ async function main() {
   assert.strictEqual(payload.fields.description.type, 'doc');
   assert(adfNodes.some((node) => node.type === 'heading'));
   assert(adfNodes.some((node) => node.type === 'bulletList'));
-  assert(!hasInlineCodeMark(adfNodes));
+  assert(hasInlineCodeMark(adfNodes));
   assert(!hasRawBulletText(adfNodes));
   assert(!hasWikiInlineCodeText(adfNodes));
 

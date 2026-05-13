@@ -144,15 +144,48 @@ describe('JiraService', () => {
       ]);
     });
 
-    it('should convert inline code delimiters to plain ADF text', () => {
+    it('should convert inline code delimiters to ADF code marks', () => {
       const markdown = 'Use `npm install` to install';
       const adf = service.markdownToADF(markdown);
 
       expect(adf.content[0].content).toEqual([
         { type: 'text', text: 'Use ' },
-        { type: 'text', text: 'npm install' },
+        { type: 'text', text: 'npm install', marks: [{ type: 'code' }] },
         { type: 'text', text: ' to install' },
       ]);
+    });
+
+    it('should preserve inline code marks inside bullet list items', () => {
+      const markdown =
+        '- `service-document-task-role` has access to `/service-document/dev/config`';
+      const adf = service.markdownToADF(markdown);
+
+      expect(adf.content[0]).toEqual({
+        type: 'bulletList',
+        content: [
+          {
+            type: 'listItem',
+            content: [
+              {
+                type: 'paragraph',
+                content: [
+                  {
+                    type: 'text',
+                    text: 'service-document-task-role',
+                    marks: [{ type: 'code' }],
+                  },
+                  { type: 'text', text: ' has access to ' },
+                  {
+                    type: 'text',
+                    text: '/service-document/dev/config',
+                    marks: [{ type: 'code' }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
     });
 
     it('should convert code blocks to ADF', () => {
@@ -183,6 +216,63 @@ describe('JiraService', () => {
       expect(adf.content[0].content[0].content[0].content).toEqual([
         { type: 'text', text: 'Item 1' },
       ]);
+    });
+
+    it('should convert nested bullet lists to nested ADF bullet lists', () => {
+      const markdown = [
+        '- Parent item',
+        '  - Child item 1',
+        '  - Child item 2',
+        '- Sibling item',
+      ].join('\n');
+      const adf = service.markdownToADF(markdown);
+
+      expect(adf.content[0]).toEqual({
+        type: 'bulletList',
+        content: [
+          {
+            type: 'listItem',
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Parent item' }],
+              },
+              {
+                type: 'bulletList',
+                content: [
+                  {
+                    type: 'listItem',
+                    content: [
+                      {
+                        type: 'paragraph',
+                        content: [{ type: 'text', text: 'Child item 1' }],
+                      },
+                    ],
+                  },
+                  {
+                    type: 'listItem',
+                    content: [
+                      {
+                        type: 'paragraph',
+                        content: [{ type: 'text', text: 'Child item 2' }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            type: 'listItem',
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Sibling item' }],
+              },
+            ],
+          },
+        ],
+      });
     });
 
     it('should convert ordered lists to ADF', () => {
@@ -490,7 +580,7 @@ describe('JiraService', () => {
       );
       expect(wikiInlineCodeText).toBe(false);
       expect(rawBulletParagraph).toBe(false);
-      expect(inlineCodeMark).toBe(false);
+      expect(inlineCodeMark).toBe(true);
     });
 
     it('should throw error when Jira is not configured', async () => {
@@ -531,6 +621,65 @@ describe('JiraService', () => {
           issueType: 'Bug',
         }),
       ).rejects.toThrow('Authentication failed');
+    });
+  });
+
+  describe('updateTicket', () => {
+    it('should build an update payload with adf description content only', () => {
+      const payload = service.buildUpdatePayload({
+        description: [
+          '### Summary',
+          'Preview update path',
+          '',
+          '```ts',
+          'const x = 1;',
+          '```',
+          '',
+          '- First bullet',
+          '',
+          '1. First ordered item',
+        ].join('\n'),
+      });
+
+      const description = payload.fields.description;
+      const adfNodes = collectAdfNodes(description);
+
+      expect(payload).toEqual({
+        fields: {
+          description: expect.objectContaining({
+            type: 'doc',
+            version: 1,
+          }),
+        },
+      });
+      expect(adfNodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'heading' }),
+          expect.objectContaining({ type: 'codeBlock' }),
+          expect.objectContaining({ type: 'bulletList' }),
+          expect.objectContaining({ type: 'orderedList' }),
+        ]),
+      );
+    });
+
+    it('should send only the Jira description field during updates', async () => {
+      mockHttpService.put.mockReturnValue(of({ data: {} }));
+
+      await service.updateTicket('TEST-123', {
+        description: '### Summary\nUpdate the Jira description only',
+      });
+
+      expect(mockHttpService.put).toHaveBeenCalledWith(
+        'https://test.atlassian.net/rest/api/3/issue/TEST-123',
+        {
+          fields: {
+            description: expect.objectContaining({
+              type: 'doc',
+            }),
+          },
+        },
+        expect.any(Object),
+      );
     });
   });
 

@@ -439,6 +439,34 @@ export class JiraService {
     };
   }
 
+  /**
+   * Build the Jira update payload without performing any network calls.
+   *
+   * @param updates - Partial Jira update request mapped to Jira field names
+   * @returns Jira REST API payload for issue updates
+   */
+  buildUpdatePayload(updates: UpdateTicketRequest): {
+    fields: Record<string, unknown>;
+  } {
+    return {
+      fields: {
+        ...(updates.summary && {
+          summary: stripInlineMarkdownDelimiters(updates.summary),
+        }),
+        ...(updates.description && {
+          description: this.markdownToADF(updates.description),
+        }),
+        ...(updates.priority && {
+          priority: { name: updates.priority },
+        }),
+        ...(updates.labels && { labels: updates.labels }),
+        ...(updates.assignee && {
+          assignee: { accountId: updates.assignee },
+        }),
+      },
+    };
+  }
+
   async getTicket(ticketKey: string): Promise<JiraTicket> {
     this.ensureConfigured();
 
@@ -484,17 +512,7 @@ export class JiraService {
     this.ensureConfigured();
 
     try {
-      const payload: any = { fields: {} };
-
-      if (updates.summary) payload.fields.summary = updates.summary;
-      if (updates.description)
-        payload.fields.description = this.markdownToADF(updates.description);
-      if (updates.priority)
-        payload.fields.priority = { name: updates.priority };
-      if (updates.labels) payload.fields.labels = updates.labels;
-      if (updates.assignee)
-        payload.fields.assignee = { accountId: updates.assignee };
-
+      const payload = this.buildUpdatePayload(updates);
       const url = `${this.baseUrl}/rest/api/3/issue/${ticketKey}`;
       await firstValueFrom(
         this.httpService.put(url, payload, { headers: this.getAuthHeaders() }),
@@ -608,43 +626,11 @@ export class JiraService {
         continue;
       }
 
-      // Bullet lists
-      if (line.match(/^[-*]\s+/)) {
-        const listItems: any[] = [];
-        while (i < lines.length && lines[i].match(/^[-*]\s+/)) {
-          const text = lines[i].replace(/^[-*]\s+/, '');
-          listItems.push({
-            type: 'listItem',
-            content: [
-              {
-                type: 'paragraph',
-                content: this.parseInlineMarkdown(text),
-              },
-            ],
-          });
-          i++;
-        }
-        content.push({ type: 'bulletList', content: listItems });
-        continue;
-      }
-
-      // Ordered lists
-      if (line.match(/^\d+\.\s+/)) {
-        const listItems: any[] = [];
-        while (i < lines.length && lines[i].match(/^\d+\.\s+/)) {
-          const text = lines[i].replace(/^\d+\.\s+/, '');
-          listItems.push({
-            type: 'listItem',
-            content: [
-              {
-                type: 'paragraph',
-                content: this.parseInlineMarkdown(text),
-              },
-            ],
-          });
-          i++;
-        }
-        content.push({ type: 'orderedList', content: listItems });
+      const listItemMatch = this.matchListItem(line);
+      if (listItemMatch) {
+        const { node, nextIndex } = this.parseList(lines, i, listItemMatch);
+        content.push(node);
+        i = nextIndex;
         continue;
       }
 
@@ -657,6 +643,116 @@ export class JiraService {
     }
 
     return { type: 'doc', version: 1, content };
+  }
+
+  /**
+   * Match a markdown list item and capture its indentation, type, and text.
+   *
+   * @param line - Raw markdown line
+   * @returns Parsed list item metadata when the line is a list item
+   */
+  private matchListItem(line: string):
+    | {
+        indent: number;
+        listType: 'bulletList' | 'orderedList';
+        text: string;
+      }
+    | undefined {
+    const bulletMatch = line.match(/^(\s*)[-*]\s+(.+)$/);
+    if (bulletMatch) {
+      return {
+        indent: bulletMatch[1].length,
+        listType: 'bulletList',
+        text: bulletMatch[2],
+      };
+    }
+
+    const orderedMatch = line.match(/^(\s*)\d+\.\s+(.+)$/);
+    if (orderedMatch) {
+      return {
+        indent: orderedMatch[1].length,
+        listType: 'orderedList',
+        text: orderedMatch[2],
+      };
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Parse a markdown list block into nested Jira ADF list nodes.
+   *
+   * @param lines - Full markdown split by lines
+   * @param startIndex - First list-item line index
+   * @param rootMatch - Parsed metadata for the first list item
+   * @returns Parsed ADF list node and the next unread line index
+   */
+  private parseList(
+    lines: string[],
+    startIndex: number,
+    rootMatch: {
+      indent: number;
+      listType: 'bulletList' | 'orderedList';
+      text: string;
+    },
+  ): { node: any; nextIndex: number } {
+    const listItems: any[] = [];
+    let index = startIndex;
+
+    while (index < lines.length) {
+      const listItemMatch = this.matchListItem(lines[index]);
+      if (!listItemMatch) {
+        break;
+      }
+
+      if (listItemMatch.indent < rootMatch.indent) {
+        break;
+      }
+
+      if (
+        listItemMatch.indent > rootMatch.indent ||
+        listItemMatch.listType !== rootMatch.listType
+      ) {
+        break;
+      }
+
+      const listItem: any = {
+        type: 'listItem',
+        content: [
+          {
+            type: 'paragraph',
+            content: this.parseInlineMarkdown(listItemMatch.text),
+          },
+        ],
+      };
+      index += 1;
+
+      while (index < lines.length) {
+        const nestedListItemMatch = this.matchListItem(lines[index]);
+
+        if (!nestedListItemMatch) {
+          break;
+        }
+
+        if (nestedListItemMatch.indent <= rootMatch.indent) {
+          break;
+        }
+
+        const nestedList = this.parseList(lines, index, nestedListItemMatch);
+        listItem.content.push(nestedList.node);
+        index = nestedList.nextIndex;
+      }
+
+      listItems.push(listItem);
+    }
+
+    return {
+      node: {
+        type: rootMatch.listType,
+        content: listItems,
+      },
+      nextIndex: index,
+    };
   }
 
   private parseInlineMarkdown(text: string): any[] {
@@ -722,6 +818,7 @@ export class JiraService {
         content.push({
           type: 'text',
           text: codeText,
+          marks: [{ type: 'code' }],
         });
         i++;
         continue;

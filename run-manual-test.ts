@@ -10,30 +10,46 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { createRequire } from 'module';
 
-const testName = process.argv[2];
+const moduleRequire = createRequire(__filename);
 
-if (!testName) {
-  console.error('Usage: nr test:manual -- <test-file-name>');
-  console.error('Example: nr test:manual -- test-issue-review');
-  process.exit(1);
-}
+/**
+ * Resolve and execute a manual test file after loading wf config.
+ *
+ * @returns Resolves when the manual test module has been required
+ */
+export const runManualTest = async (): Promise<void> => {
+  const testName = process.argv[2];
 
-const candidatePaths = [
-  path.join(__dirname, 'src', 'test', 'manual', `${testName}.ts`),
-  path.join(__dirname, 'test', 'manual', `${testName}.ts`),
-];
+  if (!testName) {
+    console.error('Usage: nr test:manual -- <test-file-name>');
+    console.error('Example: nr test:manual -- test-issue-review');
+    process.exit(1);
+  }
 
-const resolvedTestPath = candidatePaths.find((candidatePath) =>
-  fs.existsSync(candidatePath),
-);
+  const candidatePaths = [
+    path.join(__dirname, 'src', 'test', 'manual', `${testName}.ts`),
+    path.join(__dirname, 'test', 'manual', `${testName}.ts`),
+  ];
 
-if (!resolvedTestPath) {
-  console.error(
-    `Manual test "${testName}" not found in src/test/manual or test/manual.`,
+  const resolvedTestPath = candidatePaths.find((candidatePath) =>
+    fs.existsSync(candidatePath),
   );
-  process.exit(1);
-}
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-require(resolvedTestPath);
+  if (!resolvedTestPath) {
+    console.error(
+      `Manual test "${testName}" not found in src/test/manual or test/manual.`,
+    );
+    process.exit(1);
+  }
+
+  const { resolveConfigCwd } = moduleRequire('./src/bootstrap/resolve-config-cwd');
+  const { initializeWfConfig } = moduleRequire('./src/config/wf-config-loader');
+  await initializeWfConfig(resolveConfigCwd(process.argv.slice(2)));
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require(resolvedTestPath);
+};
+
+void runManualTest();
