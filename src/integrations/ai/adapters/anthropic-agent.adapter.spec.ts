@@ -7,7 +7,10 @@ import {
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { AnthropicAgentAdapter } from './anthropic-agent.adapter';
+import {
+  AnthropicAgentAdapter,
+  formatProgressMessage,
+} from './anthropic-agent.adapter';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import type { VerificationScript } from '../../../agents/interfaces';
 
@@ -189,6 +192,35 @@ describe('AnthropicAgentAdapter', () => {
     mockHomedir.mockReset();
   });
 
+  describe('formatProgressMessage', () => {
+    it('formats task progress with the last tool label when present', () => {
+      const message = {
+        type: 'system',
+        subtype: 'task_progress',
+        summary: 'Inspecting verification output',
+        description: 'Inspecting verification output',
+        last_tool_name: 'Bash',
+      } as SDKMessage;
+
+      expect(formatProgressMessage(message)).toBe(
+        '  [claude-agent-sdk] Task progress: Inspecting verification output · last tool: Bash',
+      );
+    });
+
+    it('formats tool progress with elapsed time and task id', () => {
+      const message = {
+        type: 'tool_progress',
+        tool_name: 'Write',
+        elapsed_time_seconds: 2.4,
+        task_id: 'task-1',
+      } as SDKMessage;
+
+      expect(formatProgressMessage(message)).toBe(
+        '  [claude-agent-sdk] Tool progress: Write (2.4s) · task: task-1',
+      );
+    });
+  });
+
   describe('generateAndVerify', () => {
     it('invokes the Claude Agent SDK with repo-scoped access and the verification whitelist', async () => {
       const mockSession = makeSdkSession([makeResultSuccess()]);
@@ -319,11 +351,6 @@ describe('AnthropicAgentAdapter', () => {
         expect(
           mockLog.mock.calls.some(([message]) =>
             String(message).includes('Task progress: Checking file boundaries'),
-          ),
-        ).toBe(true);
-        expect(
-          mockLog.mock.calls.some(([message]) =>
-            String(message).includes('progress: continue'),
           ),
         ).toBe(true);
         expect(

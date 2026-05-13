@@ -17,10 +17,6 @@ import type {
   IImplementerBackend,
   VerificationScript,
 } from '../../../agents/interfaces';
-import {
-  buildStreamProgressSignal,
-  formatImplementProgressSignal,
-} from '../../../shared/utils/implement-verification';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
@@ -96,30 +92,19 @@ const warnMissingClaudeFile = (filePath: string): void => {
  * @param message - The SDK progress message to format
  * @returns A human-readable log line, or null when the message is not progress
  */
-const formatProgressMessage = (message: SDKMessage): string | null => {
+export const formatProgressMessage = (message: SDKMessage): string | null => {
   if (message.type === 'system' && message.subtype === 'task_progress') {
     const summary = message.summary?.trim() || message.description.trim();
     const lastToolLabel = message.last_tool_name
       ? ` · last tool: ${message.last_tool_name}`
       : '';
-    const signal = buildStreamProgressSignal({
-      kind: 'task_progress',
-      summary,
-      lastToolName: message.last_tool_name,
-    });
-    return `  [claude-agent-sdk] Task progress: ${summary}${lastToolLabel} · ${formatImplementProgressSignal(signal)}`;
+    return `  [claude-agent-sdk] Task progress: ${summary}${lastToolLabel}`;
   }
 
   if (message.type === 'tool_progress') {
     const elapsedSeconds = message.elapsed_time_seconds.toFixed(1);
     const taskLabel = message.task_id ? ` · task: ${message.task_id}` : '';
-    const signal = buildStreamProgressSignal({
-      kind: 'tool_progress',
-      toolName: message.tool_name,
-      elapsedTimeSeconds: message.elapsed_time_seconds,
-      taskId: message.task_id,
-    });
-    return `  [claude-agent-sdk] Tool progress: ${message.tool_name} (${elapsedSeconds}s)${taskLabel} · ${formatImplementProgressSignal(signal)}`;
+    return `  [claude-agent-sdk] Tool progress: ${message.tool_name} (${elapsedSeconds}s)${taskLabel}`;
   }
 
   return null;
