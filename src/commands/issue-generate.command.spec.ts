@@ -182,6 +182,9 @@ async function buildCommand(options?: {
       {
         provide: FormatConverterService,
         useValue: {
+          detectFormat: jest.fn((filePath: string) =>
+            path.extname(filePath).slice(1),
+          ),
           getConverter: jest.fn(() => ({
             serialize: jest.fn(),
             parse: jest.fn(() => ({
@@ -373,6 +376,118 @@ describe('IssueGenerateCommand', () => {
       expect(
         command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any),
       ).toEqual(['repo-a', 'workspace/repo-b']);
+    });
+  });
+
+  describe('local structured file fallback', () => {
+    it('returns a ticket source when a local structured file parses as a ticket', async () => {
+      const { command } = await buildCommand();
+      const formatConverterService = (command as any)
+        .formatConverterService as FormatConverterService;
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-ticket-source.md');
+      const ticket = {
+        title: 'Imported ticket',
+        description: 'Ticket body',
+        type: 'task',
+        priority: 'medium',
+      };
+
+      fs.writeFileSync(tempSourcePath, '# Imported ticket', 'utf-8');
+      jest
+        .spyOn(formatConverterService, 'detectFormat')
+        .mockReturnValueOnce('md');
+      jest.spyOn(formatConverterService, 'getConverter').mockReturnValueOnce({
+        parse: jest.fn(() => ticket),
+        serialize: jest.fn(),
+      } as any);
+
+      try {
+        await expect(
+          (command as any).fetchFromFile(tempSourcePath),
+        ).resolves.toEqual(
+          expect.objectContaining({
+            type: 'ticket',
+            source: tempSourcePath,
+            content: '# Imported ticket',
+            ticket,
+          }),
+        );
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+    });
+
+    it.each(['.md', '.json', '.yaml', '.yml'])(
+      'returns a file source when a local %s file is not recognized as ticket-formatted content',
+      async (extension) => {
+        const { command } = await buildCommand();
+        const formatConverterService = (command as any)
+          .formatConverterService as FormatConverterService;
+        const tempSourcePath = path.join(
+          os.tmpdir(),
+          `wf-non-ticket-source${extension}`,
+        );
+
+        fs.writeFileSync(tempSourcePath, 'plain project notes', 'utf-8');
+        jest
+          .spyOn(formatConverterService, 'detectFormat')
+          .mockReturnValueOnce(extension.slice(1) as any);
+        jest.spyOn(formatConverterService, 'getConverter').mockReturnValueOnce({
+          parse: jest.fn(() => {
+            throw new Error('not ticket-formatted');
+          }),
+          serialize: jest.fn(),
+        } as any);
+
+        try {
+          await expect(
+            (command as any).fetchFromFile(tempSourcePath),
+          ).resolves.toEqual(
+            expect.objectContaining({
+              type: 'file',
+              source: tempSourcePath,
+              content: 'plain project notes',
+            }),
+          );
+        } finally {
+          fs.unlinkSync(tempSourcePath);
+        }
+      },
+    );
+
+    it('still processes local file sources in dry-run mode', async () => {
+      const { command } = await buildCommand();
+      const dryRunPreview = (command as any)
+        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-dry-run-source.md');
+
+      fs.writeFileSync(tempSourcePath, 'plain project notes', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) =>
+        jest.requireActual('fs').existsSync(String(input)),
+      );
+
+      try {
+        await command.run([tempSourcePath], {
+          dryRun: true,
+        } as any);
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePath: tempSourcePath,
+          exists: true,
+        }),
+      );
+      expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'POST',
+          endpoint: '/v1/messages',
+        }),
+      );
     });
   });
 

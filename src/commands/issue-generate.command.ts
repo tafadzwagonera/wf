@@ -101,12 +101,14 @@ class UnresolvedSourceError extends Error {}
 /**
  * Command to generate ticket descriptions from multiple sources
  * Supports local files, repo-scoped artifacts via `--repos`, URLs, Jira keys,
- * and AI synthesis.
+ * and AI synthesis. Local `.md`, `.json`, `.yaml`, and `.yml` files that parse
+ * as tickets are imported as tickets; files that are not recognized as
+ * ticket-formatted content remain plain file sources.
  */
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys; can use an agent backend when stages.generate.agent: true is configured',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Can use an agent backend when stages.generate.agent: true is configured',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -719,7 +721,8 @@ export class IssueGenerateCommand extends CommandRunner {
     const content = fs.readFileSync(filePath, 'utf-8');
     const ext = path.extname(filePath).toLowerCase();
 
-    // Try to parse as ticket if it's a supported format
+    // Structured local files keep their current fallback: parse as a ticket
+    // when recognized, otherwise continue as a plain file source.
     if (['.json', '.yaml', '.yml', '.md'].includes(ext)) {
       try {
         const format = this.formatConverterService.detectFormat(filePath);
@@ -734,7 +737,7 @@ export class IssueGenerateCommand extends CommandRunner {
           };
         }
       } catch {
-        // If parsing fails, treat as plain text
+        // Files that do not parse as tickets remain valid plain file sources.
       }
     }
 

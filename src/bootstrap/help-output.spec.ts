@@ -106,15 +106,20 @@ describe('getHelpText', () => {
     const runHelpText = getHelpText(['run', '--help'], catalog);
     const planHelpText = getHelpText(['issue:plan', '--help'], catalog);
     const reviewHelpText = getHelpText(['issue:review', '--help'], catalog);
+    const generateHelpText = getHelpText(['issue:generate', '--help'], catalog);
     const implementHelpText = getHelpText(
       ['issue:implement', '--help'],
       catalog,
     );
+    const plainGenerateHelpText = normalizeWrappedText(generateHelpText);
     const plainReviewHelpText = normalizeWrappedText(reviewHelpText);
     const plainImplementHelpText = normalizeWrappedText(implementHelpText);
 
     expect(planHelpText).toContain(
       'Plan ticket implementation from a local artifact or repo-scoped custom artifact.',
+    );
+    expect(plainGenerateHelpText).toContain(
+      'Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources',
     );
     expect(planHelpText).toContain('--custom <source.md>');
     expect(planHelpText).toContain('--repos <repos...>');

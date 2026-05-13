@@ -439,7 +439,7 @@ sent as plain text to avoid Jira wiki marker leaks like `{{value}}`. Use
 #### `wf issue:generate <sources...>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->
-Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys; can use an agent backend when stages.generate.agent: true is configured
+Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Can use an agent backend when stages.generate.agent: true is configured
 
 ```bash
 # Generate ticket from a URL
