@@ -409,7 +409,7 @@ wf issue:create ticket.md --platform jira --ticket-project WBP --priority medium
 # Dry-run a repo-scoped generated Jira artifact before creation
 wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run
 
-# Live smoke-test a Jira description update using a generated artifact
+# Live smoke-test a Jira description update using a generated artifact; --live requires --confirm-live-update before Jira is mutated
 nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
 ```
 
@@ -1044,6 +1044,12 @@ yarn test:manual test-executors
 # Diagnose Jira permissions
 yarn test:manual diagnose-jira-permissions
 ```
+
+`test-issue-update-jira-adf-smoke` defaults to preview-only mode. `--live`
+enables the real Jira update path, and `--confirm-live-update` is the explicit
+mutation safety gate. If `--live` is supplied without
+`--confirm-live-update`, the harness fails early instead of sending the Jira
+`PUT`.
 
 ### Integration Tests
 
