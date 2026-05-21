@@ -48,6 +48,9 @@ describe('getHelpText', () => {
     expect(plainHelpText).toContain(
       'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys',
     );
+    expect(plainHelpText).toContain(
+      'When --repos points to a local checkout, wf bootstraps config from that repo',
+    );
     expect(helpText).toContain('--title <title>');
     expect(helpText).toContain('<bold-cyan>Examples:</bold-cyan>');
     expect(helpText).toContain('<cyan>wf</cyan> issue:generate');
@@ -120,6 +123,9 @@ describe('getHelpText', () => {
     );
     expect(plainGenerateHelpText).toContain(
       'Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources',
+    );
+    expect(plainGenerateHelpText).toContain(
+      'accepts either module.exports or export default in wf.config.js, including ESM repos',
     );
     expect(planHelpText).toContain('--custom <source.md>');
     expect(planHelpText).toContain('--repos <repos...>');

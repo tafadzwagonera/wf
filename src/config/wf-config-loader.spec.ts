@@ -559,6 +559,135 @@ describe('wf-config-loader', () => {
       );
     });
 
+    it('loads CommonJS JavaScript config files from ESM repos without falling back to defaults', async () => {
+      const projectRoot = createProjectRoot();
+
+      fs.writeFileSync(
+        path.join(projectRoot, 'package.json'),
+        JSON.stringify({ type: 'module' }, null, 2),
+      );
+      fs.writeFileSync(
+        path.join(projectRoot, 'wf.config.js'),
+        [
+          'module.exports = {',
+          '  ai: [',
+          '    {',
+          '      provider: "openai",',
+          '      apiKey: "openai-key",',
+          '      model: "gpt-5.4",',
+          '      default: true,',
+          '    },',
+          '    {',
+          '      provider: "google",',
+          '      apiKey: "gemini-key",',
+          '      model: "gemini-2.5-pro",',
+          '    },',
+          '  ],',
+          '  stages: {',
+          '    generate: {',
+          '      provider: "openai",',
+          '      model: "gpt-5.4",',
+          '    },',
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+      );
+
+      const config = await loadWfConfig({ cwd: projectRoot });
+
+      expect(config.ai.providers).toEqual([
+        expect.objectContaining({
+          provider: 'openai',
+          apiKey: 'openai-key',
+          model: 'gpt-5.4',
+          default: true,
+        }),
+        expect.objectContaining({
+          provider: 'google',
+          apiKey: 'gemini-key',
+          model: 'gemini-2.5-pro',
+          default: false,
+        }),
+      ]);
+      expect(config.ai.provider).toBe('openai');
+      expect(config.ai.openaiApiKey).toBe('openai-key');
+      expect(config.ai.geminiApiKey).toBe('gemini-key');
+      expect(config.stages.generate).toEqual({
+        provider: 'openai',
+        model: 'gpt-5.4',
+        agent: false,
+      });
+    });
+
+    it('keeps loading CommonJS JavaScript config files in non-ESM repos', async () => {
+      const projectRoot = createProjectRoot();
+
+      fs.writeFileSync(
+        path.join(projectRoot, 'wf.config.js'),
+        [
+          'exports.default = {',
+          '  ai: [{ provider: "openai", apiKey: "test-key", model: "gpt-5.4" }],',
+          '};',
+          '',
+        ].join('\n'),
+      );
+
+      const config = await loadWfConfig({ cwd: projectRoot });
+
+      expect(config.ai.provider).toBe('openai');
+      expect(config.ai.openaiApiKey).toBe('test-key');
+      expect(config.ai.model).toBe('gpt-5.4');
+    });
+
+    it('keeps loading ESM-style JavaScript config files', async () => {
+      const projectRoot = createProjectRoot();
+
+      fs.writeFileSync(
+        path.join(projectRoot, 'package.json'),
+        JSON.stringify({ type: 'module' }, null, 2),
+      );
+      fs.writeFileSync(
+        path.join(projectRoot, 'wf.config.js'),
+        [
+          'export default {',
+          '  ai: [{ provider: "google", apiKey: "gemini-key", model: "gemini-2.5-pro", default: true }],',
+          '  stages: {',
+          '    generate: {',
+          '      provider: "google",',
+          '      model: "gemini-2.5-pro",',
+          '    },',
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+      );
+
+      const config = await loadWfConfig({ cwd: projectRoot });
+
+      expect(config.ai.provider).toBe('google');
+      expect(config.ai.geminiApiKey).toBe('gemini-key');
+      expect(config.stages.generate).toEqual({
+        provider: 'google',
+        model: 'gemini-2.5-pro',
+        agent: false,
+      });
+    });
+
+    it('fails fast when a discovered JavaScript config loads as an empty module namespace', async () => {
+      const projectRoot = createProjectRoot();
+
+      fs.writeFileSync(
+        path.join(projectRoot, 'package.json'),
+        JSON.stringify({ type: 'module' }, null, 2),
+      );
+      fs.writeFileSync(path.join(projectRoot, 'wf.config.js'), 'export {};\n');
+
+      await expect(loadWfConfig({ cwd: projectRoot })).rejects.toThrow(
+        /did not export a config object/i,
+      );
+    });
+
     it('loads YAML config files', async () => {
       const projectRoot = createProjectRoot();
 

@@ -53,6 +53,8 @@ Create one of these files in the consumer project root:
 - `wf.config.yml`
 
 When multiple files exist, `wf` uses this precedence order from top to bottom.
+When `--repos` points to a local checkout, `wf` bootstraps config from that
+repository instead of the caller's current working directory.
 
 ### JavaScript / TypeScript Example
 
@@ -192,6 +194,16 @@ npm install --save-dev jiti
 ```bash
 node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 ```
+
+### JavaScript Config Module Formats
+
+- `wf.config.js` supports both `module.exports = { ... }` and
+  `export default { ... }`.
+- In repositories whose nearest `package.json` sets `"type": "module"`,
+  `wf.config.js` may still use CommonJS exports. This is useful when
+  `issue:generate --repos <local-checkout>` or another repo-scoped command
+  bootstraps config from a sibling checkout that has not renamed the file to
+  `.cjs`.
 
 ### Defaults and Notes
 
@@ -443,7 +455,7 @@ preserved as Jira ADF inline code marks without leaking Jira wiki markers like
 #### `wf issue:generate <sources...>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->
-Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured
+Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured
 
 ```bash
 # Generate ticket from a URL
@@ -478,6 +490,9 @@ wf issue:generate ./requirements.md --title "Add OAuth2" --save
 Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list.
 Generated `issue:generate` output is normalized before serialization, so em dashes are rewritten to ASCII ` - ` in stdout output and saved artifacts.
 When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, unresolved bare filenames stay cwd-relative and the command now tells you to retry with `--repos <repo>` when the source looks like a repo-scoped artifact.
+When the first `--repos` entry resolves to a local checkout, `issue:generate`
+also bootstraps AI provider and stage config from that repository before
+command execution.
 Slack permalinks that include query parameters should be quoted when invoked from shells such as `zsh` or `bash`.
 
 ---

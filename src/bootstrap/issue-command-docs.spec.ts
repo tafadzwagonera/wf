@@ -6,7 +6,7 @@ import { CommandHelpEntry } from './help-catalog-parser';
 
 const issueGenerateEntry: CommandHelpEntry = {
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured',
   usage: 'wf issue:generate <sources...> [options]',
   options: [
     {
@@ -54,7 +54,7 @@ describe('synchronizeReadmeCommandDocs', () => {
       '<!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->',
     );
     expect(updated).toContain(
-      'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured',
+      'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured',
     );
     expect(updated).toContain('# Generate ticket from a URL');
     expect(updated).toContain('`-f, --format <format>`');

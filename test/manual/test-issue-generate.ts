@@ -14,6 +14,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
 import { AiService } from '../../src/integrations/ai/ai.service';
+import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
 
 const MOCK_AI_RESPONSE = `# Heading: Add rate limiting to the API gateway
 
@@ -84,10 +85,19 @@ async function testIssueGenerate() {
 
   app.get(AiService); // ensure singleton is initialized
   const originalProtoExecute = AiService.prototype.execute;
-  let aiCallCount = 0;
+  const originalGenerateFromPrompt =
+    StageAgentService.prototype.generateFromPrompt;
+  let synthesisCallCount = 0;
+  let synthesisBackend: 'ai' | 'agent' | undefined;
   (AiService.prototype as any).execute = async () => {
-    aiCallCount++;
+    synthesisCallCount++;
+    synthesisBackend = 'ai';
     return { content: MOCK_AI_RESPONSE };
+  };
+  (StageAgentService.prototype as any).generateFromPrompt = async () => {
+    synthesisCallCount++;
+    synthesisBackend = 'agent';
+    return MOCK_AI_RESPONSE;
   };
 
   // Two temp source files to bypass the single-source short-circuit in synthesizeWithAI:
@@ -115,6 +125,7 @@ async function testIssueGenerate() {
     fs.unlinkSync(tmpFile1);
     fs.unlinkSync(tmpFile2);
     AiService.prototype.execute = originalProtoExecute;
+    StageAgentService.prototype.generateFromPrompt = originalGenerateFromPrompt;
   }
 
   const REQUIRED_SECTIONS = [
@@ -163,21 +174,20 @@ async function testIssueGenerate() {
   // --- Fix 2: AI synthesis bypass regression ---
   // Verifies aiService.execute was called at least once during the two-source run above.
   // This is a direct call-count spy — immune to false positives from source content.
-  if (aiCallCount > 0) {
+  if (synthesisCallCount > 0) {
     pass(
-      `AI synthesis was invoked (aiService.execute called ${aiCallCount} time(s))`,
+      `AI synthesis was invoked through the ${synthesisBackend} backend (${synthesisCallCount} call(s))`,
     );
   } else {
-    fail('AI synthesis was NOT invoked — aiService.execute call count is 0');
+    fail('AI synthesis was NOT invoked — both synthesis backends were idle');
   }
 
-  // The prompt instructs the AI to start the title with "# Heading:" — verify the serialized
-  // output includes a non-empty heading line in that format.
-  if (/# Heading: .+/.test(capturedOutput)) {
-    pass('Output contains "# Heading: <title>" line');
+  // The rendered ticket should start with a normal markdown heading after parsing/serialization.
+  if (/^# .+/m.test(capturedOutput)) {
+    pass('Output contains a non-empty markdown heading line');
   } else {
     fail(
-      'Output is missing "# Heading: <title>" line',
+      'Output is missing a non-empty markdown heading line',
       `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`,
     );
   }
@@ -193,11 +203,17 @@ async function testIssueGenerate() {
       'utf-8',
     );
 
-    let stubAiCallCount = 0;
+    let stubSynthesisCallCount = 0;
     const existingProtoExecute = AiService.prototype.execute;
+    const existingGenerateFromPrompt =
+      StageAgentService.prototype.generateFromPrompt;
     (AiService.prototype as any).execute = async () => {
-      stubAiCallCount++;
+      stubSynthesisCallCount++;
       return { content: MOCK_AI_RESPONSE };
+    };
+    (StageAgentService.prototype as any).generateFromPrompt = async () => {
+      stubSynthesisCallCount++;
+      return MOCK_AI_RESPONSE;
     };
 
     let stubOutput = '';
@@ -215,9 +231,11 @@ async function testIssueGenerate() {
       process.stdout.write = origWriteStub;
       fs.unlinkSync(stubFile);
       AiService.prototype.execute = existingProtoExecute;
+      StageAgentService.prototype.generateFromPrompt =
+        existingGenerateFromPrompt;
     }
 
-    if (stubAiCallCount > 0) {
+    if (stubSynthesisCallCount > 0) {
       pass(
         'single-source stub description triggered AI synthesis (not short-circuited)',
       );

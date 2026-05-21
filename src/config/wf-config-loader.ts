@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as vm from 'vm';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
 import Joi from '@hapi/joi';
@@ -350,14 +351,140 @@ const unwrapModuleExport = (loaded: unknown): WfConfig => {
   return candidate as WfConfig;
 };
 
+const isEmptyModuleNamespace = (loaded: unknown): boolean => {
+  if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) {
+    return false;
+  }
+
+  const moduleTag = (loaded as { [Symbol.toStringTag]?: unknown })[
+    Symbol.toStringTag
+  ];
+  return moduleTag === 'Module' && Reflect.ownKeys(loaded).length === 0;
+};
+
 const readConfigModule = async (filePath: string): Promise<WfConfig> => {
   const loaded = await import(pathToFileURL(filePath).href);
+  if (isEmptyModuleNamespace(loaded)) {
+    throw new ValidationError(
+      'wf config file exists but did not export a config object. Use export default { ... } for ESM configs or module.exports = { ... } for CommonJS configs.',
+    );
+  }
+
   return unwrapModuleExport(loaded);
+};
+
+const detectNearestPackageType = (
+  filePath: string,
+): 'module' | 'commonjs' | null => {
+  let currentDir = path.dirname(filePath);
+  const { root } = path.parse(currentDir);
+
+  while (true) {
+    const packageJsonPath = path.join(currentDir, 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      try {
+        const packageJson = JSON.parse(
+          fs.readFileSync(packageJsonPath, 'utf-8'),
+        ) as { type?: unknown };
+        if (packageJson.type === 'module' || packageJson.type === 'commonjs') {
+          return packageJson.type;
+        }
+      } catch {
+        return null;
+      }
+    }
+
+    if (currentDir === root) {
+      return null;
+    }
+
+    currentDir = path.dirname(currentDir);
+  }
+};
+
+const hasCommonJsExportSyntax = (sourceText: string): boolean =>
+  /\bmodule\.exports\b|\bexports\./.test(sourceText);
+
+const evaluateConfigScript = (
+  filePath: string,
+  sourceText: string,
+): unknown => {
+  const requireFromConfig = createRequire(filePath);
+  const module = { exports: {} as unknown };
+  const context = vm.createContext({
+    exports: module.exports,
+    module,
+    require: requireFromConfig,
+    __filename: filePath,
+    __dirname: path.dirname(filePath),
+  });
+
+  new vm.Script(sourceText, { filename: filePath }).runInContext(context);
+
+  return module.exports;
+};
+
+const evaluateCommonJsConfigSource = (
+  filePath: string,
+  sourceText: string,
+): WfConfig => unwrapModuleExport(evaluateConfigScript(filePath, sourceText));
+
+const hasImportSyntax = (sourceText: string): boolean =>
+  /^\s*import\s/m.test(sourceText);
+
+const hasEsmDefaultExportSyntax = (sourceText: string): boolean =>
+  /^\s*export\s+default\b/m.test(sourceText);
+
+const isEmptyEsmExportSource = (sourceText: string): boolean =>
+  /^\s*export\s*\{\s*\}\s*;?\s*$/.test(sourceText);
+
+const evaluateEsmDefaultConfigSource = (
+  filePath: string,
+  sourceText: string,
+): WfConfig => {
+  const executableSource = sourceText.replace(
+    /^\s*export\s+default\b/m,
+    'module.exports = ',
+  );
+
+  return unwrapModuleExport(evaluateConfigScript(filePath, executableSource));
 };
 
 const readJavaScriptConfigModule = async (
   filePath: string,
 ): Promise<WfConfig> => {
+  const sourceText = fs.readFileSync(filePath, 'utf-8');
+  const nearestPackageType = detectNearestPackageType(filePath);
+
+  if (nearestPackageType === 'module') {
+    if (hasCommonJsExportSyntax(sourceText)) {
+      return evaluateCommonJsConfigSource(filePath, sourceText);
+    }
+
+    try {
+      return await readConfigModule(filePath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (isEmptyEsmExportSource(sourceText)) {
+        throw new ValidationError(
+          'wf config file exists but did not export a config object. Use export default { ... } for ESM configs or module.exports = { ... } for CommonJS configs.',
+        );
+      }
+
+      if (
+        (message.includes('--experimental-vm-modules') ||
+          message.includes("Unexpected token 'export'")) &&
+        !hasImportSyntax(sourceText) &&
+        hasEsmDefaultExportSyntax(sourceText)
+      ) {
+        return evaluateEsmDefaultConfigSource(filePath, sourceText);
+      }
+
+      throw error;
+    }
+  }
+
   try {
     const requireFromConfig = createRequire(filePath);
     const loaded = requireFromConfig(filePath);

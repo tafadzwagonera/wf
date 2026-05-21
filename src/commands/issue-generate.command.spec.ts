@@ -362,6 +362,40 @@ describe('IssueGenerateCommand', () => {
       expect(mockAiService.execute).not.toHaveBeenCalled();
     });
 
+    it('synthesizes and parses a generated ticket for short inputs that require AI collation', async () => {
+      const { command, mockAiService, mockStageAgentService } =
+        await buildCommand();
+
+      const ticket = await (command as any).synthesizeWithAI([
+        {
+          type: 'file',
+          source: './notes.md',
+          content: 'Short notes that require synthesis',
+        },
+        {
+          type: 'file',
+          source: './constraints.md',
+          content: 'A second short source keeps the AI synthesis path active',
+        },
+      ]);
+
+      expect(mockStageAgentService.generateFromPrompt).not.toHaveBeenCalled();
+      expect(mockAiService.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'generate',
+          maxTokens: 4096,
+        }),
+      );
+      expect(ticket).toEqual(
+        expect.objectContaining({
+          title: 'Generated Title',
+          description: 'Generated summary',
+          type: 'task',
+          priority: 'medium',
+        }),
+      );
+    });
+
     it('instructs the model to use fenced code blocks and hyphen bullets only', async () => {
       const { command } = await buildCommand();
 

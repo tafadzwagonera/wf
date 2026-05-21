@@ -105,13 +105,15 @@ class UnresolvedSourceError extends Error {}
  * Supports local files, repo-scoped artifacts via `--repos`, URLs, Jira keys,
  * and AI synthesis. Local `.md`, `.json`, `.yaml`, and `.yml` files that parse
  * as tickets are imported as tickets; files that are not recognized as
- * ticket-formatted content remain plain file sources. Generated serialized
- * output is normalized to ASCII punctuation before display or save.
+ * ticket-formatted content remain plain file sources. When `--repos` resolves
+ * to a local checkout, bootstrap config is loaded from that repository before
+ * command execution. Generated serialized output is normalized to ASCII
+ * punctuation before display or save.
  */
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
