@@ -140,6 +140,12 @@ describe('getHelpText', () => {
     expect(plainImplementHelpText).toContain(
       '~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md',
     );
+    expect(plainImplementHelpText).toContain(
+      'Both backends emit stable SDK task and tool progress lines plus explicit file mutation logs and verification logs',
+    );
+    expect(plainImplementHelpText).not.toContain(
+      'the OpenAI backend emits heuristic progress signals',
+    );
   });
 
   it('loads the catalog from dist/bootstrap when no catalog argument is supplied', () => {

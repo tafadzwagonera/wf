@@ -1,19 +1,24 @@
 /**
- * Manual smoke test: Anthropic progress formatter and help text contract
+ * Manual smoke test: agent progress formatter and help text contract
  *
  * Run: nr test:manual -- test-anthropic-progress-formatter
  *
  * Verifies:
  *   1. Anthropic task progress messages render without heuristic suffixes.
  *   2. Anthropic tool progress messages render without heuristic suffixes.
- *   3. Generated issue:implement help text documents Anthropic stable lines and OpenAI heuristics accurately.
+ *   3. Anthropic explicit activity logs stay human-readable.
+ *   4. Generated issue:implement help text documents the shared explicit-log contract.
  *
  * @returns Promise that resolves when the smoke test completes
  */
 import * as path from 'path';
 import chalk from 'chalk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { formatProgressMessage } from '../../src/integrations/ai/adapters/anthropic-agent.adapter';
+import {
+  formatActivityMessages,
+  formatProgressMessage as formatAnthropicProgressMessage,
+} from '../../src/integrations/ai/adapters/anthropic-agent.adapter';
+import { formatProgressMessage as formatOpenAiProgressMessage } from '../../src/integrations/ai/adapters/openai-agent.adapter';
 import { getCommandHelpCatalog } from '../../src/bootstrap/help-catalog-parser';
 import { getHelpText } from '../../src/bootstrap/help-output';
 
@@ -83,9 +88,7 @@ const normalizeWhitespace = (value: string): string =>
   value.replace(/\s+/g, ' ').trim();
 
 async function main(): Promise<void> {
-  console.log(
-    chalk.bold.cyan('\n🧪 Anthropic progress formatter smoke test\n'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Agent progress formatter smoke test\n'));
 
   console.log(chalk.bold('Test 1: task progress formatting stays stable'));
   const taskMessage = {
@@ -95,7 +98,7 @@ async function main(): Promise<void> {
     description: 'Inspecting verification output',
     last_tool_name: 'Bash',
   } as SDKMessage;
-  const formattedTaskMessage = formatProgressMessage(taskMessage);
+  const formattedTaskMessage = formatAnthropicProgressMessage(taskMessage);
   assert(
     'task progress line matches the stable contract',
     formattedTaskMessage ===
@@ -115,7 +118,7 @@ async function main(): Promise<void> {
     elapsed_time_seconds: 2.4,
     task_id: 'task-1',
   } as SDKMessage;
-  const formattedToolMessage = formatProgressMessage(toolMessage);
+  const formattedToolMessage = formatAnthropicProgressMessage(toolMessage);
   assert(
     'tool progress line matches the stable contract',
     formattedToolMessage ===
@@ -129,8 +132,44 @@ async function main(): Promise<void> {
   );
 
   console.log(
+    chalk.bold('\nTest 3: Anthropic explicit activity logs stay readable'),
+  );
+  const activityMessages = formatActivityMessages(
+    {
+      type: 'system',
+      subtype: 'files_persisted',
+      files: [{ filename: '/repo/primary/src/foo.ts', file_id: 'file-1' }],
+      failed: [],
+      processed_at: '2026-05-21T10:00:00.000Z',
+      uuid: '11111111-1111-1111-1111-111111111115',
+      session_id: 'session-5',
+    } as SDKMessage,
+    '/repo/primary',
+    {},
+  );
+  assert(
+    'file persistence is rendered as an explicit file log',
+    activityMessages[0] === '  [claude-agent-sdk] File updated: src/foo.ts',
+    activityMessages.join(' | '),
+  );
+
+  const openAiMessage = formatOpenAiProgressMessage({
+    type: 'run_item_stream_event',
+    item: {
+      type: 'reasoning',
+      content: [{ text: 'Investigating verification output' }],
+    },
+  });
+  assert(
+    'OpenAI reasoning stays concise and omits heuristic progress text',
+    openAiMessage ===
+      '  [openai-agent] Reasoning: Investigating verification output',
+    openAiMessage ?? 'received null',
+  );
+
+  console.log(
     chalk.bold(
-      '\nTest 3: issue:implement help text documents the backend split',
+      '\nTest 4: issue:implement help text documents the shared progress contract',
     ),
   );
   const repoRoot = path.join(__dirname, '..', '..');
@@ -140,21 +179,19 @@ async function main(): Promise<void> {
   );
 
   assert(
-    'help text mentions stable Anthropic task/tool progress lines',
+    'help text mentions shared explicit file and verification logs',
     helpText.includes(
-      'The Anthropic backend emits stable Claude Agent SDK task and tool progress lines',
+      'Both backends emit stable SDK task and tool progress lines plus explicit file mutation logs and verification logs',
     ),
   );
   assert(
-    'help text mentions OpenAI heuristic progress signals',
-    helpText.includes(
-      'the OpenAI backend emits heuristic progress signals to encourage forward motion when verification is converging',
-    ),
-  );
-  assert(
-    'help text no longer says both backends emit heuristic progress signals',
-    !helpText.includes('both backends emit heuristic progress signals'),
+    'help text no longer mentions OpenAI heuristic progress signals',
+    !helpText.includes('the OpenAI backend emits heuristic progress signals'),
     helpText,
+  );
+  assert(
+    'help text still mentions both Anthropic and OpenAI backends',
+    helpText.includes('Anthropic or OpenAI agent backend'),
   );
 
   console.log(chalk.bold('\nSummary'));

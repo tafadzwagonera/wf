@@ -9,6 +9,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   AnthropicAgentAdapter,
+  formatActivityMessages,
   formatProgressMessage,
 } from './anthropic-agent.adapter';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
@@ -134,6 +135,43 @@ const makeToolProgressMessage = (): SDKMessage =>
     session_id: 'session-4',
   }) as SDKMessage;
 
+const makeFilesPersistedMessage = (): SDKMessage =>
+  ({
+    type: 'system',
+    subtype: 'files_persisted',
+    files: [
+      {
+        filename: '/repo/primary/src/foo.ts',
+        file_id: 'file-1',
+      },
+    ],
+    failed: [],
+    processed_at: '2026-05-21T10:00:00.000Z',
+    uuid: '11111111-1111-1111-1111-111111111115',
+    session_id: 'session-5',
+  }) as SDKMessage;
+
+const makeBashToolProgressMessage = (): SDKMessage =>
+  ({
+    type: 'tool_progress',
+    tool_use_id: 'tool-use-2',
+    tool_name: 'Bash',
+    parent_tool_use_id: null,
+    elapsed_time_seconds: 1.2,
+    task_id: 'task-2',
+    uuid: '11111111-1111-1111-1111-111111111116',
+    session_id: 'session-6',
+  }) as SDKMessage;
+
+const makeToolUseSummaryMessage = (summary: string): SDKMessage =>
+  ({
+    type: 'tool_use_summary',
+    summary,
+    preceding_tool_use_ids: ['tool-use-2'],
+    uuid: '11111111-1111-1111-1111-111111111117',
+    session_id: 'session-7',
+  }) as SDKMessage;
+
 const makeSdkSession = (messages: SDKMessage[]) => {
   let messageIndex = 0;
 
@@ -221,6 +259,42 @@ describe('AnthropicAgentAdapter', () => {
     });
   });
 
+  describe('formatActivityMessages', () => {
+    it('formats file persistence and verification events into explicit logs', () => {
+      const state = {};
+
+      expect(
+        formatActivityMessages(
+          makeFilesPersistedMessage(),
+          '/repo/primary',
+          state,
+        ),
+      ).toEqual(['  [claude-agent-sdk] File updated: src/foo.ts']);
+
+      expect(
+        formatActivityMessages(
+          makeToolUseSummaryMessage('Ran `npm test` successfully.'),
+          '/repo/primary',
+          state,
+        ),
+      ).toEqual(['  [claude-agent-sdk] Verification passed: npm test']);
+    });
+
+    it('formats failed verification summaries', () => {
+      const state = {};
+
+      expect(
+        formatActivityMessages(
+          makeToolUseSummaryMessage(
+            'Ran `npm test` and it failed with exit code 1.',
+          ),
+          '/repo/primary',
+          state,
+        ),
+      ).toEqual(['  [claude-agent-sdk] Verification failed: npm test']);
+    });
+  });
+
   describe('generateAndVerify', () => {
     it('invokes the Claude Agent SDK with repo-scoped access and the verification whitelist', async () => {
       const mockSession = makeSdkSession([makeResultSuccess()]);
@@ -267,6 +341,7 @@ describe('AnthropicAgentAdapter', () => {
         input: Record<string, unknown>,
         context: Record<string, unknown>,
       ) => Promise<Record<string, unknown>>;
+      const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       expect(options.cwd).toBe('/repo/primary');
       expect(options.model).toBe('claude-sonnet-4-6');
@@ -310,24 +385,38 @@ describe('AnthropicAgentAdapter', () => {
       ]);
       expect(sandbox.filesystem.allowWrite).toEqual(['/repo/primary']);
 
-      await expect(
-        canUseTool(
-          'Bash',
-          { command: 'npm test' },
-          { signal: new AbortController().signal, toolUseID: 'tool-1' },
-        ),
-      ).resolves.toMatchObject({ behavior: 'allow' });
+      try {
+        await expect(
+          canUseTool(
+            'Bash',
+            { command: 'npm test' },
+            { signal: new AbortController().signal, toolUseID: 'tool-1' },
+          ),
+        ).resolves.toMatchObject({ behavior: 'allow' });
 
-      await expect(
-        canUseTool(
-          'Bash',
-          { command: 'rm -rf /' },
-          { signal: new AbortController().signal, toolUseID: 'tool-2' },
-        ),
-      ).resolves.toMatchObject({
-        behavior: 'deny',
-        interrupt: true,
-      });
+        await expect(
+          canUseTool(
+            'Bash',
+            { command: 'rm -rf /' },
+            { signal: new AbortController().signal, toolUseID: 'tool-2' },
+          ),
+        ).resolves.toMatchObject({
+          behavior: 'deny',
+          interrupt: true,
+        });
+      } finally {
+        expect(
+          mockLog.mock.calls.some(([message]) =>
+            String(message).includes('Verification running: npm test'),
+          ),
+        ).toBe(true);
+        expect(
+          mockLog.mock.calls.some(([message]) =>
+            String(message).includes('Verification denied: rm -rf /'),
+          ),
+        ).toBe(true);
+        mockLog.mockRestore();
+      }
 
       expect(mockSession.close).toHaveBeenCalledTimes(1);
     });
@@ -336,6 +425,8 @@ describe('AnthropicAgentAdapter', () => {
       const mockSession = makeSdkSession([
         makeTaskProgressMessage(),
         makeToolProgressMessage(),
+        makeFilesPersistedMessage(),
+        makeToolUseSummaryMessage('Ran `npm test` successfully.'),
         makeResultSuccess(),
       ]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
@@ -358,6 +449,16 @@ describe('AnthropicAgentAdapter', () => {
             String(message).includes(
               'Tool progress: Write (2.4s) · task: task-1',
             ),
+          ),
+        ).toBe(true);
+        expect(
+          mockLog.mock.calls.some(([message]) =>
+            String(message).includes('File updated: src/foo.ts'),
+          ),
+        ).toBe(true);
+        expect(
+          mockLog.mock.calls.some(([message]) =>
+            String(message).includes('Verification passed: npm test'),
           ),
         ).toBe(true);
       } finally {

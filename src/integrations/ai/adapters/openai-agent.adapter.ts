@@ -21,7 +21,6 @@ import {
   buildVerificationProgressSignal,
   countDiagnosticLines,
   extractVerificationErrorClasses,
-  formatImplementProgressSignal,
   type ImplementProgressVerificationSnapshot,
 } from '../../../shared/utils/implement-verification';
 import { loadAiContextConfig } from './load-ai-context-config';
@@ -254,7 +253,7 @@ const formatRepoFileList = (repoFiles: string[], repoName: string): string => {
     .join('\n');
 };
 
-const formatProgressMessage = (event: unknown): string | null => {
+export const formatProgressMessage = (event: unknown): string | null => {
   if (
     !event ||
     typeof event !== 'object' ||
@@ -449,11 +448,6 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         console.log(
           chalk.cyan(`  [openai-agent] File ${status}: ${relativePath}`),
         );
-        console.log(
-          chalk.cyan(
-            `  [openai-agent] ${formatImplementProgressSignal(progress)}`,
-          ),
-        );
         return JSON.stringify(
           { path: relativePath, status, progress },
           null,
@@ -500,11 +494,6 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         });
         console.log(
           chalk.cyan(`  [openai-agent] File deleted: ${relativePath}`),
-        );
-        console.log(
-          chalk.cyan(
-            `  [openai-agent] ${formatImplementProgressSignal(progress)}`,
-          ),
         );
         return JSON.stringify(
           { path: relativePath, status: 'deleted', progress },
@@ -584,9 +573,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
           previousVerificationSnapshot = currentSnapshot;
           changedFilesSinceLastVerification.clear();
           console.log(
-            chalk.cyan(
-              `  [openai-agent] ${formatImplementProgressSignal(progress)}`,
-            ),
+            chalk.cyan(`  [openai-agent] Verification passed: ${command}`),
           );
           return JSON.stringify(
             {
@@ -620,9 +607,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
           previousVerificationSnapshot = currentSnapshot;
           changedFilesSinceLastVerification.clear();
           console.log(
-            chalk.cyan(
-              `  [openai-agent] ${formatImplementProgressSignal(progress)}`,
-            ),
+            chalk.red(`  [openai-agent] Verification failed: ${command}`),
           );
           return JSON.stringify(
             {

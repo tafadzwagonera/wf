@@ -2,7 +2,10 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { OpenAIAgentAdapter } from './openai-agent.adapter';
+import {
+  formatProgressMessage,
+  OpenAIAgentAdapter,
+} from './openai-agent.adapter';
 import { loadAiContextConfig } from './load-ai-context-config';
 import type { VerificationScript } from '../../../agents/interfaces';
 
@@ -155,6 +158,38 @@ describe('OpenAIAgentAdapter', () => {
     mockExec.mockReset();
   });
 
+  describe('formatProgressMessage', () => {
+    it('formats requested and completed tool events', () => {
+      expect(
+        formatProgressMessage({
+          type: 'run_item_stream_event',
+          name: 'tool_called',
+          item: { type: 'function_call', name: 'write_file' },
+        }),
+      ).toBe('  [openai-agent] Tool requested: write_file');
+
+      expect(
+        formatProgressMessage({
+          type: 'run_item_stream_event',
+          name: 'tool_output',
+          item: { type: 'function_call_result', name: 'write_file' },
+        }),
+      ).toBe('  [openai-agent] Tool completed: write_file');
+    });
+
+    it('formats reasoning events without heuristic suffixes', () => {
+      expect(
+        formatProgressMessage({
+          type: 'run_item_stream_event',
+          item: {
+            type: 'reasoning',
+            content: [{ text: 'Investigating verification output' }],
+          },
+        }),
+      ).toBe('  [openai-agent] Reasoning: Investigating verification output');
+    });
+  });
+
   describe('generateAndVerify', () => {
     it('allows only whitelisted verification commands and prints a file summary', async () => {
       const repoDir = fs.mkdtempSync(
@@ -289,6 +324,14 @@ describe('OpenAIAgentAdapter', () => {
       ).toBe(true);
       expect(
         logCalls.some((message) =>
+          message.includes('[openai-agent] Verification passed: npm test'),
+        ),
+      ).toBe(true);
+      expect(logCalls.every((message) => !message.includes('progress:'))).toBe(
+        true,
+      );
+      expect(
+        logCalls.some((message) =>
           message.includes('OpenAI agent implementation complete'),
         ),
       ).toBe(true);
@@ -352,6 +395,83 @@ describe('OpenAIAgentAdapter', () => {
           message.includes('[openai-agent] Verification denied: npm run lint'),
         ),
       ).toBe(true);
+    });
+
+    it('prints an explicit failed verification log when a command exits non-zero', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-agent-failed-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      mockExec.mockImplementation(
+        (
+          command: string,
+          optionsOrCallback: unknown,
+          callbackMaybe?: (
+            error: Error | null,
+            result?: { stdout: string; stderr: string },
+          ) => void,
+        ) => {
+          const callback =
+            typeof optionsOrCallback === 'function'
+              ? optionsOrCallback
+              : callbackMaybe;
+          const error = Object.assign(new Error('tests failed'), {
+            code: 1,
+            stdout: 'stdout',
+            stderr: 'stderr',
+          });
+          callback?.(error, { stdout: 'stdout', stderr: 'stderr' });
+          return {} as never;
+        },
+      );
+
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async (agent: Record<string, unknown>) => {
+          const verifyTool = getTool(agent, 'verify_command');
+
+          await verifyTool.execute(
+            { command: 'npm test' },
+            {
+              context: {
+                repoDir,
+                allowedVerificationCommands: new Set(['npm test']),
+              },
+            },
+          );
+
+          return makeStreamedRun([], 'Done.');
+        }),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      await adapter.generateAndVerify(
+        makeParams(repoDir, [
+          {
+            id: 'verify',
+            name: 'test',
+            command: 'npm test',
+            policy: 'enforced',
+            aliases: [],
+          },
+        ]),
+      );
+
+      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      expect(
+        logCalls.some((message) =>
+          message.includes('[openai-agent] Verification failed: npm test'),
+        ),
+      ).toBe(true);
+      expect(logCalls.every((message) => !message.includes('progress:'))).toBe(
+        true,
+      );
     });
   });
 });

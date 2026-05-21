@@ -31,6 +31,12 @@ const CLAUDE_CODE_TOOLS = [
   'Task',
   'Agent',
 ] as const;
+const ANTHROPIC_AGENT_LABEL = 'claude-agent-sdk';
+const FALLBACK_VERIFICATION_LABEL = 'verification command';
+
+type ActivityState = {
+  lastVerificationCommand?: string;
+};
 
 const normalizeCommand = (command: unknown): string =>
   typeof command === 'string' ? command.trim() : '';
@@ -44,7 +50,10 @@ const buildAllowedCommands = (
       .filter((command) => command.length > 0),
   );
 
-const buildCanUseTool = (allowedCommands: Set<string>): CanUseTool => {
+const buildCanUseTool = (
+  allowedCommands: Set<string>,
+  activityState: ActivityState,
+): CanUseTool => {
   return async (toolName, input) => {
     if (toolName !== 'Bash') {
       return { behavior: 'allow' };
@@ -60,6 +69,11 @@ const buildCanUseTool = (allowedCommands: Set<string>): CanUseTool => {
     }
 
     if (!allowedCommands.has(command)) {
+      console.log(
+        chalk.red(
+          `  [${ANTHROPIC_AGENT_LABEL}] Verification denied: ${command}`,
+        ),
+      );
       return {
         behavior: 'deny',
         message: `Bash command "${command}" is not in the verification whitelist. Allowed commands: ${[...allowedCommands].join(', ') || '(none configured)'}.`,
@@ -67,6 +81,12 @@ const buildCanUseTool = (allowedCommands: Set<string>): CanUseTool => {
       };
     }
 
+    activityState.lastVerificationCommand = command;
+    console.log(
+      chalk.cyan(
+        `  [${ANTHROPIC_AGENT_LABEL}] Verification running: ${command}`,
+      ),
+    );
     return { behavior: 'allow' };
   };
 };
@@ -98,16 +118,100 @@ export const formatProgressMessage = (message: SDKMessage): string | null => {
     const lastToolLabel = message.last_tool_name
       ? ` · last tool: ${message.last_tool_name}`
       : '';
-    return `  [claude-agent-sdk] Task progress: ${summary}${lastToolLabel}`;
+    return `  [${ANTHROPIC_AGENT_LABEL}] Task progress: ${summary}${lastToolLabel}`;
   }
 
   if (message.type === 'tool_progress') {
     const elapsedSeconds = message.elapsed_time_seconds.toFixed(1);
     const taskLabel = message.task_id ? ` · task: ${message.task_id}` : '';
-    return `  [claude-agent-sdk] Tool progress: ${message.tool_name} (${elapsedSeconds}s)${taskLabel}`;
+    return `  [${ANTHROPIC_AGENT_LABEL}] Tool progress: ${message.tool_name} (${elapsedSeconds}s)${taskLabel}`;
   }
 
   return null;
+};
+
+const extractVerificationCommand = (
+  summary: string,
+  fallbackCommand?: string,
+): string => {
+  const backtickMatch = summary.match(/`([^`]+)`/);
+  if (backtickMatch?.[1]) {
+    return backtickMatch[1].trim();
+  }
+
+  const quoteMatch = summary.match(/["']([^"']+)["']/);
+  if (quoteMatch?.[1]) {
+    return quoteMatch[1].trim();
+  }
+
+  const ranMatch = summary.match(
+    /(?:ran|run|executed)\s+([a-z0-9:_./@=-]+(?:\s+[a-z0-9:_./@=-]+)*)/i,
+  );
+  if (ranMatch?.[1]) {
+    return ranMatch[1].trim().replace(/[.]+$/, '');
+  }
+
+  return fallbackCommand ?? FALLBACK_VERIFICATION_LABEL;
+};
+
+const extractVerificationOutcome = (
+  summary: string,
+): 'passed' | 'failed' | null => {
+  if (
+    /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(
+      summary,
+    )
+  ) {
+    return 'failed';
+  }
+
+  if (
+    /(passed|success|succeeded|completed successfully|exit code 0)/i.test(
+      summary,
+    )
+  ) {
+    return 'passed';
+  }
+
+  return null;
+};
+
+/**
+ * Derive stable file and verification activity logs from streamed SDK messages.
+ *
+ * @param message - The SDK message to inspect
+ * @param repoDir - The primary repository root for relative path rendering
+ * @param activityState - Mutable activity state shared across the stream
+ * @returns Explicit terminal log lines for file or verification activity
+ */
+export const formatActivityMessages = (
+  message: SDKMessage,
+  repoDir: string,
+  activityState: ActivityState,
+): string[] => {
+  if (message.type === 'system' && message.subtype === 'files_persisted') {
+    return message.files.map(({ filename }) => {
+      const absolutePath = resolveRepoPath(repoDir, filename);
+      const relativePath = path.relative(repoDir, absolutePath);
+      return `  [${ANTHROPIC_AGENT_LABEL}] File updated: ${relativePath}`;
+    });
+  }
+
+  if (message.type === 'tool_use_summary') {
+    const outcome = extractVerificationOutcome(message.summary);
+    if (!outcome) {
+      return [];
+    }
+
+    const command = extractVerificationCommand(
+      message.summary,
+      activityState.lastVerificationCommand,
+    );
+    activityState.lastVerificationCommand = command;
+    return [`  [${ANTHROPIC_AGENT_LABEL}] Verification ${outcome}: ${command}`];
+  }
+
+  return [];
 };
 
 /**
@@ -252,6 +356,7 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
     const repoDir = options.repoDir ?? process.cwd();
     const additionalRepoDirs = options.additionalRepoDirs ?? [];
     const allowedCommands = buildAllowedCommands(verificationScripts);
+    const activityState: ActivityState = {};
     const apiKey = this.configService.get<string>('ai.anthropicApiKey');
     const claudeContext = await loadClaudeContext(repoDir);
 
@@ -297,7 +402,7 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
           })}`,
         ].join(''),
       },
-      canUseTool: buildCanUseTool(allowedCommands),
+      canUseTool: buildCanUseTool(allowedCommands, activityState),
       env: {
         ...process.env,
         ANTHROPIC_API_KEY: apiKey,
@@ -337,6 +442,15 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
         if (logProgressMessage(message)) {
           continue;
         }
+
+        const activityMessages = formatActivityMessages(
+          message,
+          repoDir,
+          activityState,
+        );
+        activityMessages.forEach((activityMessage) =>
+          console.log(chalk.cyan(activityMessage)),
+        );
 
         if (message.type !== 'result') {
           continue;
