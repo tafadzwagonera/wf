@@ -43,6 +43,7 @@ jest.mock('fs', () => {
     ...actual,
     existsSync: jest.fn(actual.existsSync),
     readdirSync: jest.fn(actual.readdirSync),
+    writeFileSync: jest.fn(actual.writeFileSync),
     promises: {
       ...actual.promises,
       mkdir: jest.fn(actual.promises.mkdir),
@@ -186,7 +187,13 @@ async function buildCommand(options?: {
             path.extname(filePath).slice(1),
           ),
           getConverter: jest.fn(() => ({
-            serialize: jest.fn(),
+            serialize: jest.fn((ticket) =>
+              [
+                `# ${ticket.title ?? 'Generated Title'}`,
+                '',
+                ticket.description ?? 'Generated summary',
+              ].join('\n'),
+            ),
             parse: jest.fn(() => ({
               title: 'Generated Title',
               description: 'Generated summary',
@@ -265,11 +272,17 @@ describe('IssueGenerateCommand', () => {
     (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReset();
     (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockReset();
     (
+      fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>
+    ).mockReset();
+    (
       fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
     ).mockImplementation(jest.requireActual('fs').existsSync);
     (
       fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>
     ).mockImplementation(() => []);
+    (
+      fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>
+    ).mockImplementation(jest.requireActual('fs').writeFileSync);
   });
 
   afterEach(() => {
@@ -366,6 +379,23 @@ describe('IssueGenerateCommand', () => {
       expect(prompt).toContain(
         'Use `- ` for every unordered bullet item; never use `* ` bullets.',
       );
+    });
+
+    it('instructs the model to avoid em dashes and uses only ASCII punctuation in the prompt', async () => {
+      const { command } = await buildCommand();
+
+      const prompt = (command as any).buildSynthesisPrompt([
+        {
+          type: 'file',
+          source: './notes.md',
+          content: 'Short notes that require synthesis',
+        },
+      ]);
+
+      expect(prompt).toContain(
+        'Do not use em dashes; use ASCII ` - ` instead.',
+      );
+      expect(prompt).not.toContain('—');
     });
   });
 
@@ -907,6 +937,187 @@ describe('IssueGenerateCommand', () => {
     expect(manifest.hash).toBe(
       hashGeneratedTicketSources(['https://example.com/spec', './notes.md']),
     );
+  });
+
+  describe('em dash normalization', () => {
+    it('normalizes synthesized AI output before writing generated stdout content', async () => {
+      const { command, mockAiService } = await buildCommand();
+      const formatConverterService = (command as any)
+        .formatConverterService as jest.Mocked<FormatConverterService>;
+      const outputLogSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+      const tempSourcePath = path.join(
+        os.tmpdir(),
+        'wf-issue-generate-em-dash-source.md',
+      );
+
+      mockAiService.execute.mockResolvedValueOnce({
+        content: [
+          '# Generated Title — Needs Cleanup',
+          '',
+          '**Type:** task',
+          '**Priority:** medium',
+          '',
+          '## Description',
+          '',
+          '### Summary',
+          'Generated summary — with em dash',
+        ].join('\n'),
+      });
+      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((
+        format: string,
+      ) => {
+        if (format === 'md') {
+          return {
+            parse: jest.fn(() => ({
+              title: 'Generated Title — Needs Cleanup',
+              description:
+                'Generated summary — with em dash that should be normalized.',
+              type: 'task',
+              priority: 'medium',
+            })),
+            serialize: jest.fn((ticket) =>
+              [`# ${ticket.title}`, '', ticket.description].join('\n'),
+            ),
+          } as any;
+        }
+
+        return {
+          parse: jest.fn(),
+          serialize: jest.fn(),
+        } as any;
+      }) as any);
+
+      fs.writeFileSync(tempSourcePath, 'Short source content', 'utf-8');
+
+      try {
+        await command.run([tempSourcePath], { format: 'md' });
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      const serializedOutput = outputLogSpy.mock.calls
+        .flat()
+        .map((value) => String(value))
+        .find((value) => value.includes('# Generated Title'));
+
+      expect(serializedOutput).toBeDefined();
+      expect(serializedOutput).toContain('Generated Title - Needs Cleanup');
+      expect(serializedOutput).toContain('Generated summary - with em dash');
+      expect(serializedOutput).not.toContain('—');
+    });
+
+    it('normalizes single-source imported tickets before writing --output files', async () => {
+      const { command } = await buildCommand();
+      const formatConverterService = (command as any)
+        .formatConverterService as jest.Mocked<FormatConverterService>;
+      const outputPath = path.join(os.tmpdir(), 'wf-generated-output.md');
+      const tempSourcePath = path.join(
+        os.tmpdir(),
+        'wf-imported-ticket-source.md',
+      );
+      const importedTicket = {
+        title: 'Imported ticket — Title',
+        description:
+          'Imported description — long enough to bypass synthesis. '.repeat(3),
+        type: 'task',
+        priority: 'medium',
+      };
+
+      jest.spyOn(formatConverterService, 'detectFormat').mockReturnValue('md');
+      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((
+        format: string,
+      ) => {
+        if (format === 'md') {
+          return {
+            parse: jest.fn(() => importedTicket),
+            serialize: jest.fn((ticket) =>
+              [`# ${ticket.title}`, '', ticket.description].join('\n'),
+            ),
+          } as any;
+        }
+
+        return {
+          parse: jest.fn(),
+          serialize: jest.fn(),
+        } as any;
+      }) as any);
+
+      fs.writeFileSync(tempSourcePath, '# Imported ticket', 'utf-8');
+
+      try {
+        await command.run([tempSourcePath], {
+          format: 'md',
+          output: outputPath,
+        });
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      const outputWrite = (
+        fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>
+      ).mock.calls.find(([filePath]) => String(filePath) === outputPath);
+
+      expect(outputWrite).toBeDefined();
+      expect(String(outputWrite?.[1])).toContain('Imported ticket - Title');
+      expect(String(outputWrite?.[1])).toContain('Imported description -');
+      expect(String(outputWrite?.[1])).not.toContain('—');
+    });
+
+    it('normalizes saved generated artifacts before persisting them', async () => {
+      const { command } = await buildCommand();
+      const formatConverterService = (command as any)
+        .formatConverterService as jest.Mocked<FormatConverterService>;
+      const ticket = {
+        title: 'Generated Title — Saved Artifact',
+        description: 'Generated summary — artifact content',
+        type: 'task',
+        priority: 'medium',
+      } as any;
+
+      (
+        fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>
+      ).mockReturnValue([]);
+      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((
+        format: string,
+      ) => {
+        if (format === 'md') {
+          return {
+            parse: jest.fn(),
+            serialize: jest.fn((currentTicket) =>
+              [`# ${currentTicket.title}`, '', currentTicket.description].join(
+                '\n',
+              ),
+            ),
+          } as any;
+        }
+
+        return {
+          parse: jest.fn(),
+          serialize: jest.fn(),
+        } as any;
+      }) as any);
+
+      await (command as any).saveTicketLocally(ticket, 'jira', 'md', [
+        'https://example.com/spec',
+      ]);
+
+      const artifactWrite = writeFileSpy.mock.calls.find(
+        ([filePath]) =>
+          String(filePath).endsWith('ticket-description.md') &&
+          !String(filePath).endsWith('.sources.json'),
+      );
+
+      expect(artifactWrite).toBeDefined();
+      expect(String(artifactWrite?.[1])).toContain(
+        'Generated Title - Saved Artifact',
+      );
+      expect(String(artifactWrite?.[1])).toContain(
+        'Generated summary - artifact content',
+      );
+      expect(String(artifactWrite?.[1])).not.toContain('—');
+    });
   });
 
   describe('Slack source handling', () => {

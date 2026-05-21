@@ -174,7 +174,7 @@
     ]
   },
   "issue:generate": {
-    "description": "Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Can use an agent backend when stages.generate.agent: true is configured",
+    "description": "Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Generated output normalizes em dashes to ASCII \" - \" before display or save. Can use an agent backend when stages.generate.agent: true is configured",
     "usage": "wf issue:generate <sources...> [options]",
     "options": [
       {

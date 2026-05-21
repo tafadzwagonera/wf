@@ -38,6 +38,8 @@ const MIN_DESCRIPTION_LENGTH = 100;
 const SLACK_CHANNEL_HISTORY_LIMIT = 50;
 const SLACK_THREAD_PATH = /^\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
 const SLACK_CHANNEL_PATH = /^\/archives\/([A-Z0-9]+)\/?$/i;
+const EM_DASH = '—';
+const ASCII_EM_DASH_REPLACEMENT = ' - ';
 
 const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
   {
@@ -103,12 +105,13 @@ class UnresolvedSourceError extends Error {}
  * Supports local files, repo-scoped artifacts via `--repos`, URLs, Jira keys,
  * and AI synthesis. Local `.md`, `.json`, `.yaml`, and `.yml` files that parse
  * as tickets are imported as tickets; files that are not recognized as
- * ticket-formatted content remain plain file sources.
+ * ticket-formatted content remain plain file sources. Generated serialized
+ * output is normalized to ASCII punctuation before display or save.
  */
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Can use an agent backend when stages.generate.agent: true is configured',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -391,17 +394,19 @@ export class IssueGenerateCommand extends CommandRunner {
       if (options?.priority) {
         synthesizedTicket.priority = options.priority as any;
       }
+      this.normalizeTicketTextFields(synthesizedTicket);
 
       // Get output format
       const format =
         options?.format ||
         this.configService.get<string>('output.defaultFormat', 'md');
 
-      // Get converter for the format
-      const converter = this.formatConverterService.getConverter(format);
-
       // Serialize ticket to desired format
-      const output = converter.serialize(synthesizedTicket);
+      const output = this.serializeTicketOutput(
+        synthesizedTicket,
+        format,
+        'stdout/file output',
+      );
 
       // Save to platform directory if --save option is provided
       if (options?.save) {
@@ -904,8 +909,12 @@ export class IssueGenerateCommand extends CommandRunner {
       );
     }
 
-    const converter = this.formatConverterService.getConverter(format);
-    const content = converter.serialize(ticket);
+    this.normalizeTicketTextFields(ticket);
+    const content = this.serializeTicketOutput(
+      ticket,
+      format,
+      `saved artifact for ${platformName}`,
+    );
     await fs.promises.writeFile(artifactPath, content, 'utf-8');
     const manifestPath = buildGeneratedTicketManifestPath(artifactPath);
     const manifest = buildGeneratedTicketSourceManifest(
@@ -1295,6 +1304,7 @@ export class IssueGenerateCommand extends CommandRunner {
       (sources[0].ticket?.description?.trim().length ?? 0) >=
         MIN_DESCRIPTION_LENGTH
     ) {
+      this.normalizeTicketTextFields(sources[0].ticket!);
       return sources[0].ticket!;
     }
 
@@ -1315,6 +1325,7 @@ export class IssueGenerateCommand extends CommandRunner {
     // Parse AI response as markdown (default) and convert to UniversalTicket
     const mdConverter = this.formatConverterService.getConverter('md');
     const ticket = mdConverter.parse(responseContent);
+    this.normalizeTicketTextFields(ticket);
 
     return ticket;
   }
@@ -1324,7 +1335,7 @@ export class IssueGenerateCommand extends CommandRunner {
    */
   private buildSynthesisPrompt(sources: SourceContent[]): string {
     let prompt = `Synthesize the following sources into a single, comprehensive Jira ticket.\n\n`;
-    prompt += `Output ONLY valid Markdown using this exact structure. Every heading MUST appear even when source material is sparse — use "None" for sections with no relevant information:\n\n`;
+    prompt += `Output ONLY valid Markdown using this exact structure. Every heading MUST appear even when source material is sparse; use "None" for sections with no relevant information:\n\n`;
     prompt += `# Heading: <concise title>\n\n`;
     prompt += `**Type:** <task|bug|story|epic|subtask>\n`;
     prompt += `**Priority:** <high|medium|low>\n\n`;
@@ -1352,6 +1363,7 @@ export class IssueGenerateCommand extends CommandRunner {
     prompt += `- Do not wrap the output in a code fence.\n`;
     prompt += `- Use fenced Markdown code blocks (\`\`\`lang) for code samples; never use Jira wiki {code} syntax.\n`;
     prompt += `- Use \`- \` for every unordered bullet item; never use \`* \` bullets.\n`;
+    prompt += `- Do not use em dashes; use ASCII \` - \` instead.\n`;
     prompt += `- The line "## Description" MUST appear exactly once.\n\n`;
     prompt += `Sources to synthesize:\n\n`;
 
@@ -1361,6 +1373,99 @@ export class IssueGenerateCommand extends CommandRunner {
     });
 
     return prompt;
+  }
+
+  /**
+   * Normalize ticket string fields in place so downstream serializers only see
+   * ASCII punctuation for generated issue content.
+   *
+   * @param ticket - Ticket object to normalize
+   * @returns Nothing
+   */
+  private normalizeTicketTextFields(ticket: UniversalTicket): void {
+    this.normalizeNestedValue(ticket);
+  }
+
+  /**
+   * Recursively normalize string values inside arrays and objects while
+   * preserving non-plain objects such as Date instances.
+   *
+   * @param value - Arbitrary nested value to normalize
+   * @returns The normalized value
+   */
+  private normalizeNestedValue<T>(value: T): T {
+    if (typeof value === 'string') {
+      return this.normalizeEmDashText(value) as T;
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => this.normalizeNestedValue(item)) as T;
+    }
+
+    if (value instanceof Date) {
+      return value;
+    }
+
+    if (value && typeof value === 'object') {
+      Object.entries(value).forEach(([key, nestedValue]) => {
+        (value as Record<string, unknown>)[key] =
+          this.normalizeNestedValue(nestedValue);
+      });
+    }
+
+    return value;
+  }
+
+  /**
+   * Replace em dashes with readable ASCII punctuation while keeping line
+   * structure intact.
+   *
+   * @param text - Text to normalize
+   * @returns Normalized text
+   */
+  private normalizeEmDashText(text: string): string {
+    return text.replace(/[ \t]*—[ \t]*/g, ASCII_EM_DASH_REPLACEMENT);
+  }
+
+  /**
+   * Serialize a generated ticket and reject any serialized form that still
+   * contains em dashes.
+   *
+   * @param ticket - Ticket to serialize
+   * @param format - Output format requested by the caller
+   * @param targetDescription - Human-readable serialization target for errors
+   * @returns Serialized ticket content
+   */
+  private serializeTicketOutput(
+    ticket: UniversalTicket,
+    format: string,
+    targetDescription: string,
+  ): string {
+    const converter = this.formatConverterService.getConverter(format);
+    const output = converter.serialize(ticket);
+    this.assertNoEmDashInSerializedOutput(output, targetDescription);
+    return output;
+  }
+
+  /**
+   * Ensure generated serialized output is ASCII-normalized before it is
+   * emitted or persisted.
+   *
+   * @param output - Serialized ticket content
+   * @param targetDescription - Human-readable serialization target for errors
+   * @returns Nothing
+   */
+  private assertNoEmDashInSerializedOutput(
+    output: string,
+    targetDescription: string,
+  ): void {
+    if (!output.includes(EM_DASH)) {
+      return;
+    }
+
+    throw new Error(
+      `issue:generate produced an em dash in ${targetDescription}. Use ASCII " - " instead.`,
+    );
   }
 
   /**

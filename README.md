@@ -443,7 +443,7 @@ preserved as Jira ADF inline code marks without leaking Jira wiki markers like
 #### `wf issue:generate <sources...>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->
-Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Can use an agent backend when stages.generate.agent: true is configured
+Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured
 
 ```bash
 # Generate ticket from a URL
@@ -476,6 +476,7 @@ wf issue:generate ./requirements.md --title "Add OAuth2" --save
 <!-- END GENERATED COMMAND DOCS: issue:generate -->
 
 Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list.
+Generated `issue:generate` output is normalized before serialization, so em dashes are rewritten to ASCII ` - ` in stdout output and saved artifacts.
 When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, unresolved bare filenames stay cwd-relative and the command now tells you to retry with `--repos <repo>` when the source looks like a repo-scoped artifact.
 Slack permalinks that include query parameters should be quoted when invoked from shells such as `zsh` or `bash`.
 
