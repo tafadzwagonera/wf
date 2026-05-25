@@ -197,4 +197,34 @@ describe('postProcessCodeReview', () => {
       'Trailing suggestion',
     ]);
   });
+
+  it('prefers a semantically matching changed line when the model picked the wrong changed line in the same hunk', () => {
+    const review = createReview({
+      issues: [
+        {
+          severity: 'warning',
+          message:
+            'Sensitive values are written via `echo "export FRESHDESK_API_KEY=$FRESHDESK_API_KEY_SIGNUP" >> vars.sh` and passed between steps as an artifact.',
+          file: 'bitbucket-pipelines.yml',
+          line: 122,
+        },
+      ],
+    });
+
+    const diff = `diff --git a/bitbucket-pipelines.yml b/bitbucket-pipelines.yml
+--- a/bitbucket-pipelines.yml
++++ b/bitbucket-pipelines.yml
+@@ -87,0 +119,6 @@ pipelines:
++            # Freshdesk contact-form integration (WBP-3068).
++            - echo "export FRESHDESK_DOMAIN=$FRESHDESK_DOMAIN" >> vars.sh
++            - echo "export FRESHDESK_API_KEY=$FRESHDESK_API_KEY_SIGNUP" >> vars.sh
++            - echo "export FRESHDESK_GROUP_LEADS=$FRESHDESK_GROUP_LEADS" >> vars.sh
++            - echo "export FRESHDESK_GROUP_SUPPORT=$FRESHDESK_GROUP_SUPPORT" >> vars.sh
++            - echo "export FRESHDESK_GROUP_AGENTS=$FRESHDESK_GROUP_AGENTS" >> vars.sh
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.review.issues[0]?.line).toBe(121);
+  });
 });

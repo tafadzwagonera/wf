@@ -15,9 +15,16 @@ export interface ProcessedCodeReview {
   presentation: CodeReviewPresentation;
 }
 
+interface ChangedDestinationLine {
+  line: number;
+  content: string;
+}
+
 const DIFF_HEADER_PATTERN = /^diff --git a\/(.+?) b\/(.+?)(?:\s|$)/;
 const DESTINATION_FILE_PATTERN = /^\+\+\+\s+(.*)$/;
 const HUNK_HEADER_PATTERN = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+const INLINE_CODE_PATTERN = /`([^`]+)`/g;
+const ENVIRONMENT_TOKEN_PATTERN = /\b[A-Z][A-Z0-9_]{2,}\b/g;
 
 /**
  * Normalize a diff or review file path so review issues can be matched to
@@ -38,13 +45,14 @@ const normalizeFilePath = (filePath: string): string =>
  * @returns Nothing
  */
 const addChangedLine = (
-  changedLinesByFile: Map<string, Set<number>>,
+  changedLinesByFile: Map<string, ChangedDestinationLine[]>,
   filePath: string,
   line: number,
+  content: string,
 ): void => {
   const normalizedPath = normalizeFilePath(filePath);
-  const changedLines = changedLinesByFile.get(normalizedPath) ?? new Set();
-  changedLines.add(line);
+  const changedLines = changedLinesByFile.get(normalizedPath) ?? [];
+  changedLines.push({ line, content });
   changedLinesByFile.set(normalizedPath, changedLines);
 };
 
@@ -57,8 +65,8 @@ const addChangedLine = (
  */
 const collectChangedDestinationLines = (
   diff: string,
-): Map<string, number[]> => {
-  const changedLinesByFile = new Map<string, Set<number>>();
+): Map<string, ChangedDestinationLine[]> => {
+  const changedLinesByFile = new Map<string, ChangedDestinationLine[]>();
   let currentFile: string | null = null;
   let currentDestinationLine: number | null = null;
 
@@ -92,7 +100,12 @@ const collectChangedDestinationLines = (
     }
 
     if (line.startsWith('+') && !line.startsWith('+++')) {
-      addChangedLine(changedLinesByFile, currentFile, currentDestinationLine);
+      addChangedLine(
+        changedLinesByFile,
+        currentFile,
+        currentDestinationLine,
+        line.slice(1),
+      );
       currentDestinationLine += 1;
       continue;
     }
@@ -109,7 +122,7 @@ const collectChangedDestinationLines = (
   return new Map(
     [...changedLinesByFile.entries()].map(([filePath, changedLines]) => [
       filePath,
-      [...changedLines].sort((left, right) => left - right),
+      [...changedLines].sort((left, right) => left.line - right.line),
     ]),
   );
 };
@@ -144,6 +157,105 @@ const normalizeIssueLine = (
 };
 
 /**
+ * Extract high-signal anchors from an issue message so a changed line can be
+ * matched to the referenced code or environment variable.
+ *
+ * @param message - Issue message text
+ * @returns Unique anchors ordered from strongest to weakest signal
+ */
+const extractIssueAnchors = (message: string): string[] => {
+  const anchors = new Set<string>();
+
+  for (const match of message.matchAll(INLINE_CODE_PATTERN)) {
+    const inlineCode = match[1]?.trim();
+    if (inlineCode) {
+      anchors.add(inlineCode);
+    }
+  }
+
+  for (const match of message.matchAll(ENVIRONMENT_TOKEN_PATTERN)) {
+    const token = match[0]?.trim();
+    if (token) {
+      anchors.add(token);
+    }
+  }
+
+  return [...anchors];
+};
+
+/**
+ * Score how strongly a changed line matches the issue text.
+ *
+ * @param changedLine - Changed line candidate
+ * @param anchors - Extracted issue anchors
+ * @returns Relative semantic match score
+ */
+const scoreChangedLineAgainstIssue = (
+  changedLine: ChangedDestinationLine,
+  anchors: string[],
+): number => {
+  return anchors.reduce((score, anchor) => {
+    if (!anchor) {
+      return score;
+    }
+
+    if (anchor.includes(' ') || anchor.includes('"') || anchor.includes('$')) {
+      return changedLine.content.includes(anchor) ? score + 10 : score;
+    }
+
+    return changedLine.content.includes(anchor) ? score + 3 : score;
+  }, 0);
+};
+
+/**
+ * Prefer a semantically matching changed line when the issue message clearly
+ * points at a different changed line than the model-selected line.
+ *
+ * @param issue - Review issue under normalization
+ * @param changedLines - Changed destination-side lines with source text
+ * @returns Better matching changed line or null when no stronger match exists
+ */
+const resolveSemanticIssueLine = (
+  issue: CodeIssue,
+  changedLines: ChangedDestinationLine[],
+): number | null => {
+  const anchors = extractIssueAnchors(issue.message);
+  if (anchors.length === 0) {
+    return null;
+  }
+
+  const scoredChangedLines = changedLines.map((changedLine) => ({
+    changedLine,
+    score: scoreChangedLineAgainstIssue(changedLine, anchors),
+  }));
+  const bestMatch = scoredChangedLines.reduce(
+    (best, candidate) =>
+      candidate.score > best.score
+        ? candidate
+        : candidate.score === best.score &&
+            candidate.changedLine.line < best.changedLine.line
+          ? candidate
+          : best,
+    {
+      changedLine: changedLines[0],
+      score: scoreChangedLineAgainstIssue(changedLines[0], anchors),
+    },
+  );
+  if (bestMatch.score === 0) {
+    return null;
+  }
+
+  const rawLineScore =
+    typeof issue.line === 'number'
+      ? (scoredChangedLines.find(
+          ({ changedLine }) => changedLine.line === issue.line,
+        )?.score ?? 0)
+      : 0;
+
+  return bestMatch.score > rawLineScore ? bestMatch.changedLine.line : null;
+};
+
+/**
  * Normalize review issue lines against changed destination-side diff lines.
  *
  * @param review - Parsed code review payload
@@ -173,6 +285,14 @@ const normalizeReviewIssues = (
         };
       }
 
+      const semanticLine = resolveSemanticIssueLine(issue, changedLines);
+      if (semanticLine != null) {
+        return {
+          ...issue,
+          line: semanticLine,
+        };
+      }
+
       if (
         typeof issue.line !== 'number' ||
         !Number.isFinite(issue.line) ||
@@ -186,7 +306,10 @@ const normalizeReviewIssues = (
 
       return {
         ...issue,
-        line: normalizeIssueLine(issue.line, changedLines),
+        line: normalizeIssueLine(
+          issue.line,
+          changedLines.map((changedLine) => changedLine.line),
+        ),
       };
     }),
   };
