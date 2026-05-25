@@ -77,6 +77,7 @@ const mockReview: CodeReview = {
       message: 'Consider splitting the helper',
       file: 'src/auth.ts',
       line: 12,
+      suggestion: 'Add a regression test',
     },
   ],
   traceProvenance: 'best-effort',
@@ -206,7 +207,7 @@ const mockReview: CodeReview = {
       },
     ],
   },
-  suggestions: ['Add a regression test'],
+  suggestions: [],
   approved: true,
 };
 
@@ -826,15 +827,17 @@ describe('IssueReviewCommand', () => {
             message: 'First issue',
             file: 'src/first.ts',
             line: 10,
+            suggestion: 'First suggestion',
           },
           {
             severity: 'error',
             message: 'Second issue',
             file: 'src/second.ts',
             line: 20,
+            suggestion: 'Second suggestion',
           },
         ],
-        suggestions: ['First suggestion', 'Second suggestion', 'Extra idea'],
+        suggestions: ['Extra idea'],
       });
 
       expect(output).toContain('1. [WARNING] First issue');
@@ -860,9 +863,10 @@ describe('IssueReviewCommand', () => {
             message: 'Inline issue',
             file: 'src/inline.ts',
             line: 24,
+            suggestion: 'Pair this suggestion',
           },
         ],
-        suggestions: ['Pair this suggestion', 'Trailing suggestion'],
+        suggestions: ['Trailing suggestion'],
       });
 
       expect(output).toContain(
@@ -870,6 +874,27 @@ describe('IssueReviewCommand', () => {
       );
       expect(output).toContain('### Suggestions');
       expect(output).toContain('- Trailing suggestion');
+    });
+
+    it('keeps detached legacy suggestions in the trailing section instead of pairing by index', async () => {
+      const { command } = await buildCommand();
+
+      const output = (command as any).formatReviewBlockText({
+        ...mockReview,
+        issues: [
+          {
+            severity: 'warning',
+            message: 'First issue',
+            file: 'src/first.ts',
+            line: 10,
+          },
+        ],
+        suggestions: ['Detached suggestion'],
+      });
+
+      expect(output).not.toContain('   Suggestion: Detached suggestion');
+      expect(output).toContain('SUGGESTIONS (1):');
+      expect(output).toContain('1. Detached suggestion');
     });
 
     it('posts inline comments with the normalized issue line from the review result', async () => {

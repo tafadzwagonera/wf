@@ -709,6 +709,44 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
         ],
       });
     });
+
+    it('asks the model to return issue-local suggestions and detached global suggestions separately', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.reviewCode(
+        `
+diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.ts
+@@
++export async function eventPaymentRecorded() {
++  return addPaymentToBooking();
++}
+`,
+        ['guideline'],
+      );
+
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'A suggestion for each issue when remediation is clear',
+          ),
+        }),
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            '"suggestion": "optional issue-specific remediation"',
+          ),
+        }),
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            '"suggestions": ["general follow-up suggestion 1", ...]',
+          ),
+        }),
+      );
+    });
   });
 
   describe('diagnoseVerificationFailure', () => {

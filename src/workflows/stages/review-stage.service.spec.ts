@@ -277,15 +277,17 @@ describe('ReviewStageService', () => {
             message: 'First issue',
             file: 'src/first.ts',
             line: 10,
+            suggestion: 'First suggestion',
           },
           {
             severity: 'error',
             message: 'Second issue',
             file: 'src/second.ts',
             line: 20,
+            suggestion: 'Second suggestion',
           },
         ],
-        suggestions: ['First suggestion', 'Second suggestion', 'Trailing idea'],
+        suggestions: ['Trailing idea'],
       } as any,
     );
 

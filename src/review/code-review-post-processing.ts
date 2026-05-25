@@ -324,11 +324,11 @@ const normalizeReviewIssues = (
 export const buildCodeReviewPresentation = (
   review: CodeReview,
 ): CodeReviewPresentation => ({
-  issueRows: review.issues.map((issue, index) => ({
+  issueRows: review.issues.map((issue) => ({
     issue,
-    suggestion: review.suggestions[index],
+    suggestion: issue.suggestion,
   })),
-  unmatchedSuggestions: review.suggestions.slice(review.issues.length),
+  unmatchedSuggestions: review.suggestions,
 });
 
 /**

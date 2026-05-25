@@ -406,6 +406,7 @@ export interface CodeIssue {
   message: string;
   file?: string;
   line?: number;
+  suggestion?: string;
 }
 
 @Injectable()
@@ -894,8 +895,9 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     3. A trace provenance label: evidence-based, best-effort, or unavailable
     4. A nested tree-like call stack that walks the changed code path, starting from concrete functions, handlers, or methods in the diff
     5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack, not the reviewer's analysis flow
-    6. Suggestions for improvement
-    7. Whether the code is approved
+    6. A suggestion for each issue when remediation is clear
+    7. Optional trailing suggestions for general follow-up work that is not tied to a single issue
+    8. Whether the code is approved
 
     Important trace rules:
     - Describe the code under review, not the review process.
@@ -920,7 +922,8 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
       "severity": "error|warning|info",
       "message": "...",
           "file": "optional",
-          "line": optional_number
+          "line": optional_number,
+          "suggestion": "optional issue-specific remediation"
         }
       ],
       "traceProvenance": "evidence-based|best-effort|unavailable",
@@ -954,7 +957,7 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
           }
         ]
       },
-      "suggestions": ["suggestion 1", ...],
+      "suggestions": ["general follow-up suggestion 1", ...],
       "approved": true|false
     }`;
 

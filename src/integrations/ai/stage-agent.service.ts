@@ -185,8 +185,9 @@ Provide a code review with:
 3. A trace provenance label: evidence-based, best-effort, or unavailable
 4. A nested tree-like call stack that walks the changed code path
 5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack
-6. Suggestions for improvement
-7. Whether the code is approved
+6. A suggestion for each issue when remediation is clear
+7. Optional trailing suggestions for general follow-up work that is not tied to a single issue
+8. Whether the code is approved
 
 Return ONLY a valid JSON object:
 {
@@ -196,7 +197,8 @@ Return ONLY a valid JSON object:
       "severity": "error|warning|info",
       "message": "...",
       "file": "optional",
-      "line": 12
+      "line": 12,
+      "suggestion": "optional issue-specific remediation"
     }
   ],
   "traceProvenance": "evidence-based|best-effort|unavailable",
@@ -229,7 +231,7 @@ Return ONLY a valid JSON object:
       }
     ]
   },
-  "suggestions": ["suggestion 1"],
+  "suggestions": ["general follow-up suggestion 1"],
   "approved": true
 }`;
 

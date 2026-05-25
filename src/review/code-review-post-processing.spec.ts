@@ -155,12 +155,16 @@ describe('postProcessCodeReview', () => {
     expect(processed.presentation.issueRows).toEqual([
       {
         issue: processed.review.issues[0],
-        suggestion: 'First suggestion',
+        suggestion: undefined,
       },
       {
         issue: processed.review.issues[1],
-        suggestion: 'Second suggestion',
+        suggestion: undefined,
       },
+    ]);
+    expect(processed.presentation.unmatchedSuggestions).toEqual([
+      'First suggestion',
+      'Second suggestion',
     ]);
   });
 
@@ -190,11 +194,47 @@ describe('postProcessCodeReview', () => {
     expect(processed.presentation.issueRows).toEqual([
       {
         issue: processed.review.issues[0],
-        suggestion: 'Paired suggestion',
+        suggestion: undefined,
       },
     ]);
     expect(processed.presentation.unmatchedSuggestions).toEqual([
+      'Paired suggestion',
       'Trailing suggestion',
+    ]);
+  });
+
+  it('prefers explicit issue-local suggestions over detached top-level suggestions', () => {
+    const review = createReview({
+      issues: [
+        {
+          severity: 'warning',
+          message: 'Normalize the input',
+          file: 'src/example.ts',
+          line: 1,
+          suggestion: 'Uppercase the lookup key before querying.',
+        },
+      ],
+      suggestions: ['General follow-up recommendation'],
+    });
+
+    const diff = `diff --git a/src/example.ts b/src/example.ts
+--- a/src/example.ts
++++ b/src/example.ts
+@@ -1,1 +1,1 @@
+-before
++after
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.presentation.issueRows).toEqual([
+      {
+        issue: processed.review.issues[0],
+        suggestion: 'Uppercase the lookup key before querying.',
+      },
+    ]);
+    expect(processed.presentation.unmatchedSuggestions).toEqual([
+      'General follow-up recommendation',
     ]);
   });
 
