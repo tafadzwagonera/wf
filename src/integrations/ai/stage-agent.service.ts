@@ -18,6 +18,7 @@ import {
   sanitizeCodeReviewTrace,
 } from './ai.service';
 import { AIError } from '../../shared/utils/errors';
+import { postProcessCodeReview } from '../../review/code-review-post-processing';
 
 const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
@@ -246,8 +247,12 @@ Ignore JSON or markdown files under .wf/ and platform artifact directories.`;
 
     try {
       const parsed = parseJsonResponse<CodeReview>(response);
+      const processedReview = postProcessCodeReview(
+        sanitizeCodeReviewTrace(parsed, diff),
+        diff,
+      );
       return {
-        ...sanitizeCodeReviewTrace(parsed, diff),
+        ...processedReview.review,
         executionMode: 'agent',
       };
     } catch (error) {

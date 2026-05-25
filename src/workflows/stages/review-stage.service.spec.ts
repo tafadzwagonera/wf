@@ -257,6 +257,53 @@ describe('ReviewStageService', () => {
     expect(artifact.approved).toBe(true);
   });
 
+  it('renders issue-local suggestions and leaves unmatched extras in a trailing section', async () => {
+    const { service } = await buildService();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-'));
+    const ticketPath = path.join(tempDir, 'WBP-125.md');
+    fs.writeFileSync(ticketPath, '# WBP-125: Review formatting');
+
+    const artifact = service.createReviewArtifact(
+      {
+        ticketKey: 'WBP-125',
+        content: '# WBP-125: Review formatting',
+        path: ticketPath,
+      },
+      {
+        ...mockReview,
+        issues: [
+          {
+            severity: 'warning',
+            message: 'First issue',
+            file: 'src/first.ts',
+            line: 10,
+          },
+          {
+            severity: 'error',
+            message: 'Second issue',
+            file: 'src/second.ts',
+            line: 20,
+          },
+        ],
+        suggestions: ['First suggestion', 'Second suggestion', 'Trailing idea'],
+      } as any,
+    );
+
+    const reviewMarkdown = fs.readFileSync(artifact.path, 'utf-8');
+    expect(reviewMarkdown).toContain(
+      '- [warning] First issue (src/first.ts:10)',
+    );
+    expect(reviewMarkdown).toContain('  - Suggestion: First suggestion');
+    expect(reviewMarkdown.indexOf('First issue')).toBeLessThan(
+      reviewMarkdown.indexOf('Suggestion: First suggestion'),
+    );
+    expect(reviewMarkdown.indexOf('Suggestion: First suggestion')).toBeLessThan(
+      reviewMarkdown.indexOf('Second issue'),
+    );
+    expect(reviewMarkdown).toContain('## Suggestions');
+    expect(reviewMarkdown).toContain('- Trailing idea');
+  });
+
   it('marks agent-backed traces as evidence-based when trace payload exists', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
     const review = await service.reviewDiff('diff --git a/file b/file', {

@@ -348,7 +348,7 @@ When `--repos` is present, filename-only custom sources are resolved against the
 #### `wf issue:review [source]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:review -->
-AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance in the output
+AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors
 
 ```bash
 # Review current repo changes
@@ -362,6 +362,9 @@ wf issue:review WBP-2971 --platform jira --repos service-tourv3
 
 # Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd
 yarn start issue:review CTRL-280 -r api-gateway-v1
+
+# Review a pull request and post review comments with diff-aligned inline anchors
+wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 ```
 
 **Options:**
@@ -399,7 +402,9 @@ If no `--repos` value is supplied and adapters cannot determine a remote reposit
 
 If `--repos` is supplied for ticket review but a listed repository is not available as a local path or sibling directory, remote PR review can still succeed. However, if no PR is found, the command now exits with an actionable error instead of falling back to reviewing the current directory.
 
-The current review output keeps `Call Stack` and `State Transition` in the same order before `Suggestions`, with `Approval Status` after `Suggestions`. Each trace section now includes explicit provenance text so the output says whether the trace is evidence-based from an agent backend, best-effort from the standard SDK path, or unavailable. The `Call Stack` section renders as a nested tree of concrete frames, and `State Transition` shows the variable changes observed at each frame.
+The current review output keeps `Call Stack` and `State Transition` in the same order before any trailing unmatched `Suggestions`, with `Approval Status` after `Suggestions`. Paired model suggestions now render directly under their corresponding issues in terminal output, exported text, workflow artifacts, and PR summary comments. Each trace section includes explicit provenance text so the output says whether the trace is evidence-based from an agent backend, best-effort from the standard SDK path, or unavailable. The `Call Stack` section renders as a nested tree of concrete frames, and `State Transition` shows the variable changes observed at each frame.
+
+When `--comment` is used on a pull request, inline review comments use destination-side changed diff lines. If the model returns an invalid changed line for a file, wf remaps it to the nearest changed destination-side line in that file before posting. If the file has no usable destination-side changed line, wf omits the inline line anchor instead of posting an invalid one.
 
 ---
 

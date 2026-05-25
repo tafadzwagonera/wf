@@ -775,12 +775,11 @@ describe('IssueReviewCommand', () => {
       expect(output.indexOf('CALL STACK:')).toBeLessThan(
         output.indexOf('STATE TRANSITION:'),
       );
+      expect(output).toContain('Suggestion: Add a regression test');
       expect(output.indexOf('STATE TRANSITION:')).toBeLessThan(
-        output.indexOf('SUGGESTIONS'),
-      );
-      expect(output.indexOf('SUGGESTIONS')).toBeLessThan(
         output.indexOf('APPROVAL STATUS'),
       );
+      expect(output).not.toContain('SUGGESTIONS (1):');
     });
 
     it('renders unavailable trace sections when no code-path trace can be inferred', async () => {
@@ -813,6 +812,95 @@ describe('IssueReviewCommand', () => {
       );
       expect(output).toContain(
         'Trace unavailable: no concrete code-path trace could be inferred for the state transition section.',
+      );
+    });
+
+    it('renders paired suggestions directly under each issue in text output and keeps extras trailing', async () => {
+      const { command } = await buildCommand();
+
+      const output = (command as any).formatReviewBlockText({
+        ...mockReview,
+        issues: [
+          {
+            severity: 'warning',
+            message: 'First issue',
+            file: 'src/first.ts',
+            line: 10,
+          },
+          {
+            severity: 'error',
+            message: 'Second issue',
+            file: 'src/second.ts',
+            line: 20,
+          },
+        ],
+        suggestions: ['First suggestion', 'Second suggestion', 'Extra idea'],
+      });
+
+      expect(output).toContain('1. [WARNING] First issue');
+      expect(output).toContain('   Suggestion: First suggestion');
+      expect(output.indexOf('1. [WARNING] First issue')).toBeLessThan(
+        output.indexOf('   Suggestion: First suggestion'),
+      );
+      expect(output.indexOf('   Suggestion: First suggestion')).toBeLessThan(
+        output.indexOf('2. [ERROR] Second issue'),
+      );
+      expect(output).toContain('SUGGESTIONS (1):');
+      expect(output).toContain('1. Extra idea');
+    });
+
+    it('renders paired suggestions directly under each issue in PR comments', async () => {
+      const { command } = await buildCommand();
+
+      const output = (command as any).formatReviewAsComment({
+        ...mockReview,
+        issues: [
+          {
+            severity: 'warning',
+            message: 'Inline issue',
+            file: 'src/inline.ts',
+            line: 24,
+          },
+        ],
+        suggestions: ['Pair this suggestion', 'Trailing suggestion'],
+      });
+
+      expect(output).toContain(
+        '- [warning] Inline issue (src/inline.ts:24)\n  Suggestion: Pair this suggestion',
+      );
+      expect(output).toContain('### Suggestions');
+      expect(output).toContain('- Trailing suggestion');
+    });
+
+    it('posts inline comments with the normalized issue line from the review result', async () => {
+      const { command, adapters, reviewStageService } = await buildCommand();
+
+      reviewStageService.reviewDiff.mockResolvedValue({
+        ...mockReview,
+        issues: [
+          {
+            severity: 'warning',
+            message: 'Normalized inline issue',
+            file: 'src/inline.ts',
+            line: 24,
+          },
+        ],
+        suggestions: [],
+      });
+      adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 24');
+
+      await command.run(
+        ['https://bitbucket.org/workspace/repo/pull-requests/160'],
+        { comment: true },
+      );
+
+      expect(
+        adapters.bitbucketAdapter.createInlineComment,
+      ).toHaveBeenCalledWith(
+        'https://bitbucket.org/workspace/repo/pull-requests/160',
+        'src/inline.ts',
+        24,
+        'Normalized inline issue',
       );
     });
   });

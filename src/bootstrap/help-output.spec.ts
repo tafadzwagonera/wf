@@ -134,7 +134,7 @@ describe('getHelpText', () => {
     expect(reviewHelpText).toContain('--criteria <path>');
     expect(reviewHelpText).toContain('--replace-criteria <path>');
     expect(plainReviewHelpText).toContain(
-      'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs',
+      'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors',
     );
     expect(plainReviewHelpText).toContain(
       'Platform (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary platform',

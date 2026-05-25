@@ -9,6 +9,7 @@ import {
 } from '../../integrations/ai/review-trace';
 import { ReviewArtifact, TicketArtifact } from '../../agents/interfaces';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
+import { buildCodeReviewPresentation } from '../../review/code-review-post-processing';
 
 const DEFAULT_REVIEW_GUIDELINES = [
   'Clarity: Would another developer understand this instantly?',
@@ -82,11 +83,29 @@ export class ReviewStageService {
   }
 
   private formatReviewMarkdown(ticketKey: string, review: CodeReview): string {
+    const presentation = buildCodeReviewPresentation(review);
     const callStackSection = this.formatCallStackMarkdown(review.callStack);
     const stateTransitionSection = this.formatStateTransitionMarkdown(
       review.stateTransition,
     );
     const provenanceSection = this.formatTraceProvenance(review);
+    const issuesSection =
+      presentation.issueRows.length > 0
+        ? presentation.issueRows
+            .map(({ issue, suggestion }) =>
+              [
+                `- [${issue.severity}] ${issue.message}${issue.file ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})` : ''}`,
+                suggestion ? `  - Suggestion: ${suggestion}` : null,
+              ]
+                .filter((line): line is string => line != null)
+                .join('\n'),
+            )
+            .join('\n')
+        : '- None';
+    const trailingSuggestionsSection =
+      presentation.unmatchedSuggestions.length > 0
+        ? `\n## Suggestions\n${presentation.unmatchedSuggestions.map((suggestion) => `- ${suggestion}`).join('\n')}\n`
+        : '\n';
 
     return `# Code Review: ${ticketKey}
 
@@ -94,7 +113,7 @@ export class ReviewStageService {
 ${review.summary}
 
 ## Issues
-${review.issues.map((issue) => `- [${issue.severity}] ${issue.message}${issue.file ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})` : ''}`).join('\n')}
+${issuesSection}
 
 ## Call Stack
 ${provenanceSection}
@@ -103,9 +122,7 @@ ${callStackSection}
 ## State Transition
 ${provenanceSection}
 ${stateTransitionSection}
-
-## Suggestions
-${review.suggestions.map((suggestion) => `- ${suggestion}`).join('\n')}
+${trailingSuggestionsSection}
 
 ## Approval Status
 ${review.approved ? '✓ Approved' : '✗ Changes needed'}

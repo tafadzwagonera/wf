@@ -348,7 +348,7 @@
     ]
   },
   "issue:review": {
-    "description": "AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance in the output",
+    "description": "AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors",
     "usage": "wf issue:review [source] [options]",
     "options": [
       {
@@ -400,6 +400,10 @@
       {
         "comment": "Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd",
         "command": "yarn start issue:review CTRL-280 -r api-gateway-v1"
+      },
+      {
+        "comment": "Review a pull request and post review comments with diff-aligned inline anchors",
+        "command": "wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment"
       }
     ]
   },

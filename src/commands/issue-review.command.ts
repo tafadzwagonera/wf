@@ -6,6 +6,7 @@ import {
   CodeIssue,
   CodeReview,
 } from '../integrations/ai/ai.service';
+import { buildCodeReviewPresentation } from '../review/code-review-post-processing';
 import {
   formatReviewCallStack,
   formatReviewStateTransition,
@@ -87,6 +88,12 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
       'Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd',
     command: 'yarn start issue:review CTRL-280 -r api-gateway-v1',
   },
+  {
+    comment:
+      'Review a pull request and post review comments with diff-aligned inline anchors',
+    command:
+      'wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment',
+  },
 ];
 
 /**
@@ -127,7 +134,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 @Command({
   name: 'issue:review',
   description:
-    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance in the output',
+    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors',
   arguments: '[source]',
   options: { isDefault: false },
 })
@@ -265,6 +272,8 @@ export class IssueReviewCommand extends CommandRunner {
               '## Issues Found',
               '(none)',
               '',
+              'Suggestion: <paired issue suggestion>',
+              '',
               '## Call Stack',
               'Provenance: code-path trace or unavailable',
               'Code-path trace: grounded in the changed code or marked unavailable.',
@@ -276,7 +285,7 @@ export class IssueReviewCommand extends CommandRunner {
               '(no structured state transition was returned)',
               '',
               '## Suggestions',
-              '(none)',
+              '<unmatched suggestions only>',
               '',
               '## Approval Status',
               '✓ Approved',
@@ -799,17 +808,22 @@ export class IssueReviewCommand extends CommandRunner {
    * @returns Markdown string
    */
   private formatReviewAsComment(review: CodeReview): string {
+    const presentation = buildCodeReviewPresentation(review);
     const lines: string[] = ['## AI Code Review', ''];
     lines.push(`**Summary:** ${review.summary}`);
     lines.push('');
     lines.push('### Issues');
 
-    if (review.issues.length > 0) {
-      for (const issue of review.issues) {
+    if (presentation.issueRows.length > 0) {
+      for (const row of presentation.issueRows) {
+        const { issue, suggestion } = row;
         const location = issue.file
           ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})`
           : '';
         lines.push(`- [${issue.severity}] ${issue.message}${location}`);
+        if (suggestion) {
+          lines.push(`  Suggestion: ${suggestion}`);
+        }
       }
     } else {
       lines.push('- None');
@@ -822,17 +836,14 @@ export class IssueReviewCommand extends CommandRunner {
     lines.push('### State Transition');
     lines.push(this.formatStateTransitionPlain(review));
     lines.push('');
-    lines.push('### Suggestions');
-
-    if (review.suggestions.length > 0) {
-      for (const suggestion of review.suggestions) {
+    if (presentation.unmatchedSuggestions.length > 0) {
+      lines.push('### Suggestions');
+      for (const suggestion of presentation.unmatchedSuggestions) {
         lines.push(`- ${suggestion}`);
       }
-    } else {
-      lines.push('- None');
+      lines.push('');
     }
 
-    lines.push('');
     lines.push(
       `**Approval Status:** ${review.approved ? '✓ Approved' : '✗ Changes needed'}`,
     );
@@ -1429,6 +1440,7 @@ export class IssueReviewCommand extends CommandRunner {
    * Display review results
    */
   private displayReview(review: CodeReview, heading?: string): void {
+    const presentation = buildCodeReviewPresentation(review);
     if (heading) {
       console.log(chalk.bold.cyan(`\n${heading}\n`));
     }
@@ -1436,9 +1448,10 @@ export class IssueReviewCommand extends CommandRunner {
     console.log(chalk.bold('Summary:'));
     console.log(chalk.bold.cyan('  ' + review.summary));
 
-    if (review.issues.length > 0) {
+    if (presentation.issueRows.length > 0) {
       console.log(chalk.bold('\nIssues Found:'));
-      review.issues.forEach((issue: CodeIssue) => {
+      presentation.issueRows.forEach((row) => {
+        const { issue, suggestion } = row;
         const severityColor =
           issue.severity === 'error'
             ? chalk.red
@@ -1455,6 +1468,9 @@ export class IssueReviewCommand extends CommandRunner {
             ),
           );
         }
+        if (suggestion) {
+          console.log(chalk.cyan(`    Suggestion: ${suggestion}`));
+        }
       });
     } else {
       console.log(chalk.green('\n✓ No issues found'));
@@ -1466,9 +1482,9 @@ export class IssueReviewCommand extends CommandRunner {
     console.log(chalk.bold('\nState Transition:'));
     console.log(this.formatStateTransitionInline(review));
 
-    if (review.suggestions.length > 0) {
+    if (presentation.unmatchedSuggestions.length > 0) {
       console.log(chalk.bold('\nSuggestions:'));
-      review.suggestions.forEach((suggestion: string) => {
+      presentation.unmatchedSuggestions.forEach((suggestion: string) => {
         console.log(chalk.cyan(`  💡 ${suggestion}`));
       });
     } else {
@@ -1541,16 +1557,21 @@ export class IssueReviewCommand extends CommandRunner {
    * @returns Review block text
    */
   private formatReviewBlockText(review: CodeReview): string {
+    const presentation = buildCodeReviewPresentation(review);
     let text = '';
 
     text += `SUMMARY:\n${review.summary}\n\n`;
 
-    if (review.issues.length > 0) {
-      text += `ISSUES FOUND (${review.issues.length}):\n`;
-      review.issues.forEach((issue: CodeIssue, index: number) => {
+    if (presentation.issueRows.length > 0) {
+      text += `ISSUES FOUND (${presentation.issueRows.length}):\n`;
+      presentation.issueRows.forEach((row, index: number) => {
+        const { issue, suggestion } = row;
         text += `\n${index + 1}. [${issue.severity.toUpperCase()}] ${issue.message}\n`;
         if (issue.file) {
           text += `   File: ${issue.file}${issue.line ? `:${issue.line}` : ''}\n`;
+        }
+        if (suggestion) {
+          text += `   Suggestion: ${suggestion}\n`;
         }
       });
       text += '\n';
@@ -1561,13 +1582,15 @@ export class IssueReviewCommand extends CommandRunner {
     text += `CALL STACK:\n${this.formatCallStackPlain(review)}\n\n`;
     text += `STATE TRANSITION:\n${this.formatStateTransitionPlain(review)}\n\n`;
 
-    if (review.suggestions.length > 0) {
-      text += `SUGGESTIONS (${review.suggestions.length}):\n`;
-      review.suggestions.forEach((suggestion: string, index: number) => {
-        text += `${index + 1}. ${suggestion}\n`;
-      });
+    if (presentation.unmatchedSuggestions.length > 0) {
+      text += `SUGGESTIONS (${presentation.unmatchedSuggestions.length}):\n`;
+      presentation.unmatchedSuggestions.forEach(
+        (suggestion: string, index: number) => {
+          text += `${index + 1}. ${suggestion}\n`;
+        },
+      );
       text += '\n';
-    } else {
+    } else if (presentation.issueRows.length === 0) {
       text += 'SUGGESTIONS: None\n\n';
     }
 

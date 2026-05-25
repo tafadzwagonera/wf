@@ -11,6 +11,7 @@ import type {
   ReviewTraceCallStackNode,
   ReviewTraceStateTransition,
 } from './review-trace';
+import { postProcessCodeReview } from '../../review/code-review-post-processing';
 
 /**
  * Strips a single wrapping markdown code fence from LLM output.
@@ -966,8 +967,12 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
 
     try {
       const parsed = parseJsonResponse<CodeReview>(response.content);
+      const processedReview = postProcessCodeReview(
+        sanitizeCodeReviewTrace(parsed, diff),
+        diff,
+      );
       return {
-        ...sanitizeCodeReviewTrace(parsed, diff),
+        ...processedReview.review,
         executionMode: 'standard',
       };
     } catch (error) {
