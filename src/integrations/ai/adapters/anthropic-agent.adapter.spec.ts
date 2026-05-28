@@ -669,6 +669,26 @@ describe('AnthropicAgentAdapter', () => {
       expect(mockSession.close).toHaveBeenCalledTimes(1);
     });
 
+    it('sets autoCompactWindow in SDK settings', async () => {
+      const mockSession = makeSdkSession([makeResultSuccess()]);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      await adapter.generateAndVerify(makeParams());
+
+      const queryArgs = mockQuery.mock.calls[0][0];
+      const options = queryArgs.options as Record<string, unknown>;
+      const settings = options.settings as {
+        claudeMdExcludes: string[];
+        autoCompactWindow: number;
+      };
+      expect(settings.autoCompactWindow).toBe(20000);
+    });
+
     it('streams task and tool progress messages before the final result', async () => {
       const mockSession = makeSdkSession([
         makeTaskProgressMessage(),

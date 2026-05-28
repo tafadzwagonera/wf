@@ -708,6 +708,17 @@ stages:
 
 `model` and `models` are mutually exclusive. If both are present, `model` takes precedence and a warning is displayed. The primary model resolves from `stages.implement.model` → `ai.$.model` → provider default. The mechanical model resolves from `stages.implement.models.mechanical` → provider default mechanical.
 
+#### Context compaction
+
+Long-running implement sessions (50+ turns, 30+ file edits) can exhaust per-minute token limits when the full conversation history is re-sent on every API turn. Both agent backends now enable automatic context compaction to keep usage within TPM budgets:
+
+| Backend | Mechanism | Config |
+|---|---|---|
+| OpenAI | `OpenAIResponsesCompactionSession` with `compactionMode: 'auto'` and a custom `shouldTriggerCompaction` hook that fires when ≥10 candidate items **or** estimated context exceeds 15K tokens (session items × 150) | Automatic — no user config needed |
+| Anthropic | `autoCompactWindow: 20000` in SDK settings | Compacts when context exceeds ~20K tokens |
+
+When compaction occurs, the OpenAI backend logs `[openai-agent] Context compaction triggered during run` and the Anthropic backend emits a `Status: compacting` progress message. Cached input tokens are also surfaced in the usage log (e.g. `Usage: 31376 input (12000 cached) / 1063 output tokens`).
+
 ### Retry strategy
 
 `issue:implement` uses a **two-phase retry** strategy when verification fails:

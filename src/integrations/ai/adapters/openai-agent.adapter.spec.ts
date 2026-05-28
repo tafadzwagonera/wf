@@ -12,6 +12,12 @@ import {
 import { loadAiContextConfig } from './load-ai-context-config';
 import type { VerificationScript } from '../../../agents/interfaces';
 
+jest.mock('@openai/agents-openai', () => ({
+  OpenAIResponsesCompactionSession: jest.fn(),
+}));
+
+jest.mock('openai', () => jest.fn());
+
 jest.mock('@openai/agents', () => ({
   Agent: jest.fn(),
   MaxTurnsExceededError: class MaxTurnsExceededError extends Error {
@@ -114,6 +120,9 @@ const {
   Runner: mockRunner,
   tool: mockTool,
 } = jest.requireMock('@openai/agents');
+const { OpenAIResponsesCompactionSession: mockCompactionSession } =
+  jest.requireMock('@openai/agents-openai');
+const mockOpenAIClient = jest.requireMock('openai');
 const { exec: mockExec } = jest.requireMock('child_process');
 const mockHomedir = os.homedir as jest.MockedFunction<typeof os.homedir>;
 
@@ -223,6 +232,12 @@ describe('OpenAIAgentAdapter', () => {
       (config: Record<string, unknown>) => config,
     );
     mockTool.mockImplementation((config: Record<string, unknown>) => config);
+    mockCompactionSession.mockImplementation(
+      (config: Record<string, unknown>) => config,
+    );
+    mockOpenAIClient.mockImplementation(
+      (config: Record<string, unknown>) => config,
+    );
     mockExec.mockImplementation(
       (
         command: string,
@@ -250,6 +265,8 @@ describe('OpenAIAgentAdapter', () => {
     mockOpenAIProvider.mockReset();
     mockRunner.mockReset();
     mockTool.mockReset();
+    mockCompactionSession.mockReset();
+    mockOpenAIClient.mockReset();
     mockExec.mockReset();
   });
 
@@ -399,6 +416,7 @@ describe('OpenAIAgentAdapter', () => {
         inputTokens: 500,
         outputTokens: 200,
         totalTokens: 700,
+        cachedInputTokens: 0,
         compacted: false,
       });
     });
@@ -419,7 +437,29 @@ describe('OpenAIAgentAdapter', () => {
         inputTokens: 1000,
         outputTokens: 50,
         totalTokens: 1050,
+        cachedInputTokens: 0,
         compacted: true,
+      });
+    });
+
+    it('extracts cachedInputTokens from inputTokensDetails', () => {
+      const event = makeRawModelEvent({
+        type: 'response_done',
+        response: {
+          usage: {
+            inputTokens: 31376,
+            outputTokens: 1063,
+            totalTokens: 32439,
+            inputTokensDetails: { cachedTokens: 12000 },
+          },
+        },
+      });
+      expect(extractUsageFromEvent(event)).toEqual({
+        inputTokens: 31376,
+        outputTokens: 1063,
+        totalTokens: 32439,
+        cachedInputTokens: 12000,
+        compacted: false,
       });
     });
 
@@ -841,6 +881,7 @@ describe('OpenAIAgentAdapter', () => {
         expect.objectContaining({
           stream: true,
           maxTurns: 20,
+          session: expect.anything(),
         }),
       );
       expect(mockExec).toHaveBeenCalledTimes(1);
@@ -1293,6 +1334,187 @@ describe('OpenAIAgentAdapter', () => {
       expect(
         logCalls.some((message) =>
           message.includes('Usage: 1000 input / 500 output tokens'),
+        ),
+      ).toBe(true);
+    });
+
+    it('passes a compaction session to Runner.run()', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-compaction-session-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await adapter.generateAndVerify(makeParams(repoDir));
+
+      expect(mockOpenAIClient).toHaveBeenCalledWith({
+        apiKey: 'test-openai-key',
+      });
+      expect(mockCompactionSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          compactionMode: 'auto',
+          shouldTriggerCompaction: expect.any(Function),
+        }),
+      );
+      const mockRunnerInstance = mockRunner.mock.results[0]?.value as Record<
+        string,
+        unknown
+      > & { run?: jest.Mock };
+      const runOptions = mockRunnerInstance.run?.mock.calls[0]?.[2] as {
+        session: unknown;
+      };
+      expect(runOptions.session).toBeDefined();
+    });
+
+    it('shouldTriggerCompaction fires on item count or token estimate', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-compaction-hook-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      await adapter.generateAndVerify(makeParams(repoDir));
+
+      const hookArg = mockCompactionSession.mock.calls[0]?.[0] as Record<
+        string,
+        unknown
+      >;
+      const shouldTrigger = hookArg.shouldTriggerCompaction as (arg: {
+        compactionCandidateItems: unknown[];
+        sessionItems: unknown[];
+      }) => boolean;
+
+      // ≥10 candidate items → true
+      expect(
+        shouldTrigger({
+          compactionCandidateItems: Array.from({ length: 10 }),
+          sessionItems: Array.from({ length: 5 }),
+        }),
+      ).toBe(true);
+
+      // >100 session items (101 * 150 = 15150 > 15000) with few candidates → true
+      expect(
+        shouldTrigger({
+          compactionCandidateItems: Array.from({ length: 2 }),
+          sessionItems: Array.from({ length: 101 }),
+        }),
+      ).toBe(true);
+
+      // Both below threshold → false
+      expect(
+        shouldTrigger({
+          compactionCandidateItems: Array.from({ length: 3 }),
+          sessionItems: Array.from({ length: 50 }),
+        }),
+      ).toBe(false);
+    });
+
+    it('logs cached token count when present', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-cached-log-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun(
+        [
+          makeRawModelEvent({
+            type: 'response_done',
+            response: {
+              usage: {
+                inputTokens: 31376,
+                outputTokens: 1063,
+                totalTokens: 32439,
+                inputTokensDetails: { cachedTokens: 12000 },
+              },
+            },
+          }),
+        ],
+        'Done.',
+        undefined,
+        5,
+      );
+
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      await adapter.generateAndVerify(makeParams(repoDir));
+
+      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      expect(
+        logCalls.some(
+          (message) =>
+            message.includes('Usage: 31376 input') &&
+            message.includes('(12000 cached)') &&
+            message.includes('1063 output tokens'),
+        ),
+      ).toBe(true);
+    });
+
+    it('logs compaction triggered message when compaction occurred', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-compaction-log-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun(
+        [
+          makeRawModelEvent({
+            type: 'response_done',
+            response: {
+              usage: {
+                inputTokens: 2000,
+                outputTokens: 100,
+                totalTokens: 2100,
+                requestUsageEntries: [{ endpoint: 'responses.compact' }],
+              },
+            },
+          }),
+        ],
+        'Done.',
+      );
+
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      await adapter.generateAndVerify(makeParams(repoDir));
+
+      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      expect(
+        logCalls.some((message) =>
+          message.includes('Context compaction triggered during run'),
         ),
       ).toBe(true);
     });

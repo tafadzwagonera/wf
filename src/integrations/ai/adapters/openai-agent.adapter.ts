@@ -12,10 +12,12 @@ import {
   tool,
 } from '@openai/agents';
 import type { StreamedRunResult } from '@openai/agents';
+import { OpenAIResponsesCompactionSession } from '@openai/agents-openai';
 import chalk from 'chalk';
 import * as fs from 'fs/promises';
 import { exec } from 'child_process';
 import { glob } from 'glob';
+import OpenAI from 'openai';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -302,6 +304,7 @@ export type OpenAiUsageSummary = {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  cachedInputTokens: number;
   compacted: boolean;
 };
 
@@ -333,6 +336,7 @@ export const extractUsageFromEvent = (
       inputTokens?: number;
       outputTokens?: number;
       totalTokens?: number;
+      inputTokensDetails?: { cachedTokens?: number };
       requestUsageEntries?: Array<{ endpoint?: string }>;
     };
   } | null;
@@ -342,6 +346,7 @@ export const extractUsageFromEvent = (
     return null;
   }
 
+  const cachedInputTokens = usage.inputTokensDetails?.cachedTokens ?? 0;
   const compacted =
     usage.requestUsageEntries?.some(
       (entry) => entry.endpoint === 'responses.compact',
@@ -351,6 +356,7 @@ export const extractUsageFromEvent = (
     inputTokens: usage.inputTokens ?? 0,
     outputTokens: usage.outputTokens ?? 0,
     totalTokens: usage.totalTokens ?? 0,
+    cachedInputTokens,
     compacted,
   };
 };
@@ -509,6 +515,7 @@ Rules:
 - Use delete_file only when a file should be removed.
 - verify_command is the only way to execute a shell command, and it will reject any command outside the verification whitelist.
 - Never invent or call any other shell command tool.
+- Never duplicate a function. To add a parameter, modify the existing function signature. To change behavior, edit the existing function body. This applies to constructors, methods, and standalone functions alike.
 - Writes must stay scoped to the primary repository (${repoDir}).
 - Reads may target ${repoDir} and any configured read-only sibling repositories.
 - You MUST implement ALL plan steps listed above. Do not stop after completing only the core infrastructure — continue through every step until all tasks are done.
@@ -1210,6 +1217,24 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       modelProvider,
     });
 
+    const openaiClient = new OpenAI({ apiKey });
+    const compactionSession = new OpenAIResponsesCompactionSession({
+      client: openaiClient,
+      model,
+      compactionMode: 'auto',
+      shouldTriggerCompaction: ({ compactionCandidateItems, sessionItems }) => {
+        if (compactionCandidateItems.length >= 10) {
+          return true;
+        }
+        // Estimate ~150 tokens per session item (tool calls, results, messages).
+        // Trigger compaction well before the context becomes large enough to
+        // cause TPM issues — 15K tokens leaves headroom for the system prompt
+        // and the next response.
+        const estimatedTokens = sessionItems.length * 150;
+        return estimatedTokens > 15_000;
+      },
+    });
+
     const streamedRun: StreamedRunResult<
       OpenAiImplementerContext,
       typeof agent
@@ -1217,12 +1242,14 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       stream: true,
       context,
       maxTurns,
+      session: compactionSession,
     });
 
     const usageSummary: OpenAiUsageSummary = {
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
+      cachedInputTokens: 0,
       compacted: false,
     };
 
@@ -1237,6 +1264,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
             usageSummary.inputTokens += usage.inputTokens;
             usageSummary.outputTokens += usage.outputTokens;
             usageSummary.totalTokens += usage.totalTokens;
+            usageSummary.cachedInputTokens += usage.cachedInputTokens;
             if (usage.compacted) {
               usageSummary.compacted = true;
             }
@@ -1307,10 +1335,19 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       ),
     );
     if (usageSummary.totalTokens > 0) {
+      const cachedLabel =
+        usageSummary.cachedInputTokens > 0
+          ? ` (${usageSummary.cachedInputTokens} cached)`
+          : '';
       console.log(
         chalk.cyan(
-          `  [openai-agent] Usage: ${usageSummary.inputTokens} input / ${usageSummary.outputTokens} output tokens`,
+          `  [openai-agent] Usage: ${usageSummary.inputTokens} input${cachedLabel} / ${usageSummary.outputTokens} output tokens`,
         ),
+      );
+    }
+    if (usageSummary.compacted) {
+      console.log(
+        chalk.cyan('  [openai-agent] Context compaction triggered during run'),
       );
     }
     console.log(chalk.green('\n✓ OpenAI agent implementation complete'));

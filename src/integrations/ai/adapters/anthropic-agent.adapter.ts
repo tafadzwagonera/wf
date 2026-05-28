@@ -533,6 +533,7 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
           path.join(repoDir, 'CLAUDE.md'),
           path.join(repoDir, '.claude', 'CLAUDE.md'),
         ],
+        autoCompactWindow: 20000,
       } satisfies Settings,
       systemPrompt: {
         type: 'preset' as const,
