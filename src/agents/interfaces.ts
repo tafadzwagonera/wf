@@ -138,6 +138,12 @@ export interface PlannerOptions {
   affectedRepositories?: string[];
 }
 
+/** Controls how the implement-stage adapter selects its model.
+ *  - `auto` — detect mechanical vs creative from the plan, switch mid-run
+ *  - `primary` — force the primary model for the entire run
+ *  - `mechanical` — force the cheaper mechanical model for the entire run */
+export type ModelRouting = 'auto' | 'primary' | 'mechanical';
+
 /** platformName is required to apply Atlassian vs GitHub ticket-key casing rules. */
 export interface ImplementerOptions {
   platformName: string;
@@ -150,6 +156,8 @@ export interface ImplementerOptions {
   customBranchSlug?: string;
   /** When true, skips single-repo boundary guards. Set only by IssueCommand's per-repo loop. */
   allowMultiRepoScope?: boolean;
+  /** Controls model selection strategy for the implement stage. Defaults to 'auto'. */
+  modelRouting?: ModelRouting;
 }
 
 export interface ReviewerOptions {

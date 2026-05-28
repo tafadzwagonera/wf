@@ -23,7 +23,10 @@ import type {
   ResolutionAction,
   TicketArtifact,
   PlanArtifact,
+  ModelRouting,
 } from '../agents/interfaces';
+
+const VALID_MODEL_ROUTINGS: ModelRouting[] = ['auto', 'primary', 'mechanical'];
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -49,6 +52,7 @@ interface IssueImplementOptions {
   platform?: string;
   repos?: string[];
   dryRun?: boolean;
+  modelRouting?: string;
 }
 
 interface SyntheticCustomExecutionContext {
@@ -118,6 +122,20 @@ export class IssueImplementCommand extends CommandRunner {
   })
   parseDryRun(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '--model-routing <mode>',
+    description:
+      'Model selection strategy: auto (detect mechanical vs creative), primary (force primary model), mechanical (force cheaper model). Defaults to auto.',
+  })
+  parseModelRouting(val: string): string {
+    if (!VALID_MODEL_ROUTINGS.includes(val as ModelRouting)) {
+      throw new Error(
+        `Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTINGS.join(', ')}`,
+      );
+    }
+    return val;
   }
 
   @Option({
@@ -413,6 +431,7 @@ Return ONLY a valid JSON object:
               .slice(1)
               .map((r) => resolveRepoBasePath(r)),
             customBranchSlug: customExecutionContext.customBranchSlug,
+            modelRouting: options?.modelRouting as ModelRouting,
           },
         );
         return;
@@ -600,6 +619,7 @@ Return ONLY a valid JSON object:
           additionalRepoDirs: (options?.repos ?? [])
             .slice(1)
             .map((r) => resolveRepoBasePath(r)),
+          modelRouting: options?.modelRouting as ModelRouting,
         },
       );
     } catch (error) {

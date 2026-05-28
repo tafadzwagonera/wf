@@ -9,6 +9,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   AnthropicAgentAdapter,
+  detectMechanicalTask,
   formatActivityMessages,
   formatProgressMessage,
 } from './anthropic-agent.adapter';
@@ -186,6 +187,7 @@ const makeApiRetryMessage = (
     attempt: overrides.attempt ?? 1,
     max_retries: overrides.max_retries ?? 3,
     error_status: 'error_status' in overrides ? overrides.error_status : 529,
+    error: 'server_error' as const,
     retry_delay_ms: overrides.retry_delay_ms ?? 2000,
     uuid: '11111111-1111-1111-1111-111111111118',
     session_id: 'session-8',
@@ -203,6 +205,7 @@ const makeStatusMessage = (status: string | null): SDKMessage =>
 const makeRateLimitEventMessage = (): SDKMessage =>
   ({
     type: 'rate_limit_event',
+    rate_limit_info: { status: 'allowed' as const },
     uuid: '11111111-1111-1111-1111-11111111111a',
     session_id: 'session-10',
   }) as SDKMessage;
@@ -357,6 +360,186 @@ describe('AnthropicAgentAdapter', () => {
           state,
         ),
       ).toEqual(['  [claude-agent-sdk] Verification failed: npm test']);
+    });
+  });
+
+  describe('detectMechanicalTask', () => {
+    it('detects mechanical task from step language patterns', () => {
+      const result = detectMechanicalTask({
+        action: 'fix',
+        summary: 'Migrate all loggers',
+        steps: ['Replace every Logger with PinoLogger'],
+        estimatedComplexity: 'low',
+        filesAffected: ['src/a.ts', 'src/b.ts'],
+      });
+      expect(result.isMechanical).toBe(true);
+      expect(result.reason).toContain('pattern');
+    });
+
+    it('detects mechanical task from high file-to-step ratio', () => {
+      const result = detectMechanicalTask({
+        action: 'fix',
+        summary: 'Update imports',
+        steps: ['Update imports'],
+        estimatedComplexity: 'medium',
+        filesAffected: Array.from({ length: 15 }, (_, i) => `src/f${i}.ts`),
+      });
+      expect(result.isMechanical).toBe(true);
+      expect(result.reason).toContain('file-to-step ratio');
+    });
+
+    it('returns creative for small focused plans', () => {
+      const result = detectMechanicalTask({
+        action: 'feature',
+        summary: 'Add auth module',
+        steps: ['Design schema', 'Implement middleware', 'Add tests'],
+        estimatedComplexity: 'high',
+        filesAffected: ['src/auth.ts', 'src/auth.spec.ts'],
+      });
+      expect(result.isMechanical).toBe(false);
+    });
+  });
+
+  describe('model routing in generateAndVerify', () => {
+    it('uses mechanical model when --model-routing=mechanical', async () => {
+      const mockSession = makeSdkSession([makeResultSuccess()]);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      const params = {
+        ...makeParams(),
+        options: {
+          ...makeParams().options,
+          modelRouting: 'mechanical' as const,
+        },
+      };
+      await adapter.generateAndVerify(params);
+
+      const queryArgs = mockQuery.mock.calls[0][0];
+      const options = queryArgs.options as { model: string };
+      expect(options.model).toBe('claude-haiku-4-5-20251001');
+    });
+
+    it('uses primary model when --model-routing=primary', async () => {
+      const mockSession = makeSdkSession([makeResultSuccess()]);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      const params = {
+        ...makeParams(),
+        options: {
+          ...makeParams().options,
+          modelRouting: 'primary' as const,
+        },
+      };
+      await adapter.generateAndVerify(params);
+
+      const queryArgs = mockQuery.mock.calls[0][0];
+      const options = queryArgs.options as { model: string };
+      expect(options.model).toBe('claude-sonnet-4-6');
+    });
+
+    it('logs usage and cost from final result', async () => {
+      const resultWithCost = makeResultSuccess();
+      (resultWithCost as any).usage = {
+        input_tokens: 5000,
+        output_tokens: 2000,
+        cache_read_input_tokens: 1500,
+        cache_creation_input_tokens: null,
+        server_tool_use: null,
+        service_tier: null,
+        cache_creation: null,
+      };
+      (resultWithCost as any).total_cost_usd = 0.0234;
+      const mockSession = makeSdkSession([resultWithCost]);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      await adapter.generateAndVerify(makeParams());
+
+      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      expect(
+        logCalls.some(
+          (message) =>
+            message.includes('Usage: 5000 input') &&
+            message.includes('1500 cached') &&
+            message.includes('2000 output'),
+        ),
+      ).toBe(true);
+      expect(
+        logCalls.some(
+          (message) => message.includes('Cost:') && message.includes('$0.0234'),
+        ),
+      ).toBe(true);
+    });
+
+    it('reads mechanical model from stages.implement.models.mechanical config', async () => {
+      const mockSession = makeSdkSession([makeResultSuccess()]);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new AnthropicAgentAdapter(
+        makeConfigService({
+          'stages.implement.models': { mechanical: 'claude-haiku-custom' },
+        }),
+      );
+      const params = {
+        ...makeParams(),
+        options: {
+          ...makeParams().options,
+          modelRouting: 'mechanical' as const,
+        },
+      };
+      await adapter.generateAndVerify(params);
+
+      const queryArgs = mockQuery.mock.calls[0][0];
+      const options = queryArgs.options as { model: string };
+      expect(options.model).toBe('claude-haiku-custom');
+    });
+
+    it('warns when both model and models are configured', async () => {
+      const mockSession = makeSdkSession([makeResultSuccess()]);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      const adapter = new AnthropicAgentAdapter(
+        makeConfigService({
+          'stages.implement.model': 'claude-sonnet-4-6',
+          'stages.implement.models': { mechanical: 'claude-haiku-custom' },
+        }),
+      );
+      await adapter.generateAndVerify(makeParams());
+
+      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      expect(
+        logCalls.some(
+          (message) =>
+            message.includes('Warning:') &&
+            message.includes('model takes precedence'),
+        ),
+      ).toBe(true);
     });
   });
 

@@ -250,6 +250,10 @@
         "description": "Preview branch, file, and investigation work without making changes"
       },
       {
+        "flags": "--model-routing <mode>",
+        "description": "Model selection strategy: auto (detect mechanical vs creative), primary (force primary model), mechanical (force cheaper model). Defaults to auto."
+      },
+      {
         "flags": "-r, --repos <repos...>",
         "description": "Space-separated repositories; first repo anchors artifact lookup, all repos remain available as implementation context"
       }
@@ -442,6 +446,10 @@
       {
         "flags": "-r, --repos <repos...>",
         "description": "Space-separated repositories; the first repo anchors artifact storage and all repos are used as workflow context"
+      },
+      {
+        "flags": "--model-routing <mode>",
+        "description": "Model selection strategy for implement stage: auto (detect mechanical vs creative), primary (force primary model), mechanical (force cheaper model). Defaults to auto."
       },
       {
         "flags": "--to <stage>",

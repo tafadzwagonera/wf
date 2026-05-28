@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   classifyAgentError,
+  detectMechanicalTask,
   extractUsageFromEvent,
   formatProgressMessage,
   OpenAIAgentAdapter,
@@ -478,6 +479,246 @@ describe('OpenAIAgentAdapter', () => {
       const result = classifyAgentError(error);
       expect(result.label).toBe('Unknown error');
       expect(result.detail).toBe('something unexpected');
+    });
+  });
+
+  describe('detectMechanicalTask', () => {
+    it('detects mechanical task from step language patterns', () => {
+      const result = detectMechanicalTask({
+        action: 'fix',
+        summary: 'Migrate all loggers',
+        steps: ['Migrate all Logger instances to PinoLogger'],
+        estimatedComplexity: 'low',
+        filesAffected: ['src/a.ts', 'src/b.ts'],
+      });
+      expect(result.isMechanical).toBe(true);
+      expect(result.reason).toContain('pattern');
+    });
+
+    it('detects mechanical task from high file-to-step ratio', () => {
+      const result = detectMechanicalTask({
+        action: 'fix',
+        summary: 'Update imports',
+        steps: ['Update imports'],
+        estimatedComplexity: 'medium',
+        filesAffected: Array.from({ length: 15 }, (_, i) => `src/f${i}.ts`),
+      });
+      expect(result.isMechanical).toBe(true);
+      expect(result.reason).toContain('file-to-step ratio');
+    });
+
+    it('detects mechanical task from low complexity with many files', () => {
+      const result = detectMechanicalTask({
+        action: 'fix',
+        summary: 'Rename function',
+        steps: ['Rename foo to bar in each file'],
+        estimatedComplexity: 'low',
+        filesAffected: Array.from({ length: 25 }, (_, i) => `src/f${i}.ts`),
+      });
+      expect(result.isMechanical).toBe(true);
+    });
+
+    it('returns creative for small focused plans', () => {
+      const result = detectMechanicalTask({
+        action: 'feature',
+        summary: 'Add auth module',
+        steps: ['Design auth schema', 'Implement middleware', 'Add tests'],
+        estimatedComplexity: 'high',
+        filesAffected: ['src/auth.ts', 'src/auth.spec.ts'],
+      });
+      expect(result.isMechanical).toBe(false);
+      expect(result.reason).toBe('creative task');
+    });
+  });
+
+  describe('model routing in generateAndVerify', () => {
+    it('uses mechanical model when --model-routing=mechanical', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-routing-mech-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      const params = {
+        ...makeParams(repoDir),
+        options: {
+          ...makeParams(repoDir).options,
+          modelRouting: 'mechanical' as const,
+        },
+      };
+      await adapter.generateAndVerify(params);
+
+      const agentConfig = mockAgent.mock.calls[0]?.[0] as { model: string };
+      expect(agentConfig.model).toBe('gpt-4.1-mini');
+
+      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      expect(
+        logCalls.some(
+          (message) =>
+            message.includes('Model routing:') &&
+            message.includes('mechanical') &&
+            message.includes('user override'),
+        ),
+      ).toBe(true);
+    });
+
+    it('uses primary model when --model-routing=primary', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-routing-primary-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const params = {
+        ...makeParams(repoDir),
+        options: {
+          ...makeParams(repoDir).options,
+          modelRouting: 'primary' as const,
+        },
+      };
+      await adapter.generateAndVerify(params);
+
+      const agentConfig = mockAgent.mock.calls[0]?.[0] as { model: string };
+      expect(agentConfig.model).toBe('gpt-5.4-mini');
+    });
+
+    it('auto-detects mechanical task and selects cheaper model', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-routing-auto-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      const params = {
+        ...makeParams(repoDir),
+        planArtifact: {
+          action: 'fix' as const,
+          path: '/tmp/plan.json',
+          plan: {
+            action: 'fix' as const,
+            summary: 'Migrate all loggers',
+            steps: ['Migrate all Logger instances to PinoLogger'],
+            estimatedComplexity: 'low' as const,
+          },
+        },
+        options: {
+          ...makeParams(repoDir).options,
+          modelRouting: 'auto' as const,
+        },
+      };
+      await adapter.generateAndVerify(params);
+
+      const agentConfig = mockAgent.mock.calls[0]?.[0] as { model: string };
+      expect(agentConfig.model).toBe('gpt-4.1-mini');
+
+      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      expect(
+        logCalls.some(
+          (message) =>
+            message.includes('Model routing:') &&
+            message.includes('auto') &&
+            message.includes('mechanical'),
+        ),
+      ).toBe(true);
+    });
+
+    it('reads mechanical model from stages.implement.models.mechanical config', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-routing-config-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(
+        makeConfigService({
+          'stages.implement.models': { mechanical: 'gpt-4.1-nano' },
+        }),
+      );
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const params = {
+        ...makeParams(repoDir),
+        options: {
+          ...makeParams(repoDir).options,
+          modelRouting: 'mechanical' as const,
+        },
+      };
+      await adapter.generateAndVerify(params);
+
+      const agentConfig = mockAgent.mock.calls[0]?.[0] as { model: string };
+      expect(agentConfig.model).toBe('gpt-4.1-nano');
+    });
+
+    it('warns when both model and models are configured', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-routing-warn-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(
+        makeConfigService({
+          'stages.implement.model': 'gpt-5.4-mini',
+          'stages.implement.models': { mechanical: 'gpt-4.1-nano' },
+        }),
+      );
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      await adapter.generateAndVerify(makeParams(repoDir));
+
+      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      expect(
+        logCalls.some(
+          (message) =>
+            message.includes('Warning:') &&
+            message.includes('model takes precedence'),
+        ),
+      ).toBe(true);
     });
   });
 

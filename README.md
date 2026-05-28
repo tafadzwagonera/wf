@@ -636,6 +636,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 | ---- | ----------- |
 | `-p, --platform <platform>` | Platform to fetch from if local artifact not found |
 | `--dry-run` | Preview branch, file, and investigation work without making changes |
+| `--model-routing <mode>` | Model selection strategy: auto (detect mechanical vs creative), primary (force primary model), mechanical (force cheaper model). Defaults to auto. |
 | `-r, --repos <repos...>` | Space-separated repositories; first repo anchors artifact lookup, all repos remain available as implementation context |
 <!-- END GENERATED COMMAND DOCS: issue:implement -->
 
@@ -680,6 +681,32 @@ stages:
 ```
 
 The `stages.implement.provider` and `stages.implement.model` values above are runtime implementation settings. The same shape may also appear in generated plan artifacts, but the plan artifact provider is informational and does not change backend selection by itself.
+
+#### Model routing
+
+The `--model-routing` flag controls which model the implement stage uses:
+
+| Value | Behavior | OpenAI default | Anthropic default |
+|---|---|---|---|
+| `auto` (default) | Detect mechanical vs creative from the plan | gpt-4.1 or gpt-4.1-mini | claude-sonnet-4-6 or claude-haiku-4-5-20251001 |
+| `primary` | Force the primary model for the entire run | gpt-4.1 | claude-sonnet-4-6 |
+| `mechanical` | Force the cheaper mechanical model | gpt-4.1-mini | claude-haiku-4-5-20251001 |
+
+In `auto` mode, the adapter detects mechanical tasks by examining plan steps for patterns like "migrate all", "replace every", "update each", or by checking for a high file-to-step ratio (>3) or low complexity with 20+ files.
+
+Override the mechanical model in config:
+
+```yaml
+stages:
+  implement:
+    provider: openai
+    model: gpt-4.1
+    models:
+      mechanical: gpt-4.1-mini
+    agent: true
+```
+
+`model` and `models` are mutually exclusive. If both are present, `model` takes precedence and a warning is displayed. The primary model resolves from `stages.implement.model` → `ai.$.model` → provider default. The mechanical model resolves from `stages.implement.models.mechanical` → provider default mechanical.
 
 ### Retry strategy
 

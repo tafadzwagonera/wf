@@ -26,7 +26,9 @@ import type {
   ImplementerOptions,
   IImplementerBackend,
   VerificationScript,
+  ModelRouting,
 } from '../../../agents/interfaces';
+import type { ResolutionPlan } from '../ai.service';
 import {
   buildMutationProgressSignal,
   buildVerificationCommandOrder,
@@ -42,6 +44,121 @@ const DEFAULT_MODEL = 'gpt-4.1';
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 10;
 const MAX_GREP_LINE_LENGTH = 500;
 const MAX_READ_LINES = 300;
+
+const DEFAULT_MECHANICAL_MODEL = 'gpt-4.1-mini';
+
+const MECHANICAL_STEP_PATTERNS = [
+  /migrate all/i,
+  /replace every/i,
+  /update each/i,
+  /same pattern across/i,
+  /rename all/i,
+  /add .+ to every/i,
+];
+
+/**
+ * Detects whether a plan describes a mechanical (repetitive, pattern-based) task.
+ *
+ * @param plan - The resolution plan to evaluate
+ * @returns True when the plan appears mechanical, with a human-readable reason
+ */
+export const detectMechanicalTask = (
+  plan: ResolutionPlan,
+): { isMechanical: boolean; reason: string } => {
+  const filesCount = plan.filesAffected?.length ?? 0;
+  const stepsCount = plan.steps.length;
+
+  for (const step of plan.steps) {
+    const matched = MECHANICAL_STEP_PATTERNS.find((pattern) =>
+      pattern.test(step),
+    );
+    if (matched) {
+      return {
+        isMechanical: true,
+        reason: `pattern: "${matched.source}" in step "${step.slice(0, 60)}"`,
+      };
+    }
+  }
+
+  if (stepsCount > 0 && filesCount > 3 && filesCount / stepsCount > 3) {
+    return {
+      isMechanical: true,
+      reason: `high file-to-step ratio: ${filesCount} files / ${stepsCount} steps`,
+    };
+  }
+
+  if (plan.estimatedComplexity === 'low' && filesCount >= 20) {
+    return {
+      isMechanical: true,
+      reason: `low complexity with ${filesCount} files`,
+    };
+  }
+
+  return { isMechanical: false, reason: 'creative task' };
+};
+
+type ModelRoutingResult = {
+  model: string;
+  logMessage: string;
+};
+
+/**
+ * Resolves the model to use based on routing mode, config, and mechanical detection.
+ *
+ * @param params - Routing context
+ * @returns Selected model and an observability log message
+ */
+const resolveModelRouting = (params: {
+  routing: ModelRouting;
+  primaryModel: string;
+  configService: ConfigService;
+  plan: ResolutionPlan;
+}): ModelRoutingResult => {
+  const { routing, primaryModel, configService, plan } = params;
+
+  const singleModel = configService.get<string>('stages.implement.model');
+  const modelsConfig = configService.get<Record<string, string>>(
+    'stages.implement.models',
+  );
+
+  if (singleModel && modelsConfig) {
+    console.log(
+      chalk.yellow(
+        '  [openai-agent] Warning: both stages.implement.model and stages.implement.models are set. model takes precedence; models is ignored.',
+      ),
+    );
+  }
+
+  const mechanicalModel = modelsConfig?.mechanical || DEFAULT_MECHANICAL_MODEL;
+
+  if (routing === 'primary') {
+    return {
+      model: primaryModel,
+      logMessage: `[openai-agent] Model routing: ${primaryModel} (primary — user override)`,
+    };
+  }
+
+  if (routing === 'mechanical') {
+    return {
+      model: mechanicalModel,
+      logMessage: `[openai-agent] Model routing: ${mechanicalModel} (mechanical — user override)`,
+    };
+  }
+
+  // auto mode: detect from plan
+  const detection = detectMechanicalTask(plan);
+  if (detection.isMechanical) {
+    return {
+      model: mechanicalModel,
+      logMessage: `[openai-agent] Model routing: ${mechanicalModel} (auto — mechanical: ${detection.reason})`,
+    };
+  }
+
+  return {
+    model: primaryModel,
+    logMessage: `[openai-agent] Model routing: ${primaryModel} (auto — creative: ${detection.reason})`,
+  };
+};
 
 const shellEscape = (value: string): string =>
   `'${value.replace(/'/g, "'\\''")}'`;
@@ -633,10 +750,20 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       ),
     );
 
-    const model =
+    const primaryModel =
       this.configService.get<string>('stages.implement.model') ||
       this.configService.get<string>('ai.model') ||
       DEFAULT_MODEL;
+    const routing = options.modelRouting ?? 'auto';
+    const modelRoutingResult = resolveModelRouting({
+      routing,
+      primaryModel,
+      configService: this.configService,
+      plan: params.planArtifact.plan,
+    });
+    const model = modelRoutingResult.model;
+    console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
+
     const openAiContext = await loadAiContextConfig(
       path.join(os.homedir(), '.openai', 'OPENAI.md'),
       '.openai/OPENAI.md',

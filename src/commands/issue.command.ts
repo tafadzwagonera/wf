@@ -30,6 +30,9 @@ import {
   ResolutionAction,
   ImplementerResult,
 } from '../agents/interfaces';
+import type { ModelRouting } from '../agents/interfaces';
+
+const VALID_MODEL_ROUTINGS: ModelRouting[] = ['auto', 'primary', 'mechanical'];
 
 const ISSUE_EXAMPLES: CliExample[] = [
   {
@@ -72,6 +75,7 @@ interface IssueOptions {
   repos?: string[];
   dryRun?: boolean;
   pr?: boolean;
+  modelRouting?: string;
 }
 
 @Command({
@@ -162,6 +166,20 @@ export class IssueCommand extends CommandRunner {
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
+  }
+
+  @Option({
+    flags: '--model-routing <mode>',
+    description:
+      'Model selection strategy for implement stage: auto (detect mechanical vs creative), primary (force primary model), mechanical (force cheaper model). Defaults to auto.',
+  })
+  parseModelRouting(val: string): string {
+    if (!VALID_MODEL_ROUTINGS.includes(val as ModelRouting)) {
+      throw new Error(
+        `Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTINGS.join(', ')}`,
+      );
+    }
+    return val;
   }
 
   @Option({
@@ -698,6 +716,7 @@ export class IssueCommand extends CommandRunner {
               suppressHeader: isMultiRepo,
               conversationContext,
               allowMultiRepoScope: isMultiRepo,
+              modelRouting: options.modelRouting as ModelRouting,
             },
           );
 

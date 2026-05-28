@@ -16,7 +16,9 @@ import type {
   ImplementerOptions,
   IImplementerBackend,
   VerificationScript,
+  ModelRouting,
 } from '../../../agents/interfaces';
+import type { ResolutionPlan } from '../ai.service';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
@@ -31,8 +33,122 @@ const CLAUDE_CODE_TOOLS = [
   'Task',
   'Agent',
 ] as const;
+const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const ANTHROPIC_AGENT_LABEL = 'claude-agent-sdk';
 const FALLBACK_VERIFICATION_LABEL = 'verification command';
+
+const MECHANICAL_STEP_PATTERNS = [
+  /migrate all/i,
+  /replace every/i,
+  /update each/i,
+  /same pattern across/i,
+  /rename all/i,
+  /add .+ to every/i,
+];
+
+/**
+ * Detects whether a plan describes a mechanical (repetitive, pattern-based) task.
+ *
+ * @param plan - The resolution plan to evaluate
+ * @returns True when the plan appears mechanical, with a human-readable reason
+ */
+export const detectMechanicalTask = (
+  plan: ResolutionPlan,
+): { isMechanical: boolean; reason: string } => {
+  const filesCount = plan.filesAffected?.length ?? 0;
+  const stepsCount = plan.steps.length;
+
+  for (const step of plan.steps) {
+    const matched = MECHANICAL_STEP_PATTERNS.find((pattern) =>
+      pattern.test(step),
+    );
+    if (matched) {
+      return {
+        isMechanical: true,
+        reason: `pattern: "${matched.source}" in step "${step.slice(0, 60)}"`,
+      };
+    }
+  }
+
+  if (stepsCount > 0 && filesCount > 3 && filesCount / stepsCount > 3) {
+    return {
+      isMechanical: true,
+      reason: `high file-to-step ratio: ${filesCount} files / ${stepsCount} steps`,
+    };
+  }
+
+  if (plan.estimatedComplexity === 'low' && filesCount >= 20) {
+    return {
+      isMechanical: true,
+      reason: `low complexity with ${filesCount} files`,
+    };
+  }
+
+  return { isMechanical: false, reason: 'creative task' };
+};
+
+type ModelRoutingResult = {
+  model: string;
+  logMessage: string;
+};
+
+/**
+ * Resolves the model to use based on routing mode, config, and mechanical detection.
+ *
+ * @param params - Routing context
+ * @returns Selected model and an observability log message
+ */
+const resolveModelRouting = (params: {
+  routing: ModelRouting;
+  primaryModel: string;
+  configService: ConfigService;
+  plan: ResolutionPlan;
+}): ModelRoutingResult => {
+  const { routing, primaryModel, configService, plan } = params;
+
+  const singleModel = configService.get<string>('stages.implement.model');
+  const modelsConfig = configService.get<Record<string, string>>(
+    'stages.implement.models',
+  );
+
+  if (singleModel && modelsConfig) {
+    console.log(
+      chalk.yellow(
+        `  [${ANTHROPIC_AGENT_LABEL}] Warning: both stages.implement.model and stages.implement.models are set. model takes precedence; models is ignored.`,
+      ),
+    );
+  }
+
+  const mechanicalModel = modelsConfig?.mechanical || DEFAULT_MECHANICAL_MODEL;
+
+  if (routing === 'primary') {
+    return {
+      model: primaryModel,
+      logMessage: `[${ANTHROPIC_AGENT_LABEL}] Model routing: ${primaryModel} (primary — user override)`,
+    };
+  }
+
+  if (routing === 'mechanical') {
+    return {
+      model: mechanicalModel,
+      logMessage: `[${ANTHROPIC_AGENT_LABEL}] Model routing: ${mechanicalModel} (mechanical — user override)`,
+    };
+  }
+
+  // auto mode: detect from plan
+  const detection = detectMechanicalTask(plan);
+  if (detection.isMechanical) {
+    return {
+      model: mechanicalModel,
+      logMessage: `[${ANTHROPIC_AGENT_LABEL}] Model routing: ${mechanicalModel} (auto — mechanical: ${detection.reason})`,
+    };
+  }
+
+  return {
+    model: primaryModel,
+    logMessage: `[${ANTHROPIC_AGENT_LABEL}] Model routing: ${primaryModel} (auto — creative: ${detection.reason})`,
+  };
+};
 
 type ActivityState = {
   lastVerificationCommand?: string;
@@ -388,10 +504,19 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
       );
     }
 
-    const model =
+    const primaryModel =
       this.configService.get<string>('stages.implement.model') ||
       this.configService.get<string>('ai.model') ||
       'claude-sonnet-4-6';
+    const routing = options.modelRouting ?? 'auto';
+    const modelRoutingResult = resolveModelRouting({
+      routing,
+      primaryModel,
+      configService: this.configService,
+      plan: params.planArtifact.plan,
+    });
+    const model = modelRoutingResult.model;
+    console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
 
     const sdkOptions = {
       cwd: repoDir,
@@ -504,6 +629,26 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
         `  [claude-agent-sdk] Agent completed in ${finalResult.num_turns} turn(s).`,
       ),
     );
+
+    const usage = finalResult.usage;
+    if (usage) {
+      const cachedLabel =
+        usage.cache_read_input_tokens != null
+          ? ` (${usage.cache_read_input_tokens} cached)`
+          : '';
+      console.log(
+        chalk.cyan(
+          `  [${ANTHROPIC_AGENT_LABEL}] Usage: ${usage.input_tokens} input${cachedLabel} / ${usage.output_tokens} output tokens`,
+        ),
+      );
+    }
+    if (finalResult.total_cost_usd > 0) {
+      console.log(
+        chalk.cyan(
+          `  [${ANTHROPIC_AGENT_LABEL}] Cost: $${finalResult.total_cost_usd.toFixed(4)} USD`,
+        ),
+      );
+    }
 
     const summary = finalResult.result.trim();
     if (summary) {
