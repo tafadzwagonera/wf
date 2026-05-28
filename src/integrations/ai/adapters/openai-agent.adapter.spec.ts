@@ -1056,6 +1056,91 @@ describe('OpenAIAgentAdapter', () => {
       ).toBe(true);
     });
 
+    it('scales maxTurns based on plan step count', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-maxturns-scale-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const largeParams = {
+        ...makeParams(repoDir),
+        planArtifact: {
+          action: 'feature' as const,
+          path: '/tmp/plan.json',
+          plan: {
+            action: 'feature' as const,
+            summary: 'large migration',
+            steps: Array.from({ length: 17 }, (_, i) => `Step ${i + 1}`),
+            estimatedComplexity: 'high' as const,
+          },
+        },
+      };
+      await adapter.generateAndVerify(largeParams);
+
+      const mockRunnerInstance = mockRunner.mock.results[0]?.value as Record<
+        string,
+        unknown
+      > & { run?: jest.Mock };
+      const runCall = mockRunnerInstance.run?.mock.calls[0];
+      const runOptions = runCall?.[2] as { maxTurns: number } | undefined;
+      // 17 steps * 10 = 170, capped at 200
+      expect(runOptions?.maxTurns).toBe(170);
+    });
+
+    it('includes plan steps in system prompt', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-prompt-steps-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const params = {
+        ...makeParams(repoDir),
+        planArtifact: {
+          action: 'fix' as const,
+          path: '/tmp/plan.json',
+          plan: {
+            action: 'fix' as const,
+            summary: 'test',
+            steps: ['Migrate Logger to PinoLogger', 'Update unit tests'],
+            estimatedComplexity: 'low' as const,
+          },
+        },
+      };
+      await adapter.generateAndVerify(params);
+
+      const agentConfig = mockAgent.mock.calls[0]?.[0] as {
+        instructions: string;
+      };
+      expect(agentConfig.instructions).toContain('Plan steps:');
+      expect(agentConfig.instructions).toContain(
+        '1. Migrate Logger to PinoLogger',
+      );
+      expect(agentConfig.instructions).toContain('2. Update unit tests');
+      expect(agentConfig.instructions).toContain(
+        'You MUST implement ALL plan steps',
+      );
+    });
+
     it('classifies MaxTurnsExceededError in catch block', async () => {
       const repoDir = fs.mkdtempSync(
         path.join(os.tmpdir(), 'wf-openai-maxturns-'),

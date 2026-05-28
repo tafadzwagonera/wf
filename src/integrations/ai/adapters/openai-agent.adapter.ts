@@ -327,6 +327,7 @@ const buildSystemPrompt = ({
   trackedFilePaths,
   verificationScripts,
   sceneContext,
+  planSteps,
 }: {
   ticketKey: string;
   repoDir: string;
@@ -335,6 +336,7 @@ const buildSystemPrompt = ({
   trackedFilePaths: string[];
   verificationScripts: VerificationScript[];
   sceneContext: string;
+  planSteps: string[];
 }): string => {
   const fileList = formatRepoFileList(repoFiles, repoName);
   const trackedFileList = formatRepoFileList(trackedFilePaths, repoName);
@@ -342,11 +344,18 @@ const buildSystemPrompt = ({
     verificationScripts.length > 0
       ? verificationScripts.map((script) => `  - ${script.command}`).join('\n')
       : '  (none configured)';
+  const planStepList =
+    planSteps.length > 0
+      ? planSteps.map((step, i) => `  ${i + 1}. ${step}`).join('\n')
+      : '  (none listed)';
 
   return `You are an expert software engineer implementing code changes inside a repository.
 
 Repository directory: ${repoDir}
 Ticket key: ${ticketKey}
+
+Plan steps:
+${planStepList}
 
 Files to implement:
 ${fileList}
@@ -377,8 +386,10 @@ Rules:
 - Never invent or call any other shell command tool.
 - Writes must stay scoped to the primary repository (${repoDir}).
 - Reads may target ${repoDir} and any configured read-only sibling repositories.
+- You MUST implement ALL plan steps listed above. Do not stop after completing only the core infrastructure — continue through every step until all tasks are done.
 - Treat the returned progress signal as a heuristic: continue when it says 'continue', focus on the latest edited files when it says 'revisit', and stop only when it says 'complete'.
-- When all verification commands pass (exit 0) — or when you determine no file changes are required — stop and output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.
+- Use verification commands as intermediate checkpoints, not as stop signals. Run verification periodically to catch regressions, then continue implementing remaining plan steps.
+- Only stop when ALL plan steps have been implemented AND all verification commands pass (exit 0) — or when you determine no file changes are required. Then output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.
 
 ### What I changed
 <Bullet list of actual edits made. If nothing was changed, write: "No file content changes were required.">
@@ -601,7 +612,17 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       this.configService.get<number>(
         'stages.implement.afterImplement.absoluteMaxAttempts',
       ) ?? 5;
-    const maxTurns = Math.max(20, absoluteMaxAttempts * 4);
+    const planStepCount = params.planArtifact.plan.steps.length;
+    const targetFileCount = repoFiles.length;
+    const maxTurns = Math.min(
+      200,
+      Math.max(
+        20,
+        absoluteMaxAttempts * 4,
+        planStepCount * 10,
+        targetFileCount * 3,
+      ),
+    );
 
     const model =
       this.configService.get<string>('stages.implement.model') ||
@@ -1008,6 +1029,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         trackedFilePaths: params.trackedFilePaths,
         verificationScripts,
         sceneContext,
+        planSteps: params.planArtifact.plan.steps,
       }),
       model,
       tools: [
@@ -1026,7 +1048,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     const promptSections = [
       openAiContext ? openAiContext.trimEnd() : '',
       `Ticket key: ${params.ticket.ticketKey}`,
-      'Use find_files and search_files to explore the codebase, read_file to inspect files before editing, then use edit_file for targeted changes or write_file for new/full rewrites, then verify_command for each verification step. Do not output any text or plan before calling your first tool.',
+      `Implement ALL ${params.planArtifact.plan.steps.length} plan steps completely. Use find_files and search_files to explore the codebase, read_file to inspect files before editing, then use edit_file for targeted changes or write_file for new/full rewrites. Run verify_command as intermediate checkpoints but do not stop until every plan step is done. Do not output any text or plan before calling your first tool.`,
     ].filter(Boolean);
     const prompt = promptSections.join('\n\n');
 
