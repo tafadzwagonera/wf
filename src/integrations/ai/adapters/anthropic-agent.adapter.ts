@@ -127,6 +127,22 @@ export const formatProgressMessage = (message: SDKMessage): string | null => {
     return `  [${ANTHROPIC_AGENT_LABEL}] Tool progress: ${message.tool_name} (${elapsedSeconds}s)${taskLabel}`;
   }
 
+  if (message.type === 'system' && message.subtype === 'api_retry') {
+    const errorLabel = message.error_status
+      ? `HTTP ${message.error_status}`
+      : 'connection error';
+    return `  [${ANTHROPIC_AGENT_LABEL}] API retry: attempt ${message.attempt}/${message.max_retries} after ${errorLabel} (${message.retry_delay_ms}ms backoff)`;
+  }
+
+  if (message.type === 'system' && message.subtype === 'status') {
+    if (!message.status) return null;
+    return `  [${ANTHROPIC_AGENT_LABEL}] Status: ${message.status}`;
+  }
+
+  if (message.type === 'rate_limit_event') {
+    return `  [${ANTHROPIC_AGENT_LABEL}] Rate limit: updated`;
+  }
+
   return null;
 };
 
@@ -226,7 +242,13 @@ const logProgressMessage = (message: SDKMessage): boolean => {
     return false;
   }
 
-  console.log(chalk.cyan(formattedMessage));
+  const isWarning =
+    (message.type === 'system' && message.subtype === 'api_retry') ||
+    (message.type === 'system' && message.subtype === 'status');
+
+  console.log(
+    isWarning ? chalk.yellow(formattedMessage) : chalk.cyan(formattedMessage),
+  );
   return true;
 };
 

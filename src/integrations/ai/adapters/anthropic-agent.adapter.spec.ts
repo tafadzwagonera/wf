@@ -172,6 +172,41 @@ const makeToolUseSummaryMessage = (summary: string): SDKMessage =>
     session_id: 'session-7',
   }) as SDKMessage;
 
+const makeApiRetryMessage = (
+  overrides: {
+    attempt?: number;
+    max_retries?: number;
+    error_status?: number | null;
+    retry_delay_ms?: number;
+  } = {},
+): SDKMessage =>
+  ({
+    type: 'system',
+    subtype: 'api_retry',
+    attempt: overrides.attempt ?? 1,
+    max_retries: overrides.max_retries ?? 3,
+    error_status: 'error_status' in overrides ? overrides.error_status : 529,
+    retry_delay_ms: overrides.retry_delay_ms ?? 2000,
+    uuid: '11111111-1111-1111-1111-111111111118',
+    session_id: 'session-8',
+  }) as SDKMessage;
+
+const makeStatusMessage = (status: string | null): SDKMessage =>
+  ({
+    type: 'system',
+    subtype: 'status',
+    status,
+    uuid: '11111111-1111-1111-1111-111111111119',
+    session_id: 'session-9',
+  }) as SDKMessage;
+
+const makeRateLimitEventMessage = (): SDKMessage =>
+  ({
+    type: 'rate_limit_event',
+    uuid: '11111111-1111-1111-1111-11111111111a',
+    session_id: 'session-10',
+  }) as SDKMessage;
+
 const makeSdkSession = (messages: SDKMessage[]) => {
   let messageIndex = 0;
 
@@ -255,6 +290,36 @@ describe('AnthropicAgentAdapter', () => {
 
       expect(formatProgressMessage(message)).toBe(
         '  [claude-agent-sdk] Tool progress: Write (2.4s) · task: task-1',
+      );
+    });
+
+    it('formats api_retry with HTTP status and backoff delay', () => {
+      expect(formatProgressMessage(makeApiRetryMessage())).toBe(
+        '  [claude-agent-sdk] API retry: attempt 1/3 after HTTP 529 (2000ms backoff)',
+      );
+    });
+
+    it('formats api_retry with null error_status as connection error', () => {
+      expect(
+        formatProgressMessage(makeApiRetryMessage({ error_status: null })),
+      ).toBe(
+        '  [claude-agent-sdk] API retry: attempt 1/3 after connection error (2000ms backoff)',
+      );
+    });
+
+    it('formats status with a non-null status string', () => {
+      expect(formatProgressMessage(makeStatusMessage('compacting'))).toBe(
+        '  [claude-agent-sdk] Status: compacting',
+      );
+    });
+
+    it('returns null for status with null status value', () => {
+      expect(formatProgressMessage(makeStatusMessage(null))).toBeNull();
+    });
+
+    it('formats rate_limit_event', () => {
+      expect(formatProgressMessage(makeRateLimitEventMessage())).toBe(
+        '  [claude-agent-sdk] Rate limit: updated',
       );
     });
   });
@@ -459,6 +524,44 @@ describe('AnthropicAgentAdapter', () => {
         expect(
           mockLog.mock.calls.some(([message]) =>
             String(message).includes('Verification passed: npm test'),
+          ),
+        ).toBe(true);
+      } finally {
+        mockLog.mockRestore();
+      }
+    });
+
+    it('streams api_retry, status, and rate_limit_event diagnostic messages', async () => {
+      const mockSession = makeSdkSession([
+        makeTaskProgressMessage(),
+        makeApiRetryMessage(),
+        makeStatusMessage('compacting'),
+        makeRateLimitEventMessage(),
+        makeResultSuccess(),
+      ]);
+      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+      const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      try {
+        const adapter = new AnthropicAgentAdapter(makeConfigService());
+        await adapter.generateAndVerify(makeParams());
+
+        expect(
+          mockLog.mock.calls.some(([message]) =>
+            String(message).includes('API retry: attempt 1/3 after HTTP 529'),
+          ),
+        ).toBe(true);
+        expect(
+          mockLog.mock.calls.some(([message]) =>
+            String(message).includes('Status: compacting'),
+          ),
+        ).toBe(true);
+        expect(
+          mockLog.mock.calls.some(([message]) =>
+            String(message).includes('Rate limit: updated'),
           ),
         ).toBe(true);
       } finally {
