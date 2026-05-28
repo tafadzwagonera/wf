@@ -41,6 +41,7 @@ const execAsync = promisify(exec);
 const DEFAULT_MODEL = 'gpt-4.1';
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 10;
 const MAX_GREP_LINE_LENGTH = 500;
+const MAX_READ_LINES = 300;
 
 const shellEscape = (value: string): string =>
   `'${value.replace(/'/g, "'\\''")}'`;
@@ -312,6 +313,14 @@ export const classifyAgentError = (
     }
   }
 
+  if (error instanceof Error && /rate limit/i.test(error.message)) {
+    return {
+      label: 'Rate limited',
+      detail: error.message,
+      recoverable: true,
+    };
+  }
+
   return {
     label: 'Unknown error',
     detail: error instanceof Error ? error.message : 'unknown error',
@@ -367,7 +376,7 @@ Verification commands:
 ${verificationList}
 
 Available tools:
-- read_file(path): read a file from the primary repository or configured read-only sibling repositories
+- read_file(path, offset?, limit?): read a file with optional line range (default: first ${MAX_READ_LINES} lines)
 - write_file(path, content): write a full file into the primary repository only
 - edit_file(path, old_string, new_string): surgically replace a unique string in a file
 - delete_file(path): delete a file from the primary repository only
@@ -376,11 +385,10 @@ Available tools:
 - verify_command(command): run a verification command only if it is on the whitelist
 
 Rules:
-- Prefer edit_file over write_file when making targeted changes to existing files.
+- ALWAYS use edit_file instead of write_file for existing files. write_file should only be used for creating new files. Using write_file on existing files wastes context on unchanged lines.
+- Use search_files to find relevant line numbers, then read_file with offset/limit to read only the section you need. Avoid reading entire large files.
+- For mechanical migrations (e.g. replacing Logger with PinoLogger across many files): use search_files to find all call sites, then apply edit_file to each file without re-reading the full file — the search results show enough context.
 - Use find_files to discover file paths instead of guessing.
-- Use search_files to understand code patterns before making changes.
-- Read existing file contents before modifying them.
-- Use write_file to replace the full contents of a file.
 - Use delete_file only when a file should be removed.
 - verify_command is the only way to execute a shell command, and it will reject any command outside the verification whitelist.
 - Never invent or call any other shell command tool.
@@ -642,23 +650,41 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
 
     const readFileTool = tool({
       name: 'read_file',
-      description: 'Read a file from the repository workspace.',
+      description:
+        'Read a file from the repository workspace. Use offset/limit to read specific line ranges for large files.',
       parameters: z.object({
         path: z.string().min(1),
+        offset: z.number().default(0),
+        limit: z.number().default(0),
       }),
       async execute(input, runContext) {
         const toolContext = getToolContext(runContext);
         const absolutePath = resolveReadablePath(input.path, toolContext);
         const content = await fs.readFile(absolutePath, 'utf-8');
         const relativePath = path.relative(toolContext.repoDir, absolutePath);
-        return JSON.stringify(
-          {
-            path: relativePath,
-            content,
-          },
-          null,
-          2,
+        const allLines = content.split('\n');
+        const totalLines = allLines.length;
+        const requestedOffset = input.offset > 0 ? input.offset : 0;
+        const requestedLimit = input.limit > 0 ? input.limit : MAX_READ_LINES;
+        const selectedLines = allLines.slice(
+          requestedOffset,
+          requestedOffset + requestedLimit,
         );
+        const truncated = totalLines > requestedOffset + requestedLimit;
+        const numberedContent = selectedLines
+          .map((line, i) => `${requestedOffset + i + 1}: ${line}`)
+          .join('\n');
+        return JSON.stringify({
+          path: relativePath,
+          totalLines,
+          offset: requestedOffset,
+          linesReturned: selectedLines.length,
+          truncated,
+          content: numberedContent,
+          ...(truncated && {
+            hint: `File has ${totalLines} lines. Use offset=${requestedOffset + requestedLimit} to read the next section.`,
+          }),
+        });
       },
     });
 
@@ -1048,7 +1074,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     const promptSections = [
       openAiContext ? openAiContext.trimEnd() : '',
       `Ticket key: ${params.ticket.ticketKey}`,
-      `Implement ALL ${params.planArtifact.plan.steps.length} plan steps completely. Use find_files and search_files to explore the codebase, read_file to inspect files before editing, then use edit_file for targeted changes or write_file for new/full rewrites. Run verify_command as intermediate checkpoints but do not stop until every plan step is done. Do not output any text or plan before calling your first tool.`,
+      `Implement ALL ${params.planArtifact.plan.steps.length} plan steps completely. Be context-efficient: use search_files to find patterns across many files, then apply edit_file directly using the search context — do not read entire files before editing when search results provide enough context. Use write_file only for new files. For mechanical migrations across many files, batch similar edit_file calls. Run verify_command as intermediate checkpoints but do not stop until every plan step is done. Do not output any text or plan before calling your first tool.`,
     ].filter(Boolean);
     const prompt = promptSections.join('\n\n');
 
@@ -1072,35 +1098,61 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       compacted: false,
     };
 
-    try {
-      for await (const event of streamedRun) {
-        const usage = extractUsageFromEvent(event);
-        if (usage) {
-          usageSummary.inputTokens += usage.inputTokens;
-          usageSummary.outputTokens += usage.outputTokens;
-          usageSummary.totalTokens += usage.totalTokens;
-          if (usage.compacted) {
-            usageSummary.compacted = true;
+    const maxRateLimitRetries = 5;
+    let rateLimitRetries = 0;
+
+    const consumeStream = async (): Promise<void> => {
+      try {
+        for await (const event of streamedRun) {
+          const usage = extractUsageFromEvent(event);
+          if (usage) {
+            usageSummary.inputTokens += usage.inputTokens;
+            usageSummary.outputTokens += usage.outputTokens;
+            usageSummary.totalTokens += usage.totalTokens;
+            if (usage.compacted) {
+              usageSummary.compacted = true;
+            }
+          }
+          const formatted = formatProgressMessage(event);
+          if (formatted) {
+            console.log(
+              formatted.isWarning
+                ? chalk.yellow(formatted.message)
+                : chalk.cyan(formatted.message),
+            );
           }
         }
-        const formatted = formatProgressMessage(event);
-        if (formatted) {
+      } catch (error) {
+        const classified = classifyAgentError(error);
+        if (
+          classified.label === 'Rate limited' &&
+          rateLimitRetries < maxRateLimitRetries
+        ) {
+          rateLimitRetries += 1;
+          const retryMatch = classified.detail.match(/try again in ([\d.]+)s/i);
+          const delayInMs = retryMatch
+            ? Math.ceil(parseFloat(retryMatch[1]) * 1000) + 1000
+            : 10_000;
           console.log(
-            formatted.isWarning
-              ? chalk.yellow(formatted.message)
-              : chalk.cyan(formatted.message),
+            chalk.yellow(
+              `  [openai-agent] Rate limited (retry ${rateLimitRetries}/${maxRateLimitRetries}), waiting ${(delayInMs / 1000).toFixed(1)}s...`,
+            ),
           );
+          await new Promise((resolve) => setTimeout(resolve, delayInMs));
+          return consumeStream();
         }
+        console.log(
+          chalk.red(
+            `  [openai-agent] ${classified.label}: ${classified.detail}`,
+          ),
+        );
+        throw new Error(
+          `OpenAI agent run failed (${classified.label}): ${classified.detail}`,
+        );
       }
-    } catch (error) {
-      const classified = classifyAgentError(error);
-      console.log(
-        chalk.red(`  [openai-agent] ${classified.label}: ${classified.detail}`),
-      );
-      throw new Error(
-        `OpenAI agent run failed (${classified.label}): ${classified.detail}`,
-      );
-    }
+    };
+
+    await consumeStream();
 
     if (streamedRun.error) {
       const classified = classifyAgentError(streamedRun.error);
