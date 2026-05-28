@@ -198,7 +198,13 @@ const renderStateNode = (
         ? '├─'
         : '└─';
     lines.push(`${childPrefix}${capturedBranch} captured`);
-    lines.push(...renderKeyValueLines(node.captured, `${childPrefix}│  `));
+    const capturedContinuation = capturedBranch === '├─' ? '│  ' : '   ';
+    lines.push(
+      ...renderKeyValueLines(
+        node.captured,
+        `${childPrefix}${capturedContinuation}`,
+      ),
+    );
   }
 
   if (node.changes && Object.keys(node.changes).length > 0) {
@@ -217,15 +223,16 @@ const renderStateNode = (
             ('before' in value || 'after' in value)
           ) {
             const change = value;
+            const subIndent = isLast ? '   ' : '│  ';
             return [
               `${valuePrefix}${branch} ${key} =`,
-              `${valuePrefix}   ├─ before = ${indentMultilineValue(
+              `${valuePrefix}${subIndent}├─ before = ${indentMultilineValue(
                 formatValue(change.before),
-                `${valuePrefix}      `,
+                `${valuePrefix}${subIndent}   `,
               )}`,
-              `${valuePrefix}   └─ after = ${indentMultilineValue(
+              `${valuePrefix}${subIndent}└─ after = ${indentMultilineValue(
                 formatValue(change.after),
-                `${valuePrefix}      `,
+                `${valuePrefix}${subIndent}   `,
               )}`,
             ];
           }
