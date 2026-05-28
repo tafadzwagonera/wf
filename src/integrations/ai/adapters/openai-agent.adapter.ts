@@ -1256,6 +1256,13 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     const maxRateLimitRetries = 12;
     let rateLimitRetries = 0;
 
+    // The SDK does not call runCompaction() during streaming runs — session
+    // persistence (and therefore compaction) only fires at end-of-run. We
+    // trigger compaction proactively when observed input tokens exceed the
+    // threshold to prevent TPM exhaustion on long-running agent loops.
+    const COMPACTION_TOKEN_THRESHOLD = 15_000;
+    let lastObservedInputTokens = 0;
+
     const consumeStream = async (): Promise<void> => {
       try {
         for await (const event of streamedRun) {
@@ -1267,6 +1274,32 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
             usageSummary.cachedInputTokens += usage.cachedInputTokens;
             if (usage.compacted) {
               usageSummary.compacted = true;
+            }
+            lastObservedInputTokens = usage.inputTokens;
+            if (
+              lastObservedInputTokens > COMPACTION_TOKEN_THRESHOLD &&
+              !usage.compacted
+            ) {
+              try {
+                const compactionResult = await compactionSession.runCompaction({
+                  force: true,
+                });
+                if (compactionResult) {
+                  usageSummary.compacted = true;
+                  console.log(
+                    chalk.yellow(
+                      `  [openai-agent] Context compacted (${lastObservedInputTokens} input tokens exceeded ${COMPACTION_TOKEN_THRESHOLD} threshold)`,
+                    ),
+                  );
+                }
+              } catch {
+                // Compaction is best-effort — log but don't fail the run.
+                console.log(
+                  chalk.yellow(
+                    '  [openai-agent] Context compaction attempt failed, continuing',
+                  ),
+                );
+              }
             }
           }
           const formatted = formatProgressMessage(event);

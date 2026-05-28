@@ -714,10 +714,10 @@ Long-running implement sessions (50+ turns, 30+ file edits) can exhaust per-minu
 
 | Backend | Mechanism | Config |
 |---|---|---|
-| OpenAI | `OpenAIResponsesCompactionSession` with `compactionMode: 'auto'` and a custom `shouldTriggerCompaction` hook that fires when ≥10 candidate items **or** estimated context exceeds 15K tokens (session items × 150) | Automatic — no user config needed |
+| OpenAI | `OpenAIResponsesCompactionSession` with proactive `runCompaction({ force: true })` when observed input tokens exceed 15K. The SDK does not call compaction during streaming runs, so the adapter triggers it from the stream consumption loop after each `response_done` event. A `shouldTriggerCompaction` hook (≥10 candidates or estimated context > 15K) serves as a fallback for non-streaming paths. | Automatic — no user config needed |
 | Anthropic | `autoCompactWindow: 20000` in SDK settings | Compacts when context exceeds ~20K tokens |
 
-When compaction occurs, the OpenAI backend logs `[openai-agent] Context compaction triggered during run` and the Anthropic backend emits a `Status: compacting` progress message. Cached input tokens are also surfaced in the usage log (e.g. `Usage: 31376 input (12000 cached) / 1063 output tokens`).
+When compaction occurs, the OpenAI backend logs `[openai-agent] Context compacted (<N> input tokens exceeded 15000 threshold)` and the Anthropic backend emits a `Status: compacting` progress message. Cached input tokens are also surfaced in the usage log (e.g. `Usage: 31376 input (12000 cached) / 1063 output tokens`).
 
 ### Retry strategy
 
