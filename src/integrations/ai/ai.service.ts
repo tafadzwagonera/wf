@@ -895,8 +895,8 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     3. A trace provenance label: evidence-based, best-effort, or unavailable
     4. A nested tree-like call stack that walks the changed code path, starting from concrete functions, handlers, or methods in the diff
     5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack, not the reviewer's analysis flow
-    6. A suggestion for each issue when remediation is clear
-    7. Optional trailing suggestions for general follow-up work that is not tied to a single issue
+    6. A suggestion for each issue when remediation is clear — each suggestion must recommend the smallest effective fix (the minimum change that resolves the issue without introducing unnecessary scope). Write suggestions in plain, human-friendly language: be concise, use everyday phrasing, and avoid jargon-heavy or robotic sentences.
+    7. Optional trailing suggestions for general follow-up work that is not tied to a single issue — each must also prefer the smallest effective fix and use the same concise, human-friendly tone
     8. Whether the code is approved
 
     Important trace rules:

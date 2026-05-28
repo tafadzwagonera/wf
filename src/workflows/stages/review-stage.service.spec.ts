@@ -198,6 +198,7 @@ describe('ReviewStageService', () => {
       'diff --git a/file b/file',
       expect.arrayContaining([
         expect.stringContaining('Clarity'),
+        expect.stringContaining('Proportionality'),
         expect.stringContaining('ticket WBP-123: Fix auth callback'),
         'Accessibility: keyboard flow still works',
       ]),

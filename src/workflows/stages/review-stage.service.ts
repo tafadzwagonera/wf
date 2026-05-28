@@ -16,9 +16,10 @@ const DEFAULT_REVIEW_GUIDELINES = [
   'Deletability: Can I remove or replace this easily?',
   'Failure handling: What breaks? Is it handled?',
   'Necessity: Is anything here unused or speculative?',
+  'Proportionality: Flag over-engineering, unnecessary abstractions, and unrelated refactors',
   'Quality: Do the changes conform to formatting and quality metrics?',
   'Security: Are there any glaring security concerns?',
-  'Simplicity: Is this the simplest thing that works?',
+  'Simplicity: Is this the simplest effective implementation that works?',
   'Structure: Does this reflect the domain?',
 ];
 
