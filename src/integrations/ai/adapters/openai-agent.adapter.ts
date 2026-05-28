@@ -395,9 +395,10 @@ Rules:
 - Writes must stay scoped to the primary repository (${repoDir}).
 - Reads may target ${repoDir} and any configured read-only sibling repositories.
 - You MUST implement ALL plan steps listed above. Do not stop after completing only the core infrastructure — continue through every step until all tasks are done.
-- Treat the returned progress signal as a heuristic: continue when it says 'continue', focus on the latest edited files when it says 'revisit', and stop only when it says 'complete'.
-- Use verification commands as intermediate checkpoints, not as stop signals. Run verification periodically to catch regressions, then continue implementing remaining plan steps.
-- Only stop when ALL plan steps have been implemented AND all verification commands pass (exit 0) — or when you determine no file changes are required. Then output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.
+- Treat the returned progress signal as a heuristic only — never use a 'complete' verdict as a reason to stop. The verdict reflects a single verification command, not overall plan completion.
+- Use verification commands as intermediate checkpoints to catch regressions. After each passing verification, check whether ALL plan steps are done. If any migration or refactoring work remains, continue working.
+- After verification passes, run search_files to count remaining instances of the patterns you are migrating (e.g. 'new Logger('). If the search returns ANY matches, you MUST continue editing those files — do NOT output a summary or any text. Producing a summary that says "remaining work needed" or "follow-up required" is a failure. Keep calling edit_file until the search returns zero matches.
+- Only stop when the migration search confirms zero remaining instances AND all verification commands pass (exit 0) — or when you determine no file changes are required. Then output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.
 
 ### What I changed
 <Bullet list of actual edits made. If nothing was changed, write: "No file content changes were required.">
@@ -1074,7 +1075,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     const promptSections = [
       openAiContext ? openAiContext.trimEnd() : '',
       `Ticket key: ${params.ticket.ticketKey}`,
-      `Implement ALL ${params.planArtifact.plan.steps.length} plan steps completely. Be context-efficient: use search_files to find patterns across many files, then apply edit_file directly using the search context — do not read entire files before editing when search results provide enough context. Use write_file only for new files. For mechanical migrations across many files, batch similar edit_file calls. Run verify_command as intermediate checkpoints but do not stop until every plan step is done. Do not output any text or plan before calling your first tool.`,
+      `Implement ALL ${params.planArtifact.plan.steps.length} plan steps completely. Be context-efficient: use search_files to find patterns across many files, then apply edit_file directly using the search context — do not read entire files before editing when search results provide enough context. Use write_file only for new files. For mechanical migrations across many files, batch similar edit_file calls. Run verify_command as intermediate checkpoints. After verification passes, run search_files to check for remaining migration patterns — if ANY matches remain, keep editing. Do not output any text, summary, or plan until zero migration matches remain. Do not output any text or plan before calling your first tool.`,
     ].filter(Boolean);
     const prompt = promptSections.join('\n\n');
 
@@ -1098,7 +1099,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       compacted: false,
     };
 
-    const maxRateLimitRetries = 5;
+    const maxRateLimitRetries = 12;
     let rateLimitRetries = 0;
 
     const consumeStream = async (): Promise<void> => {
@@ -1129,16 +1130,20 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
           rateLimitRetries < maxRateLimitRetries
         ) {
           rateLimitRetries += 1;
-          const retryMatch = classified.detail.match(/try again in ([\d.]+)s/i);
-          const delayInMs = retryMatch
-            ? Math.ceil(parseFloat(retryMatch[1]) * 1000) + 1000
-            : 10_000;
+          // TPM limits reset per minute — use at least 30s base with
+          // exponential backoff capped at 120s to avoid burning retries
+          // on short waits that still exceed the remaining minute budget.
+          const baseDelayInMs = 30_000;
+          const backoffDelayInMs = Math.min(
+            120_000,
+            baseDelayInMs * Math.pow(1.5, rateLimitRetries - 1),
+          );
           console.log(
             chalk.yellow(
-              `  [openai-agent] Rate limited (retry ${rateLimitRetries}/${maxRateLimitRetries}), waiting ${(delayInMs / 1000).toFixed(1)}s...`,
+              `  [openai-agent] Rate limited (retry ${rateLimitRetries}/${maxRateLimitRetries}), waiting ${(backoffDelayInMs / 1000).toFixed(0)}s...`,
             ),
           );
-          await new Promise((resolve) => setTimeout(resolve, delayInMs));
+          await new Promise((resolve) => setTimeout(resolve, backoffDelayInMs));
           return consumeStream();
         }
         console.log(
