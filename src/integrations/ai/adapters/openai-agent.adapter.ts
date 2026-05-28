@@ -1,9 +1,21 @@
 import { ConfigService } from '@nestjs/config';
-import { Agent, OpenAIProvider, Runner, tool } from '@openai/agents';
+import {
+  Agent,
+  MaxTurnsExceededError,
+  ModelBehaviorError,
+  OpenAIProvider,
+  Runner,
+  SystemError,
+  ToolCallError,
+  ToolTimeoutError,
+  UserError,
+  tool,
+} from '@openai/agents';
 import type { StreamedRunResult } from '@openai/agents';
 import chalk from 'chalk';
 import * as fs from 'fs/promises';
 import { exec } from 'child_process';
+import { glob } from 'glob';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -28,6 +40,10 @@ import { loadAiContextConfig } from './load-ai-context-config';
 const execAsync = promisify(exec);
 const DEFAULT_MODEL = 'gpt-4.1';
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 10;
+const MAX_GREP_LINE_LENGTH = 500;
+
+const shellEscape = (value: string): string =>
+  `'${value.replace(/'/g, "'\\''")}'`;
 
 type WorkspaceRoot = {
   name: string;
@@ -164,6 +180,145 @@ const getToolContext = (
   return toolContext;
 };
 
+export type OpenAiUsageSummary = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  compacted: boolean;
+};
+
+/**
+ * Extracts token usage from a raw_model_stream_event with data.type === 'response_done'.
+ *
+ * @param event - A stream event from the OpenAI agent SDK
+ * @returns Usage summary or null if the event is not a response_done event
+ */
+export const extractUsageFromEvent = (
+  event: unknown,
+): OpenAiUsageSummary | null => {
+  if (
+    !event ||
+    typeof event !== 'object' ||
+    !('type' in event) ||
+    (event as { type?: string }).type !== 'raw_model_stream_event'
+  ) {
+    return null;
+  }
+
+  const raw = event as { data?: { type?: string; response?: unknown } };
+  if (raw.data?.type !== 'response_done') {
+    return null;
+  }
+
+  const response = raw.data.response as {
+    usage?: {
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens?: number;
+      requestUsageEntries?: Array<{ endpoint?: string }>;
+    };
+  } | null;
+
+  const usage = response?.usage;
+  if (!usage) {
+    return null;
+  }
+
+  const compacted =
+    usage.requestUsageEntries?.some(
+      (entry) => entry.endpoint === 'responses.compact',
+    ) ?? false;
+
+  return {
+    inputTokens: usage.inputTokens ?? 0,
+    outputTokens: usage.outputTokens ?? 0,
+    totalTokens: usage.totalTokens ?? 0,
+    compacted,
+  };
+};
+
+/**
+ * Classifies an error from the OpenAI agent SDK into a structured label.
+ *
+ * @param error - The error thrown during an agent run
+ * @returns Structured classification with label, detail, and recoverability
+ */
+export const classifyAgentError = (
+  error: unknown,
+): { label: string; detail: string; recoverable: boolean } => {
+  if (error instanceof MaxTurnsExceededError) {
+    return {
+      label: 'Max turns exceeded',
+      detail: error.message,
+      recoverable: false,
+    };
+  }
+
+  if (error instanceof ToolTimeoutError) {
+    return {
+      label: 'Tool timeout',
+      detail: error.message,
+      recoverable: true,
+    };
+  }
+
+  if (error instanceof ToolCallError) {
+    return {
+      label: 'Tool call error',
+      detail: error.message,
+      recoverable: true,
+    };
+  }
+
+  if (error instanceof ModelBehaviorError) {
+    return {
+      label: 'Model behavior error',
+      detail: error.message,
+      recoverable: false,
+    };
+  }
+
+  if (error instanceof UserError) {
+    return { label: 'User error', detail: error.message, recoverable: false };
+  }
+
+  if (error instanceof SystemError) {
+    return {
+      label: 'System error',
+      detail: error.message,
+      recoverable: false,
+    };
+  }
+
+  if (error && typeof error === 'object' && 'status' in error) {
+    const status = (error as { status?: number }).status;
+    if (status === 429) {
+      return {
+        label: 'Rate limited',
+        detail:
+          error instanceof Error ? error.message : 'Too many requests (429)',
+        recoverable: true,
+      };
+    }
+    if (status === 401 || status === 403) {
+      return {
+        label: 'Authentication error',
+        detail:
+          error instanceof Error
+            ? error.message
+            : `Authentication failed (${status})`,
+        recoverable: false,
+      };
+    }
+  }
+
+  return {
+    label: 'Unknown error',
+    detail: error instanceof Error ? error.message : 'unknown error',
+    recoverable: false,
+  };
+};
+
 const buildSystemPrompt = ({
   ticketKey,
   repoDir,
@@ -205,10 +360,16 @@ ${verificationList}
 Available tools:
 - read_file(path): read a file from the primary repository or configured read-only sibling repositories
 - write_file(path, content): write a full file into the primary repository only
+- edit_file(path, old_string, new_string): surgically replace a unique string in a file
 - delete_file(path): delete a file from the primary repository only
+- search_files(pattern, path?, file_glob?, max_results?): search file contents by regex
+- find_files(pattern, path?, max_results?): find files by glob pattern
 - verify_command(command): run a verification command only if it is on the whitelist
 
 Rules:
+- Prefer edit_file over write_file when making targeted changes to existing files.
+- Use find_files to discover file paths instead of guessing.
+- Use search_files to understand code patterns before making changes.
 - Read existing file contents before modifying them.
 - Use write_file to replace the full contents of a file.
 - Use delete_file only when a file should be removed.
@@ -253,13 +414,43 @@ const formatRepoFileList = (repoFiles: string[], repoName: string): string => {
     .join('\n');
 };
 
-export const formatProgressMessage = (event: unknown): string | null => {
-  if (
-    !event ||
-    typeof event !== 'object' ||
-    !('type' in event) ||
-    (event as { type?: string }).type !== 'run_item_stream_event'
-  ) {
+export const formatProgressMessage = (
+  event: unknown,
+): { message: string; isWarning?: boolean } | null => {
+  if (!event || typeof event !== 'object' || !('type' in event)) {
+    return null;
+  }
+
+  const eventType = (event as { type?: string }).type;
+
+  if (eventType === 'raw_model_stream_event') {
+    const raw = event as { data?: { type?: string; response?: unknown } };
+    if (raw.data?.type === 'response_done') {
+      const usage = extractUsageFromEvent(event);
+      if (usage?.compacted) {
+        return {
+          message: '  [openai-agent] Context compacted',
+          isWarning: true,
+        };
+      }
+      if (usage && usage.totalTokens > 0) {
+        return {
+          message: `  [openai-agent] Response: ${usage.inputTokens} in / ${usage.outputTokens} out tokens`,
+        };
+      }
+    }
+    // output_text_delta and response_started are too noisy
+    return null;
+  }
+
+  if (eventType === 'agent_updated_stream_event') {
+    const agentEvent = event as { agent?: { name?: string } };
+    return {
+      message: `  [openai-agent] Agent updated: ${agentEvent.agent?.name ?? 'unknown'}`,
+    };
+  }
+
+  if (eventType !== 'run_item_stream_event') {
     return null;
   }
 
@@ -273,18 +464,48 @@ export const formatProgressMessage = (event: unknown): string | null => {
       rawItem?: { content?: Array<{ text?: string }> };
     };
   };
-  const item = runEvent.item;
+  const { name: eventName, item } = runEvent;
+
+  if (eventName === 'message_output_created') {
+    return { message: '  [openai-agent] Message output started' };
+  }
+
+  if (eventName === 'handoff_requested') {
+    return { message: '  [openai-agent] Handoff requested' };
+  }
+
+  if (eventName === 'handoff_occurred') {
+    return { message: '  [openai-agent] Handoff occurred' };
+  }
+
+  if (eventName === 'tool_search_called') {
+    return { message: '  [openai-agent] Tool search called' };
+  }
+
+  if (eventName === 'tool_search_output_created') {
+    return { message: '  [openai-agent] Tool search completed' };
+  }
+
+  if (eventName === 'tool_approval_requested') {
+    return {
+      message: `  [openai-agent] Tool approval requested: ${item?.name ?? 'unknown'}`,
+    };
+  }
 
   if (!item?.type) {
     return null;
   }
 
   if (item.type === 'function_call') {
-    return `  [openai-agent] Tool requested: ${item.name ?? 'unknown'}`;
+    return {
+      message: `  [openai-agent] Tool requested: ${item.name ?? 'unknown'}`,
+    };
   }
 
   if (item.type === 'function_call_result') {
-    return `  [openai-agent] Tool completed: ${item.name ?? 'unknown'}`;
+    return {
+      message: `  [openai-agent] Tool completed: ${item.name ?? 'unknown'}`,
+    };
   }
 
   if (item.type === 'reasoning') {
@@ -298,9 +519,11 @@ export const formatProgressMessage = (event: unknown): string | null => {
         .filter(Boolean)
         .join(' ') ||
       '';
-    return text
-      ? `  [openai-agent] Reasoning: ${text.trim().slice(0, 160)}`
-      : '  [openai-agent] Reasoning updated';
+    return {
+      message: text
+        ? `  [openai-agent] Reasoning: ${text.trim().slice(0, 160)}`
+        : '  [openai-agent] Reasoning updated',
+    };
   }
 
   return null;
@@ -625,6 +848,154 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       },
     });
 
+    const searchFilesTool = tool({
+      name: 'search_files',
+      description:
+        'Search file contents by regex pattern across the workspace.',
+      parameters: z.object({
+        pattern: z.string().min(1),
+        path: z.string().default(''),
+        file_glob: z.string().default(''),
+        max_results: z.number().default(50),
+      }),
+      async execute(input, runContext) {
+        const toolContext = getToolContext(runContext);
+        const searchRoot = input.path
+          ? resolveReadablePath(input.path, toolContext)
+          : toolContext.repoDir;
+        const globArg = input.file_glob
+          ? `--include=${shellEscape(input.file_glob)}`
+          : '';
+        try {
+          const { stdout } = await execAsync(
+            `grep -rn ${globArg} -m ${input.max_results} -E ${shellEscape(input.pattern)} ${shellEscape(searchRoot)}`,
+            { maxBuffer: MAX_BUFFER_IN_BYTES },
+          );
+          const matches = stdout
+            .split('\n')
+            .filter(Boolean)
+            .slice(0, input.max_results)
+            .map((line) => {
+              const firstColon = line.indexOf(':');
+              const secondColon = line.indexOf(':', firstColon + 1);
+              if (firstColon === -1 || secondColon === -1) {
+                return { file: line, line: 0, content: '' };
+              }
+              const file = path.relative(
+                toolContext.repoDir,
+                line.slice(0, firstColon),
+              );
+              const lineNum = parseInt(
+                line.slice(firstColon + 1, secondColon),
+                10,
+              );
+              const content = line
+                .slice(secondColon + 1)
+                .slice(0, MAX_GREP_LINE_LENGTH);
+              return { file, line: lineNum, content };
+            });
+          console.log(
+            chalk.cyan(
+              `  [openai-agent] Search: ${matches.length} match(es) for "${input.pattern}"`,
+            ),
+          );
+          return JSON.stringify({
+            pattern: input.pattern,
+            matches,
+            truncated: matches.length >= input.max_results,
+          });
+        } catch (error: any) {
+          // grep exit code 1 = no matches
+          if (error.code === 1) {
+            return JSON.stringify({
+              pattern: input.pattern,
+              matches: [],
+              truncated: false,
+            });
+          }
+          return JSON.stringify({
+            pattern: input.pattern,
+            matches: [],
+            truncated: false,
+            error: error.message ?? 'Search failed',
+          });
+        }
+      },
+    });
+
+    const findFilesTool = tool({
+      name: 'find_files',
+      description: 'Find files by glob pattern across the workspace.',
+      parameters: z.object({
+        pattern: z.string().min(1),
+        path: z.string().default(''),
+        max_results: z.number().default(200),
+      }),
+      async execute(input, runContext) {
+        const toolContext = getToolContext(runContext);
+        const searchRoot = input.path
+          ? resolveReadablePath(input.path, toolContext)
+          : toolContext.repoDir;
+        const matches = await glob(input.pattern, {
+          cwd: searchRoot,
+          nodir: true,
+        });
+        const truncated = matches.length > input.max_results;
+        const files = matches.slice(0, input.max_results);
+        console.log(
+          chalk.cyan(
+            `  [openai-agent] Find: ${files.length} file(s) for "${input.pattern}"`,
+          ),
+        );
+        return JSON.stringify({ pattern: input.pattern, files, truncated });
+      },
+    });
+
+    const editFileTool = tool({
+      name: 'edit_file',
+      description:
+        'Replace a unique string in a file. old_string must appear exactly once.',
+      parameters: z.object({
+        path: z.string().min(1),
+        old_string: z.string().min(1),
+        new_string: z.string(),
+      }),
+      async execute(input, runContext) {
+        const toolContext = getToolContext(runContext);
+        const absolutePath = resolveWritablePath(input.path, toolContext);
+        const content = await fs.readFile(absolutePath, 'utf-8');
+        const occurrences = content.split(input.old_string).length - 1;
+        if (occurrences === 0) {
+          return JSON.stringify({ error: 'old_string not found in file' });
+        }
+        if (occurrences > 1) {
+          return JSON.stringify({
+            error: `old_string is ambiguous (${occurrences} occurrences); provide more surrounding context`,
+          });
+        }
+        const updated = content.replace(input.old_string, input.new_string);
+        await fs.writeFile(absolutePath, updated, 'utf-8');
+        const relativePath = path.relative(toolContext.repoDir, absolutePath);
+        fileChangeStatus.set(relativePath, 'updated');
+        changedFilesSinceLastVerification.add(relativePath);
+        const progress = buildMutationProgressSignal({
+          change: 'updated',
+          path: relativePath,
+          changedFilesSinceLastVerification: [
+            ...changedFilesSinceLastVerification,
+          ],
+        });
+        console.log(
+          chalk.cyan(`  [openai-agent] File edited: ${relativePath}`),
+        );
+        return JSON.stringify(
+          { path: relativePath, status: 'updated', progress },
+          null,
+          2,
+        );
+      },
+    });
+
     const agent = new Agent<OpenAiImplementerContext>({
       name: 'wf issue:implement openai backend',
       handoffDescription:
@@ -639,7 +1010,15 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         sceneContext,
       }),
       model,
-      tools: [readFileTool, writeFileTool, deleteFileTool, verifyCommandTool],
+      tools: [
+        readFileTool,
+        writeFileTool,
+        editFileTool,
+        deleteFileTool,
+        searchFilesTool,
+        findFilesTool,
+        verifyCommandTool,
+      ],
       toolUseBehavior: 'run_llm_again',
       resetToolChoice: true,
     });
@@ -647,7 +1026,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     const promptSections = [
       openAiContext ? openAiContext.trimEnd() : '',
       `Ticket key: ${params.ticket.ticketKey}`,
-      'Implement the changes described in your instructions now. Call read_file on each target file before editing, then use write_file to apply changes, then verify_command for each verification step. Do not output any text or plan before calling your first tool.',
+      'Use find_files and search_files to explore the codebase, read_file to inspect files before editing, then use edit_file for targeted changes or write_file for new/full rewrites, then verify_command for each verification step. Do not output any text or plan before calling your first tool.',
     ].filter(Boolean);
     const prompt = promptSections.join('\n\n');
 
@@ -664,35 +1043,51 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       maxTurns,
     });
 
+    const usageSummary: OpenAiUsageSummary = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      compacted: false,
+    };
+
     try {
       for await (const event of streamedRun) {
-        const formattedMessage = formatProgressMessage(event);
-        if (formattedMessage) {
-          console.log(chalk.cyan(formattedMessage));
+        const usage = extractUsageFromEvent(event);
+        if (usage) {
+          usageSummary.inputTokens += usage.inputTokens;
+          usageSummary.outputTokens += usage.outputTokens;
+          usageSummary.totalTokens += usage.totalTokens;
+          if (usage.compacted) {
+            usageSummary.compacted = true;
+          }
+        }
+        const formatted = formatProgressMessage(event);
+        if (formatted) {
+          console.log(
+            formatted.isWarning
+              ? chalk.yellow(formatted.message)
+              : chalk.cyan(formatted.message),
+          );
         }
       }
     } catch (error) {
+      const classified = classifyAgentError(error);
+      console.log(
+        chalk.red(`  [openai-agent] ${classified.label}: ${classified.detail}`),
+      );
       throw new Error(
-        `OpenAI agent run failed: ${
-          error instanceof Error ? error.message : 'unknown error'
-        }`,
+        `OpenAI agent run failed (${classified.label}): ${classified.detail}`,
       );
     }
 
     if (streamedRun.error) {
-      const streamError =
-        streamedRun.error instanceof Error
-          ? streamedRun.error.message
-          : typeof streamedRun.error === 'string'
-            ? streamedRun.error
-            : (() => {
-                try {
-                  return JSON.stringify(streamedRun.error) ?? 'unknown error';
-                } catch {
-                  return 'unknown error';
-                }
-              })();
-      throw new Error(`OpenAI agent run failed: ${streamError}`);
+      const classified = classifyAgentError(streamedRun.error);
+      console.log(
+        chalk.red(`  [openai-agent] ${classified.label}: ${classified.detail}`),
+      );
+      throw new Error(
+        `OpenAI agent run failed (${classified.label}): ${classified.detail}`,
+      );
     }
 
     const finalOutput =
@@ -700,6 +1095,18 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         ? streamedRun.finalOutput.trim()
         : '';
 
+    console.log(
+      chalk.green(
+        `  [openai-agent] Agent completed in ${streamedRun.currentTurn} turn(s).`,
+      ),
+    );
+    if (usageSummary.totalTokens > 0) {
+      console.log(
+        chalk.cyan(
+          `  [openai-agent] Usage: ${usageSummary.inputTokens} input / ${usageSummary.outputTokens} output tokens`,
+        ),
+      );
+    }
     console.log(chalk.green('\n✓ OpenAI agent implementation complete'));
     if (finalOutput) {
       console.log(chalk.bold('\n  Summary:'));

@@ -153,13 +153,14 @@ async function main(): Promise<void> {
     activityMessages.join(' | '),
   );
 
-  const openAiMessage = formatOpenAiProgressMessage({
+  const openAiResult = formatOpenAiProgressMessage({
     type: 'run_item_stream_event',
     item: {
       type: 'reasoning',
       content: [{ text: 'Investigating verification output' }],
     },
   });
+  const openAiMessage = openAiResult?.message ?? null;
   assert(
     'OpenAI reasoning stays concise and omits heuristic progress text',
     openAiMessage ===

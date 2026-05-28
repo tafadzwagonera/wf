@@ -49,13 +49,14 @@ async function main(): Promise<void> {
   );
 
   console.log(chalk.bold('Test 1: OpenAI streamed progress stays concise'));
-  const openAiMessage = formatOpenAiProgressMessage({
+  const openAiResult = formatOpenAiProgressMessage({
     type: 'run_item_stream_event',
     item: {
       type: 'reasoning',
       content: [{ text: 'Inspecting the failing verification output' }],
     },
   });
+  const openAiMessage = openAiResult?.message ?? null;
   assert(
     'OpenAI reasoning log stays human-readable',
     openAiMessage ===
