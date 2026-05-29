@@ -7,6 +7,9 @@ import {
   detectMechanicalTask,
   extractUsageFromEvent,
   formatProgressMessage,
+  parseRetryDelayMs,
+  estimateOpenAiCostUsd,
+  validateTypeScriptEdit,
   OpenAIAgentAdapter,
 } from './openai-agent.adapter';
 import { loadAiContextConfig } from './load-ai-context-config';
@@ -69,9 +72,6 @@ jest.mock('@openai/agents', () => ({
       super(message);
       this.name = 'UserError';
     }
-  },
-  retryPolicies: {
-    providerSuggested: jest.fn(() => jest.fn(() => false)),
   },
   tool: jest.fn((config: Record<string, unknown>) => config),
 }));
@@ -525,6 +525,58 @@ describe('OpenAIAgentAdapter', () => {
     });
   });
 
+  describe('parseRetryDelayMs', () => {
+    it('extracts seconds from "Please try again in 1.229s"', () => {
+      const err = new Error('Rate limit reached. Please try again in 1.229s.');
+      expect(parseRetryDelayMs(err)).toBe(1229);
+    });
+
+    it('extracts milliseconds from "try again in 830ms"', () => {
+      const err = new Error('Rate limit reached. Please try again in 830ms.');
+      expect(parseRetryDelayMs(err)).toBe(830);
+    });
+
+    it('returns default for non-Error values', () => {
+      expect(parseRetryDelayMs('string')).toBe(30_000);
+    });
+
+    it('returns default when no delay pattern is found', () => {
+      expect(parseRetryDelayMs(new Error('Rate limited'))).toBe(30_000);
+    });
+  });
+
+  describe('estimateOpenAiCostUsd', () => {
+    it('estimates cost for gpt-4.1-mini', () => {
+      // 100K input (no cache), 10K output
+      // input: 100K/1M * $0.40 = $0.04, output: 10K/1M * $1.60 = $0.016
+      const cost = estimateOpenAiCostUsd('gpt-4.1-mini', 100_000, 10_000, 0);
+      expect(cost).toBeCloseTo(0.056, 4);
+    });
+
+    it('discounts cached input tokens', () => {
+      // 100K input total, 60K cached, 40K uncached, 10K output
+      // uncached: 40K/1M * $0.40 = $0.016, cached: 60K/1M * $0.10 = $0.006, output: $0.016
+      const cost = estimateOpenAiCostUsd(
+        'gpt-4.1-mini',
+        100_000,
+        10_000,
+        60_000,
+      );
+      expect(cost).toBeCloseTo(0.038, 4);
+    });
+
+    it('estimates cost for gpt-4.1', () => {
+      // 50K input, 5K output
+      // input: 50K/1M * $2.00 = $0.10, output: 5K/1M * $8.00 = $0.04
+      const cost = estimateOpenAiCostUsd('gpt-4.1', 50_000, 5_000, 0);
+      expect(cost).toBeCloseTo(0.14, 4);
+    });
+
+    it('returns null for unknown models', () => {
+      expect(estimateOpenAiCostUsd('gpt-99', 100_000, 10_000, 0)).toBeNull();
+    });
+  });
+
   describe('detectMechanicalTask', () => {
     it('detects mechanical task from step language patterns', () => {
       const result = detectMechanicalTask({
@@ -865,12 +917,16 @@ describe('OpenAIAgentAdapter', () => {
         }),
       );
       expect(mockOpenAIProvider).toHaveBeenCalledWith({
-        apiKey: 'test-openai-key',
+        openAIClient: expect.objectContaining({
+          apiKey: 'test-openai-key',
+        }),
       });
       expect(mockRunner).toHaveBeenCalledWith(
         expect.objectContaining({
           modelProvider: expect.objectContaining({
-            apiKey: 'test-openai-key',
+            openAIClient: expect.objectContaining({
+              apiKey: 'test-openai-key',
+            }),
           }),
         }),
       );
@@ -883,7 +939,7 @@ describe('OpenAIAgentAdapter', () => {
         expect.anything(),
         expect.objectContaining({
           stream: true,
-          maxTurns: 20,
+          maxTurns: 500,
           session: expect.anything(),
         }),
       );
@@ -1522,9 +1578,9 @@ describe('OpenAIAgentAdapter', () => {
       ).toBe(true);
     });
 
-    it('scales maxTurns based on plan step count', async () => {
+    it('uses a fixed maxTurns ceiling with progress-based stall detection', async () => {
       const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-maxturns-scale-'),
+        path.join(os.tmpdir(), 'wf-openai-maxturns-ceiling-'),
       );
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
@@ -1559,8 +1615,7 @@ describe('OpenAIAgentAdapter', () => {
       > & { run?: jest.Mock };
       const runCall = mockRunnerInstance.run?.mock.calls[0];
       const runOptions = runCall?.[2] as { maxTurns: number } | undefined;
-      // 17 steps * 10 = 170, capped at 200
-      expect(runOptions?.maxTurns).toBe(170);
+      expect(runOptions?.maxTurns).toBe(500);
     });
 
     it('includes plan steps in system prompt', async () => {
@@ -1607,6 +1662,57 @@ describe('OpenAIAgentAdapter', () => {
       );
     });
 
+    it('edit_file rejects edits that create duplicate constructors', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-edit-dup-ctor-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      const originalContent = [
+        'class Foo {',
+        '  constructor(private logger: Logger) {}',
+        '  run() { this.logger.log("hi"); }',
+        '}',
+      ].join('\n');
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), originalContent);
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async (agent: Record<string, unknown>) => {
+          const editTool = getTool(agent, 'edit_file');
+          const result = await editTool.execute(
+            {
+              path: 'src/foo.ts',
+              old_string: 'class Foo {',
+              new_string:
+                'class Foo {\n  constructor(private pino: PinoLogger) {}',
+            },
+            {
+              context: {
+                repoDir,
+                readRoots: [{ name: path.basename(repoDir), root: repoDir }],
+              },
+            },
+          );
+          const parsed = JSON.parse(result) as { error: string };
+          expect(parsed.error).toContain('Foo');
+          expect(parsed.error).toContain('constructor declarations');
+          return mockRunResult;
+        }),
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      await adapter.generateAndVerify(makeParams(repoDir));
+
+      // File on disk must be unchanged (rollback)
+      const diskContent = fs.readFileSync(
+        path.join(repoDir, 'src', 'foo.ts'),
+        'utf-8',
+      );
+      expect(diskContent).toBe(originalContent);
+    });
+
     it('classifies MaxTurnsExceededError in catch block', async () => {
       const repoDir = fs.mkdtempSync(
         path.join(os.tmpdir(), 'wf-openai-maxturns-'),
@@ -1644,6 +1750,284 @@ describe('OpenAIAgentAdapter', () => {
       expect(
         logCalls.some((message) => message.includes('Max turns exceeded')),
       ).toBe(true);
+    });
+
+    it('resets rate-limit retry counter when progress is made between errors', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-rate-reset-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const rateLimitError = Object.assign(
+        new Error('Rate limit reached. Please try again in 1ms.'),
+        { status: 429 },
+      );
+
+      // Simulate: rate limit → progress → rate limit → progress → ... (>5 total rate limits)
+      // Should survive because the counter resets after each progress segment.
+      let callCount = 0;
+      const mockRun = jest.fn(async () => {
+        callCount++;
+        if (callCount <= 6) {
+          return {
+            error: undefined,
+            finalOutput: '',
+            currentTurn: callCount,
+            state: {},
+            async *[Symbol.asyncIterator]() {
+              yield makeRawModelEvent({
+                type: 'response_done',
+                response: {
+                  usage: {
+                    inputTokens: 100,
+                    outputTokens: 50,
+                    totalTokens: 150,
+                  },
+                },
+              });
+              throw rateLimitError;
+            },
+          };
+        }
+        return makeStreamedRun([], 'Done.');
+      });
+      mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      // Should NOT throw — 6 total rate limits but never >5 consecutive
+      await adapter.generateAndVerify(makeParams(repoDir));
+      expect(mockRun).toHaveBeenCalledTimes(7);
+    }, 15_000);
+
+    it('fails after consecutive rate limits without progress', async () => {
+      const repoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'wf-openai-rate-fail-'),
+      );
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const rateLimitError = Object.assign(
+        new Error('Rate limit reached. Please try again in 1ms.'),
+        { status: 429 },
+      );
+
+      const mockRun = jest.fn(async () => ({
+        error: undefined,
+        finalOutput: '',
+        currentTurn: 1,
+        state: {},
+        // eslint-disable-next-line require-yield
+        async *[Symbol.asyncIterator]() {
+          throw rateLimitError;
+        },
+      }));
+      mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await expect(
+        adapter.generateAndVerify(makeParams(repoDir)),
+      ).rejects.toThrow('Rate limited');
+      // Initial call + 5 retries = 6 total
+      expect(mockRun).toHaveBeenCalledTimes(6);
+    }, 15_000);
+
+    describe('adaptive compaction thresholds', () => {
+      it('uses 20 items / 30K tokens for plans with 8 steps', async () => {
+        const repoDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), 'wf-openai-compact-mid-'),
+        );
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+        const mockRunResult = makeStreamedRun([], 'Done.');
+        mockRunner.mockImplementation(() => ({
+          run: jest.fn(async () => mockRunResult),
+          config: {},
+        }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = {
+          ...makeParams(repoDir),
+          planArtifact: {
+            action: 'fix' as const,
+            path: '/tmp/plan.json',
+            plan: {
+              action: 'fix' as const,
+              summary: 'mid-size plan',
+              steps: Array.from({ length: 8 }, (_, i) => `Step ${i + 1}`),
+              estimatedComplexity: 'medium' as const,
+            },
+          },
+        };
+        await adapter.generateAndVerify(params);
+
+        const hookArg = mockCompactionSession.mock.calls[0]?.[0] as Record<
+          string,
+          unknown
+        >;
+        const shouldTrigger = hookArg.shouldTriggerCompaction as (arg: {
+          compactionCandidateItems: unknown[];
+          sessionItems: unknown[];
+        }) => boolean;
+
+        // 20 candidate items → true (threshold is 20)
+        expect(
+          shouldTrigger({
+            compactionCandidateItems: Array.from({ length: 20 }),
+            sessionItems: Array.from({ length: 5 }),
+          }),
+        ).toBe(true);
+
+        // 19 candidates, low session → false
+        expect(
+          shouldTrigger({
+            compactionCandidateItems: Array.from({ length: 19 }),
+            sessionItems: Array.from({ length: 50 }),
+          }),
+        ).toBe(false);
+
+        // >200 session items (201 * 150 = 30150 > 30000) → true
+        expect(
+          shouldTrigger({
+            compactionCandidateItems: Array.from({ length: 2 }),
+            sessionItems: Array.from({ length: 201 }),
+          }),
+        ).toBe(true);
+      });
+
+      it('uses 30 items / 45K tokens for plans with 15 steps', async () => {
+        const repoDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), 'wf-openai-compact-large-'),
+        );
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+        const mockRunResult = makeStreamedRun([], 'Done.');
+        mockRunner.mockImplementation(() => ({
+          run: jest.fn(async () => mockRunResult),
+          config: {},
+        }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = {
+          ...makeParams(repoDir),
+          planArtifact: {
+            action: 'fix' as const,
+            path: '/tmp/plan.json',
+            plan: {
+              action: 'fix' as const,
+              summary: 'large plan',
+              steps: Array.from({ length: 15 }, (_, i) => `Step ${i + 1}`),
+              estimatedComplexity: 'high' as const,
+            },
+          },
+        };
+        await adapter.generateAndVerify(params);
+
+        const hookArg = mockCompactionSession.mock.calls[0]?.[0] as Record<
+          string,
+          unknown
+        >;
+        const shouldTrigger = hookArg.shouldTriggerCompaction as (arg: {
+          compactionCandidateItems: unknown[];
+          sessionItems: unknown[];
+        }) => boolean;
+
+        // 30 candidate items → true (threshold is 30)
+        expect(
+          shouldTrigger({
+            compactionCandidateItems: Array.from({ length: 30 }),
+            sessionItems: Array.from({ length: 5 }),
+          }),
+        ).toBe(true);
+
+        // 29 candidates, low session → false
+        expect(
+          shouldTrigger({
+            compactionCandidateItems: Array.from({ length: 29 }),
+            sessionItems: Array.from({ length: 100 }),
+          }),
+        ).toBe(false);
+
+        // >300 session items (301 * 150 = 45150 > 45000) → true
+        expect(
+          shouldTrigger({
+            compactionCandidateItems: Array.from({ length: 2 }),
+            sessionItems: Array.from({ length: 301 }),
+          }),
+        ).toBe(true);
+      });
+    });
+  });
+
+  describe('validateTypeScriptEdit', () => {
+    it('returns null for valid TypeScript', () => {
+      const content = `
+import { Logger } from './logger';
+
+class Foo {
+  constructor(private logger: Logger) {}
+  run() { this.logger.log("hi"); }
+}
+`;
+      expect(validateTypeScriptEdit('src/foo.ts', content)).toBeNull();
+    });
+
+    it('returns error containing "syntax error" for malformed TypeScript', () => {
+      const content = `
+class Foo {
+  constructor( {}
+}
+`;
+      const result = validateTypeScriptEdit('src/foo.ts', content);
+      expect(result).not.toBeNull();
+      expect(result).toContain('syntax error');
+    });
+
+    it('returns error for duplicate constructors with bodies', () => {
+      const content = `
+class MyService {
+  constructor(private pino: PinoLogger) {}
+  constructor(private logger: Logger) {}
+  run() {}
+}
+`;
+      const result = validateTypeScriptEdit('src/my-service.ts', content);
+      expect(result).not.toBeNull();
+      expect(result).toContain('MyService');
+      expect(result).toContain('constructor declarations');
+    });
+
+    it('returns error for duplicate named imports from the same module', () => {
+      const content = `
+import { Logger, Logger } from '@nestjs/common';
+
+class Foo {}
+`;
+      const result = validateTypeScriptEdit('src/foo.ts', content);
+      expect(result).not.toBeNull();
+      expect(result).toContain('Logger');
+    });
+
+    it('returns null for non-TS files (.js, .json)', () => {
+      expect(
+        validateTypeScriptEdit(
+          'src/foo.js',
+          'class Foo { constructor() {} constructor() {} }',
+        ),
+      ).toBeNull();
+      expect(
+        validateTypeScriptEdit('data.json', '{ "key": "value" }'),
+      ).toBeNull();
     });
   });
 });

@@ -9,7 +9,6 @@ import {
   ToolCallError,
   ToolTimeoutError,
   UserError,
-  retryPolicies,
   tool,
 } from '@openai/agents';
 import type { StreamedRunResult } from '@openai/agents';
@@ -452,6 +451,158 @@ export const classifyAgentError = (
   };
 };
 
+/**
+ * Extracts the retry delay from a rate-limit error message.
+ * OpenAI mid-stream errors include "Please try again in Xs" or "in Xms".
+ * Returns the delay in milliseconds, or a default of 30 000 ms.
+ */
+export const parseRetryDelayMs = (error: unknown): number => {
+  const DEFAULT_DELAY_MS = 30_000;
+  if (!(error instanceof Error)) return DEFAULT_DELAY_MS;
+  const match = error.message.match(
+    /try again in (\d+(?:\.\d+)?)\s*(ms|s|seconds?)?/i,
+  );
+  if (!match) return DEFAULT_DELAY_MS;
+  const value = parseFloat(match[1]);
+  if (Number.isNaN(value) || value <= 0) return DEFAULT_DELAY_MS;
+  const unit = (match[2] ?? 's').toLowerCase();
+  return unit === 'ms' ? Math.ceil(value) : Math.ceil(value * 1000);
+};
+
+type OpenAiModelPricing = {
+  inputPerMToken: number;
+  cachedInputPerMToken: number;
+  outputPerMToken: number;
+};
+
+const OPENAI_PRICING: Record<string, OpenAiModelPricing> = {
+  'gpt-4.1': {
+    inputPerMToken: 2.0,
+    cachedInputPerMToken: 0.5,
+    outputPerMToken: 8.0,
+  },
+  'gpt-4.1-mini': {
+    inputPerMToken: 0.4,
+    cachedInputPerMToken: 0.1,
+    outputPerMToken: 1.6,
+  },
+  'gpt-4.1-nano': {
+    inputPerMToken: 0.1,
+    cachedInputPerMToken: 0.025,
+    outputPerMToken: 0.4,
+  },
+  'o4-mini': {
+    inputPerMToken: 1.1,
+    cachedInputPerMToken: 0.275,
+    outputPerMToken: 4.4,
+  },
+  'gpt-4o': {
+    inputPerMToken: 2.5,
+    cachedInputPerMToken: 1.25,
+    outputPerMToken: 10.0,
+  },
+  'gpt-4o-mini': {
+    inputPerMToken: 0.15,
+    cachedInputPerMToken: 0.075,
+    outputPerMToken: 0.6,
+  },
+};
+
+/**
+ * Estimates the USD cost of an OpenAI API run from token counts and model name.
+ * Returns null if the model is not in the pricing table.
+ *
+ * @param model - The OpenAI model identifier
+ * @param inputTokens - Total input tokens (includes cached)
+ * @param outputTokens - Total output tokens
+ * @param cachedInputTokens - Cached input tokens (subset of inputTokens)
+ * @returns Estimated cost in USD, or null if model pricing is unknown
+ */
+export const estimateOpenAiCostUsd = (
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  cachedInputTokens: number,
+): number | null => {
+  const pricing = OPENAI_PRICING[model];
+  if (!pricing) return null;
+
+  const uncachedInputTokens = inputTokens - cachedInputTokens;
+  const inputCost = (uncachedInputTokens / 1_000_000) * pricing.inputPerMToken;
+  const cachedCost =
+    (cachedInputTokens / 1_000_000) * pricing.cachedInputPerMToken;
+  const outputCost = (outputTokens / 1_000_000) * pricing.outputPerMToken;
+
+  return inputCost + cachedCost + outputCost;
+};
+
+/**
+ * Validates a TypeScript file's content for structural correctness after an edit.
+ * Catches duplicate constructors and duplicate named imports that the model commonly produces.
+ *
+ * @param filePath - The file path (used to decide whether to validate and for diagnostics)
+ * @param content - The full file content after the proposed edit
+ * @returns An error message string if invalid, or null if valid
+ */
+export const validateTypeScriptEdit = (
+  filePath: string,
+  content: string,
+): string | null => {
+  if (!/\.tsx?$/.test(filePath)) {
+    return null;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const ts = require('typescript') as typeof import('typescript');
+
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+
+  const parseDiagnostics = (
+    sourceFile as unknown as { parseDiagnostics?: unknown[] }
+  ).parseDiagnostics;
+  if (parseDiagnostics && parseDiagnostics.length > 0) {
+    return `syntax error in ${filePath}: ${(parseDiagnostics[0] as { messageText?: string }).messageText ?? 'parse error'}`;
+  }
+
+  const visit = (node: import('typescript').Node): string | null => {
+    if (ts.isClassDeclaration(node)) {
+      const className = node.name?.text ?? '<anonymous>';
+      const constructorsWithBody = node.members.filter(
+        (member) =>
+          ts.isConstructorDeclaration(member) && member.body !== undefined,
+      );
+      if (constructorsWithBody.length > 1) {
+        return `Class "${className}" has ${constructorsWithBody.length} constructor declarations with bodies — merge parameters into a single constructor`;
+      }
+    }
+
+    if (ts.isImportDeclaration(node) && node.importClause?.namedBindings) {
+      if (ts.isNamedImports(node.importClause.namedBindings)) {
+        const seen = new Map<string, string>();
+        const moduleSpecifier =
+          (node.moduleSpecifier as { text?: string }).text ?? '';
+        for (const element of node.importClause.namedBindings.elements) {
+          const name = element.name.text;
+          const key = `${name}::${moduleSpecifier}`;
+          if (seen.has(key)) {
+            return `Duplicate import "${name}" from "${moduleSpecifier}"`;
+          }
+          seen.set(key, name);
+        }
+      }
+    }
+
+    return ts.forEachChild(node, visit) ?? null;
+  };
+
+  return visit(sourceFile);
+};
+
 const buildSystemPrompt = ({
   ticketKey,
   repoDir,
@@ -739,24 +890,12 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       );
     }
 
+    const openaiClient = new OpenAI({ apiKey });
     const modelProvider = new OpenAIProvider({
-      apiKey,
+      openAIClient: openaiClient,
     });
-    const absoluteMaxAttempts =
-      this.configService.get<number>(
-        'stages.implement.afterImplement.absoluteMaxAttempts',
-      ) ?? 5;
     const planStepCount = params.planArtifact.plan.steps.length;
-    const targetFileCount = repoFiles.length;
-    const maxTurns = Math.min(
-      200,
-      Math.max(
-        20,
-        absoluteMaxAttempts * 4,
-        planStepCount * 10,
-        targetFileCount * 3,
-      ),
-    );
+    const maxTurns = 500;
 
     const primaryModel =
       this.configService.get<string>('stages.implement.model') ||
@@ -1157,6 +1296,15 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
           });
         }
         const updated = content.replace(input.old_string, input.new_string);
+        const validationError = validateTypeScriptEdit(absolutePath, updated);
+        if (validationError) {
+          console.log(
+            chalk.yellow(
+              `  [openai-agent] Edit validation failed: ${input.path}`,
+            ),
+          );
+          return JSON.stringify({ error: validationError });
+        }
         await fs.writeFile(absolutePath, updated, 'utf-8');
         const relativePath = path.relative(toolContext.repoDir, absolutePath);
         fileChangeStatus.set(relativePath, 'updated');
@@ -1194,17 +1342,6 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         planSteps: params.planArtifact.plan.steps,
       }),
       model,
-      modelSettings: {
-        retry: {
-          maxRetries: 5,
-          backoff: {
-            initialDelayMs: 30_000,
-            maxDelayMs: 120_000,
-            multiplier: 1.5,
-          },
-          policy: retryPolicies.providerSuggested(),
-        },
-      },
       tools: [
         readFileTool,
         writeFileTool,
@@ -1221,7 +1358,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     const promptSections = [
       openAiContext ? openAiContext.trimEnd() : '',
       `Ticket key: ${params.ticket.ticketKey}`,
-      `Implement ALL ${params.planArtifact.plan.steps.length} plan steps completely. Be context-efficient: use search_files to find patterns across many files, then apply edit_file directly using the search context — do not read entire files before editing when search results provide enough context. Use write_file only for new files. For mechanical migrations across many files, batch similar edit_file calls. Run verify_command as intermediate checkpoints. After verification passes, run search_files to check for remaining migration patterns — if ANY matches remain, keep editing. Do not output any text, summary, or plan until zero migration matches remain. Do not output any text or plan before calling your first tool.`,
+      `Implement ALL ${params.planArtifact.plan.steps.length} plan steps completely. Use search_files to discover patterns across many files. Use write_file only for new files. For simple edits (adding an import line, renaming a variable), you may apply edit_file using search context alone. For edits that modify class constructors, method signatures, decorator lists, or module configuration, always read the full file first with read_file, then apply a single edit_file that merges your changes into the existing structure — never add a duplicate constructor or class member. Run verify_command as intermediate checkpoints. After verification passes, run search_files to check for remaining migration patterns — if ANY matches remain, keep editing. Do not output any text, summary, or plan until zero migration matches remain. Do not output any text or plan before calling your first tool.`,
     ].filter(Boolean);
     const prompt = promptSections.join('\n\n');
 
@@ -1229,32 +1366,25 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       modelProvider,
     });
 
-    const openaiClient = new OpenAI({ apiKey });
+    const compactionItemThreshold =
+      planStepCount <= 5 ? 10 : planStepCount <= 10 ? 20 : 30;
+    const compactionTokenThreshold =
+      planStepCount <= 5 ? 15_000 : planStepCount <= 10 ? 30_000 : 45_000;
+
     const compactionSession = new OpenAIResponsesCompactionSession({
       client: openaiClient,
       model,
       compactionMode: 'auto',
       shouldTriggerCompaction: ({ compactionCandidateItems, sessionItems }) => {
-        if (compactionCandidateItems.length >= 10) {
+        if (compactionCandidateItems.length >= compactionItemThreshold) {
           return true;
         }
         // Estimate ~150 tokens per session item (tool calls, results, messages).
         // Trigger compaction well before the context becomes large enough to
-        // cause TPM issues — 15K tokens leaves headroom for the system prompt
-        // and the next response.
+        // cause TPM issues.
         const estimatedTokens = sessionItems.length * 150;
-        return estimatedTokens > 15_000;
+        return estimatedTokens > compactionTokenThreshold;
       },
-    });
-
-    const streamedRun: StreamedRunResult<
-      OpenAiImplementerContext,
-      typeof agent
-    > = await runner.run(agent, prompt, {
-      stream: true,
-      context,
-      maxTurns,
-      session: compactionSession,
     });
 
     const usageSummary: OpenAiUsageSummary = {
@@ -1265,9 +1395,23 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       compacted: false,
     };
 
-    const consumeStream = async (): Promise<void> => {
+    const MAX_CONSECUTIVE_RATE_LIMIT_RETRIES = 5;
+    let streamedRun: StreamedRunResult<OpenAiImplementerContext, typeof agent> =
+      await runner.run(agent, prompt, {
+        stream: true,
+        context,
+        maxTurns,
+        session: compactionSession,
+      });
+
+    let consecutiveRateLimitAttempts = 0;
+    let eventsProcessedInSegment = 0;
+
+    while (true) {
       try {
+        eventsProcessedInSegment = 0;
         for await (const event of streamedRun) {
+          eventsProcessedInSegment++;
           const usage = extractUsageFromEvent(event);
           if (usage) {
             usageSummary.inputTokens += usage.inputTokens;
@@ -1287,20 +1431,48 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
             );
           }
         }
+        break;
       } catch (error) {
         const classified = classifyAgentError(error);
+        if (!classified.recoverable || classified.label !== 'Rate limited') {
+          console.log(
+            chalk.red(
+              `  [openai-agent] ${classified.label}: ${classified.detail}`,
+            ),
+          );
+          throw new Error(
+            `OpenAI agent run failed (${classified.label}): ${classified.detail}`,
+          );
+        }
+        if (eventsProcessedInSegment > 0) {
+          consecutiveRateLimitAttempts = 0;
+        }
+        consecutiveRateLimitAttempts++;
+        if (consecutiveRateLimitAttempts > MAX_CONSECUTIVE_RATE_LIMIT_RETRIES) {
+          console.log(
+            chalk.red(
+              `  [openai-agent] ${classified.label}: ${classified.detail}`,
+            ),
+          );
+          throw new Error(
+            `OpenAI agent run failed (${classified.label}): ${classified.detail}`,
+          );
+        }
+        const delayMs = parseRetryDelayMs(error);
         console.log(
-          chalk.red(
-            `  [openai-agent] ${classified.label}: ${classified.detail}`,
+          chalk.yellow(
+            `  [openai-agent] Rate limited — retrying in ${Math.ceil(delayMs / 1000)}s (attempt ${consecutiveRateLimitAttempts}/${MAX_CONSECUTIVE_RATE_LIMIT_RETRIES})`,
           ),
         );
-        throw new Error(
-          `OpenAI agent run failed (${classified.label}): ${classified.detail}`,
-        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        streamedRun = await runner.run(agent, streamedRun.state, {
+          stream: true,
+          context,
+          maxTurns,
+          session: compactionSession,
+        });
       }
-    };
-
-    await consumeStream();
+    }
 
     if (streamedRun.error) {
       const classified = classifyAgentError(streamedRun.error);
@@ -1332,6 +1504,17 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
           `  [openai-agent] Usage: ${usageSummary.inputTokens} input${cachedLabel} / ${usageSummary.outputTokens} output tokens`,
         ),
       );
+      const costUsd = estimateOpenAiCostUsd(
+        model,
+        usageSummary.inputTokens,
+        usageSummary.outputTokens,
+        usageSummary.cachedInputTokens,
+      );
+      if (costUsd !== null) {
+        console.log(
+          chalk.cyan(`  [openai-agent] Cost: ~$${costUsd.toFixed(4)} USD`),
+        );
+      }
     }
     if (usageSummary.compacted) {
       console.log(

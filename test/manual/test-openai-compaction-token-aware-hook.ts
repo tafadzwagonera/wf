@@ -123,10 +123,10 @@ const run = async (): Promise<void> => {
     adapterSource.includes('shouldTriggerCompaction:'),
   );
 
-  // 7. Adapter contains 15_000 token threshold in hook
+  // 7. Adapter contains adaptive token threshold in hook
   assert(
-    'adapter uses 15_000 token threshold in hook',
-    adapterSource.includes('estimatedTokens > 15_000'),
+    'adapter uses adaptive compactionTokenThreshold in hook',
+    adapterSource.includes('estimatedTokens > compactionTokenThreshold'),
   );
 
   // 8. Adapter does NOT contain proactive runCompaction
