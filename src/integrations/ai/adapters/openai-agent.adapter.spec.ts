@@ -70,6 +70,9 @@ jest.mock('@openai/agents', () => ({
       this.name = 'UserError';
     }
   },
+  retryPolicies: {
+    providerSuggested: jest.fn(() => jest.fn(() => false)),
+  },
   tool: jest.fn((config: Record<string, unknown>) => config),
 }));
 
