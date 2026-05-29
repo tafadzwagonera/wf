@@ -8,8 +8,7 @@
  *   2. The hook fires on estimated tokens > 15K (sessionItems.length * 150).
  *   3. The hook does NOT fire when both conditions are below threshold.
  *   4. The system prompt includes the duplicate-function guard rule.
- *   5. The adapter contains proactive runCompaction({ force: true }).
- *   6. The adapter does NOT contain exponential backoff retry logic.
+ *   5. The adapter does NOT contain proactive runCompaction or retry logic.
  *
  * @returns Promise that resolves when the smoke test completes
  */
@@ -124,35 +123,28 @@ const run = async (): Promise<void> => {
     adapterSource.includes('shouldTriggerCompaction:'),
   );
 
-  // 7. Adapter contains 15_000 token threshold
+  // 7. Adapter contains 15_000 token threshold in hook
   assert(
-    'adapter uses 15_000 token threshold',
+    'adapter uses 15_000 token threshold in hook',
     adapterSource.includes('estimatedTokens > 15_000'),
   );
 
-  // 8. Adapter contains proactive runCompaction with force: true
+  // 8. Adapter does NOT contain proactive runCompaction
   assert(
-    'adapter contains proactive runCompaction({ force: true })',
-    adapterSource.includes('runCompaction(') &&
-      adapterSource.includes('force: true'),
+    'adapter does not contain proactive runCompaction',
+    !adapterSource.includes('runCompaction('),
   );
 
-  // 9. Adapter contains COMPACTION_TOKEN_THRESHOLD constant
-  assert(
-    'adapter defines COMPACTION_TOKEN_THRESHOLD',
-    adapterSource.includes('COMPACTION_TOKEN_THRESHOLD = 15_000'),
-  );
-
-  // 10. Adapter does NOT contain exponential backoff retry logic
+  // 9. Adapter does NOT contain rate limit retry logic
   assert(
     'adapter does not contain rate limit retry logic',
     !adapterSource.includes('maxRateLimitRetries'),
   );
 
-  // 11. Adapter does not contain recursive consumeStream retry
+  // 10. Adapter does NOT contain COMPACTION_TOKEN_THRESHOLD constant
   assert(
-    'adapter does not contain recursive consumeStream() retry',
-    !adapterSource.includes('return consumeStream()'),
+    'adapter does not contain COMPACTION_TOKEN_THRESHOLD',
+    !adapterSource.includes('COMPACTION_TOKEN_THRESHOLD'),
   );
 
   console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));

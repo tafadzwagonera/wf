@@ -710,14 +710,14 @@ stages:
 
 #### Context compaction
 
-Long-running implement sessions (50+ turns, 30+ file edits) can exhaust per-minute token limits when the full conversation history is re-sent on every API turn. Both agent backends now enable automatic context compaction to keep usage within TPM budgets:
+Long-running implement sessions (50+ turns, 30+ file edits) can exhaust per-minute token limits when the full conversation history is re-sent on every API turn.
 
 | Backend | Mechanism | Config |
 |---|---|---|
-| OpenAI | `OpenAIResponsesCompactionSession` with proactive `runCompaction({ force: true })` when observed input tokens exceed 15K. The SDK does not call compaction during streaming runs, so the adapter triggers it from the stream consumption loop after each `response_done` event. A `shouldTriggerCompaction` hook (≥10 candidates or estimated context > 15K) serves as a fallback for non-streaming paths. | Automatic — no user config needed |
+| OpenAI | `OpenAIResponsesCompactionSession` with `compactionMode: 'auto'` and a custom `shouldTriggerCompaction` hook. **Note:** the SDK does not invoke compaction during streaming runs — session persistence only fires at end-of-run. The hook serves as a fallback for non-streaming paths. Long sessions may hit TPM limits before compaction can activate. | Automatic — no user config needed |
 | Anthropic | `autoCompactWindow: 20000` in SDK settings | Compacts when context exceeds ~20K tokens |
 
-When compaction occurs, the OpenAI backend logs `[openai-agent] Context compacted (<N> input tokens exceeded 15000 threshold)` and the Anthropic backend emits a `Status: compacting` progress message. Cached input tokens are also surfaced in the usage log (e.g. `Usage: 31376 input (12000 cached) / 1063 output tokens`).
+When compaction occurs, the Anthropic backend emits a `Status: compacting` progress message. The OpenAI backend logs `[openai-agent] Context compaction triggered during run` if the SDK triggers compaction at end-of-run. Cached input tokens are also surfaced in the usage log (e.g. `Usage: 31376 input (12000 cached) / 1063 output tokens`).
 
 ### Retry strategy
 
