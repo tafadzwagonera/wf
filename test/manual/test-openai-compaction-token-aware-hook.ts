@@ -8,7 +8,8 @@
  *   2. The hook fires on estimated tokens > 15K (sessionItems.length * 150).
  *   3. The hook does NOT fire when both conditions are below threshold.
  *   4. The system prompt includes the duplicate-function guard rule.
- *   5. The adapter does NOT contain proactive runCompaction or retry logic.
+ *   5. The adapter does NOT contain proactive runCompaction or hand-rolled retry logic.
+ *   6. The adapter uses SDK retryPolicies for 429 handling.
  *
  * @returns Promise that resolves when the smoke test completes
  */
@@ -135,9 +136,9 @@ const run = async (): Promise<void> => {
     !adapterSource.includes('runCompaction('),
   );
 
-  // 9. Adapter does NOT contain rate limit retry logic
+  // 9. Adapter does NOT contain hand-rolled rate limit retry logic
   assert(
-    'adapter does not contain rate limit retry logic',
+    'adapter does not contain hand-rolled retry logic',
     !adapterSource.includes('maxRateLimitRetries'),
   );
 
@@ -145,6 +146,24 @@ const run = async (): Promise<void> => {
   assert(
     'adapter does not contain COMPACTION_TOKEN_THRESHOLD',
     !adapterSource.includes('COMPACTION_TOKEN_THRESHOLD'),
+  );
+
+  // 11. Adapter uses SDK retryPolicies for 429 handling
+  assert(
+    'adapter uses retryPolicies.httpStatus([429])',
+    adapterSource.includes('retryPolicies.httpStatus([429])'),
+  );
+
+  // 12. Adapter uses retryPolicies.retryAfter()
+  assert(
+    'adapter uses retryPolicies.retryAfter()',
+    adapterSource.includes('retryPolicies.retryAfter()'),
+  );
+
+  // 13. Adapter configures maxRetries on modelSettings
+  assert(
+    'adapter configures maxRetries in modelSettings.retry',
+    adapterSource.includes('maxRetries: 5'),
   );
 
   console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));

@@ -9,6 +9,7 @@ import {
   ToolCallError,
   ToolTimeoutError,
   UserError,
+  retryPolicies,
   tool,
 } from '@openai/agents';
 import type { StreamedRunResult } from '@openai/agents';
@@ -1193,6 +1194,20 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         planSteps: params.planArtifact.plan.steps,
       }),
       model,
+      modelSettings: {
+        retry: {
+          maxRetries: 5,
+          backoff: {
+            initialDelayMs: 30_000,
+            maxDelayMs: 120_000,
+            multiplier: 1.5,
+          },
+          policy: retryPolicies.any(
+            retryPolicies.retryAfter(),
+            retryPolicies.httpStatus([429]),
+          ),
+        },
+      },
       tools: [
         readFileTool,
         writeFileTool,
