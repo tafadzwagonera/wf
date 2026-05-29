@@ -1253,9 +1253,6 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       compacted: false,
     };
 
-    const maxRateLimitRetries = 12;
-    let rateLimitRetries = 0;
-
     // The SDK does not call runCompaction() during streaming runs — session
     // persistence (and therefore compaction) only fires at end-of-run. We
     // trigger compaction proactively when observed input tokens exceed the
@@ -1313,27 +1310,6 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         }
       } catch (error) {
         const classified = classifyAgentError(error);
-        if (
-          classified.label === 'Rate limited' &&
-          rateLimitRetries < maxRateLimitRetries
-        ) {
-          rateLimitRetries += 1;
-          // TPM limits reset per minute — use at least 30s base with
-          // exponential backoff capped at 120s to avoid burning retries
-          // on short waits that still exceed the remaining minute budget.
-          const baseDelayInMs = 30_000;
-          const backoffDelayInMs = Math.min(
-            120_000,
-            baseDelayInMs * Math.pow(1.5, rateLimitRetries - 1),
-          );
-          console.log(
-            chalk.yellow(
-              `  [openai-agent] Rate limited (retry ${rateLimitRetries}/${maxRateLimitRetries}), waiting ${(backoffDelayInMs / 1000).toFixed(0)}s...`,
-            ),
-          );
-          await new Promise((resolve) => setTimeout(resolve, backoffDelayInMs));
-          return consumeStream();
-        }
         console.log(
           chalk.red(
             `  [openai-agent] ${classified.label}: ${classified.detail}`,

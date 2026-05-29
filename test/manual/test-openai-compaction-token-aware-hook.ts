@@ -8,6 +8,8 @@
  *   2. The hook fires on estimated tokens > 15K (sessionItems.length * 150).
  *   3. The hook does NOT fire when both conditions are below threshold.
  *   4. The system prompt includes the duplicate-function guard rule.
+ *   5. The adapter contains proactive runCompaction({ force: true }).
+ *   6. The adapter does NOT contain exponential backoff retry logic.
  *
  * @returns Promise that resolves when the smoke test completes
  */
@@ -94,7 +96,6 @@ const run = async (): Promise<void> => {
     }),
   );
 
-  // 5. System prompt includes duplicate-function guard
   const adapterSource = fs.readFileSync(
     path.join(
       __dirname,
@@ -108,6 +109,8 @@ const run = async (): Promise<void> => {
     ),
     'utf8',
   );
+
+  // 5. System prompt includes duplicate-function guard
   assert(
     'system prompt contains duplicate-function guard rule',
     adapterSource.includes(
@@ -115,16 +118,41 @@ const run = async (): Promise<void> => {
     ),
   );
 
-  // 6. Adapter source contains shouldTriggerCompaction hook
+  // 6. Adapter contains shouldTriggerCompaction hook
   assert(
-    'adapter source contains shouldTriggerCompaction hook',
+    'adapter contains shouldTriggerCompaction hook',
     adapterSource.includes('shouldTriggerCompaction:'),
   );
 
-  // 7. Adapter source contains 15_000 token threshold
+  // 7. Adapter contains 15_000 token threshold
   assert(
-    'adapter source uses 15_000 token threshold',
+    'adapter uses 15_000 token threshold',
     adapterSource.includes('estimatedTokens > 15_000'),
+  );
+
+  // 8. Adapter contains proactive runCompaction with force: true
+  assert(
+    'adapter contains proactive runCompaction({ force: true })',
+    adapterSource.includes('runCompaction(') &&
+      adapterSource.includes('force: true'),
+  );
+
+  // 9. Adapter contains COMPACTION_TOKEN_THRESHOLD constant
+  assert(
+    'adapter defines COMPACTION_TOKEN_THRESHOLD',
+    adapterSource.includes('COMPACTION_TOKEN_THRESHOLD = 15_000'),
+  );
+
+  // 10. Adapter does NOT contain exponential backoff retry logic
+  assert(
+    'adapter does not contain rate limit retry logic',
+    !adapterSource.includes('maxRateLimitRetries'),
+  );
+
+  // 11. Adapter does not contain recursive consumeStream retry
+  assert(
+    'adapter does not contain recursive consumeStream() retry',
+    !adapterSource.includes('return consumeStream()'),
   );
 
   console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));
