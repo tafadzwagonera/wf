@@ -40,7 +40,12 @@ export interface WfAfterImplementConfig {
   scripts?: Record<string, string>;
 }
 
+export interface WfImplementStageModelsConfig {
+  mechanical?: string;
+}
+
 export interface WfImplementStageConfig extends WfAiStageTargetConfig {
+  models?: WfImplementStageModelsConfig;
   afterImplement?: WfAfterImplementConfig;
 }
 

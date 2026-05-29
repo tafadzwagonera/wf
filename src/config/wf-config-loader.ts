@@ -68,6 +68,7 @@ export interface NormalizedAfterImplementConfig {
 export interface NormalizedImplementStageConfig {
   provider: WfAiProviderName;
   model: string;
+  models?: { mechanical?: string };
   agent: boolean;
   afterImplement?: NormalizedAfterImplementConfig;
 }
@@ -213,6 +214,9 @@ const implementStageSchema = Joi.object<WfImplementStageConfig>({
     .valid('anthropic', 'openai', 'google', 'deepseek')
     .required(),
   model: Joi.string().min(1).optional(),
+  models: Joi.object({
+    mechanical: Joi.string().min(1).optional(),
+  }).optional(),
   agent: Joi.boolean().optional(),
   afterImplement: afterImplementSchema.optional(),
 });
@@ -846,6 +850,9 @@ export const normalizeWfConfig = (
 
     return {
       ...implementTarget,
+      ...(implementStageConfig.models && {
+        models: implementStageConfig.models,
+      }),
       afterImplement: normalizeAfterImplementConfig(
         implementStageConfig.afterImplement,
       ),

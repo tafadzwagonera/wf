@@ -107,9 +107,9 @@ const resolveModelRouting = (params: {
   const { routing, primaryModel, configService, plan } = params;
 
   const singleModel = configService.get<string>('stages.implement.model');
-  const modelsConfig = configService.get<Record<string, string>>(
-    'stages.implement.models',
-  );
+  const modelsConfig = configService.get<
+    import('../../../config/public-config').WfImplementStageModelsConfig
+  >('stages.implement.models');
 
   if (singleModel && modelsConfig) {
     console.log(
