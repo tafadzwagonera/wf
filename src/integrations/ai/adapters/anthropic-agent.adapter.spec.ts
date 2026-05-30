@@ -9,10 +9,10 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   AnthropicAgentAdapter,
-  detectMechanicalTask,
   formatActivityMessages,
   formatProgressMessage,
 } from './anthropic-agent.adapter';
+import { detectMechanicalTask } from './shared-routing';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import type { VerificationScript } from '../../../agents/interfaces';
 
@@ -272,16 +272,18 @@ const makeParams = (
   },
   verificationScripts,
   sceneContext: 'implement it',
-  repoFiles: ['primary/src/foo.ts'],
+  repoFiles: [],
   repoName: 'primary',
-  trackedFilePaths: ['primary/src/foo.ts'],
+  trackedFilePaths: [],
 });
 
 describe('AnthropicAgentAdapter', () => {
   beforeEach(() => {
     mockHomedir.mockReturnValue(path.join(os.tmpdir(), 'wf-home-default'));
     mockLoadAnthropicAgentSdk.mockResolvedValue({
-      query: jest.fn(),
+      query: jest
+        .fn()
+        .mockImplementation(() => makeSdkSession([makeResultSuccess()])),
     } as never);
   });
 
@@ -440,8 +442,9 @@ describe('AnthropicAgentAdapter', () => {
 
   describe('model routing in generateAndVerify', () => {
     it('uses mechanical model when --model-routing=mechanical', async () => {
-      const mockSession = makeSdkSession([makeResultSuccess()]);
-      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      const mockQuery = jest
+        .fn()
+        .mockImplementation(() => makeSdkSession([makeResultSuccess()]));
       mockLoadAnthropicAgentSdk.mockResolvedValue({
         query: mockQuery,
       } as never);
@@ -526,8 +529,9 @@ describe('AnthropicAgentAdapter', () => {
     });
 
     it('reads mechanical model from stages.implement.models.mechanical config', async () => {
-      const mockSession = makeSdkSession([makeResultSuccess()]);
-      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      const mockQuery = jest
+        .fn()
+        .mockImplementation(() => makeSdkSession([makeResultSuccess()]));
       mockLoadAnthropicAgentSdk.mockResolvedValue({
         query: mockQuery,
       } as never);
@@ -583,15 +587,16 @@ describe('AnthropicAgentAdapter', () => {
 
   describe('generateAndVerify', () => {
     it('invokes the Claude Agent SDK with repo-scoped access and the verification whitelist', async () => {
-      const mockSession = makeSdkSession([makeResultSuccess()]);
-      const mockQuery = jest.fn().mockReturnValue(mockSession);
+      const mockQuery = jest
+        .fn()
+        .mockImplementation(() => makeSdkSession([makeResultSuccess()]));
       mockLoadAnthropicAgentSdk.mockResolvedValue({
         query: mockQuery,
       } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
-      await adapter.generateAndVerify(
-        makeParams('/repo/primary', [
+      await adapter.generateAndVerify({
+        ...makeParams('/repo/primary', [
           {
             id: 'v1',
             name: 'build',
@@ -600,9 +605,13 @@ describe('AnthropicAgentAdapter', () => {
             aliases: [],
           },
         ]),
-      );
+        repoFiles: ['primary/src/foo.ts'],
+        trackedFilePaths: ['primary/src/foo.ts'],
+      });
 
-      expect(mockQuery).toHaveBeenCalledTimes(1);
+      // Phase 1 call + incomplete-work loop iterations (mock sessions
+      // never emit files_persisted so unvisited files trigger retries).
+      expect(mockQuery.mock.calls.length).toBeGreaterThanOrEqual(1);
 
       const queryArgs = mockQuery.mock.calls[0][0];
       const options = queryArgs.options as Record<string, unknown>;
@@ -704,7 +713,12 @@ describe('AnthropicAgentAdapter', () => {
         mockLog.mockRestore();
       }
 
-      expect(mockSession.close).toHaveBeenCalledTimes(1);
+      // Each query() call returns a fresh session; verify at least the
+      // first one was closed.
+      const firstSession = mockQuery.mock.results[0]?.value as {
+        close: jest.Mock;
+      };
+      expect(firstSession.close).toHaveBeenCalledTimes(1);
     });
 
     it('sets autoCompactWindow in SDK settings', async () => {

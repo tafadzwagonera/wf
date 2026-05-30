@@ -28,9 +28,7 @@ import type {
   ImplementerOptions,
   IImplementerBackend,
   VerificationScript,
-  ModelRouting,
 } from '../../../agents/interfaces';
-import type { ResolutionPlan } from '../ai.service';
 import {
   buildMutationProgressSignal,
   buildVerificationCommandOrder,
@@ -40,6 +38,13 @@ import {
   type ImplementProgressVerificationSnapshot,
 } from '../../../shared/utils/implement-verification';
 import { loadAiContextConfig } from './load-ai-context-config';
+import {
+  resolveModelRouting,
+  normalizeCommand,
+  buildAllowedCommands,
+  formatRepoFileList,
+  stripRepoPrefix,
+} from './shared-routing';
 
 const execAsync = promisify(exec);
 const DEFAULT_MODEL = 'gpt-4.1';
@@ -48,119 +53,7 @@ const MAX_GREP_LINE_LENGTH = 500;
 const MAX_READ_LINES = 300;
 
 const DEFAULT_MECHANICAL_MODEL = 'gpt-4.1-mini';
-
-const MECHANICAL_STEP_PATTERNS = [
-  /migrate all/i,
-  /replace every/i,
-  /update each/i,
-  /same pattern across/i,
-  /rename all/i,
-  /add .+ to every/i,
-];
-
-/**
- * Detects whether a plan describes a mechanical (repetitive, pattern-based) task.
- *
- * @param plan - The resolution plan to evaluate
- * @returns True when the plan appears mechanical, with a human-readable reason
- */
-export const detectMechanicalTask = (
-  plan: ResolutionPlan,
-): { isMechanical: boolean; reason: string } => {
-  const filesCount = plan.filesAffected?.length ?? 0;
-  const stepsCount = plan.steps.length;
-
-  for (const step of plan.steps) {
-    const matched = MECHANICAL_STEP_PATTERNS.find((pattern) =>
-      pattern.test(step),
-    );
-    if (matched) {
-      return {
-        isMechanical: true,
-        reason: `pattern: "${matched.source}" in step "${step.slice(0, 60)}"`,
-      };
-    }
-  }
-
-  if (stepsCount > 0 && filesCount > 3 && filesCount / stepsCount > 3) {
-    return {
-      isMechanical: true,
-      reason: `high file-to-step ratio: ${filesCount} files / ${stepsCount} steps`,
-    };
-  }
-
-  if (plan.estimatedComplexity === 'low' && filesCount >= 20) {
-    return {
-      isMechanical: true,
-      reason: `low complexity with ${filesCount} files`,
-    };
-  }
-
-  return { isMechanical: false, reason: 'creative task' };
-};
-
-type ModelRoutingResult = {
-  model: string;
-  logMessage: string;
-};
-
-/**
- * Resolves the model to use based on routing mode, config, and mechanical detection.
- *
- * @param params - Routing context
- * @returns Selected model and an observability log message
- */
-const resolveModelRouting = (params: {
-  routing: ModelRouting;
-  primaryModel: string;
-  configService: ConfigService;
-  plan: ResolutionPlan;
-}): ModelRoutingResult => {
-  const { routing, primaryModel, configService, plan } = params;
-
-  const singleModel = configService.get<string>('stages.implement.model');
-  const modelsConfig = configService.get<
-    import('../../../config/public-config').WfImplementStageModelsConfig
-  >('stages.implement.models');
-
-  if (singleModel && modelsConfig) {
-    console.log(
-      chalk.yellow(
-        '  [openai-agent] Warning: both stages.implement.model and stages.implement.models are set. model takes precedence; models is ignored.',
-      ),
-    );
-  }
-
-  const mechanicalModel = modelsConfig?.mechanical || DEFAULT_MECHANICAL_MODEL;
-
-  if (routing === 'primary') {
-    return {
-      model: primaryModel,
-      logMessage: `[openai-agent] Model routing: ${primaryModel} (primary — user override)`,
-    };
-  }
-
-  if (routing === 'mechanical') {
-    return {
-      model: mechanicalModel,
-      logMessage: `[openai-agent] Model routing: ${mechanicalModel} (mechanical — user override)`,
-    };
-  }
-
-  // auto mode: detect from plan
-  const detection = detectMechanicalTask(plan);
-  if (detection.isMechanical) {
-    return {
-      model: mechanicalModel,
-      logMessage: `[openai-agent] Model routing: ${mechanicalModel} (auto — mechanical: ${detection.reason})`,
-    };
-  }
-
-  return {
-    model: primaryModel,
-    logMessage: `[openai-agent] Model routing: ${primaryModel} (auto — creative: ${detection.reason})`,
-  };
-};
+const OPENAI_AGENT_LABEL = 'openai-agent';
 
 const shellEscape = (value: string): string =>
   `'${value.replace(/'/g, "'\\''")}'`;
@@ -175,18 +68,6 @@ type OpenAiImplementerContext = {
   readRoots: WorkspaceRoot[];
   allowedVerificationCommands: Set<string>;
 };
-
-const normalizeCommand = (command: unknown): string =>
-  typeof command === 'string' ? command.trim() : '';
-
-const buildAllowedCommands = (
-  verificationScripts: VerificationScript[],
-): Set<string> =>
-  new Set(
-    verificationScripts
-      .map((script) => script.command.trim())
-      .filter((command) => command.length > 0),
-  );
 
 const toWorkspaceRoots = (
   repoDir: string,
@@ -694,22 +575,6 @@ Task context:
 ${sceneContext}`;
 };
 
-const formatRepoFileList = (repoFiles: string[], repoName: string): string => {
-  if (repoFiles.length === 0) {
-    return '  (none listed)';
-  }
-
-  return repoFiles
-    .map((filePath) => {
-      const relativePath =
-        repoName && filePath.startsWith(`${repoName}/`)
-          ? filePath.slice(repoName.length + 1)
-          : filePath;
-      return `  - ${relativePath}`;
-    })
-    .join('\n');
-};
-
 export const formatProgressMessage = (
   event: unknown,
 ): { message: string; isWarning?: boolean } | null => {
@@ -879,7 +744,6 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       'created' | 'updated' | 'deleted'
     >();
     const changedFilesSinceLastVerification = new Set<string>();
-    let validationFailureCount = 0;
     const validationFailures: Array<{
       path: string;
       error: string;
@@ -911,8 +775,10 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     const modelRoutingResult = resolveModelRouting({
       routing,
       primaryModel,
+      defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL,
       configService: this.configService,
       plan: params.planArtifact.plan,
+      adapterLabel: OPENAI_AGENT_LABEL,
     });
     const model = modelRoutingResult.model;
     console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
@@ -1304,7 +1170,6 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         const updated = content.replace(input.old_string, input.new_string);
         const validationError = validateTypeScriptEdit(absolutePath, updated);
         if (validationError) {
-          validationFailureCount++;
           const matchIndex = content.indexOf(input.old_string);
           const line =
             matchIndex >= 0
@@ -1376,7 +1241,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     const promptSections = [
       openAiContext ? openAiContext.trimEnd() : '',
       `Ticket key: ${params.ticket.ticketKey}`,
-      `Implement ALL ${params.planArtifact.plan.steps.length} plan steps completely. Use search_files to discover patterns across many files. Use write_file only for new files. For simple edits (adding an import line, renaming a variable), you may apply edit_file using search context alone. For edits that modify class constructors, method signatures, decorator lists, or module configuration, always read the full file first with read_file, then apply a single edit_file that merges your changes into the existing structure — never add a duplicate constructor or class member. Run verify_command as intermediate checkpoints. After verification passes, run search_files to check for remaining migration patterns — if ANY matches remain, keep editing. Do not output any text, summary, or plan until zero migration matches remain. Do not output any text or plan before calling your first tool.`,
+      `Implement ALL ${params.planArtifact.plan.steps.length} plan steps completely. Do not output any text or plan before calling your first tool.`,
     ].filter(Boolean);
     const prompt = promptSections.join('\n\n');
 
@@ -1549,42 +1414,74 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       });
     }
 
-    // Phase 2: if the mechanical model left incomplete work, retry with the
-    // primary model. Incomplete work = validation failures OR planned files
-    // that were never touched.
-    const touchedFiles = new Set(fileChangeStatus.keys());
-    const unvisitedFiles = repoFiles
-      .map((f) => {
-        // repoFiles may be prefixed with repoName (e.g. "primary/src/foo.ts")
-        if (repoName && f.startsWith(`${repoName}/`)) {
-          return f.slice(repoName.length + 1);
-        }
-        return f;
-      })
-      .filter((f) => !touchedFiles.has(f));
+    // Incomplete-work loop: re-run with the primary model until all planned
+    // files are touched, or until the incomplete-work reasons stabilise for
+    // two consecutive passes. Hard cap prevents infinite loops when each
+    // pass produces a different failure set.
+    const MAX_INCOMPLETE_WORK_PASSES = 5;
+    let previousReasons = '';
+    let stalledPasses = 0;
+    let passNumber = 0;
 
-    const hasIncompleteWork =
-      validationFailureCount > 0 || unvisitedFiles.length > 0;
+    while (passNumber < MAX_INCOMPLETE_WORK_PASSES) {
+      const touchedFiles = new Set(fileChangeStatus.keys());
+      const currentUnvisited = repoFiles
+        .map((f) => stripRepoPrefix(f, repoName))
+        .filter((f) => !touchedFiles.has(f));
+      const currentFailureCount = validationFailures.length;
 
-    if (hasIncompleteWork && model !== primaryModel) {
+      if (currentUnvisited.length === 0 && currentFailureCount === 0) {
+        break;
+      }
+
+      passNumber++;
+      // Subsequent iterations always use the primary (default) model.
+      // The first pass already ran with the routed model (mechanical or primary).
+      const iterationModel = primaryModel;
+
       const reasons: string[] = [];
-      if (validationFailureCount > 0) {
-        reasons.push(`${validationFailureCount} edit validation failure(s)`);
+      if (currentFailureCount > 0) {
+        reasons.push(`${currentFailureCount} edit validation failure(s)`);
       }
-      if (unvisitedFiles.length > 0) {
-        reasons.push(`${unvisitedFiles.length} planned file(s) not touched`);
+      if (currentUnvisited.length > 0) {
+        reasons.push(`${currentUnvisited.length} planned file(s) not touched`);
       }
+      // For stall detection, compare the set of unique incomplete-work
+      // identifiers rather than counts — otherwise a growing failure count
+      // would prevent convergence detection.
+      const failureKeys = [
+        ...new Set(validationFailures.map((f) => `${f.path}:${f.error}`)),
+      ].sort();
+      const reasonsKey = [...failureKeys, ...currentUnvisited.sort()].join(
+        '\n',
+      );
+
+      if (reasonsKey === previousReasons) {
+        stalledPasses++;
+      } else {
+        stalledPasses = 0;
+      }
+      previousReasons = reasonsKey;
+
+      if (stalledPasses >= 2) {
+        console.log(
+          chalk.yellow(
+            `\n  [openai-agent] Incomplete work unchanged for 2 passes — stopping (${reasonsKey})`,
+          ),
+        );
+        break;
+      }
+
       console.log(
         chalk.yellow(
-          `\n  [openai-agent] ${reasons.join(', ')} — falling back to primary model (${primaryModel})`,
+          `\n  [openai-agent] Pass ${passNumber}: ${reasons.join(', ')} — retrying with ${iterationModel}`,
         ),
       );
-      validationFailureCount = 0;
 
-      const fallbackAgent = new Agent<OpenAiImplementerContext>({
-        name: 'wf issue:implement openai backend (fallback)',
+      const iterationAgent = new Agent<OpenAiImplementerContext>({
+        name: `wf issue:implement openai backend (pass ${passNumber + 1})`,
         handoffDescription:
-          'Completes remaining implementation work using the primary model after the mechanical model encountered structural edit failures.',
+          'Completes remaining implementation work after an earlier pass left incomplete results.',
         instructions: buildSystemPrompt({
           ticketKey: params.ticket.ticketKey,
           repoDir,
@@ -1595,7 +1492,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
           sceneContext,
           planSteps: params.planArtifact.plan.steps,
         }),
-        model: primaryModel,
+        model: iterationModel,
         tools: [
           readFileTool,
           writeFileTool,
@@ -1609,9 +1506,9 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         resetToolChoice: true,
       });
 
-      const fallbackCompactionSession = new OpenAIResponsesCompactionSession({
+      const iterationCompaction = new OpenAIResponsesCompactionSession({
         client: openaiClient,
-        model: primaryModel,
+        model: iterationModel,
         compactionMode: 'auto',
         shouldTriggerCompaction: ({
           compactionCandidateItems,
@@ -1627,7 +1524,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
 
       const incompleteWorkSections: string[] = [];
 
-      if (validationFailures.length > 0) {
+      if (currentFailureCount > 0) {
         const uniqueFailures = new Map<
           string,
           (typeof validationFailures)[0]
@@ -1646,8 +1543,8 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         );
       }
 
-      if (unvisitedFiles.length > 0) {
-        const unvisitedLines = unvisitedFiles.map((f) => `- ${f}`).join('\n');
+      if (currentUnvisited.length > 0) {
+        const unvisitedLines = currentUnvisited.map((f) => `- ${f}`).join('\n');
         incompleteWorkSections.push(
           `Planned files not yet modified:\n${unvisitedLines}`,
         );
@@ -1655,33 +1552,33 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
 
       const incompleteWorkSummary = incompleteWorkSections.join('\n\n');
 
-      const fallbackPromptSections = [
+      const iterationPromptSections = [
         openAiContext ? openAiContext.trimEnd() : '',
         `Ticket key: ${params.ticket.ticketKey}`,
-        `Continue implementing the remaining plan steps. The previous pass with a smaller model left the following work incomplete:\n\n${incompleteWorkSummary}\n\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`,
+        `Continue implementing the remaining plan steps. The previous pass left the following work incomplete:\n\n${incompleteWorkSummary}\n\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`,
       ].filter(Boolean);
-      const fallbackPrompt = fallbackPromptSections.join('\n\n');
+      const iterationPrompt = iterationPromptSections.join('\n\n');
 
-      const fallbackRunner = new Runner({ modelProvider });
+      const iterationRunner = new Runner({ modelProvider });
 
-      let fallbackStreamedRun: StreamedRunResult<
+      let iterationRun: StreamedRunResult<
         OpenAiImplementerContext,
-        typeof fallbackAgent
-      > = await fallbackRunner.run(fallbackAgent, fallbackPrompt, {
+        typeof iterationAgent
+      > = await iterationRunner.run(iterationAgent, iterationPrompt, {
         stream: true,
         context,
         maxTurns,
-        session: fallbackCompactionSession,
+        session: iterationCompaction,
       });
 
-      let fallbackConsecutiveRetries = 0;
-      let fallbackEventsProcessed = 0;
+      let iterationConsecutiveRetries = 0;
+      let iterationEventsProcessed = 0;
 
       while (true) {
         try {
-          fallbackEventsProcessed = 0;
-          for await (const event of fallbackStreamedRun) {
-            fallbackEventsProcessed++;
+          iterationEventsProcessed = 0;
+          for await (const event of iterationRun) {
+            iterationEventsProcessed++;
             const usage = extractUsageFromEvent(event);
             if (usage) {
               usageSummary.inputTokens += usage.inputTokens;
@@ -1707,71 +1604,74 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
           if (!classified.recoverable || classified.label !== 'Rate limited') {
             console.log(
               chalk.red(
-                `  [openai-agent] Fallback ${classified.label}: ${classified.detail}`,
+                `  [openai-agent] Pass ${passNumber} ${classified.label}: ${classified.detail}`,
               ),
             );
             throw new Error(
-              `OpenAI agent fallback run failed (${classified.label}): ${classified.detail}`,
+              `OpenAI agent pass ${passNumber + 1} failed (${classified.label}): ${classified.detail}`,
             );
           }
-          if (fallbackEventsProcessed > 0) {
-            fallbackConsecutiveRetries = 0;
+          if (iterationEventsProcessed > 0) {
+            iterationConsecutiveRetries = 0;
           }
-          fallbackConsecutiveRetries++;
-          if (fallbackConsecutiveRetries > MAX_CONSECUTIVE_RATE_LIMIT_RETRIES) {
+          iterationConsecutiveRetries++;
+          if (
+            iterationConsecutiveRetries > MAX_CONSECUTIVE_RATE_LIMIT_RETRIES
+          ) {
             console.log(
               chalk.red(
-                `  [openai-agent] Fallback ${classified.label}: ${classified.detail}`,
+                `  [openai-agent] Pass ${passNumber} ${classified.label}: ${classified.detail}`,
               ),
             );
             throw new Error(
-              `OpenAI agent fallback run failed (${classified.label}): ${classified.detail}`,
+              `OpenAI agent pass ${passNumber + 1} failed (${classified.label}): ${classified.detail}`,
             );
           }
           const delayMs = parseRetryDelayMs(error);
           console.log(
             chalk.yellow(
-              `  [openai-agent] Fallback rate limited — retrying in ${Math.ceil(delayMs / 1000)}s (attempt ${fallbackConsecutiveRetries}/${MAX_CONSECUTIVE_RATE_LIMIT_RETRIES})`,
+              `  [openai-agent] Pass ${passNumber} rate limited — retrying in ${Math.ceil(delayMs / 1000)}s (attempt ${iterationConsecutiveRetries}/${MAX_CONSECUTIVE_RATE_LIMIT_RETRIES})`,
             ),
           );
           await new Promise((resolve) => setTimeout(resolve, delayMs));
-          fallbackStreamedRun = await fallbackRunner.run(
-            fallbackAgent,
-            fallbackStreamedRun.state,
+          iterationRun = await iterationRunner.run(
+            iterationAgent,
+            iterationRun.state,
             {
               stream: true,
               context,
               maxTurns,
-              session: fallbackCompactionSession,
+              session: iterationCompaction,
             },
           );
         }
       }
 
-      if (fallbackStreamedRun.error) {
-        const classified = classifyAgentError(fallbackStreamedRun.error);
+      if (iterationRun.error) {
+        const classified = classifyAgentError(iterationRun.error);
         console.log(
           chalk.red(
-            `  [openai-agent] Fallback ${classified.label}: ${classified.detail}`,
+            `  [openai-agent] Pass ${passNumber} ${classified.label}: ${classified.detail}`,
           ),
         );
         throw new Error(
-          `OpenAI agent fallback run failed (${classified.label}): ${classified.detail}`,
+          `OpenAI agent pass ${passNumber + 1} failed (${classified.label}): ${classified.detail}`,
         );
       }
 
       console.log(
         chalk.green(
-          `  [openai-agent] Fallback completed in ${fallbackStreamedRun.currentTurn} turn(s).`,
+          `  [openai-agent] Pass ${passNumber + 1} completed in ${iterationRun.currentTurn} turn(s).`,
         ),
       );
-      if (validationFailureCount > 0) {
-        console.log(
-          chalk.yellow(
-            `  [openai-agent] Fallback still had ${validationFailureCount} validation failure(s)`,
-          ),
-        );
-      }
+    }
+
+    if (passNumber >= MAX_INCOMPLETE_WORK_PASSES) {
+      console.log(
+        chalk.yellow(
+          `\n  [openai-agent] Reached maximum of ${MAX_INCOMPLETE_WORK_PASSES} incomplete-work passes — stopping`,
+        ),
+      );
     }
 
     const fileSummaryLines = [

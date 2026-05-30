@@ -17,8 +17,9 @@
  * @returns Promise that resolves when the smoke test completes
  */
 import chalk from 'chalk';
-import { detectMechanicalTask as openAiDetect } from '../../src/integrations/ai/adapters/openai-agent.adapter';
-import { detectMechanicalTask as anthropicDetect } from '../../src/integrations/ai/adapters/anthropic-agent.adapter';
+import { detectMechanicalTask } from '../../src/integrations/ai/adapters/shared-routing';
+const openAiDetect = detectMechanicalTask;
+const anthropicDetect = detectMechanicalTask;
 import type {
   ModelRouting,
   ImplementerOptions,

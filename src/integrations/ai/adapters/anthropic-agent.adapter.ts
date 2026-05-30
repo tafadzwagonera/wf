@@ -16,11 +16,16 @@ import type {
   ImplementerOptions,
   IImplementerBackend,
   VerificationScript,
-  ModelRouting,
 } from '../../../agents/interfaces';
-import type { ResolutionPlan } from '../ai.service';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import {
+  resolveModelRouting,
+  normalizeCommand,
+  buildAllowedCommands,
+  formatRepoFileList,
+  stripRepoPrefix,
+} from './shared-routing';
 
 const CLAUDE_CODE_TOOLS = [
   'Read',
@@ -37,134 +42,9 @@ const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const ANTHROPIC_AGENT_LABEL = 'claude-agent-sdk';
 const FALLBACK_VERIFICATION_LABEL = 'verification command';
 
-const MECHANICAL_STEP_PATTERNS = [
-  /migrate all/i,
-  /replace every/i,
-  /update each/i,
-  /same pattern across/i,
-  /rename all/i,
-  /add .+ to every/i,
-];
-
-/**
- * Detects whether a plan describes a mechanical (repetitive, pattern-based) task.
- *
- * @param plan - The resolution plan to evaluate
- * @returns True when the plan appears mechanical, with a human-readable reason
- */
-export const detectMechanicalTask = (
-  plan: ResolutionPlan,
-): { isMechanical: boolean; reason: string } => {
-  const filesCount = plan.filesAffected?.length ?? 0;
-  const stepsCount = plan.steps.length;
-
-  for (const step of plan.steps) {
-    const matched = MECHANICAL_STEP_PATTERNS.find((pattern) =>
-      pattern.test(step),
-    );
-    if (matched) {
-      return {
-        isMechanical: true,
-        reason: `pattern: "${matched.source}" in step "${step.slice(0, 60)}"`,
-      };
-    }
-  }
-
-  if (stepsCount > 0 && filesCount > 3 && filesCount / stepsCount > 3) {
-    return {
-      isMechanical: true,
-      reason: `high file-to-step ratio: ${filesCount} files / ${stepsCount} steps`,
-    };
-  }
-
-  if (plan.estimatedComplexity === 'low' && filesCount >= 20) {
-    return {
-      isMechanical: true,
-      reason: `low complexity with ${filesCount} files`,
-    };
-  }
-
-  return { isMechanical: false, reason: 'creative task' };
-};
-
-type ModelRoutingResult = {
-  model: string;
-  logMessage: string;
-};
-
-/**
- * Resolves the model to use based on routing mode, config, and mechanical detection.
- *
- * @param params - Routing context
- * @returns Selected model and an observability log message
- */
-const resolveModelRouting = (params: {
-  routing: ModelRouting;
-  primaryModel: string;
-  configService: ConfigService;
-  plan: ResolutionPlan;
-}): ModelRoutingResult => {
-  const { routing, primaryModel, configService, plan } = params;
-
-  const singleModel = configService.get<string>('stages.implement.model');
-  const modelsConfig = configService.get<
-    import('../../../config/public-config').WfImplementStageModelsConfig
-  >('stages.implement.models');
-
-  if (singleModel && modelsConfig) {
-    console.log(
-      chalk.yellow(
-        `  [${ANTHROPIC_AGENT_LABEL}] Warning: both stages.implement.model and stages.implement.models are set. model takes precedence; models is ignored.`,
-      ),
-    );
-  }
-
-  const mechanicalModel = modelsConfig?.mechanical || DEFAULT_MECHANICAL_MODEL;
-
-  if (routing === 'primary') {
-    return {
-      model: primaryModel,
-      logMessage: `[${ANTHROPIC_AGENT_LABEL}] Model routing: ${primaryModel} (primary — user override)`,
-    };
-  }
-
-  if (routing === 'mechanical') {
-    return {
-      model: mechanicalModel,
-      logMessage: `[${ANTHROPIC_AGENT_LABEL}] Model routing: ${mechanicalModel} (mechanical — user override)`,
-    };
-  }
-
-  // auto mode: detect from plan
-  const detection = detectMechanicalTask(plan);
-  if (detection.isMechanical) {
-    return {
-      model: mechanicalModel,
-      logMessage: `[${ANTHROPIC_AGENT_LABEL}] Model routing: ${mechanicalModel} (auto — mechanical: ${detection.reason})`,
-    };
-  }
-
-  return {
-    model: primaryModel,
-    logMessage: `[${ANTHROPIC_AGENT_LABEL}] Model routing: ${primaryModel} (auto — creative: ${detection.reason})`,
-  };
-};
-
 type ActivityState = {
   lastVerificationCommand?: string;
 };
-
-const normalizeCommand = (command: unknown): string =>
-  typeof command === 'string' ? command.trim() : '';
-
-const buildAllowedCommands = (
-  verificationScripts: VerificationScript[],
-): Set<string> =>
-  new Set(
-    verificationScripts
-      .map((script) => script.command.trim())
-      .filter((command) => command.length > 0),
-  );
 
 const buildCanUseTool = (
   allowedCommands: Set<string>,
@@ -404,22 +284,6 @@ const loadClaudeContext = async (repoDir: string): Promise<string> => {
   return sections.join('\n\n');
 };
 
-const formatRepoFileList = (repoFiles: string[], repoName: string): string => {
-  if (repoFiles.length === 0) {
-    return '  (none listed)';
-  }
-
-  return repoFiles
-    .map((filePath) => {
-      const relativePath =
-        repoName && filePath.startsWith(`${repoName}/`)
-          ? filePath.slice(repoName.length + 1)
-          : filePath;
-      return `  - ${relativePath}`;
-    })
-    .join('\n');
-};
-
 const buildSystemPrompt = ({
   repoDir,
   repoName,
@@ -525,8 +389,10 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
     const modelRoutingResult = resolveModelRouting({
       routing,
       primaryModel,
+      defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL,
       configService: this.configService,
       plan: params.planArtifact.plan,
+      adapterLabel: ANTHROPIC_AGENT_LABEL,
     });
     const model = modelRoutingResult.model;
     console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
@@ -694,37 +560,62 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
       console.log(chalk.gray('\n  File summary: no file changes were made.'));
     }
 
-    // Phase 2: if the mechanical model left planned files untouched,
-    // retry the remaining work with the primary model.
-    const unvisitedFiles = repoFiles
-      .map((f) => {
-        if (repoName && f.startsWith(`${repoName}/`)) {
-          return f.slice(repoName.length + 1);
-        }
-        return f;
-      })
-      .filter((f) => !touchedFiles.has(f));
+    // Incomplete-work loop: re-run with the primary model until all planned
+    // files are touched, or until the unvisited list stabilises for two
+    // consecutive passes. Hard cap prevents infinite loops.
+    const MAX_INCOMPLETE_WORK_PASSES = 5;
+    let previousUnvisitedKey = '';
+    let stalledPasses = 0;
+    let passNumber = 0;
 
-    if (unvisitedFiles.length > 0 && model !== primaryModel) {
+    while (passNumber < MAX_INCOMPLETE_WORK_PASSES) {
+      const currentUnvisited = repoFiles
+        .map((f) => stripRepoPrefix(f, repoName))
+        .filter((f) => !touchedFiles.has(f));
+
+      if (currentUnvisited.length === 0) {
+        break;
+      }
+
+      passNumber++;
+      const iterationModel = primaryModel;
+      const unvisitedKey = currentUnvisited.sort().join(',');
+
+      if (unvisitedKey === previousUnvisitedKey) {
+        stalledPasses++;
+      } else {
+        stalledPasses = 0;
+      }
+      previousUnvisitedKey = unvisitedKey;
+
+      if (stalledPasses >= 2) {
+        console.log(
+          chalk.yellow(
+            `\n  [${ANTHROPIC_AGENT_LABEL}] Incomplete work unchanged for 2 passes — stopping (${currentUnvisited.length} file(s) remaining)`,
+          ),
+        );
+        break;
+      }
+
       console.log(
         chalk.yellow(
-          `\n  [${ANTHROPIC_AGENT_LABEL}] ${unvisitedFiles.length} planned file(s) not touched — falling back to primary model (${primaryModel})`,
+          `\n  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — retrying with ${iterationModel}`,
         ),
       );
 
-      const unvisitedLines = unvisitedFiles.map((f) => `- ${f}`).join('\n');
-      const fallbackSession = query({
-        prompt: `Continue implementing the remaining plan steps. The previous pass with a smaller model left the following planned files unmodified:\n\n${unvisitedLines}\n\nFor each file listed above, read the full file first, then apply the required changes. After addressing all listed files, verify your work. Do not output any text or plan before making your first tool call.`,
+      const unvisitedLines = currentUnvisited.map((f) => `- ${f}`).join('\n');
+      const iterationSession = query({
+        prompt: `Continue implementing the remaining plan steps. The previous pass left the following planned files unmodified:\n\n${unvisitedLines}\n\nFor each file listed above, read the full file first, then apply the required changes. After addressing all listed files, verify your work. Do not output any text or plan before making your first tool call.`,
         options: {
           ...sdkOptions,
-          model: primaryModel,
+          model: iterationModel,
         },
       });
 
-      let fallbackResult: SDKResultMessage | undefined;
+      let iterationResult: SDKResultMessage | undefined;
 
       try {
-        for await (const message of fallbackSession) {
+        for await (const message of iterationSession) {
           if (logProgressMessage(message)) {
             continue;
           }
@@ -752,27 +643,49 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
             continue;
           }
 
-          fallbackResult = message;
+          iterationResult = message;
           break;
         }
       } finally {
-        fallbackSession.close();
+        iterationSession.close();
       }
 
-      if (fallbackResult) {
+      if (!iterationResult) {
+        throw new Error(
+          `Claude Agent SDK pass ${passNumber + 1} finished without returning a result.`,
+        );
+      }
+
+      if (iterationResult.subtype !== 'success' || iterationResult.is_error) {
+        const errorSummary =
+          'errors' in iterationResult && iterationResult.errors.length > 0
+            ? iterationResult.errors.join('; ')
+            : 'unknown error';
+        throw new Error(
+          `Claude Agent SDK pass ${passNumber + 1} failed (${iterationResult.subtype}): ${errorSummary}`,
+        );
+      }
+
+      console.log(
+        chalk.green(
+          `  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber + 1} completed in ${iterationResult.num_turns} turn(s).`,
+        ),
+      );
+      if (iterationResult.total_cost_usd > 0) {
         console.log(
-          chalk.green(
-            `  [${ANTHROPIC_AGENT_LABEL}] Fallback completed in ${fallbackResult.num_turns} turn(s).`,
+          chalk.cyan(
+            `  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber + 1} cost: $${iterationResult.total_cost_usd.toFixed(4)} USD`,
           ),
         );
-        if (fallbackResult.total_cost_usd > 0) {
-          console.log(
-            chalk.cyan(
-              `  [${ANTHROPIC_AGENT_LABEL}] Fallback cost: $${fallbackResult.total_cost_usd.toFixed(4)} USD`,
-            ),
-          );
-        }
       }
+    }
+
+    if (passNumber >= MAX_INCOMPLETE_WORK_PASSES) {
+      console.log(
+        chalk.yellow(
+          `\n  [${ANTHROPIC_AGENT_LABEL}] Reached maximum of ${MAX_INCOMPLETE_WORK_PASSES} incomplete-work passes — stopping`,
+        ),
+      );
     }
   }
 }

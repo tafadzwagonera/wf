@@ -4,7 +4,6 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   classifyAgentError,
-  detectMechanicalTask,
   extractUsageFromEvent,
   formatProgressMessage,
   parseRetryDelayMs,
@@ -12,6 +11,7 @@ import {
   validateTypeScriptEdit,
   OpenAIAgentAdapter,
 } from './openai-agent.adapter';
+import { detectMechanicalTask } from './shared-routing';
 import { loadAiContextConfig } from './load-ai-context-config';
 import type { VerificationScript } from '../../../agents/interfaces';
 
@@ -204,9 +204,9 @@ const makeParams = (
   },
   verificationScripts,
   sceneContext: 'implement it',
-  repoFiles: ['primary/src/foo.ts'],
+  repoFiles: [],
   repoName: 'primary',
-  trackedFilePaths: ['primary/src/foo.ts'],
+  trackedFilePaths: [],
 });
 
 const getTool = (agent: Record<string, unknown>, name: string) => {
