@@ -128,6 +128,34 @@ async function main(): Promise<void> {
     rateLimit ?? 'received null',
   );
 
+  console.log(chalk.bold('\nTest 6: compact_boundary'));
+  const compact = formatProgressMessage({
+    type: 'system',
+    subtype: 'compact_boundary',
+    compact_metadata: {
+      trigger: 'auto',
+      pre_tokens: 32000,
+    },
+  } as SDKMessage);
+  assert(
+    'compact_boundary renders trigger and token count',
+    compact ===
+      '  [claude-agent-sdk] Context compacted (auto, 32000 tokens before)',
+    compact ?? 'received null',
+  );
+
+  console.log(chalk.bold('\nTest 7: session_state_changed'));
+  const stateChanged = formatProgressMessage({
+    type: 'system',
+    subtype: 'session_state_changed',
+    state: 'idle',
+  } as SDKMessage);
+  assert(
+    'session_state_changed renders state',
+    stateChanged === '  [claude-agent-sdk] Session state: idle',
+    stateChanged ?? 'received null',
+  );
+
   console.log(chalk.bold('\nSummary'));
   console.log(`  Passed: ${passed}`);
   console.log(`  Failed: ${failed}`);

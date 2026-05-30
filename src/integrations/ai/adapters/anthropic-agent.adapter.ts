@@ -259,6 +259,18 @@ export const formatProgressMessage = (message: SDKMessage): string | null => {
     return `  [${ANTHROPIC_AGENT_LABEL}] Rate limit: updated`;
   }
 
+  if (message.type === 'system' && message.subtype === 'compact_boundary') {
+    const meta = message.compact_metadata;
+    return `  [${ANTHROPIC_AGENT_LABEL}] Context compacted (${meta.trigger}, ${meta.pre_tokens} tokens before)`;
+  }
+
+  if (
+    message.type === 'system' &&
+    message.subtype === 'session_state_changed'
+  ) {
+    return `  [${ANTHROPIC_AGENT_LABEL}] Session state: ${message.state}`;
+  }
+
   return null;
 };
 
@@ -443,9 +455,10 @@ Verification commands (run these to check your work):
 ${verificationList}
 
 Rules:
-- Use Read to inspect existing file contents before modifying them
+- Always Read existing file contents before modifying them. For edits that touch class constructors, method signatures, decorator lists, or module configuration, read the full file first and merge your changes into the existing structure rather than adding alongside it.
 - Use Write or Edit to write complete updated file contents
 - Use Bash only for verification commands that appear in the verification whitelist
+- Never duplicate a function, constructor, or class member. To add a parameter, modify the existing declaration. To change behavior, edit the existing body.
 - Writes are allowed only within the primary repository (${repoDir})
 - Reads are allowed from ${repoDir} and any configured read-only sibling repositories
 - Treat streamed progress updates as heuristics: continue when they point to forward motion, revisit when the pass looks stuck, and stop only when the agent returns a final result.
@@ -578,6 +591,7 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
     });
 
     let finalResult: SDKResultMessage | undefined;
+    const touchedFiles = new Set<string>();
 
     console.log(
       chalk.bold.cyan(
@@ -589,6 +603,16 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
       for await (const message of session) {
         if (logProgressMessage(message)) {
           continue;
+        }
+
+        if (
+          message.type === 'system' &&
+          message.subtype === 'files_persisted'
+        ) {
+          for (const { filename } of message.files) {
+            const absolutePath = resolveRepoPath(repoDir, filename);
+            touchedFiles.add(path.relative(repoDir, absolutePath));
+          }
         }
 
         const activityMessages = formatActivityMessages(
@@ -659,8 +683,96 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
           console.log(chalk.cyan(`    ${line}`));
         }
       });
+    }
+
+    if (touchedFiles.size > 0) {
+      console.log(chalk.bold('\n  File summary:'));
+      [...touchedFiles]
+        .sort()
+        .forEach((f) => console.log(chalk.cyan(`    - updated: ${f}`)));
     } else {
       console.log(chalk.gray('\n  File summary: no file changes were made.'));
+    }
+
+    // Phase 2: if the mechanical model left planned files untouched,
+    // retry the remaining work with the primary model.
+    const unvisitedFiles = repoFiles
+      .map((f) => {
+        if (repoName && f.startsWith(`${repoName}/`)) {
+          return f.slice(repoName.length + 1);
+        }
+        return f;
+      })
+      .filter((f) => !touchedFiles.has(f));
+
+    if (unvisitedFiles.length > 0 && model !== primaryModel) {
+      console.log(
+        chalk.yellow(
+          `\n  [${ANTHROPIC_AGENT_LABEL}] ${unvisitedFiles.length} planned file(s) not touched — falling back to primary model (${primaryModel})`,
+        ),
+      );
+
+      const unvisitedLines = unvisitedFiles.map((f) => `- ${f}`).join('\n');
+      const fallbackSession = query({
+        prompt: `Continue implementing the remaining plan steps. The previous pass with a smaller model left the following planned files unmodified:\n\n${unvisitedLines}\n\nFor each file listed above, read the full file first, then apply the required changes. After addressing all listed files, verify your work. Do not output any text or plan before making your first tool call.`,
+        options: {
+          ...sdkOptions,
+          model: primaryModel,
+        },
+      });
+
+      let fallbackResult: SDKResultMessage | undefined;
+
+      try {
+        for await (const message of fallbackSession) {
+          if (logProgressMessage(message)) {
+            continue;
+          }
+
+          if (
+            message.type === 'system' &&
+            message.subtype === 'files_persisted'
+          ) {
+            for (const { filename } of message.files) {
+              const absolutePath = resolveRepoPath(repoDir, filename);
+              touchedFiles.add(path.relative(repoDir, absolutePath));
+            }
+          }
+
+          const activityMessages = formatActivityMessages(
+            message,
+            repoDir,
+            activityState,
+          );
+          activityMessages.forEach((activityMessage) =>
+            console.log(chalk.cyan(activityMessage)),
+          );
+
+          if (message.type !== 'result') {
+            continue;
+          }
+
+          fallbackResult = message;
+          break;
+        }
+      } finally {
+        fallbackSession.close();
+      }
+
+      if (fallbackResult) {
+        console.log(
+          chalk.green(
+            `  [${ANTHROPIC_AGENT_LABEL}] Fallback completed in ${fallbackResult.num_turns} turn(s).`,
+          ),
+        );
+        if (fallbackResult.total_cost_usd > 0) {
+          console.log(
+            chalk.cyan(
+              `  [${ANTHROPIC_AGENT_LABEL}] Fallback cost: $${fallbackResult.total_cost_usd.toFixed(4)} USD`,
+            ),
+          );
+        }
+      }
     }
   }
 }

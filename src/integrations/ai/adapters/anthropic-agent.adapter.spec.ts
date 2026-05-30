@@ -210,6 +210,29 @@ const makeRateLimitEventMessage = (): SDKMessage =>
     session_id: 'session-10',
   }) as SDKMessage;
 
+const makeCompactBoundaryMessage = (): SDKMessage =>
+  ({
+    type: 'system',
+    subtype: 'compact_boundary',
+    compact_metadata: {
+      trigger: 'auto',
+      pre_tokens: 45000,
+    },
+    uuid: '11111111-1111-1111-1111-11111111111b',
+    session_id: 'session-11',
+  }) as SDKMessage;
+
+const makeSessionStateChangedMessage = (
+  state: 'idle' | 'running' | 'requires_action',
+): SDKMessage =>
+  ({
+    type: 'system',
+    subtype: 'session_state_changed',
+    state,
+    uuid: '11111111-1111-1111-1111-11111111111c',
+    session_id: 'session-12',
+  }) as SDKMessage;
+
 const makeSdkSession = (messages: SDKMessage[]) => {
   let messageIndex = 0;
 
@@ -324,6 +347,21 @@ describe('AnthropicAgentAdapter', () => {
       expect(formatProgressMessage(makeRateLimitEventMessage())).toBe(
         '  [claude-agent-sdk] Rate limit: updated',
       );
+    });
+
+    it('formats compact_boundary with trigger and token count', () => {
+      expect(formatProgressMessage(makeCompactBoundaryMessage())).toBe(
+        '  [claude-agent-sdk] Context compacted (auto, 45000 tokens before)',
+      );
+    });
+
+    it('formats session_state_changed', () => {
+      expect(
+        formatProgressMessage(makeSessionStateChangedMessage('idle')),
+      ).toBe('  [claude-agent-sdk] Session state: idle');
+      expect(
+        formatProgressMessage(makeSessionStateChangedMessage('running')),
+      ).toBe('  [claude-agent-sdk] Session state: running');
     });
   });
 
@@ -734,12 +772,14 @@ describe('AnthropicAgentAdapter', () => {
       }
     });
 
-    it('streams api_retry, status, and rate_limit_event diagnostic messages', async () => {
+    it('streams api_retry, status, rate_limit, compact, and session_state diagnostic messages', async () => {
       const mockSession = makeSdkSession([
         makeTaskProgressMessage(),
         makeApiRetryMessage(),
         makeStatusMessage('compacting'),
         makeRateLimitEventMessage(),
+        makeCompactBoundaryMessage(),
+        makeSessionStateChangedMessage('idle'),
         makeResultSuccess(),
       ]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
@@ -765,6 +805,18 @@ describe('AnthropicAgentAdapter', () => {
         expect(
           mockLog.mock.calls.some(([message]) =>
             String(message).includes('Rate limit: updated'),
+          ),
+        ).toBe(true);
+        expect(
+          mockLog.mock.calls.some(([message]) =>
+            String(message).includes(
+              'Context compacted (auto, 45000 tokens before)',
+            ),
+          ),
+        ).toBe(true);
+        expect(
+          mockLog.mock.calls.some(([message]) =>
+            String(message).includes('Session state: idle'),
           ),
         ).toBe(true);
       } finally {

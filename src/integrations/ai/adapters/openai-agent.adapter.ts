@@ -879,6 +879,12 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       'created' | 'updated' | 'deleted'
     >();
     const changedFilesSinceLastVerification = new Set<string>();
+    let validationFailureCount = 0;
+    const validationFailures: Array<{
+      path: string;
+      error: string;
+      line?: number;
+    }> = [];
     let previousVerificationSnapshot:
       | ImplementProgressVerificationSnapshot
       | undefined;
@@ -1298,9 +1304,21 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         const updated = content.replace(input.old_string, input.new_string);
         const validationError = validateTypeScriptEdit(absolutePath, updated);
         if (validationError) {
+          validationFailureCount++;
+          const matchIndex = content.indexOf(input.old_string);
+          const line =
+            matchIndex >= 0
+              ? content.substring(0, matchIndex).split('\n').length
+              : undefined;
+          const relativePath = path.relative(toolContext.repoDir, absolutePath);
+          validationFailures.push({
+            path: relativePath,
+            error: validationError,
+            line,
+          });
           console.log(
             chalk.yellow(
-              `  [openai-agent] Edit validation failed: ${input.path}`,
+              `  [openai-agent] Edit validation failed: ${input.path}${line ? `:${line}` : ''}`,
             ),
           );
           return JSON.stringify({ error: validationError });
@@ -1529,6 +1547,231 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
           console.log(chalk.cyan(`    ${line}`));
         }
       });
+    }
+
+    // Phase 2: if the mechanical model left incomplete work, retry with the
+    // primary model. Incomplete work = validation failures OR planned files
+    // that were never touched.
+    const touchedFiles = new Set(fileChangeStatus.keys());
+    const unvisitedFiles = repoFiles
+      .map((f) => {
+        // repoFiles may be prefixed with repoName (e.g. "primary/src/foo.ts")
+        if (repoName && f.startsWith(`${repoName}/`)) {
+          return f.slice(repoName.length + 1);
+        }
+        return f;
+      })
+      .filter((f) => !touchedFiles.has(f));
+
+    const hasIncompleteWork =
+      validationFailureCount > 0 || unvisitedFiles.length > 0;
+
+    if (hasIncompleteWork && model !== primaryModel) {
+      const reasons: string[] = [];
+      if (validationFailureCount > 0) {
+        reasons.push(`${validationFailureCount} edit validation failure(s)`);
+      }
+      if (unvisitedFiles.length > 0) {
+        reasons.push(`${unvisitedFiles.length} planned file(s) not touched`);
+      }
+      console.log(
+        chalk.yellow(
+          `\n  [openai-agent] ${reasons.join(', ')} — falling back to primary model (${primaryModel})`,
+        ),
+      );
+      validationFailureCount = 0;
+
+      const fallbackAgent = new Agent<OpenAiImplementerContext>({
+        name: 'wf issue:implement openai backend (fallback)',
+        handoffDescription:
+          'Completes remaining implementation work using the primary model after the mechanical model encountered structural edit failures.',
+        instructions: buildSystemPrompt({
+          ticketKey: params.ticket.ticketKey,
+          repoDir,
+          repoName,
+          repoFiles,
+          trackedFilePaths: params.trackedFilePaths,
+          verificationScripts,
+          sceneContext,
+          planSteps: params.planArtifact.plan.steps,
+        }),
+        model: primaryModel,
+        tools: [
+          readFileTool,
+          writeFileTool,
+          editFileTool,
+          deleteFileTool,
+          searchFilesTool,
+          findFilesTool,
+          verifyCommandTool,
+        ],
+        toolUseBehavior: 'run_llm_again',
+        resetToolChoice: true,
+      });
+
+      const fallbackCompactionSession = new OpenAIResponsesCompactionSession({
+        client: openaiClient,
+        model: primaryModel,
+        compactionMode: 'auto',
+        shouldTriggerCompaction: ({
+          compactionCandidateItems,
+          sessionItems,
+        }) => {
+          if (compactionCandidateItems.length >= compactionItemThreshold) {
+            return true;
+          }
+          const estimatedTokens = sessionItems.length * 150;
+          return estimatedTokens > compactionTokenThreshold;
+        },
+      });
+
+      const incompleteWorkSections: string[] = [];
+
+      if (validationFailures.length > 0) {
+        const uniqueFailures = new Map<
+          string,
+          (typeof validationFailures)[0]
+        >();
+        for (const failure of validationFailures) {
+          const key = `${failure.path}:${failure.error}`;
+          if (!uniqueFailures.has(key)) {
+            uniqueFailures.set(key, failure);
+          }
+        }
+        const failureLines = [...uniqueFailures.values()]
+          .map((f) => `- ${f.path}${f.line ? `:${f.line}` : ''} — ${f.error}`)
+          .join('\n');
+        incompleteWorkSections.push(
+          `Structural edit failures (read each file, then merge changes correctly):\n${failureLines}`,
+        );
+      }
+
+      if (unvisitedFiles.length > 0) {
+        const unvisitedLines = unvisitedFiles.map((f) => `- ${f}`).join('\n');
+        incompleteWorkSections.push(
+          `Planned files not yet modified:\n${unvisitedLines}`,
+        );
+      }
+
+      const incompleteWorkSummary = incompleteWorkSections.join('\n\n');
+
+      const fallbackPromptSections = [
+        openAiContext ? openAiContext.trimEnd() : '',
+        `Ticket key: ${params.ticket.ticketKey}`,
+        `Continue implementing the remaining plan steps. The previous pass with a smaller model left the following work incomplete:\n\n${incompleteWorkSummary}\n\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`,
+      ].filter(Boolean);
+      const fallbackPrompt = fallbackPromptSections.join('\n\n');
+
+      const fallbackRunner = new Runner({ modelProvider });
+
+      let fallbackStreamedRun: StreamedRunResult<
+        OpenAiImplementerContext,
+        typeof fallbackAgent
+      > = await fallbackRunner.run(fallbackAgent, fallbackPrompt, {
+        stream: true,
+        context,
+        maxTurns,
+        session: fallbackCompactionSession,
+      });
+
+      let fallbackConsecutiveRetries = 0;
+      let fallbackEventsProcessed = 0;
+
+      while (true) {
+        try {
+          fallbackEventsProcessed = 0;
+          for await (const event of fallbackStreamedRun) {
+            fallbackEventsProcessed++;
+            const usage = extractUsageFromEvent(event);
+            if (usage) {
+              usageSummary.inputTokens += usage.inputTokens;
+              usageSummary.outputTokens += usage.outputTokens;
+              usageSummary.totalTokens += usage.totalTokens;
+              usageSummary.cachedInputTokens += usage.cachedInputTokens;
+              if (usage.compacted) {
+                usageSummary.compacted = true;
+              }
+            }
+            const formatted = formatProgressMessage(event);
+            if (formatted) {
+              console.log(
+                formatted.isWarning
+                  ? chalk.yellow(formatted.message)
+                  : chalk.cyan(formatted.message),
+              );
+            }
+          }
+          break;
+        } catch (error) {
+          const classified = classifyAgentError(error);
+          if (!classified.recoverable || classified.label !== 'Rate limited') {
+            console.log(
+              chalk.red(
+                `  [openai-agent] Fallback ${classified.label}: ${classified.detail}`,
+              ),
+            );
+            throw new Error(
+              `OpenAI agent fallback run failed (${classified.label}): ${classified.detail}`,
+            );
+          }
+          if (fallbackEventsProcessed > 0) {
+            fallbackConsecutiveRetries = 0;
+          }
+          fallbackConsecutiveRetries++;
+          if (fallbackConsecutiveRetries > MAX_CONSECUTIVE_RATE_LIMIT_RETRIES) {
+            console.log(
+              chalk.red(
+                `  [openai-agent] Fallback ${classified.label}: ${classified.detail}`,
+              ),
+            );
+            throw new Error(
+              `OpenAI agent fallback run failed (${classified.label}): ${classified.detail}`,
+            );
+          }
+          const delayMs = parseRetryDelayMs(error);
+          console.log(
+            chalk.yellow(
+              `  [openai-agent] Fallback rate limited — retrying in ${Math.ceil(delayMs / 1000)}s (attempt ${fallbackConsecutiveRetries}/${MAX_CONSECUTIVE_RATE_LIMIT_RETRIES})`,
+            ),
+          );
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          fallbackStreamedRun = await fallbackRunner.run(
+            fallbackAgent,
+            fallbackStreamedRun.state,
+            {
+              stream: true,
+              context,
+              maxTurns,
+              session: fallbackCompactionSession,
+            },
+          );
+        }
+      }
+
+      if (fallbackStreamedRun.error) {
+        const classified = classifyAgentError(fallbackStreamedRun.error);
+        console.log(
+          chalk.red(
+            `  [openai-agent] Fallback ${classified.label}: ${classified.detail}`,
+          ),
+        );
+        throw new Error(
+          `OpenAI agent fallback run failed (${classified.label}): ${classified.detail}`,
+        );
+      }
+
+      console.log(
+        chalk.green(
+          `  [openai-agent] Fallback completed in ${fallbackStreamedRun.currentTurn} turn(s).`,
+        ),
+      );
+      if (validationFailureCount > 0) {
+        console.log(
+          chalk.yellow(
+            `  [openai-agent] Fallback still had ${validationFailureCount} validation failure(s)`,
+          ),
+        );
+      }
     }
 
     const fileSummaryLines = [
