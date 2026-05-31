@@ -54,9 +54,26 @@ const MAX_READ_LINES = 300;
 
 const DEFAULT_MECHANICAL_MODEL = 'gpt-4.1-mini';
 const OPENAI_AGENT_LABEL = 'openai-agent';
+const MAX_VERIFICATION_OUTPUT_LINES = 200;
+const COMPACTION_INPUT_TOKEN_CEILING = 80_000;
 
 const shellEscape = (value: string): string =>
   `'${value.replace(/'/g, "'\\''")}'`;
+
+/**
+ * Truncates command output to the last N lines to limit context growth.
+ * Prepends a note when lines are dropped so the model knows output was trimmed.
+ *
+ * @param output - Raw command output
+ * @param maxLines - Maximum lines to keep from the tail
+ * @returns Truncated output string
+ */
+const truncateOutput = (output: string, maxLines: number): string => {
+  const lines = output.split('\n');
+  if (lines.length <= maxLines) return output;
+  const kept = lines.slice(-maxLines);
+  return `[... ${lines.length - maxLines} lines truncated — showing last ${maxLines} lines ...]\n${kept.join('\n')}`;
+};
 
 type WorkspaceRoot = {
   name: string;
@@ -997,8 +1014,14 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
               command,
               allowed: true,
               exitCode: 0,
-              stdout: stdout.trim(),
-              stderr: stderr.trim(),
+              stdout: truncateOutput(
+                stdout.trim(),
+                MAX_VERIFICATION_OUTPUT_LINES,
+              ),
+              stderr: truncateOutput(
+                stderr.trim(),
+                MAX_VERIFICATION_OUTPUT_LINES,
+              ),
               progress,
             },
             null,
@@ -1031,8 +1054,8 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
               command,
               allowed: true,
               exitCode: error.code ?? 1,
-              stdout,
-              stderr,
+              stdout: truncateOutput(stdout, MAX_VERIFICATION_OUTPUT_LINES),
+              stderr: truncateOutput(stderr, MAX_VERIFICATION_OUTPUT_LINES),
               progress,
             },
             null,
@@ -1186,6 +1209,22 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
               `  [openai-agent] Edit validation failed: ${input.path}${line ? `:${line}` : ''}`,
             ),
           );
+          // Return the existing code around the edit site so the model can
+          // self-correct without a separate read_file round-trip.
+          if (line) {
+            const allLines = content.split('\n');
+            const contextStart = Math.max(0, line - 6);
+            const contextEnd = Math.min(allLines.length, line + 15);
+            const existingCode = allLines
+              .slice(contextStart, contextEnd)
+              .map((l, i) => `${contextStart + i + 1}: ${l}`)
+              .join('\n');
+            return JSON.stringify({
+              error: validationError,
+              hint: 'Merge your changes into the existing declaration instead of adding a duplicate. The existing code around the edit site is shown below.',
+              existing_code: existingCode,
+            });
+          }
           return JSON.stringify({ error: validationError });
         }
         await fs.writeFile(absolutePath, updated, 'utf-8');
@@ -1251,22 +1290,21 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
 
     const compactionItemThreshold =
       planStepCount <= 5 ? 10 : planStepCount <= 10 ? 20 : 30;
-    const compactionTokenThreshold =
-      planStepCount <= 5 ? 15_000 : planStepCount <= 10 ? 30_000 : 45_000;
+
+    // Track the last response_done input token count for the compaction
+    // trigger. Updated on every response_done event; reset to 0 after
+    // compaction fires so the trigger doesn't re-fire on stale values.
+    let lastObservedInputTokens = 0;
 
     const compactionSession = new OpenAIResponsesCompactionSession({
       client: openaiClient,
       model,
       compactionMode: 'auto',
-      shouldTriggerCompaction: ({ compactionCandidateItems, sessionItems }) => {
+      shouldTriggerCompaction: ({ compactionCandidateItems }) => {
         if (compactionCandidateItems.length >= compactionItemThreshold) {
           return true;
         }
-        // Estimate ~150 tokens per session item (tool calls, results, messages).
-        // Trigger compaction well before the context becomes large enough to
-        // cause TPM issues.
-        const estimatedTokens = sessionItems.length * 150;
-        return estimatedTokens > compactionTokenThreshold;
+        return lastObservedInputTokens > COMPACTION_INPUT_TOKEN_CEILING;
       },
     });
 
@@ -1301,8 +1339,10 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
             usageSummary.outputTokens += usage.outputTokens;
             usageSummary.totalTokens += usage.totalTokens;
             usageSummary.cachedInputTokens += usage.cachedInputTokens;
+            lastObservedInputTokens = usage.inputTokens;
             if (usage.compacted) {
               usageSummary.compacted = true;
+              lastObservedInputTokens = 0;
             }
           }
           const formatted = formatProgressMessage(event);
@@ -1414,117 +1454,76 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       });
     }
 
-    // Incomplete-work loop: re-run with the primary model until all planned
-    // files are touched, or until the incomplete-work reasons stabilise for
-    // two consecutive passes. Hard cap prevents infinite loops when each
-    // pass produces a different failure set.
-    const MAX_INCOMPLETE_WORK_PASSES = 5;
-    let previousReasons = '';
+    // Incomplete-work loop: resume the same agent with a continuation prompt
+    // so it retains full context of what it already did. Stops when all work
+    // is done or the workload stops decreasing for 2 consecutive passes.
+    let previousWorkload = Infinity;
     let stalledPasses = 0;
     let passNumber = 0;
 
-    while (passNumber < MAX_INCOMPLETE_WORK_PASSES) {
+    while (true) {
       const touchedFiles = new Set(fileChangeStatus.keys());
       const currentUnvisited = repoFiles
         .map((f) => stripRepoPrefix(f, repoName))
         .filter((f) => !touchedFiles.has(f));
-      const currentFailureCount = validationFailures.length;
+      const uniqueFailureCount = new Set(
+        validationFailures.map((f) => `${f.path}:${f.error}`),
+      ).size;
+      const currentWorkload = currentUnvisited.length + uniqueFailureCount;
 
-      if (currentUnvisited.length === 0 && currentFailureCount === 0) {
+      if (currentWorkload === 0) {
         break;
       }
 
-      passNumber++;
-      // Subsequent iterations always use the primary (default) model.
-      // The first pass already ran with the routed model (mechanical or primary).
-      const iterationModel = primaryModel;
-
-      const reasons: string[] = [];
-      if (currentFailureCount > 0) {
-        reasons.push(`${currentFailureCount} edit validation failure(s)`);
-      }
-      if (currentUnvisited.length > 0) {
-        reasons.push(`${currentUnvisited.length} planned file(s) not touched`);
-      }
-      // For stall detection, compare the set of unique incomplete-work
-      // identifiers rather than counts — otherwise a growing failure count
-      // would prevent convergence detection.
-      const failureKeys = [
-        ...new Set(validationFailures.map((f) => `${f.path}:${f.error}`)),
-      ].sort();
-      const reasonsKey = [...failureKeys, ...currentUnvisited.sort()].join(
-        '\n',
-      );
-
-      if (reasonsKey === previousReasons) {
-        stalledPasses++;
-      } else {
+      if (currentWorkload < previousWorkload) {
         stalledPasses = 0;
+      } else {
+        stalledPasses++;
       }
-      previousReasons = reasonsKey;
+      previousWorkload = currentWorkload;
 
       if (stalledPasses >= 2) {
+        const remaining: string[] = [];
+        if (uniqueFailureCount > 0) {
+          remaining.push(
+            `${uniqueFailureCount} unresolved edit validation failure(s)`,
+          );
+        }
+        if (currentUnvisited.length > 0) {
+          remaining.push(
+            `${currentUnvisited.length} planned file(s) not touched: ${currentUnvisited.join(', ')}`,
+          );
+        }
         console.log(
           chalk.yellow(
-            `\n  [openai-agent] Incomplete work unchanged for 2 passes — stopping (${reasonsKey})`,
+            `\n  [openai-agent] Workload not decreasing after 2 passes — stopping`,
           ),
+        );
+        console.log(
+          chalk.yellow(`  [openai-agent] Remaining: ${remaining.join('; ')}`),
         );
         break;
       }
 
+      passNumber++;
+
+      const reasons: string[] = [];
+      if (uniqueFailureCount > 0) {
+        reasons.push(`${uniqueFailureCount} edit validation failure(s)`);
+      }
+      if (currentUnvisited.length > 0) {
+        reasons.push(`${currentUnvisited.length} planned file(s) not touched`);
+      }
+
       console.log(
         chalk.yellow(
-          `\n  [openai-agent] Pass ${passNumber}: ${reasons.join(', ')} — retrying with ${iterationModel}`,
+          `\n  [openai-agent] Pass ${passNumber}: ${reasons.join(', ')} — continuing`,
         ),
       );
 
-      const iterationAgent = new Agent<OpenAiImplementerContext>({
-        name: `wf issue:implement openai backend (pass ${passNumber + 1})`,
-        handoffDescription:
-          'Completes remaining implementation work after an earlier pass left incomplete results.',
-        instructions: buildSystemPrompt({
-          ticketKey: params.ticket.ticketKey,
-          repoDir,
-          repoName,
-          repoFiles,
-          trackedFilePaths: params.trackedFilePaths,
-          verificationScripts,
-          sceneContext,
-          planSteps: params.planArtifact.plan.steps,
-        }),
-        model: iterationModel,
-        tools: [
-          readFileTool,
-          writeFileTool,
-          editFileTool,
-          deleteFileTool,
-          searchFilesTool,
-          findFilesTool,
-          verifyCommandTool,
-        ],
-        toolUseBehavior: 'run_llm_again',
-        resetToolChoice: true,
-      });
-
-      const iterationCompaction = new OpenAIResponsesCompactionSession({
-        client: openaiClient,
-        model: iterationModel,
-        compactionMode: 'auto',
-        shouldTriggerCompaction: ({
-          compactionCandidateItems,
-          sessionItems,
-        }) => {
-          if (compactionCandidateItems.length >= compactionItemThreshold) {
-            return true;
-          }
-          const estimatedTokens = sessionItems.length * 150;
-          return estimatedTokens > compactionTokenThreshold;
-        },
-      });
-
       const incompleteWorkSections: string[] = [];
 
-      if (currentFailureCount > 0) {
+      if (uniqueFailureCount > 0) {
         const uniqueFailures = new Map<
           string,
           (typeof validationFailures)[0]
@@ -1550,43 +1549,49 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
         );
       }
 
-      const incompleteWorkSummary = incompleteWorkSections.join('\n\n');
+      const continuationPrompt = `Continue implementing the remaining plan steps. The following work is still incomplete:\n\n${incompleteWorkSections.join('\n\n')}\n\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`;
 
-      const iterationPromptSections = [
-        openAiContext ? openAiContext.trimEnd() : '',
-        `Ticket key: ${params.ticket.ticketKey}`,
-        `Continue implementing the remaining plan steps. The previous pass left the following work incomplete:\n\n${incompleteWorkSummary}\n\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`,
-      ].filter(Boolean);
-      const iterationPrompt = iterationPromptSections.join('\n\n');
+      // Build continuation input from prior state when available, falling
+      // back to a plain string prompt when state is absent (e.g. in tests).
+      const state = streamedRun.state;
+      const hasState = state?._originalInput != null;
 
-      const iterationRunner = new Runner({ modelProvider });
+      const continuationInput: any = hasState
+        ? [
+            ...(typeof state._originalInput === 'string'
+              ? [{ role: 'user', content: state._originalInput }]
+              : state._originalInput),
+            ...state._generatedItems.map(
+              (item: { rawItem: unknown }) => item.rawItem,
+            ),
+            { role: 'user', content: continuationPrompt },
+          ]
+        : continuationPrompt;
 
-      let iterationRun: StreamedRunResult<
-        OpenAiImplementerContext,
-        typeof iterationAgent
-      > = await iterationRunner.run(iterationAgent, iterationPrompt, {
+      consecutiveRateLimitAttempts = 0;
+      eventsProcessedInSegment = 0;
+      streamedRun = await runner.run(agent, continuationInput, {
         stream: true,
         context,
         maxTurns,
-        session: iterationCompaction,
+        session: compactionSession,
       });
-
-      let iterationConsecutiveRetries = 0;
-      let iterationEventsProcessed = 0;
 
       while (true) {
         try {
-          iterationEventsProcessed = 0;
-          for await (const event of iterationRun) {
-            iterationEventsProcessed++;
+          eventsProcessedInSegment = 0;
+          for await (const event of streamedRun) {
+            eventsProcessedInSegment++;
             const usage = extractUsageFromEvent(event);
             if (usage) {
               usageSummary.inputTokens += usage.inputTokens;
               usageSummary.outputTokens += usage.outputTokens;
               usageSummary.totalTokens += usage.totalTokens;
               usageSummary.cachedInputTokens += usage.cachedInputTokens;
+              lastObservedInputTokens = usage.inputTokens;
               if (usage.compacted) {
                 usageSummary.compacted = true;
+                lastObservedInputTokens = 0;
               }
             }
             const formatted = formatProgressMessage(event);
@@ -1611,12 +1616,12 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
               `OpenAI agent pass ${passNumber + 1} failed (${classified.label}): ${classified.detail}`,
             );
           }
-          if (iterationEventsProcessed > 0) {
-            iterationConsecutiveRetries = 0;
+          if (eventsProcessedInSegment > 0) {
+            consecutiveRateLimitAttempts = 0;
           }
-          iterationConsecutiveRetries++;
+          consecutiveRateLimitAttempts++;
           if (
-            iterationConsecutiveRetries > MAX_CONSECUTIVE_RATE_LIMIT_RETRIES
+            consecutiveRateLimitAttempts > MAX_CONSECUTIVE_RATE_LIMIT_RETRIES
           ) {
             console.log(
               chalk.red(
@@ -1630,25 +1635,21 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
           const delayMs = parseRetryDelayMs(error);
           console.log(
             chalk.yellow(
-              `  [openai-agent] Pass ${passNumber} rate limited — retrying in ${Math.ceil(delayMs / 1000)}s (attempt ${iterationConsecutiveRetries}/${MAX_CONSECUTIVE_RATE_LIMIT_RETRIES})`,
+              `  [openai-agent] Pass ${passNumber} rate limited — retrying in ${Math.ceil(delayMs / 1000)}s (attempt ${consecutiveRateLimitAttempts}/${MAX_CONSECUTIVE_RATE_LIMIT_RETRIES})`,
             ),
           );
           await new Promise((resolve) => setTimeout(resolve, delayMs));
-          iterationRun = await iterationRunner.run(
-            iterationAgent,
-            iterationRun.state,
-            {
-              stream: true,
-              context,
-              maxTurns,
-              session: iterationCompaction,
-            },
-          );
+          streamedRun = await runner.run(agent, streamedRun.state, {
+            stream: true,
+            context,
+            maxTurns,
+            session: compactionSession,
+          });
         }
       }
 
-      if (iterationRun.error) {
-        const classified = classifyAgentError(iterationRun.error);
+      if (streamedRun.error) {
+        const classified = classifyAgentError(streamedRun.error);
         console.log(
           chalk.red(
             `  [openai-agent] Pass ${passNumber} ${classified.label}: ${classified.detail}`,
@@ -1661,15 +1662,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
 
       console.log(
         chalk.green(
-          `  [openai-agent] Pass ${passNumber + 1} completed in ${iterationRun.currentTurn} turn(s).`,
-        ),
-      );
-    }
-
-    if (passNumber >= MAX_INCOMPLETE_WORK_PASSES) {
-      console.log(
-        chalk.yellow(
-          `\n  [openai-agent] Reached maximum of ${MAX_INCOMPLETE_WORK_PASSES} incomplete-work passes — stopping`,
+          `  [openai-agent] Pass ${passNumber + 1} completed in ${streamedRun.currentTurn} turn(s).`,
         ),
       );
     }

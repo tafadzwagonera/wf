@@ -7,9 +7,11 @@ import {
   type SettingSource,
 } from '@anthropic-ai/claude-agent-sdk';
 import chalk from 'chalk';
+import { exec } from 'child_process';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
+import { promisify } from 'util';
 import type {
   TicketArtifact,
   PlanArtifact,
@@ -87,8 +89,43 @@ const buildCanUseTool = (
   };
 };
 
+const execAsync = promisify(exec);
+
 const resolveRepoPath = (repoDir: string, rawPath: string): string =>
   path.isAbsolute(rawPath) ? rawPath : path.resolve(repoDir, rawPath);
+
+/**
+ * Discovers files changed on disk since the last commit using git.
+ * Falls back to the provided set if git is unavailable.
+ *
+ * @param repoDir - Repository root directory
+ * @param existing - Existing set of touched files to merge into
+ * @returns Merged set of relative file paths
+ */
+const discoverChangedFiles = async (
+  repoDir: string,
+  existing: Set<string>,
+): Promise<Set<string>> => {
+  try {
+    const { stdout } = await execAsync(
+      'git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null',
+      { cwd: repoDir },
+    );
+    for (const line of stdout.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        existing.add(trimmed);
+      }
+    }
+  } catch (error) {
+    console.log(
+      chalk.gray(
+        `  [${ANTHROPIC_AGENT_LABEL}] git file discovery unavailable: ${error instanceof Error ? error.message : 'unknown error'}`,
+      ),
+    );
+  }
+  return existing;
+};
 
 const readOptionalFile = async (filePath: string): Promise<string | null> => {
   try {
@@ -501,6 +538,10 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
       session.close();
     }
 
+    // Supplement files_persisted tracking with git-based discovery since
+    // the SDK may not emit files_persisted for all writes in acceptEdits mode.
+    await discoverChangedFiles(repoDir, touchedFiles);
+
     if (!finalResult) {
       throw new Error('Claude Agent SDK finished without returning a result.');
     }
@@ -560,55 +601,64 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
       console.log(chalk.gray('\n  File summary: no file changes were made.'));
     }
 
-    // Incomplete-work loop: re-run with the primary model until all planned
-    // files are touched, or until the unvisited list stabilises for two
-    // consecutive passes. Hard cap prevents infinite loops.
-    const MAX_INCOMPLETE_WORK_PASSES = 5;
-    let previousUnvisitedKey = '';
+    // Incomplete-work loop: resume the same session so the agent retains
+    // full context of what it already did. Stops when all work is done or
+    // the workload stops decreasing for 2 consecutive passes.
+    let previousWorkload = Infinity;
     let stalledPasses = 0;
     let passNumber = 0;
+    let sessionId = finalResult.session_id;
 
-    while (passNumber < MAX_INCOMPLETE_WORK_PASSES) {
+    while (true) {
       const currentUnvisited = repoFiles
         .map((f) => stripRepoPrefix(f, repoName))
         .filter((f) => !touchedFiles.has(f));
+      const currentWorkload = currentUnvisited.length;
 
-      if (currentUnvisited.length === 0) {
+      if (currentWorkload === 0) {
         break;
       }
 
-      passNumber++;
-      const iterationModel = primaryModel;
-      const unvisitedKey = currentUnvisited.sort().join(',');
-
-      if (unvisitedKey === previousUnvisitedKey) {
-        stalledPasses++;
-      } else {
+      if (currentWorkload < previousWorkload) {
         stalledPasses = 0;
+      } else {
+        stalledPasses++;
       }
-      previousUnvisitedKey = unvisitedKey;
+      previousWorkload = currentWorkload;
 
       if (stalledPasses >= 2) {
         console.log(
           chalk.yellow(
-            `\n  [${ANTHROPIC_AGENT_LABEL}] Incomplete work unchanged for 2 passes — stopping (${currentUnvisited.length} file(s) remaining)`,
+            `\n  [${ANTHROPIC_AGENT_LABEL}] Workload not decreasing after 2 passes — stopping`,
+          ),
+        );
+        console.log(
+          chalk.yellow(
+            `  [${ANTHROPIC_AGENT_LABEL}] Remaining: ${currentUnvisited.length} planned file(s) not touched: ${currentUnvisited.join(', ')}`,
           ),
         );
         break;
       }
 
+      passNumber++;
+      const iterationModel = primaryModel;
+
       console.log(
         chalk.yellow(
-          `\n  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — retrying with ${iterationModel}`,
+          `\n  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`,
         ),
       );
 
       const unvisitedLines = currentUnvisited.map((f) => `- ${f}`).join('\n');
+      const continuationPrompt = `Continue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}\n\nFor each file listed above, read the full file first, then apply the required changes. After addressing all listed files, verify your work. Do not output any text or plan before making your first tool call.`;
+
+      // Resume the same session so the agent retains conversation context.
       const iterationSession = query({
-        prompt: `Continue implementing the remaining plan steps. The previous pass left the following planned files unmodified:\n\n${unvisitedLines}\n\nFor each file listed above, read the full file first, then apply the required changes. After addressing all listed files, verify your work. Do not output any text or plan before making your first tool call.`,
+        prompt: continuationPrompt,
         options: {
           ...sdkOptions,
           model: iterationModel,
+          resume: sessionId,
         },
       });
 
@@ -650,19 +700,28 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
         iterationSession.close();
       }
 
+      await discoverChangedFiles(repoDir, touchedFiles);
+
       if (!iterationResult) {
         throw new Error(
           `Claude Agent SDK pass ${passNumber + 1} finished without returning a result.`,
         );
       }
 
-      if (iterationResult.subtype !== 'success' || iterationResult.is_error) {
+      if (iterationResult.subtype !== 'success') {
         const errorSummary =
           'errors' in iterationResult && iterationResult.errors.length > 0
             ? iterationResult.errors.join('; ')
             : 'unknown error';
         throw new Error(
           `Claude Agent SDK pass ${passNumber + 1} failed (${iterationResult.subtype}): ${errorSummary}`,
+        );
+      }
+      if (iterationResult.is_error) {
+        console.log(
+          chalk.yellow(
+            `  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber + 1} completed with errors — continuing to next pass`,
+          ),
         );
       }
 
@@ -678,14 +737,8 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
           ),
         );
       }
-    }
 
-    if (passNumber >= MAX_INCOMPLETE_WORK_PASSES) {
-      console.log(
-        chalk.yellow(
-          `\n  [${ANTHROPIC_AGENT_LABEL}] Reached maximum of ${MAX_INCOMPLETE_WORK_PASSES} incomplete-work passes — stopping`,
-        ),
-      );
+      sessionId = iterationResult.session_id;
     }
   }
 }

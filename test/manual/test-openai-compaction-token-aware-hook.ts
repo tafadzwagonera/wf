@@ -5,9 +5,11 @@
  *
  * Verifies:
  *   1. The shouldTriggerCompaction hook logic fires on >=10 candidate items.
- *   2. The hook fires on estimated tokens > 15K (sessionItems.length * 150).
- *   3. The hook does NOT fire when both conditions are below threshold.
- *   4. The system prompt includes the duplicate-function guard rule.
+ *   2. The hook does NOT fire when candidate items are below threshold and no
+ *      observed input tokens exceed the ceiling.
+ *   3. The system prompt includes the duplicate-function guard rule.
+ *   4. The adapter uses actual observed input tokens (not a per-item estimate)
+ *      for the compaction trigger.
  *   5. The adapter does NOT contain proactive runCompaction or retry logic.
  *
  * @returns Promise that resolves when the smoke test completes
@@ -35,65 +37,8 @@ const assert = (label: string, condition: boolean): void => {
   }
 };
 
-/**
- * Replicate the shouldTriggerCompaction hook logic from the adapter.
- *
- * @param compactionCandidateItems - Items eligible for compaction
- * @param sessionItems - All session items
- * @returns Whether compaction should trigger
- */
-const shouldTriggerCompaction = ({
-  compactionCandidateItems,
-  sessionItems,
-}: {
-  compactionCandidateItems: unknown[];
-  sessionItems: unknown[];
-}): boolean => {
-  if (compactionCandidateItems.length >= 10) {
-    return true;
-  }
-  const estimatedTokens = sessionItems.length * 150;
-  return estimatedTokens > 15_000;
-};
-
 const run = async (): Promise<void> => {
   console.log(chalk.bold('\nSmoke test: OpenAI compaction token-aware hook\n'));
-
-  // 1. >=10 candidate items triggers compaction
-  assert(
-    'triggers on >=10 candidate items',
-    shouldTriggerCompaction({
-      compactionCandidateItems: Array.from({ length: 10 }),
-      sessionItems: Array.from({ length: 5 }),
-    }),
-  );
-
-  // 2. >100 session items (101 * 150 = 15150 > 15000) triggers compaction
-  assert(
-    'triggers on estimated tokens > 15K (101 session items)',
-    shouldTriggerCompaction({
-      compactionCandidateItems: Array.from({ length: 2 }),
-      sessionItems: Array.from({ length: 101 }),
-    }),
-  );
-
-  // 3. Both below threshold does NOT trigger
-  assert(
-    'does not trigger when both conditions below threshold',
-    !shouldTriggerCompaction({
-      compactionCandidateItems: Array.from({ length: 3 }),
-      sessionItems: Array.from({ length: 50 }),
-    }),
-  );
-
-  // 4. Boundary: exactly 100 session items (100 * 150 = 15000, NOT > 15000)
-  assert(
-    'does not trigger at exact boundary (100 items = 15000 tokens)',
-    !shouldTriggerCompaction({
-      compactionCandidateItems: Array.from({ length: 9 }),
-      sessionItems: Array.from({ length: 100 }),
-    }),
-  );
 
   const adapterSource = fs.readFileSync(
     path.join(
@@ -109,7 +54,7 @@ const run = async (): Promise<void> => {
     'utf8',
   );
 
-  // 5. System prompt includes duplicate-function guard
+  // 1. System prompt includes duplicate-function guard
   assert(
     'system prompt contains duplicate-function guard rule',
     adapterSource.includes(
@@ -117,34 +62,55 @@ const run = async (): Promise<void> => {
     ),
   );
 
-  // 6. Adapter contains shouldTriggerCompaction hook
+  // 2. Adapter contains shouldTriggerCompaction hook
   assert(
     'adapter contains shouldTriggerCompaction hook',
     adapterSource.includes('shouldTriggerCompaction:'),
   );
 
-  // 7. Adapter contains adaptive token threshold in hook
+  // 3. Adapter uses lastObservedInputTokens for compaction trigger
   assert(
-    'adapter uses adaptive compactionTokenThreshold in hook',
-    adapterSource.includes('estimatedTokens > compactionTokenThreshold'),
+    'adapter uses lastObservedInputTokens in compaction hook',
+    adapterSource.includes(
+      'lastObservedInputTokens > COMPACTION_INPUT_TOKEN_CEILING',
+    ),
   );
 
-  // 8. Adapter does NOT contain proactive runCompaction
+  // 4. Adapter defines COMPACTION_INPUT_TOKEN_CEILING constant
+  assert(
+    'adapter defines COMPACTION_INPUT_TOKEN_CEILING',
+    adapterSource.includes('COMPACTION_INPUT_TOKEN_CEILING'),
+  );
+
+  // 5. Adapter resets lastObservedInputTokens on compaction
+  assert(
+    'adapter resets lastObservedInputTokens after compaction',
+    adapterSource.includes('lastObservedInputTokens = 0'),
+  );
+
+  // 6. Adapter does NOT contain proactive runCompaction
   assert(
     'adapter does not contain proactive runCompaction',
     !adapterSource.includes('runCompaction('),
   );
 
-  // 9. Adapter does NOT contain rate limit retry logic
+  // 7. Adapter does NOT contain the old per-item token estimate
   assert(
-    'adapter does not contain rate limit retry logic',
-    !adapterSource.includes('maxRateLimitRetries'),
+    'adapter does not contain old sessionItems * 150 estimate',
+    !adapterSource.includes('sessionItems.length * 150'),
   );
 
-  // 10. Adapter does NOT contain COMPACTION_TOKEN_THRESHOLD constant
+  // 8. Adapter truncates verification output
   assert(
-    'adapter does not contain COMPACTION_TOKEN_THRESHOLD',
-    !adapterSource.includes('COMPACTION_TOKEN_THRESHOLD'),
+    'adapter truncates verification output',
+    adapterSource.includes('MAX_VERIFICATION_OUTPUT_LINES') &&
+      adapterSource.includes('truncateOutput'),
+  );
+
+  // 9. Edit validation returns existing code context on failure
+  assert(
+    'edit validation returns existing_code on failure',
+    adapterSource.includes('existing_code:'),
   );
 
   console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));

@@ -1434,7 +1434,7 @@ describe('OpenAIAgentAdapter', () => {
       expect(runOptions.session).toBeDefined();
     });
 
-    it('shouldTriggerCompaction fires on item count or token estimate', async () => {
+    it('shouldTriggerCompaction fires on item count or observed input tokens', async () => {
       const repoDir = fs.mkdtempSync(
         path.join(os.tmpdir(), 'wf-openai-compaction-hook-'),
       );
@@ -1457,30 +1457,19 @@ describe('OpenAIAgentAdapter', () => {
       >;
       const shouldTrigger = hookArg.shouldTriggerCompaction as (arg: {
         compactionCandidateItems: unknown[];
-        sessionItems: unknown[];
       }) => boolean;
 
       // ≥10 candidate items → true
       expect(
         shouldTrigger({
           compactionCandidateItems: Array.from({ length: 10 }),
-          sessionItems: Array.from({ length: 5 }),
         }),
       ).toBe(true);
 
-      // >100 session items (101 * 150 = 15150 > 15000) with few candidates → true
-      expect(
-        shouldTrigger({
-          compactionCandidateItems: Array.from({ length: 2 }),
-          sessionItems: Array.from({ length: 101 }),
-        }),
-      ).toBe(true);
-
-      // Both below threshold → false
+      // Few candidates and no observed tokens yet → false
       expect(
         shouldTrigger({
           compactionCandidateItems: Array.from({ length: 3 }),
-          sessionItems: Array.from({ length: 50 }),
         }),
       ).toBe(false);
     });
@@ -1837,7 +1826,7 @@ describe('OpenAIAgentAdapter', () => {
     }, 15_000);
 
     describe('adaptive compaction thresholds', () => {
-      it('uses 20 items / 30K tokens for plans with 8 steps', async () => {
+      it('uses 20 items for plans with 8 steps', async () => {
         const repoDir = fs.mkdtempSync(
           path.join(os.tmpdir(), 'wf-openai-compact-mid-'),
         );
@@ -1874,35 +1863,24 @@ describe('OpenAIAgentAdapter', () => {
         >;
         const shouldTrigger = hookArg.shouldTriggerCompaction as (arg: {
           compactionCandidateItems: unknown[];
-          sessionItems: unknown[];
         }) => boolean;
 
         // 20 candidate items → true (threshold is 20)
         expect(
           shouldTrigger({
             compactionCandidateItems: Array.from({ length: 20 }),
-            sessionItems: Array.from({ length: 5 }),
           }),
         ).toBe(true);
 
-        // 19 candidates, low session → false
+        // 19 candidates, no observed tokens → false
         expect(
           shouldTrigger({
             compactionCandidateItems: Array.from({ length: 19 }),
-            sessionItems: Array.from({ length: 50 }),
           }),
         ).toBe(false);
-
-        // >200 session items (201 * 150 = 30150 > 30000) → true
-        expect(
-          shouldTrigger({
-            compactionCandidateItems: Array.from({ length: 2 }),
-            sessionItems: Array.from({ length: 201 }),
-          }),
-        ).toBe(true);
       });
 
-      it('uses 30 items / 45K tokens for plans with 15 steps', async () => {
+      it('uses 30 items for plans with 15 steps', async () => {
         const repoDir = fs.mkdtempSync(
           path.join(os.tmpdir(), 'wf-openai-compact-large-'),
         );
@@ -1939,32 +1917,21 @@ describe('OpenAIAgentAdapter', () => {
         >;
         const shouldTrigger = hookArg.shouldTriggerCompaction as (arg: {
           compactionCandidateItems: unknown[];
-          sessionItems: unknown[];
         }) => boolean;
 
         // 30 candidate items → true (threshold is 30)
         expect(
           shouldTrigger({
             compactionCandidateItems: Array.from({ length: 30 }),
-            sessionItems: Array.from({ length: 5 }),
           }),
         ).toBe(true);
 
-        // 29 candidates, low session → false
+        // 29 candidates, no observed tokens → false
         expect(
           shouldTrigger({
             compactionCandidateItems: Array.from({ length: 29 }),
-            sessionItems: Array.from({ length: 100 }),
           }),
         ).toBe(false);
-
-        // >300 session items (301 * 150 = 45150 > 45000) → true
-        expect(
-          shouldTrigger({
-            compactionCandidateItems: Array.from({ length: 2 }),
-            sessionItems: Array.from({ length: 301 }),
-          }),
-        ).toBe(true);
       });
     });
   });

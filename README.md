@@ -714,10 +714,18 @@ Long-running implement sessions (50+ turns, 30+ file edits) can exhaust per-minu
 
 | Backend | Mechanism | Config |
 |---|---|---|
-| OpenAI | `OpenAIResponsesCompactionSession` with `compactionMode: 'auto'` and a custom `shouldTriggerCompaction` hook. **Note:** the SDK does not invoke compaction during streaming runs — session persistence only fires at end-of-run. The hook serves as a fallback for non-streaming paths. Long sessions may hit TPM limits before compaction can activate. | Automatic — no user config needed |
+| OpenAI | `OpenAIResponsesCompactionSession` with `compactionMode: 'auto'` and a custom `shouldTriggerCompaction` hook that triggers on either candidate-item count thresholds (scaled by plan step count) or when the last observed input token count exceeds 80K tokens. The token-based trigger uses actual usage data from `response_done` events rather than per-item estimates, and resets after compaction fires. | Automatic — no user config needed |
 | Anthropic | `autoCompactWindow: 20000` in SDK settings | Compacts when context exceeds ~20K tokens |
 
 When compaction occurs, the Anthropic backend emits a `Status: compacting` progress message. The OpenAI backend logs `[openai-agent] Context compaction triggered during run` if the SDK triggers compaction at end-of-run. Cached input tokens are also surfaced in the usage log (e.g. `Usage: 31376 input (12000 cached) / 1063 output tokens`).
+
+#### Incomplete-work loop
+
+When the first implementation pass (which may use a mechanical model in `auto` routing mode) leaves planned files unvisited or produces structural edit validation failures, the adapter runs additional passes with the primary (default) model to complete the remaining work.
+
+**Termination:** the loop stops when either (a) all planned files are touched and no validation failures remain, or (b) the total workload (unvisited files + unique validation failures) does not decrease for 2 consecutive passes. On termination, the adapter logs a summary of remaining work so upstream tooling can take over.
+
+**Context efficiency:** each iteration receives the previous pass's structured summary (`finalOutput` / `result`) so it can focus on remaining work without re-reading already-edited files. The OpenAI adapter also truncates verification command output to the last 200 lines and returns surrounding code context on edit validation failures, reducing round-trips for self-correction.
 
 ### Retry strategy
 

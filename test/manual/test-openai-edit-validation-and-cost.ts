@@ -134,11 +134,11 @@ const run = async (): Promise<void> => {
     adapterSource.includes('validateTypeScriptEdit(absolutePath, updated)'),
   );
 
-  // 10. Adapter source contains fallback logic
+  // 10. Adapter source contains incomplete-work loop with workload tracking
   assert(
-    'adapter contains incomplete work fallback',
-    adapterSource.includes('hasIncompleteWork') &&
-      adapterSource.includes('unvisitedFiles'),
+    'adapter contains incomplete-work loop',
+    adapterSource.includes('currentWorkload') &&
+      adapterSource.includes('currentUnvisited'),
   );
 
   console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));
