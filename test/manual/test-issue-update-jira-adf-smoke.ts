@@ -7,18 +7,22 @@
  * Preview mode builds the exact outgoing Jira update payload through the
  * JiraAdapter and JiraService update path without performing a live PUT.
  * Add --live --confirm-live-update to execute the Jira update after the
- * preview diagnostics are printed.
+ * preview diagnostics are printed. A Y/n confirmation prompt is shown
+ * before the live PUT so you can verify the target ticket key.
  */
 
 import assert from 'assert';
+import { createInterface } from 'node:readline';
 import { NestFactory } from '@nestjs/core';
 import { of } from 'rxjs';
+import { UniversalTicket } from '../../src/common/dto/universal-ticket.dto';
 import { AppModule } from '../../src/app.module';
 import { JiraService } from '../../src/integrations/jira/jira.service';
 import { JiraAdapter } from '../../src/integrations/platforms/jira/jira-adapter';
 import {
+  loadDescriptionFile,
   parseJiraUpdateSmokeArgs,
-  runJiraUpdateSmokeTest,
+  captureJiraDescriptionUpdatePreview,
 } from '../../src/test/manual/jira-update-smoke';
 
 const createPreviewDependencies = (): {
@@ -55,6 +59,23 @@ const createPreviewDependencies = (): {
   return { adapter, jiraService };
 };
 
+/**
+ * Prompt the user with a Y/n question and return whether they confirmed.
+ *
+ * @param question - The prompt text shown to the user
+ * @returns `true` when the user answers `Y` or `y`, `false` otherwise
+ */
+const askConfirmation = (question: string): Promise<boolean> => {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase() === 'y');
+    });
+  });
+};
+
 const main = async (): Promise<void> => {
   const args = parseJiraUpdateSmokeArgs(process.argv.slice(3));
   const app = args.executeLiveUpdate
@@ -71,8 +92,11 @@ const main = async (): Promise<void> => {
             jiraService: app.get(JiraService),
           }
         : createPreviewDependencies();
-    const result = await runJiraUpdateSmokeTest({
-      ...args,
+
+    const description = loadDescriptionFile(args.descriptionFilePath);
+    const result = await captureJiraDescriptionUpdatePreview({
+      ticketKey: args.ticketKey,
+      description,
       adapter: dependencies.adapter,
       jiraService: dependencies.jiraService,
     });
@@ -87,17 +111,35 @@ const main = async (): Promise<void> => {
     console.log('\nManual Test: issue:update Jira ADF payload smoke test\n');
     console.log(`Mode: ${args.executeLiveUpdate ? 'live update' : 'preview'}`);
     console.log(`Ticket: ${result.ticketKey}`);
-    console.log(`Description file: ${result.descriptionFilePath}`);
+    console.log(`Description file: ${args.descriptionFilePath}`);
     console.log(
       `Formatting summary: headings=${result.formattingSummary.headingCount}, codeBlocks=${result.formattingSummary.codeBlockCount}, bulletLists=${result.formattingSummary.bulletListCount}, orderedLists=${result.formattingSummary.orderedListCount}`,
     );
     console.log('Payload preview:');
     console.log(result.serializedPayload);
-    console.log(
-      args.executeLiveUpdate
-        ? 'PASS: Jira description update preview completed and live update was sent.'
-        : 'PASS: Jira description update preview completed without sending a live Jira update.',
-    );
+
+    if (args.executeLiveUpdate) {
+      const confirmed = await askConfirmation(
+        `\nUpdate ${args.ticketKey}? (y/N) `,
+      );
+
+      if (!confirmed) {
+        console.log('Cancelled. No live Jira update was sent.');
+        return;
+      }
+
+      await dependencies.adapter.updateTicket(
+        args.ticketKey,
+        new UniversalTicket({ description }),
+      );
+      console.log(
+        'PASS: Jira description update preview completed and live update was sent.',
+      );
+    } else {
+      console.log(
+        'PASS: Jira description update preview completed without sending a live Jira update.',
+      );
+    }
   } finally {
     await app?.close();
   }
