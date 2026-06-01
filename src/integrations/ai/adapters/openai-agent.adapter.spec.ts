@@ -655,7 +655,7 @@ describe('OpenAIAgentAdapter', () => {
       await adapter.generateAndVerify(params);
 
       const agentConfig = mockAgent.mock.calls[0]?.[0] as { model: string };
-      expect(agentConfig.model).toBe('gpt-4.1-mini');
+      expect(agentConfig.model).toBe('gpt-5.1-codex-mini');
 
       const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
       expect(
@@ -735,7 +735,7 @@ describe('OpenAIAgentAdapter', () => {
       await adapter.generateAndVerify(params);
 
       const agentConfig = mockAgent.mock.calls[0]?.[0] as { model: string };
-      expect(agentConfig.model).toBe('gpt-4.1-mini');
+      expect(agentConfig.model).toBe('gpt-5.1-codex-mini');
 
       const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
       expect(

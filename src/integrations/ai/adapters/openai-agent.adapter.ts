@@ -52,7 +52,7 @@ const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 10;
 const MAX_GREP_LINE_LENGTH = 500;
 const MAX_READ_LINES = 300;
 
-const DEFAULT_MECHANICAL_MODEL = 'gpt-4.1-mini';
+const DEFAULT_MECHANICAL_MODEL = 'gpt-5.1-codex-mini';
 const OPENAI_AGENT_LABEL = 'openai-agent';
 const MAX_VERIFICATION_OUTPUT_LINES = 200;
 const COMPACTION_INPUT_TOKEN_CEILING = 80_000;
@@ -1551,26 +1551,20 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
 
       const continuationPrompt = `Continue implementing the remaining plan steps. The following work is still incomplete:\n\n${incompleteWorkSections.join('\n\n')}\n\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`;
 
-      // Build continuation input from prior state when available, falling
-      // back to a plain string prompt when state is absent (e.g. in tests).
+      // Resume the prior run state with the continuation prompt appended.
+      // We pass RunState directly (not a rebuilt item array) to avoid
+      // duplicate message IDs across passes.
       const state = streamedRun.state;
-      const hasState = state?._originalInput != null;
-
-      const continuationInput: any = hasState
-        ? [
-            ...(typeof state._originalInput === 'string'
-              ? [{ role: 'user', content: state._originalInput }]
-              : state._originalInput),
-            ...state._generatedItems.map(
-              (item: { rawItem: unknown }) => item.rawItem,
-            ),
-            { role: 'user', content: continuationPrompt },
-          ]
-        : continuationPrompt;
+      if (state?._generatedItems) {
+        state._generatedItems.push({
+          rawItem: { role: 'user', content: continuationPrompt },
+          type: 'message',
+        } as any);
+      }
 
       consecutiveRateLimitAttempts = 0;
       eventsProcessedInSegment = 0;
-      streamedRun = await runner.run(agent, continuationInput, {
+      streamedRun = await runner.run(agent, state ?? continuationPrompt, {
         stream: true,
         context,
         maxTurns,
