@@ -1,5 +1,5 @@
 /**
- * Manual Test: GitService.commit() excludes .wf/** and wf.config.* tooling artifacts
+ * Manual Test: GitService.commit() excludes tooling artifacts and rejects staged .gitignore
  *
  * Run: nr test:manual -- test-git-commit-exclusions
  *
@@ -9,7 +9,9 @@
  *   3. All six wf.config.* variants are excluded from the commit
  *   4. dist/ build output is excluded from the commit
  *   5. Already-staged files are used as-is (pre-staged branch)
- *   6. Commit succeeds without using git pathspec exclude magic
+ *   6. Staged .gitignore causes commit() to fail hard before any commit is created
+ *   7. Explicit commit file lists that include .gitignore also fail hard
+ *   8. Commit succeeds without using git pathspec exclude magic
  *
  * No AI / API keys required — exercises GitService.commit() directly.
  */
@@ -177,6 +179,95 @@ async function main() {
       pass('.wf/** artifact NOT in commit (was never staged)');
     } else {
       fail('.wf/** artifact leaked into pre-staged commit', files2);
+    }
+
+    // ── Scenario 3: staged .gitignore must fail hard ───────────────────────
+    console.log('\n─'.repeat(30));
+    console.log('\nScenario 3: staged .gitignore rejects commit\n');
+
+    const dir3 = makeRepo();
+    dirs.push(dir3);
+
+    const srcFile3 = path.join(dir3, 'index.ts');
+    fs.writeFileSync(srcFile3, 'export const hello = () => "hello v2";\n');
+    fs.writeFileSync(path.join(dir3, '.gitignore'), 'node_modules/\n');
+    execSync('git add index.ts .gitignore', { cwd: dir3, stdio: 'pipe' });
+
+    let rejected = false;
+    try {
+      await gitService.commit({
+        message: 'test: staged gitignore should fail',
+        cwd: dir3,
+      });
+    } catch (error) {
+      rejected = true;
+      const message = (error as Error).message;
+      if (message.includes('.gitignore')) {
+        pass('commit() rejected staged .gitignore');
+      } else {
+        fail('commit() rejected the commit without naming .gitignore', message);
+      }
+    }
+
+    if (!rejected) {
+      fail('commit() allowed staged .gitignore to be committed');
+    }
+
+    const committedFiles3 = committedFiles(dir3);
+    if (committedFiles3.includes('.gitignore')) {
+      fail(
+        '.gitignore was committed despite the hard failure',
+        committedFiles3,
+      );
+    } else {
+      pass('.gitignore was not committed after the hard failure');
+    }
+
+    // ── Scenario 4: explicit files list containing .gitignore must fail ──
+    console.log('\n─'.repeat(30));
+    console.log('\nScenario 4: explicit files list rejects .gitignore\n');
+
+    const dir4 = makeRepo();
+    dirs.push(dir4);
+
+    const srcFile4 = path.join(dir4, 'index.ts');
+    fs.writeFileSync(srcFile4, 'export const hello = () => "hello v2";\n');
+    fs.writeFileSync(path.join(dir4, '.gitignore'), 'node_modules/\n');
+
+    rejected = false;
+    try {
+      await gitService.commit({
+        message: 'test: explicit gitignore should fail',
+        cwd: dir4,
+        files: ['index.ts', '.gitignore'],
+      });
+    } catch (error) {
+      rejected = true;
+      const message = (error as Error).message;
+      if (message.includes('.gitignore')) {
+        pass('commit() rejected an explicit files list containing .gitignore');
+      } else {
+        fail(
+          'commit() rejected the explicit files list without naming .gitignore',
+          message,
+        );
+      }
+    }
+
+    if (!rejected) {
+      fail('commit() allowed an explicit files list containing .gitignore');
+    }
+
+    const committedFiles4 = committedFiles(dir4);
+    if (committedFiles4.includes('.gitignore')) {
+      fail(
+        '.gitignore was committed despite the explicit-files hard failure',
+        committedFiles4,
+      );
+    } else {
+      pass(
+        '.gitignore was not committed after the explicit-files hard failure',
+      );
     }
   } finally {
     await app.close();

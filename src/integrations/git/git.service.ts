@@ -153,9 +153,11 @@ export class GitService {
       });
 
       const status = await git.status();
+      this.ensureGitignoreIsNotStaged(status.staged);
 
       // If specific files provided, add them
       if (options.files && options.files.length > 0) {
+        this.ensureGitignoreIsNotStaged(options.files);
         await git.add(options.files);
       } else if (!status.staged.length && status.files.length > 0) {
         // Add all modified files if nothing is staged, excluding .wf/** runtime
@@ -172,6 +174,7 @@ export class GitService {
 
       // Check if there are changes to commit
       const updatedStatus = await git.status();
+      this.ensureGitignoreIsNotStaged(updatedStatus.staged);
       if (!updatedStatus.staged.length && !options.allowEmpty) {
         throw new GitError('No changes to commit');
       }
@@ -282,6 +285,19 @@ export class GitService {
    */
   private filterStageable(paths: string[]): string[] {
     return paths.filter((p) => !GitService.EXCLUDED_PATHS.test(p));
+  }
+
+  private ensureGitignoreIsNotStaged(paths: string[]): void {
+    if (!paths.includes('.gitignore')) {
+      return;
+    }
+
+    throw new GitError(
+      'Refusing to create commit because .gitignore is staged',
+      {
+        stagedPaths: paths,
+      },
+    );
   }
 
   async stashChanges(message?: string): Promise<void> {
