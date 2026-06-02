@@ -27,7 +27,7 @@ const MOCK_STYLE_TAG_PATTERN = /<\/?(?:cyan|yellow|green|gray|bold-cyan)>/g;
 const loadCatalogFromDisk = (): Record<string, CommandHelpEntry> => {
   if (!fs.existsSync(CATALOG_PATH)) {
     throw new Error(
-      `Help catalog not found at ${CATALOG_PATH}. Run \`npm run build\` to generate it.`,
+      `Help catalog not found at ${CATALOG_PATH}. Run \`yarn build\` to generate it.`,
     );
   }
 

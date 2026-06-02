@@ -193,8 +193,8 @@ async function main() {
 
   console.log(chalk.bold('Test 5: generated docs sync is idempotent'));
   try {
-    const firstSync = run('npm run generated-docs:sync');
-    const secondSync = run('npm run generated-docs:sync');
+    const firstSync = run('yarn generated-docs:sync');
+    const secondSync = run('yarn generated-docs:sync');
 
     if (
       firstSync.includes('help:catalog') &&

@@ -1114,6 +1114,9 @@ yarn test:manual test-executors
 
 # Diagnose Jira permissions
 yarn test:manual diagnose-jira-permissions
+
+# Verify CI scripts use yarn consistently
+nr test:manual -- test-ci-yarn-scripts
 ```
 
 `test-issue-update-jira-adf-smoke` defaults to preview-only mode. `--live`
