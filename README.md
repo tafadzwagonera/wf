@@ -25,11 +25,19 @@ A **NestJS-based CLI agent** that automates Windsurf workflows with staged execu
 - [Development](#development)
 - [Testing](#testing)
 
+## Prerequisites
+
+- **Node.js >= 22.17** (pinned in `.nvmrc`; run `nvm use` to activate)
+- **Yarn** (package manager)
+
 ## Installation
 
 ```bash
 # Clone the repository
 cd /Users/tafadzwagonera/Projects/wf
+
+# Activate the pinned Node version
+nvm use
 
 # Install dependencies
 yarn install
