@@ -513,7 +513,7 @@ Slack permalinks that include query parameters should be quoted when invoked fro
 #### `wf issue:commit [ticket-key]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:commit -->
-Create git commit with AI-generated message (auto-detects ticket from branch)
+Create git commit with AI-generated message (auto-detects ticket from branch; fails hard if .gitignore is staged)
 
 ```bash
 # AI-generated commit message

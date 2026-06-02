@@ -53,7 +53,7 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
 @Command({
   name: 'issue:commit',
   description:
-    'Create git commit with AI-generated message (auto-detects ticket from branch)',
+    'Create git commit with AI-generated message (auto-detects ticket from branch; fails hard if .gitignore is staged)',
   arguments: '[ticket-key]',
   options: { isDefault: false },
 })

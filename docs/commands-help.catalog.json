@@ -22,7 +22,7 @@
     ]
   },
   "issue:commit": {
-    "description": "Create git commit with AI-generated message (auto-detects ticket from branch)",
+    "description": "Create git commit with AI-generated message (auto-detects ticket from branch; fails hard if .gitignore is staged)",
     "usage": "wf issue:commit [ticket-key] [options]",
     "options": [
       {
