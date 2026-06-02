@@ -1,4 +1,5 @@
 import * as path from 'path';
+import chalk from 'chalk';
 import { extractSummary, resolveRepoBasePath, slugify } from './utils';
 
 jest.mock('fs', () => ({
@@ -56,7 +57,9 @@ describe('resolveRepoBasePath', () => {
 
     expect(resolveRepoBasePath('workspace/repo-a')).toBe('/tmp/current-app');
     expect(consoleLogSpy).toHaveBeenCalledWith(
-      "⚠️ Repository 'workspace/repo-a' not found as a path or sibling directory. Using current directory.",
+      chalk.yellow(
+        "⚠️ Repository 'workspace/repo-a' not found as a path or sibling directory. Using current directory.",
+      ),
     );
   });
 });
