@@ -852,7 +852,9 @@ export class JiraService {
       case 'bulletList':
         return (
           node.content
-            .map((item: any) => `- ${this.processADFContent(item.content)}`)
+            .map(
+              (item: any) => `- ${this.processADFContent(item.content).trim()}`,
+            )
             .join('\n') + '\n\n'
         );
       case 'orderedList':
@@ -860,7 +862,7 @@ export class JiraService {
           node.content
             .map(
               (item: any, i: number) =>
-                `${i + 1}. ${this.processADFContent(item.content)}`,
+                `${i + 1}. ${this.processADFContent(item.content).trim()}`,
             )
             .join('\n') + '\n\n'
         );
@@ -870,9 +872,50 @@ export class JiraService {
       }
       case 'listItem':
         return this.processADFContent(node.content);
+      case 'hardBreak':
+        return '\n';
+      case 'blockquote':
+        return (
+          (node.content || [])
+            .map((child: any) =>
+              this.processADFNode(child)
+                .replace(/\n+$/, '')
+                .split('\n')
+                .map((line: string) => `> ${line}`)
+                .join('\n'),
+            )
+            .join('\n') + '\n\n'
+        );
+      case 'rule':
+        return '---\n\n';
+      case 'table':
+        return this.processADFTable(node) + '\n\n';
+      case 'inlineCard':
+        return node.attrs?.url || '[card]';
+      case 'mention':
+        return node.attrs?.text || '@unknown';
+      case 'emoji':
+        return node.attrs?.shortName || node.attrs?.text || '';
+      case 'mediaSingle':
+      case 'mediaGroup':
+        return '[media]\n\n';
       default:
         return this.processADFContent(node.content || []);
     }
+  }
+
+  private processADFTable(node: any): string {
+    const rows: string[] = [];
+    for (const row of node.content || []) {
+      const cells = (row.content || []).map((cell: any) =>
+        this.processADFContent(cell.content).trim(),
+      );
+      rows.push(`| ${cells.join(' | ')} |`);
+      if (rows.length === 1) {
+        rows.push(`| ${cells.map(() => '---').join(' | ')} |`);
+      }
+    }
+    return rows.join('\n');
   }
 
   private processADFContent(content: any[]): string {
@@ -902,10 +945,7 @@ export class JiraService {
           }
           return text;
         }
-        if (node.type === 'paragraph') {
-          return this.processADFContent(node.content);
-        }
-        return '';
+        return this.processADFNode(node);
       })
       .join('');
   }

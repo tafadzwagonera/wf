@@ -382,6 +382,204 @@ describe('JiraService', () => {
       const markdown = service.adfToMarkdown(adf);
       expect(markdown.trim()).toBe('- Item 1\n- Item 2');
     });
+
+    it('should convert hardBreak nodes within a paragraph', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'Line one' },
+              { type: 'hardBreak' },
+              { type: 'text', text: 'Line two' },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown.trim()).toBe('Line one\nLine two');
+    });
+
+    it('should convert nested bullet list inside a list item', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'bulletList',
+            content: [
+              {
+                type: 'listItem',
+                content: [
+                  {
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: 'Parent' }],
+                  },
+                  {
+                    type: 'bulletList',
+                    content: [
+                      {
+                        type: 'listItem',
+                        content: [
+                          {
+                            type: 'paragraph',
+                            content: [{ type: 'text', text: 'Child' }],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('Parent');
+      expect(markdown).toContain('Child');
+    });
+
+    it('should convert blockquote to markdown', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'blockquote',
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Quoted text' }],
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('> Quoted text');
+    });
+
+    it('should convert rule to horizontal rule', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Before' }] },
+          { type: 'rule' },
+          { type: 'paragraph', content: [{ type: 'text', text: 'After' }] },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('---');
+    });
+
+    it('should convert inlineCard to its URL', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'See ' },
+              {
+                type: 'inlineCard',
+                attrs: { url: 'https://example.com' },
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('https://example.com');
+    });
+
+    it('should convert mixed content (heading + paragraph + bulletList + blockquote)', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'heading',
+            attrs: { level: 2 },
+            content: [{ type: 'text', text: 'Title' }],
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Some text' }],
+          },
+          {
+            type: 'bulletList',
+            content: [
+              {
+                type: 'listItem',
+                content: [
+                  {
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: 'Bullet' }],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            type: 'blockquote',
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'A quote' }],
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('## Title');
+      expect(markdown).toContain('Some text');
+      expect(markdown).toContain('- Bullet');
+      expect(markdown).toContain('> A quote');
+    });
+
+    it('should handle multi-paragraph list item with separator', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'bulletList',
+            content: [
+              {
+                type: 'listItem',
+                content: [
+                  {
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: 'First paragraph' }],
+                  },
+                  {
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: 'Second paragraph' }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('First paragraph');
+      expect(markdown).toContain('Second paragraph');
+      expect(markdown).not.toContain('First paragraphSecond paragraph');
+    });
   });
 
   describe('createTicket', () => {
