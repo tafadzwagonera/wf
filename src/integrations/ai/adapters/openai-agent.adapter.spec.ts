@@ -811,7 +811,7 @@ describe('OpenAIAgentAdapter', () => {
         logCalls.some(
           (message) =>
             message.includes('Warning:') &&
-            message.includes('model takes precedence'),
+            message.includes('models takes precedence'),
         ),
       ).toBe(true);
     });

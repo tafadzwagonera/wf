@@ -125,6 +125,10 @@ const run = async (): Promise<void> => {
     sharedSource.includes('adapterLabel: string'),
   );
   assert(
+    'shared-routing exports fallbackPrimaryModel param',
+    sharedSource.includes('fallbackPrimaryModel: string'),
+  );
+  assert(
     'shared-routing exports defaultMechanicalModel param',
     sharedSource.includes('defaultMechanicalModel: string'),
   );

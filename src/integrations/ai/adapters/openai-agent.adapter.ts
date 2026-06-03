@@ -784,14 +784,12 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
     const planStepCount = params.planArtifact.plan.steps.length;
     const maxTurns = 500;
 
-    const primaryModel =
-      this.configService.get<string>('stages.implement.model') ||
-      this.configService.get<string>('ai.model') ||
-      DEFAULT_MODEL;
+    const fallbackPrimaryModel =
+      this.configService.get<string>('ai.model') || DEFAULT_MODEL;
     const routing = options.modelRouting ?? 'auto';
     const modelRoutingResult = resolveModelRouting({
       routing,
-      primaryModel,
+      fallbackPrimaryModel,
       defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL,
       configService: this.configService,
       plan: params.planArtifact.plan,

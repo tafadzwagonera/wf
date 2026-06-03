@@ -41,6 +41,7 @@ export interface WfAfterImplementConfig {
 }
 
 export interface WfImplementStageModelsConfig {
+  primary?: string;
   mechanical?: string;
 }
 

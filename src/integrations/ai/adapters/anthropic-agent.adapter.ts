@@ -418,14 +418,12 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
       );
     }
 
-    const primaryModel =
-      this.configService.get<string>('stages.implement.model') ||
-      this.configService.get<string>('ai.model') ||
-      'claude-sonnet-4-6';
+    const fallbackPrimaryModel =
+      this.configService.get<string>('ai.model') || 'claude-sonnet-4-6';
     const routing = options.modelRouting ?? 'auto';
     const modelRoutingResult = resolveModelRouting({
       routing,
-      primaryModel,
+      fallbackPrimaryModel,
       defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL,
       configService: this.configService,
       plan: params.planArtifact.plan,
@@ -641,7 +639,7 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
       }
 
       passNumber++;
-      const iterationModel = primaryModel;
+      const iterationModel = modelRoutingResult.primaryModel;
 
       console.log(
         chalk.yellow(
