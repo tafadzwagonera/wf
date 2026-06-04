@@ -20,12 +20,6 @@ export interface VerificationManifest {
   baseline: VerificationStep[];
 }
 
-export interface VerificationManifestV2 {
-  version: 2;
-  implement?: { baseline: VerificationStep[] };
-  [stage: string]: unknown;
-}
-
 export interface PlanVerificationConfig {
   targeted?: VerificationStep[];
   waivers?: VerificationWaiver[];
