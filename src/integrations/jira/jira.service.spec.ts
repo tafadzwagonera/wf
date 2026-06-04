@@ -580,6 +580,187 @@ describe('JiraService', () => {
       expect(markdown).toContain('Second paragraph');
       expect(markdown).not.toContain('First paragraphSecond paragraph');
     });
+
+    it('should normalize wiki markup {code:lang} blocks in text to markdown code fences', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: '{code:css}@media print {\n.a4-page {\ndisplay: block;\n}\n}{code}',
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('```css');
+      expect(markdown).toContain('```');
+      expect(markdown).not.toContain('{code:css}');
+      expect(markdown).not.toContain('{code}');
+    });
+
+    it('should normalize wiki markup {{monospace}} to inline code in text', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'The {{bufferPx}} variable controls spacing.',
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('`bufferPx`');
+      expect(markdown).not.toContain('{{bufferPx}}');
+    });
+
+    it('should normalize wiki markup # ordered list items to markdown numbered lists', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: '# *Ghost page* - blank trailing page\n# *Footer gap* - red footer bar\n# *Content splitting* - day blocks split',
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('1. ');
+      expect(markdown).toContain('2. ');
+      expect(markdown).toContain('3. ');
+      expect(markdown).not.toMatch(/^# \*/m);
+    });
+
+    it('should normalize wiki markup {noformat} blocks to code fences', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: '{noformat}some raw output{noformat}',
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('```\nsome raw output\n```');
+      expect(markdown).not.toContain('{noformat}');
+    });
+
+    it('should convert expand node preserving title and content', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'expand',
+            attrs: { title: 'Technical Details' },
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Detailed info here.' }],
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('Technical Details');
+      expect(markdown).toContain('Detailed info here.');
+    });
+
+    it('should convert panel node preserving content', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'panel',
+            attrs: { panelType: 'info' },
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Info panel content.' }],
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('Info panel content.');
+    });
+
+    it('should convert status inline node', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'Status: ' },
+              {
+                type: 'status',
+                attrs: { text: 'IN PROGRESS', color: 'blue' },
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('IN PROGRESS');
+    });
+
+    it('should handle strikethrough mark', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'removed',
+                marks: [{ type: 'strike' }],
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('~~removed~~');
+    });
   });
 
   describe('createTicket', () => {

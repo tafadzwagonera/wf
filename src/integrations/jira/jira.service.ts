@@ -29,6 +29,34 @@ const normalizeMarkdownForADF = (markdown: string): string =>
     .replace(/^\{code\}\s*$/gm, '```')
     .replace(/^[ \t]*\*\s+/gm, '- ');
 
+/**
+ * Convert Jira wiki markup patterns embedded in ADF text content into
+ * standard markdown so downstream consumers receive clean output.
+ *
+ * @param text - Raw markdown output from ADF text nodes
+ * @returns Markdown with wiki markup patterns normalized
+ */
+const normalizeWikiMarkupInMarkdown = (text: string): string =>
+  text
+    .replace(
+      /\{code(?::([^}\n]+))?\}([\s\S]*?)\{code\}/g,
+      (_match, language: string | undefined, code: string) => {
+        const lang = language?.trim() ?? '';
+        return `\`\`\`${lang}\n${code.trim()}\n\`\`\``;
+      },
+    )
+    .replace(
+      /\{noformat\}([\s\S]*?)\{noformat\}/g,
+      (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``,
+    )
+    .replace(/\{\{([^}]+)\}\}/g, (_match, content: string) => `\`${content}\``)
+    .replace(/^(# .+(?:\n# .+)+)$/gm, (block) => {
+      const items = block.split('\n');
+      return items
+        .map((line, i) => `${i + 1}. ${line.replace(/^#\s+/, '')}`)
+        .join('\n');
+    });
+
 interface BuildCreatePayloadOptions {
   priorityName?: string | null;
 }
@@ -838,7 +866,11 @@ export class JiraService {
   adfToMarkdown(adf: any): string {
     if (!adf || !adf.content) return '';
 
-    return adf.content.map((node: any) => this.processADFNode(node)).join('');
+    const raw = adf.content
+      .map((node: any) => this.processADFNode(node))
+      .join('');
+
+    return normalizeWikiMarkupInMarkdown(raw);
   }
 
   private processADFNode(node: any): string {
@@ -896,6 +928,24 @@ export class JiraService {
         return node.attrs?.text || '@unknown';
       case 'emoji':
         return node.attrs?.shortName || node.attrs?.text || '';
+      case 'expand':
+      case 'nestedExpand': {
+        const title = node.attrs?.title;
+        const body = (node.content || [])
+          .map((child: any) => this.processADFNode(child))
+          .join('');
+        return title ? `**${title}**\n\n${body}` : body;
+      }
+      case 'panel':
+        return (node.content || [])
+          .map((child: any) => this.processADFNode(child))
+          .join('');
+      case 'status':
+        return node.attrs?.text || '';
+      case 'date':
+        return node.attrs?.timestamp
+          ? new Date(Number(node.attrs.timestamp)).toISOString().split('T')[0]
+          : '';
       case 'mediaSingle':
       case 'mediaGroup':
         return '[media]\n\n';
@@ -936,6 +986,9 @@ export class JiraService {
                   break;
                 case 'code':
                   text = `\`${text}\``;
+                  break;
+                case 'strike':
+                  text = `~~${text}~~`;
                   break;
                 case 'link':
                   text = `[${text}](${mark.attrs.href})`;
