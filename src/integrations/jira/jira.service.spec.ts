@@ -820,11 +820,27 @@ describe('JiraService', () => {
       expect(markdown).toContain('plain text fallback');
     });
 
-    it('should handle {noformat} on write path via normalizeMarkdownForADF', () => {
+    it('should handle {noformat} on write path via normalizeMarkdownForADF (own-line)', () => {
       const markdown = '{noformat}\nsome raw output\n{noformat}';
       const adf = service.markdownToADF(markdown);
       const nodes = JSON.stringify(adf);
       expect(nodes).not.toContain('{noformat}');
+      expect(nodes).toContain('codeBlock');
+    });
+
+    it('should handle inline {noformat} on write path via normalizeMarkdownForADF', () => {
+      const markdown = '{noformat}italic text → rendered as italic{noformat}';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).not.toContain('{noformat}');
+      expect(nodes).toContain('codeBlock');
+    });
+
+    it('should handle inline {code:lang} on write path via normalizeMarkdownForADF', () => {
+      const markdown = '{code:css}.a4-page { display: block; }{code}';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).not.toContain('{code');
       expect(nodes).toContain('codeBlock');
     });
   });

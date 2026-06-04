@@ -22,12 +22,17 @@ import { stripInlineMarkdownDelimiters } from '../../common/utils/markdown-text'
  */
 const normalizeMarkdownForADF = (markdown: string): string =>
   markdown
-    .replace(/^\{code(?::([^}\n]+))?\}\s*$/gm, (_match, language?: string) => {
-      const trimmedLanguage = language?.trim();
-      return `\`\`\`${trimmedLanguage ?? ''}`;
-    })
-    .replace(/^\{code\}\s*$/gm, '```')
-    .replace(/^\{noformat\}\s*$/gm, '```')
+    .replace(
+      /\{code(?::([^}\n]+))?\}([\s\S]*?)\{code\}/g,
+      (_match, language: string | undefined, code: string) => {
+        const lang = language?.trim() ?? '';
+        return `\`\`\`${lang}\n${code.trim()}\n\`\`\``;
+      },
+    )
+    .replace(
+      /\{noformat\}([\s\S]*?)\{noformat\}/g,
+      (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``,
+    )
     .replace(/^[ \t]*\*\s+/gm, '- ');
 
 /**
