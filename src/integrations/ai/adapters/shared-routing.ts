@@ -58,7 +58,7 @@ export const detectMechanicalTask = (
 
 export type ModelRoutingResult = {
   model: string;
-  primaryModel: string;
+  defaultModel: string;
   logMessage: string;
 };
 
@@ -70,7 +70,7 @@ export type ModelRoutingResult = {
  */
 export const resolveModelRouting = (params: {
   routing: ModelRouting;
-  fallbackPrimaryModel: string;
+  fallbackDefaultModel: string;
   defaultMechanicalModel: string;
   configService: ConfigService;
   plan: ResolutionPlan;
@@ -78,7 +78,7 @@ export const resolveModelRouting = (params: {
 }): ModelRoutingResult => {
   const {
     routing,
-    fallbackPrimaryModel,
+    fallbackDefaultModel,
     defaultMechanicalModel,
     configService,
     plan,
@@ -91,8 +91,8 @@ export const resolveModelRouting = (params: {
   >('stages.implement.models');
 
   // models is more specific than model — it takes precedence when both are set.
-  const primaryModel =
-    modelsConfig?.primary || singleModel || fallbackPrimaryModel;
+  const defaultModel =
+    modelsConfig?.default || singleModel || fallbackDefaultModel;
   const mechanicalModel = modelsConfig?.mechanical || defaultMechanicalModel;
 
   if (singleModel && modelsConfig) {
@@ -103,23 +103,23 @@ export const resolveModelRouting = (params: {
     );
     console.log(
       chalk.yellow(
-        `  [${adapterLabel}] Effective: primary=${primaryModel}, mechanical=${mechanicalModel}`,
+        `  [${adapterLabel}] Effective: default=${defaultModel}, mechanical=${mechanicalModel}`,
       ),
     );
   }
 
-  if (routing === 'primary') {
+  if (routing === 'default') {
     return {
-      model: primaryModel,
-      primaryModel,
-      logMessage: `[${adapterLabel}] Model routing: ${primaryModel} (primary — user override)`,
+      model: defaultModel,
+      defaultModel,
+      logMessage: `[${adapterLabel}] Model routing: ${defaultModel} (default — user override)`,
     };
   }
 
   if (routing === 'mechanical') {
     return {
       model: mechanicalModel,
-      primaryModel,
+      defaultModel,
       logMessage: `[${adapterLabel}] Model routing: ${mechanicalModel} (mechanical — user override)`,
     };
   }
@@ -129,15 +129,15 @@ export const resolveModelRouting = (params: {
   if (detection.isMechanical) {
     return {
       model: mechanicalModel,
-      primaryModel,
+      defaultModel,
       logMessage: `[${adapterLabel}] Model routing: ${mechanicalModel} (auto — mechanical: ${detection.reason})`,
     };
   }
 
   return {
-    model: primaryModel,
-    primaryModel,
-    logMessage: `[${adapterLabel}] Model routing: ${primaryModel} (auto — creative: ${detection.reason})`,
+    model: defaultModel,
+    defaultModel,
+    logMessage: `[${adapterLabel}] Model routing: ${defaultModel} (auto — creative: ${detection.reason})`,
   };
 };
 

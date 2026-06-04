@@ -140,9 +140,9 @@ export interface PlannerOptions {
 
 /** Controls how the implement-stage adapter selects its model.
  *  - `auto` — detect mechanical vs creative from the plan, switch mid-run
- *  - `primary` — force the primary model for the entire run
+ *  - `default` — force the default model for the entire run
  *  - `mechanical` — force the cheaper mechanical model for the entire run */
-export type ModelRouting = 'auto' | 'primary' | 'mechanical';
+export type ModelRouting = 'auto' | 'default' | 'mechanical';
 
 /** platformName is required to apply Atlassian vs GitHub ticket-key casing rules. */
 export interface ImplementerOptions {

@@ -26,7 +26,7 @@ import type {
   ModelRouting,
 } from '../agents/interfaces';
 
-const VALID_MODEL_ROUTINGS: ModelRouting[] = ['auto', 'primary', 'mechanical'];
+const VALID_MODEL_ROUTINGS: ModelRouting[] = ['auto', 'default', 'mechanical'];
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -127,7 +127,7 @@ export class IssueImplementCommand extends CommandRunner {
   @Option({
     flags: '--model-routing <mode>',
     description:
-      'Model selection strategy: auto (detect mechanical vs creative), primary (force primary model), mechanical (force cheaper model). Defaults to auto.',
+      'Model selection strategy: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto.',
   })
   parseModelRouting(val: string): string {
     if (!VALID_MODEL_ROUTINGS.includes(val as ModelRouting)) {

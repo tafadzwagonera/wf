@@ -32,7 +32,7 @@ import {
 } from '../agents/interfaces';
 import type { ModelRouting } from '../agents/interfaces';
 
-const VALID_MODEL_ROUTINGS: ModelRouting[] = ['auto', 'primary', 'mechanical'];
+const VALID_MODEL_ROUTINGS: ModelRouting[] = ['auto', 'default', 'mechanical'];
 
 const ISSUE_EXAMPLES: CliExample[] = [
   {
@@ -171,7 +171,7 @@ export class IssueCommand extends CommandRunner {
   @Option({
     flags: '--model-routing <mode>',
     description:
-      'Model selection strategy for implement stage: auto (detect mechanical vs creative), primary (force primary model), mechanical (force cheaper model). Defaults to auto.',
+      'Model selection strategy for implement stage: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto.',
   })
   parseModelRouting(val: string): string {
     if (!VALID_MODEL_ROUTINGS.includes(val as ModelRouting)) {

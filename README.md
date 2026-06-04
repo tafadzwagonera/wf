@@ -644,7 +644,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 | ---- | ----------- |
 | `-p, --platform <platform>` | Platform to fetch from if local artifact not found |
 | `--dry-run` | Preview branch, file, and investigation work without making changes |
-| `--model-routing <mode>` | Model selection strategy: auto (detect mechanical vs creative), primary (force primary model), mechanical (force cheaper model). Defaults to auto. |
+| `--model-routing <mode>` | Model selection strategy: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto. |
 | `-r, --repos <repos...>` | Space-separated repositories; first repo anchors artifact lookup, all repos remain available as implementation context |
 <!-- END GENERATED COMMAND DOCS: issue:implement -->
 
@@ -697,7 +697,7 @@ The `--model-routing` flag controls which model the implement stage uses:
 | Value | Behavior | OpenAI default | Anthropic default |
 |---|---|---|---|
 | `auto` (default) | Detect mechanical vs creative from the plan | gpt-4.1 or gpt-5.1-codex-mini | claude-sonnet-4-6 or claude-haiku-4-5-20251001 |
-| `primary` | Force the primary model for the entire run | gpt-4.1 | claude-sonnet-4-6 |
+| `default` | Force the default model for the entire run | gpt-4.1 | claude-sonnet-4-6 |
 | `mechanical` | Force the cheaper mechanical model | gpt-5.1-codex-mini | claude-haiku-4-5-20251001 |
 
 In `auto` mode, the adapter detects mechanical tasks by examining plan steps for patterns like "migrate all", "replace every", "update each", or by checking for a high file-to-step ratio (>3) or low complexity with 20+ files.
@@ -709,12 +709,12 @@ stages:
   implement:
     provider: openai
     models:
-      primary: gpt-4.1
+      default: gpt-4.1
       mechanical: gpt-5.1-codex-mini
     agent: true
 ```
 
-The primary model resolves from `stages.implement.models.primary` → `stages.implement.model` → `ai.$.model` → provider default. The mechanical model resolves from `stages.implement.models.mechanical` → provider default mechanical. When both `model` and `models` are set, `models` takes precedence (it is more specific) and a warning displays the effective configuration.
+The primary model resolves from `stages.implement.models.default` → `stages.implement.model` → `ai.$.model` → provider default. The mechanical model resolves from `stages.implement.models.mechanical` → provider default mechanical. When both `model` and `models` are set, `models` takes precedence (it is more specific) and a warning displays the effective configuration.
 
 #### Context compaction
 

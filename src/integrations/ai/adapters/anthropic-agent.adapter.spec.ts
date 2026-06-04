@@ -465,7 +465,7 @@ describe('AnthropicAgentAdapter', () => {
       expect(options.model).toBe('claude-haiku-4-5-20251001');
     });
 
-    it('uses primary model when --model-routing=primary', async () => {
+    it('uses default model when --model-routing=default', async () => {
       const mockSession = makeSdkSession([makeResultSuccess()]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
       mockLoadAnthropicAgentSdk.mockResolvedValue({
@@ -478,7 +478,7 @@ describe('AnthropicAgentAdapter', () => {
         ...makeParams(),
         options: {
           ...makeParams().options,
-          modelRouting: 'primary' as const,
+          modelRouting: 'default' as const,
         },
       };
       await adapter.generateAndVerify(params);

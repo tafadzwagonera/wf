@@ -251,7 +251,7 @@
       },
       {
         "flags": "--model-routing <mode>",
-        "description": "Model selection strategy: auto (detect mechanical vs creative), primary (force primary model), mechanical (force cheaper model). Defaults to auto."
+        "description": "Model selection strategy: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto."
       },
       {
         "flags": "-r, --repos <repos...>",
@@ -449,7 +449,7 @@
       },
       {
         "flags": "--model-routing <mode>",
-        "description": "Model selection strategy for implement stage: auto (detect mechanical vs creative), primary (force primary model), mechanical (force cheaper model). Defaults to auto."
+        "description": "Model selection strategy for implement stage: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto."
       },
       {
         "flags": "--to <stage>",

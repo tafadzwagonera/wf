@@ -189,12 +189,12 @@ async function main(): Promise<void> {
 
   // ── Type-level checks ────────────────────────────────────────────────
   console.log(chalk.bold('\nTest 8: ModelRouting type values'));
-  const validValues: ModelRouting[] = ['auto', 'primary', 'mechanical'];
+  const validValues: ModelRouting[] = ['auto', 'default', 'mechanical'];
   assert(
-    'ModelRouting accepts auto, primary, mechanical',
+    'ModelRouting accepts auto, default, mechanical',
     validValues.length === 3 &&
       validValues.includes('auto') &&
-      validValues.includes('primary') &&
+      validValues.includes('default') &&
       validValues.includes('mechanical'),
   );
 

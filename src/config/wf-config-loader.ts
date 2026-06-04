@@ -215,6 +215,7 @@ const implementStageSchema = Joi.object<WfImplementStageConfig>({
     .required(),
   model: Joi.string().min(1).optional(),
   models: Joi.object({
+    default: Joi.string().min(1).optional(),
     mechanical: Joi.string().min(1).optional(),
   }).optional(),
   agent: Joi.boolean().optional(),

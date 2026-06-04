@@ -668,9 +668,9 @@ describe('OpenAIAgentAdapter', () => {
       ).toBe(true);
     });
 
-    it('uses primary model when --model-routing=primary', async () => {
+    it('uses default model when --model-routing=default', async () => {
       const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-routing-primary-'),
+        path.join(os.tmpdir(), 'wf-openai-routing-default-'),
       );
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
@@ -688,7 +688,7 @@ describe('OpenAIAgentAdapter', () => {
         ...makeParams(repoDir),
         options: {
           ...makeParams(repoDir).options,
-          modelRouting: 'primary' as const,
+          modelRouting: 'default' as const,
         },
       };
       await adapter.generateAndVerify(params);
