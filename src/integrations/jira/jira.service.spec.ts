@@ -761,6 +761,72 @@ describe('JiraService', () => {
       const markdown = service.adfToMarkdown(adf);
       expect(markdown).toContain('~~removed~~');
     });
+
+    it('should normalize wiki markup * bullet items to markdown bullet lists', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: '* Introduce a normalization utility.\n* The normalizer must operate on the lowest-common-denominator principle.',
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('- Introduce a normalization utility.');
+      expect(markdown).toContain(
+        '- The normalizer must operate on the lowest-common-denominator principle.',
+      );
+      expect(markdown).not.toMatch(/^\* /m);
+    });
+
+    it('should normalize {noformat} spanning multiple ADF paragraphs', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: '{noformat}italic text → rendered as italic',
+              },
+            ],
+          },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: '→ plain text fallback{noformat}',
+              },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).not.toContain('{noformat}');
+      expect(markdown).toContain('```');
+      expect(markdown).toContain('italic text');
+      expect(markdown).toContain('plain text fallback');
+    });
+
+    it('should handle {noformat} on write path via normalizeMarkdownForADF', () => {
+      const markdown = '{noformat}\nsome raw output\n{noformat}';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).not.toContain('{noformat}');
+      expect(nodes).toContain('codeBlock');
+    });
   });
 
   describe('createTicket', () => {

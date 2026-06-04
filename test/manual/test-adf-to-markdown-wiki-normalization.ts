@@ -309,6 +309,121 @@ function main() {
     console.log('  PASS: WBP-3144-like combined document (integration)');
   }
 
+  // 10. * bullet items → markdown bullet list
+  {
+    const md = service.adfToMarkdown({
+      type: 'doc',
+      version: 1,
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: '* Introduce a normalization utility.\n* The normalizer must operate on the lowest-common-denominator principle.',
+            },
+          ],
+        },
+      ],
+    });
+    assert(
+      md.includes('- Introduce'),
+      `wiki * bullet not converted: ${JSON.stringify(md)}`,
+    );
+    assert(!/^\* /m.test(md), `wiki * still present: ${JSON.stringify(md)}`);
+    console.log('  PASS: * bullet items converted to - bullet list');
+  }
+
+  // 11. {noformat} spanning multiple ADF paragraphs
+  {
+    const md = service.adfToMarkdown({
+      type: 'doc',
+      version: 1,
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: '{noformat}italic text → rendered as italic',
+            },
+          ],
+        },
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: '→ plain text fallback{noformat}',
+            },
+          ],
+        },
+      ],
+    });
+    assert(
+      !md.includes('{noformat}'),
+      `{noformat} still present: ${JSON.stringify(md)}`,
+    );
+    assert(md.includes('```'), `code fence missing: ${JSON.stringify(md)}`);
+    assert(md.includes('italic text'), `content lost: ${JSON.stringify(md)}`);
+    console.log('  PASS: {noformat} across paragraphs converted');
+  }
+
+  // 12. WBP-3145-like combined document (integration)
+  {
+    const md = service.adfToMarkdown({
+      type: 'doc',
+      version: 1,
+      content: [
+        {
+          type: 'heading',
+          attrs: { level: 3 },
+          content: [{ type: 'text', text: 'Summary' }],
+        },
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: 'Italic text originating from Contentful renders incorrectly.',
+            },
+          ],
+        },
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: '{noformat}italic text → rendered as italic\n→ plain text fallback{noformat}',
+            },
+          ],
+        },
+        {
+          type: 'heading',
+          attrs: { level: 3 },
+          content: [{ type: 'text', text: 'Technical Details' }],
+        },
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: '* Introduce a normalization utility.\n* The normalizer must operate on the lowest-common-denominator.\n* No backward-compatibility shim is needed.',
+            },
+          ],
+        },
+      ],
+    });
+    assert(md.includes('### Summary'), `heading lost: ${JSON.stringify(md)}`);
+    assert(
+      !md.includes('{noformat}'),
+      `wiki noformat leaked: ${JSON.stringify(md)}`,
+    );
+    assert(md.includes('- Introduce'), `bullet lost: ${JSON.stringify(md)}`);
+    assert(!/^\* /m.test(md), `wiki * bullet leaked: ${JSON.stringify(md)}`);
+    console.log('  PASS: WBP-3145-like combined document (integration)');
+  }
+
   console.log('\nAll adfToMarkdown wiki normalization tests passed.\n');
 }
 

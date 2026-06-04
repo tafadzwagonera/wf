@@ -27,6 +27,7 @@ const normalizeMarkdownForADF = (markdown: string): string =>
       return `\`\`\`${trimmedLanguage ?? ''}`;
     })
     .replace(/^\{code\}\s*$/gm, '```')
+    .replace(/^\{noformat\}\s*$/gm, '```')
     .replace(/^[ \t]*\*\s+/gm, '- ');
 
 /**
@@ -55,7 +56,8 @@ const normalizeWikiMarkupInMarkdown = (text: string): string =>
       return items
         .map((line, i) => `${i + 1}. ${line.replace(/^#\s+/, '')}`)
         .join('\n');
-    });
+    })
+    .replace(/^\*\s+/gm, '- ');
 
 interface BuildCreatePayloadOptions {
   priorityName?: string | null;
