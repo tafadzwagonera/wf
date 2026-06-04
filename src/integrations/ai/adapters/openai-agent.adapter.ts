@@ -44,6 +44,7 @@ import {
   buildAllowedCommands,
   formatRepoFileList,
   stripRepoPrefix,
+  isGlobPattern,
 } from './shared-routing';
 
 const execAsync = promisify(exec);
@@ -234,7 +235,10 @@ export const extractUsageFromEvent = (
       inputTokens?: number;
       outputTokens?: number;
       totalTokens?: number;
-      inputTokensDetails?: { cachedTokens?: number };
+      inputTokensDetails?: {
+        cachedTokens?: number;
+        cached_tokens?: number;
+      };
       requestUsageEntries?: Array<{ endpoint?: string }>;
     };
   } | null;
@@ -244,7 +248,10 @@ export const extractUsageFromEvent = (
     return null;
   }
 
-  const cachedInputTokens = usage.inputTokensDetails?.cachedTokens ?? 0;
+  const cachedInputTokens =
+    usage.inputTokensDetails?.cachedTokens ??
+    usage.inputTokensDetails?.cached_tokens ??
+    0;
   const compacted =
     usage.requestUsageEntries?.some(
       (entry) => entry.endpoint === 'responses.compact',
@@ -403,6 +410,16 @@ const OPENAI_PRICING: Record<string, OpenAiModelPricing> = {
     inputPerMToken: 0.15,
     cachedInputPerMToken: 0.075,
     outputPerMToken: 0.6,
+  },
+  'gpt-5-mini': {
+    inputPerMToken: 1.0,
+    cachedInputPerMToken: 0.25,
+    outputPerMToken: 4.0,
+  },
+  'gpt-5.1-codex-mini': {
+    inputPerMToken: 0.5,
+    cachedInputPerMToken: 0.125,
+    outputPerMToken: 2.0,
   },
 };
 
@@ -1463,7 +1480,7 @@ export class OpenAIAgentAdapter implements IImplementerBackend {
       const touchedFiles = new Set(fileChangeStatus.keys());
       const currentUnvisited = repoFiles
         .map((f) => stripRepoPrefix(f, repoName))
-        .filter((f) => !touchedFiles.has(f));
+        .filter((f) => !touchedFiles.has(f) && !isGlobPattern(f));
       const uniqueFailureCount = new Set(
         validationFailures.map((f) => `${f.path}:${f.error}`),
       ).size;

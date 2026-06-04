@@ -204,3 +204,14 @@ export const stripRepoPrefix = (filePath: string, repoName: string): string => {
   }
   return filePath;
 };
+
+/**
+ * Returns true when a planned file path contains glob wildcards.
+ * These entries represent pattern-based plan tasks (e.g. `src/**\/*.service.ts`)
+ * rather than concrete files and should be excluded from unvisited-file tracking.
+ *
+ * @param filePath - The planned file path to check
+ * @returns True when the path contains `*` or `?` glob characters
+ */
+export const isGlobPattern = (filePath: string): boolean =>
+  filePath.includes('*') || filePath.includes('?');

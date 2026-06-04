@@ -27,6 +27,7 @@ import {
   buildAllowedCommands,
   formatRepoFileList,
   stripRepoPrefix,
+  isGlobPattern,
 } from './shared-routing';
 
 const CLAUDE_CODE_TOOLS = [
@@ -610,7 +611,7 @@ export class AnthropicAgentAdapter implements IImplementerBackend {
     while (true) {
       const currentUnvisited = repoFiles
         .map((f) => stripRepoPrefix(f, repoName))
-        .filter((f) => !touchedFiles.has(f));
+        .filter((f) => !touchedFiles.has(f) && !isGlobPattern(f));
       const currentWorkload = currentUnvisited.length;
 
       if (currentWorkload === 0) {

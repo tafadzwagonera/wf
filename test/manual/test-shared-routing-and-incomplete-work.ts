@@ -28,6 +28,7 @@ import {
   buildAllowedCommands,
   formatRepoFileList,
   stripRepoPrefix,
+  isGlobPattern,
 } from '../../src/integrations/ai/adapters/shared-routing';
 
 let passed = 0;
@@ -217,6 +218,31 @@ const run = async (): Promise<void> => {
   assert(
     'stripRepoPrefix returns path unchanged when no prefix match',
     stripRepoPrefix('src/foo.ts', 'primary') === 'src/foo.ts',
+  );
+
+  // --- isGlobPattern behaviour ---
+
+  assert('isGlobPattern detects star wildcard', isGlobPattern('src/**/*.ts'));
+  assert(
+    'isGlobPattern detects single star',
+    isGlobPattern('src/*.controller.ts'),
+  );
+  assert('isGlobPattern detects question mark', isGlobPattern('src/foo?.ts'));
+  assert(
+    'isGlobPattern returns false for concrete path',
+    !isGlobPattern('src/main.ts'),
+  );
+  assert(
+    'isGlobPattern returns false for path with dots',
+    !isGlobPattern('src/app.module.ts'),
+  );
+  assert(
+    'OpenAI adapter filters glob patterns from unvisited files',
+    openaiSource.includes('isGlobPattern'),
+  );
+  assert(
+    'Anthropic adapter filters glob patterns from unvisited files',
+    anthropicSource.includes('isGlobPattern'),
   );
 
   console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));
