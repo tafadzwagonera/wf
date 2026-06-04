@@ -8,7 +8,7 @@ import YAML from 'yaml';
 import { resolveWfPath } from '../shared/utils/wf-paths';
 import { ValidationError } from '../shared/utils/errors';
 import type {
-  WfAfterImplementConfig,
+  WfVerificationConditionsConfig,
   WfAiProviderConfig,
   WfAiStageTargetConfig,
   WfAiProviderName,
@@ -54,7 +54,7 @@ export interface NormalizedAiStageTargetConfig {
   agent: boolean;
 }
 
-export interface NormalizedAfterImplementConfig {
+export interface NormalizedVerificationConditionsConfig {
   policyFile?: string;
   scripts: Record<string, string>;
 }
@@ -64,7 +64,7 @@ export interface NormalizedImplementStageConfig {
   model: string;
   models?: { mechanical?: string };
   agent: boolean;
-  afterImplement?: NormalizedAfterImplementConfig;
+  verificationConditions?: NormalizedVerificationConditionsConfig;
 }
 
 export interface NormalizedWfConfig {
@@ -180,13 +180,15 @@ const providerSchema = Joi.object<WfAiProviderConfig>({
   default: Joi.boolean().optional(),
 });
 
-const afterImplementSchema = Joi.object<WfAfterImplementConfig>({
-  policyFile: Joi.string().min(1).optional(),
-  scripts: Joi.object()
-    .pattern(Joi.string().min(1), Joi.string().min(1).required())
-    .min(1)
-    .optional(),
-}).or('policyFile', 'scripts');
+const verificationConditionsSchema = Joi.object<WfVerificationConditionsConfig>(
+  {
+    policyFile: Joi.string().min(1).optional(),
+    scripts: Joi.object()
+      .pattern(Joi.string().min(1), Joi.string().min(1).required())
+      .min(1)
+      .optional(),
+  },
+).or('policyFile', 'scripts');
 
 const aiStageTargetSchema = Joi.object<WfAiStageTargetConfig>({
   provider: Joi.string()
@@ -206,7 +208,7 @@ const implementStageSchema = Joi.object<WfImplementStageConfig>({
     mechanical: Joi.string().min(1).optional(),
   }).optional(),
   agent: Joi.boolean().optional(),
-  afterImplement: afterImplementSchema.optional(),
+  verificationConditions: verificationConditionsSchema.optional(),
 });
 
 const configSchema = Joi.object<WfConfig>({
@@ -654,9 +656,9 @@ const normalizeProvider = (
   };
 };
 
-const normalizeAfterImplementConfig = (
-  config?: WfAfterImplementConfig,
-): NormalizedAfterImplementConfig | undefined => {
+const normalizeVerificationConditionsConfig = (
+  config?: WfVerificationConditionsConfig,
+): NormalizedVerificationConditionsConfig | undefined => {
   if (!config) {
     return undefined;
   }
@@ -828,8 +830,8 @@ export const normalizeWfConfig = (
       ...(implementStageConfig.models && {
         models: implementStageConfig.models,
       }),
-      afterImplement: normalizeAfterImplementConfig(
-        implementStageConfig.afterImplement,
+      verificationConditions: normalizeVerificationConditionsConfig(
+        implementStageConfig.verificationConditions,
       ),
     };
   })();

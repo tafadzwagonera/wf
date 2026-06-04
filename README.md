@@ -122,14 +122,8 @@ export default defineConfig({
       provider: 'anthropic',
       model: 'claude-sonnet-4-20250514',
       agent: true,
-      afterImplement: {
-        baseMaxAttempts: 3,
-        maxProgressExtensions: 2,
-        absoluteMaxAttempts: 5,
-        fingerprintLineCount: 40,
+      verificationConditions: {
         policyFile: 'verification.policy.json',
-        requireStateChangeForRetry: true,
-        retryOnSameFailure: false,
       },
     },
     review: {
@@ -168,7 +162,7 @@ stages:
     provider: anthropic
     model: claude-sonnet-4-20250514
     agent: true
-    afterImplement:
+    verificationConditions:
       policyFile: verification.policy.json
   review:
     provider: google
@@ -222,8 +216,8 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - `stages.generate`, `stages.plan`, `stages.review`, and `stages.implement` accept `{ provider, model, agent? }`.
 - `stages.commit` accepts `{ provider, model }`.
 - Stage targets explicitly override the default `ai.provider` and `ai.model`.
-- Prefer `afterImplement.policyFile` to point at a repository-owned verification manifest. This keeps baseline verification policy tool-agnostic and reusable from CI or other executors.
-- `afterImplement.scripts` remains supported as a fallback when a manifest is not present.
+- Prefer `verificationConditions.policyFile` to point at a repository-owned verification manifest. This keeps baseline verification policy tool-agnostic and reusable from CI or other executors.
+- `verificationConditions.scripts` remains supported as a fallback when a manifest is not present.
 - Manifest baseline checks run in declaration order. Recommended sequence: `format` → `lint --fix` → `lint` → `build`. This removes formatting noise before the final lint/build gate and makes retries focus on real code issues.
 - Prefer portable wrappers such as `npm run lint`, `bash ./scripts/verify.sh`, or `node ./scripts/verify.mjs` instead of relying on executable bits or shell-specific features.
 - `fetch` cannot be overridden.

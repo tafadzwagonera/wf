@@ -55,7 +55,7 @@ describe('ImplementerAgent', () => {
                     fix: 'bugfix',
                     investigate: 'chore',
                   },
-                  'stages.implement.afterImplement': {
+                  'stages.implement.verificationConditions': {
                     policyFile: undefined,
                     scripts: {
                       formatWrite: 'npm run format:write',
@@ -294,7 +294,7 @@ describe('ImplementerAgent', () => {
                       fix: 'bugfix',
                       investigate: 'chore',
                     };
-                  if (key === 'stages.implement.afterImplement')
+                  if (key === 'stages.implement.verificationConditions')
                     return undefined;
                   return fallback;
                 }),
@@ -350,7 +350,7 @@ describe('ImplementerAgent', () => {
                       fix: 'bugfix',
                       investigate: 'chore',
                     };
-                  if (key === 'stages.implement.afterImplement')
+                  if (key === 'stages.implement.verificationConditions')
                     return undefined;
                   return fallback;
                 }),

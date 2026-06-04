@@ -23,7 +23,7 @@ import {
 import { getWfStateDir } from '../shared/utils/wf-paths';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { NormalizedAfterImplementConfig } from '../config/wf-config-loader';
+import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
 import {
   loadVerificationManifest,
   type VerificationStep,
@@ -161,10 +161,10 @@ export class ImplementerAgent {
       }
     }
 
-    const afterImplement = this.getAfterImplementConfig();
+    const verificationConditions = this.getVerificationConditionsConfig();
     const verificationScripts = this.prepareVerificationScripts(
       options.repoDir,
-      afterImplement,
+      verificationConditions,
       planArtifact.plan.verification,
     );
     const trackedFilePaths = this.resolveTrackedFilePaths(
@@ -292,14 +292,14 @@ export class ImplementerAgent {
   /**
    * Loads the normalized implement-stage verification configuration.
    *
-   * @returns Configured afterImplement settings, if any
+   * @returns Configured verification conditions, if any
    */
-  private getAfterImplementConfig():
-    | NormalizedAfterImplementConfig
+  private getVerificationConditionsConfig():
+    | NormalizedVerificationConditionsConfig
     | undefined {
-    return this.configService.get<NormalizedAfterImplementConfig | undefined>(
-      'stages.implement.afterImplement',
-    );
+    return this.configService.get<
+      NormalizedVerificationConditionsConfig | undefined
+    >('stages.implement.verificationConditions');
   }
 
   /**
@@ -358,18 +358,18 @@ export class ImplementerAgent {
    * Builds the verification script list and resolves package.json aliases when possible.
    *
    * @param repoDir - Repository directory used for package.json alias discovery
-   * @param afterImplement - Normalized afterImplement hook config
+   * @param verificationConditions - Normalized verification conditions config
    * @returns Ordered verification scripts
    */
   private prepareVerificationScripts(
     repoDir: string | undefined,
-    afterImplement: NormalizedAfterImplementConfig | undefined,
+    verificationConditions: NormalizedVerificationConditionsConfig | undefined,
     planVerification?: PlanArtifact['plan']['verification'],
   ): VerificationScript[] {
     const packageScripts = this.readPackageScripts(repoDir);
     const baselineSteps = this.resolveBaselineVerificationSteps(
       repoDir,
-      afterImplement,
+      verificationConditions,
     );
     const waiverIds = new Set(
       (planVerification?.waivers ?? []).map((waiver) => waiver.id),
@@ -432,34 +432,36 @@ export class ImplementerAgent {
 
   private resolveBaselineVerificationSteps(
     repoDir: string | undefined,
-    afterImplement: NormalizedAfterImplementConfig | undefined,
+    verificationConditions: NormalizedVerificationConditionsConfig | undefined,
   ): VerificationStep[] {
     const manifestPath = this.resolveVerificationManifestPath(
       repoDir,
-      afterImplement,
+      verificationConditions,
     );
 
     if (manifestPath) {
-      return loadVerificationManifest(manifestPath).baseline;
+      return loadVerificationManifest(manifestPath, 'implement').baseline;
     }
 
-    if (!afterImplement) {
+    if (!verificationConditions) {
       return [];
     }
 
-    return Object.entries(afterImplement.scripts).map(([name, command]) => ({
-      id: name,
-      run: command,
-      policy: 'enforced',
-    }));
+    return Object.entries(verificationConditions.scripts).map(
+      ([name, command]) => ({
+        id: name,
+        run: command,
+        policy: 'enforced',
+      }),
+    );
   }
 
   private resolveVerificationManifestPath(
     repoDir: string | undefined,
-    afterImplement: NormalizedAfterImplementConfig | undefined,
+    verificationConditions: NormalizedVerificationConditionsConfig | undefined,
   ): string | undefined {
     const baseDir = repoDir ?? process.cwd();
-    const configuredPath = afterImplement?.policyFile;
+    const configuredPath = verificationConditions?.policyFile;
     if (configuredPath) {
       return path.isAbsolute(configuredPath)
         ? configuredPath

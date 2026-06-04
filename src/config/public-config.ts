@@ -28,7 +28,7 @@ export interface WfAtlassianConfig {
   };
 }
 
-export interface WfAfterImplementConfig {
+export interface WfVerificationConditionsConfig {
   policyFile?: string;
   scripts?: Record<string, string>;
 }
@@ -40,7 +40,7 @@ export interface WfImplementStageModelsConfig {
 
 export interface WfImplementStageConfig extends WfAiStageTargetConfig {
   models?: WfImplementStageModelsConfig;
-  afterImplement?: WfAfterImplementConfig;
+  verificationConditions?: WfVerificationConditionsConfig;
 }
 
 export interface WfConfig {

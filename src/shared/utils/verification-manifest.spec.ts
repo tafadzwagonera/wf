@@ -21,4 +21,80 @@ describe('parseVerificationManifest', () => {
       ],
     });
   });
+
+  it('parses v2 manifest with stage-scoped baseline', () => {
+    const manifest = parseVerificationManifest(
+      JSON.stringify({
+        version: 2,
+        implement: {
+          baseline: [{ id: 'build', run: 'npm run build', policy: 'enforced' }],
+        },
+      }),
+      '/tmp/verification.json',
+      'implement',
+    );
+
+    expect(manifest.baseline).toEqual([
+      { id: 'build', run: 'npm run build', policy: 'enforced' },
+    ]);
+  });
+
+  it('returns empty baseline when v2 manifest has no block for the requested stage', () => {
+    const manifest = parseVerificationManifest(
+      JSON.stringify({
+        version: 2,
+        implement: {
+          baseline: [{ id: 'build', run: 'npm run build', policy: 'enforced' }],
+        },
+      }),
+      '/tmp/verification.json',
+      'review',
+    );
+
+    expect(manifest.baseline).toEqual([]);
+  });
+
+  it('silently ignores unknown stage keys in v2 manifests', () => {
+    const manifest = parseVerificationManifest(
+      JSON.stringify({
+        version: 2,
+        implement: {
+          baseline: [{ id: 'lint', run: 'npm run lint', policy: 'enforced' }],
+        },
+        generate: { custom: true },
+        review: { baseline: [] },
+      }),
+      '/tmp/verification.json',
+      'implement',
+    );
+
+    expect(manifest.baseline).toEqual([
+      { id: 'lint', run: 'npm run lint', policy: 'enforced' },
+    ]);
+  });
+
+  it('defaults to implement stage when no stage param is given for v2', () => {
+    const manifest = parseVerificationManifest(
+      JSON.stringify({
+        version: 2,
+        implement: {
+          baseline: [{ id: 'build', run: 'npm run build', policy: 'enforced' }],
+        },
+      }),
+      '/tmp/verification.json',
+    );
+
+    expect(manifest.baseline).toEqual([
+      { id: 'build', run: 'npm run build', policy: 'enforced' },
+    ]);
+  });
+
+  it('rejects unsupported manifest versions', () => {
+    expect(() =>
+      parseVerificationManifest(
+        JSON.stringify({ version: 99, baseline: [] }),
+        '/tmp/verification.json',
+      ),
+    ).toThrow(/unsupported.*version/i);
+  });
 });

@@ -285,7 +285,7 @@ describe('wf-config-loader', () => {
             provider: 'anthropic',
             model: 'claude-haiku-4-5-20251001',
             agent: true,
-            afterImplement: {
+            verificationConditions: {
               policyFile: '.wf/verification.json',
             },
           },
@@ -306,7 +306,7 @@ describe('wf-config-loader', () => {
         provider: 'anthropic',
         model: 'claude-haiku-4-5-20251001',
         agent: true,
-        afterImplement: {
+        verificationConditions: {
           policyFile: '.wf/verification.json',
           scripts: {},
         },
@@ -344,7 +344,7 @@ describe('wf-config-loader', () => {
       ).toThrow(/review.*google.*configured/i);
     });
 
-    it('normalizes implement stage model and afterImplement settings', () => {
+    it('normalizes implement stage model and verificationConditions settings', () => {
       const config = normalizeWfConfig({
         ai: [
           {
@@ -359,7 +359,7 @@ describe('wf-config-loader', () => {
           implement: {
             provider: 'google',
             model: 'gemini-2.5-pro',
-            afterImplement: {
+            verificationConditions: {
               scripts: {
                 formatWrite: 'npm run format:write',
                 formatCheck: 'npm run format:check',
@@ -375,7 +375,7 @@ describe('wf-config-loader', () => {
       expect(config.stages.implement?.provider).toBe('google');
       expect(config.stages.implement?.model).toBe('gemini-2.5-pro');
       expect(config.stages.implement?.agent).toBe(false);
-      expect(config.stages.implement?.afterImplement).toEqual({
+      expect(config.stages.implement?.verificationConditions).toEqual({
         policyFile: undefined,
         scripts: {
           formatWrite: 'npm run format:write',
@@ -394,14 +394,14 @@ describe('wf-config-loader', () => {
           implement: {
             provider: 'openai',
             model: 'gpt-5.4',
-            afterImplement: {
+            verificationConditions: {
               policyFile: '.wf/verification.json',
-            } as any,
+            },
           },
         },
       });
 
-      expect(config.stages.implement?.afterImplement).toEqual({
+      expect(config.stages.implement?.verificationConditions).toEqual({
         policyFile: '.wf/verification.json',
         scripts: {},
       });

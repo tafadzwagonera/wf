@@ -20,6 +20,12 @@ export interface VerificationManifest {
   baseline: VerificationStep[];
 }
 
+export interface VerificationManifestV2 {
+  version: 2;
+  implement?: { baseline: VerificationStep[] };
+  [stage: string]: unknown;
+}
+
 export interface PlanVerificationConfig {
   targeted?: VerificationStep[];
   waivers?: VerificationWaiver[];
@@ -107,11 +113,25 @@ export const normalizePlanVerification = (
   };
 };
 
+/**
+ * Parse a verification manifest (v1 or v2) and return a normalized v1-shaped
+ * result scoped to the requested stage.
+ *
+ * @param content - Raw JSON string
+ * @param filePath - Source path for error messages
+ * @param stage - Stage to extract from a v2 manifest (ignored for v1)
+ * @returns Normalized manifest with `baseline` for the requested stage
+ */
 export const parseVerificationManifest = (
   content: string,
   filePath: string,
+  stage?: string,
 ): VerificationManifest => {
   const parsed = JSON.parse(content) as Record<string, unknown>;
+
+  if (parsed.version === 2) {
+    return parseV2Manifest(parsed, filePath, stage ?? 'implement');
+  }
 
   if (parsed.version !== 1) {
     throw new Error(`Unsupported verification manifest version: ${filePath}`);
@@ -127,8 +147,47 @@ export const parseVerificationManifest = (
   };
 };
 
+const parseV2Manifest = (
+  parsed: Record<string, unknown>,
+  filePath: string,
+  stage: string,
+): VerificationManifest => {
+  const stageBlock = parsed[stage];
+
+  if (stageBlock === undefined) {
+    return { version: 1, baseline: [] };
+  }
+
+  if (!stageBlock || typeof stageBlock !== 'object') {
+    throw new Error(
+      `Verification manifest "${stage}" block is not valid: ${filePath}`,
+    );
+  }
+
+  const stageRecord = stageBlock as Record<string, unknown>;
+
+  if (!Array.isArray(stageRecord.baseline)) {
+    throw new Error(
+      `Verification manifest "${stage}.baseline" is not valid: ${filePath}`,
+    );
+  }
+
+  return {
+    version: 1,
+    baseline: stageRecord.baseline.map((item) => normalizeStep(item, filePath)),
+  };
+};
+
+/**
+ * Load and parse a verification manifest from disk.
+ *
+ * @param filePath - Absolute or relative path to the manifest file
+ * @param stage - Stage to extract from a v2 manifest (ignored for v1)
+ * @returns Normalized manifest with `baseline` for the requested stage
+ */
 export const loadVerificationManifest = (
   filePath: string,
+  stage?: string,
 ): VerificationManifest => {
   const resolvedPath = path.resolve(filePath);
   if (!fs.existsSync(resolvedPath)) {
@@ -138,5 +197,6 @@ export const loadVerificationManifest = (
   return parseVerificationManifest(
     fs.readFileSync(resolvedPath, 'utf-8'),
     resolvedPath,
+    stage,
   );
 };
