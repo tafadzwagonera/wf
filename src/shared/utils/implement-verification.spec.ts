@@ -76,16 +76,15 @@ describe('implement verification helpers', () => {
   });
 
   describe('formatBackendSelection', () => {
-    it('formats fallback reasons inline', () => {
+    it('formats backend selection inline', () => {
       const selection: ImplementBackendSelection = {
         configured: 'anthropic-agent',
-        selected: 'two-phase',
-        provider: 'openai',
-        fallbackReason: 'provider mismatch',
+        selected: 'anthropic-agent',
+        provider: 'anthropic',
       };
 
       expect(formatBackendSelection(selection)).toBe(
-        'Implement backend: two-phase (configured: anthropic-agent, provider: openai, reason: provider mismatch)',
+        'Implement backend: anthropic-agent (provider: anthropic)',
       );
     });
 
@@ -97,7 +96,7 @@ describe('implement verification helpers', () => {
       };
 
       expect(formatBackendSelection(selection)).toBe(
-        'Implement backend: openai-agent (configured: openai-agent, provider: openai)',
+        'Implement backend: openai-agent (provider: openai)',
       );
     });
   });
@@ -173,8 +172,8 @@ describe('implement verification helpers', () => {
       const run: ImplementRunArtifact = {
         ticketKey: 'WBP-1000',
         repoDir: '/tmp/repo-a',
-        backendConfigured: 'two-phase',
-        backendSelected: 'two-phase',
+        backendConfigured: 'anthropic-agent',
+        backendSelected: 'anthropic-agent',
         provider: 'openai',
         verificationScripts: [{ id: 'lint', command: 'npm run lint' }],
         startedAt: '2026-04-09T00:00:00.000Z',
@@ -198,8 +197,8 @@ describe('implement verification helpers', () => {
           run: {
             ticketKey: 'WBP-1000',
             repoDir: '/tmp/repo-a',
-            backendConfigured: 'two-phase',
-            backendSelected: 'two-phase',
+            backendConfigured: 'anthropic-agent',
+            backendSelected: 'anthropic-agent',
             provider: 'openai',
             verificationScripts: [{ id: 'lint', command: 'npm run lint' }],
             startedAt: '2026-04-09T00:00:00.000Z',
@@ -211,7 +210,7 @@ describe('implement verification helpers', () => {
       const attempt: VerificationAttemptArtifact = {
         ticketKey: 'WBP-1000',
         attemptNumber: 1,
-        backend: 'two-phase',
+        backend: 'anthropic-agent',
         command: 'npm run lint',
         exitCode: 1,
         failed: true,

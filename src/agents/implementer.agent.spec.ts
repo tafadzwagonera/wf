@@ -9,18 +9,13 @@ import type {
   ImplementBackendSelection,
   ImplementRunArtifact,
   PlanArtifact,
-  RetryScopeStrategy,
   TicketArtifact,
-  VerificationAttemptArtifact,
-  VerificationFailureCategory,
-  VerificationFailureClassification,
 } from './interfaces';
 
 describe('ImplementerAgent', () => {
   let agent: ImplementerAgent;
   let gitService: jest.Mocked<GitService>;
   let aiService: jest.Mocked<AiService>;
-  let mockFsFiles: Map<string, string>;
 
   const ticketArtifact: TicketArtifact = {
     ticketKey: 'WBP-1000',
@@ -45,7 +40,6 @@ describe('ImplementerAgent', () => {
   });
 
   beforeEach(async () => {
-    mockFsFiles = new Map<string, string>();
     const module = await Test.createTestingModule({
       providers: [
         ImplementerAgent,
@@ -62,12 +56,7 @@ describe('ImplementerAgent', () => {
                     investigate: 'chore',
                   },
                   'stages.implement.afterImplement': {
-                    baseMaxAttempts: 3,
-                    maxProgressExtensions: 2,
-                    absoluteMaxAttempts: 5,
-                    fingerprintLineCount: 5,
-                    requireStateChangeForRetry: true,
-                    retryOnSameFailure: false,
+                    policyFile: undefined,
                     scripts: {
                       formatWrite: 'npm run format:write',
                       formatCheck: 'npm run format:check',
@@ -76,6 +65,7 @@ describe('ImplementerAgent', () => {
                       build: 'npm run build',
                     },
                   },
+                  'stages.implement.provider': 'anthropic',
                 };
 
                 return key in values ? values[key] : fallback;
@@ -95,9 +85,6 @@ describe('ImplementerAgent', () => {
             narrateImplementationPlan: jest
               .fn()
               .mockResolvedValue('## Goal\nShip a verified change\n'),
-            generateFileChange: jest
-              .fn()
-              .mockResolvedValue('export const value = 1;\n'),
             generateFindings: jest.fn(),
           },
         },
@@ -111,23 +98,18 @@ describe('ImplementerAgent', () => {
     jest
       .spyOn(require('fs'), 'mkdirSync')
       .mockImplementation(() => undefined as any);
-    jest
-      .spyOn(require('fs'), 'existsSync')
-      .mockImplementation((filePath: string) => mockFsFiles.has(filePath));
+    jest.spyOn(require('fs'), 'existsSync').mockImplementation(() => false);
     jest
       .spyOn(require('fs'), 'readFileSync')
       .mockImplementation((filePath: string) => {
-        const content = mockFsFiles.get(filePath);
-        if (content === undefined) {
-          throw new Error(`Unexpected read: ${filePath}`);
+        if (String(filePath).includes('package.json')) {
+          return JSON.stringify({ scripts: {} });
         }
-        return content;
+        throw new Error(`Unexpected read: ${filePath}`);
       });
     jest
       .spyOn(require('fs'), 'writeFileSync')
-      .mockImplementation((filePath: string, content: string) => {
-        mockFsFiles.set(filePath, content);
-      });
+      .mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -138,19 +120,8 @@ describe('ImplementerAgent', () => {
     it('accepts backend selection and verification artifact shapes', () => {
       const mockBackendSelection: ImplementBackendSelection = {
         configured: 'anthropic-agent',
-        selected: 'two-phase',
-        provider: 'openai',
-        fallbackReason: 'provider mismatch',
-      };
-      const mockCategory: VerificationFailureCategory = 'parse';
-      const mockStrategy: RetryScopeStrategy = 'surgical';
-      const mockClassification: VerificationFailureClassification = {
-        category: mockCategory,
-        implicatedFiles: ['repo-a/src/example.ts'],
-        companionFiles: ['repo-a/src/example.spec.ts'],
-        rootSignal: 'syntax-error',
-        strategy: mockStrategy,
-        confidence: 'high',
+        selected: 'anthropic-agent',
+        provider: 'anthropic',
       };
       const mockRunArtifact: ImplementRunArtifact = {
         ticketKey: 'WBP-1000',
@@ -158,31 +129,12 @@ describe('ImplementerAgent', () => {
         backendConfigured: mockBackendSelection.configured,
         backendSelected: mockBackendSelection.selected,
         provider: mockBackendSelection.provider,
-        fallbackReason: mockBackendSelection.fallbackReason,
         verificationScripts: [{ id: 'lint', command: 'npm run lint' }],
         startedAt: new Date().toISOString(),
       };
-      const mockAttemptArtifact: VerificationAttemptArtifact = {
-        ticketKey: mockRunArtifact.ticketKey,
-        attemptNumber: 1,
-        backend: mockBackendSelection.selected,
-        command: 'npm run lint',
-        exitCode: 1,
-        failed: true,
-        classification: mockClassification,
-        fingerprint: 'abc123',
-        progress: {
-          advancedStage: false,
-          reducedDiagnostics: true,
-          narrowedFileSet: true,
-        },
-        retryScope: ['repo-a/src/example.ts'],
-        createdAt: new Date().toISOString(),
-      };
 
-      expect(mockBackendSelection.selected).toBe('two-phase');
+      expect(mockBackendSelection.selected).toBe('anthropic-agent');
       expect(mockRunArtifact.backendConfigured).toBe('anthropic-agent');
-      expect(mockAttemptArtifact.classification.category).toBe('parse');
     });
   });
 
@@ -225,8 +177,8 @@ describe('ImplementerAgent', () => {
 
     it('allowMultiRepoScope bypasses the multi-repo count guard', async () => {
       jest
-        .spyOn(agent as any, 'prepareVerificationScripts')
-        .mockReturnValue([]);
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue(undefined);
 
       await expect(
         agent.execute(
@@ -246,8 +198,8 @@ describe('ImplementerAgent', () => {
 
     it('allowMultiRepoScope bypasses the offending-paths guard', async () => {
       jest
-        .spyOn(agent as any, 'prepareVerificationScripts')
-        .mockReturnValue([]);
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue(undefined);
 
       await expect(
         agent.execute(
@@ -269,8 +221,8 @@ describe('ImplementerAgent', () => {
   describe('custom branch slug', () => {
     it('uses the custom branch slug when provided for non-ticket execution contexts', async () => {
       jest
-        .spyOn(agent as any, 'prepareVerificationScripts')
-        .mockReturnValue([]);
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue(undefined);
 
       await agent.execute(ticketArtifact, buildPlan({ filesAffected: [] }), {
         platformName: 'jira',
@@ -286,1577 +238,31 @@ describe('ImplementerAgent', () => {
     });
   });
 
-  describe('verification loop', () => {
-    const installMockRepoFiles = () => {
-      const mockFiles = new Map<string, string>([
-        [
-          '/tmp/repo-a/package.json',
-          JSON.stringify({
-            scripts: {
-              'format:write': 'prettier --write .',
-              'format:check': 'prettier --check .',
-              'lint:fix': 'eslint . --fix',
-              lint: 'eslint .',
-              build: 'tsc -p .',
-            },
-          }),
-        ],
-        ['/tmp/repo-a/src/example.ts', 'export const value = 0;\n'],
-      ]);
-
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((filePath: string) => mockFiles.has(filePath));
-      jest
-        .spyOn(require('fs'), 'readFileSync')
-        .mockImplementation((filePath: string) => {
-          const content = mockFiles.get(filePath);
-          if (content === undefined) {
-            throw new Error(`Unexpected read: ${filePath}`);
-          }
-          return content;
-        });
-      jest
-        .spyOn(require('fs'), 'mkdirSync')
-        .mockImplementation(() => undefined as any);
-      jest
-        .spyOn(require('fs'), 'writeFileSync')
-        .mockImplementation((filePath: string, content: string) => {
-          mockFiles.set(filePath, content);
-        });
-
-      return mockFiles;
-    };
-
-    it('runs configured afterImplement scripts in order after generating files', async () => {
-      installMockRepoFiles();
-
-      const runCommandSpy = jest
-        .spyOn(agent as any, 'runCommand')
-        .mockResolvedValueOnce({
-          command: 'npm run format:write',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:check',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint:fix',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run build',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        });
-
-      await agent.execute(ticketArtifact, buildPlan(), {
-        platformName: 'jira',
-        repoDir: '/tmp/repo-a',
-      });
-
-      expect(gitService.createBranch).toHaveBeenCalledWith(
-        'feature/WBP-1000__fix-build-verification',
-        undefined,
-        '/tmp/repo-a',
-      );
-      expect(aiService.generateFileChange).toHaveBeenCalledTimes(1);
-      expect(runCommandSpy).toHaveBeenNthCalledWith(
-        1,
-        'npm run format:write',
-        '/tmp/repo-a',
-      );
-      expect(runCommandSpy).toHaveBeenNthCalledWith(
-        2,
-        'npm run format:check',
-        '/tmp/repo-a',
-      );
-      expect(runCommandSpy).toHaveBeenNthCalledWith(
-        3,
-        'npm run lint:fix',
-        '/tmp/repo-a',
-      );
-      expect(runCommandSpy).toHaveBeenNthCalledWith(
-        4,
-        'npm run lint',
-        '/tmp/repo-a',
-      );
-      expect(runCommandSpy).toHaveBeenNthCalledWith(
-        5,
-        'npm run build',
-        '/tmp/repo-a',
-      );
-    });
-
-    it('passes repository test-runner context into file generation prompts', async () => {
-      const mockFiles = installMockRepoFiles();
-      mockFiles.set(
-        '/tmp/repo-a/jest.config.ts',
-        'export default { testEnvironment: "node" };',
-      );
-
-      jest.spyOn(agent as any, 'runCommand').mockResolvedValue({
-        command: 'ok',
-        exitCode: 0,
-        stdout: '',
-        stderr: '',
-      });
-
-      await agent.execute(ticketArtifact, buildPlan(), {
-        platformName: 'jira',
-        repoDir: '/tmp/repo-a',
-      });
-
-      expect(aiService.generateFileChange).toHaveBeenCalledWith(
-        expect.objectContaining({
-          repoContext: expect.objectContaining({
-            packageJson: expect.stringContaining('"format:write"'),
-            configFiles: expect.objectContaining({
-              'jest.config.ts': 'export default { testEnvironment: "node" };',
-            }),
-          }),
-        }),
-      );
-    });
-
-    it('merges manifest baseline with plan targeted checks and skips waived baseline checks', async () => {
-      const mockFiles = installMockRepoFiles();
-      mockFiles.set(
-        '/tmp/repo-a/.wf/verification.json',
-        JSON.stringify({
-          version: 1,
-          baseline: [
-            { id: 'lint', run: 'npm run lint', policy: 'enforced' },
-            { id: 'build', run: 'npm run build', policy: 'enforced' },
-            { id: 'e2e', run: 'npm run test:e2e', policy: 'enforced' },
-          ],
-        }),
-      );
-
-      const configService = (agent as any).configService as ConfigService;
-      jest
-        .spyOn(configService, 'get')
-        .mockImplementation((key: string, fallback?: unknown) => {
-          const values: Record<string, unknown> = {
-            'branching.prefixMapping': {
-              feature: 'feature',
-              fix: 'bugfix',
-              investigate: 'chore',
-            },
-            'stages.implement.afterImplement': {
-              baseMaxAttempts: 3,
-              maxProgressExtensions: 2,
-              absoluteMaxAttempts: 5,
-              fingerprintLineCount: 5,
-              requireStateChangeForRetry: true,
-              retryOnSameFailure: false,
-              policyFile: '.wf/verification.json',
-              scripts: {},
-            },
-          };
-
-          return key in values ? values[key] : fallback;
-        });
-
-      const runCommandSpy = jest
-        .spyOn(agent as any, 'runCommand')
-        .mockResolvedValue({
-          command: 'ok',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        });
+  describe('agent backend delegation', () => {
+    it('delegates to AnthropicAgentAdapter when provider is anthropic', async () => {
+      const adapterSpy = jest
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue(undefined);
 
       await agent.execute(
         ticketArtifact,
-        buildPlan({
-          verification: {
-            targeted: [
-              {
-                id: 'manual-review',
-                run: 'npm run test:manual -- test-issue-review',
-                policy: 'enforced',
-              },
-            ],
-            waivers: [
-              {
-                id: 'e2e',
-                reason: 'Docs-only change',
-              },
-            ],
-          } as any,
-        } as any),
-        {
-          platformName: 'jira',
-          repoDir: '/tmp/repo-a',
-        },
+        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+        { platformName: 'jira', repoDir: '/tmp/repo-a' },
       );
 
-      expect(runCommandSpy.mock.calls.map((call) => call[0])).toEqual([
-        'npm run lint',
-        'npm run build',
-        'npm run test:manual -- test-issue-review',
-      ]);
+      expect(adapterSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('normalizes targeted verification commands that redundantly cd into the selected repo', async () => {
-      installMockRepoFiles();
-
-      const runCommandSpy = jest
-        .spyOn(agent as any, 'runCommand')
-        .mockResolvedValue({
-          command: 'ok',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        });
-
-      await agent.execute(
-        ticketArtifact,
-        buildPlan({
-          verification: {
-            targeted: [
-              {
-                id: 'tripcom-tests',
-                run: "cd repo-a && npm run test -- --testPathPattern='tripcom'",
-                policy: 'enforced',
-              },
-              {
-                id: 'tripcom-html',
-                run: 'cd /tmp/repo-a && node -e "console.log(\'ok\')"',
-                policy: 'enforced',
-              },
-            ],
-          } as any,
-        } as any),
-        {
-          platformName: 'jira',
-          repoDir: '/tmp/repo-a',
-        },
-      );
-
-      expect(runCommandSpy.mock.calls.map((call) => call[0])).toEqual([
-        'npm run format:write',
-        'npm run format:check',
-        'npm run lint:fix',
-        'npm run lint',
-        'npm run build',
-        "npm run test -- --testPathPattern='tripcom'",
-        `node -e "console.log('ok')"`,
-      ]);
-    });
-
-    it('treats repo-boundary verification command failures as non-retriable setup errors', async () => {
-      installMockRepoFiles();
-
-      aiService.generateFileChange.mockResolvedValueOnce(
-        'export const broken = true;\n',
-      );
-
-      jest
-        .spyOn(agent as any, 'runCommand')
-        .mockResolvedValueOnce({
-          command: 'npm run format:write',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:check',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint:fix',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run build',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'cd repo-b && npm run test',
-          exitCode: 1,
-          stdout: '',
-          stderr: '/bin/sh: line 0: cd: repo-b: No such file or directory',
-        });
-
-      await expect(
-        agent.execute(
-          ticketArtifact,
-          buildPlan({
-            verification: {
-              targeted: [
-                {
-                  id: 'bad-targeted-check',
-                  run: 'cd repo-b && npm run test',
-                  policy: 'enforced',
-                },
-              ],
-            } as any,
-          } as any),
-          {
-            platformName: 'jira',
-            repoDir: '/tmp/repo-a',
-          },
-        ),
-      ).rejects.toThrow(/verification command.*repo-b/i);
-
-      expect(aiService.generateFileChange).toHaveBeenCalledTimes(1);
-    });
-
-    it('retries with the full configured script sequence after actionable failures', async () => {
-      installMockRepoFiles();
-
-      aiService.generateFileChange
-        .mockResolvedValueOnce('export const broken = true;\n')
-        .mockResolvedValueOnce('export const fixed = true;\n');
-
-      jest
-        .spyOn(agent as any, 'runCommand')
-        .mockResolvedValueOnce({
-          command: 'npm run format:write',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:check',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint:fix',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint',
-          exitCode: 1,
-          stdout: 'src/example.ts:1:1 - error TS1005: ; expected',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:write',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:check',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint:fix',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run build',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        });
-
-      await agent.execute(ticketArtifact, buildPlan({}), {
-        platformName: 'jira',
-        repoDir: '/tmp/repo-a',
-      });
-
-      expect(aiService.generateFileChange).toHaveBeenCalledTimes(2);
-      const secondCall = aiService.generateFileChange.mock.calls[1][0];
-      expect(secondCall.conversationContext).toContain(
-        'Verification failed on attempt 1',
-      );
-      expect(secondCall.conversationContext).toContain('error TS1005');
-    });
-
-    it('extends retries beyond the base budget when verification advances to a later stage', async () => {
-      installMockRepoFiles();
-
-      const configService = (agent as any).configService as ConfigService;
-      jest
-        .spyOn(configService, 'get')
-        .mockImplementation((key: string, fallback?: unknown) => {
-          const values: Record<string, unknown> = {
-            'branching.prefixMapping': {
-              feature: 'feature',
-              fix: 'bugfix',
-              investigate: 'chore',
-            },
-            'stages.implement.afterImplement': {
-              baseMaxAttempts: 2,
-              maxProgressExtensions: 2,
-              absoluteMaxAttempts: 4,
-              fingerprintLineCount: 5,
-              requireStateChangeForRetry: true,
-              retryOnSameFailure: false,
-              scripts: {
-                formatWrite: 'npm run format:write',
-                formatCheck: 'npm run format:check',
-                lintFix: 'npm run lint:fix',
-                lint: 'npm run lint',
-                build: 'npm run build',
-              },
-            },
-          };
-
-          return key in values ? values[key] : fallback;
-        });
-
-      aiService.generateFileChange
-        .mockResolvedValueOnce('export const invalid = true;\n')
-        .mockResolvedValueOnce('export const typed = true;\n')
-        .mockResolvedValueOnce('export const built = true;\n');
-
-      jest
-        .spyOn(agent as any, 'runCommand')
-        .mockResolvedValueOnce({
-          command: 'npm run format:write',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:check',
-          exitCode: 1,
-          stdout:
-            'Checking formatting...\n[src/example.ts] Code style issues found',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:write',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:check',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint:fix',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint',
-          exitCode: 1,
-          stdout: 'src/example.ts:1:1 - error TS2322: Type mismatch',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:write',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:check',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint:fix',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run build',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        });
-
-      await agent.execute(ticketArtifact, buildPlan({}), {
-        platformName: 'jira',
-        repoDir: '/tmp/repo-a',
-      });
-
-      expect(aiService.generateFileChange).toHaveBeenCalledTimes(3);
-    });
-
-    it('stops retrying when the AI does not produce a state change after a failure', async () => {
-      installMockRepoFiles();
-
-      aiService.generateFileChange
-        .mockResolvedValueOnce('export const broken = true;\n')
-        .mockResolvedValueOnce('export const broken = true;\n');
-
-      jest
-        .spyOn(agent as any, 'runCommand')
-        .mockResolvedValueOnce({
-          command: 'npm run format:write',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:check',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint:fix',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint',
-          exitCode: 1,
-          stdout: 'src/example.ts:1:1 - error TS1005: ; expected',
-          stderr: '',
-        });
-
-      await expect(
-        agent.execute(ticketArtifact, buildPlan({}), {
-          platformName: 'jira',
-          repoDir: '/tmp/repo-a',
-        }),
-      ).rejects.toThrow(/did not produce a state change/i);
-    });
-
-    it('treats formatter or linter rewrites as real state changes for the next retry', async () => {
-      const mockFiles = installMockRepoFiles();
-
-      aiService.generateFileChange
-        .mockResolvedValueOnce('export const broken = true;\n')
-        .mockResolvedValueOnce('export const formatted = true;\n');
-
-      jest
-        .spyOn(agent as any, 'runCommand')
-        .mockImplementationOnce(async () => {
-          mockFiles.set(
-            '/tmp/repo-a/src/example.ts',
-            'export const formatted = true;\n',
-          );
-
-          return {
-            command: 'npm run format:write',
-            exitCode: 1,
-            stdout: 'src/example.ts:1:1 - error TS1005: ; expected',
-            stderr: '',
-          };
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:write',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:check',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint:fix',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run build',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        });
-
-      await agent.execute(ticketArtifact, buildPlan({}), {
-        platformName: 'jira',
-        repoDir: '/tmp/repo-a',
-      });
-
-      expect(aiService.generateFileChange).toHaveBeenCalledTimes(2);
-    });
-
-    it('retries only the file implicated by verification diagnostics', async () => {
-      const mockFiles = new Map<string, string>([
-        [
-          '/tmp/repo-a/package.json',
-          JSON.stringify({
-            scripts: {
-              'format:write': 'prettier --write .',
-              'format:check': 'prettier --check .',
-              'lint:fix': 'eslint . --fix',
-              lint: 'eslint .',
-              build: 'tsc -p .',
-            },
-          }),
-        ],
-        [
-          '/tmp/repo-a/src/commands/issue-review.command.ts',
-          'export const message = "Criteria file must be a Markdown (.md) file";\n',
-        ],
-        [
-          '/tmp/repo-a/src/commands/issue-review.command.spec.ts',
-          'expect(message).toContain("Criteria source");\n',
-        ],
-      ]);
-
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((filePath: string) => mockFiles.has(filePath));
-      jest
-        .spyOn(require('fs'), 'readFileSync')
-        .mockImplementation((filePath: string) => {
-          const content = mockFiles.get(filePath);
-          if (content === undefined) {
-            throw new Error(`Unexpected read: ${filePath}`);
-          }
-          return content;
-        });
-      jest
-        .spyOn(require('fs'), 'mkdirSync')
-        .mockImplementation(() => undefined as any);
-      jest
-        .spyOn(require('fs'), 'writeFileSync')
-        .mockImplementation((filePath: string, content: string) => {
-          mockFiles.set(filePath, content);
-        });
-
-      aiService.generateFileChange
-        .mockResolvedValueOnce(
-          'export const message = "Criteria file must be a Markdown (.md) file";\n',
-        )
-        .mockResolvedValueOnce(
-          'expect(message).toContain("Criteria file must be a Markdown (.md) file");\n',
-        )
-        .mockResolvedValueOnce(
-          'expect(message).toContain("Criteria file must be a Markdown (.md) file");\nexpect(message).not.toContain("Criteria source");\n',
-        );
-
-      jest
-        .spyOn(agent as any, 'runCommand')
-        .mockResolvedValueOnce({
-          command: 'npm run format:write',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:check',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint:fix',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run build',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command:
-            'yarn test src/commands/issue-review.command.spec.ts --runInBand',
-          exitCode: 1,
-          stdout: [
-            'FAIL src/commands/issue-review.command.spec.ts',
-            'Expected: ObjectContaining {"message": "Criteria file must be a Markdown (.md) file: criteria.txt"}',
-            'Received: [Error: Criteria source must be a Markdown file (.md): criteria.txt]',
-          ].join('\n'),
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:write',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run format:check',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint:fix',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run lint',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command: 'npm run build',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        })
-        .mockResolvedValueOnce({
-          command:
-            'yarn test src/commands/issue-review.command.spec.ts --runInBand',
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-        });
-
-      await agent.execute(
-        ticketArtifact,
-        buildPlan({
-          steps: ['Update command behavior', 'Update issue-review tests'],
-          filesAffected: [
-            'repo-a/src/commands/issue-review.command.ts',
-            'repo-a/src/commands/issue-review.command.spec.ts',
-          ],
-          verification: {
-            targeted: [
-              {
-                id: 'issue-review-command-spec',
-                run: 'yarn test src/commands/issue-review.command.spec.ts --runInBand',
-                policy: 'enforced',
-              },
-            ],
-          },
-        }),
-        {
-          platformName: 'jira',
-          repoDir: '/tmp/repo-a',
-        },
-      );
-
-      expect(aiService.generateFileChange).toHaveBeenCalledTimes(4);
-      expect(aiService.generateFileChange.mock.calls[2][0].filePath).toBe(
-        'src/commands/issue-review.command.ts',
-      );
-      expect(aiService.generateFileChange.mock.calls[3][0].filePath).toBe(
-        'src/commands/issue-review.command.spec.ts',
-      );
-      expect(
-        aiService.generateFileChange.mock.calls[3][0].conversationContext,
-      ).toContain('Treat verification diagnostics as evidence of a mismatch');
-      expect(
-        aiService.generateFileChange.mock.calls[3][0].conversationContext,
-      ).toContain('src/commands/issue-review.command.spec.ts');
-      expect(
-        aiService.generateFileChange.mock.calls[2][0].conversationContext,
-      ).toContain('src/commands/issue-review.command.ts');
-
-      expect(
-        aiService.generateFileChange.mock.calls[3][0].conversationContext,
-      ).not.toContain('Reconcile');
-    });
-  });
-
-  describe('hasActionableDiagnostics — expanded patterns', () => {
-    const makeFailure = (stdout: string, stderr = '') => ({
-      attempt: 1,
-      results: [{ command: 'npm test', exitCode: 1, stdout, stderr }],
-    });
-
-    it('detects Jest failure marker (●)', () => {
-      const result = (agent as any).hasActionableDiagnostics(
-        makeFailure(
-          '● SomeTest › should pass\n  Expected: true\n  Received: false',
-        ),
-      );
-      expect(result).toBe(true);
-    });
-
-    it('detects "expect(" assertion lines', () => {
-      const result = (agent as any).hasActionableDiagnostics(
-        makeFailure('expect(received).toBe(expected)'),
-      );
-      expect(result).toBe(true);
-    });
-
-    it('detects "0 passing" (Mocha)', () => {
-      const result = (agent as any).hasActionableDiagnostics(
-        makeFailure('0 passing\n2 failing'),
-      );
-      expect(result).toBe(true);
-    });
-
-    it('detects "X failing" (Mocha)', () => {
-      const result = (agent as any).hasActionableDiagnostics(
-        makeFailure('3 failing'),
-      );
-      expect(result).toBe(true);
-    });
-
-    it('detects FAIL prefix (Jest suite header)', () => {
-      const result = (agent as any).hasActionableDiagnostics(
-        makeFailure('FAIL src/foo.spec.ts'),
-      );
-      expect(result).toBe(true);
-    });
-
-    it('returns false for non-actionable output', () => {
-      const result = (agent as any).hasActionableDiagnostics(
-        makeFailure('Process exited with code 1'),
-      );
-      expect(result).toBe(false);
-    });
-  });
-
-  describe('collectRelatedTypeFiles', () => {
-    it('resolves depth-1 relative imports from implicated files', () => {
-      const mockFiles = new Map<string, string>([
-        [
-          '/tmp/repo-a/src/a.ts',
-          "import { B } from './b';\nexport const a = 1;\n",
-        ],
-        ['/tmp/repo-a/src/b.ts', 'export const B = 2;\n'],
-      ]);
-
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((p: string) => mockFiles.has(p));
-      jest
-        .spyOn(require('fs'), 'readFileSync')
-        .mockImplementation((p: string) => mockFiles.get(p) ?? '');
-
-      const result = (agent as any).collectRelatedTypeFiles(
-        ['src/a.ts'],
-        '/tmp/repo-a',
-      );
-
-      expect(Object.keys(result)).toContain('src/b.ts');
-    });
-
-    it('excludes already-implicated files from related files', () => {
-      const mockFiles = new Map<string, string>([
-        [
-          '/tmp/repo-a/src/a.ts',
-          "import { B } from './b';\nexport const a = 1;\n",
-        ],
-        ['/tmp/repo-a/src/b.ts', 'export const B = 2;\n'],
-      ]);
-
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((p: string) => mockFiles.has(p));
-      jest
-        .spyOn(require('fs'), 'readFileSync')
-        .mockImplementation((p: string) => mockFiles.get(p) ?? '');
-
-      const result = (agent as any).collectRelatedTypeFiles(
-        ['src/a.ts', 'src/b.ts'],
-        '/tmp/repo-a',
-      );
-
-      // b.ts is already implicated, so it should not appear in related files
-      expect(Object.keys(result)).not.toContain('src/b.ts');
-    });
-  });
-
-  describe('inferRetryRepoFiles', () => {
-    it('includes paired implementation files for implicated specs', () => {
-      const failure = {
-        attempt: 2,
-        results: [
-          {
-            command: 'npm test',
-            exitCode: 1,
-            stdout: 'FAIL src/example.spec.ts',
-            stderr: '',
-          },
-        ],
-      };
-
-      const result = (agent as any).inferRetryRepoFiles(
-        failure,
-        ['repo-a/src/example.ts', 'repo-a/src/example.spec.ts'],
-        'repo-a',
-        '/tmp/repo-a',
-      );
-
-      expect(result).toEqual(
-        expect.arrayContaining([
-          'repo-a/src/example.ts',
-          'repo-a/src/example.spec.ts',
-        ]),
-      );
-    });
-  });
-
-  describe('selectRetryRepoFiles', () => {
-    it('keeps the current narrowed retry set when the next failure has no path match', () => {
-      const result = (agent as any).selectRetryRepoFiles({
-        currentRetryRepoFiles: [
-          'repo-a/src/example.ts',
-          'repo-a/src/example.spec.ts',
-        ],
-        repoFiles: [
-          'repo-a/src/example.ts',
-          'repo-a/src/example.spec.ts',
-          'repo-a/src/example.types.ts',
-          'repo-a/docs/example.mapping.md',
-        ],
-        repoName: 'repo-a',
-        repoDir: '/tmp/repo-a',
-        failure: {
-          attempt: 3,
-          results: [
-            {
-              command: 'npm run test',
-              exitCode: 1,
-              stdout: "error TS2339: Property 'description' does not exist",
-              stderr: '',
-            },
-          ],
-        },
-      });
-
-      expect(result).toEqual([
-        'repo-a/src/example.ts',
-        'repo-a/src/example.spec.ts',
-      ]);
-    });
-
-    it('prefers the fix plan target files over a broader retry set', () => {
-      const result = (agent as any).selectRetryRepoFiles({
-        currentRetryRepoFiles: [
-          'repo-a/src/example.ts',
-          'repo-a/src/example.spec.ts',
-          'repo-a/src/example.types.ts',
-        ],
-        repoFiles: [
-          'repo-a/src/example.ts',
-          'repo-a/src/example.spec.ts',
-          'repo-a/src/example.types.ts',
-        ],
-        repoName: 'repo-a',
-        failure: {
-          attempt: 2,
-          results: [
-            {
-              command: 'npm run lint:fix',
-              exitCode: 1,
-              stdout:
-                "src/example.spec.ts\n1:1  error  'unused' is defined but never used",
-              stderr: '',
-            },
-          ],
-        },
-        fixPlan: {
-          summary: 'Remove stale spec-only imports',
-          fixes: [
-            {
-              file: 'src/example.spec.ts',
-              rationale: 'Trim unused imports from the spec',
-              relatedFiles: ['src/example.ts'],
-            },
-          ],
-        },
-      });
-
-      expect(result).toEqual([
-        'repo-a/src/example.spec.ts',
-        'repo-a/src/example.ts',
-      ]);
-    });
-
-    it('pins parse retries to the implicated file and its companion source file', () => {
-      const result = (agent as any).selectRetryRepoFiles({
-        currentRetryRepoFiles: [
-          'repo-a/src/example.spec.ts',
-          'repo-a/src/example.ts',
-          'repo-a/src/extra.ts',
-        ],
-        repoFiles: [
-          'repo-a/src/example.spec.ts',
-          'repo-a/src/example.ts',
-          'repo-a/src/extra.ts',
-        ],
-        repoName: 'repo-a',
-        repoDir: '/tmp/repo-a',
-        failure: {
-          attempt: 2,
-          results: [
-            {
-              command: 'npm run format',
-              exitCode: 1,
-              stdout:
-                '[error] src/example.spec.ts: SyntaxError: Unterminated template literal. (9:13)',
-              stderr: '',
-            },
-          ],
-        },
-        classification: {
-          category: 'parse',
-          implicatedFiles: ['repo-a/src/example.spec.ts'],
-          companionFiles: [],
-          rootSignal: 'syntax-error',
-          strategy: 'surgical',
-          confidence: 'high',
-        },
-      });
-
-      expect(result).toEqual([
-        'repo-a/src/example.spec.ts',
-        'repo-a/src/example.ts',
-      ]);
-    });
-  });
-
-  describe('assessVerificationProgress', () => {
-    it('does not treat regression to an earlier verification script as meaningful progress', () => {
-      const result = (agent as any).assessVerificationProgress({
-        previousFailure: {
-          attempt: 2,
-          results: [
-            {
-              command: 'npm run lint',
-              exitCode: 0,
-              stdout: '',
-              stderr: '',
-            },
-            {
-              command: 'npm run test',
-              exitCode: 1,
-              stdout:
-                'FAIL src/example.spec.ts\nexpect(received).toBe(expected)',
-              stderr: '',
-            },
-          ],
-        },
-        currentFailure: {
-          attempt: 3,
-          results: [
-            {
-              command: 'npm run lint',
-              exitCode: 1,
-              stdout: 'src/example.spec.ts:1:1  error  unused import',
-              stderr: '',
-            },
-          ],
-        },
-        trackedFilesChanged: true,
-      });
-
-      expect(result.isMeaningful).toBe(false);
-      expect(result.summary).toMatch(/regress/i);
-    });
-
-    it('treats regression as meaningful when higher-severity errors collapse into small lint residue', () => {
-      const result = (agent as any).assessVerificationProgress({
-        previousFailure: {
-          attempt: 2,
-          results: [
-            {
-              command: 'npm run lint',
-              exitCode: 0,
-              stdout: '',
-              stderr: '',
-            },
-            {
-              command: 'npm run test',
-              exitCode: 1,
-              stdout: [
-                'FAIL src/tripcom.service.spec.ts',
-                "Cannot find module 'vitest' or its corresponding type declarations.",
-                'error TS2322: Type string is not assignable to type TourInfo',
-                'error TS2554: Expected 2 arguments, but got 1.',
-                "error TS2307: Cannot find module 'vitest' or its corresponding type declarations.",
-              ].join('\n'),
-              stderr: '',
-            },
-          ],
-        },
-        furthestFailure: {
-          attempt: 2,
-          results: [
-            {
-              command: 'npm run lint',
-              exitCode: 0,
-              stdout: '',
-              stderr: '',
-            },
-            {
-              command: 'npm run test',
-              exitCode: 1,
-              stdout: [
-                'FAIL src/tripcom.service.spec.ts',
-                "Cannot find module 'vitest' or its corresponding type declarations.",
-                'error TS2322: Type string is not assignable to type TourInfo',
-                'error TS2554: Expected 2 arguments, but got 1.',
-                "error TS2307: Cannot find module 'vitest' or its corresponding type declarations.",
-              ].join('\n'),
-              stderr: '',
-            },
-          ],
-        },
-        currentFailure: {
-          attempt: 3,
-          results: [
-            {
-              command: 'npm run lint:fix',
-              exitCode: 1,
-              stdout: [
-                'src/tripcom.service.spec.ts',
-                "9:7  error  'httpService' is assigned a value but never used",
-                "10:7  error  'configService' is assigned a value but never used",
-              ].join('\n'),
-              stderr: '',
-            },
-          ],
-        },
-        trackedFilesChanged: true,
-      });
-
-      expect(result.isMeaningful).toBe(true);
-      expect(result.summary).toMatch(/higher-severity/i);
-      expect(result.summary).toMatch(/lint/i);
-    });
-  });
-
-  describe('diagnoseRetryFailure', () => {
-    it('returns a FixPlan from the AI service on success', async () => {
-      const mockFailure = {
-        attempt: 2,
-        results: [
-          {
-            command: 'npm run build',
-            exitCode: 1,
-            stdout: 'src/a.ts(1,1): error TS2322',
-            stderr: '',
-          },
-        ],
-      };
-
-      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
-
-      (aiService as any).diagnoseVerificationFailure = jest
-        .fn()
-        .mockResolvedValue({
-          summary: 'Type mismatch in a.ts',
-          fixes: [
-            { file: 'src/a.ts', rationale: 'Fix type', relatedFiles: [] },
-          ],
-        });
-
-      const result = await (agent as any).diagnoseRetryFailure(
-        mockFailure,
-        ['repo-a/src/a.ts'],
-        'repo-a',
-        ['Update a.ts'],
-        '/tmp/repo-a',
-      );
-
-      expect(result).not.toBeNull();
-      expect(result.summary).toBe('Type mismatch in a.ts');
-    });
-
-    it('returns null when AI service returns malformed JSON', async () => {
-      const mockFailure = {
-        attempt: 2,
-        results: [
-          {
-            command: 'npm run build',
-            exitCode: 1,
-            stdout: 'error TS2322',
-            stderr: '',
-          },
-        ],
-      };
-
-      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
-
-      (aiService as any).diagnoseVerificationFailure = jest
-        .fn()
-        .mockRejectedValue(new SyntaxError('Unexpected token'));
-
-      const result = await (agent as any).diagnoseRetryFailure(
-        mockFailure,
-        ['repo-a/src/a.ts'],
-        'repo-a',
-        ['Update a.ts'],
-        '/tmp/repo-a',
-      );
-
-      expect(result).toBeNull();
-    });
-
-    it('passes repo context so diagnosis can respect local test conventions', async () => {
-      const mockFailure = {
-        attempt: 2,
-        results: [
-          {
-            command: 'npm run test',
-            exitCode: 1,
-            stdout: "Cannot find module 'vitest'",
-            stderr: '',
-          },
-        ],
-      };
-      const mockFiles = new Map<string, string>([
-        [
-          '/tmp/repo-a/package.json',
-          JSON.stringify({
-            scripts: {
-              test: 'jest',
-            },
-            jest: {
-              testEnvironment: 'node',
-            },
-          }),
-        ],
-        [
-          '/tmp/repo-a/jest.config.ts',
-          'export default { testEnvironment: "node" };\n',
-        ],
-      ]);
-
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((filePath: string) => mockFiles.has(filePath));
-      jest
-        .spyOn(require('fs'), 'readFileSync')
-        .mockImplementation((filePath: string) => {
-          const content = mockFiles.get(filePath);
-          if (content === undefined) {
-            throw new Error(`Unexpected read: ${filePath}`);
-          }
-          return content;
-        });
-
-      (aiService as any).diagnoseVerificationFailure = jest
-        .fn()
-        .mockResolvedValue({
-          summary: 'Use Jest conventions',
-          fixes: [],
-        });
-
-      await (agent as any).diagnoseRetryFailure(
-        mockFailure,
-        ['repo-a/src/example.spec.ts'],
-        'repo-a',
-        ['Update example spec'],
-        '/tmp/repo-a',
-      );
-
-      expect(aiService.diagnoseVerificationFailure).toHaveBeenCalledWith(
-        expect.objectContaining({
-          repoContext: expect.objectContaining({
-            packageJson: expect.stringContaining('"test":"jest"'),
-            configFiles: expect.objectContaining({
-              'jest.config.ts': expect.stringContaining('testEnvironment'),
-            }),
-          }),
-        }),
-      );
-    });
-
-    it('adds parse-repair guidance to the retry context', () => {
-      const result = (agent as any).buildRetryContext(
-        'base context',
-        {
-          attempt: 2,
-          results: [
-            {
-              command: 'npm run format',
-              exitCode: 1,
-              stdout:
-                '[error] src/example.spec.ts: SyntaxError: Unterminated template literal. (9:13)',
-              stderr: '',
-            },
-          ],
-        },
-        ['repo-a/src/example.spec.ts', 'repo-a/src/example.ts'],
-        'repo-a',
-        {
-          category: 'parse',
-          implicatedFiles: ['repo-a/src/example.spec.ts'],
-          companionFiles: [],
-          rootSignal: 'syntax-error',
-          strategy: 'surgical',
-          confidence: 'high',
-        },
-      );
-
-      expect(result).toContain(
-        'This is a parse-repair retry. Fix the syntax error first and do not rewrite unrelated files.',
-      );
-      expect(result).toContain('Verification classification: parse (surgical)');
-    });
-  });
-
-  describe('verification retry artifacts', () => {
-    it('persists failed attempts and passes classification metadata into diagnosis', async () => {
-      const mockFailure = {
-        attempt: 1,
-        results: [
-          {
-            command: 'npm run lint',
-            exitCode: 1,
-            stdout: '',
-            stderr:
-              '[error] src/example.spec.ts: SyntaxError: Unterminated template literal. (9:13)',
-          },
-        ],
-      };
-      const mockRunFiles = new Map<string, string>();
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((filePath: string) =>
-          mockRunFiles.has(String(filePath)),
-        );
-      jest
-        .spyOn(require('fs'), 'readFileSync')
-        .mockImplementation((filePath: string) => {
-          const content = mockRunFiles.get(String(filePath));
-          if (content === undefined) {
-            throw new Error(`Unexpected read: ${filePath}`);
-          }
-          return content;
-        });
-      (require('fs').writeFileSync as jest.Mock).mockImplementation(
-        (filePath: string, content: string) => {
-          if (String(filePath).includes('implement-verification')) {
-            mockRunFiles.set(String(filePath), String(content));
-          }
-        },
-      );
-      const generateRepoFilesSpy = jest
-        .spyOn(agent as any, 'generateRepoFiles')
-        .mockResolvedValue([
-          { filePath: 'repo-a/src/example.ts', changed: true },
-        ]);
-      const verifyImplementationSpy = jest
-        .spyOn(agent as any, 'verifyImplementation')
-        .mockResolvedValueOnce({
-          failure: mockFailure,
-          rewroteTrackedFiles: false,
-        })
-        .mockResolvedValueOnce({
-          failure: null,
-          rewroteTrackedFiles: false,
-        });
-      (aiService as any).diagnoseVerificationFailure = jest
-        .fn()
-        .mockResolvedValue({
-          summary: 'Fix syntax',
-          fixes: [],
-        });
-      const diagnoseSpy = aiService.diagnoseVerificationFailure as jest.Mock;
-      const writeFileSyncSpy = require('fs').writeFileSync as jest.Mock;
-
-      await agent.execute(ticketArtifact, buildPlan(), {
-        platformName: 'jira',
-        repoDir: '/tmp/repo-a',
-      });
-
-      expect(diagnoseSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          classification: expect.objectContaining({
-            category: 'parse',
-            rootSignal: 'syntax-error',
-            strategy: 'surgical',
-          }),
-        }),
-      );
-
-      const artifactWriteCalls = writeFileSyncSpy.mock.calls.filter(
-        ([filePath]) => String(filePath).includes('implement-verification'),
-      );
-      expect(artifactWriteCalls.length).toBeGreaterThanOrEqual(2);
-      expect(
-        artifactWriteCalls.some(([, content]) =>
-          String(content).includes('"attemptNumber": 1'),
-        ),
-      ).toBe(true);
-
-      expect(generateRepoFilesSpy).toHaveBeenCalled();
-      expect(verifyImplementationSpy).toHaveBeenCalled();
-    });
-
-    it('stops on repeated parse fingerprints for the same implicated file set', async () => {
-      const mockFailure = {
-        attempt: 1,
-        results: [
-          {
-            command: 'npm run lint',
-            exitCode: 1,
-            stdout: '',
-            stderr:
-              '[error] src/example.spec.ts: SyntaxError: Unterminated template literal. (9:13)',
-          },
-        ],
-      };
-      const mockRunFiles = new Map<string, string>();
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((filePath: string) =>
-          mockRunFiles.has(String(filePath)),
-        );
-      jest
-        .spyOn(require('fs'), 'readFileSync')
-        .mockImplementation((filePath: string) => {
-          const content = mockRunFiles.get(String(filePath));
-          if (content === undefined) {
-            throw new Error(`Unexpected read: ${filePath}`);
-          }
-          return content;
-        });
-      (require('fs').writeFileSync as jest.Mock).mockImplementation(
-        (filePath: string, content: string) => {
-          if (String(filePath).includes('implement-verification')) {
-            mockRunFiles.set(String(filePath), String(content));
-          }
-        },
-      );
-      jest
-        .spyOn(agent as any, 'generateRepoFiles')
-        .mockResolvedValue([
-          { filePath: 'repo-a/src/example.ts', changed: true },
-        ]);
-      jest
-        .spyOn(agent as any, 'verifyImplementation')
-        .mockResolvedValueOnce({
-          failure: mockFailure,
-          rewroteTrackedFiles: false,
-        })
-        .mockResolvedValueOnce({
-          failure: mockFailure,
-          rewroteTrackedFiles: false,
-        });
-      (aiService as any).diagnoseVerificationFailure = jest
-        .fn()
-        .mockResolvedValue({
-          summary: 'Fix syntax',
-          fixes: [],
-        });
-
-      await expect(
-        agent.execute(ticketArtifact, buildPlan(), {
-          platformName: 'jira',
-          repoDir: '/tmp/repo-a',
-        }),
-      ).rejects.toThrow(
-        'Repeated parse failure fingerprint on the same file set',
-      );
-    });
-  });
-
-  describe('stage agent backend selection', () => {
-    it('logs the selected anthropic-agent backend when stages.implement.agent is enabled with anthropic provider', async () => {
-      const module = await Test.createTestingModule({
-        providers: [
-          ImplementerAgent,
-          {
-            provide: ConfigService,
-            useValue: {
-              get: jest
-                .fn()
-                .mockImplementation((key: string, fallback?: unknown) => {
-                  if (key === 'stages.implement.agent') return true;
-                  if (key === 'ai.provider') return 'anthropic';
-                  if (key === 'branching.prefixMapping')
-                    return {
-                      feature: 'feature',
-                      fix: 'bugfix',
-                      investigate: 'chore',
-                    };
-                  if (key === 'stages.implement.afterImplement')
-                    return undefined;
-                  return fallback;
-                }),
-            },
-          },
-          {
-            provide: GitService,
-            useValue: {
-              getCurrentBranch: jest.fn().mockResolvedValue('main'),
-              createBranch: jest.fn().mockResolvedValue(undefined),
-            },
-          },
-          {
-            provide: AiService,
-            useValue: {
-              narrateImplementationPlan: jest
-                .fn()
-                .mockResolvedValue('## Goal\nAgent\n'),
-              generateFileChange: jest
-                .fn()
-                .mockResolvedValue('export const x = 1;\n'),
-              generateFindings: jest.fn(),
-            },
-          },
-        ],
-      }).compile();
-
-      const anthropicAgent = module.get(ImplementerAgent);
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+    it('logs the selected anthropic-agent backend', async () => {
       jest
         .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
         .mockResolvedValue(undefined);
 
-      await anthropicAgent.execute(
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      await agent.execute(
         ticketArtifact,
         buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
         { platformName: 'jira', repoDir: '/tmp/repo-a' },
@@ -1868,14 +274,9 @@ describe('ImplementerAgent', () => {
           message.includes('Implement backend: anthropic-agent'),
         ),
       ).toBe(true);
-      expect(
-        logCalls.some((message) =>
-          message.includes('selected: anthropic-agent'),
-        ),
-      ).toBe(false);
     });
 
-    it('fails fast when stages.implement.agent is true but provider is unsupported', async () => {
+    it('fails fast when provider is unsupported', async () => {
       const module = await Test.createTestingModule({
         providers: [
           ImplementerAgent,
@@ -1885,7 +286,7 @@ describe('ImplementerAgent', () => {
               get: jest
                 .fn()
                 .mockImplementation((key: string, fallback?: unknown) => {
-                  if (key === 'stages.implement.agent') return true;
+                  if (key === 'stages.implement.provider') return 'google';
                   if (key === 'ai.provider') return 'google';
                   if (key === 'branching.prefixMapping')
                     return {
@@ -1912,33 +313,26 @@ describe('ImplementerAgent', () => {
               narrateImplementationPlan: jest
                 .fn()
                 .mockResolvedValue('## Goal\nFallback\n'),
-              generateFileChange: jest
-                .fn()
-                .mockResolvedValue('export const x = 1;\n'),
               generateFindings: jest.fn(),
             },
           },
         ],
       }).compile();
 
-      const fallbackAgent = module.get(ImplementerAgent);
+      const googleAgent = module.get(ImplementerAgent);
 
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
       await expect(
-        fallbackAgent.execute(
+        googleAgent.execute(
           ticketArtifact,
           buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
           { platformName: 'jira', repoDir: '/tmp/repo-a' },
         ),
-      ).rejects.toThrow(/unsupported for provider "google"/i);
-      expect(consoleSpy).not.toHaveBeenCalledWith(
-        expect.stringContaining('falls back'),
+      ).rejects.toThrow(
+        'Implement stage requires provider "anthropic" or "openai". Got "google".',
       );
     });
 
-    it('logs and selects the openai-agent backend when stages.implement.agent is enabled with openai provider', async () => {
+    it('delegates to OpenAIAgentAdapter when provider is openai', async () => {
       const module = await Test.createTestingModule({
         providers: [
           ImplementerAgent,
@@ -1948,7 +342,6 @@ describe('ImplementerAgent', () => {
               get: jest
                 .fn()
                 .mockImplementation((key: string, fallback?: unknown) => {
-                  if (key === 'stages.implement.agent') return true;
                   if (key === 'stages.implement.provider') return 'openai';
                   if (key === 'ai.provider') return 'anthropic';
                   if (key === 'branching.prefixMapping')
@@ -1976,9 +369,6 @@ describe('ImplementerAgent', () => {
               narrateImplementationPlan: jest
                 .fn()
                 .mockResolvedValue('## Goal\nOpenAI\n'),
-              generateFileChange: jest
-                .fn()
-                .mockResolvedValue('export const x = 1;\n'),
               generateFindings: jest.fn(),
             },
           },

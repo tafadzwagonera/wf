@@ -307,12 +307,6 @@ describe('wf-config-loader', () => {
         model: 'claude-haiku-4-5-20251001',
         agent: true,
         afterImplement: {
-          baseMaxAttempts: 3,
-          maxProgressExtensions: 2,
-          absoluteMaxAttempts: 5,
-          fingerprintLineCount: 40,
-          requireStateChangeForRetry: true,
-          retryOnSameFailure: false,
           policyFile: '.wf/verification.json',
           scripts: {},
         },
@@ -366,12 +360,6 @@ describe('wf-config-loader', () => {
             provider: 'google',
             model: 'gemini-2.5-pro',
             afterImplement: {
-              baseMaxAttempts: 3,
-              maxProgressExtensions: 2,
-              absoluteMaxAttempts: 5,
-              fingerprintLineCount: 10,
-              requireStateChangeForRetry: true,
-              retryOnSameFailure: false,
               scripts: {
                 formatWrite: 'npm run format:write',
                 formatCheck: 'npm run format:check',
@@ -388,12 +376,6 @@ describe('wf-config-loader', () => {
       expect(config.stages.implement?.model).toBe('gemini-2.5-pro');
       expect(config.stages.implement?.agent).toBe(false);
       expect(config.stages.implement?.afterImplement).toEqual({
-        baseMaxAttempts: 3,
-        maxProgressExtensions: 2,
-        absoluteMaxAttempts: 5,
-        fingerprintLineCount: 10,
-        requireStateChangeForRetry: true,
-        retryOnSameFailure: false,
         policyFile: undefined,
         scripts: {
           formatWrite: 'npm run format:write',
@@ -420,12 +402,6 @@ describe('wf-config-loader', () => {
       });
 
       expect(config.stages.implement?.afterImplement).toEqual({
-        baseMaxAttempts: 3,
-        maxProgressExtensions: 2,
-        absoluteMaxAttempts: 5,
-        fingerprintLineCount: 40,
-        requireStateChangeForRetry: true,
-        retryOnSameFailure: false,
         policyFile: '.wf/verification.json',
         scripts: {},
       });

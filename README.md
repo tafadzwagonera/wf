@@ -636,7 +636,7 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 #### `wf issue:implement <ticket-key-or-plan-token>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:implement -->
-Carry out an implementation plan from a ticket-backed, hashed, or custom plan artifact. Uses a two-phase retry strategy on verification failure: a diagnosis call analyses failing file contents, related type definitions, repo test-runner context, and test sources, then generates a structured fix plan used as shared context during re-generation. Retry scope widens to paired implementation/spec files when diagnostics implicate one side of the pair, then stays pinned to the smallest implicated file set unless later diagnostics name additional files. History-aware progress tracking keeps retrying when deep failures collapse into smaller earlier-stage residual errors. Repo context is also injected into implement/diagnose prompts to reduce Jest/Vitest framework drift. When the Anthropic or OpenAI agent backend is active, progress events are streamed to the terminal so you can follow task and tool activity while edits are being generated. Both backends emit stable SDK task and tool progress lines plus explicit file mutation logs and verification logs so terminal output stays human-readable while the agent works. Verification commands are expected to be repo-root-relative; stale plan artifacts that still embed redundant repo-selection `cd` prefixes are normalized, while cross-repo directory jumps are treated as setup errors. Enable the Anthropic or OpenAI agent backend by setting stages.implement.agent: true and selecting stages.implement.provider: anthropic or openai in wf.config; the plan artifact provider only tags the plan/model for analysis and does not drive backend selection. The Anthropic backend explicitly loads ~/.claude/CLAUDE.md and the repository-root CLAUDE.md, warning when either file is missing. The OpenAI backend loads ~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md with the same warning behavior and only exposes an exact-match verify_command tool for whitelisted verification commands. When running from source, use `yarn start issue:implement ...` for the implementation stage and `yarn start issue:commit -c` to stage the final conventional commit once the work is accepted. When the agent backend is disabled, issue:implement uses the standard two-phase retry path. Unsupported providers with stages.implement.agent: true fail fast. Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. Examples: wf issue:implement PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | wf issue:implement PROJ-123 --repos my-repo | wf issue:implement PROJ-123 --repos repo-a repo-b | wf issue:implement PROJ-123 --dry-run
+Carry out an implementation plan from a ticket-backed, hashed, or custom plan artifact. Delegates the generate-and-verify loop to the Anthropic or OpenAI agent backend based on stages.implement.provider. Progress events are streamed to the terminal so you can follow task and tool activity while edits are being generated. Both backends emit stable SDK task and tool progress lines plus explicit file mutation logs and verification logs so terminal output stays human-readable while the agent works. Verification commands are expected to be repo-root-relative; stale plan artifacts that still embed redundant repo-selection `cd` prefixes are normalized, while cross-repo directory jumps are treated as setup errors. Set stages.implement.provider to anthropic or openai in wf.config to select the backend. The Anthropic backend explicitly loads ~/.claude/CLAUDE.md and the repository-root CLAUDE.md, warning when either file is missing. The OpenAI backend loads ~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md with the same warning behavior and only exposes an exact-match verify_command tool for whitelisted verification commands. When running from source, use `yarn start issue:implement ...` for the implementation stage and `yarn start issue:commit -c` to stage the final conventional commit once the work is accepted. Unsupported providers (google, deepseek) fail fast with a clear error listing supported providers. Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. Examples: wf issue:implement PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | wf issue:implement PROJ-123 --repos my-repo | wf issue:implement PROJ-123 --repos repo-a repo-b | wf issue:implement PROJ-123 --dry-run
 
 **Options:**
 
@@ -661,11 +661,10 @@ ts-node -r tsconfig-paths/register scripts/migrate-short-hash-plan-artifacts.ts
 Runtime backend selection is separate from plan metadata:
 
 - `plan.provider` tags the plan/model for analysis and reporting.
-- `stages.implement.agent: true` enables the agent backend.
 - `stages.implement.provider: anthropic` selects the Anthropic agent backend.
 - `stages.implement.provider: openai` selects the OpenAI agent backend.
-- Omitting `agent` or setting it to `false` keeps the standard two-phase retry backend.
-- When the agent backend is active, the CLI streams progress while the agent is working. Anthropic emits stable Claude Agent SDK task and tool lines; OpenAI emits structured progress events covering tool calls, reasoning, token usage, context compaction, and agent handoffs.
+- Unsupported providers (`google`, `deepseek`) fail fast with a clear error.
+- The CLI streams progress while the agent is working. Anthropic emits stable Claude Agent SDK task and tool lines; OpenAI emits structured progress events covering tool calls, reasoning, token usage, context compaction, and agent handoffs.
 - The OpenAI backend exposes seven tools: `read_file` (with line-range support), `write_file`, `edit_file` (surgical string replacement), `delete_file`, `search_files` (regex grep), `find_files` (glob), and `verify_command` (exact-match whitelist). The turn budget scales with plan step count and target file count (capped at 200).
 - The OpenAI backend classifies errors from the SDK (`MaxTurnsExceededError`, `ToolTimeoutError`, `ToolCallError`, rate limits, auth errors) and fails immediately on rate limits (TPM exhaustion is not recoverable via retry because the context size that caused the limit persists across attempts).
 - On completion the OpenAI agent emits turn count, token usage, and a structured summary with four sections: **What I changed**, **Verification run**, **Files** (updated / new / deleted), and **Assumptions / risk note**. If no file writes occurred, the CLI prints `File summary: no file changes were made.`
@@ -685,7 +684,6 @@ stages:
   implement:
     provider: openai
     model: gpt-5.4-mini
-    agent: true
 ```
 
 The `stages.implement.provider` and `stages.implement.model` values above are runtime implementation settings. The same shape may also appear in generated plan artifacts, but the plan artifact provider is informational and does not change backend selection by itself.
@@ -711,7 +709,6 @@ stages:
     models:
       default: gpt-4.1
       mechanical: gpt-5.1-codex-mini
-    agent: true
 ```
 
 The primary model resolves from `stages.implement.models.default` → `stages.implement.model` → `ai.$.model` → provider default. The mechanical model resolves from `stages.implement.models.mechanical` → provider default mechanical. When both `model` and `models` are set, `models` takes precedence (it is more specific) and a warning displays the effective configuration.
@@ -737,32 +734,9 @@ When the first implementation pass (which may use a mechanical model in `auto` r
 
 ### Retry strategy
 
-`issue:implement` uses a **two-phase retry** strategy when verification fails:
-
-1. **Diagnosis** — the AI receives all failing file contents, related type
-   definitions (depth-1 import chain, up to 10 files), repo-level test
-   runner context (`package.json` plus common config files such as
-   `jest.config.ts`), and test sources, and returns a structured fix plan.
-2. **Execution** — each file is regenerated using the fix plan as shared
-   context. When diagnostics implicate a spec/test file, the retry scope
-   expands to its paired implementation file, and vice versa. Once the retry
-   scope has been narrowed, later retries stay pinned to that smallest
-   implicated file set unless newer diagnostics explicitly name additional
-   files. Sibling repositories passed via `--repos` are available for
-   cross-repo type reads; writes remain scoped to the primary repository.
-
-The retry controller is **history-aware**, not just attempt-to-attempt. It
-tracks the deepest verification stage reached so far and the severity of the
-error classes seen there. That means `issue:implement` can keep going when a
-later-stage framework/type failure is resolved and the next pass regresses to
-an earlier script with only small residual lint/type cleanup left, instead of
-stopping just because the failing command moved earlier.
-
-Repo context is also injected into the implement and diagnosis prompts to
-reduce **test framework drift**. If the selected repository advertises Jest via
-`package.json` or `jest.config.*`, retries explicitly tell the model to stay on
-Jest conventions and avoid introducing `vitest` imports unless Vitest is
-already configured, and vice versa.
+`issue:implement` delegates the generate-and-verify loop to the selected agent
+backend (Anthropic or OpenAI). The agent drives its own inner loop via built-in
+tools, iterating until verification passes.
 
 Verification commands are expected to run from the selected repository root.
 Recent `issue:plan` builds normalize redundant `cd <repo> && ...` wrappers
@@ -771,47 +745,32 @@ fallback for older artifacts and fails fast when a targeted verification command
 tries to jump outside the selected repository, because retrying code generation
 cannot fix a mis-scoped verification command.
 
-This makes `wf issue:implement` safer for common source/spec regressions:
-
 ```bash
-# Retry a ticket-backed plan with a paired source/spec update
+# Implement a ticket-backed plan
 wf issue:implement WBP-2971 --repos repo-a
 
-# Retry with read-only sibling repo context while still writing only repo-a
+# Implement with read-only sibling repo context while still writing only repo-a
 wf issue:implement WBP-2971 --repos repo-a repo-b
 
-# Re-run an implement stage with repo context so retries can stay aligned with
-# the repo's configured test framework and verification stack
-wf issue:implement WBP-2971 --repos service-tourv3
-
-# Execute a custom plan artifact and let retries stay pinned to the files
-# named by the latest verification failure
+# Execute a custom plan artifact
 wf issue:implement dark-building-creek-fix.json --repos service-tourv3
 ```
 
-#### Agent-backed implementation
+#### Agent backends
 
-Set `stages.implement.agent: true` in `wf.config.*` and select
-`stages.implement.provider: anthropic` or `stages.implement.provider: openai`
-to use the agent backend. The agent drives its own inner loop via built-in
-tools, iterating until verification passes. The Anthropic backend loads
+Set `stages.implement.provider: anthropic` or `stages.implement.provider: openai`
+in `wf.config.*` to select the backend. The Anthropic backend loads
 `~/.claude/CLAUDE.md` and the repository-root `CLAUDE.md`; the OpenAI backend
 loads `~/.openai/OPENAI.md` and the repository-root `.openai/OPENAI.md`. If a
 backend-specific file is missing, it logs a yellow warning and continues. The
 OpenAI backend only exposes an exact-match `verify_command` tool for
 verification, so non-whitelisted commands are rejected before execution.
-Omitting `agent` or setting it to `false` keeps the standard two-phase path.
 
 ```yaml
 stages:
   implement:
     provider: openai
     model: gpt-5.4-mini
-    agent: true
-    afterImplement:
-      baseMaxAttempts: 3
-      maxProgressExtensions: 2
-      absoluteMaxAttempts: 5
 ```
 
 ---

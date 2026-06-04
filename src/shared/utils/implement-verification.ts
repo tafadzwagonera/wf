@@ -132,13 +132,8 @@ export const classifyVerificationFailure = (params: {
  */
 export const formatBackendSelection = (
   selection: ImplementBackendSelection,
-): string => {
-  const fallbackSuffix = selection.fallbackReason
-    ? `, reason: ${selection.fallbackReason}`
-    : '';
-
-  return `Implement backend: ${selection.selected} (configured: ${selection.configured}, provider: ${selection.provider}${fallbackSuffix})`;
-};
+): string =>
+  `Implement backend: ${selection.selected} (provider: ${selection.provider})`;
 
 /**
  * Append a verification attempt to the persisted run file.

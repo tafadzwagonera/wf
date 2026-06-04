@@ -55,12 +55,6 @@ export interface NormalizedAiStageTargetConfig {
 }
 
 export interface NormalizedAfterImplementConfig {
-  baseMaxAttempts: number;
-  maxProgressExtensions: number;
-  absoluteMaxAttempts: number;
-  fingerprintLineCount: number;
-  requireStateChangeForRetry: boolean;
-  retryOnSameFailure: boolean;
   policyFile?: string;
   scripts: Record<string, string>;
 }
@@ -187,13 +181,6 @@ const providerSchema = Joi.object<WfAiProviderConfig>({
 });
 
 const afterImplementSchema = Joi.object<WfAfterImplementConfig>({
-  maxAttempts: Joi.number().integer().min(1).optional(),
-  baseMaxAttempts: Joi.number().integer().min(1).optional(),
-  maxProgressExtensions: Joi.number().integer().min(0).optional(),
-  absoluteMaxAttempts: Joi.number().integer().min(1).optional(),
-  fingerprintLineCount: Joi.number().integer().min(1).optional(),
-  requireStateChangeForRetry: Joi.boolean().optional(),
-  retryOnSameFailure: Joi.boolean().optional(),
   policyFile: Joi.string().min(1).optional(),
   scripts: Joi.object()
     .pattern(Joi.string().min(1), Joi.string().min(1).required())
@@ -674,20 +661,7 @@ const normalizeAfterImplementConfig = (
     return undefined;
   }
 
-  const baseMaxAttempts = config.baseMaxAttempts ?? config.maxAttempts ?? 3;
-  const maxProgressExtensions = config.maxProgressExtensions ?? 2;
-  const absoluteMaxAttempts = Math.max(
-    config.absoluteMaxAttempts ?? baseMaxAttempts + maxProgressExtensions,
-    baseMaxAttempts,
-  );
-
   return {
-    baseMaxAttempts,
-    maxProgressExtensions,
-    absoluteMaxAttempts,
-    fingerprintLineCount: config.fingerprintLineCount ?? 40,
-    requireStateChangeForRetry: config.requireStateChangeForRetry ?? true,
-    retryOnSameFailure: config.retryOnSameFailure ?? false,
     policyFile: config.policyFile,
     scripts: config.scripts ?? {},
   };

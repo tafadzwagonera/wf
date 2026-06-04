@@ -38,7 +38,6 @@ const makeConfigService = (
   const values: Record<string, unknown> = {
     'ai.anthropicApiKey': 'test-key',
     'ai.model': 'claude-sonnet-4-6',
-    'stages.implement.afterImplement.absoluteMaxAttempts': 3,
     ...overrides,
   };
 

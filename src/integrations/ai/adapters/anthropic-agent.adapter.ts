@@ -16,7 +16,7 @@ import type {
   TicketArtifact,
   PlanArtifact,
   ImplementerOptions,
-  IImplementerBackend,
+  ImplementerBackend,
   VerificationScript,
 } from '../../../agents/interfaces';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
@@ -390,7 +390,7 @@ ${sceneContext}`;
  * tools while this adapter constrains the working directory, filesystem access,
  * and Bash verification commands.
  */
-export class AnthropicAgentAdapter implements IImplementerBackend {
+export class AnthropicAgentAdapter implements ImplementerBackend {
   constructor(private configService: ConfigService) {}
 
   async generateAndVerify(params: {

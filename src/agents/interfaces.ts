@@ -15,42 +15,12 @@ export interface VerificationScript {
   aliases: string[];
 }
 
-/** Per-file fix instruction produced by the diagnosis phase. */
-export interface FixPlanEntry {
-  /** Repo-prefixed file path matching filesAffected format (e.g. "repo/src/foo.ts"). */
-  file: string;
-  /** Why this file needs to change. */
-  rationale: string;
-  /** Related files the AI should read as context — may come from any known repo. */
-  relatedFiles: string[];
-}
-
-/**
- * Structured fix plan returned by the diagnosis AI call.
- * Used as shared context for all file re-generations on a retry attempt.
- */
-export interface FixPlan {
-  summary: string;
-  fixes: FixPlanEntry[];
-  /** Test assertion context when the failure includes test output. */
-  testContext?: string;
-  classification?: {
-    category: VerificationFailureCategory;
-    rootSignal: string;
-    strategy: RetryScopeStrategy;
-  };
-}
-
-export type ImplementBackendName =
-  | 'two-phase'
-  | 'anthropic-agent'
-  | 'openai-agent';
+export type ImplementBackendName = 'anthropic-agent' | 'openai-agent';
 
 export interface ImplementBackendSelection {
   configured: ImplementBackendName;
   selected: ImplementBackendName;
   provider: string;
-  fallbackReason?: string;
 }
 
 export type VerificationFailureCategory =
@@ -80,7 +50,6 @@ export interface ImplementRunArtifact {
   backendConfigured: ImplementBackendName;
   backendSelected: ImplementBackendName;
   provider: string;
-  fallbackReason?: string;
   verificationScripts: Array<{ id: string; command: string }>;
   startedAt: string;
 }
@@ -181,10 +150,10 @@ export type ImplementerResult =
 
 /**
  * Backend contract for the implementation stage.
- * Both the standard two-phase path and the experimental agent adapter satisfy this.
+ * The Anthropic and OpenAI agent adapters satisfy this contract.
  * generateAndVerify is called after the branch is already created by execute().
  */
-export interface IImplementerBackend {
+export interface ImplementerBackend {
   generateAndVerify(params: {
     ticket: TicketArtifact;
     planArtifact: PlanArtifact;

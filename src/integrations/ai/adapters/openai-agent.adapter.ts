@@ -26,7 +26,7 @@ import type {
   TicketArtifact,
   PlanArtifact,
   ImplementerOptions,
-  IImplementerBackend,
+  ImplementerBackend,
   VerificationScript,
 } from '../../../agents/interfaces';
 import {
@@ -744,7 +744,7 @@ const formatSummarySection = (
  * The SDK drives the edit loop while this adapter owns the filesystem and
  * verification boundaries.
  */
-export class OpenAIAgentAdapter implements IImplementerBackend {
+export class OpenAIAgentAdapter implements ImplementerBackend {
   constructor(private configService: ConfigService) {}
 
   /**

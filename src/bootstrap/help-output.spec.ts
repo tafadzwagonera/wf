@@ -139,7 +139,9 @@ describe('getHelpText', () => {
     expect(plainReviewHelpText).toContain(
       'Platform (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary platform',
     );
-    expect(implementHelpText).toContain('Anthropic or OpenAI agent backend');
+    expect(plainImplementHelpText).toContain(
+      'Anthropic or OpenAI agent backend',
+    );
     expect(plainImplementHelpText).toContain(
       '~/.claude/CLAUDE.md and the repository-root CLAUDE.md',
     );
