@@ -70,7 +70,7 @@
     "usage": "wf issue:cowsay"
   },
   "issue:create": {
-    "description": "Create tickets on various platforms from standardized input",
+    "description": "Create tickets on various platforms from standardized input. When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks",
     "usage": "wf issue:create <input> [options]",
     "options": [
       {

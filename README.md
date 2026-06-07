@@ -413,7 +413,7 @@ When `--comment` is used on a pull request, inline review comments use destinati
 #### `wf issue:create <input>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:create -->
-Create tickets on various platforms from standardized input
+Create tickets on various platforms from standardized input. When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks
 
 ```bash
 # Create ticket from JSON on primary platform
@@ -454,8 +454,32 @@ For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF
 before sending the create request. Inline Markdown delimiters in plain-text
 fields such as summaries are stripped, and inline-code spans in descriptions are
 preserved as Jira ADF inline code marks without leaking Jira wiki markers like
-`{{value}}`. Use
-`--dry-run` to inspect the formatting summary before creating a ticket.
+`{{value}}`. Use `--dry-run` to inspect the formatting summary before creating a
+ticket.
+
+When `stages.create.verificationConditions.scripts` is configured in
+`wf.config.*`, `issue:create` runs each script against the built ADF payload
+before sending it to Jira. If validation fails and a `stages.create.provider` is
+set, the command feeds the structured errors back to the AI to regenerate the
+description markdown, re-converts to ADF, and re-validates — repeating until
+clean or stalled (2 consecutive non-improving passes). This catches wiki markup
+leaks such as orphan `{noformat}` tokens and `{{monospace}}` markers that the
+deterministic normalizer cannot handle. The `--dry-run` flag also runs the
+validation scripts and reports pass/fail without sending to Jira.
+
+```js
+// wf.config.js — example create stage with ADF verification
+stages: {
+  create: {
+    provider: 'openai',             // optional: enables AI self-correction
+    verificationConditions: {
+      scripts: {
+        format: 'npm run test:manual -- test-verify-request-format',
+      },
+    },
+  },
+}
+```
 
 ---
 

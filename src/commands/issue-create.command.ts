@@ -250,7 +250,8 @@ const ISSUE_CREATE_EXAMPLES: CliExample[] = [
 @Injectable()
 @Command({
   name: 'issue:create',
-  description: 'Create tickets on various platforms from standardized input',
+  description:
+    'Create tickets on various platforms from standardized input. When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks',
   arguments: '<input>',
   options: { isDefault: false },
 })
