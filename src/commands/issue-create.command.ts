@@ -6,14 +6,45 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
-import { TicketPriority, TicketType } from '../common/dto/universal-ticket.dto';
+import {
+  TicketPriority,
+  TicketType,
+  UniversalTicket,
+} from '../common/dto/universal-ticket.dto';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { JiraAdapter } from '../integrations/platforms/jira/jira-adapter';
+import { AiService, stripCodeFences } from '../integrations/ai/ai.service';
+import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
+import { spawnSync } from 'child_process';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
+
+interface ValidationScriptResult {
+  passed: boolean;
+  issues: Array<{ error: string; suggestion: string }>;
+}
+
+/**
+ * Parse structured JSON from a validation script's stdout.
+ * npm/yarn prepend banner lines; this extracts the first JSON object.
+ *
+ * @param stdout - Raw stdout from the spawned script
+ * @returns Parsed validation result, or null when stdout is not valid JSON
+ */
+const parseValidationOutput = (
+  stdout: string,
+): ValidationScriptResult | null => {
+  try {
+    const jsonStart = stdout.indexOf('{');
+    const jsonContent = jsonStart >= 0 ? stdout.slice(jsonStart) : stdout;
+    return JSON.parse(jsonContent) as ValidationScriptResult;
+  } catch {
+    return null;
+  }
+};
 
 interface IssueCreateOptions {
   platform?: string;
@@ -74,6 +105,11 @@ const buildDescriptionFormattingStats = (
       if (typeof adfNode.text === 'string') {
         if (adfNode.text.includes('{code')) {
           stats.suspiciousMarkers.push('raw {code} marker found in text node');
+        }
+        if (adfNode.text.includes('{noformat}')) {
+          stats.suspiciousMarkers.push(
+            'raw {noformat} marker found in text node',
+          );
         }
         if (adfNode.text.includes('{{') || adfNode.text.includes('}}')) {
           stats.suspiciousMarkers.push(
@@ -226,6 +262,7 @@ export class IssueCreateCommand extends CommandRunner {
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
+    private readonly aiService: AiService,
   ) {
     super();
   }
@@ -256,13 +293,13 @@ export class IssueCreateCommand extends CommandRunner {
       warnOnIgnoredRepos(options?.repos);
       const resolved = path.resolve(inputPath);
       const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-      const artifactPath =
-        path.basename(inputPath) === inputPath
-          ? path.join(resolveArtifactDir(repoBaseDir, platformName), inputPath)
-          : null;
+      const artifactPath = path.join(
+        resolveArtifactDir(repoBaseDir, platformName),
+        path.basename(inputPath),
+      );
       const inputFilePath = fs.existsSync(resolved)
         ? resolved
-        : artifactPath && fs.existsSync(artifactPath)
+        : fs.existsSync(artifactPath)
           ? artifactPath
           : resolved;
 
@@ -350,8 +387,66 @@ export class IssueCreateCommand extends CommandRunner {
           ],
         });
 
+        // Run ADF format validation if a create stage script is configured
+        if (platformName === 'jira') {
+          const dryRunVerification =
+            this.configService.get<NormalizedVerificationConditionsConfig>(
+              'stages.create.verificationConditions',
+            );
+          const dryRunScriptEntries = Object.entries(
+            dryRunVerification?.scripts ?? {},
+          );
+
+          for (const [name, scriptCommand] of dryRunScriptEntries) {
+            const scriptResult = spawnSync('sh', ['-c', scriptCommand], {
+              input: JSON.stringify(payload),
+              encoding: 'utf-8',
+              timeout: 30_000,
+            });
+
+            const validationResult = parseValidationOutput(scriptResult.stdout);
+
+            if (!validationResult) {
+              console.log(
+                chalk.yellow(
+                  `  ⚠ ADF validation "${name}" returned non-JSON output`,
+                ),
+              );
+              continue;
+            }
+
+            if (validationResult.passed) {
+              console.log(chalk.green(`  ✓ ADF validation "${name}" passed`));
+              continue;
+            }
+
+            console.log(
+              chalk.red(
+                `  ✗ ADF validation "${name}" failed: ${validationResult.issues.length} issue(s)`,
+              ),
+            );
+            for (const issue of validationResult.issues) {
+              console.log(chalk.red(`    - ${issue.error}`));
+              console.log(chalk.gray(`      ${issue.suggestion}`));
+            }
+          }
+        }
+
         this.dryRunPreview.showValidationResult();
         return;
+      }
+
+      // Validate ADF payload before sending
+      const verificationConditions =
+        this.configService.get<NormalizedVerificationConditionsConfig>(
+          'stages.create.verificationConditions',
+        );
+
+      if (verificationConditions?.scripts) {
+        ticket.description = await this.validateAndCorrectDescription(
+          ticket,
+          verificationConditions,
+        );
       }
 
       // Create ticket on platform
@@ -369,6 +464,117 @@ export class IssueCreateCommand extends CommandRunner {
       console.log();
     } catch (error) {
       ErrorHandler.handle(error as Error);
+    }
+  }
+
+  private async validateAndCorrectDescription(
+    ticket: UniversalTicket,
+    verificationConditions: NormalizedVerificationConditionsConfig,
+  ): Promise<string> {
+    const scriptEntries = Object.entries(verificationConditions.scripts);
+    if (scriptEntries.length === 0) {
+      return ticket.description;
+    }
+
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+    let currentDescription = ticket.description;
+    let previousErrors = Infinity;
+    let stalledPasses = 0;
+
+    while (true) {
+      const payload = this.jiraAdapter.buildCreatePayload({
+        ...ticket,
+        description: currentDescription,
+      } as any);
+      const serializedPayload = JSON.stringify(payload);
+
+      let totalErrors = 0;
+      let lastFailedIssues: Array<{ error: string; suggestion: string }> = [];
+
+      for (const [name, scriptCommand] of scriptEntries) {
+        const result = spawnSync('sh', ['-c', scriptCommand], {
+          input: serializedPayload,
+          encoding: 'utf-8',
+          timeout: 30_000,
+        });
+
+        const validationResult = parseValidationOutput(result.stdout);
+
+        if (!validationResult) {
+          this.logger.warn(
+            `[issue:create] Validation script "${name}" returned non-JSON output`,
+          );
+          totalErrors++;
+          continue;
+        }
+
+        if (validationResult.passed) {
+          this.logger.success(`[issue:create] Validation "${name}" passed`);
+          continue;
+        }
+
+        totalErrors += validationResult.issues.length;
+        lastFailedIssues = validationResult.issues;
+
+        this.logger.warn(
+          `[issue:create] Validation "${name}" failed: ${validationResult.issues.length} issue(s)`,
+        );
+        for (const issue of validationResult.issues) {
+          this.logger.warn(`  - ${issue.error}`);
+        }
+      }
+
+      if (totalErrors === 0) {
+        this.logger.success('[issue:create] ADF payload validated');
+        return currentDescription;
+      }
+
+      if (totalErrors < previousErrors) {
+        stalledPasses = 0;
+      } else {
+        stalledPasses++;
+      }
+
+      if (stalledPasses >= 2) {
+        throw new Error(
+          `ADF validation stalled after ${stalledPasses} consecutive non-improving passes:\n` +
+            lastFailedIssues.map((issue) => `  - ${issue.error}`).join('\n'),
+        );
+      }
+
+      previousErrors = totalErrors;
+
+      const issueList = lastFailedIssues
+        .map(
+          (issue, i) =>
+            `${i + 1}. Error: ${issue.error}\n   Fix: ${issue.suggestion}`,
+        )
+        .join('\n\n');
+
+      const correctionContent = [
+        'The markdown description you produced generated an invalid Jira ADF payload.',
+        'Fix the following issues and return ONLY the corrected markdown.',
+        '',
+        'Issues:',
+        issueList,
+        '',
+        'Original markdown:',
+        currentDescription,
+      ].join('\n');
+
+      messages.push({ role: 'user', content: correctionContent });
+
+      this.logger.info('[issue:create] Requesting AI correction');
+
+      const response = await this.aiService.executeWithHistory({
+        messages,
+        systemPrompt:
+          'You are rewriting a Jira ticket description. Return ONLY the corrected markdown with no preamble, explanation, or wrapping.',
+        stage: 'create',
+      });
+
+      messages.push({ role: 'assistant', content: response.content });
+      currentDescription = stripCodeFences(response.content.trim());
     }
   }
 

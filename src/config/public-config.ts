@@ -43,6 +43,13 @@ export interface WfImplementStageConfig extends WfAiStageTargetConfig {
   verificationConditions?: WfVerificationConditionsConfig;
 }
 
+export interface WfCreateStageConfig {
+  provider?: WfAiProviderName;
+  model?: string;
+  agent?: boolean;
+  verificationConditions?: WfVerificationConditionsConfig;
+}
+
 export interface WfConfig {
   platforms?: {
     primary?: 'jira' | 'github' | 'bitbucket';
@@ -95,6 +102,7 @@ export interface WfConfig {
   stages?: Partial<
     Record<'plan' | 'review' | 'generate' | 'commit', WfAiStageTargetConfig>
   > & {
+    create?: WfCreateStageConfig;
     implement?: WfImplementStageConfig;
     fetch?: string;
   };

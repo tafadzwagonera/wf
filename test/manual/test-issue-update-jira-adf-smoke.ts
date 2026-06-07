@@ -12,6 +12,7 @@
  */
 
 import assert from 'assert';
+import { spawnSync } from 'child_process';
 import { createInterface } from 'node:readline';
 import { NestFactory } from '@nestjs/core';
 import { of } from 'rxjs';
@@ -105,8 +106,31 @@ const main = async (): Promise<void> => {
       (result.payload.fields.description as { type: string }).type,
       'doc',
     );
-    assert(!result.serializedPayload.includes('{code}'));
-    assert(!result.serializedPayload.includes('{noformat}'));
+
+    const validation = spawnSync(
+      'npx',
+      ['ts-node', 'test/manual/test-verify-request-format.ts'],
+      {
+        input: result.serializedPayload,
+        encoding: 'utf-8',
+        timeout: 30_000,
+      },
+    );
+
+    const validationResult: {
+      passed: boolean;
+      issues: Array<{ error: string; suggestion: string }>;
+    } = JSON.parse(validation.stdout);
+
+    for (const issue of validationResult.issues) {
+      console.log(`  FAIL: ${issue.error}`);
+      console.log(`        ${issue.suggestion}`);
+    }
+
+    assert(
+      validationResult.passed,
+      `ADF payload has ${validationResult.issues.length} formatting issue(s)`,
+    );
 
     console.log('\nManual Test: issue:update Jira ADF payload smoke test\n');
     console.log(`Mode: ${args.executeLiveUpdate ? 'live update' : 'preview'}`);

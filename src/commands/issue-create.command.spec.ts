@@ -49,6 +49,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { JiraAdapter } from '../integrations/platforms/jira/jira-adapter';
+import { AiService } from '../integrations/ai/ai.service';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -185,6 +186,14 @@ async function buildCommand(): Promise<IssueCreateCommand> {
           showSummary: jest.fn(),
           showValidationResult: jest.fn(),
           previewApiCall: jest.fn(),
+        },
+      },
+      {
+        provide: AiService,
+        useValue: {
+          executeWithHistory: jest.fn().mockResolvedValue({
+            content: 'corrected markdown',
+          }),
         },
       },
     ],

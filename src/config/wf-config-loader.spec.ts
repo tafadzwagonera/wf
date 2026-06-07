@@ -482,6 +482,104 @@ describe('wf-config-loader', () => {
       });
     });
 
+    it('normalizes create stage without provider for validation-only mode', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            default: true,
+          },
+        ],
+        stages: {
+          create: {
+            verificationConditions: {
+              scripts: {
+                testVerifyRequestFormat:
+                  'nr test:manual -- test-verify-request-format',
+              },
+            },
+          },
+        },
+      });
+
+      expect(config.stages.create).toBeDefined();
+      expect(config.stages.create!.provider).toBeUndefined();
+      expect(config.stages.create!.verificationConditions).toEqual({
+        policyFile: undefined,
+        scripts: {
+          testVerifyRequestFormat:
+            'nr test:manual -- test-verify-request-format',
+        },
+      });
+    });
+
+    it('normalizes create stage with provider and verificationConditions', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            default: true,
+          },
+        ],
+        stages: {
+          create: {
+            provider: 'openai',
+            verificationConditions: {
+              scripts: {
+                format: 'nr test:manual -- test-verify-request-format',
+              },
+            },
+          },
+        },
+      });
+
+      expect(config.stages.create).toBeDefined();
+      expect(config.stages.create!.provider).toBe('openai');
+      expect(config.stages.create!.verificationConditions).toEqual({
+        policyFile: undefined,
+        scripts: {
+          format: 'nr test:manual -- test-verify-request-format',
+        },
+      });
+    });
+
+    it('normalizes create stage without provider for validation-only mode', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            default: true,
+          },
+        ],
+        stages: {
+          create: {
+            verificationConditions: {
+              scripts: {
+                testVerifyRequestFormat:
+                  'nr test:manual -- test-verify-request-format',
+              },
+            },
+          },
+        },
+      });
+
+      expect(config.stages.create).toBeDefined();
+      expect(config.stages.create!.provider).toBeUndefined();
+      expect(config.stages.create!.verificationConditions).toEqual({
+        policyFile: undefined,
+        scripts: {
+          testVerifyRequestFormat:
+            'nr test:manual -- test-verify-request-format',
+        },
+      });
+    });
+
     it('fails fast when agent mode is enabled for unsupported providers', () => {
       expect(() =>
         normalizeWfConfig({

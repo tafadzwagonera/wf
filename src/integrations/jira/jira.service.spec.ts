@@ -843,6 +843,15 @@ describe('JiraService', () => {
       expect(nodes).not.toContain('{code');
       expect(nodes).toContain('codeBlock');
     });
+
+    it('should handle {{monospace}} on write path via normalizeMarkdownForADF', () => {
+      const markdown = 'The {{bufferPx}} variable controls spacing.';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).not.toContain('{{');
+      expect(nodes).not.toContain('}}');
+      expect(nodes).toContain('code');
+    });
   });
 
   describe('createTicket', () => {

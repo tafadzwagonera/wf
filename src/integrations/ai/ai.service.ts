@@ -266,7 +266,7 @@ export interface AIRequest {
   context?: Record<string, any>;
   model?: string;
   provider?: string;
-  stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit';
+  stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit' | 'create';
 }
 
 export interface AIResponse {
@@ -288,7 +288,7 @@ export interface AIConversationRequest {
   temperature?: number;
   model?: string;
   provider?: string;
-  stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit';
+  stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit' | 'create';
 }
 
 export interface FindingsDocument {
@@ -786,7 +786,7 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
   }
 
   private resolveAiTarget(
-    stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit',
+    stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit' | 'create',
     providerOverride?: string,
     modelOverride?: string,
   ): { provider?: string; model?: string } {

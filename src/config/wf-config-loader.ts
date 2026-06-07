@@ -13,6 +13,7 @@ import type {
   WfAiStageTargetConfig,
   WfAiProviderName,
   WfConfig,
+  WfCreateStageConfig,
   WfImplementStageConfig,
 } from './public-config';
 
@@ -35,11 +36,16 @@ type SupportedStageName =
   | 'implement'
   | 'review'
   | 'generate'
-  | 'commit';
-type SupportedModelStageName = Exclude<SupportedStageName, 'implement'>;
+  | 'commit'
+  | 'create';
+type SupportedModelStageName = Exclude<
+  SupportedStageName,
+  'implement' | 'create'
+>;
 const AGENT_SUPPORTED_STAGES = new Set<SupportedStageName>([
   'plan',
   'implement',
+  'create',
   'review',
   'generate',
 ]);
@@ -64,6 +70,13 @@ export interface NormalizedImplementStageConfig {
   model: string;
   models?: { mechanical?: string };
   agent: boolean;
+  verificationConditions?: NormalizedVerificationConditionsConfig;
+}
+
+export interface NormalizedCreateStageConfig {
+  provider?: WfAiProviderName;
+  model?: string;
+  agent?: boolean;
   verificationConditions?: NormalizedVerificationConditionsConfig;
 }
 
@@ -98,6 +111,7 @@ export interface NormalizedWfConfig {
   stages: {
     plan?: NormalizedAiStageTargetConfig;
     implement?: NormalizedImplementStageConfig;
+    create?: NormalizedCreateStageConfig;
     review?: NormalizedAiStageTargetConfig;
     generate?: NormalizedAiStageTargetConfig;
     commit?: NormalizedAiStageTargetConfig;
@@ -198,6 +212,15 @@ const aiStageTargetSchema = Joi.object<WfAiStageTargetConfig>({
   agent: Joi.boolean().optional(),
 });
 
+const createStageSchema = Joi.object<WfCreateStageConfig>({
+  provider: Joi.string()
+    .valid('anthropic', 'openai', 'google', 'deepseek')
+    .optional(),
+  model: Joi.string().min(1).optional(),
+  agent: Joi.boolean().optional(),
+  verificationConditions: verificationConditionsSchema.optional(),
+});
+
 const implementStageSchema = Joi.object<WfImplementStageConfig>({
   provider: Joi.string()
     .valid('anthropic', 'openai', 'google', 'deepseek')
@@ -279,6 +302,7 @@ const configSchema = Joi.object<WfConfig>({
   stages: Joi.object({
     plan: aiStageTargetSchema.optional(),
     implement: implementStageSchema.optional(),
+    create: createStageSchema.optional(),
     review: aiStageTargetSchema.optional(),
     generate: aiStageTargetSchema.optional(),
     fetch: Joi.string().optional(),
@@ -836,6 +860,42 @@ export const normalizeWfConfig = (
     };
   })();
 
+  const normalizedCreateStage = (() => {
+    const createStageConfig = validatedConfig.stages?.create;
+
+    if (!createStageConfig) {
+      return undefined;
+    }
+
+    // The create stage supports validation-only mode (no provider needed).
+    // Only resolve provider/model when one is explicitly configured.
+    if (createStageConfig.provider) {
+      const createTarget = normalizeStageTarget({
+        stageName: 'create',
+        stageTarget: createStageConfig as WfAiStageTargetConfig,
+        configuredProviderNames,
+        configuredProvidersByName,
+      });
+
+      if (!createTarget) {
+        return undefined;
+      }
+
+      return {
+        ...createTarget,
+        verificationConditions: normalizeVerificationConditionsConfig(
+          createStageConfig.verificationConditions,
+        ),
+      };
+    }
+
+    return {
+      verificationConditions: normalizeVerificationConditionsConfig(
+        createStageConfig.verificationConditions,
+      ),
+    };
+  })();
+
   const providerMap = new Map(
     providers.map((provider) => [provider.provider, provider]),
   );
@@ -870,6 +930,7 @@ export const normalizeWfConfig = (
     stages: {
       plan: aiStages.plan,
       implement: normalizedImplementStage,
+      create: normalizedCreateStage,
       review: aiStages.review,
       generate: aiStages.generate,
       commit: aiStages.commit,

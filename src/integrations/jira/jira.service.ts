@@ -33,7 +33,8 @@ const normalizeMarkdownForADF = (markdown: string): string =>
       /\{noformat\}([\s\S]*?)\{noformat\}/g,
       (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``,
     )
-    .replace(/^[ \t]*\*\s+/gm, '- ');
+    .replace(/^[ \t]*\*\s+/gm, '- ')
+    .replace(/\{\{([^}]+)\}\}/g, (_match, content: string) => `\`${content}\``);
 
 /**
  * Convert Jira wiki markup patterns embedded in ADF text content into
