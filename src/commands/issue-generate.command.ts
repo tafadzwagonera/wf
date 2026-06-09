@@ -510,7 +510,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
   @Option({
     flags: '-f, --format <format>',
-    description: 'Output format (json|md|yaml|yml) - default from env',
+    description: 'Output format (json|md|yaml|yml) - default from config',
   })
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
@@ -1644,7 +1644,7 @@ export class IssueGenerateCommand extends CommandRunner {
     );
     if (!workspace) {
       throw new Error(
-        'Workspace required. Provide as workspace/repo or set ATLASSIAN_BITBUCKET_WORKSPACE',
+        'Workspace required. Provide as workspace/repo or set atlassian.bitbucket.workspace in wf.config.*',
       );
     }
 

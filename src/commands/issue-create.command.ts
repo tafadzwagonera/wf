@@ -589,7 +589,8 @@ export class IssueCreateCommand extends CommandRunner {
 
   @Option({
     flags: '-p, --platform <platform>',
-    description: 'Target platform (jira|github|bitbucket) - default from env',
+    description:
+      'Target platform (jira|github|bitbucket) - default from config',
   })
   parsePlatform(val: string): string {
     return val;

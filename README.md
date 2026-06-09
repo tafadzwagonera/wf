@@ -437,7 +437,7 @@ nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /
 | Flag | Description |
 | ---- | ----------- |
 | `--dry-run` | Validate without creating - preview only |
-| `-p, --platform <platform>` | Target platform (jira\|github\|bitbucket) - default from env |
+| `-p, --platform <platform>` | Target platform (jira\|github\|bitbucket) - default from config |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning |
 | `--ticket-project <project>` | Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file |
 | `-t, --type <type>` | Issue type (task\|bug\|story\|todo) - overrides input file |
@@ -510,7 +510,7 @@ wf issue:generate ./spec.md --save --silent | xargs wf issue:create
 | Flag | Description |
 | ---- | ----------- |
 | `--dry-run` | Preview the generate operation without making changes |
-| `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default from env |
+| `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default from config |
 | `-o, --output <path>` | Output file path - default: stdout |
 | `-p, --platform <platform>` | Platform for ticket sources (jira\|github\|bitbucket) |
 | `--priority <priority>` | Override ticket priority (highest\|high\|medium\|low\|lowest) |
@@ -805,7 +805,7 @@ All `issue:*` commands that interact with Bitbucket require a `--repos` (`-r`) o
 # Single repository in full workspace/repo format
 wf issue:fetch 123 --platform bitbucket --repos myworkspace/myrepo
 
-# Single repository using repo name only (uses ATLASSIAN_BITBUCKET_WORKSPACE from env)
+# Single repository using repo name only (uses atlassian.bitbucket.workspace from config)
 wf issue:fetch 123 --platform bitbucket --repos myrepo
 
 # Multiple repositories (space-separated)
@@ -815,7 +815,7 @@ wf issue:fetch 123 --platform bitbucket --repos myworkspace/repo-a myworkspace/r
 **Repository format:**
 
 - **Full format**: `workspace/repo` — explicit workspace and repository
-- **Short format**: `repo` — uses `ATLASSIAN_BITBUCKET_WORKSPACE` from environment
+- **Short format**: `repo` — uses `atlassian.bitbucket.workspace` from config
 
 ---
 

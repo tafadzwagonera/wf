@@ -654,7 +654,7 @@ Return ONLY a valid JSON object:
     );
     if (!workspace) {
       throw new Error(
-        'Workspace required. Provide as workspace/repo or set ATLASSIAN_BITBUCKET_WORKSPACE',
+        'Workspace required. Provide as workspace/repo or set atlassian.bitbucket.workspace in wf.config.*',
       );
     }
 

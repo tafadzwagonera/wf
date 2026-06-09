@@ -1,10 +1,10 @@
 ## API Authentication
-Bitbucket/Jira use Basic Auth (`BITBUCKET_APP_PASSWORD`, `JIRA_API_TOKEN`). Check existing config files before trying other auth approaches.
+Bitbucket/Jira use Basic Auth (`atlassian.bitbucket.apiToken`, `atlassian.jira.apiToken` in `wf.config.*`). Check existing config files before trying other auth approaches.
 
 ## Debugging CLI Commands
 When debugging `wf` commands, verify:
 1. `LOG_LEVEL` is valid
-2. The active provider's API key is set: `ANTHROPIC_API_KEY` (default), `GEMINI_API_KEY`, or `DEEPSEEK_API_KEY` — controlled by `AI_PROVIDER`; plus `BITBUCKET_APP_PASSWORD` and `JIRA_API_TOKEN`
+2. The active provider's API key is set: `ANTHROPIC_API_KEY` (default), `GEMINI_API_KEY`, or `DEEPSEEK_API_KEY` — controlled by the `ai[].provider` config key; plus `atlassian.bitbucket.apiToken` and `atlassian.jira.apiToken` in `wf.config.*`
 3. Command routing follows the NestJS pattern
 
 Reference: `src/commands/issue-plan.command.ts`
