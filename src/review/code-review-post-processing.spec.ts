@@ -325,4 +325,35 @@ describe('postProcessCodeReview', () => {
 
     expect(processed.review.issues[0]?.line).toBeUndefined();
   });
+
+  it('preserves the model line when anchors score zero but the line falls within the hunk span', () => {
+    const review = createReview({
+      issues: [
+        {
+          severity: 'warning',
+          message:
+            'The `aws_lb_target_group` health check path should use a deeper readiness probe.',
+          file: 'main.tf',
+          line: 12,
+        },
+      ],
+    });
+
+    const diff = `diff --git a/main.tf b/main.tf
+--- a/main.tf
++++ b/main.tf
+@@ -10,6 +10,7 @@
+ resource "aws_lb_target_group" "tg" {
+   port     = 3000
+   protocol = "HTTP"
++  deregistration_delay = 30
+
+   health_check {
+     path = "/api/health"
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.review.issues[0]?.line).toBe(13);
+  });
 });

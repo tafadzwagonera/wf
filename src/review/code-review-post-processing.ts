@@ -20,9 +20,15 @@ interface ChangedDestinationLine {
   content: string;
 }
 
+interface DiffFileInfo {
+  changedLines: ChangedDestinationLine[];
+  hunkSpanFirst: number;
+  hunkSpanLast: number;
+}
+
 const DIFF_HEADER_PATTERN = /^diff --git a\/(.+?) b\/(.+?)(?:\s|$)/;
 const DESTINATION_FILE_PATTERN = /^\+\+\+\s+(.*)$/;
-const HUNK_HEADER_PATTERN = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+const HUNK_HEADER_PATTERN = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
 const INLINE_CODE_PATTERN = /`([^`]+)`/g;
 const ENVIRONMENT_TOKEN_PATTERN = /\b[A-Z][A-Z0-9_]{2,}\b/g;
 
@@ -57,16 +63,15 @@ const addChangedLine = (
 };
 
 /**
- * Parse unified diff content into destination-side changed line numbers per
- * file so review issues can be anchored to valid inline-comment locations.
+ * Parse unified diff content into destination-side changed line numbers and
+ * hunk boundary spans per file.
  *
  * @param diff - Raw unified diff
- * @returns Destination-side changed lines keyed by normalized file path
+ * @returns Diff file info keyed by normalized file path
  */
-const collectChangedDestinationLines = (
-  diff: string,
-): Map<string, ChangedDestinationLine[]> => {
+const collectDiffFileInfo = (diff: string): Map<string, DiffFileInfo> => {
   const changedLinesByFile = new Map<string, ChangedDestinationLine[]>();
+  const hunkSpansByFile = new Map<string, { first: number; last: number }>();
   let currentFile: string | null = null;
   let currentDestinationLine: number | null = null;
 
@@ -91,7 +96,25 @@ const collectChangedDestinationLines = (
 
     const hunkHeaderMatch = line.match(HUNK_HEADER_PATTERN);
     if (hunkHeaderMatch) {
-      currentDestinationLine = Number.parseInt(hunkHeaderMatch[1] ?? '', 10);
+      const startLine = Number.parseInt(hunkHeaderMatch[1] ?? '', 10);
+      const lineCount = hunkHeaderMatch[2]
+        ? Number.parseInt(hunkHeaderMatch[2], 10)
+        : 1;
+      currentDestinationLine = startLine;
+
+      if (currentFile) {
+        const hunkEnd = startLine + Math.max(lineCount - 1, 0);
+        const existing = hunkSpansByFile.get(currentFile);
+        if (existing) {
+          existing.first = Math.min(existing.first, startLine);
+          existing.last = Math.max(existing.last, hunkEnd);
+        } else {
+          hunkSpansByFile.set(currentFile, {
+            first: startLine,
+            last: hunkEnd,
+          });
+        }
+      }
       continue;
     }
 
@@ -119,12 +142,20 @@ const collectChangedDestinationLines = (
     }
   }
 
-  return new Map(
-    [...changedLinesByFile.entries()].map(([filePath, changedLines]) => [
-      filePath,
-      [...changedLines].sort((left, right) => left.line - right.line),
-    ]),
-  );
+  const result = new Map<string, DiffFileInfo>();
+  for (const [filePath, changedLines] of changedLinesByFile) {
+    const span = hunkSpansByFile.get(filePath);
+    result.set(filePath, {
+      changedLines: [...changedLines].sort(
+        (left, right) => left.line - right.line,
+      ),
+      hunkSpanFirst: span?.first ?? changedLines[0]?.line ?? 0,
+      hunkSpanLast:
+        span?.last ?? changedLines[changedLines.length - 1]?.line ?? 0,
+    });
+  }
+
+  return result;
 };
 
 /**
@@ -267,7 +298,7 @@ const normalizeReviewIssues = (
   review: CodeReview,
   diff: string,
 ): CodeReview => {
-  const changedLinesByFile = collectChangedDestinationLines(diff);
+  const diffInfoByFile = collectDiffFileInfo(diff);
 
   return {
     ...review,
@@ -276,15 +307,15 @@ const normalizeReviewIssues = (
         return issue;
       }
 
-      const changedLines = changedLinesByFile.get(
-        normalizeFilePath(issue.file),
-      );
-      if (!changedLines?.length) {
+      const fileInfo = diffInfoByFile.get(normalizeFilePath(issue.file));
+      if (!fileInfo?.changedLines.length) {
         return {
           ...issue,
           line: undefined,
         };
       }
+
+      const { changedLines, hunkSpanFirst, hunkSpanLast } = fileInfo;
 
       const anchors = extractIssueAnchors(
         `${issue.message} ${issue.suggestion ?? ''}`,
@@ -309,7 +340,14 @@ const normalizeReviewIssues = (
           0,
         );
         if (maxScore === 0) {
-          return { ...issue, line: undefined };
+          const withinHunkSpan =
+            typeof issue.line === 'number' &&
+            issue.line >= hunkSpanFirst &&
+            issue.line <= hunkSpanLast;
+
+          if (!withinHunkSpan) {
+            return { ...issue, line: undefined };
+          }
         }
       }
 

@@ -129,6 +129,46 @@ async function run(): Promise<void> {
 
   console.log('  ✅ Test 3 passed: zero-score anchors omit line\n');
 
+  // Test 4: Preserve model line when anchors score zero but line is within hunk span
+  console.log('Test 4: hunk-span preservation');
+  const hunkSpanReview = {
+    summary: 'Review summary',
+    issues: [
+      {
+        severity: 'warning' as const,
+        message:
+          'The `aws_lb_target_group` health check path should use a deeper readiness probe.',
+        file: 'main.tf',
+        line: 12,
+      },
+    ],
+    suggestions: [],
+    approved: false,
+  };
+
+  const hunkSpanDiff = `diff --git a/main.tf b/main.tf
+--- a/main.tf
++++ b/main.tf
+@@ -10,6 +10,7 @@
+ resource "aws_lb_target_group" "tg" {
+   port     = 3000
+   protocol = "HTTP"
++  deregistration_delay = 30
+
+   health_check {
+     path = "/api/health"
+`;
+
+  const hunkSpanProcessed = postProcessCodeReview(hunkSpanReview, hunkSpanDiff);
+
+  if (hunkSpanProcessed.review.issues[0]?.line !== 13) {
+    throw new Error(
+      `Expected hunk-span preservation to yield line 13, received ${hunkSpanProcessed.review.issues[0]?.line}`,
+    );
+  }
+
+  console.log('  ✅ Test 4 passed: hunk-span preserves in-range model line\n');
+
   console.log(
     '✅ Manual smoke test passed: issue:review semantic line alignment',
   );
