@@ -267,4 +267,62 @@ describe('postProcessCodeReview', () => {
 
     expect(processed.review.issues[0]?.line).toBe(121);
   });
+
+  it('extracts anchors from issue suggestion text for semantic matching', () => {
+    const review = createReview({
+      issues: [
+        {
+          severity: 'warning',
+          message: 'The variable value looks incorrect.',
+          suggestion:
+            'Change `DB_PASSWORD` to use a real secret reference instead of a placeholder.',
+          file: 'main.tf',
+          line: 13,
+        },
+      ],
+    });
+
+    const diff = `diff --git a/main.tf b/main.tf
+--- a/main.tf
++++ b/main.tf
+@@ -10,0 +10,4 @@
++resource "aws_secretsmanager_secret_version" "v" {
++  secret_string = jsonencode({
++    DB_PASSWORD = "<placeholder>"
++  })
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.review.issues[0]?.line).toBe(12);
+  });
+
+  it('omits the line when anchors exist but none match any changed line', () => {
+    const review = createReview({
+      issues: [
+        {
+          severity: 'error',
+          message:
+            'This PR does not add the DNS record in Route53 or any ACM certificate attachment.',
+          suggestion:
+            'Add an `aws_route53_record` for the hostname and attach a certificate.',
+          file: 'infra.tf',
+          line: 80,
+        },
+      ],
+    });
+
+    const diff = `diff --git a/infra.tf b/infra.tf
+--- a/infra.tf
++++ b/infra.tf
+@@ -1,0 +1,3 @@
++resource "aws_ecs_service" "app" {
++  desired_count = 1
++}
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.review.issues[0]?.line).toBeUndefined();
+  });
 });

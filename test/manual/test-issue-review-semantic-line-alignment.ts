@@ -45,6 +45,90 @@ async function run(): Promise<void> {
     );
   }
 
+  console.log('  ✅ Test 1 passed: message-only anchors remap correctly\n');
+
+  // Test 2: Suggestion text provides anchors when message has none
+  console.log('Test 2: suggestion-based anchor extraction');
+  const suggestionReview = {
+    summary: 'Review summary',
+    issues: [
+      {
+        severity: 'warning' as const,
+        message: 'The variable value looks incorrect.',
+        suggestion:
+          'Change `DB_PASSWORD` to use a real secret reference instead of a placeholder.',
+        file: 'main.tf',
+        line: 13,
+      },
+    ],
+    suggestions: [],
+    approved: false,
+  };
+
+  const suggestionDiff = `diff --git a/main.tf b/main.tf
+--- a/main.tf
++++ b/main.tf
+@@ -10,0 +10,4 @@
++resource "aws_secretsmanager_secret_version" "v" {
++  secret_string = jsonencode({
++    DB_PASSWORD = "<placeholder>"
++  })
+`;
+
+  const suggestionProcessed = postProcessCodeReview(
+    suggestionReview,
+    suggestionDiff,
+  );
+
+  if (suggestionProcessed.review.issues[0]?.line !== 12) {
+    throw new Error(
+      `Expected suggestion anchor remap to line 12, received ${suggestionProcessed.review.issues[0]?.line}`,
+    );
+  }
+
+  console.log('  ✅ Test 2 passed: suggestion anchors remap correctly\n');
+
+  // Test 3: Zero-score anchors omit line instead of preserving wrong line
+  console.log('Test 3: zero-score anchor omission');
+  const zeroScoreReview = {
+    summary: 'Review summary',
+    issues: [
+      {
+        severity: 'error' as const,
+        message:
+          'This PR does not add the DNS record in Route53 or any ACM certificate attachment.',
+        suggestion:
+          'Add an `aws_route53_record` for the hostname and attach a certificate.',
+        file: 'infra.tf',
+        line: 80,
+      },
+    ],
+    suggestions: [],
+    approved: false,
+  };
+
+  const zeroScoreDiff = `diff --git a/infra.tf b/infra.tf
+--- a/infra.tf
++++ b/infra.tf
+@@ -1,0 +1,3 @@
++resource "aws_ecs_service" "app" {
++  desired_count = 1
++}
+`;
+
+  const zeroScoreProcessed = postProcessCodeReview(
+    zeroScoreReview,
+    zeroScoreDiff,
+  );
+
+  if (zeroScoreProcessed.review.issues[0]?.line !== undefined) {
+    throw new Error(
+      `Expected line to be omitted for zero-score anchors, received ${zeroScoreProcessed.review.issues[0]?.line}`,
+    );
+  }
+
+  console.log('  ✅ Test 3 passed: zero-score anchors omit line\n');
+
   console.log(
     '✅ Manual smoke test passed: issue:review semantic line alignment',
   );

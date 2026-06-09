@@ -278,7 +278,9 @@ export const formatReviewCallStack = (
     return [];
   }
 
-  return renderTree(callStack, (node) => [node.frame]);
+  return renderTree(callStack, (node) => [node.frame]).flatMap((line) =>
+    line.split('\n'),
+  );
 };
 
 /**
@@ -310,14 +312,16 @@ export const formatReviewStateTransition = (
     }
 
     lines.push(...renderStateNodes(structured.steps));
-    return lines;
+    return lines.flatMap((line) => line.split('\n'));
   }
 
-  return Object.entries(stateTransition).flatMap(([key, value]) => {
-    if (value && typeof value === 'object') {
-      return [`${key}:`, indentMultilineValue(formatValue(value), '  ')];
-    }
+  return Object.entries(stateTransition)
+    .flatMap(([key, value]) => {
+      if (value && typeof value === 'object') {
+        return [`${key}:`, indentMultilineValue(formatValue(value), '  ')];
+      }
 
-    return [`${key}: ${formatValue(value)}`];
-  });
+      return [`${key}: ${formatValue(value)}`];
+    })
+    .flatMap((line) => line.split('\n'));
 };

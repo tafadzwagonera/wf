@@ -157,23 +157,23 @@ const normalizeIssueLine = (
 };
 
 /**
- * Extract high-signal anchors from an issue message so a changed line can be
+ * Extract high-signal anchors from issue text so a changed line can be
  * matched to the referenced code or environment variable.
  *
- * @param message - Issue message text
+ * @param text - Concatenated issue message and suggestion text
  * @returns Unique anchors ordered from strongest to weakest signal
  */
-const extractIssueAnchors = (message: string): string[] => {
+const extractIssueAnchors = (text: string): string[] => {
   const anchors = new Set<string>();
 
-  for (const match of message.matchAll(INLINE_CODE_PATTERN)) {
+  for (const match of text.matchAll(INLINE_CODE_PATTERN)) {
     const inlineCode = match[1]?.trim();
     if (inlineCode) {
       anchors.add(inlineCode);
     }
   }
 
-  for (const match of message.matchAll(ENVIRONMENT_TOKEN_PATTERN)) {
+  for (const match of text.matchAll(ENVIRONMENT_TOKEN_PATTERN)) {
     const token = match[0]?.trim();
     if (token) {
       anchors.add(token);
@@ -213,13 +213,14 @@ const scoreChangedLineAgainstIssue = (
  *
  * @param issue - Review issue under normalization
  * @param changedLines - Changed destination-side lines with source text
+ * @param anchors - Pre-computed anchors extracted from the issue
  * @returns Better matching changed line or null when no stronger match exists
  */
 const resolveSemanticIssueLine = (
   issue: CodeIssue,
   changedLines: ChangedDestinationLine[],
+  anchors: string[],
 ): number | null => {
-  const anchors = extractIssueAnchors(issue.message);
   if (anchors.length === 0) {
     return null;
   }
@@ -285,12 +286,31 @@ const normalizeReviewIssues = (
         };
       }
 
-      const semanticLine = resolveSemanticIssueLine(issue, changedLines);
+      const anchors = extractIssueAnchors(
+        `${issue.message} ${issue.suggestion ?? ''}`,
+      );
+
+      const semanticLine = resolveSemanticIssueLine(
+        issue,
+        changedLines,
+        anchors,
+      );
       if (semanticLine != null) {
         return {
           ...issue,
           line: semanticLine,
         };
+      }
+
+      if (anchors.length > 0) {
+        const maxScore = changedLines.reduce(
+          (best, cl) =>
+            Math.max(best, scoreChangedLineAgainstIssue(cl, anchors)),
+          0,
+        );
+        if (maxScore === 0) {
+          return { ...issue, line: undefined };
+        }
       }
 
       if (
