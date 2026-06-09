@@ -271,7 +271,7 @@ const makeParams = (
   },
   verificationScripts,
   sceneContext: 'implement it',
-  repoFiles: [],
+  repoFiles: [] as string[],
   repoName: 'primary',
   trackedFilePaths: [],
 });
@@ -944,6 +944,139 @@ describe('AnthropicAgentAdapter', () => {
         fs.rmSync(repoDir, { recursive: true, force: true });
         fs.rmSync(homeDir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('incomplete-work loop stall detection', () => {
+    const makeFilesPersistedFor = (filenames: string[]): SDKMessage =>
+      ({
+        type: 'system',
+        subtype: 'files_persisted',
+        files: filenames.map((f, i) => ({ filename: f, file_id: `file-${i}` })),
+        failed: [],
+        processed_at: '2026-06-09T10:00:00.000Z',
+        uuid: '22222222-2222-2222-2222-222222222222',
+        session_id: 'session-loop',
+      }) as SDKMessage;
+
+    it('skips loop when all planned files touched in initial pass', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const initialSession = makeSdkSession([
+        makeFilesPersistedFor([
+          '/repo/primary/src/foo.ts',
+          '/repo/primary/src/bar.ts',
+        ]),
+        makeResultSuccess({ session_id: 'session-loop' }),
+      ]);
+      const mockQuery = jest.fn().mockReturnValueOnce(initialSession);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      const params = makeParams();
+      params.repoFiles = ['primary/src/foo.ts', 'primary/src/bar.ts'];
+
+      await adapter.generateAndVerify(params);
+
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+    });
+
+    it('continues when workload decreases and completes', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const initialSession = makeSdkSession([
+        makeFilesPersistedFor(['/repo/primary/src/foo.ts']),
+        makeResultSuccess({ session_id: 'session-loop' }),
+      ]);
+      const pass1Session = makeSdkSession([
+        makeFilesPersistedFor(['/repo/primary/src/bar.ts']),
+        makeResultSuccess({ session_id: 'session-loop-2' }),
+      ]);
+      const mockQuery = jest
+        .fn()
+        .mockReturnValueOnce(initialSession)
+        .mockReturnValueOnce(pass1Session);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      const params = makeParams();
+      params.repoFiles = ['primary/src/foo.ts', 'primary/src/bar.ts'];
+
+      await adapter.generateAndVerify(params);
+
+      expect(mockQuery).toHaveBeenCalledTimes(2);
+    });
+
+    it('breaks after 2 non-improving passes', async () => {
+      const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const initialSession = makeSdkSession([
+        makeResultSuccess({ session_id: 'session-loop' }),
+      ]);
+      const pass1Session = makeSdkSession([
+        makeResultSuccess({ session_id: 'session-loop' }),
+      ]);
+      const pass2Session = makeSdkSession([
+        makeResultSuccess({ session_id: 'session-loop' }),
+      ]);
+      const mockQuery = jest
+        .fn()
+        .mockReturnValueOnce(initialSession)
+        .mockReturnValueOnce(pass1Session)
+        .mockReturnValueOnce(pass2Session);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      const params = makeParams();
+      params.repoFiles = ['primary/src/foo.ts'];
+
+      await adapter.generateAndVerify(params);
+
+      expect(mockQuery).toHaveBeenCalledTimes(3);
+      expect(mockLog).toHaveBeenCalledWith(
+        expect.stringContaining('Workload not decreasing'),
+      );
+    });
+
+    it('resets stall counter on resumed improvement', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const initialSession = makeSdkSession([
+        makeResultSuccess({ session_id: 'session-loop' }),
+      ]);
+      const pass1Session = makeSdkSession([
+        makeFilesPersistedFor(['/repo/primary/src/a.ts']),
+        makeResultSuccess({ session_id: 'session-loop' }),
+      ]);
+      const pass2Session = makeSdkSession([
+        makeResultSuccess({ session_id: 'session-loop' }),
+      ]);
+      const pass3Session = makeSdkSession([
+        makeResultSuccess({ session_id: 'session-loop' }),
+      ]);
+      const mockQuery = jest
+        .fn()
+        .mockReturnValueOnce(initialSession)
+        .mockReturnValueOnce(pass1Session)
+        .mockReturnValueOnce(pass2Session)
+        .mockReturnValueOnce(pass3Session);
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      const params = makeParams();
+      params.repoFiles = ['primary/src/a.ts', 'primary/src/b.ts'];
+
+      await adapter.generateAndVerify(params);
+
+      expect(mockQuery).toHaveBeenCalledTimes(4);
     });
   });
 });

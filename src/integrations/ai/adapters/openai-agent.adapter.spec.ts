@@ -1934,6 +1934,221 @@ describe('OpenAIAgentAdapter', () => {
         ).toBe(false);
       });
     });
+
+    describe('incomplete-work loop stall detection', () => {
+      it('skips loop when all planned files touched in initial run', async () => {
+        const repoDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), 'wf-openai-stall-skip-'),
+        );
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+        fs.writeFileSync(path.join(repoDir, 'src', 'bar.ts'), 'original\n');
+
+        const mockRun = jest.fn(async (agent: Record<string, unknown>) => {
+          const writeTool = getTool(agent, 'write_file');
+          const workspaceContext = {
+            repoDir,
+            readRoots: [{ name: path.basename(repoDir), root: repoDir }],
+          };
+
+          await writeTool.execute(
+            { path: 'src/foo.ts', content: 'updated foo\n' },
+            { context: workspaceContext },
+          );
+          await writeTool.execute(
+            { path: 'src/bar.ts', content: 'updated bar\n' },
+            { context: workspaceContext },
+          );
+
+          return makeStreamedRun([], 'Done.');
+        });
+
+        mockRunner.mockImplementation(() => ({
+          run: mockRun,
+          config: {},
+        }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = {
+          ...makeParams(repoDir),
+          repoFiles: ['primary/src/foo.ts', 'primary/src/bar.ts'],
+        };
+        await adapter.generateAndVerify(params);
+
+        // Only the initial pass — no continuation passes needed
+        expect(mockRun).toHaveBeenCalledTimes(1);
+      });
+
+      it('breaks after 2 non-improving passes', async () => {
+        const repoDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), 'wf-openai-stall-break-'),
+        );
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+        const mockRun = jest.fn(async () => makeStreamedRun([], 'Done.'));
+
+        mockRunner.mockImplementation(() => ({
+          run: mockRun,
+          config: {},
+        }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        const consoleSpy = jest
+          .spyOn(console, 'log')
+          .mockImplementation(() => {});
+
+        const params = {
+          ...makeParams(repoDir),
+          repoFiles: ['primary/src/foo.ts'],
+        };
+        await adapter.generateAndVerify(params);
+
+        // 1 initial + 2 continuation passes (stall detected at stalledPasses=2)
+        expect(mockRun).toHaveBeenCalledTimes(3);
+
+        const logMessages = consoleSpy.mock.calls
+          .map((call) => String(call[0]))
+          .join('\n');
+        expect(logMessages).toContain('Workload not decreasing');
+      });
+
+      it('continues when workload decreases and completes', async () => {
+        const repoDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), 'wf-openai-stall-progress-'),
+        );
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+        fs.writeFileSync(path.join(repoDir, 'src', 'bar.ts'), 'original\n');
+
+        const mockRun = jest.fn(async (agent: Record<string, unknown>) => {
+          const callIndex = mockRun.mock.calls.length;
+          const writeTool = getTool(agent, 'write_file');
+          const workspaceContext = {
+            repoDir,
+            readRoots: [{ name: path.basename(repoDir), root: repoDir }],
+          };
+
+          if (callIndex === 1) {
+            // First call: write only foo.ts
+            await writeTool.execute(
+              { path: 'src/foo.ts', content: 'updated foo\n' },
+              { context: workspaceContext },
+            );
+          }
+          if (callIndex === 2) {
+            // Second call (continuation): write bar.ts
+            await writeTool.execute(
+              { path: 'src/bar.ts', content: 'updated bar\n' },
+              { context: workspaceContext },
+            );
+          }
+
+          return makeStreamedRun([], 'Done.');
+        });
+
+        mockRunner.mockImplementation(() => ({
+          run: mockRun,
+          config: {},
+        }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = {
+          ...makeParams(repoDir),
+          repoFiles: ['primary/src/foo.ts', 'primary/src/bar.ts'],
+        };
+        await adapter.generateAndVerify(params);
+
+        // Initial pass writes foo.ts, continuation pass writes bar.ts → done
+        expect(mockRun).toHaveBeenCalledTimes(2);
+      });
+
+      it('counts validation failures in workload', async () => {
+        const repoDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), 'wf-openai-stall-validation-'),
+        );
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(
+          path.join(repoDir, 'src', 'foo.ts'),
+          [
+            'class Foo {',
+            '  constructor(private logger: Logger) {}',
+            '  run() { this.logger.log("hi"); }',
+            '}',
+            '',
+          ].join('\n'),
+        );
+
+        const mockRun = jest.fn(async (agent: Record<string, unknown>) => {
+          const callIndex = mockRun.mock.calls.length;
+          const workspaceContext = {
+            repoDir,
+            readRoots: [{ name: path.basename(repoDir), root: repoDir }],
+          };
+
+          if (callIndex === 1) {
+            // Write foo.ts to mark it as touched (removes it from unvisited)
+            const writeTool = getTool(agent, 'write_file');
+            await writeTool.execute(
+              {
+                path: 'src/foo.ts',
+                content: [
+                  'class Foo {',
+                  '  constructor(private logger: Logger) {}',
+                  '  run() { this.logger.log("hi"); }',
+                  '}',
+                  '',
+                ].join('\n'),
+              },
+              { context: workspaceContext },
+            );
+
+            // Now apply a bad edit that creates a duplicate constructor
+            const editTool = getTool(agent, 'edit_file');
+            await editTool.execute(
+              {
+                path: 'src/foo.ts',
+                old_string: 'class Foo {',
+                new_string:
+                  'class Foo {\n  constructor(private pino: PinoLogger) {}',
+              },
+              { context: workspaceContext },
+            );
+          }
+          // Calls 2 and 3: do nothing — workload stays at 1 (uniqueFailureCount)
+
+          return makeStreamedRun([], 'Done.');
+        });
+
+        mockRunner.mockImplementation(() => ({
+          run: mockRun,
+          config: {},
+        }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        const consoleSpy = jest
+          .spyOn(console, 'log')
+          .mockImplementation(() => {});
+
+        const params = {
+          ...makeParams(repoDir),
+          repoFiles: ['primary/src/foo.ts'],
+        };
+        await adapter.generateAndVerify(params);
+
+        // 1 initial + 2 continuations (stalls on uniqueFailureCount not decreasing)
+        expect(mockRun).toHaveBeenCalledTimes(3);
+
+        const logMessages = consoleSpy.mock.calls
+          .map((call) => String(call[0]))
+          .join('\n');
+        expect(logMessages).toContain('Workload not decreasing');
+      });
+    });
   });
 
   describe('validateTypeScriptEdit', () => {

@@ -30,6 +30,10 @@ jest.mock('chalk', () => {
   return { default: chalk, ...chalk };
 });
 
+jest.mock('child_process', () => ({
+  spawnSync: jest.fn(),
+}));
+
 jest.mock('../agents/utils', () => {
   const actual = jest.requireActual('../agents/utils');
   return {
@@ -53,11 +57,14 @@ import { AiService } from '../integrations/ai/ai.service';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { spawnSync } from 'child_process';
 
 jest.mock('fs', () => ({
   existsSync: jest.fn(),
   readFileSync: jest.fn(),
 }));
+
+const mockSpawnSync = spawnSync as jest.MockedFunction<typeof spawnSync>;
 
 const mockCwd = '/tmp/consumer-app';
 
@@ -570,5 +577,255 @@ describe('IssueCreateCommand', () => {
         project: 'WBP',
       }),
     );
+  });
+
+  describe('validateAndCorrectDescription stall detection', () => {
+    const makeValidationResult = (
+      passed: boolean,
+      issues: Array<{ error: string; suggestion: string }> = [],
+    ) => ({
+      stdout: JSON.stringify({ passed, issues }),
+      stderr: '',
+      status: 0,
+      signal: null,
+      pid: 1234,
+      output: [null, '', ''],
+    });
+
+    async function buildCommandWithVerification(): Promise<IssueCreateCommand> {
+      const mockPlatformAdapter = {
+        createTicket: jest.fn().mockResolvedValue({
+          platform: 'jira',
+          key: 'WBP-123',
+          id: 'WBP-123',
+          url: 'https://test.atlassian.net/browse/WBP-123',
+        }),
+      };
+      const mockPlatformService = {
+        getAdapter: jest.fn().mockReturnValue(mockPlatformAdapter),
+      };
+
+      const module = await Test.createTestingModule({
+        providers: [
+          IssueCreateCommand,
+          { provide: PlatformService, useValue: mockPlatformService },
+          {
+            provide: JiraAdapter,
+            useValue: {
+              buildCreatePayload: jest.fn((ticket) => ({
+                fields: {
+                  project: { key: ticket.project || 'WBP' },
+                  summary: ticket.title,
+                  description: {
+                    type: 'doc',
+                    version: 1,
+                    content: [
+                      {
+                        type: 'paragraph',
+                        content: [{ type: 'text', text: ticket.description }],
+                      },
+                    ],
+                  },
+                },
+              })),
+            },
+          },
+          {
+            provide: FormatConverterService,
+            useValue: {
+              detectFormat: jest.fn().mockReturnValue('md'),
+              getConverter: jest.fn().mockReturnValue({
+                parse: jest.fn(() => ({ ...mockTicket })),
+              }),
+            },
+          },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn((key: string, defaultValue?: string) => {
+                if (key === 'platforms.primary') return 'jira';
+                if (key === 'stages.create.verificationConditions') {
+                  return { scripts: { 'adf-check': 'node validate.js' } };
+                }
+                return defaultValue;
+              }),
+            },
+          },
+          {
+            provide: LoggerService,
+            useValue: {
+              info: jest.fn(),
+              warn: jest.fn(),
+              error: jest.fn(),
+              success: jest.fn(),
+            },
+          },
+          {
+            provide: DryRunPreviewService,
+            useValue: {
+              showHeader: jest.fn(),
+              showSummary: jest.fn(),
+              showValidationResult: jest.fn(),
+              previewApiCall: jest.fn(),
+            },
+          },
+          {
+            provide: AiService,
+            useValue: {
+              executeWithHistory: jest.fn().mockResolvedValue({
+                content: 'corrected markdown',
+              }),
+            },
+          },
+        ],
+      }).compile();
+
+      return module.get(IssueCreateCommand);
+    }
+
+    const artifactPath = path.join(
+      os.homedir(),
+      '.wf',
+      'consumer-app',
+      'jira',
+      'GENERATED-2026-04-01-46ac9014.md',
+    );
+
+    beforeEach(() => {
+      mockSpawnSync.mockReset();
+    });
+
+    it('terminates when validation passes on first attempt', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      const command = await buildCommandWithVerification();
+      const aiService = (command as any).aiService as jest.Mocked<AiService>;
+
+      mockExistsSync.mockImplementation(
+        (input) => String(input) === artifactPath,
+      );
+      mockSpawnSync.mockReturnValueOnce(makeValidationResult(true) as any);
+
+      await command.run(['GENERATED-2026-04-01-46ac9014.md'], {
+        ticketProject: 'WBP',
+      });
+
+      expect(aiService.executeWithHistory).not.toHaveBeenCalled();
+    });
+
+    it('retries when errors decrease and succeeds', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      const command = await buildCommandWithVerification();
+      const aiService = (command as any).aiService as jest.Mocked<AiService>;
+
+      mockExistsSync.mockImplementation(
+        (input) => String(input) === artifactPath,
+      );
+      mockSpawnSync
+        .mockReturnValueOnce(
+          makeValidationResult(false, [
+            { error: 'e1', suggestion: 's1' },
+            { error: 'e2', suggestion: 's2' },
+            { error: 'e3', suggestion: 's3' },
+          ]) as any,
+        )
+        .mockReturnValueOnce(
+          makeValidationResult(false, [
+            { error: 'e1', suggestion: 's1' },
+          ]) as any,
+        )
+        .mockReturnValueOnce(makeValidationResult(true) as any);
+
+      await command.run(['GENERATED-2026-04-01-46ac9014.md'], {
+        ticketProject: 'WBP',
+      });
+
+      expect(aiService.executeWithHistory).toHaveBeenCalledTimes(2);
+    });
+
+    it('throws when stalled for 2 consecutive non-improving passes', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      const command = await buildCommandWithVerification();
+
+      mockExistsSync.mockImplementation(
+        (input) => String(input) === artifactPath,
+      );
+
+      const threeIssues = makeValidationResult(false, [
+        { error: 'e1', suggestion: 's1' },
+        { error: 'e2', suggestion: 's2' },
+        { error: 'e3', suggestion: 's3' },
+      ]);
+
+      mockSpawnSync
+        .mockReturnValueOnce(threeIssues as any)
+        .mockReturnValueOnce(threeIssues as any)
+        .mockReturnValueOnce(threeIssues as any);
+
+      await expect(
+        command.run(['GENERATED-2026-04-01-46ac9014.md'], {
+          ticketProject: 'WBP',
+        }),
+      ).rejects.toThrow(/ADF validation stalled/);
+    });
+
+    it('resets stall counter when improvement resumes after plateau', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      const command = await buildCommandWithVerification();
+
+      mockExistsSync.mockImplementation(
+        (input) => String(input) === artifactPath,
+      );
+
+      const threeIssues = makeValidationResult(false, [
+        { error: 'e1', suggestion: 's1' },
+        { error: 'e2', suggestion: 's2' },
+        { error: 'e3', suggestion: 's3' },
+      ]);
+      const twoIssues = makeValidationResult(false, [
+        { error: 'e1', suggestion: 's1' },
+        { error: 'e2', suggestion: 's2' },
+      ]);
+
+      mockSpawnSync
+        .mockReturnValueOnce(threeIssues as any) // 3 < Infinity → improvement
+        .mockReturnValueOnce(threeIssues as any) // 3 >= 3 → stall (1)
+        .mockReturnValueOnce(twoIssues as any) // 2 < 3 → improvement, reset
+        .mockReturnValueOnce(twoIssues as any) // 2 >= 2 → stall (1)
+        .mockReturnValueOnce(twoIssues as any); // 2 >= 2 → stall (2), throws
+
+      await expect(
+        command.run(['GENERATED-2026-04-01-46ac9014.md'], {
+          ticketProject: 'WBP',
+        }),
+      ).rejects.toThrow(/ADF validation stalled/);
+    });
+
+    it('first iteration is never counted as stalled', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      const command = await buildCommandWithVerification();
+
+      mockExistsSync.mockImplementation(
+        (input) => String(input) === artifactPath,
+      );
+
+      const fiveIssues = makeValidationResult(false, [
+        { error: 'e1', suggestion: 's1' },
+        { error: 'e2', suggestion: 's2' },
+        { error: 'e3', suggestion: 's3' },
+        { error: 'e4', suggestion: 's4' },
+        { error: 'e5', suggestion: 's5' },
+      ]);
+
+      mockSpawnSync
+        .mockReturnValueOnce(fiveIssues as any) // 5 < Infinity → improvement
+        .mockReturnValueOnce(fiveIssues as any) // 5 >= 5 → stall (1)
+        .mockReturnValueOnce(fiveIssues as any); // 5 >= 5 → stall (2), throws
+
+      await expect(
+        command.run(['GENERATED-2026-04-01-46ac9014.md'], {
+          ticketProject: 'WBP',
+        }),
+      ).rejects.toThrow(/ADF validation stalled/);
+    });
   });
 });
