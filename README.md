@@ -500,6 +500,9 @@ wf issue:generate itinerary-pdf-generation.md -r service-tourv3
 
 # Save with overridden title
 wf issue:generate ./requirements.md --title "Add OAuth2" --save
+
+# Silent mode: pipe saved artifact path to issue:create
+wf issue:generate ./spec.md --save --silent | xargs wf issue:create
 ```
 
 **Options:**
@@ -513,7 +516,7 @@ wf issue:generate ./requirements.md --title "Add OAuth2" --save
 | `--priority <priority>` | Override ticket priority (highest\|high\|medium\|low\|lowest) |
 | `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
 | `--save` | Save generated ticket to platform directory |
-| `-s, --silent` | Disable interactive prompts and fail on ambiguity |
+| `-s, --silent` | Suppress decorative output and interactive prompts (clarification, disambiguation). Emits only file paths (with --save/--output) or raw ticket content for piping |
 | `-t, --title <title>` | Override generated title with custom title |
 | `--type <type>` | Override ticket type (task\|bug\|story\|epic) |
 <!-- END GENERATED COMMAND DOCS: issue:generate -->
@@ -525,6 +528,7 @@ When the first `--repos` entry resolves to a local checkout, `issue:generate`
 also bootstraps AI provider and stage config from that repository before
 command execution.
 Slack permalinks that include query parameters should be quoted when invoked from shells such as `zsh` or `bash`.
+In interactive mode (TTY, no `--silent`), the command performs a pre-synthesis clarification pass: the AI identifies unaddressed ambiguities, assumptions, or risks in the sources, and prompts the user to answer them before generating the ticket. Sources that already acknowledge their own risks and assumptions are not re-surfaced. The `--silent` flag suppresses all decorative output and interactive prompts, emitting only file paths (with `--save`/`--output`) or raw ticket content suitable for piping.
 
 ---
 

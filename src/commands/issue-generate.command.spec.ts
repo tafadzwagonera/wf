@@ -1360,4 +1360,438 @@ describe('IssueGenerateCommand', () => {
       errorHandlerSpy.mockRestore();
     });
   });
+
+  describe('disambiguation prompt separation', () => {
+    const setupMultiRepoMatch = () => {
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) => {
+        const filePath = String(input);
+        return (
+          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
+          filePath === path.join('/tmp/consumer-app', 'repo-b') ||
+          filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md') ||
+          filePath === path.join('/tmp/consumer-app/repo-b', 'src/spec.md')
+        );
+      });
+    };
+
+    it('prompts interactively for multi-repo disambiguation when TTY and not silent', async () => {
+      const { command } = await buildCommand();
+      const promptMock = inquirer.prompt as jest.MockedFunction<
+        typeof inquirer.prompt
+      >;
+      setupMultiRepoMatch();
+      promptMock.mockResolvedValueOnce({
+        selectedSources: [path.join('/tmp/consumer-app/repo-a', 'src/spec.md')],
+      });
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+
+      await (command as any).resolveRepoRelativeSources(
+        'src/spec.md',
+        ['repo-a', 'repo-b'],
+        false,
+      );
+
+      expect(promptMock).toHaveBeenCalled();
+    });
+
+    it('fails with a non-TTY error when no TTY is available', async () => {
+      const { command } = await buildCommand();
+      setupMultiRepoMatch();
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: false,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: false,
+        configurable: true,
+      });
+
+      await expect(
+        (command as any).resolveRepoRelativeSources(
+          'src/spec.md',
+          ['repo-a', 'repo-b'],
+          false,
+        ),
+      ).rejects.toThrow('interactive terminal');
+    });
+
+    it('fails with a silent-mode error when --silent is active', async () => {
+      const { command } = await buildCommand();
+      setupMultiRepoMatch();
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+
+      await expect(
+        (command as any).resolveRepoRelativeSources(
+          'src/spec.md',
+          ['repo-a', 'repo-b'],
+          true,
+        ),
+      ).rejects.toThrow('silent mode');
+    });
+  });
+
+  describe('interactive clarification prompts', () => {
+    let promptMock: jest.MockedFunction<typeof inquirer.prompt>;
+
+    beforeEach(() => {
+      promptMock = inquirer.prompt as jest.MockedFunction<
+        typeof inquirer.prompt
+      >;
+      promptMock.mockReset();
+    });
+
+    it('prompts user to clarify AI-identified ambiguities when not silent', async () => {
+      const { command, mockAiService } = await buildCommand();
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+
+      const mockQuestions = [
+        'What is the target platform?',
+        'Is SSO required?',
+      ];
+
+      // First AI call: clarification
+      mockAiService.execute.mockResolvedValueOnce({
+        content: JSON.stringify(mockQuestions),
+      });
+      // Second AI call: synthesis
+      mockAiService.execute.mockResolvedValueOnce({
+        content: [
+          '# Clarified Title',
+          '',
+          '**Type:** task',
+          '**Priority:** medium',
+          '',
+          '## Description',
+          '',
+          '### Summary',
+          'Clarified summary',
+          '',
+          '#### Technical Details',
+          'None',
+          '',
+          '### Acceptance Criteria',
+          '- None',
+          '',
+          '### Unit Test Scope',
+          '- None',
+          '',
+          '#### Dependencies',
+          '- None',
+          '',
+          '### Risks & Assumptions',
+          '- None',
+          '',
+          '### Affected Repositories',
+          '- None',
+          '',
+          '#### References',
+          '- None',
+          '',
+          '#### Out of Scope',
+          '- None',
+        ].join('\n'),
+      });
+
+      promptMock
+        .mockResolvedValueOnce({ answer: 'Web only' })
+        .mockResolvedValueOnce({ answer: 'No' });
+
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-clarify-test.md');
+      fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) =>
+        jest.requireActual('fs').existsSync(String(input)),
+      );
+
+      try {
+        await command.run([tempSourcePath]);
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      expect(promptMock).toHaveBeenCalledTimes(2);
+      expect(promptMock).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ message: 'What is the target platform?' }),
+        ]),
+      );
+      // Clarification prompt should instruct AI to skip already-acknowledged issues
+      const clarificationCall = mockAiService.execute.mock.calls[0];
+      expect(clarificationCall[0].prompt).toContain(
+        'Do NOT raise issues that the sources already acknowledge',
+      );
+      // Synthesis call should include user clarifications in its prompt
+      const synthesisCall = mockAiService.execute.mock.calls[1];
+      expect(synthesisCall[0].prompt).toContain('user-clarifications');
+    });
+
+    it('skips clarification when AI identifies no ambiguities', async () => {
+      const { command, mockAiService } = await buildCommand();
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+
+      // First AI call: clarification returns empty
+      mockAiService.execute.mockResolvedValueOnce({
+        content: '[]',
+      });
+      // Second AI call: synthesis
+      mockAiService.execute.mockResolvedValueOnce({
+        content: [
+          '# Title',
+          '',
+          '**Type:** task',
+          '**Priority:** medium',
+          '',
+          '## Description',
+          '',
+          '### Summary',
+          'Summary',
+          '',
+          '#### Technical Details',
+          'None',
+          '',
+          '### Acceptance Criteria',
+          '- None',
+          '',
+          '### Unit Test Scope',
+          '- None',
+          '',
+          '#### Dependencies',
+          '- None',
+          '',
+          '### Risks & Assumptions',
+          '- None',
+          '',
+          '### Affected Repositories',
+          '- None',
+          '',
+          '#### References',
+          '- None',
+          '',
+          '#### Out of Scope',
+          '- None',
+        ].join('\n'),
+      });
+
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-no-clarify-test.md');
+      fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) =>
+        jest.requireActual('fs').existsSync(String(input)),
+      );
+
+      try {
+        await command.run([tempSourcePath]);
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      expect(promptMock).not.toHaveBeenCalled();
+    });
+
+    it('skips clarification in silent mode', async () => {
+      const { command, mockAiService } = await buildCommand();
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-silent-test.md');
+      fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) =>
+        jest.requireActual('fs').existsSync(String(input)),
+      );
+
+      try {
+        await command.run([tempSourcePath], { silent: true });
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      // Only the synthesis call should fire, not a clarification call
+      expect(mockAiService.execute).toHaveBeenCalledTimes(1);
+      expect(promptMock).not.toHaveBeenCalled();
+    });
+
+    it('skips clarification in non-TTY sessions', async () => {
+      const { command, mockAiService } = await buildCommand();
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: false,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: false,
+        configurable: true,
+      });
+
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-notty-test.md');
+      fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) =>
+        jest.requireActual('fs').existsSync(String(input)),
+      );
+
+      try {
+        await command.run([tempSourcePath]);
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      // Only synthesis call, no clarification
+      expect(mockAiService.execute).toHaveBeenCalledTimes(1);
+      expect(promptMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('silent mode output', () => {
+    beforeEach(() => {
+      (inquirer.prompt as unknown as jest.Mock).mockReset();
+    });
+
+    it('prints only the saved file path when --save --silent', async () => {
+      const { command } = await buildCommand();
+
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-save-silent-test.md');
+      fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) =>
+        jest.requireActual('fs').existsSync(String(input)),
+      );
+
+      try {
+        await command.run([tempSourcePath], { silent: true, save: true });
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      const logCalls = consoleLogSpy.mock.calls.map(
+        (args: unknown[]) => args[0],
+      );
+      expect(logCalls).toHaveLength(1);
+      expect(logCalls[0]).toMatch(/\.wf.*jira.*ticket-description\.md$/);
+    });
+
+    it('prints only the output path when --output --silent', async () => {
+      const { command } = await buildCommand();
+
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-output-silent-test.md');
+      const outputPath = path.join(os.tmpdir(), 'wf-output-silent-out.md');
+      fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) =>
+        jest.requireActual('fs').existsSync(String(input)),
+      );
+      (
+        fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>
+      ).mockImplementation(() => {});
+
+      try {
+        await command.run([tempSourcePath], {
+          silent: true,
+          output: outputPath,
+        });
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      const logCalls = consoleLogSpy.mock.calls.map(
+        (args: unknown[]) => args[0],
+      );
+      expect(logCalls).toHaveLength(1);
+      expect(logCalls[0]).toBe(outputPath);
+    });
+
+    it('prints only raw ticket content when --silent without --save or --output', async () => {
+      const { command } = await buildCommand();
+
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-raw-silent-test.md');
+      fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) =>
+        jest.requireActual('fs').existsSync(String(input)),
+      );
+
+      try {
+        await command.run([tempSourcePath], { silent: true });
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      const logCalls = consoleLogSpy.mock.calls.map(
+        (args: unknown[]) => args[0],
+      );
+      expect(logCalls).toHaveLength(1);
+      expect(logCalls[0]).toContain('Generated Title');
+    });
+
+    it('suppresses progress and tip messages in silent mode', async () => {
+      const { command } = await buildCommand();
+
+      const tempSourcePath = path.join(
+        os.tmpdir(),
+        'wf-suppress-silent-test.md',
+      );
+      fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) =>
+        jest.requireActual('fs').existsSync(String(input)),
+      );
+
+      try {
+        await command.run([tempSourcePath], { silent: true });
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      const allOutput = consoleLogSpy.mock.calls
+        .map((args: unknown[]) => String(args[0]))
+        .join('\n');
+      expect(allOutput).not.toContain('Fetching:');
+      expect(allOutput).not.toContain('Using AI to synthesize');
+      expect(allOutput).not.toContain('Tip:');
+      expect(allOutput).not.toContain('Generating Ticket');
+    });
+  });
 });

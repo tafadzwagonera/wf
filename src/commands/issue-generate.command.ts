@@ -59,6 +59,11 @@ const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
     comment: 'Save with overridden title',
     command: 'wf issue:generate ./requirements.md --title "Add OAuth2" --save',
   },
+  {
+    comment: 'Silent mode: pipe saved artifact path to issue:create',
+    command:
+      'wf issue:generate ./spec.md --save --silent | xargs wf issue:create',
+  },
 ];
 
 interface IssueGenerateOptions {
@@ -135,7 +140,9 @@ export class IssueGenerateCommand extends CommandRunner {
     passedParams: string[],
     options?: IssueGenerateOptions,
   ): Promise<void> {
-    printExamples(ISSUE_GENERATE_EXAMPLES);
+    if (!options?.silent) {
+      printExamples(ISSUE_GENERATE_EXAMPLES);
+    }
 
     fs.mkdirSync(getWfHomeDir(), { recursive: true });
 
@@ -368,23 +375,44 @@ export class IssueGenerateCommand extends CommandRunner {
         return;
       }
 
-      console.log(
-        chalk.bold.cyan(
-          `\n📝 Generating Ticket from ${passedParams.length} source(s)\n`,
-        ),
-      );
+      const silent = options?.silent ?? false;
+
+      if (!silent) {
+        console.log(
+          chalk.bold.cyan(
+            `\n📝 Generating Ticket from ${passedParams.length} source(s)\n`,
+          ),
+        );
+      }
 
       // Fetch content from all sources
       const sourceContents = await this.fetchAllSources(
         passedParams,
         options?.platform,
         options?.repos,
-        options?.silent ?? false,
+        silent,
       );
       this.assertSourcesAvailable(sourceContents, passedParams);
 
+      // Interactive clarification pass (non-silent, TTY only)
+      if (!silent && this.isInteractiveSession()) {
+        const clarifications =
+          await this.identifyClarifications(sourceContents);
+        if (clarifications.length > 0) {
+          const userResponses = await this.promptClarifications(clarifications);
+          sourceContents.push({
+            type: 'file',
+            source: 'user-clarifications',
+            content: userResponses,
+          });
+        }
+      }
+
       // Use AI to synthesize and collate data
-      const synthesizedTicket = await this.synthesizeWithAI(sourceContents);
+      const synthesizedTicket = await this.synthesizeWithAI(
+        sourceContents,
+        silent,
+      );
 
       // Apply metadata overrides if provided
       if (options?.title) {
@@ -417,7 +445,7 @@ export class IssueGenerateCommand extends CommandRunner {
           this.configService.get<string>('platforms.primary', 'jira');
         const saveTargets = await this.resolveSaveTargets(
           options?.repos,
-          options?.silent ?? false,
+          silent,
         );
         const targetRepos = saveTargets.length > 0 ? saveTargets : [undefined];
 
@@ -429,10 +457,14 @@ export class IssueGenerateCommand extends CommandRunner {
             passedParams,
             targetRepo,
           );
-          console.log(
-            chalk.green('\n✓ Ticket saved to:'),
-            chalk.cyan(savedPath),
-          );
+          if (silent) {
+            console.log(savedPath);
+          } else {
+            console.log(
+              chalk.green('\n✓ Ticket saved to:'),
+              chalk.cyan(savedPath),
+            );
+          }
         }
       }
 
@@ -440,21 +472,29 @@ export class IssueGenerateCommand extends CommandRunner {
       if (options?.output) {
         const outputPath = path.resolve(options.output);
         fs.writeFileSync(outputPath, output);
-        console.log(
-          chalk.green('\n✓ Ticket also saved to:'),
-          chalk.cyan(outputPath),
-        );
+        if (silent) {
+          console.log(outputPath);
+        } else {
+          console.log(
+            chalk.green('\n✓ Ticket also saved to:'),
+            chalk.cyan(outputPath),
+          );
+        }
       } else if (!options?.save) {
-        // Only output to stdout if not saving
-        console.log(chalk.green('\n✓ Generated Ticket:\n'));
+        // Output to stdout
+        if (!silent) {
+          console.log(chalk.green('\n✓ Generated Ticket:\n'));
+        }
         console.log(output);
       }
 
-      console.log(
-        chalk.gray(
-          `\n💡 Tip: Use --save to save to platform directory, --output to save to file, or --format to change output format\n`,
-        ),
-      );
+      if (!silent) {
+        console.log(
+          chalk.gray(
+            `\n💡 Tip: Use --save to save to platform directory, --output to save to file, or --format to change output format\n`,
+          ),
+        );
+      }
     } catch (error) {
       ErrorHandler.handle(error as Error);
     }
@@ -525,7 +565,8 @@ export class IssueGenerateCommand extends CommandRunner {
 
   @Option({
     flags: '-s, --silent',
-    description: 'Disable interactive prompts and fail on ambiguity',
+    description:
+      'Suppress decorative output and interactive prompts (clarification, disambiguation). Emits only file paths (with --save/--output) or raw ticket content for piping',
   })
   parseSilent(): boolean {
     return true;
@@ -559,7 +600,9 @@ export class IssueGenerateCommand extends CommandRunner {
     const contents: SourceContent[] = [];
 
     for (const source of sources) {
-      console.log(chalk.gray(`  Fetching: ${source}`));
+      if (!silent) {
+        console.log(chalk.gray(`  Fetching: ${source}`));
+      }
 
       try {
         const resolvedSources = await this.resolveSourceInputs(
@@ -570,7 +613,9 @@ export class IssueGenerateCommand extends CommandRunner {
         this.assertResolvableSourceSelection(source, resolvedSources, repos);
 
         if (resolvedSources.length === 0) {
-          console.log(chalk.yellow('    ⚠ Skipped: no sources selected'));
+          if (!silent) {
+            console.log(chalk.yellow('    ⚠ Skipped: no sources selected'));
+          }
           continue;
         }
 
@@ -581,14 +626,18 @@ export class IssueGenerateCommand extends CommandRunner {
             repos?.[0],
           );
           contents.push(content);
-          console.log(chalk.green(`    ✓ Fetched (${content.type})`));
+          if (!silent) {
+            console.log(chalk.green(`    ✓ Fetched (${content.type})`));
+          }
         }
       } catch (error) {
         if (error instanceof UnresolvedSourceError) {
           throw error;
         }
 
-        console.log(chalk.yellow(`    ⚠ Failed: ${error.message}`));
+        if (!silent) {
+          console.log(chalk.yellow(`    ⚠ Failed: ${error.message}`));
+        }
       }
     }
 
@@ -1117,13 +1166,23 @@ export class IssueGenerateCommand extends CommandRunner {
       };
     }
 
-    if (silent || !this.isInteractiveSession()) {
+    if (!this.isInteractiveSession()) {
       throw new Error(
         `Source "${source}" matches multiple repositories: ${matches
           .map(({ repoInput }) => repoInput)
           .join(
             ', ',
-          )}. Re-run interactively or pass --silent with a single unambiguous repo.`,
+          )}. Re-run in an interactive terminal or pass a single unambiguous --repos value.`,
+      );
+    }
+
+    if (silent) {
+      throw new Error(
+        `Source "${source}" matches multiple repositories: ${matches
+          .map(({ repoInput }) => repoInput)
+          .join(
+            ', ',
+          )}. Pass a single unambiguous --repos value in silent mode.`,
       );
     }
 
@@ -1211,7 +1270,15 @@ export class IssueGenerateCommand extends CommandRunner {
       return resolvedRepos.map(({ input }) => input);
     }
 
-    if (silent || !this.isInteractiveSession()) {
+    if (!this.isInteractiveSession()) {
+      throw new Error(
+        `Cannot save to multiple repositories in a non-interactive session. Matching repositories: ${resolvedRepos
+          .map(({ input }) => input)
+          .join(', ')}.`,
+      );
+    }
+
+    if (silent) {
       throw new Error(
         `Cannot save to multiple repositories in silent mode. Matching repositories: ${resolvedRepos
           .map(({ input }) => input)
@@ -1293,12 +1360,98 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   /**
+   * Ask the AI to identify 0-5 clarification questions from the fetched sources.
+   * Returns an empty array when nothing needs clarification or on parse failure.
+   *
+   * @param sources - Fetched source contents
+   * @returns Clarification questions as plain strings
+   */
+  private async identifyClarifications(
+    sources: SourceContent[],
+  ): Promise<string[]> {
+    const prompt = this.buildClarificationPrompt(sources);
+
+    try {
+      const responseContent = this.stageAgentService.isEnabledForStage(
+        'generate',
+      )
+        ? await this.stageAgentService.generateFromPrompt(prompt)
+        : (
+            await this.aiService.execute({
+              prompt,
+              maxTokens: 1024,
+              stage: 'generate',
+            })
+          ).content;
+
+      const parsed = JSON.parse(responseContent.trim());
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed.filter(
+        (item: unknown) => typeof item === 'string' && item.trim().length > 0,
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Build the AI prompt that requests clarification questions.
+   *
+   * @param sources - Fetched source contents
+   * @returns Prompt string
+   */
+  private buildClarificationPrompt(sources: SourceContent[]): string {
+    let prompt =
+      'Analyze these sources and identify 0-5 key ambiguities, assumptions, or risks that should be clarified before generating a ticket.\n\n' +
+      'IMPORTANT: Do NOT raise issues that the sources already acknowledge, discuss, or mitigate. ' +
+      'Only surface gaps - things the sources leave unaddressed or contradict without resolution. ' +
+      'If the sources already cover risks, assumptions, and scope adequately, return [].\n\n' +
+      'Return ONLY a JSON array of question strings. Return [] if everything is clear.\n\n';
+
+    sources.forEach((source, index) => {
+      prompt += `### Source ${index + 1}: ${source.source} (${source.type})\n`;
+      prompt += `\`\`\`\n${typeof source.content === 'string' ? source.content.substring(0, 2000) : JSON.stringify(source.content).substring(0, 2000)}\n\`\`\`\n\n`;
+    });
+
+    return prompt;
+  }
+
+  /**
+   * Present each clarification question to the user via inquirer and collect
+   * answers. Returns a formatted Q&A string for injection into synthesis.
+   *
+   * @param questions - AI-generated clarification questions
+   * @returns Concatenated Q&A pairs
+   */
+  private async promptClarifications(questions: string[]): Promise<string> {
+    const pairs: string[] = [];
+
+    for (const question of questions) {
+      const { answer } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'answer',
+          message: question,
+        },
+      ]);
+      pairs.push(`Q: ${question}\nA: ${answer}`);
+    }
+
+    return pairs.join('\n\n');
+  }
+
+  /**
    * Use AI to synthesize and collate data from multiple sources
    */
   private async synthesizeWithAI(
     sources: SourceContent[],
+    silent = false,
   ): Promise<UniversalTicket> {
-    console.log(chalk.cyan('\n🤖 Using AI to synthesize content...\n'));
+    if (!silent) {
+      console.log(chalk.cyan('\n🤖 Using AI to synthesize content...\n'));
+    }
 
     // If only one source and its description is long enough, skip AI synthesis
     if (

@@ -207,7 +207,7 @@
       },
       {
         "flags": "-s, --silent",
-        "description": "Disable interactive prompts and fail on ambiguity"
+        "description": "Suppress decorative output and interactive prompts (clarification, disambiguation). Emits only file paths (with --save/--output) or raw ticket content for piping"
       },
       {
         "flags": "-t, --title <title>",
@@ -234,6 +234,10 @@
       {
         "comment": "Save with overridden title",
         "command": "wf issue:generate ./requirements.md --title \"Add OAuth2\" --save"
+      },
+      {
+        "comment": "Silent mode: pipe saved artifact path to issue:create",
+        "command": "wf issue:generate ./spec.md --save --silent | xargs wf issue:create"
       }
     ]
   },
