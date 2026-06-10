@@ -246,10 +246,6 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
 
 const ISSUE_CREATE_EXAMPLES: CliExample[] = [
   {
-    comment: 'Pipe generated ticket directly into issue:create',
-    command: 'wf issue:generate ./spec.md -s | wf issue:create',
-  },
-  {
     comment: 'Create ticket from JSON on primary platform',
     command: 'wf issue:create ticket.json',
   },

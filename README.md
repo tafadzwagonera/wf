@@ -419,9 +419,6 @@ When `--comment` is used on a pull request, inline review comments use destinati
 Create tickets on various platforms from standardized input (file or stdin). When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks
 
 ```bash
-# Pipe generated ticket directly into issue:create
-wf issue:generate ./spec.md -s | wf issue:create
-
 # Create ticket from JSON on primary platform
 wf issue:create ticket.json
 
@@ -508,6 +505,9 @@ wf issue:generate itinerary-pdf-generation.md -r service-tourv3
 
 # Save with overridden title
 wf issue:generate ./requirements.md --title "Add OAuth2" --save
+
+# Silent mode: pipe generated ticket directly into issue:create
+wf issue:generate ./spec.md -s | wf issue:create
 
 # Silent mode: pipe saved artifact path to issue:create
 wf issue:generate ./spec.md --save --silent | xargs wf issue:create

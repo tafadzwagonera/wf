@@ -60,6 +60,10 @@ const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
     command: 'wf issue:generate ./requirements.md --title "Add OAuth2" --save',
   },
   {
+    comment: 'Silent mode: pipe generated ticket directly into issue:create',
+    command: 'wf issue:generate ./spec.md -s | wf issue:create',
+  },
+  {
     comment: 'Silent mode: pipe saved artifact path to issue:create',
     command:
       'wf issue:generate ./spec.md --save --silent | xargs wf issue:create',
