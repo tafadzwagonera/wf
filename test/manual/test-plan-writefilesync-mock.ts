@@ -1,12 +1,12 @@
 /**
- * Manual Test: issue-plan spec mocks fs.writeFileSync
+ * Manual Test: issue-plan spec mocks writePlanArtifactManifest
  *
  * Run: nr test:manual -- test-plan-writefilesync-mock
  *
  * Verifies:
- *   1. The two happy-path tests that call `command.run(...)` mock both
- *      `fs.promises.writeFile` (async plan write) and `fs.writeFileSync`
- *      (sync manifest write) so they pass on CI where `.wf/` dirs are absent.
+ *   1. The spec mocks `writePlanArtifactManifest` at the module level so the
+ *      synchronous `fs.writeFileSync` inside it never hits the filesystem on CI
+ *      where `.wf/` dirs are absent.
  *   2. `npx jest issue-plan.command.spec.ts` exits cleanly.
  */
 
@@ -33,31 +33,31 @@ const fail = (message: string): void => {
 
 async function main() {
   console.log(
-    chalk.bold.cyan('\n\uD83E\uDDEA issue-plan writeFileSync mock coverage\n'),
+    chalk.bold.cyan(
+      '\n\uD83E\uDDEA issue-plan writePlanArtifactManifest mock coverage\n',
+    ),
   );
 
   let passed = 0;
   let failed = 0;
 
-  // Test 1: Verify spec file mocks writeFileSync in both happy-path tests
+  // Test 1: Verify spec file mocks writePlanArtifactManifest at module level
   console.log(
-    chalk.bold('Test 1: Spec mocks fs.writeFileSync in happy-path tests'),
+    chalk.bold(
+      'Test 1: Spec mocks writePlanArtifactManifest at the module level',
+    ),
   );
   try {
     const content = fs.readFileSync(specPath, 'utf8');
-    const writeFileSyncMocks = content
-      .split('\n')
-      .filter((line) => line.includes("spyOn(require('fs'), 'writeFileSync')"));
+    const hasModuleMock =
+      content.includes("jest.mock('../shared/utils/plan-artifact'") &&
+      content.includes('writePlanArtifactManifest: jest.fn()');
 
-    if (writeFileSyncMocks.length >= 2) {
-      pass(
-        `Found ${writeFileSyncMocks.length} writeFileSync mocks (expected >= 2)`,
-      );
+    if (hasModuleMock) {
+      pass('Module-level mock for writePlanArtifactManifest found');
       passed += 1;
     } else {
-      fail(
-        `Found ${writeFileSyncMocks.length} writeFileSync mocks, expected >= 2`,
-      );
+      fail('Missing module-level mock for writePlanArtifactManifest');
       failed += 1;
     }
   } catch (error: any) {

@@ -40,6 +40,14 @@ jest.mock('../agents/utils', () => {
   };
 });
 
+jest.mock('../shared/utils/plan-artifact', () => {
+  const actual = jest.requireActual('../shared/utils/plan-artifact');
+  return {
+    ...actual,
+    writePlanArtifactManifest: jest.fn().mockReturnValue('/tmp/manifest.json'),
+  };
+});
+
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssuePlanCommand } from './issue-plan.command';
@@ -374,7 +382,6 @@ describe('IssuePlanCommand', () => {
     const writeFileSpy = jest
       .spyOn(require('fs').promises, 'writeFile')
       .mockResolvedValue(undefined);
-    jest.spyOn(require('fs'), 'writeFileSync').mockReturnValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
@@ -524,7 +531,6 @@ describe('IssuePlanCommand', () => {
     const writeFileSpy = jest
       .spyOn(require('fs').promises, 'writeFile')
       .mockResolvedValue(undefined);
-    jest.spyOn(require('fs'), 'writeFileSync').mockReturnValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
