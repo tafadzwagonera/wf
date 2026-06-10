@@ -47,6 +47,7 @@ const parseValidationOutput = (
 };
 
 interface IssueCreateOptions {
+  format?: string;
   platform?: string;
   repos?: string[];
   ticketProject?: string;
@@ -206,6 +207,16 @@ const buildTicketPreviewLines = (description: string): string[] => {
   return ['Ticket Preview', ...previewLines.map((line) => `  ${line}`)];
 };
 
+const readStdin = (): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    process.stdin.on('data', (chunk) => chunks.push(chunk));
+    process.stdin.on('end', () =>
+      resolve(Buffer.concat(chunks).toString('utf-8')),
+    );
+    process.stdin.on('error', reject);
+  });
+
 const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
@@ -217,6 +228,10 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
 };
 
 const ISSUE_CREATE_EXAMPLES: CliExample[] = [
+  {
+    comment: 'Pipe generated ticket directly into issue:create',
+    command: 'wf issue:generate ./spec.md -s | wf issue:create',
+  },
   {
     comment: 'Create ticket from JSON on primary platform',
     command: 'wf issue:create ticket.json',
@@ -252,8 +267,8 @@ const ISSUE_CREATE_EXAMPLES: CliExample[] = [
 @Command({
   name: 'issue:create',
   description:
-    'Create tickets on various platforms from standardized input. When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks',
-  arguments: '<input>',
+    'Create tickets on various platforms from standardized input (file or stdin). When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks',
+  arguments: '[input]',
   options: { isDefault: false },
 })
 export class IssueCreateCommand extends CommandRunner {
@@ -278,14 +293,22 @@ export class IssueCreateCommand extends CommandRunner {
     }
 
     const inputPath = passedParams[0];
+    const stdinAvailable = !inputPath && !process.stdin.isTTY;
 
-    if (!inputPath) {
+    if (!inputPath && !stdinAvailable) {
       console.error(chalk.red('Error: Input file path is required'));
-      console.log(chalk.gray('Usage: wf issue:create <input> [options]'));
+      console.log(
+        chalk.gray(
+          'Usage: wf issue:create [input] [options]  (or pipe content to stdin)',
+        ),
+      );
       console.log(
         chalk.gray(
           'Example: wf issue:create ticket.json --platform github --type bug',
         ),
+      );
+      console.log(
+        chalk.gray('         wf issue:generate ./spec.md -s | wf issue:create'),
       );
       process.exit(1);
     }
@@ -297,39 +320,56 @@ export class IssueCreateCommand extends CommandRunner {
       if (!options?.silent) {
         warnOnIgnoredRepos(options?.repos);
       }
-      const resolved = path.resolve(inputPath);
-      const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-      const artifactPath = path.join(
-        resolveArtifactDir(repoBaseDir, platformName),
-        path.basename(inputPath),
-      );
-      const inputFilePath = fs.existsSync(resolved)
-        ? resolved
-        : fs.existsSync(artifactPath)
-          ? artifactPath
-          : resolved;
 
-      if (!fs.existsSync(inputFilePath)) {
-        throw new Error(`Input file not found: ${inputFilePath}`);
-      }
+      let content: string;
+      let format: string | null;
 
-      if (!options?.silent) {
-        console.log(chalk.bold.cyan(`\n📋 Creating Ticket from Input\n`));
-        console.log(chalk.gray(`  Input file: ${inputFilePath}`));
-      }
-
-      // Detect format and parse
-      const content = fs.readFileSync(inputFilePath, 'utf-8');
-      const format = this.formatConverterService.detectFormat(inputFilePath);
-
-      if (!format) {
-        throw new Error(
-          `Unable to detect format from file: ${inputFilePath}. Supported: .json, .yaml, .md, .xml`,
+      if (stdinAvailable) {
+        content = await readStdin();
+        if (!content.trim()) {
+          throw new Error('No content received from stdin');
+        }
+        format = options?.format ?? 'md';
+        if (!options?.silent) {
+          console.log(chalk.bold.cyan(`\n📋 Creating Ticket from stdin\n`));
+          console.log(chalk.gray(`  Detected format: ${format}`));
+        }
+      } else {
+        const resolved = path.resolve(inputPath);
+        const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
+        const artifactPath = path.join(
+          resolveArtifactDir(repoBaseDir, platformName),
+          path.basename(inputPath),
         );
-      }
+        const inputFilePath = fs.existsSync(resolved)
+          ? resolved
+          : fs.existsSync(artifactPath)
+            ? artifactPath
+            : resolved;
 
-      if (!options?.silent) {
-        console.log(chalk.gray(`  Detected format: ${format}`));
+        if (!fs.existsSync(inputFilePath)) {
+          throw new Error(`Input file not found: ${inputFilePath}`);
+        }
+
+        if (!options?.silent) {
+          console.log(chalk.bold.cyan(`\n📋 Creating Ticket from Input\n`));
+          console.log(chalk.gray(`  Input file: ${inputFilePath}`));
+        }
+
+        content = fs.readFileSync(inputFilePath, 'utf-8');
+        format =
+          options?.format ??
+          this.formatConverterService.detectFormat(inputFilePath);
+
+        if (!format) {
+          throw new Error(
+            `Unable to detect format from file: ${inputFilePath}. Supported: .json, .yaml, .md, .xml`,
+          );
+        }
+
+        if (!options?.silent) {
+          console.log(chalk.gray(`  Detected format: ${format}`));
+        }
       }
 
       const converter = this.formatConverterService.getConverter(format);
@@ -602,6 +642,21 @@ export class IssueCreateCommand extends CommandRunner {
   })
   parseDryRun(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '-f, --format <format>',
+    description:
+      'Input format (json|md|yaml|yml) - overrides file extension detection; required when reading from stdin',
+  })
+  parseFormat(val: string): string {
+    const validFormats = ['json', 'md', 'yaml', 'yml'];
+    if (!validFormats.includes(val)) {
+      throw new Error(
+        `Invalid format: ${val}. Valid formats: ${validFormats.join(', ')}`,
+      );
+    }
+    return val;
   }
 
   @Option({

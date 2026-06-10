@@ -416,9 +416,12 @@ When `--comment` is used on a pull request, inline review comments use destinati
 #### `wf issue:create <input>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:create -->
-Create tickets on various platforms from standardized input. When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks
+Create tickets on various platforms from standardized input (file or stdin). When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks
 
 ```bash
+# Pipe generated ticket directly into issue:create
+wf issue:generate ./spec.md -s | wf issue:create
+
 # Create ticket from JSON on primary platform
 wf issue:create ticket.json
 
@@ -440,6 +443,7 @@ nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /
 | Flag | Description |
 | ---- | ----------- |
 | `--dry-run` | Validate without creating - preview only |
+| `-f, --format <format>` | Input format (json\|md\|yaml\|yml) - overrides file extension detection; required when reading from stdin |
 | `-p, --platform <platform>` | Target platform (jira\|github\|bitbucket) - default from config |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning |
 | `--ticket-project <project>` | Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file |

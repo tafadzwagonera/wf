@@ -70,12 +70,16 @@
     "usage": "wf issue:cowsay"
   },
   "issue:create": {
-    "description": "Create tickets on various platforms from standardized input. When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks",
-    "usage": "wf issue:create <input> [options]",
+    "description": "Create tickets on various platforms from standardized input (file or stdin). When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks",
+    "usage": "wf issue:create [input] [options]",
     "options": [
       {
         "flags": "--dry-run",
         "description": "Validate without creating - preview only"
+      },
+      {
+        "flags": "-f, --format <format>",
+        "description": "Input format (json|md|yaml|yml) - overrides file extension detection; required when reading from stdin"
       },
       {
         "flags": "-p, --platform <platform>",
@@ -103,6 +107,10 @@
       }
     ],
     "examples": [
+      {
+        "comment": "Pipe generated ticket directly into issue:create",
+        "command": "wf issue:generate ./spec.md -s | wf issue:create"
+      },
       {
         "comment": "Create ticket from JSON on primary platform",
         "command": "wf issue:create ticket.json"
