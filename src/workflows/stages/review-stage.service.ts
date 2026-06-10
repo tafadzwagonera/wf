@@ -12,15 +12,17 @@ import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import { buildCodeReviewPresentation } from '../../review/code-review-post-processing';
 
 const DEFAULT_REVIEW_GUIDELINES = [
-  'Clarity: Would another developer understand this instantly?',
-  'Deletability: Can I remove or replace this easily?',
-  'Failure handling: What breaks? Is it handled?',
-  'Necessity: Is anything here unused or speculative?',
-  'Proportionality: Flag over-engineering, unnecessary abstractions, and unrelated refactors',
-  'Quality: Do the changes conform to formatting and quality metrics?',
-  'Security: Are there any glaring security concerns?',
-  'Simplicity: Is this the simplest effective implementation that works?',
-  'Structure: Does this reflect the domain?',
+  'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
+  'Clarity: Verify every changed line is immediately understandable without author context.',
+  'Contracts: Flag changes to function signatures, return types, event payloads, or public APIs that break existing callers or tests.',
+  'Conventions: Confirm naming, formatting, import order, and file placement match established codebase patterns.',
+  'Documentation: Ensure changed public APIs, config options, and behaviour have matching doc, JSDoc, or comment updates.',
+  'Failure handling: Identify how each new code path fails and whether the failure is surfaced, retried, or silently swallowed.',
+  'Necessity: Flag added code, parameters, or abstractions that are unused, speculative, or unreachable.',
+  'Ripple effects: Identify subtle breakage across module boundaries, in downstream consumers, or that compounds over time.',
+  'Scope: Reject unrelated refactors, unnecessary abstractions, and changes beyond the stated objective.',
+  'Security: Check for exposed secrets, injection vectors, missing auth/authz guards, and unsafe deserialization.',
+  'Testing: Require test coverage for new code paths, edge cases, and failure scenarios.',
 ];
 
 interface ReviewDiffOptions {

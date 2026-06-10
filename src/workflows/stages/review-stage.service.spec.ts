@@ -198,12 +198,28 @@ describe('ReviewStageService', () => {
       'diff --git a/file b/file',
       expect.arrayContaining([
         expect.stringContaining('Clarity'),
-        expect.stringContaining('Proportionality'),
+        expect.stringContaining('Scope'),
         expect.stringContaining('ticket WBP-123: Fix auth callback'),
         'Accessibility: keyboard flow still works',
       ]),
     );
   });
+
+  it.each(['Contracts', 'Ripple effects', 'Documentation', 'Testing'])(
+    'includes the %s criterion in the assembled guidelines',
+    async (criterion) => {
+      const { service, aiService } = await buildService();
+
+      await service.reviewDiff('diff --git a/file b/file', {
+        context: 'ticket WBP-200: Smoke test',
+      });
+
+      expect(aiService.reviewCode).toHaveBeenCalledWith(
+        'diff --git a/file b/file',
+        expect.arrayContaining([expect.stringContaining(criterion)]),
+      );
+    },
+  );
 
   it('writes a markdown review artifact for workflow review stage consumers', async () => {
     const { service } = await buildService();

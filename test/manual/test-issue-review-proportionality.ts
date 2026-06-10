@@ -1,11 +1,11 @@
 /**
- * Manual smoke test for the Proportionality review guideline and
+ * Manual smoke test for the Scope review guideline and
  * human-friendly suggestion tone in issue:review output.
  *
  * Verifies:
- * 1. The default review guidelines include "Proportionality"
+ * 1. The default review guidelines include "Scope"
  * 2. Suggestions rendered in terminal and PR comments are present and concise
- * 3. The smallest-effective-fix criterion surfaces in review output
+ * 3. The scope-limiting criterion surfaces in review output
  *
  * Run:
  *   yarn test:manual -- test-issue-review-proportionality
@@ -43,10 +43,10 @@ const mockReview = {
 
 async function run(): Promise<void> {
   console.log(
-    '🧪 Manual smoke: issue:review proportionality + human-friendly suggestions\n',
+    '🧪 Manual smoke: issue:review scope + human-friendly suggestions\n',
   );
 
-  // ── Part 1: ReviewStageService passes "Proportionality" guideline ──
+  // ── Part 1: ReviewStageService passes "Scope" guideline ──
 
   let capturedGuidelines: string[] = [];
 
@@ -82,25 +82,23 @@ async function run(): Promise<void> {
     context: 'ticket TEST-1: Proportionality check',
   });
 
-  const hasProportionality = capturedGuidelines.some((g) =>
-    g.includes('Proportionality'),
-  );
-  if (!hasProportionality) {
+  const hasScope = capturedGuidelines.some((g) => g.includes('Scope'));
+  if (!hasScope) {
     throw new Error(
-      'Expected "Proportionality" to appear in the default review guidelines passed to the AI.',
+      'Expected "Scope" to appear in the default review guidelines passed to the AI.',
     );
   }
 
-  const hasSimplestEffective = capturedGuidelines.some((g) =>
-    g.includes('simplest effective implementation'),
+  const hasRejectUnrelated = capturedGuidelines.some((g) =>
+    g.includes('unrelated refactors'),
   );
-  if (!hasSimplestEffective) {
+  if (!hasRejectUnrelated) {
     throw new Error(
-      'Expected "simplest effective implementation" phrasing in the Simplicity guideline.',
+      'Expected "unrelated refactors" phrasing in the Scope guideline.',
     );
   }
 
-  console.log('  ✅ Part 1: Proportionality guideline is present in defaults');
+  console.log('  ✅ Part 1: Scope guideline is present in defaults');
 
   // ── Part 2: Terminal output renders suggestion text ──
 
@@ -215,7 +213,7 @@ async function run(): Promise<void> {
     );
   }
 
-  console.log('  ✅ Part 2: Terminal output renders proportionality feedback');
+  console.log('  ✅ Part 2: Terminal output renders scope feedback');
 
   // ── Part 3: PR comment includes suggestion text ──
 
@@ -247,7 +245,7 @@ async function run(): Promise<void> {
   console.log('  ✅ Part 3: PR comment includes human-friendly suggestions');
 
   console.log(
-    '\n✅ Manual smoke test passed: issue:review proportionality + suggestions',
+    '\n✅ Manual smoke test passed: issue:review scope + suggestions',
   );
 }
 
