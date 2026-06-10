@@ -37,6 +37,7 @@ interface IssueReviewOptions {
   repos?: string[];
   criteria?: string;
   replaceCriteria?: string;
+  silent?: boolean;
 }
 
 interface ReviewTarget {
@@ -154,7 +155,9 @@ export class IssueReviewCommand extends CommandRunner {
     passedParams: string[],
     options?: IssueReviewOptions,
   ): Promise<void> {
-    printExamples(ISSUE_REVIEW_EXAMPLES);
+    if (!options?.silent) {
+      printExamples(ISSUE_REVIEW_EXAMPLES);
+    }
 
     const source = passedParams[0];
     const repoInputs = options?.repos?.length ? options.repos : [];
@@ -326,12 +329,14 @@ export class IssueReviewCommand extends CommandRunner {
       if (!source) {
         const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
         // Mode 1: No argument - review current repo changes
-        console.log(
-          chalk.gray(`  Repository: ${this.formatRepoScope(repoDirs)}\n`),
-        );
-        console.log(
-          chalk.bold.cyan('\n🔍 Reviewing Current Repository Changes\n'),
-        );
+        if (!options?.silent) {
+          console.log(
+            chalk.gray(`  Repository: ${this.formatRepoScope(repoDirs)}\n`),
+          );
+          console.log(
+            chalk.bold.cyan('\n🔍 Reviewing Current Repository Changes\n'),
+          );
+        }
         const diff = await this.reviewRepoSet(repoDirs);
         reviewTargets.push({
           title: `Current repository changes (${this.formatRepoScope(
@@ -345,8 +350,10 @@ export class IssueReviewCommand extends CommandRunner {
         });
       } else if (this.isUrl(source)) {
         // Mode 2: PR URL - review GitHub/BitBucket PR
-        console.log(chalk.bold.cyan(`\n🔍 Reviewing Pull Request\n`));
-        console.log(chalk.gray(`  URL: ${source}\n`));
+        if (!options?.silent) {
+          console.log(chalk.bold.cyan(`\n🔍 Reviewing Pull Request\n`));
+          console.log(chalk.gray(`  URL: ${source}\n`));
+        }
         reviewTargets.push({
           title: this.formatPullRequestTitle(source),
           diff: await this.reviewPullRequest(source),
@@ -357,19 +364,23 @@ export class IssueReviewCommand extends CommandRunner {
         });
       } else if (this.isTicketKey(source)) {
         // Mode 3: Ticket key - fetch ticket context, then review associated PRs or local changes
-        console.log(
-          chalk.bold.cyan(`\n🔍 Reviewing Changes for Ticket: ${source}\n`),
-        );
+        if (!options?.silent) {
+          console.log(
+            chalk.bold.cyan(`\n🔍 Reviewing Changes for Ticket: ${source}\n`),
+          );
+        }
 
         const ticketAdapter = options?.platform
           ? this.platformService.getAdapter(options.platform)
           : this.platformService.getDefaultAdapter();
 
-        console.log(
-          chalk.gray(
-            `  Fetching ticket ${source} from ${ticketAdapter.getPlatformName()}...\n`,
-          ),
-        );
+        if (!options?.silent) {
+          console.log(
+            chalk.gray(
+              `  Fetching ticket ${source} from ${ticketAdapter.getPlatformName()}...\n`,
+            ),
+          );
+        }
         const ticket = await ticketAdapter.getTicket(source);
         if (!ticket) {
           throw new Error(`Ticket lookup failed for ${source}`);
@@ -394,11 +405,13 @@ export class IssueReviewCommand extends CommandRunner {
         }
 
         if (discoveredPullRequests.length > 0) {
-          console.log(
-            chalk.gray(
-              `  Found ${discoveredPullRequests.length} open pull request(s) for ${source}\n`,
-            ),
-          );
+          if (!options?.silent) {
+            console.log(
+              chalk.gray(
+                `  Found ${discoveredPullRequests.length} open pull request(s) for ${source}\n`,
+              ),
+            );
+          }
 
           for (const pullRequest of discoveredPullRequests) {
             try {
@@ -433,21 +446,27 @@ export class IssueReviewCommand extends CommandRunner {
             );
           }
 
-          console.log(
-            chalk.yellow(
-              `⚠️ No open pull requests were found for ticket ${source}`,
-            ),
-          );
+          if (!options?.silent) {
+            console.log(
+              chalk.yellow(
+                `⚠️ No open pull requests were found for ticket ${source}`,
+              ),
+            );
+          }
 
-          const fallbackDecision = await this.promptTicketFallbackAction();
-          if (fallbackDecision === 'return') {
-            return;
+          if (!options?.silent) {
+            const fallbackDecision = await this.promptTicketFallbackAction();
+            if (fallbackDecision === 'return') {
+              return;
+            }
           }
 
           const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
-          console.log(
-            chalk.gray(`  Repository: ${this.formatRepoScope(repoDirs)}\n`),
-          );
+          if (!options?.silent) {
+            console.log(
+              chalk.gray(`  Repository: ${this.formatRepoScope(repoDirs)}\n`),
+            );
+          }
           const diff = await this.reviewRepoSet(repoDirs);
           reviewTargets.push({
             title: `Local repository changes (${this.formatRepoScope(
@@ -469,16 +488,20 @@ export class IssueReviewCommand extends CommandRunner {
       );
 
       if (reviewableTargets.length === 0) {
-        console.log(chalk.yellow('⚠️ No changes to review'));
-        console.log(
-          chalk.gray(
-            'Make sure you have changes to review (commits, staged, or unstaged)\n',
-          ),
-        );
+        if (!options?.silent) {
+          console.log(chalk.yellow('⚠️ No changes to review'));
+          console.log(
+            chalk.gray(
+              'Make sure you have changes to review (commits, staged, or unstaged)\n',
+            ),
+          );
+        }
         return;
       }
 
-      console.log(chalk.cyan('🤖 Analyzing changes with AI...\n'));
+      if (!options?.silent) {
+        console.log(chalk.cyan('🤖 Analyzing changes with AI...\n'));
+      }
 
       const reviewedTargets: ReviewedTarget[] = [];
       for (const target of reviewableTargets) {
@@ -490,14 +513,18 @@ export class IssueReviewCommand extends CommandRunner {
         });
 
         reviewedTargets.push({ ...target, review });
-        this.displayReview(review, target.title);
+        if (!options?.silent) {
+          this.displayReview(review, target.title);
+        }
 
         if (options?.comment) {
           await this.postReviewComment(target, review);
         }
       }
 
-      console.log(chalk.green('✓ Code review complete\n'));
+      if (!options?.silent) {
+        console.log(chalk.green('✓ Code review complete\n'));
+      }
 
       // Save to file if requested
       if (options?.output) {
@@ -511,7 +538,11 @@ export class IssueReviewCommand extends CommandRunner {
           outputFormat,
         );
         fs.writeFileSync(outputPath, reviewOutput);
-        console.log(chalk.green(`\n✓ Review saved to: ${outputPath}\n`));
+        if (options?.silent) {
+          console.log(outputPath);
+        } else {
+          console.log(chalk.green(`\n✓ Review saved to: ${outputPath}\n`));
+        }
       }
     } catch (error) {
       ErrorHandler.handle(error as Error);
@@ -591,6 +622,15 @@ export class IssueReviewCommand extends CommandRunner {
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
+  }
+
+  @Option({
+    flags: '-s, --silent',
+    description:
+      'Suppress decorative output and interactive prompts. Emits only the review artifact path for piping',
+  })
+  parseSilent(): boolean {
+    return true;
   }
 
   /**

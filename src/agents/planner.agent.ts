@@ -26,38 +26,42 @@ export class PlannerAgent {
     ticket: TicketArtifact,
     options: PlannerOptions,
   ): Promise<PlanArtifact> {
-    console.log(
-      chalk.bold.yellow('\n🤖 STAGE 2: Generate Implementation Plan'),
-    );
-    console.log(chalk.gray('─'.repeat(70)));
-    console.log(chalk.gray(`  Action type: ${options.action}`));
+    if (!options.silent) {
+      console.log(
+        chalk.bold.yellow('\n🤖 STAGE 2: Generate Implementation Plan'),
+      );
+      console.log(chalk.gray('─'.repeat(70)));
+      console.log(chalk.gray(`  Action type: ${options.action}`));
+    }
     const artifact = await this.planStageService.createPlanArtifact(
       ticket,
       options,
     );
 
-    if (artifact.fromCache) {
+    if (!options.silent) {
+      if (artifact.fromCache) {
+        console.log(
+          chalk.yellow(`⚠️  Skipping PLAN - artifact exists: ${artifact.path}`),
+        );
+      } else if (options.skipExisting === false) {
+        console.log(
+          chalk.yellow('⚠️  --force enabled; regenerated plan artifact'),
+        );
+        console.log(chalk.green('✓ Plan generated'));
+      } else {
+        console.log(chalk.green('✓ Plan generated'));
+      }
       console.log(
-        chalk.yellow(`⚠️  Skipping PLAN - artifact exists: ${artifact.path}`),
+        chalk.bold('  Summary:'),
+        chalk.bold.cyan(artifact.plan.summary),
       );
-    } else if (options.skipExisting === false) {
+      console.log(chalk.bold('  Action:'), chalk.cyan(artifact.plan.action));
       console.log(
-        chalk.yellow('⚠️  --force enabled; regenerated plan artifact'),
+        chalk.bold('  Complexity:'),
+        chalk.cyan(artifact.plan.estimatedComplexity),
       );
-      console.log(chalk.green('✓ Plan generated'));
-    } else {
-      console.log(chalk.green('✓ Plan generated'));
+      console.log(chalk.gray(`  Saved to: ${artifact.path}`));
     }
-    console.log(
-      chalk.bold('  Summary:'),
-      chalk.bold.cyan(artifact.plan.summary),
-    );
-    console.log(chalk.bold('  Action:'), chalk.cyan(artifact.plan.action));
-    console.log(
-      chalk.bold('  Complexity:'),
-      chalk.cyan(artifact.plan.estimatedComplexity),
-    );
-    console.log(chalk.gray(`  Saved to: ${artifact.path}`));
     return artifact;
   }
 
@@ -69,18 +73,24 @@ export class PlannerAgent {
    * @returns The PlanArtifact with the loaded plan, resolved action, and file path
    * @throws Error if the specified plan file does not exist or contains invalid JSON
    */
-  loadFromDisk(ticketPath: string, action?: ResolutionAction): PlanArtifact {
+  loadFromDisk(
+    ticketPath: string,
+    action?: ResolutionAction,
+    silent?: boolean,
+  ): PlanArtifact {
     const artifact = this.planStageService.loadPlanArtifact(ticketPath, action);
-    const notice = buildPlanArtifactResolutionNotice({
-      action: artifact.action,
-      artifactPath: artifact.path,
-      isLegacy: !!artifact.fromCache,
-      ticketKey: path.basename(ticketPath, path.extname(ticketPath)),
-    });
-    if (notice) {
-      console.log(chalk.yellow(`⚠️  ${notice}`));
+    if (!silent) {
+      const notice = buildPlanArtifactResolutionNotice({
+        action: artifact.action,
+        artifactPath: artifact.path,
+        isLegacy: !!artifact.fromCache,
+        ticketKey: path.basename(ticketPath, path.extname(ticketPath)),
+      });
+      if (notice) {
+        console.log(chalk.yellow(`⚠️  ${notice}`));
+      }
+      console.log(chalk.gray(`🤖 Using plan: ${path.basename(artifact.path)}`));
     }
-    console.log(chalk.gray(`🤖 Using plan: ${path.basename(artifact.path)}`));
     return artifact;
   }
 }

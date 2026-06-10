@@ -19,30 +19,34 @@ export class FetcherAgent {
     ticketKey: string,
     options: FetcherOptions,
   ): Promise<TicketArtifact> {
-    console.log(chalk.bold.yellow('📋 STAGE 1: Fetch Ticket'));
-    console.log(chalk.gray('─'.repeat(70)));
+    if (!options.silent) {
+      console.log(chalk.bold.yellow('📋 STAGE 1: Fetch Ticket'));
+      console.log(chalk.gray('─'.repeat(70)));
+    }
     const artifact = await this.fetchStageService.fetchArtifact(
       ticketKey,
       options,
     );
     const titleMatch = artifact.content.match(/^#\s+[^:]+:\s+(.+)$/m);
-    if (artifact.fromCache) {
+    if (!options.silent) {
+      if (artifact.fromCache) {
+        console.log(
+          chalk.yellow(`⚠️  Using existing FETCH artifact: ${artifact.path}`),
+        );
+      } else if (options.skipExisting === false) {
+        console.log(
+          chalk.yellow(`⚠️  --force enabled; overwrote ticket artifact`),
+        );
+        console.log(chalk.green('✓ Ticket refetched'));
+      } else {
+        console.log(chalk.green('✓ Ticket fetched'));
+      }
       console.log(
-        chalk.yellow(`⚠️  Using existing FETCH artifact: ${artifact.path}`),
+        chalk.bold('  Title:'),
+        chalk.bold.cyan(titleMatch?.[1] ?? ticketKey),
       );
-    } else if (options.skipExisting === false) {
-      console.log(
-        chalk.yellow(`⚠️  --force enabled; overwrote ticket artifact`),
-      );
-      console.log(chalk.green('✓ Ticket refetched'));
-    } else {
-      console.log(chalk.green('✓ Ticket fetched'));
+      console.log(chalk.gray(`  Saved to: ${artifact.path}`));
     }
-    console.log(
-      chalk.bold('  Title:'),
-      chalk.bold.cyan(titleMatch?.[1] ?? ticketKey),
-    );
-    console.log(chalk.gray(`  Saved to: ${artifact.path}`));
     return artifact;
   }
 
@@ -59,13 +63,16 @@ export class FetcherAgent {
     ticketKey: string,
     platformName: string,
     baseDir: string = process.cwd(),
+    silent?: boolean,
   ): TicketArtifact {
     const artifact = this.fetchStageService.loadArtifact(
       ticketKey,
       platformName,
       baseDir,
     );
-    console.log(chalk.gray(`📋 Using existing ticket: ${artifact.path}`));
+    if (!silent) {
+      console.log(chalk.gray(`📋 Using existing ticket: ${artifact.path}`));
+    }
     return artifact;
   }
 }

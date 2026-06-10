@@ -20,6 +20,7 @@ interface IssuePrOptions {
   dryRun?: boolean;
   platform?: string;
   repos?: string[];
+  silent?: boolean;
   title?: string;
 }
 
@@ -70,10 +71,14 @@ export class IssuePrCommand extends CommandRunner {
   }
 
   async run(passedParams: string[], options?: IssuePrOptions): Promise<void> {
-    printExamples(ISSUE_PR_EXAMPLES);
+    if (!options?.silent) {
+      printExamples(ISSUE_PR_EXAMPLES);
+    }
 
     try {
-      warnOnIgnoredRepos(options?.repos);
+      if (!options?.silent) {
+        warnOnIgnoredRepos(options?.repos);
+      }
 
       // Resolve ticket key from param or current branch
       let ticketKey: string | null = passedParams[0] || null;
@@ -178,11 +183,13 @@ export class IssuePrCommand extends CommandRunner {
 
       const repo = options?.repos?.[0];
 
-      console.log(chalk.bold.cyan('\n🔀 Creating Pull Request\n'));
-      console.log(chalk.gray(`  Ticket : ${ticketKey}`));
-      console.log(chalk.gray(`  Head   : ${head}`));
-      console.log(chalk.gray(`  Base   : ${base}`));
-      console.log(chalk.gray(`  Title  : ${title}\n`));
+      if (!options?.silent) {
+        console.log(chalk.bold.cyan('\n🔀 Creating Pull Request\n'));
+        console.log(chalk.gray(`  Ticket : ${ticketKey}`));
+        console.log(chalk.gray(`  Head   : ${head}`));
+        console.log(chalk.gray(`  Base   : ${base}`));
+        console.log(chalk.gray(`  Title  : ${title}\n`));
+      }
 
       const prUrl = await adapter.createPullRequest!({
         title,
@@ -192,7 +199,11 @@ export class IssuePrCommand extends CommandRunner {
         repo,
       });
 
-      console.log(chalk.bold.cyan(`\n✅ Pull request created: ${prUrl}\n`));
+      if (options?.silent) {
+        console.log(prUrl);
+      } else {
+        console.log(chalk.bold.cyan(`\n✅ Pull request created: ${prUrl}\n`));
+      }
     } catch (error) {
       ErrorHandler.handle(error as Error);
     }
@@ -245,6 +256,15 @@ export class IssuePrCommand extends CommandRunner {
   })
   parseTitle(val: string): string {
     return val;
+  }
+
+  @Option({
+    flags: '-s, --silent',
+    description:
+      'Suppress decorative output and interactive prompts. Emits only the PR URL for piping',
+  })
+  parseSilent(): boolean {
+    return true;
   }
 
   /**

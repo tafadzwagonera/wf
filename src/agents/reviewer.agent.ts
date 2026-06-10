@@ -32,15 +32,13 @@ export class ReviewerAgent {
     const reviewPath = ticket.path.replace('.md', '-review.md');
 
     if (options.skipExisting && fs.existsSync(reviewPath)) {
-      console.log(
-        chalk.gray(`🔍 Skipping REVIEW - artifact exists: ${reviewPath}`),
-      );
+      if (!options.silent) {
+        console.log(
+          chalk.gray(`🔍 Skipping REVIEW - artifact exists: ${reviewPath}`),
+        );
+      }
       const content = fs.readFileSync(reviewPath, 'utf-8');
       const approved = content.includes('✓ Approved');
-      // Partial stub: full review text is in the markdown file on disk.
-      // Only `approved` is meaningful here; `summary`, `issues`, and
-      // `suggestions` are empty because we do not re-parse the markdown.
-      // Callers must not rely on those fields for a skip-path artifact.
       return {
         review: {
           summary: '',
@@ -53,77 +51,85 @@ export class ReviewerAgent {
       };
     }
 
-    if (!options.suppressHeader) {
+    if (!options.suppressHeader && !options.silent) {
       console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
       console.log(chalk.gray('─'.repeat(70)));
     }
 
     const status = await this.gitService.getStatus(options.repoDir);
     if (status.files.length === 0) {
-      if (options.skipExisting === false) {
-        console.log(
-          chalk.yellow(
-            '⚠️  --force requested, but no uncommitted changes are available for review regeneration',
-          ),
-        );
-      } else {
-        console.log(chalk.yellow('⚠️  No uncommitted changes to review'));
+      if (!options.silent) {
+        if (options.skipExisting === false) {
+          console.log(
+            chalk.yellow(
+              '⚠️  --force requested, but no uncommitted changes are available for review regeneration',
+            ),
+          );
+        } else {
+          console.log(chalk.yellow('⚠️  No uncommitted changes to review'));
+        }
       }
       return null;
     }
 
-    // Stage all changes (including new untracked files) so the diff captures
-    // the full set of changes written by ImplementerAgent.
     await this.gitService.stageAll(options.repoDir);
     const diff = await this.gitService.getDiff(true, options.repoDir);
 
-    console.log(chalk.bold('  Analyzing changes...'));
+    if (!options.silent) {
+      console.log(chalk.bold('  Analyzing changes...'));
+    }
 
     const review = await this.reviewStageService.reviewDiff(diff, {
       context: `ticket ${ticket.ticketKey}`,
       repoDir: options.repoDir,
     });
 
-    console.log(chalk.green('\n✓ Review complete'));
-    console.log(chalk.bold('\n  Summary:'), chalk.bold.cyan(review.summary));
+    if (!options.silent) {
+      console.log(chalk.green('\n✓ Review complete'));
+      console.log(chalk.bold('\n  Summary:'), chalk.bold.cyan(review.summary));
 
-    if (review.issues.length > 0) {
-      console.log(chalk.bold('\n  Issues found:'));
-      review.issues.forEach((issue) => {
-        const color =
-          issue.severity === 'error'
-            ? chalk.red
-            : issue.severity === 'warning'
-              ? chalk.yellow
-              : chalk.blue;
-        console.log(color(`    [${issue.severity}] ${issue.message}`));
-        if (issue.file) {
-          console.log(
-            chalk.gray(
-              `      ${issue.file}${issue.line ? `:${issue.line}` : ''}`,
-            ),
-          );
-        }
-      });
+      if (review.issues.length > 0) {
+        console.log(chalk.bold('\n  Issues found:'));
+        review.issues.forEach((issue) => {
+          const color =
+            issue.severity === 'error'
+              ? chalk.red
+              : issue.severity === 'warning'
+                ? chalk.yellow
+                : chalk.blue;
+          console.log(color(`    [${issue.severity}] ${issue.message}`));
+          if (issue.file) {
+            console.log(
+              chalk.gray(
+                `      ${issue.file}${issue.line ? `:${issue.line}` : ''}`,
+              ),
+            );
+          }
+        });
+      }
+
+      if (review.suggestions.length > 0) {
+        console.log(chalk.bold('\n  Suggestions:'));
+        review.suggestions.forEach((s) =>
+          console.log(chalk.cyan(`    - ${s}`)),
+        );
+      }
+
+      console.log(
+        chalk.bold('\n  Status:'),
+        review.approved
+          ? chalk.green('✓ Approved')
+          : chalk.red('✗ Changes needed'),
+      );
     }
-
-    if (review.suggestions.length > 0) {
-      console.log(chalk.bold('\n  Suggestions:'));
-      review.suggestions.forEach((s) => console.log(chalk.cyan(`    - ${s}`)));
-    }
-
-    console.log(
-      chalk.bold('\n  Status:'),
-      review.approved
-        ? chalk.green('✓ Approved')
-        : chalk.red('✗ Changes needed'),
-    );
 
     const artifact = this.reviewStageService.createReviewArtifact(
       ticket,
       review,
     );
-    console.log(chalk.gray(`\n  Saved to: ${artifact.path}`));
+    if (!options.silent) {
+      console.log(chalk.gray(`\n  Saved to: ${artifact.path}`));
+    }
 
     return artifact;
   }

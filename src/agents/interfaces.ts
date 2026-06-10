@@ -99,12 +99,14 @@ export interface FetcherOptions {
   repo?: string;
   skipExisting?: boolean;
   baseDir?: string;
+  silent?: boolean;
 }
 
 export interface PlannerOptions {
   action: ResolutionAction;
   skipExisting?: boolean;
   affectedRepositories?: string[];
+  silent?: boolean;
 }
 
 /** Controls how the implement-stage adapter selects its model.
@@ -133,6 +135,7 @@ export interface ReviewerOptions {
   skipExisting?: boolean;
   repoDir?: string;
   suppressHeader?: boolean;
+  silent?: boolean;
 }
 
 export interface FindingsArtifact {

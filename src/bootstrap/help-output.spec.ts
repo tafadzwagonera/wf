@@ -98,7 +98,7 @@ describe('getHelpText', () => {
     expect(helpText).toContain(
       'Complete workflow: fetch, plan, implement, review, and commit.',
     );
-    expect(helpText).toContain('--chat-mode');
+    expect(helpText).toContain('--silent');
     expect(helpText).toContain('--pr');
     expect(helpText).toContain('--from <stage>');
     expect(helpText).not.toContain('--interactive');

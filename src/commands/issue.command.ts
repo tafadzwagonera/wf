@@ -20,6 +20,7 @@ import { ConfigService } from '@nestjs/config';
 import { AiService } from '../integrations/ai/ai.service';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import chalk from 'chalk';
+import inquirer from 'inquirer';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
@@ -70,7 +71,7 @@ interface IssueOptions {
   to?: string;
   action?: string;
   platform?: string;
-  chatMode?: boolean;
+  silent?: boolean;
   force?: boolean;
   repos?: string[];
   dryRun?: boolean;
@@ -106,14 +107,6 @@ export class IssueCommand extends CommandRunner {
   })
   parseAction(val: string): string {
     return val;
-  }
-
-  @Option({
-    flags: '--chat-mode',
-    description: 'Enable interactive chat mode at key stages (plan, review)',
-  })
-  parseChatMode(): boolean {
-    return true;
   }
 
   @Option({
@@ -160,6 +153,15 @@ export class IssueCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '-s, --silent',
+    description:
+      'Suppress decorative output and interactive prompts. Emits only artifact paths (per stage) for piping',
+  })
+  parseSilent(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-r, --repos <repos...>',
     description:
       'Space-separated repositories; the first repo anchors artifact storage and all repos are used as workflow context',
@@ -192,7 +194,9 @@ export class IssueCommand extends CommandRunner {
   }
 
   async run(passedParams: string[], options?: IssueOptions): Promise<void> {
-    printExamples(ISSUE_EXAMPLES);
+    if (!options?.silent) {
+      printExamples(ISSUE_EXAMPLES);
+    }
 
     let ticketKey = passedParams[0];
 
@@ -607,14 +611,16 @@ export class IssueCommand extends CommandRunner {
         return;
       }
 
-      console.log(chalk.bold.cyan('\n🚀 Complete Issue Workflow'));
-      console.log(chalk.gray('═'.repeat(70)));
-      console.log(chalk.gray(`Ticket: ${ticketKey}`));
-      console.log(chalk.gray(`Platform: ${platformName}`));
-      if (action) {
-        console.log(chalk.gray(`Action: ${action}`));
+      if (!options?.silent) {
+        console.log(chalk.bold.cyan('\n🚀 Complete Issue Workflow'));
+        console.log(chalk.gray('═'.repeat(70)));
+        console.log(chalk.gray(`Ticket: ${ticketKey}`));
+        console.log(chalk.gray(`Platform: ${platformName}`));
+        if (action) {
+          console.log(chalk.gray(`Action: ${action}`));
+        }
+        console.log(chalk.gray(`Stages: ${fromStage} → ${toStage}\n`));
       }
-      console.log(chalk.gray(`Stages: ${fromStage} → ${toStage}\n`));
 
       let ticketArtifact!: TicketArtifact;
       let planArtifact: PlanArtifact | undefined;
@@ -627,13 +633,21 @@ export class IssueCommand extends CommandRunner {
           repo: options?.repos?.[0],
           skipExisting,
           baseDir: repoBaseDir,
+          silent: options?.silent,
         });
+        if (options?.silent) {
+          console.log(ticketArtifact.path);
+        }
       } else {
         ticketArtifact = this.agents.fetcher.loadFromDisk(
           ticketKey,
           platformName,
           repoBaseDir,
+          options?.silent,
         );
+        if (options?.silent) {
+          console.log(ticketArtifact.path);
+        }
       }
 
       // STAGE 2: PLAN
@@ -642,19 +656,37 @@ export class IssueCommand extends CommandRunner {
           action: action!,
           skipExisting,
           affectedRepositories: options?.repos,
+          silent: options?.silent,
         });
+        if (options?.silent) {
+          console.log(planArtifact.path);
+        }
 
-        if (options?.chatMode && !planArtifact.fromCache) {
-          await this.startInteractiveChat(
-            ticketKey,
-            'plan' as ConvWorkflowStage,
+        if (
+          !options?.silent &&
+          this.isInteractiveSession() &&
+          !planArtifact.fromCache
+        ) {
+          const { startChat } = await inquirer.prompt([
             {
-              ticketContent: ticketArtifact.content,
-              plan: planArtifact.plan,
+              type: 'confirm',
+              name: 'startChat',
+              message: 'Would you like to discuss the plan?',
+              default: false,
             },
-            resolveRepoBasePath(repoList[0]),
-            platformName,
-          );
+          ]);
+          if (startChat) {
+            await this.startInteractiveChat(
+              ticketKey,
+              'plan' as ConvWorkflowStage,
+              {
+                ticketContent: ticketArtifact.content,
+                plan: planArtifact.plan,
+              },
+              resolveRepoBasePath(repoList[0]),
+              platformName,
+            );
+          }
         }
       }
 
@@ -668,39 +700,24 @@ export class IssueCommand extends CommandRunner {
         planArtifact = this.agents.planner.loadFromDisk(
           ticketArtifact.path,
           action,
+          options?.silent,
         );
         if (planArtifact.action !== action) action = planArtifact.action;
       }
 
       // ── STAGE 3: IMPLEMENT ──────────────────────────────────────────────
       let conversationContext: string | undefined;
-      if (options?.chatMode && !planArtifact?.fromCache) {
-        const savedConv = await this.conversationService.loadConversation(
-          ticketKey,
-          resolveRepoBasePath(repoList[0]),
-          platformName,
-        );
-        if (savedConv?.messages.length) {
-          const userMessages = savedConv.messages
-            .filter((m) => m.role === 'user')
-            .map((m) => m.content)
-            .join('\n');
-          if (userMessages) {
-            conversationContext = `Developer implementation notes (from planning chat):\n${userMessages}`;
-          }
-        }
-      }
 
       let implementerResult: ImplementerResult | undefined;
       if (stagesToRun.includes(WorkflowStage.IMPLEMENT) && planArtifact) {
         const isMultiRepo = repoList.length > 1;
-        if (isMultiRepo) {
+        if (isMultiRepo && !options?.silent) {
           console.log(chalk.bold.yellow('\n🔧 STAGE 3: Implementation Guide'));
           console.log(chalk.gray('─'.repeat(70)));
         }
         for (const repo of repoList) {
           const repoDir = resolveRepoBasePath(repo);
-          if (isMultiRepo)
+          if (isMultiRepo && !options?.silent)
             console.log(
               chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
             );
@@ -738,13 +755,13 @@ export class IssueCommand extends CommandRunner {
         planArtifact?.action !== 'investigate'
       ) {
         const isMultiRepo = repoList.length > 1;
-        if (isMultiRepo) {
+        if (isMultiRepo && !options?.silent) {
           console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
           console.log(chalk.gray('─'.repeat(70)));
         }
         for (const repo of repoList) {
           const repoDir = resolveRepoBasePath(repo);
-          if (isMultiRepo)
+          if (isMultiRepo && !options?.silent)
             console.log(
               chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
             );
@@ -752,39 +769,58 @@ export class IssueCommand extends CommandRunner {
             skipExisting,
             repoDir,
             suppressHeader: isMultiRepo,
+            silent: options?.silent,
           });
 
           if (reviewArtifact) {
-            console.log(chalk.bold('\n  Status:'));
-            if (reviewArtifact.approved) {
-              console.log(
-                chalk.cyan('    Changes approved - proceeding to commit stage'),
-              );
-            } else {
-              console.log(
-                chalk.yellow(
-                  '    ⚠️  Review found issues - address before committing',
-                ),
-              );
-              console.log(
-                chalk.cyan(
-                  '    Commit stage will still execute (you can skip it if needed)',
-                ),
-              );
+            if (options?.silent) {
+              console.log(reviewArtifact.path);
             }
 
-            if (options?.chatMode) {
-              await this.startInteractiveChat(
-                ticketKey,
-                'review' as ConvWorkflowStage,
+            if (!options?.silent) {
+              console.log(chalk.bold('\n  Status:'));
+              if (reviewArtifact.approved) {
+                console.log(
+                  chalk.cyan(
+                    '    Changes approved - proceeding to commit stage',
+                  ),
+                );
+              } else {
+                console.log(
+                  chalk.yellow(
+                    '    ⚠️  Review found issues - address before committing',
+                  ),
+                );
+                console.log(
+                  chalk.cyan(
+                    '    Commit stage will still execute (you can skip it if needed)',
+                  ),
+                );
+              }
+            }
+
+            if (!options?.silent && this.isInteractiveSession()) {
+              const { startChat } = await inquirer.prompt([
                 {
-                  ticketContent: ticketArtifact.content,
-                  plan: planArtifact?.plan,
-                  review: reviewArtifact.review,
+                  type: 'confirm',
+                  name: 'startChat',
+                  message: 'Would you like to discuss the review?',
+                  default: false,
                 },
-                resolveRepoBasePath(repoList[0]),
-                platformName,
-              );
+              ]);
+              if (startChat) {
+                await this.startInteractiveChat(
+                  ticketKey,
+                  'review' as ConvWorkflowStage,
+                  {
+                    ticketContent: ticketArtifact.content,
+                    plan: planArtifact?.plan,
+                    review: reviewArtifact.review,
+                  },
+                  resolveRepoBasePath(repoList[0]),
+                  platformName,
+                );
+              }
             }
           }
         }
@@ -796,13 +832,13 @@ export class IssueCommand extends CommandRunner {
         planArtifact?.action !== 'investigate'
       ) {
         const isMultiRepo = repoList.length > 1;
-        if (isMultiRepo) {
+        if (isMultiRepo && !options?.silent) {
           console.log(chalk.bold.yellow('\n💾 STAGE 5: Commit Changes'));
           console.log(chalk.gray('─'.repeat(70)));
         }
         for (const repo of repoList) {
           const repoDir = resolveRepoBasePath(repo);
-          if (isMultiRepo)
+          if (isMultiRepo && !options?.silent)
             console.log(
               chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
             );
@@ -811,21 +847,24 @@ export class IssueCommand extends CommandRunner {
             repoDir,
             planArtifact?.plan?.summary,
             isMultiRepo,
+            options?.silent,
           );
         }
       }
 
-      // Summary
-      console.log(chalk.bold.green('\n✅ Workflow Complete!'));
-      console.log(chalk.gray('═'.repeat(70)));
-      console.log(chalk.bold.cyan('\n🎯 Done!\n'));
+      if (!options?.silent) {
+        // Summary
+        console.log(chalk.bold.green('\n✅ Workflow Complete!'));
+        console.log(chalk.gray('═'.repeat(70)));
+        console.log(chalk.bold.cyan('\n🎯 Done!\n'));
 
-      if (options?.pr) {
-        console.log(
-          chalk.cyan(
-            `\n  ℹ  Run: wf issue:pr ${ticketKey} to create a pull request`,
-          ),
-        );
+        if (options?.pr) {
+          console.log(
+            chalk.cyan(
+              `\n  ℹ  Run: wf issue:pr ${ticketKey} to create a pull request`,
+            ),
+          );
+        }
       }
     } catch (error) {
       ErrorHandler.handle(error as Error);
@@ -1044,4 +1083,8 @@ Help the developer understand the review feedback, discuss issues, or suggest fi
    * @param repo Repository name or path (e.g. "bar", "../bar", "/abs/path/bar")
    * @returns Absolute base path to use for artifact storage
    */
+
+  private isInteractiveSession(): boolean {
+    return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  }
 }

@@ -53,6 +53,7 @@ interface IssueCreateOptions {
   priority?: string;
   type?: string;
   dryRun?: boolean;
+  silent?: boolean;
 }
 
 interface DescriptionFormattingStats {
@@ -272,7 +273,9 @@ export class IssueCreateCommand extends CommandRunner {
     passedParams: string[],
     options?: IssueCreateOptions,
   ): Promise<void> {
-    printExamples(ISSUE_CREATE_EXAMPLES);
+    if (!options?.silent) {
+      printExamples(ISSUE_CREATE_EXAMPLES);
+    }
 
     const inputPath = passedParams[0];
 
@@ -291,7 +294,9 @@ export class IssueCreateCommand extends CommandRunner {
       const platformName =
         options?.platform ||
         this.configService.get<string>('platforms.primary', 'jira');
-      warnOnIgnoredRepos(options?.repos);
+      if (!options?.silent) {
+        warnOnIgnoredRepos(options?.repos);
+      }
       const resolved = path.resolve(inputPath);
       const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
       const artifactPath = path.join(
@@ -308,8 +313,10 @@ export class IssueCreateCommand extends CommandRunner {
         throw new Error(`Input file not found: ${inputFilePath}`);
       }
 
-      console.log(chalk.bold.cyan(`\n📋 Creating Ticket from Input\n`));
-      console.log(chalk.gray(`  Input file: ${inputFilePath}`));
+      if (!options?.silent) {
+        console.log(chalk.bold.cyan(`\n📋 Creating Ticket from Input\n`));
+        console.log(chalk.gray(`  Input file: ${inputFilePath}`));
+      }
 
       // Detect format and parse
       const content = fs.readFileSync(inputFilePath, 'utf-8');
@@ -321,7 +328,9 @@ export class IssueCreateCommand extends CommandRunner {
         );
       }
 
-      console.log(chalk.gray(`  Detected format: ${format}`));
+      if (!options?.silent) {
+        console.log(chalk.gray(`  Detected format: ${format}`));
+      }
 
       const converter = this.formatConverterService.getConverter(format);
       const ticket = converter.parse(content);
@@ -338,7 +347,9 @@ export class IssueCreateCommand extends CommandRunner {
       }
 
       // Get platform adapter
-      console.log(chalk.gray(`  Target platform: ${platformName}\n`));
+      if (!options?.silent) {
+        console.log(chalk.gray(`  Target platform: ${platformName}\n`));
+      }
 
       // Dry run mode - just validate
       if (options?.dryRun) {
@@ -452,17 +463,23 @@ export class IssueCreateCommand extends CommandRunner {
 
       // Create ticket on platform
       const adapter = this.platformService.getAdapter(platformName);
-      console.log(chalk.cyan('🚀 Creating ticket on platform...\n'));
+      if (!options?.silent) {
+        console.log(chalk.cyan('🚀 Creating ticket on platform...\n'));
+      }
       const reference = await adapter.createTicket(ticket);
 
-      console.log(chalk.green('✅ Ticket created successfully!\n'));
-      console.log(chalk.bold('Platform:'), chalk.cyan(reference.platform));
-      console.log(chalk.bold('Key:'), chalk.bold.cyan(reference.key));
-      console.log(chalk.bold('ID:'), chalk.cyan(reference.id));
-      if (reference.url) {
-        console.log(chalk.bold('URL:'), chalk.cyan(reference.url));
+      if (options?.silent) {
+        console.log(reference.key);
+      } else {
+        console.log(chalk.green('✅ Ticket created successfully!\n'));
+        console.log(chalk.bold('Platform:'), chalk.cyan(reference.platform));
+        console.log(chalk.bold('Key:'), chalk.bold.cyan(reference.key));
+        console.log(chalk.bold('ID:'), chalk.cyan(reference.id));
+        if (reference.url) {
+          console.log(chalk.bold('URL:'), chalk.cyan(reference.url));
+        }
+        console.log();
       }
-      console.log();
     } catch (error) {
       ErrorHandler.handle(error as Error);
     }
@@ -629,5 +646,14 @@ export class IssueCreateCommand extends CommandRunner {
   })
   parsePriority(val: string): string {
     return val;
+  }
+
+  @Option({
+    flags: '-s, --silent',
+    description:
+      'Suppress decorative output and interactive prompts. Emits only the ticket key for piping',
+  })
+  parseSilent(): boolean {
+    return true;
   }
 }

@@ -59,6 +59,7 @@ interface IssuePlanOptions {
   format?: OutputFormat;
   repos?: string[];
   dryRun?: boolean;
+  silent?: boolean;
 }
 
 interface RepoAwarePlan {
@@ -328,8 +329,19 @@ export class IssuePlanCommand extends CommandRunner {
     return parseReposOption(val, previous);
   }
 
+  @Option({
+    flags: '-s, --silent',
+    description:
+      'Suppress decorative output and interactive prompts. Emits only the plan path for piping',
+  })
+  parseSilent(): boolean {
+    return true;
+  }
+
   async run([ticketKey]: string[], options?: IssuePlanOptions): Promise<void> {
-    printExamples(ISSUE_PLAN_EXAMPLES);
+    if (!options?.silent) {
+      printExamples(ISSUE_PLAN_EXAMPLES);
+    }
 
     try {
       fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
@@ -448,7 +460,9 @@ export class IssuePlanCommand extends CommandRunner {
           return;
         }
 
-        this.logger.info(`Generating custom ${action} plan from markdown...`);
+        if (!options?.silent) {
+          this.logger.info(`Generating custom ${action} plan from markdown...`);
+        }
 
         if (!fs.existsSync(customArtifactDir)) {
           fs.mkdirSync(customArtifactDir, { recursive: true });
@@ -496,14 +510,18 @@ export class IssuePlanCommand extends CommandRunner {
           action,
           planPath,
         );
-        this.logger.success(`✓ Plan saved to: ${planPath}`);
-        this.logger.info(`\nPlan Summary:`);
-        this.logger.info(`  Action: ${plan.action}`);
-        this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
-        this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
-        this.logger.info(
-          `  Files affected: ${plan.filesAffected?.length || 0}`,
-        );
+        if (options?.silent) {
+          console.log(planPath);
+        } else {
+          this.logger.success(`✓ Plan saved to: ${planPath}`);
+          this.logger.info(`\nPlan Summary:`);
+          this.logger.info(`  Action: ${plan.action}`);
+          this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
+          this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
+          this.logger.info(
+            `  Files affected: ${plan.filesAffected?.length || 0}`,
+          );
+        }
         return;
       }
 
@@ -618,17 +636,21 @@ export class IssuePlanCommand extends CommandRunner {
         return;
       }
 
-      this.logger.info(`Planning ticket ${ticketKey} (action: ${action})...`);
+      if (!options?.silent) {
+        this.logger.info(`Planning ticket ${ticketKey} (action: ${action})...`);
+      }
 
       let ticketContent: string;
 
       if (needsFetch) {
-        if (options?.force) {
-          this.logger.info('Forcing recreation of ticket artifact...');
-        } else {
-          this.logger.info(
-            'Local artifact not found. Fetching from platform...',
-          );
+        if (!options?.silent) {
+          if (options?.force) {
+            this.logger.info('Forcing recreation of ticket artifact...');
+          } else {
+            this.logger.info(
+              'Local artifact not found. Fetching from platform...',
+            );
+          }
         }
 
         const artifact = await this.fetchStageService.fetchArtifact(ticketKey, {
@@ -637,19 +659,25 @@ export class IssuePlanCommand extends CommandRunner {
           baseDir: artifactBaseDir,
         });
         ticketContent = artifact.content;
-        this.logger.success(`✓ Ticket saved to: ${artifact.path}`);
+        if (!options?.silent) {
+          this.logger.success(`✓ Ticket saved to: ${artifact.path}`);
+        }
       } else {
         const artifact = this.fetchStageService.loadArtifact(
           ticketKey,
           platformName,
           artifactBaseDir,
         );
-        this.logger.info(`Using local artifact: ${artifact.path}`);
+        if (!options?.silent) {
+          this.logger.info(`Using local artifact: ${artifact.path}`);
+        }
         ticketContent = artifact.content;
       }
 
       // Generate plan using AI
-      this.logger.info('Generating implementation plan...');
+      if (!options?.silent) {
+        this.logger.info('Generating implementation plan...');
+      }
 
       const plan = await this.planStageService.generatePlan(ticketContent, {
         action,
@@ -694,12 +722,18 @@ export class IssuePlanCommand extends CommandRunner {
         planPath,
       );
 
-      this.logger.success(`✓ Plan saved to: ${planPath}`);
-      this.logger.info(`\nPlan Summary:`);
-      this.logger.info(`  Action: ${plan.action}`);
-      this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
-      this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
-      this.logger.info(`  Files affected: ${plan.filesAffected?.length || 0}`);
+      if (options?.silent) {
+        console.log(planPath);
+      } else {
+        this.logger.success(`✓ Plan saved to: ${planPath}`);
+        this.logger.info(`\nPlan Summary:`);
+        this.logger.info(`  Action: ${plan.action}`);
+        this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
+        this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
+        this.logger.info(
+          `  Files affected: ${plan.filesAffected?.length || 0}`,
+        );
+      }
     } catch (error) {
       ErrorHandler.handle(error as Error);
     }

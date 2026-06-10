@@ -298,6 +298,7 @@ wf issue:fetch WBP-2971 --platform jira --format md
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) |
 | `-p, --platform <platform>` | Target platform (jira\|github\|bitbucket) |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
+| `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the file path for piping |
 <!-- END GENERATED COMMAND DOCS: issue:fetch -->
 
 **Output:** saves to `./<platform>/<ticket-key>.<format>` (e.g., `./jira/WBP-2971.md`).
@@ -334,6 +335,7 @@ wf issue:plan WBP-2971 --action fix --force --platform jira
 | `-f, --format <format>` | Output format for plan (json\|md\|yaml\|yml) |
 | `-p, --platform <platform>` | Platform to fetch from if local artifact not found |
 | `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
+| `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the plan path for piping |
 <!-- END GENERATED COMMAND DOCS: issue:plan -->
 
 Targeted verification commands are stored as **repo-root-relative** commands. If
@@ -381,6 +383,7 @@ wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 | `-p, --platform <platform>` | Platform (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary platform |
 | `--replace-criteria <path>` | Path to a markdown file whose criteria replace the default review guidelines entirely |
 | `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
+| `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
 <!-- END GENERATED COMMAND DOCS: issue:review -->
 
 Accepts three source modes:
@@ -442,6 +445,7 @@ nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /
 | `--ticket-project <project>` | Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file |
 | `-t, --type <type>` | Issue type (task\|bug\|story\|todo) - overrides input file |
 | `--priority <priority>` | Override normalized ticket priority (highest\|high\|medium\|low\|lowest); Jira resolves it to an allowed project value |
+| `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the ticket key for piping |
 <!-- END GENERATED COMMAND DOCS: issue:create -->
 
 When creating Jira tickets, `wf` resolves the requested priority against Jira
@@ -589,6 +593,7 @@ wf issue:pr WBP-2971 --dry-run
 | `-p, --platform <platform>` | Platform (jira\|github\|bitbucket) |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 | `-t, --title <title>` | Override the PR title |
+| `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the PR URL for piping |
 <!-- END GENERATED COMMAND DOCS: issue:pr -->
 
 ---

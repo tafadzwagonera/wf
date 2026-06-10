@@ -311,9 +311,11 @@ describe('IssueCommand', () => {
       'WBP-1',
       'jira',
       path.join('/tmp/consumer-app', 'repo-a'),
+      undefined,
     );
     expect(mockOrchestrator.planner.loadFromDisk).toHaveBeenCalledWith(
       ticketPath,
+      undefined,
       undefined,
     );
     expect(mockOrchestrator.implementer.execute).toHaveBeenCalledWith(

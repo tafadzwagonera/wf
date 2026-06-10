@@ -44,6 +44,7 @@ interface IssueFetchOptions {
   platform?: string;
   repos?: string[];
   dryRun?: boolean;
+  silent?: boolean;
 }
 
 @Injectable()
@@ -110,12 +111,25 @@ export class IssueFetchCommand extends CommandRunner {
     return parseReposOption(val, previous);
   }
 
+  @Option({
+    flags: '-s, --silent',
+    description:
+      'Suppress decorative output and interactive prompts. Emits only the file path for piping',
+  })
+  parseSilent(): boolean {
+    return true;
+  }
+
   async run([ticketKey]: [string], options?: IssueFetchOptions): Promise<void> {
-    printExamples(ISSUE_FETCH_EXAMPLES);
+    if (!options?.silent) {
+      printExamples(ISSUE_FETCH_EXAMPLES);
+    }
 
     try {
       fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
-      warnOnIgnoredRepos(options?.repos);
+      if (!options?.silent) {
+        warnOnIgnoredRepos(options?.repos);
+      }
 
       // Get platform (from option or config)
       const platformName =
@@ -174,7 +188,11 @@ export class IssueFetchCommand extends CommandRunner {
         return;
       }
 
-      this.logger.info(`Fetching ticket ${ticketKey} from ${platformName}...`);
+      if (!options?.silent) {
+        this.logger.info(
+          `Fetching ticket ${ticketKey} from ${platformName}...`,
+        );
+      }
 
       // Format reference for Bitbucket
       const ticket = await this.fetchStageService.fetchTicket(ticketKey, {
@@ -193,12 +211,16 @@ export class IssueFetchCommand extends CommandRunner {
       // Write to file
       await fs.promises.writeFile(filePath, content, 'utf-8');
 
-      this.logger.success(`✓ Ticket saved to: ${filePath}`);
-      this.logger.info(`\nTicket Details:`);
-      this.logger.info(`  Title: ${ticket.title}`);
-      this.logger.info(`  Type: ${ticket.type || 'N/A'}`);
-      this.logger.info(`  Status: ${ticket.status}`);
-      this.logger.info(`  Priority: ${ticket.priority || 'N/A'}`);
+      if (options?.silent) {
+        console.log(filePath);
+      } else {
+        this.logger.success(`✓ Ticket saved to: ${filePath}`);
+        this.logger.info(`\nTicket Details:`);
+        this.logger.info(`  Title: ${ticket.title}`);
+        this.logger.info(`  Type: ${ticket.type || 'N/A'}`);
+        this.logger.info(`  Status: ${ticket.status}`);
+        this.logger.info(`  Priority: ${ticket.priority || 'N/A'}`);
+      }
     } catch (error) {
       ErrorHandler.handle(error as Error);
     }

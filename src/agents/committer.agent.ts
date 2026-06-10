@@ -29,19 +29,24 @@ export class CommitterAgent {
     repoDir?: string,
     ticketContext?: string,
     suppressHeader?: boolean,
+    silent?: boolean,
   ): Promise<void> {
-    if (!suppressHeader) {
+    if (!suppressHeader && !silent) {
       console.log(chalk.bold.yellow('\n💾 STAGE 5: Commit Changes'));
       console.log(chalk.gray('─'.repeat(70)));
     }
 
     const status = await this.gitService.getStatus(repoDir);
     if (status.files.length === 0) {
-      console.log(chalk.yellow('⚠️  No changes to commit'));
+      if (!silent) {
+        console.log(chalk.yellow('⚠️  No changes to commit'));
+      }
       return;
     }
 
-    console.log(chalk.bold('  Generating commit message...'));
+    if (!silent) {
+      console.log(chalk.bold('  Generating commit message...'));
+    }
 
     const diff = await this.gitService.getDiff(false, repoDir);
     const commits = await this.gitService.getRecentCommits(10, repoDir);
@@ -54,22 +59,30 @@ export class CommitterAgent {
       ticketContext,
     });
 
-    console.log(chalk.green('\n✓ Commit message generated'));
-    console.log(chalk.bold('\n  Message:'));
-    console.log(chalk.bold.cyan(`    ${finalMsg}`));
+    if (!silent) {
+      console.log(chalk.green('\n✓ Commit message generated'));
+      console.log(chalk.bold('\n  Message:'));
+      console.log(chalk.bold.cyan(`    ${finalMsg}`));
+    }
 
     try {
       await this.gitService.commit({ message: finalMsg, cwd: repoDir });
-      console.log(chalk.green('\n✓ Changes committed'));
+      if (!silent) {
+        console.log(chalk.green('\n✓ Changes committed'));
+      }
     } catch (err) {
       if (err instanceof GitError && err.message === 'No changes to commit') {
-        console.log(chalk.yellow('\n⚠ Nothing to commit — skipping'));
+        if (!silent) {
+          console.log(chalk.yellow('\n⚠ Nothing to commit — skipping'));
+        }
         return;
       }
       throw err;
     }
 
-    console.log(chalk.bold('\n  Next step:'));
-    console.log(chalk.cyan('    git push'));
+    if (!silent) {
+      console.log(chalk.bold('\n  Next step:'));
+      console.log(chalk.cyan('    git push'));
+    }
   }
 }
