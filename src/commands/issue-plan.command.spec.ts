@@ -374,6 +374,7 @@ describe('IssuePlanCommand', () => {
     const writeFileSpy = jest
       .spyOn(require('fs').promises, 'writeFile')
       .mockResolvedValue(undefined);
+    jest.spyOn(require('fs'), 'writeFileSync').mockReturnValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
@@ -523,6 +524,7 @@ describe('IssuePlanCommand', () => {
     const writeFileSpy = jest
       .spyOn(require('fs').promises, 'writeFile')
       .mockResolvedValue(undefined);
+    jest.spyOn(require('fs'), 'writeFileSync').mockReturnValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
