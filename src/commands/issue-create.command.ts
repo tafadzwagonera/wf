@@ -207,14 +207,31 @@ const buildTicketPreviewLines = (description: string): string[] => {
   return ['Ticket Preview', ...previewLines.map((line) => `  ${line}`)];
 };
 
+const STDIN_TIMEOUT_IN_MS = 30_000;
+
+/**
+ * Read all data from stdin until EOF.
+ * Rejects after STDIN_TIMEOUT_IN_MS if no data arrives and stdin never closes.
+ *
+ * @returns The full stdin content as a UTF-8 string
+ */
 const readStdin = (): Promise<string> =>
   new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
+    const timer = setTimeout(() => {
+      process.stdin.removeAllListeners('data');
+      process.stdin.removeAllListeners('end');
+      reject(new Error('Timed out waiting for stdin input'));
+    }, STDIN_TIMEOUT_IN_MS);
     process.stdin.on('data', (chunk) => chunks.push(chunk));
-    process.stdin.on('end', () =>
-      resolve(Buffer.concat(chunks).toString('utf-8')),
-    );
-    process.stdin.on('error', reject);
+    process.stdin.on('end', () => {
+      clearTimeout(timer);
+      resolve(Buffer.concat(chunks).toString('utf-8'));
+    });
+    process.stdin.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
   });
 
 const warnOnIgnoredRepos = (repos?: string[]): void => {
@@ -322,7 +339,7 @@ export class IssueCreateCommand extends CommandRunner {
       }
 
       let content: string;
-      let format: string | null;
+      let format: string;
 
       if (stdinAvailable) {
         content = await readStdin();
@@ -357,15 +374,16 @@ export class IssueCreateCommand extends CommandRunner {
         }
 
         content = fs.readFileSync(inputFilePath, 'utf-8');
-        format =
+        const detected =
           options?.format ??
           this.formatConverterService.detectFormat(inputFilePath);
 
-        if (!format) {
+        if (!detected) {
           throw new Error(
             `Unable to detect format from file: ${inputFilePath}. Supported: .json, .yaml, .md, .xml`,
           );
         }
+        format = detected;
 
         if (!options?.silent) {
           console.log(chalk.gray(`  Detected format: ${format}`));
