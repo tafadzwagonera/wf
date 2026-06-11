@@ -58,9 +58,7 @@ Create one of these files in the consumer project root:
 - `wf.config.yaml`
 - `wf.config.yml`
 
-When multiple files exist, `wf` uses this precedence order from top to bottom.
-When `--repos` points to a local checkout, `wf` bootstraps config from that
-repository instead of the caller's current working directory.
+When multiple files exist, `wf` uses this precedence order from top to bottom. When `--repos` points to a local checkout, `wf` bootstraps config from that repository instead of the caller's current working directory.
 
 ### JavaScript / TypeScript Example
 
@@ -197,13 +195,8 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 
 ### JavaScript Config Module Formats
 
-- `wf.config.js` supports both `module.exports = { ... }` and
-  `export default { ... }`.
-- In repositories whose nearest `package.json` sets `"type": "module"`,
-  `wf.config.js` may still use CommonJS exports. This is useful when
-  `issue:generate --repos <local-checkout>` or another repo-scoped command
-  bootstraps config from a sibling checkout that has not renamed the file to
-  `.cjs`.
+- `wf.config.js` supports both `module.exports = { ... }` and `export default { ... }`.
+- In repositories whose nearest `package.json` sets `"type": "module"`, `wf.config.js` may still use CommonJS exports. This is useful when `issue:generate --repos <local-checkout>` or another repo-scoped command bootstraps config from a sibling checkout that has not renamed the file to `.cjs`.
 
 ### Defaults and Notes
 
@@ -336,10 +329,7 @@ wf issue:plan WBP-2971 --action fix --force --platform jira
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the plan path for piping |
 <!-- END GENERATED COMMAND DOCS: issue:plan -->
 
-Targeted verification commands are stored as **repo-root-relative** commands. If
-the plan generator emits a redundant `cd <selected-repo> && ...`, `issue:plan`
-normalizes it before writing the artifact. If a targeted check tries to `cd`
-outside the selected repo, the plan is rejected.
+Targeted verification commands are stored as **repo-root-relative** commands. If the plan generator emits a redundant `cd <selected-repo> && ...`, `issue:plan` normalizes it before writing the artifact. If a targeted check tries to `cd` outside the selected repo, the plan is rejected.
 
 When `--repos` is present, filename-only custom sources are resolved against the repo-scoped `~/.wf/<repo>/` artifact directory before cwd-relative paths.
 
@@ -447,28 +437,11 @@ nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the ticket key for piping |
 <!-- END GENERATED COMMAND DOCS: issue:create -->
 
-When creating Jira tickets, `wf` resolves the requested priority against Jira
-create metadata for the target project and issue type. Exact allowed names win
-first; otherwise normalized values such as `medium` can resolve to project
-values such as `Minor`. If priority is hidden from the create screen or Jira
-still rejects it, `wf` creates the ticket without a priority field.
+When creating Jira tickets, `wf` resolves the requested priority against Jira create metadata for the target project and issue type. Exact allowed names win first; otherwise normalized values such as `medium` can resolve to project values such as `Minor`. If priority is hidden from the create screen or Jira still rejects it, `wf` creates the ticket without a priority field.
 
-For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF
-before sending the create request. Inline Markdown delimiters in plain-text
-fields such as summaries are stripped, and inline-code spans in descriptions are
-preserved as Jira ADF inline code marks without leaking Jira wiki markers like
-`{{value}}`. Use `--dry-run` to inspect the formatting summary before creating a
-ticket.
+For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF before sending the create request. Inline Markdown delimiters in plain-text fields such as summaries are stripped, and inline-code spans in descriptions are preserved as Jira ADF inline code marks without leaking Jira wiki markers like `{{value}}`. Use `--dry-run` to inspect the formatting summary before creating a ticket.
 
-When `stages.create.verificationConditions.scripts` is configured in
-`wf.config.*`, `issue:create` runs each script against the built ADF payload
-before sending it to Jira. If validation fails and a `stages.create.provider` is
-set, the command feeds the structured errors back to the AI to regenerate the
-description markdown, re-converts to ADF, and re-validates — repeating until
-clean or stalled (2 consecutive non-improving passes). This catches wiki markup
-leaks such as orphan `{noformat}` tokens and `{{monospace}}` markers that the
-deterministic normalizer cannot handle. The `--dry-run` flag also runs the
-validation scripts and reports pass/fail without sending to Jira.
+When `stages.create.verificationConditions.scripts` is configured in `wf.config.*`, `issue:create` runs each script against the built ADF payload before sending it to Jira. If validation fails and a `stages.create.provider` is set, the command feeds the structured errors back to the AI to regenerate the description markdown, re-converts to ADF, and re-validates — repeating until clean or stalled (2 consecutive non-improving passes). This catches wiki markup leaks such as orphan `{noformat}` tokens and `{{monospace}}` markers that the deterministic normalizer cannot handle. The `--dry-run` flag also runs the validation scripts and reports pass/fail without sending to Jira.
 
 ```js
 // wf.config.js — example create stage with ADF verification
@@ -527,13 +500,12 @@ wf issue:generate ./spec.md --save --silent | xargs wf issue:create
 | `--type <type>` | Override ticket type (task\|bug\|story\|epic) |
 <!-- END GENERATED COMMAND DOCS: issue:generate -->
 
-Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list.
-Generated `issue:generate` output is normalized before serialization, so em dashes are rewritten to ASCII ` - ` in stdout output and saved artifacts.
-When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, unresolved bare filenames stay cwd-relative and the command now tells you to retry with `--repos <repo>` when the source looks like a repo-scoped artifact.
-When the first `--repos` entry resolves to a local checkout, `issue:generate`
-also bootstraps AI provider and stage config from that repository before
-command execution.
+Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list. Generated `issue:generate` output is normalized before serialization, so em dashes are rewritten to ASCII ` - ` in stdout output and saved artifacts.
+
+When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, unresolved bare filenames stay cwd-relative and the command now tells you to retry with `--repos <repo>` when the source looks like a repo-scoped artifact. When the first `--repos` entry resolves to a local checkout, `issue:generate` also bootstraps AI provider and stage config from that repository before command execution.
+
 Slack permalinks that include query parameters should be quoted when invoked from shells such as `zsh` or `bash`.
+
 In interactive mode (TTY, no `--silent`), the command performs a pre-synthesis clarification pass: the AI identifies unaddressed ambiguities, assumptions, or risks in the sources, and prompts the user to answer them before generating the ticket. Sources that already acknowledge their own risks and assumptions are not re-surfaced. The `--silent` flag suppresses all decorative output and interactive prompts, emitting only file paths (with `--save`/`--output`) or raw ticket content suitable for piping.
 
 ---
@@ -763,16 +735,9 @@ When the first implementation pass (which may use a mechanical model in `auto` r
 
 ### Retry strategy
 
-`issue:implement` delegates the generate-and-verify loop to the selected agent
-backend (Anthropic or OpenAI). The agent drives its own inner loop via built-in
-tools, iterating until verification passes.
+`issue:implement` delegates the generate-and-verify loop to the selected agent backend (Anthropic or OpenAI). The agent drives its own inner loop via built-in tools, iterating until verification passes.
 
-Verification commands are expected to run from the selected repository root.
-Recent `issue:plan` builds normalize redundant `cd <repo> && ...` wrappers
-before persisting the plan artifact. `issue:implement` keeps a defense-in-depth
-fallback for older artifacts and fails fast when a targeted verification command
-tries to jump outside the selected repository, because retrying code generation
-cannot fix a mis-scoped verification command.
+Verification commands are expected to run from the selected repository root. Recent `issue:plan` builds normalize redundant `cd <repo> && ...` wrappers before persisting the plan artifact. `issue:implement` keeps a defense-in-depth fallback for older artifacts and fails fast when a targeted verification command tries to jump outside the selected repository, because retrying code generation cannot fix a mis-scoped verification command.
 
 ```bash
 # Implement a ticket-backed plan
@@ -787,13 +752,7 @@ wf issue:implement dark-building-creek-fix.json --repos service-tourv3
 
 #### Agent backends
 
-Set `stages.implement.provider: anthropic` or `stages.implement.provider: openai`
-in `wf.config.*` to select the backend. The Anthropic backend loads
-`~/.claude/CLAUDE.md` and the repository-root `CLAUDE.md`; the OpenAI backend
-loads `~/.openai/OPENAI.md` and the repository-root `.openai/OPENAI.md`. If a
-backend-specific file is missing, it logs a yellow warning and continues. The
-OpenAI backend only exposes an exact-match `verify_command` tool for
-verification, so non-whitelisted commands are rejected before execution.
+Set `stages.implement.provider: anthropic` or `stages.implement.provider: openai` in `wf.config.*` to select the backend. The Anthropic backend loads `~/.claude/CLAUDE.md` and the repository-root `CLAUDE.md`; the OpenAI backend loads `~/.openai/OPENAI.md` and the repository-root `.openai/OPENAI.md`. If a backend-specific file is missing, it logs a yellow warning and continues. The OpenAI backend only exposes an exact-match `verify_command` tool for verification, so non-whitelisted commands are rejected before execution.
 
 ```yaml
 stages:
@@ -839,59 +798,162 @@ yarn start config list
 
 ## Architecture
 
-### Core Components
+### High-Level Overview
+
+`wf` follows a layered architecture where CLI commands delegate to domain agents, which call AI providers through adapter classes. The system is built on NestJS with dependency injection, using `nest-commander` for CLI argument parsing and command routing.
+
+```mermaid
+graph TD
+    CLI["<b>CLI Layer</b><br/>nest-commander parses args and routes<br/>to IssueXxxCommand classes"]
+    Agents["<b>Agent Layer</b><br/>Fetcher, Planner, Implementer,<br/>Reviewer, Committer"]
+    Platforms["<b>Platforms</b><br/>Jira, GitHub, Bitbucket"]
+    Git["<b>Git</b><br/>simple-git wrapper"]
+    AI["<b>AI Adapters</b><br/>Anthropic, OpenAI, Gemini,<br/>DeepSeek + Agent SDKs"]
+    State["<b>State & Logging</b><br/>.wf/state/ and .wf/logs/"]
+
+    CLI --> Agents
+    Agents --> Platforms
+    Agents --> Git
+    Agents --> AI
+    Platforms --> State
+    Git --> State
+    AI --> State
+```
+
+### Data Flow
+
+Each `issue:*` command follows a consistent pattern:
+
+1. **Command** receives CLI args and resolves config (including repo-scoped config via `--repos`)
+2. **Agent** orchestrates the domain logic — fetching tickets, calling AI, writing artifacts
+3. **Adapters** translate between wf's internal types and external APIs (Jira REST, GitHub GraphQL, AI chat/agent SDKs)
+4. **Artifacts** are written to the file system under `./<platform>/` or `~/.wf/<repo>/`
+
+The orchestrator command (`wf issue`) chains stages together, passing artifacts forward: `fetch` output feeds `plan`, `plan` output feeds `implement`, and so on.
+
+### Project Structure
 
 ```
 wf/
 ├── src/
-│   ├── commands/              # CLI commands
-│   │   ├── issue.command.ts
-│   │   ├── issue-create.command.ts
+│   ├── commands/                  # CLI command handlers (one per issue:* stage)
+│   │   ├── issue.command.ts       #   orchestrator: chains fetch → plan → implement → review → commit
 │   │   ├── issue-fetch.command.ts
-│   │   ├── issue-generate.command.ts
-│   │   ├── issue-implement.command.ts
-│   │   ├── issue-commit.command.ts
 │   │   ├── issue-plan.command.ts
+│   │   ├── issue-implement.command.ts
 │   │   ├── issue-review.command.ts
+│   │   ├── issue-commit.command.ts
+│   │   ├── issue-create.command.ts
+│   │   ├── issue-generate.command.ts
+│   │   ├── issue-pr.command.ts
 │   │   └── config.command.ts
 │   │
-│   ├── integrations/          # External service integrations
-│   │   ├── platforms/        # Platform adapters (Jira, GitHub, Bitbucket)
-│   │   ├── git/              # Git operations
-│   │   └── ai/               # AI integration + conversation
+│   ├── agents/                    # Domain agents (business logic per stage)
+│   │   ├── fetcher.agent.ts       #   fetches ticket data from platform adapters
+│   │   ├── planner.agent.ts       #   generates implementation plans via AI
+│   │   ├── implementer.agent.ts   #   drives AI agent backends to write code
+│   │   ├── reviewer.agent.ts      #   AI-powered code review with trace provenance
+│   │   ├── committer.agent.ts     #   generates commit messages from staged diffs
+│   │   └── agent-orchestrator.service.ts
 │   │
-│   ├── common/               # Shared types, DTOs, and format converters
-│   ├── config/               # Configuration management
-│   └── shared/               # Logger, preview, and error utilities
+│   ├── integrations/
+│   │   ├── ai/                    # AI provider integration
+│   │   │   └── adapters/
+│   │   │       ├── anthropic.adapter.ts        # Anthropic completion API
+│   │   │       ├── anthropic-agent.adapter.ts  # Claude Agent SDK (agentic mode)
+│   │   │       ├── openai.adapter.ts           # OpenAI completion API
+│   │   │       ├── openai-agent.adapter.ts     # OpenAI Agents SDK (agentic mode)
+│   │   │       ├── gemini.adapter.ts           # Google Gemini API
+│   │   │       ├── deepseek.adapter.ts         # DeepSeek API
+│   │   │       ├── llm-adapter.factory.ts      # Factory for provider resolution
+│   │   │       └── shared-routing.ts           # Model routing (auto/default/mechanical)
+│   │   │
+│   │   ├── platforms/             # Platform adapters (ticket systems)
+│   │   │   ├── jira/              #   Jira REST API (Basic Auth, ADF conversion)
+│   │   │   ├── github/            #   GitHub via @octokit/rest
+│   │   │   ├── bitbucket/         #   Bitbucket Cloud API
+│   │   │   ├── platform.service.ts            # Platform resolution and dispatch
+│   │   │   └── platform-adapter.interface.ts  # Shared adapter contract
+│   │   │
+│   │   ├── git/                   # Git operations via simple-git
+│   │   ├── jira/                  # Jira-specific services (ADF, metadata)
+│   │   └── slack/                 # Slack thread/permalink fetching
+│   │
+│   ├── config/                    # Configuration loading (wf.config.* resolution, Zod validation)
+│   ├── common/                    # Shared types, DTOs, and format converters
+│   ├── shared/                    # Logger, preview, and error utilities
+│   ├── bootstrap/                 # NestJS app bootstrap and module wiring
+│   ├── review/                    # Review output formatting and trace rendering
+│   ├── workflows/                 # Workflow definitions and runner
+│   └── test/                      # Test utilities and fixtures
+│
+├── test/manual/                   # Manual smoke tests (run via yarn test:manual)
+├── scripts/                       # Build and migration scripts
+├── dist/                          # Compiled output (wf binary entry point)
+└── wf.config.ts                   # Project's own config (dogfooding)
 ```
+
+### Key Design Decisions
+
+- **File-system-only state.** No database — all artifacts, state, and logs live under `.wf/` in the target repository or `~/.wf/<repo>/` for repo-scoped artifacts. This keeps wf portable and easy to debug.
+- **Per-stage provider overrides.** Each pipeline stage can use a different AI provider and model via `stages.<command>` config, so you can use a cheaper model for planning and a more capable one for implementation.
+- **Agent vs completion mode.** Stages that need tool use (implement) run in agent mode via the Claude Agent SDK or OpenAI Agents SDK. Stages that need structured output (plan, review) use the completion API. Controlled by `stages.<command>.agent: true|false`.
+- **Adapter pattern.** Platform adapters (Jira, GitHub, Bitbucket) and AI adapters (Anthropic, OpenAI, Gemini, DeepSeek) share a common interface so new providers can be added without changing command or agent code.
+- **Config resolution.** `wf` resolves config from the target repository when `--repos` is supplied, not from the caller's cwd. This lets a single wf installation manage many repositories with different settings.
 
 ## Development
 
 ### Project Setup
 
 ```bash
+# Clone and enter the project
+git clone <repository-url>
+cd wf
+
+# Activate the correct Node.js version
+nvm use
+
 # Install dependencies
 yarn install
 
-# Start development mode
+# Build the project (compiles TypeScript to dist/)
+yarn build
+
+# Link globally so the `wf` command is available system-wide
+npm link
+```
+
+### Development Workflow
+
+```bash
+# Start development mode (watches for changes)
 yarn start:dev
 
 # Build for production
 yarn build
 
-# Run tests
-yarn test
+# Run from source without building (useful for quick iteration)
+yarn start <command> [args...]
 
-# Run TypeScript checks
+# Run TypeScript type checks
 yarn typecheck
 
-# Run tests with coverage
-yarn test:cov
+# Run linting
+yarn lint
+
+# Run formatting
+yarn format
 ```
+
+### Important: Stale Dist
+
+TypeScript changes have **no effect on the `wf` binary** until `yarn build` (which runs `nest build`) completes. Manual tests bypass this because they use `ts-node` directly, but any invocation via the global `wf` command reads from `dist/`. Always rebuild after code changes.
 
 ## Testing
 
 ### Unit Tests
+
+Specs are co-located next to their source files as `*.spec.ts`. The project uses Jest 30.
 
 ```bash
 # Run all unit tests
@@ -905,6 +967,8 @@ yarn test:cov
 ```
 
 ### Manual Testing
+
+Manual smoke tests live in `test/manual/` and are run via the `test:manual` script. These use `ts-node` so they always reflect the latest source.
 
 ```bash
 # Run a named manual smoke test
@@ -926,13 +990,7 @@ yarn test:manual diagnose-jira-permissions
 nr test:manual -- test-ci-yarn-scripts
 ```
 
-`test-issue-update-jira-adf-smoke` defaults to preview-only mode. `--live`
-enables the real Jira update path, and `--confirm-live-update` is the explicit
-mutation safety gate. If `--live` is supplied without
-`--confirm-live-update`, the harness fails early instead of sending the Jira
-`PUT`. When both flags are present, the harness prints the full payload
-preview and then prompts `Update <ticket>? (y/N)` — the update only
-proceeds if you answer `y` or `Y`.
+`test-issue-update-jira-adf-smoke` defaults to preview-only mode. `--live` enables the real Jira update path, and `--confirm-live-update` is the explicit mutation safety gate. If `--live` is supplied without `--confirm-live-update`, the harness fails early instead of sending the Jira `PUT`. When both flags are present, the harness prints the full payload preview and then prompts `Update <ticket>? (y/N)` — the update only proceeds if you answer `y` or `Y`.
 
 ### Integration Tests
 
