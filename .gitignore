@@ -9,7 +9,6 @@ node_modules/
 
 # Runtime logs / agent state
 .wf/
-.windsurf-agent/
 .env
 wf.config.ts
 verification.policy.json
