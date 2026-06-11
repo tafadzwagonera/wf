@@ -111,22 +111,27 @@ export class ImplementerAgent {
       console.log(chalk.cyan(`    ${i + 1}. ${step}`));
     });
 
-    // Narrate the plan before touching any files (Superpowers: writing-plans pattern)
-    console.log(chalk.gray('\n  Narrating plan...'));
-    const narration = await this.aiService.narrateImplementationPlan(
-      ticket.content,
-      planArtifact.plan,
-    );
-    console.log('');
-    narration.split('\n').forEach((line) => {
-      if (line.startsWith('## ')) {
-        console.log(chalk.bold(`  ${line}`));
-      } else if (line.trim()) {
-        console.log(chalk.cyan(`    ${line}`));
-      } else {
-        console.log('');
-      }
-    });
+    // Narrate the plan before touching any files (opt-in via stages.implement.narrate)
+    const shouldNarrate =
+      this.configService.get<boolean>('stages.implement.narrate') === true;
+    let narration = '';
+    if (shouldNarrate) {
+      console.log(chalk.gray('\n  Narrating plan...'));
+      narration = await this.aiService.narrateImplementationPlan(
+        ticket.content,
+        planArtifact.plan,
+      );
+      console.log('');
+      narration.split('\n').forEach((line) => {
+        if (line.startsWith('## ')) {
+          console.log(chalk.bold(`  ${line}`));
+        } else if (line.trim()) {
+          console.log(chalk.cyan(`    ${line}`));
+        } else {
+          console.log('');
+        }
+      });
+    }
 
     // Generate and write code changes for files belonging to this repo
     const repoName = options.repoDir ? path.basename(options.repoDir) : '';
@@ -172,7 +177,9 @@ export class ImplementerAgent {
       repoName,
       options.repoDir,
     );
-    const sceneContext = `${ticket.content}\n\n---\nPlan narration:\n${narration}`;
+    const sceneContext = narration
+      ? `${ticket.content}\n\n---\nPlan narration:\n${narration}`
+      : ticket.content;
 
     const backendSelection = this.resolveImplementBackendSelection();
     console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));

@@ -323,48 +323,81 @@ const loadClaudeContext = async (repoDir: string): Promise<string> => {
 };
 
 const buildSystemPrompt = ({
+  ticketKey,
   repoDir,
   repoName,
   repoFiles,
   trackedFilePaths,
   verificationScripts,
   sceneContext,
+  planSteps,
 }: {
+  ticketKey: string;
   repoDir: string;
   repoName: string;
   repoFiles: string[];
   trackedFilePaths: string[];
   verificationScripts: VerificationScript[];
   sceneContext: string;
+  planSteps: string[];
 }): string => {
   const fileList = formatRepoFileList(repoFiles, repoName);
-  const trackedFileList = formatRepoFileList(trackedFilePaths, repoName);
+  const trackedIdentical =
+    repoFiles.length === trackedFilePaths.length &&
+    repoFiles.every((f, i) => f === trackedFilePaths[i]);
+  const trackedFileList = trackedIdentical
+    ? '  (same as files to implement)'
+    : formatRepoFileList(trackedFilePaths, repoName);
   const verificationList =
     verificationScripts.length > 0
       ? verificationScripts.map((script) => `  - ${script.command}`).join('\n')
       : '  (none configured)';
+  const planStepList =
+    planSteps.length > 0
+      ? planSteps.map((step, i) => `  ${i + 1}. ${step}`).join('\n')
+      : '  (none listed)';
 
   return `You are an expert software engineer implementing code changes inside a repository.
 
 Repository directory: ${repoDir}
+Ticket key: ${ticketKey}
+
+Plan steps:
+${planStepList}
+
 Files to implement:
 ${fileList}
 
 Tracked files:
 ${trackedFileList}
 
-Verification commands (run these to check your work):
+Verification commands:
 ${verificationList}
 
+Available tools:
+- Read(file_path, offset?, limit?): read a file with optional line range
+- Write(file_path, content): write a full file into the primary repository only
+- Edit(file_path, old_string, new_string): surgically replace a unique string in a file
+- Glob(pattern, path?): find files by glob pattern
+- Grep(pattern, path?, glob?): search file contents by regex
+- Bash(command): run a verification command only if it is on the whitelist
+
 Rules:
-- Always Read existing file contents before modifying them. For edits that touch class constructors, method signatures, decorator lists, or module configuration, read the full file first and merge your changes into the existing structure rather than adding alongside it.
-- Use Write or Edit to write complete updated file contents
-- Use Bash only for verification commands that appear in the verification whitelist
-- Never duplicate a function, constructor, or class member. To add a parameter, modify the existing declaration. To change behavior, edit the existing body.
-- Writes are allowed only within the primary repository (${repoDir})
-- Reads are allowed from ${repoDir} and any configured read-only sibling repositories
-- Treat streamed progress updates as heuristics: continue when they point to forward motion, revisit when the pass looks stuck, and stop only when the agent returns a final result.
-- When all verification commands pass (exit 0) — or when you determine no file changes are required — stop and output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.
+- NEVER output free-form text, commentary, or planning at any point during the run. Every response you produce MUST contain at least one tool call. The ONLY exception is the final summary (using the exact template below) which you output after ALL work is done and ALL verification passes. If you feel the urge to describe what you will do next, call a tool instead. Text output without a tool call terminates the run immediately.
+- ALWAYS use Edit instead of Write for existing files. Write should only be used for creating new files. Using Write on existing files wastes context on unchanged lines.
+- Use Grep to find relevant line numbers, then Read with offset/limit to read only the section you need. Avoid reading entire large files.
+- For mechanical migrations (e.g. replacing Logger with PinoLogger across many files): use Grep to find all call sites, then apply Edit to each file without re-reading the full file — the search results show enough context.
+- Use Glob to discover file paths instead of guessing.
+- Bash is the only way to execute a shell command, and it will reject any command outside the verification whitelist.
+- Never invent or call any other shell command tool.
+- Never duplicate a function. To add a parameter, modify the existing function signature. To change behavior, edit the existing function body. This applies to constructors, methods, and standalone functions alike.
+- Writes must stay scoped to the primary repository (${repoDir}).
+- Reads may target ${repoDir} and any configured read-only sibling repositories.
+- You MUST implement ALL plan steps listed above. Do not stop after completing only the core infrastructure — continue through every step until all tasks are done.
+- Treat the returned progress signal as a heuristic only — never use a 'complete' verdict as a reason to stop. The verdict reflects a single verification command, not overall plan completion.
+- Use verification commands as intermediate checkpoints to catch regressions. After each passing verification, check whether ALL plan steps are done. If any migration or refactoring work remains, continue working.
+- After verification passes, run Grep to count remaining instances of the patterns you are migrating (e.g. 'new Logger('). If the search returns ANY matches, you MUST continue editing those files — do NOT output a summary or any text. Producing a summary that says "remaining work needed" or "follow-up required" is a failure. Keep calling Edit until the search returns zero matches.
+- Only stop when the migration search confirms zero remaining instances AND all verification commands pass (exit 0) — or when you determine no file changes are required. Then output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.
 
 ### What I changed
 <Bullet list of actual edits made. If nothing was changed, write: "No file content changes were required.">
@@ -456,12 +489,14 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
         append: [
           claudeContext ? `\n\nRepo AI context:\n${claudeContext}` : '',
           `\n\n${buildSystemPrompt({
+            ticketKey: params.ticket.ticketKey,
             repoDir,
             repoName,
             repoFiles,
             trackedFilePaths: params.trackedFilePaths,
             verificationScripts,
             sceneContext,
+            planSteps: params.planArtifact.plan.steps,
           })}`,
         ].join(''),
       },
