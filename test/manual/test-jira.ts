@@ -54,7 +54,7 @@ console.log(x);
     console.log('Test 3: Create Jira Ticket');
     const ticketKey = await jiraService.createTicket({
       project: 'TEST',
-      summary: 'Test ticket from windsurf-agent',
+      summary: 'Test ticket from wf',
       description: markdown,
       issueType: 'Task',
       labels: ['automated-test'],

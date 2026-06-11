@@ -3,24 +3,6 @@
     "description": "Configure agent settings",
     "usage": "wf config <get|set|list> [args]"
   },
-  "history": {
-    "description": "Show workflow execution history",
-    "usage": "wf history [options]",
-    "options": [
-      {
-        "flags": "-s, --status <status>",
-        "description": "Filter by status (completed, running, failed, cancelled)"
-      },
-      {
-        "flags": "-l, --limit <number>",
-        "description": "Maximum number of results (default: 20)"
-      },
-      {
-        "flags": "-w, --workflow <name>",
-        "description": "Filter by workflow name"
-      }
-    ]
-  },
   "issue:commit": {
     "description": "Create git commit with AI-generated message (auto-detects ticket from branch; fails hard if .gitignore is staged)",
     "usage": "wf issue:commit [ticket-key] [options]",
@@ -500,32 +482,6 @@
       {
         "comment": "Resume from a hashed plan artifact without --action",
         "command": "wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement"
-      }
-    ]
-  },
-  "list": {
-    "description": "List available workflows",
-    "usage": "wf list"
-  },
-  "resume": {
-    "description": "Resume a paused or failed workflow execution",
-    "usage": "wf resume <execution-id>"
-  },
-  "run": {
-    "description": "Execute a workflow",
-    "usage": "wf run <workflow-name> [options]",
-    "options": [
-      {
-        "flags": "-p, --params <json>",
-        "description": "Parameters as JSON string"
-      },
-      {
-        "flags": "-a, --auto-execute",
-        "description": "Skip approval gates (auto-execution mode)"
-      },
-      {
-        "flags": "-d, --dry-run",
-        "description": "Show workflow steps without executing"
       }
     ]
   }

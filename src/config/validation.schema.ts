@@ -42,10 +42,6 @@ export const validationSchema = Joi.object({
   BRANCH_PREFIX_FIX: Joi.string().default('bugfix'),
   BRANCH_PREFIX_INVESTIGATE: Joi.string().default('chore'),
 
-  // Workflow Configuration
-  WORKFLOW_DIRECTORY: Joi.string().default('.windsurf/workflows'),
-  WORKFLOW_AUTO_DISCOVERY: Joi.boolean().default(false),
-
   // State Configuration
   STATE_DIRECTORY: Joi.string().default(getWfStateDir()),
 

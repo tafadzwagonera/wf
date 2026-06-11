@@ -78,10 +78,6 @@ export interface WfConfig {
       investigate?: string;
     };
   };
-  workflows?: {
-    directory?: string;
-    autoDiscovery?: boolean;
-  };
   state?: {
     directory?: string;
   };

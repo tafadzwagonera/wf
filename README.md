@@ -1,11 +1,9 @@
-# Windsurf Workflow Automation Agent
+# wf — Issue Workflow CLI
 
-A **NestJS-based CLI agent** that automates Windsurf workflows with staged execution, approval gates, and AI-powered decision-making.
+A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan, implement, review, commit, and PR — with pluggable AI providers and platform integrations.
 
 ## Features
 
-- 🔄 **Staged Execution** - Execute workflows step-by-step with approval gates
-- ♻️ **Retry Capabilities** - Retry failed stages with modified parameters
 - 🎯 **Jira Integration** - Create, read, update Jira tickets with Markdown ↔ ADF conversion
 - 🌳 **Git Automation** - Branch management, conventional commits, and more
 - 🤖 **AI-Powered** - Claude integration for intelligent planning and code generation
@@ -829,61 +827,6 @@ wf issue:fetch 123 --platform bitbucket --repos myworkspace/repo-a myworkspace/r
 
 ---
 
-### Workflow Commands
-
-#### `wf list`
-
-List all available workflows from `.windsurf/workflows/`.
-
-```bash
-yarn start list
-```
-
-#### `wf validate <workflow>`
-
-Validate workflow syntax and structure.
-
-```bash
-yarn start validate test-workflow
-yarn start validate ./custom-workflow.md
-```
-
-#### `wf run <workflow> [args]`
-
-Execute a workflow with optional parameters.
-
-```bash
-yarn start run test-workflow
-yarn start run workflow --params '{"key":"value"}'
-yarn start run workflow --auto-execute
-yarn start run workflow --dry-run
-```
-
-**Options:**
-
-- `-p, --params <json>` - Parameters as JSON string
-- `-a, --auto-execute` - Skip approval gates
-- `-d, --dry-run` - Show workflow steps without executing
-
-#### `wf history`
-
-Show workflow execution history.
-
-```bash
-yarn start history
-yarn start history --status completed
-yarn start history --workflow test-workflow
-yarn start history --limit 5
-```
-
-#### `wf resume <execution-id>`
-
-Resume a paused or failed workflow.
-
-```bash
-yarn start resume a1b2c3d4
-```
-
 #### `wf config`
 
 Inspect the resolved runtime configuration.
@@ -892,100 +835,6 @@ Inspect the resolved runtime configuration.
 yarn start config get atlassian.baseUrl
 yarn start config set atlassian.email user@example.com
 yarn start config list
-```
-
-## Workflows
-
-### Workflow File Format
-
-Workflows are defined in Markdown files with YAML frontmatter:
-
-```markdown
----
-name: Example Workflow
-description: A simple example workflow
-autoExecutionMode: false
-version: 1.0.0
-tags:
-  - example
-  - demo
----
-
-# Example Workflow
-
-## Invocation
-
-\`\`\`bash
-wf run example-workflow
-\`\`\`
-
-## Execution Steps
-
-### Step 1: Initialize
-
-- Set up environment
-- Validate prerequisites
-
-### Step 2: Execute Task
-
-- Run main workflow action
-- Generate outputs
-
-### Step 3: Review Results (Approval Required)
-
-- Review outputs
-- Wait for user confirmation
-
-### Step 4: Cleanup
-
-- Clean up temporary files
-- Save final state
-
-## Evaluation Criteria
-
-- All steps complete successfully
-- No errors encountered
-- Output artifacts generated
-```
-
-### Workflow Discovery
-
-Place workflow files in `.windsurf/workflows/`:
-
-```
-.windsurf/
-└── workflows/
-    ├── issue.md
-    ├── git-commit.md
-    ├── create-jira-ticket.md
-    └── custom-workflow.md
-```
-
-### Approval Gates
-
-Steps with keywords like "approval", "review", "confirm", or "wait for" automatically trigger approval gates:
-
-```markdown
-### Step 3: Review and Approve
-
-- Review the generated code
-- **Wait for user approval** before proceeding
-```
-
-When a workflow reaches an approval gate:
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-APPROVAL REQUIRED: Review Stage Output
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-[Stage outputs displayed here]
-
-? What would you like to do?
-  ❯ Proceed to next stage
-    Retry this stage
-    Skip this stage
-    Cancel workflow
 ```
 
 ## Architecture
@@ -1000,42 +849,21 @@ wf/
 │   │   ├── issue-create.command.ts
 │   │   ├── issue-fetch.command.ts
 │   │   ├── issue-generate.command.ts
-│   │   ├── issue-implement.command.ts  # legacy
+│   │   ├── issue-implement.command.ts
 │   │   ├── issue-commit.command.ts
 │   │   ├── issue-plan.command.ts
 │   │   ├── issue-review.command.ts
-│   │   ├── run.command.ts
-│   │   ├── list.command.ts
-│   │   ├── validate.command.ts
-│   │   ├── resume.command.ts
-│   │   ├── history.command.ts
 │   │   └── config.command.ts
-│   │
-│   ├── core/                  # Core workflow engine
-│   │   ├── workflow-parser/   # Parse .md workflow files
-│   │   ├── stage-engine/      # Execute workflow stages
-│   │   ├── approval-system/   # Interactive approval gates
-│   │   └── state-manager/     # Persist execution state
 │   │
 │   ├── integrations/          # External service integrations
 │   │   ├── platforms/        # Platform adapters (Jira, GitHub, Bitbucket)
 │   │   ├── git/              # Git operations
-│   │   └── ai/               # Claude AI integration + conversation
+│   │   └── ai/               # AI integration + conversation
 │   │
 │   ├── common/               # Shared types, DTOs, and format converters
 │   ├── config/               # Configuration management
 │   └── shared/               # Logger, preview, and error utilities
 ```
-
-### Action Executors
-
-The agent supports multiple action types:
-
-1. **BashExecutor** - Execute shell commands
-2. **FileExecutor** - File operations (read, write, delete)
-3. **GitExecutor** - Git operations (branch, commit, push)
-4. **JiraExecutor** - Jira ticket operations (CRUD)
-5. **AIExecutor** - AI-powered tasks (planning, code review)
 
 ## Development
 
@@ -1059,23 +887,6 @@ yarn typecheck
 
 # Run tests with coverage
 yarn test:cov
-```
-
-### Create Custom Workflow
-
-1. Create a new `.md` file in `.windsurf/workflows/`
-2. Add YAML frontmatter with metadata
-3. Define execution steps
-4. Test with `wf validate`
-
-### Directory Structure
-
-```
-.wf/
-├── state/                 # Workflow execution state
-│   └── <execution-id>.json
-└── logs/                  # Application logs
-    └── agent-2026-03-12.log
 ```
 
 ## Testing
@@ -1108,9 +919,6 @@ nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /
 # Test Jira integration
 yarn test:manual test-jira
 
-# Test action executors
-yarn test:manual test-executors
-
 # Diagnose Jira permissions
 yarn test:manual diagnose-jira-permissions
 
@@ -1137,33 +945,28 @@ yarn test:e2e
 
 ### Common Issues
 
-**1. "Workflow not found"**
-
-- Check that workflow file exists in `.windsurf/workflows/`
-- Verify filename matches workflow name
-
-**2. "Jira authentication failed"**
+**1. "Jira authentication failed"**
 
 - Verify `atlassian.jira.apiToken` is correct and not expired
 - Check user has necessary permissions
 - Run diagnostic: `yarn ts-node -r tsconfig-paths/register test/manual/diagnose-jira-permissions.ts`
 
-**3. "Claude API error"**
+**2. "Claude API error"**
 
 - Verify the active Anthropic provider entry in `wf.config.*` has a valid `apiKey`
 - Check API quota and billing
 
-**4. "Git error"**
+**3. "Git error"**
 
 - Ensure you're in a git repository
 - Check git status and permissions
 
-**5. "Plan file not found"**
+**4. "Plan file not found"**
 
 - Run `issue:plan` (or `issue --from plan`) before running `implement` or later stages
 - If you resume from a ticket key, keep `--action` aligned with the existing plan; if you resume from a canonical hashed plan artifact, the action is decoded automatically and `--action` becomes optional
 
-**6. "Workspace required"**
+**5. "Workspace required"**
 
 - Set `atlassian.bitbucket.workspace` in `wf.config.*`, or pass `--repo workspace/repo` (full format)
 
@@ -1172,7 +975,7 @@ yarn test:e2e
 Enable debug logging:
 
 ```bash
-LOG_LEVEL=debug yarn start run workflow
+LOG_LEVEL=debug yarn start issue:fetch PROJ-123
 ```
 
 ## Contributing

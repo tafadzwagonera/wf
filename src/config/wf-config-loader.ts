@@ -147,10 +147,6 @@ export interface NormalizedWfConfig {
       investigate: string;
     };
   };
-  workflows: {
-    directory: string;
-    autoDiscovery: boolean;
-  };
   state: {
     directory: string;
   };
@@ -278,10 +274,6 @@ const configSchema = Joi.object<WfConfig>({
       fix: Joi.string().optional(),
       investigate: Joi.string().optional(),
     }).optional(),
-  }).optional(),
-  workflows: Joi.object({
-    directory: Joi.string().optional(),
-    autoDiscovery: Joi.boolean().optional(),
   }).optional(),
   state: Joi.object({
     directory: Joi.string().optional(),
@@ -975,10 +967,6 @@ export const normalizeWfConfig = (
         investigate:
           validatedConfig.branching?.prefixMapping?.investigate ?? 'chore',
       },
-    },
-    workflows: {
-      directory: validatedConfig.workflows?.directory ?? '.windsurf/workflows',
-      autoDiscovery: validatedConfig.workflows?.autoDiscovery ?? false,
     },
     state: {
       directory: resolveWfPath(validatedConfig.state?.directory, 'state'),

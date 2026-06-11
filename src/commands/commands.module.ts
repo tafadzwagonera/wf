@@ -1,8 +1,4 @@
 import { Module } from '@nestjs/common';
-import { RunCommand } from './run.command';
-import { ListCommand } from './list.command';
-import { ResumeCommand } from './resume.command';
-import { HistoryCommand } from './history.command';
 import {
   ConfigCommand,
   ConfigGetCommand,
@@ -21,9 +17,6 @@ import { IssueCommitCommand } from './issue-commit.command';
 import { IssuePrCommand } from './issue-pr.command';
 import { IssueCowsayCommand } from './issue-cowsay.command';
 import { AgentsModule } from '../agents/agents.module';
-import { WorkflowParserModule } from '../core/workflow-parser/workflow-parser.module';
-import { StageEngineModule } from '../core/stage-engine/stage-engine.module';
-import { StateManagerModule } from '../core/state-manager/state-manager.module';
 import { JiraModule } from '../integrations/jira/jira.module';
 import { GitModule } from '../integrations/git/git.module';
 import { AIModule } from '../integrations/ai/ai.module';
@@ -37,9 +30,6 @@ import { WorkflowStagesModule } from '../workflows/stages/workflow-stages.module
 @Module({
   imports: [
     AgentsModule,
-    WorkflowParserModule,
-    StageEngineModule,
-    StateManagerModule,
     JiraModule,
     GitModule,
     AIModule,
@@ -48,10 +38,6 @@ import { WorkflowStagesModule } from '../workflows/stages/workflow-stages.module
     WorkflowStagesModule,
   ],
   providers: [
-    RunCommand,
-    ListCommand,
-    ResumeCommand,
-    HistoryCommand,
     ConfigCommand,
     ConfigGetCommand,
     ConfigSetCommand,

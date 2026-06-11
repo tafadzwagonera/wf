@@ -105,8 +105,7 @@ describe('getHelpText', () => {
     expect(helpText).not.toContain('--pr-hint');
   });
 
-  it('reflects current run and review command flags', () => {
-    const runHelpText = getHelpText(['run', '--help'], catalog);
+  it('reflects current plan, review, generate, and implement command flags', () => {
     const planHelpText = getHelpText(['issue:plan', '--help'], catalog);
     const reviewHelpText = getHelpText(['issue:review', '--help'], catalog);
     const generateHelpText = getHelpText(['issue:generate', '--help'], catalog);
@@ -129,8 +128,6 @@ describe('getHelpText', () => {
     );
     expect(planHelpText).toContain('--custom <source.md>');
     expect(planHelpText).toContain('--repos <repos...>');
-    expect(runHelpText).toContain('--auto-execute');
-    expect(runHelpText).not.toContain('--auto-approve');
     expect(reviewHelpText).toContain('--criteria <path>');
     expect(reviewHelpText).toContain('--replace-criteria <path>');
     expect(plainReviewHelpText).toContain(

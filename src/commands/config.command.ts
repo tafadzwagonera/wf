@@ -112,9 +112,6 @@ export class ConfigListCommand extends CommandRunner {
         'git.defaultBranch': this.configService.get('git.defaultBranch'),
         'git.commitFormat': this.configService.get('git.commitFormat'),
       },
-      'Workflow Settings': {
-        'workflows.directory': this.configService.get('workflows.directory'),
-      },
       'System Settings': {
         'state.directory': this.configService.get('state.directory'),
         'logging.directory': this.configService.get('logging.directory'),
