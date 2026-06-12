@@ -19,7 +19,7 @@ export const ensureWfHome = async (): Promise<void> => {
 
   if (!process.stdin.isTTY) {
     throw new Error(
-      `The wf home directory (${wfHome}) does not exist. Create it manually or reinstall wf.`,
+      `The wf home directory (${wfHome}) does not exist. Create it manually:\n\n  mkdir -p ${wfHome}/logs ${wfHome}/state`,
     );
   }
 
@@ -38,7 +38,7 @@ export const ensureWfHome = async (): Promise<void> => {
 
   if (!confirm) {
     throw new Error(
-      `The wf home directory (${wfHome}) is required. Create it manually or reinstall wf.`,
+      `The wf home directory (${wfHome}) is required. Create it manually:\n\n  mkdir -p ${wfHome}/logs ${wfHome}/state`,
     );
   }
 
