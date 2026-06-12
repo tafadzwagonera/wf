@@ -79,7 +79,7 @@ async function main() {
     '## Goal\nVerify long branch names.\n';
 
   const result = await implementer.execute(ticket, planArtifact, {
-    platformName: 'jira',
+    trackerName: 'jira',
     repoDir,
     suppressHeader: true,
   });
@@ -158,7 +158,7 @@ async function main() {
     '## Goal\nVerify bare heading branch names.\n';
 
   const result2 = await implementer.execute(ticket2, planArtifact2, {
-    platformName: 'jira',
+    trackerName: 'jira',
     repoDir: repoDir2,
     suppressHeader: true,
   });

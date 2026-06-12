@@ -86,7 +86,7 @@ async function main() {
     (process as any).cwd = () => tmpDir;
 
     const stdoutCapture = captureStdout();
-    await command.run(['my-plan.json'], { platform: 'jira', dryRun: true });
+    await command.run(['my-plan.json'], { tracker: 'jira', dryRun: true });
     const output = stdoutCapture.restore();
 
     (process as any).cwd = origCwd;
@@ -162,7 +162,7 @@ async function main() {
 
     const stdoutCapture = captureStdout();
     await command.run(['bar-plan-fix.json'], {
-      platform: 'jira',
+      tracker: 'jira',
       repos: ['bar'],
       dryRun: true,
     });

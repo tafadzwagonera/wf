@@ -9,7 +9,7 @@ import { Test } from '@nestjs/testing';
 import { IssueReviewCommand } from '../../src/commands/issue-review.command';
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { GitService } from '../../src/integrations/git/git.service';
-import { PlatformService } from '../../src/integrations/platforms/platform.service';
+import { IssueTrackerService } from '../../src/integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../../src/shared/logger/logger.service';
 import { DryRunPreviewService } from '../../src/shared/preview/dry-run-preview.service';
 import { ReviewStageService } from '../../src/workflows/stages/review-stage.service';
@@ -99,14 +99,14 @@ async function run(): Promise<void> {
         },
       },
       {
-        provide: PlatformService,
+        provide: IssueTrackerService,
         useValue: {
           getDefaultAdapter: () => jiraAdapter,
-          getAdapter: (platformName: string) => {
-            if (platformName === 'jira') return jiraAdapter;
-            if (platformName === 'github') return githubAdapter;
-            if (platformName === 'bitbucket') return bitbucketAdapter;
-            throw new Error(`Unknown platform: ${platformName}`);
+          getAdapter: (trackerName: string) => {
+            if (trackerName === 'jira') return jiraAdapter;
+            if (trackerName === 'github') return githubAdapter;
+            if (trackerName === 'bitbucket') return bitbucketAdapter;
+            throw new Error(`Unknown platform: ${trackerName}`);
           },
           getPullRequestDiscoveryAdapters: () =>
             new Map([

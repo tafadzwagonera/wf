@@ -12,7 +12,7 @@ import {
   formatReviewStateTransition,
 } from '../integrations/ai/review-trace';
 import { GitService } from '../integrations/git/git.service';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
@@ -33,7 +33,7 @@ interface IssueReviewOptions {
   output?: string;
   dryRun?: boolean;
   comment?: boolean;
-  platform?: string;
+  tracker?: string;
   repos?: string[];
   criteria?: string;
   replaceCriteria?: string;
@@ -82,7 +82,7 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   {
     comment:
       'Review a ticket and its associated pull requests across credentialed repos',
-    command: 'wf issue:review WBP-2971 --platform jira --repos service-tourv3',
+    command: 'wf issue:review WBP-2971 --tracker jira --repos service-tourv3',
   },
   {
     comment:
@@ -143,7 +143,7 @@ export class IssueReviewCommand extends CommandRunner {
   constructor(
     private readonly aiService: AiService,
     private readonly gitService: GitService,
-    private readonly platformService: PlatformService,
+    private readonly issueTrackerService: IssueTrackerService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
     private readonly reviewStageService: ReviewStageService,
@@ -370,14 +370,14 @@ export class IssueReviewCommand extends CommandRunner {
           );
         }
 
-        const ticketAdapter = options?.platform
-          ? this.platformService.getAdapter(options.platform)
-          : this.platformService.getDefaultAdapter();
+        const ticketAdapter = options?.tracker
+          ? this.issueTrackerService.getAdapter(options.tracker)
+          : this.issueTrackerService.getDefaultAdapter();
 
         if (!options?.silent) {
           console.log(
             chalk.gray(
-              `  Fetching ticket ${source} from ${ticketAdapter.getPlatformName()}...\n`,
+              `  Fetching ticket ${source} from ${ticketAdapter.getTrackerName()}...\n`,
             ),
           );
         }
@@ -597,11 +597,11 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-p, --platform <platform>',
+    flags: '-t, --tracker <tracker>',
     description:
-      'Platform (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary platform',
+      'Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker',
   })
-  parsePlatform(val: string): string {
+  parseTracker(val: string): string {
     return val;
   }
 
@@ -776,7 +776,7 @@ export class IssueReviewCommand extends CommandRunner {
 
     let adapter: any;
     try {
-      adapter = this.platformService.getAdapter(adapterName);
+      adapter = this.issueTrackerService.getAdapter(adapterName);
     } catch (error: any) {
       console.log(
         chalk.yellow(
@@ -934,10 +934,10 @@ export class IssueReviewCommand extends CommandRunner {
   private async reviewPullRequest(url: string): Promise<string> {
     // Determine platform from URL
     if (url.includes('github.com')) {
-      const adapter = this.platformService.getAdapter('github');
+      const adapter = this.issueTrackerService.getAdapter('github');
       return await adapter.getPullRequestDiff!(url);
     } else if (url.includes('bitbucket.org')) {
-      const adapter = this.platformService.getAdapter('bitbucket');
+      const adapter = this.issueTrackerService.getAdapter('bitbucket');
       return await adapter.getPullRequestDiff!(url);
     } else {
       throw new Error(
@@ -974,7 +974,7 @@ export class IssueReviewCommand extends CommandRunner {
     repoInputs: string[],
   ): Promise<PullRequestDiscoveryResult> {
     const adapters = [
-      ...this.platformService.getPullRequestDiscoveryAdapters().entries(),
+      ...this.issueTrackerService.getPullRequestDiscoveryAdapters().entries(),
     ].sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
 
     const repoHints = this.resolveTicketDiscoveryRepoHints(repoInputs);

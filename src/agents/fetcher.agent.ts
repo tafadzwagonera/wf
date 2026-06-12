@@ -12,7 +12,7 @@ export class FetcherAgent {
    * Fetch a ticket from the platform and save it as a markdown artifact.
    *
    * @param ticketKey - The ticket identifier (e.g. WBP-1234)
-   * @param options - Fetch options including platformName, optional repo override, and skipExisting flag
+   * @param options - Fetch options including trackerName, optional repo override, and skipExisting flag
    * @returns The TicketArtifact with key, markdown content, and file path
    */
   async execute(
@@ -54,20 +54,20 @@ export class FetcherAgent {
    * Load an existing ticket artifact from disk.
    *
    * @param ticketKey - The ticket identifier (e.g. WBP-1234)
-   * @param platformName - The platform directory name (e.g. 'jira', 'bitbucket')
+   * @param trackerName - The platform directory name (e.g. 'jira', 'bitbucket')
    * @param baseDir - Base directory for artifact storage (defaults to process.cwd())
    * @returns The TicketArtifact with key, markdown content, and file path
    * @throws Error if the ticket file does not exist on disk
    */
   loadFromDisk(
     ticketKey: string,
-    platformName: string,
+    trackerName: string,
     baseDir: string = process.cwd(),
     silent?: boolean,
   ): TicketArtifact {
     const artifact = this.fetchStageService.loadArtifact(
       ticketKey,
-      platformName,
+      trackerName,
       baseDir,
     );
     if (!silent) {

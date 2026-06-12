@@ -2,31 +2,31 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Bitbucket } from 'bitbucket';
 import {
-  PlatformAdapter,
-  PlatformFeature,
-} from '../platform-adapter.interface';
+  IssueTrackerAdapter,
+  IssueTrackerFeature,
+} from '../issue-tracker-adapter.interface';
 import {
   UniversalTicket,
-  PlatformTicketReference,
+  IssueTrackerTicketReference,
   TicketType,
   TicketPriority,
 } from '../../../common/dto/universal-ticket.dto';
 import { LoggerService } from '../../../shared/logger/logger.service';
-import { PlatformConfigService } from '../platform-config.service';
+import { IssueTrackerConfigService } from '../issue-tracker-config.service';
 
 /**
- * BitBucket platform adapter implementing PlatformAdapter interface
+ * BitBucket platform adapter implementing IssueTrackerAdapter interface
  * Handles BitBucket issues and pull requests
  */
 @Injectable()
-export class BitBucketAdapter implements PlatformAdapter {
+export class BitBucketAdapter implements IssueTrackerAdapter {
   private bitbucket: InstanceType<typeof Bitbucket>;
   private defaultWorkspace?: string;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
-    private readonly platformConfig: PlatformConfigService,
+    private readonly issueTrackerConfig: IssueTrackerConfigService,
   ) {
     const email = this.configService.get<string>('atlassian.email');
     const apiToken = this.configService.get<string>(
@@ -36,13 +36,13 @@ export class BitBucketAdapter implements PlatformAdapter {
       'atlassian.bitbucket.workspace',
     );
 
-    // Check if platform has any configuration (partial config detection)
+    // Check if tracker has any configuration (partial config detection)
     const hasPartialConfig = Boolean(apiToken || workspace);
 
     if (!email || !apiToken) {
-      // Only warn if platform is enabled
+      // Only warn if tracker is enabled
       if (
-        this.platformConfig.isPlatformEnabled('bitbucket', hasPartialConfig)
+        this.issueTrackerConfig.isTrackerEnabled('bitbucket', hasPartialConfig)
       ) {
         this.logger.warn(
           'BitBucket credentials not configured. Set atlassian.email, atlassian.bitbucket.apiToken, and atlassian.bitbucket.workspace in wf.config.*.',
@@ -65,7 +65,7 @@ export class BitBucketAdapter implements PlatformAdapter {
    */
   async createTicket(
     ticket: UniversalTicket,
-  ): Promise<PlatformTicketReference> {
+  ): Promise<IssueTrackerTicketReference> {
     const { workspace, repo } = this.parseProjectOrDefault(ticket.project);
 
     const response = await this.bitbucket.issue.create({
@@ -84,7 +84,7 @@ export class BitBucketAdapter implements PlatformAdapter {
     const issue = response.data;
 
     return {
-      platform: 'bitbucket',
+      tracker: 'bitbucket',
       id: issue.id.toString(),
       key: `${workspace}/${repo}#${issue.id}`,
       url: issue.links?.html?.href,
@@ -117,7 +117,7 @@ export class BitBucketAdapter implements PlatformAdapter {
       created: new Date(issue.created_on),
       updated: new Date(issue.updated_on),
       project: `${workspace}/${repo}`,
-      platformData: {
+      trackerData: {
         bitbucketId: issue.id,
         bitbucketUrl: issue.links?.html?.href,
       },
@@ -162,15 +162,15 @@ export class BitBucketAdapter implements PlatformAdapter {
   /**
    * Check if BitBucket supports a feature
    */
-  supports(feature: PlatformFeature): boolean {
+  supports(feature: IssueTrackerFeature): boolean {
     const supportedFeatures = [
-      PlatformFeature.CREATE_TICKET,
-      PlatformFeature.GET_TICKET,
-      PlatformFeature.UPDATE_TICKET,
-      PlatformFeature.SEARCH_TICKETS,
-      PlatformFeature.GET_PULL_REQUEST,
-      PlatformFeature.CREATE_COMMENT,
-      PlatformFeature.CREATE_INLINE_COMMENT,
+      IssueTrackerFeature.CREATE_TICKET,
+      IssueTrackerFeature.GET_TICKET,
+      IssueTrackerFeature.UPDATE_TICKET,
+      IssueTrackerFeature.SEARCH_TICKETS,
+      IssueTrackerFeature.GET_PULL_REQUEST,
+      IssueTrackerFeature.CREATE_COMMENT,
+      IssueTrackerFeature.CREATE_INLINE_COMMENT,
     ];
 
     return supportedFeatures.includes(feature);
@@ -179,7 +179,7 @@ export class BitBucketAdapter implements PlatformAdapter {
   /**
    * Get platform name
    */
-  getPlatformName(): string {
+  getTrackerName(): string {
     return 'bitbucket';
   }
 
@@ -349,7 +349,7 @@ export class BitBucketAdapter implements PlatformAdapter {
           created: new Date(issue.created_on),
           updated: new Date(issue.updated_on),
           project: `${workspace}/${repo}`,
-          platformData: {
+          trackerData: {
             bitbucketId: issue.id,
             bitbucketUrl: issue.links?.html?.href,
           },

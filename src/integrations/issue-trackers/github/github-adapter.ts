@@ -2,25 +2,25 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Octokit } from '@octokit/rest';
 import {
-  PlatformAdapter,
-  PlatformFeature,
+  IssueTrackerAdapter,
+  IssueTrackerFeature,
   CreatePullRequestOptions,
-} from '../platform-adapter.interface';
+} from '../issue-tracker-adapter.interface';
 import {
   UniversalTicket,
-  PlatformTicketReference,
+  IssueTrackerTicketReference,
   TicketType,
   TicketPriority,
 } from '../../../common/dto/universal-ticket.dto';
 import { LoggerService } from '../../../shared/logger/logger.service';
-import { PlatformConfigService } from '../platform-config.service';
+import { IssueTrackerConfigService } from '../issue-tracker-config.service';
 
 /**
- * GitHub platform adapter implementing PlatformAdapter interface
+ * GitHub platform adapter implementing IssueTrackerAdapter interface
  * Handles GitHub issues and pull requests
  */
 @Injectable()
-export class GitHubAdapter implements PlatformAdapter {
+export class GitHubAdapter implements IssueTrackerAdapter {
   private octokit: Octokit;
   private defaultOwner?: string;
   private defaultRepo?: string;
@@ -28,17 +28,19 @@ export class GitHubAdapter implements PlatformAdapter {
   constructor(
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
-    private readonly platformConfig: PlatformConfigService,
+    private readonly issueTrackerConfig: IssueTrackerConfigService,
   ) {
     const token = this.configService.get<string>('github.token');
     const defaultRepo = this.configService.get<string>('github.defaultRepo');
 
-    // Check if platform has any configuration (partial config detection)
+    // Check if tracker has any configuration (partial config detection)
     const hasPartialConfig = Boolean(token || defaultRepo);
 
     if (!token) {
-      // Only warn if platform is enabled
-      if (this.platformConfig.isPlatformEnabled('github', hasPartialConfig)) {
+      // Only warn if tracker is enabled
+      if (
+        this.issueTrackerConfig.isTrackerEnabled('github', hasPartialConfig)
+      ) {
         this.logger.warn(
           'GitHub token not configured. Set github.token in wf.config.*.',
         );
@@ -61,7 +63,7 @@ export class GitHubAdapter implements PlatformAdapter {
    */
   async createTicket(
     ticket: UniversalTicket,
-  ): Promise<PlatformTicketReference> {
+  ): Promise<IssueTrackerTicketReference> {
     const { owner, repo } = this.parseProjectOrDefault(ticket.project);
 
     const labels = this.buildLabels(ticket);
@@ -76,7 +78,7 @@ export class GitHubAdapter implements PlatformAdapter {
     });
 
     return {
-      platform: 'github',
+      tracker: 'github',
       id: response.data.number.toString(),
       key: `${owner}/${repo}#${response.data.number}`,
       url: response.data.html_url,
@@ -112,7 +114,7 @@ export class GitHubAdapter implements PlatformAdapter {
         typeof l === 'string' ? l : l.name,
       ),
       project: `${owner}/${repo}`,
-      platformData: {
+      trackerData: {
         githubNumber: issue.number,
         githubUrl: issue.html_url,
       },
@@ -157,17 +159,17 @@ export class GitHubAdapter implements PlatformAdapter {
   /**
    * Check if GitHub supports a feature
    */
-  supports(feature: PlatformFeature): boolean {
+  supports(feature: IssueTrackerFeature): boolean {
     const supportedFeatures = [
-      PlatformFeature.CREATE_TICKET,
-      PlatformFeature.GET_TICKET,
-      PlatformFeature.UPDATE_TICKET,
-      PlatformFeature.SEARCH_TICKETS,
-      PlatformFeature.GET_PULL_REQUEST,
-      PlatformFeature.CREATE_COMMENT,
-      PlatformFeature.ADD_LABELS,
-      PlatformFeature.ASSIGN_TICKET,
-      PlatformFeature.CREATE_PULL_REQUEST,
+      IssueTrackerFeature.CREATE_TICKET,
+      IssueTrackerFeature.GET_TICKET,
+      IssueTrackerFeature.UPDATE_TICKET,
+      IssueTrackerFeature.SEARCH_TICKETS,
+      IssueTrackerFeature.GET_PULL_REQUEST,
+      IssueTrackerFeature.CREATE_COMMENT,
+      IssueTrackerFeature.ADD_LABELS,
+      IssueTrackerFeature.ASSIGN_TICKET,
+      IssueTrackerFeature.CREATE_PULL_REQUEST,
     ];
 
     return supportedFeatures.includes(feature);
@@ -176,7 +178,7 @@ export class GitHubAdapter implements PlatformAdapter {
   /**
    * Get platform name
    */
-  getPlatformName(): string {
+  getTrackerName(): string {
     return 'github';
   }
 
@@ -308,7 +310,7 @@ export class GitHubAdapter implements PlatformAdapter {
           labels: issue.labels.map((l: any) =>
             typeof l === 'string' ? l : l.name,
           ),
-          platformData: {
+          trackerData: {
             githubNumber: issue.number,
             githubUrl: issue.html_url,
           },

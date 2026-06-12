@@ -1,12 +1,12 @@
 import {
   UniversalTicket,
-  PlatformTicketReference,
+  IssueTrackerTicketReference,
 } from '../../common/dto/universal-ticket.dto';
 
 /**
- * Features that a platform may or may not support
+ * Features that a tracker may or may not support
  */
-export enum PlatformFeature {
+export enum IssueTrackerFeature {
   CREATE_TICKET = 'create_ticket',
   GET_TICKET = 'get_ticket',
   UPDATE_TICKET = 'update_ticket',
@@ -21,7 +21,7 @@ export enum PlatformFeature {
 }
 
 /**
- * Options for creating a pull request via PlatformAdapter.createPullRequest
+ * Options for creating a pull request via IssueTrackerAdapter.createPullRequest
  */
 export interface CreatePullRequestOptions {
   /** PR title */
@@ -40,26 +40,26 @@ export interface CreatePullRequestOptions {
 }
 
 /**
- * Base interface that all platform adapters must implement.
- * Enables platform-agnostic ticket operations.
+ * Base interface that all issue tracker adapters must implement.
+ * Enables tracker-agnostic ticket operations.
  */
-export interface PlatformAdapter {
+export interface IssueTrackerAdapter {
   /**
-   * Create a new ticket on the platform
+   * Create a new ticket on the tracker
    * @param ticket Universal ticket data
    * @returns Reference to the created ticket
    */
-  createTicket(ticket: UniversalTicket): Promise<PlatformTicketReference>;
+  createTicket(ticket: UniversalTicket): Promise<IssueTrackerTicketReference>;
 
   /**
-   * Get a ticket from the platform by its reference
+   * Get a ticket from the tracker by its reference
    * @param reference Ticket key/ID (e.g., "WBP-2971" for Jira, "123" for GitHub)
    * @returns Universal ticket data
    */
   getTicket(reference: string): Promise<UniversalTicket>;
 
   /**
-   * Update an existing ticket on the platform
+   * Update an existing ticket on the tracker
    * @param reference Ticket key/ID
    * @param updates Partial ticket data to update
    */
@@ -69,37 +69,37 @@ export interface PlatformAdapter {
   ): Promise<void>;
 
   /**
-   * Check if the platform supports a specific feature
+   * Check if the tracker supports a specific feature
    * @param feature Feature to check
    * @returns true if supported, false otherwise
    */
-  supports(feature: PlatformFeature): boolean;
+  supports(feature: IssueTrackerFeature): boolean;
 
   /**
-   * Get the platform name (e.g., "jira", "github", "bitbucket")
-   * @returns Platform identifier
+   * Get the tracker name (e.g., "jira", "github", "bitbucket")
+   * @returns Tracker identifier
    */
-  getPlatformName(): string;
+  getTrackerName(): string;
 
   /**
    * Get the diff/changes from a pull request URL
-   * Optional - only for platforms that support PRs
+   * Optional - only for trackers that support PRs
    * @param url Pull request URL
    * @returns Diff content as string
    */
   getPullRequestDiff?(url: string): Promise<string>;
 
   /**
-   * Search for tickets on the platform
-   * Optional - only for platforms that support search
-   * @param query Platform-specific query string
+   * Search for tickets on the tracker
+   * Optional - only for trackers that support search
+   * @param query Tracker-specific query string
    * @returns Array of matching tickets
    */
   searchTickets?(query: string): Promise<UniversalTicket[]>;
 
   /**
    * Post a comment on a PR or issue
-   * Optional — only for platforms that support CREATE_COMMENT
+   * Optional — only for trackers that support CREATE_COMMENT
    * @param reference PR URL or issue reference (e.g. "workspace/repo#42")
    * @param body Markdown comment body
    */
@@ -107,7 +107,7 @@ export interface PlatformAdapter {
 
   /**
    * Post an inline (line-level) comment on a PR diff.
-   * Optional — only for platforms that support inline PR comments.
+   * Optional — only for trackers that support inline PR comments.
    * @param prUrl Full PR URL
    * @param filePath Diff-relative file path (e.g. "src/foo/bar.ts")
    * @param line Destination-side line number to anchor the comment to
@@ -122,7 +122,7 @@ export interface PlatformAdapter {
 
   /**
    * Find an open pull request whose source branch name contains the ticket key
-   * Optional — only for platforms that support PR search by branch
+   * Optional — only for trackers that support PR search by branch
    * @param ticketKey Ticket key to search for (e.g. "WBP-2955")
    * @param repoOverride Optional repo in "workspace/repo" format; falls back to default
    * @returns PR URL if found, null otherwise
@@ -134,9 +134,9 @@ export interface PlatformAdapter {
 
   /**
    * Find all open pull requests whose source branch or title contains the ticket key.
-   * Optional — only for platforms that support PR search by branch/title.
+   * Optional — only for trackers that support PR search by branch/title.
    * @param ticketKey Ticket key to search for (e.g. "WBP-2955")
-   * @param repoOverride Optional repo in platform-specific format; falls back to default
+   * @param repoOverride Optional repo in tracker-specific format; falls back to default
    * @returns Array of matching PR URLs in deterministic order
    */
   findPullRequestsByTicketKey?(
@@ -145,8 +145,8 @@ export interface PlatformAdapter {
   ): Promise<string[]>;
 
   /**
-   * Create a pull request on the platform.
-   * Optional — only for platforms that support PR creation.
+   * Create a pull request on the tracker.
+   * Optional — only for trackers that support PR creation.
    *
    * @param options - PR creation parameters
    * @returns URL of the created pull request

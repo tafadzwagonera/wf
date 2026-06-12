@@ -52,10 +52,7 @@ export interface WfCreateStageConfig {
 }
 
 export interface WfConfig {
-  platforms?: {
-    primary?: 'jira' | 'github' | 'bitbucket';
-    enabled?: Array<'jira' | 'github' | 'bitbucket'>;
-  };
+  tracker?: 'jira' | 'github' | 'bitbucket';
   output?: {
     defaultFormat?: 'json' | 'md' | 'yaml' | 'yml';
   };

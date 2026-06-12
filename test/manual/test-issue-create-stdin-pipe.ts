@@ -13,7 +13,7 @@ import { NestFactory } from '@nestjs/core';
 import { Readable } from 'stream';
 import { AppModule } from '../../src/app.module';
 import { IssueCreateCommand } from '../../src/commands/issue-create.command';
-import { PlatformService } from '../../src/integrations/platforms/platform.service';
+import { IssueTrackerService } from '../../src/integrations/issue-trackers/issue-tracker.service';
 
 const MOCK_MARKDOWN_TICKET = [
   '# Add OAuth2 support',
@@ -49,7 +49,7 @@ async function testStdinPipe() {
   const command = app.get(IssueCreateCommand);
 
   // Mock the platform adapter to capture the ticket instead of calling the API
-  const platformService = app.get(PlatformService);
+  const platformService = app.get(IssueTrackerService);
   let capturedTicket: any = null;
   const origGetAdapter = platformService.getAdapter.bind(platformService);
   (platformService as any).getAdapter = (name: string) => {

@@ -13,7 +13,7 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssuePlanCommand } from '../../src/commands/issue-plan.command';
 import { AiService } from '../../src/integrations/ai/ai.service';
-import { PlatformService } from '../../src/integrations/platforms/platform.service';
+import { IssueTrackerService } from '../../src/integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../../src/shared/logger/logger.service';
 import { DryRunPreviewService } from '../../src/shared/preview/dry-run-preview.service';
 import { FetchStageService } from '../../src/workflows/stages/fetch-stage.service';
@@ -84,7 +84,7 @@ const fail = (message: string, detail?: string): void => {
 const buildCommand = async (): Promise<{
   command: IssuePlanCommand;
   fetchArtifact: AsyncMock<
-    [string, { platformName: string; repo: string; baseDir: string }],
+    [string, { trackerName: string; repo: string; baseDir: string }],
     { ticketKey: string; content: string; path: string }
   >;
   generatePlan: AsyncMock<
@@ -96,7 +96,7 @@ const buildCommand = async (): Promise<{
   >;
 }> => {
   const fetchArtifact = createAsyncMock<
-    [string, { platformName: string; repo: string; baseDir: string }],
+    [string, { trackerName: string; repo: string; baseDir: string }],
     { ticketKey: string; content: string; path: string }
   >();
   const loadArtifact = createAsyncMock<
@@ -120,7 +120,7 @@ const buildCommand = async (): Promise<{
           getProviderDisplayName: () => 'OpenAI',
         },
       },
-      { provide: PlatformService, useValue: {} },
+      { provide: IssueTrackerService, useValue: {} },
       {
         provide: FetchStageService,
         useValue: {

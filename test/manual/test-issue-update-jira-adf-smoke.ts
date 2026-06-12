@@ -19,7 +19,7 @@ import { of } from 'rxjs';
 import { UniversalTicket } from '../../src/common/dto/universal-ticket.dto';
 import { AppModule } from '../../src/app.module';
 import { JiraService } from '../../src/integrations/jira/jira.service';
-import { JiraAdapter } from '../../src/integrations/platforms/jira/jira-adapter';
+import { JiraAdapter } from '../../src/integrations/issue-trackers/jira/jira-adapter';
 import {
   loadDescriptionFile,
   parseJiraUpdateSmokeArgs,
@@ -50,7 +50,7 @@ const createPreviewDependencies = (): {
       success: () => undefined,
     } as any,
     {
-      isPlatformEnabled: () => true,
+      isTrackerEnabled: () => true,
     } as any,
   );
   const adapter = new JiraAdapter(jiraService, {

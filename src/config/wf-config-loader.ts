@@ -82,10 +82,7 @@ export interface NormalizedCreateStageConfig {
 }
 
 export interface NormalizedWfConfig {
-  platforms: {
-    primary: 'jira' | 'github' | 'bitbucket';
-    enabled?: Array<'jira' | 'github' | 'bitbucket'>;
-  };
+  tracker: 'jira' | 'github' | 'bitbucket';
   output: {
     defaultFormat: string;
   };
@@ -233,12 +230,7 @@ const implementStageSchema = Joi.object<WfImplementStageConfig>({
 });
 
 const configSchema = Joi.object<WfConfig>({
-  platforms: Joi.object({
-    primary: Joi.string().valid('jira', 'github', 'bitbucket').optional(),
-    enabled: Joi.array()
-      .items(Joi.string().valid('jira', 'github', 'bitbucket'))
-      .optional(),
-  }).optional(),
+  tracker: Joi.string().valid('jira', 'github', 'bitbucket').optional(),
   output: Joi.object({
     defaultFormat: Joi.string().valid('json', 'md', 'yaml', 'yml').optional(),
   }).optional(),
@@ -905,10 +897,7 @@ export const normalizeWfConfig = (
     validatedConfig.atlassian?.apiToken;
 
   return {
-    platforms: {
-      primary: validatedConfig.platforms?.primary ?? 'jira',
-      enabled: validatedConfig.platforms?.enabled,
-    },
+    tracker: validatedConfig.tracker ?? 'jira',
     output: {
       defaultFormat: validatedConfig.output?.defaultFormat ?? 'md',
     },

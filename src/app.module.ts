@@ -6,7 +6,7 @@ import { GitModule } from './integrations/git/git.module';
 import { AIModule } from './integrations/ai/ai.module';
 import { CommandsModule } from './commands/commands.module';
 import { ConvertersModule } from './common/converters/converters.module';
-import { PlatformModule } from './integrations/platforms/platform.module';
+import { IssueTrackerModule } from './integrations/issue-trackers/issue-tracker.module';
 
 @Module({
   imports: [
@@ -20,7 +20,7 @@ import { PlatformModule } from './integrations/platforms/platform.module';
     AIModule,
     CommandsModule,
     ConvertersModule,
-    PlatformModule,
+    IssueTrackerModule,
   ],
   controllers: [],
   providers: [],

@@ -95,7 +95,7 @@ export interface ReviewArtifact {
 }
 
 export interface FetcherOptions {
-  platformName: string;
+  trackerName: string;
   repo?: string;
   skipExisting?: boolean;
   baseDir?: string;
@@ -115,9 +115,9 @@ export interface PlannerOptions {
  *  - `mechanical` — force the cheaper mechanical model for the entire run */
 export type ModelRouting = 'auto' | 'default' | 'mechanical';
 
-/** platformName is required to apply Atlassian vs GitHub ticket-key casing rules. */
+/** trackerName is required to apply Atlassian vs GitHub ticket-key casing rules. */
 export interface ImplementerOptions {
-  platformName: string;
+  trackerName: string;
   repoDir?: string;
   /** Sibling repository directories available for cross-repo file reads.
    *  Writes always stay within repoDir. Populated from --repos options. */

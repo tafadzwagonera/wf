@@ -43,7 +43,7 @@ jest.mock('../agents/utils', () => {
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssueFetchCommand } from './issue-fetch.command';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
@@ -59,7 +59,7 @@ async function buildCommand(): Promise<{
   const module = await Test.createTestingModule({
     providers: [
       IssueFetchCommand,
-      { provide: PlatformService, useValue: {} },
+      { provide: IssueTrackerService, useValue: {} },
       {
         provide: FetchStageService,
         useValue: {
@@ -70,7 +70,7 @@ async function buildCommand(): Promise<{
         provide: ConfigService,
         useValue: {
           get: jest.fn((key: string, defaultValue?: string) => {
-            if (key === 'platforms.primary') return 'jira';
+            if (key === 'tracker') return 'jira';
             if (key === 'output.defaultFormat') return 'md';
             return defaultValue;
           }),
@@ -202,7 +202,7 @@ describe('IssueFetchCommand', () => {
     await command.run(['WBP-1'], { repos: ['repo-a'] });
 
     expect(fetchStageService.fetchTicket).toHaveBeenCalledWith('WBP-1', {
-      platformName: 'jira',
+      trackerName: 'jira',
       repo: 'repo-a',
     });
     expect(writeFileSpy).toHaveBeenCalled();

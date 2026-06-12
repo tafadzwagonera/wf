@@ -2,12 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JiraService } from '../../jira/jira.service';
 import {
-  PlatformAdapter,
-  PlatformFeature,
-} from '../platform-adapter.interface';
+  IssueTrackerAdapter,
+  IssueTrackerFeature,
+} from '../issue-tracker-adapter.interface';
 import {
   UniversalTicket,
-  PlatformTicketReference,
+  IssueTrackerTicketReference,
   TicketType,
   TicketPriority,
 } from '../../../common/dto/universal-ticket.dto';
@@ -19,11 +19,11 @@ import {
 const JIRA_NEUTRAL_PRIORITY = 'Medium';
 
 /**
- * Jira platform adapter implementing PlatformAdapter interface
- * Wraps JiraService to provide platform-agnostic operations
+ * Jira platform adapter implementing IssueTrackerAdapter interface
+ * Wraps JiraService to provide tracker-agnostic operations
  */
 @Injectable()
-export class JiraAdapter implements PlatformAdapter {
+export class JiraAdapter implements IssueTrackerAdapter {
   constructor(
     private readonly jiraService: JiraService,
     private readonly configService: ConfigService,
@@ -34,13 +34,13 @@ export class JiraAdapter implements PlatformAdapter {
    */
   async createTicket(
     ticket: UniversalTicket,
-  ): Promise<PlatformTicketReference> {
+  ): Promise<IssueTrackerTicketReference> {
     const request = this.buildCreateRequest(ticket);
 
     const ticketKey = await this.jiraService.createTicket(request);
 
     return {
-      platform: 'jira',
+      tracker: 'jira',
       id: ticketKey,
       key: ticketKey,
       url: this.getTicketUrl(ticketKey),
@@ -97,7 +97,7 @@ export class JiraAdapter implements PlatformAdapter {
       updated: jiraTicket.updated,
       labels: jiraTicket.labels,
       components: jiraTicket.components,
-      platformData: {
+      trackerData: {
         jiraId: jiraTicket.id,
         jiraKey: jiraTicket.key,
       },
@@ -135,14 +135,14 @@ export class JiraAdapter implements PlatformAdapter {
   /**
    * Check if Jira supports a feature
    */
-  supports(feature: PlatformFeature): boolean {
+  supports(feature: IssueTrackerFeature): boolean {
     const supportedFeatures = [
-      PlatformFeature.CREATE_TICKET,
-      PlatformFeature.GET_TICKET,
-      PlatformFeature.UPDATE_TICKET,
-      PlatformFeature.SEARCH_TICKETS,
-      PlatformFeature.ADD_LABELS,
-      PlatformFeature.ASSIGN_TICKET,
+      IssueTrackerFeature.CREATE_TICKET,
+      IssueTrackerFeature.GET_TICKET,
+      IssueTrackerFeature.UPDATE_TICKET,
+      IssueTrackerFeature.SEARCH_TICKETS,
+      IssueTrackerFeature.ADD_LABELS,
+      IssueTrackerFeature.ASSIGN_TICKET,
     ];
 
     return supportedFeatures.includes(feature);
@@ -151,7 +151,7 @@ export class JiraAdapter implements PlatformAdapter {
   /**
    * Get platform name
    */
-  getPlatformName(): string {
+  getTrackerName(): string {
     return 'jira';
   }
 
@@ -179,7 +179,7 @@ export class JiraAdapter implements PlatformAdapter {
           updated: jiraTicket.updated,
           labels: jiraTicket.labels,
           components: jiraTicket.components,
-          platformData: {
+          trackerData: {
             jiraId: jiraTicket.id,
             jiraKey: jiraTicket.key,
           },

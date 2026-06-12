@@ -25,12 +25,12 @@ describe('FetcherAgent', () => {
     const fetchStageService = module.get(FetchStageService);
 
     await agent.execute('WBP-123', {
-      platformName: 'jira',
+      trackerName: 'jira',
       baseDir: '/tmp/repo',
     });
 
     expect(fetchStageService.fetchArtifact).toHaveBeenCalledWith('WBP-123', {
-      platformName: 'jira',
+      trackerName: 'jira',
       baseDir: '/tmp/repo',
     });
   });

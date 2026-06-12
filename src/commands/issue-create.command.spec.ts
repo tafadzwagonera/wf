@@ -47,12 +47,12 @@ jest.mock('../agents/utils', () => {
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssueCreateCommand } from './issue-create.command';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { FormatConverterService } from '../common/converters/format-converter.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
-import { JiraAdapter } from '../integrations/platforms/jira/jira-adapter';
+import { JiraAdapter } from '../integrations/issue-trackers/jira/jira-adapter';
 import { AiService } from '../integrations/ai/ai.service';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -89,22 +89,22 @@ const mockTicket = {
 };
 
 async function buildCommand(): Promise<IssueCreateCommand> {
-  const mockPlatformAdapter = {
+  const mockIssueTrackerAdapter = {
     createTicket: jest.fn().mockResolvedValue({
-      platform: 'jira',
+      tracker: 'jira',
       key: 'WBP-123',
       id: 'WBP-123',
       url: 'https://test.atlassian.net/browse/WBP-123',
     }),
   };
-  const mockPlatformService = {
-    getAdapter: jest.fn().mockReturnValue(mockPlatformAdapter),
+  const mockIssueTrackerService = {
+    getAdapter: jest.fn().mockReturnValue(mockIssueTrackerAdapter),
   };
 
   const module = await Test.createTestingModule({
     providers: [
       IssueCreateCommand,
-      { provide: PlatformService, useValue: mockPlatformService },
+      { provide: IssueTrackerService, useValue: mockIssueTrackerService },
       {
         provide: JiraAdapter,
         useValue: {
@@ -172,7 +172,7 @@ async function buildCommand(): Promise<IssueCreateCommand> {
         provide: ConfigService,
         useValue: {
           get: jest.fn((key: string, defaultValue?: string) => {
-            if (key === 'platforms.primary') return 'jira';
+            if (key === 'tracker') return 'jira';
             return defaultValue;
           }),
         },
@@ -397,8 +397,8 @@ describe('IssueCreateCommand', () => {
 
   it('creates a Jira ticket from a repo-scoped generated artifact path', async () => {
     const command = await buildCommand();
-    const platformService = (command as any)
-      .platformService as jest.Mocked<PlatformService>;
+    const issueTrackerService = (command as any)
+      .issueTrackerService as jest.Mocked<IssueTrackerService>;
     const artifactPath = path.join(
       os.homedir(),
       '.wf',
@@ -443,8 +443,8 @@ describe('IssueCreateCommand', () => {
     });
 
     expect(mockReadFileSync).toHaveBeenCalledWith(artifactPath, 'utf-8');
-    expect(platformService.getAdapter).toHaveBeenCalledWith('jira');
-    const mockAdapter = (platformService.getAdapter as jest.Mock).mock
+    expect(issueTrackerService.getAdapter).toHaveBeenCalledWith('jira');
+    const mockAdapter = (issueTrackerService.getAdapter as jest.Mock).mock
       .results[0].value as {
       createTicket: jest.Mock;
     };
@@ -547,8 +547,8 @@ describe('IssueCreateCommand', () => {
 
   it('passes normalized command priority and ticket project to the Jira adapter', async () => {
     const command = await buildCommand();
-    const platformService = (command as any)
-      .platformService as jest.Mocked<PlatformService>;
+    const issueTrackerService = (command as any)
+      .issueTrackerService as jest.Mocked<IssueTrackerService>;
     const artifactPath = path.join(
       os.homedir(),
       '.wf',
@@ -564,10 +564,10 @@ describe('IssueCreateCommand', () => {
     await command.run(['GENERATED-2026-04-01-46ac9014.md'], {
       priority: 'medium',
       ticketProject: 'WBP',
-      platform: 'jira',
+      tracker: 'jira',
     });
 
-    const mockAdapter = (platformService.getAdapter as jest.Mock).mock
+    const mockAdapter = (issueTrackerService.getAdapter as jest.Mock).mock
       .results[0].value as {
       createTicket: jest.Mock;
     };
@@ -593,22 +593,22 @@ describe('IssueCreateCommand', () => {
     });
 
     async function buildCommandWithVerification(): Promise<IssueCreateCommand> {
-      const mockPlatformAdapter = {
+      const mockIssueTrackerAdapter = {
         createTicket: jest.fn().mockResolvedValue({
-          platform: 'jira',
+          tracker: 'jira',
           key: 'WBP-123',
           id: 'WBP-123',
           url: 'https://test.atlassian.net/browse/WBP-123',
         }),
       };
-      const mockPlatformService = {
-        getAdapter: jest.fn().mockReturnValue(mockPlatformAdapter),
+      const mockIssueTrackerService = {
+        getAdapter: jest.fn().mockReturnValue(mockIssueTrackerAdapter),
       };
 
       const module = await Test.createTestingModule({
         providers: [
           IssueCreateCommand,
-          { provide: PlatformService, useValue: mockPlatformService },
+          { provide: IssueTrackerService, useValue: mockIssueTrackerService },
           {
             provide: JiraAdapter,
             useValue: {
@@ -643,7 +643,7 @@ describe('IssueCreateCommand', () => {
             provide: ConfigService,
             useValue: {
               get: jest.fn((key: string, defaultValue?: string) => {
-                if (key === 'platforms.primary') return 'jira';
+                if (key === 'tracker') return 'jira';
                 if (key === 'stages.create.verificationConditions') {
                   return { scripts: { 'adf-check': 'node validate.js' } };
                 }

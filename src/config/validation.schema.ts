@@ -2,13 +2,8 @@ import * as Joi from '@hapi/joi';
 import { getWfLogDir, getWfStateDir } from '../shared/utils/wf-paths';
 
 export const validationSchema = Joi.object({
-  // Platform Configuration
-  PRIMARY_PLATFORM: Joi.string()
-    .valid('jira', 'github', 'bitbucket')
-    .default('jira'),
-  ENABLED_PLATFORMS: Joi.string()
-    .optional()
-    .pattern(/^(jira|github|bitbucket)(,(jira|github|bitbucket))*$/),
+  // Tracker Configuration
+  TRACKER: Joi.string().valid('jira', 'github', 'bitbucket').default('jira'),
 
   // AI Configuration
   AI_PROVIDER: Joi.string()

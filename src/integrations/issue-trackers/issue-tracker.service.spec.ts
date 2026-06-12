@@ -1,21 +1,21 @@
 import { ConfigService } from '@nestjs/config';
-import { PlatformService } from './platform.service';
-import type { PlatformAdapter } from './platform-adapter.interface';
+import { IssueTrackerService } from './issue-tracker.service';
+import type { IssueTrackerAdapter } from './issue-tracker-adapter.interface';
 
 const buildAdapter = (
   name: string,
-  overrides: Partial<PlatformAdapter> = {},
-): PlatformAdapter =>
+  overrides: Partial<IssueTrackerAdapter> = {},
+): IssueTrackerAdapter =>
   ({
     createTicket: jest.fn(),
     getTicket: jest.fn(),
     updateTicket: jest.fn(),
     supports: jest.fn(),
-    getPlatformName: jest.fn().mockReturnValue(name),
+    getTrackerName: jest.fn().mockReturnValue(name),
     ...overrides,
-  }) as unknown as PlatformAdapter;
+  }) as unknown as IssueTrackerAdapter;
 
-describe('PlatformService', () => {
+describe('IssueTrackerService', () => {
   const createConfigService = (
     values: Record<string, unknown>,
   ): ConfigService =>
@@ -26,7 +26,7 @@ describe('PlatformService', () => {
     }) as unknown as ConfigService;
 
   it('returns only pull-request discovery adapters with configured credentials', () => {
-    const service = new PlatformService(
+    const service = new IssueTrackerService(
       createConfigService({
         'github.token': 'github-token',
         'atlassian.email': 'dev@example.com',

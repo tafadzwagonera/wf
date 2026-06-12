@@ -1,5 +1,5 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { FormatConverterService } from '../common/converters/format-converter.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
@@ -75,7 +75,7 @@ interface IssueGenerateOptions {
   output?: string;
   save?: boolean;
   silent?: boolean;
-  platform?: string;
+  tracker?: string;
   title?: string;
   type?: string;
   priority?: string;
@@ -128,7 +128,7 @@ class UnresolvedSourceError extends Error {}
 })
 export class IssueGenerateCommand extends CommandRunner {
   constructor(
-    private readonly platformService: PlatformService,
+    private readonly issueTrackerService: IssueTrackerService,
     private readonly formatConverterService: FormatConverterService,
     private readonly aiService: AiService,
     private readonly configService: ConfigService,
@@ -168,9 +168,8 @@ export class IssueGenerateCommand extends CommandRunner {
         const format =
           options?.format ||
           this.configService.get<string>('output.defaultFormat', 'md');
-        const platformName =
-          options?.platform ||
-          this.configService.get<string>('platforms.primary', 'jira');
+        const trackerName =
+          options?.tracker || this.configService.get<string>('tracker', 'jira');
         const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
 
         this.dryRunPreview.showHeader(
@@ -251,8 +250,8 @@ export class IssueGenerateCommand extends CommandRunner {
             } else if (/^[A-Z]+-\d+$/i.test(resolvedSource)) {
               this.dryRunPreview.previewApiCall({
                 method: 'GET',
-                endpoint: `/${platformName}/issues/${resolvedSource}`,
-                platform: platformName,
+                endpoint: `/${trackerName}/issues/${resolvedSource}`,
+                platform: trackerName,
                 description: `Fetch ticket ${resolvedSource}`,
                 estimatedResponse: '200 OK — ticket data',
               });
@@ -306,7 +305,7 @@ export class IssueGenerateCommand extends CommandRunner {
           const manifestFilename =
             buildGeneratedTicketManifestFilename(artifactFilename);
           const filePath = path.join(
-            resolveArtifactDir(artifactBaseDir, platformName),
+            resolveArtifactDir(artifactBaseDir, trackerName),
             artifactFilename,
           );
           this.dryRunPreview.previewFileWrite({
@@ -318,7 +317,7 @@ export class IssueGenerateCommand extends CommandRunner {
           });
           this.dryRunPreview.previewFileWrite({
             filePath: path.join(
-              resolveArtifactDir(artifactBaseDir, platformName),
+              resolveArtifactDir(artifactBaseDir, trackerName),
               manifestFilename,
             ),
             operation: 'create',
@@ -327,7 +326,7 @@ export class IssueGenerateCommand extends CommandRunner {
             contentPreview: JSON.stringify(
               buildGeneratedTicketSourceManifest(
                 filePath,
-                platformName,
+                trackerName,
                 format,
                 passedParams,
                 timestamp,
@@ -359,7 +358,7 @@ export class IssueGenerateCommand extends CommandRunner {
           terminalOutputLines: [
             ...(options?.save
               ? [
-                  '✓ Ticket saved to: <platform-dir>/YYYY-MM-DD-<hash>-ticket-description.<format>',
+                  '✓ Ticket saved to: <tracker-dir>/YYYY-MM-DD-<hash>-ticket-description.<format>',
                 ]
               : []),
             ...(options?.output
@@ -392,7 +391,7 @@ export class IssueGenerateCommand extends CommandRunner {
       // Fetch content from all sources
       const sourceContents = await this.fetchAllSources(
         passedParams,
-        options?.platform,
+        options?.tracker,
         options?.repos,
         silent,
       );
@@ -442,11 +441,10 @@ export class IssueGenerateCommand extends CommandRunner {
         'stdout/file output',
       );
 
-      // Save to platform directory if --save option is provided
+      // Save to tracker directory if --save option is provided
       if (options?.save) {
-        const platformName =
-          options?.platform ||
-          this.configService.get<string>('platforms.primary', 'jira');
+        const trackerName =
+          options?.tracker || this.configService.get<string>('tracker', 'jira');
         const saveTargets = await this.resolveSaveTargets(
           options?.repos,
           silent,
@@ -456,7 +454,7 @@ export class IssueGenerateCommand extends CommandRunner {
         for (const targetRepo of targetRepos) {
           const savedPath = await this.saveTicketLocally(
             synthesizedTicket,
-            platformName,
+            trackerName,
             format,
             passedParams,
             targetRepo,
@@ -495,7 +493,7 @@ export class IssueGenerateCommand extends CommandRunner {
       if (!silent) {
         console.log(
           chalk.gray(
-            `\n💡 Tip: Use --save to save to platform directory, --output to save to file, or --format to change output format\n`,
+            `\n💡 Tip: Use --save to save to tracker directory, --output to save to file, or --format to change output format\n`,
           ),
         );
       }
@@ -535,10 +533,10 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-p, --platform <platform>',
-    description: 'Platform for ticket sources (jira|github|bitbucket)',
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker for ticket sources (jira|github|bitbucket)',
   })
-  parsePlatform(val: string): string {
+  parseTracker(val: string): string {
     return val;
   }
 
@@ -561,7 +559,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
   @Option({
     flags: '--save',
-    description: 'Save generated ticket to platform directory',
+    description: 'Save generated ticket to tracker directory',
   })
   parseSave(): boolean {
     return true;
@@ -597,7 +595,7 @@ export class IssueGenerateCommand extends CommandRunner {
    */
   private async fetchAllSources(
     sources: string[],
-    platform?: string,
+    tracker?: string,
     repos?: string[],
     silent = false,
   ): Promise<SourceContent[]> {
@@ -626,7 +624,7 @@ export class IssueGenerateCommand extends CommandRunner {
         for (const resolvedSource of resolvedSources) {
           const content = await this.fetchSource(
             resolvedSource,
-            platform,
+            tracker,
             repos?.[0],
           );
           contents.push(content);
@@ -674,7 +672,7 @@ export class IssueGenerateCommand extends CommandRunner {
    */
   private async fetchSource(
     source: string,
-    platform?: string,
+    tracker?: string,
     repo?: string,
   ): Promise<SourceContent> {
     // Check if it's a Slack thread permalink (must come before generic URL check)
@@ -708,7 +706,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
     // Check if it's a ticket key (contains letters and numbers with dash/hyphen)
     if (/^[A-Z]+-\d+$/i.test(source)) {
-      return await this.fetchFromPlatform(source, platform, repo);
+      return await this.fetchFromTracker(source, tracker, repo);
     }
 
     throw new Error(
@@ -809,28 +807,28 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   /**
-   * Fetch ticket from platform (Jira, GitHub, BitBucket)
+   * Fetch ticket from tracker (Jira, GitHub, BitBucket)
    */
-  private async fetchFromPlatform(
+  private async fetchFromTracker(
     ticketKey: string,
-    platform?: string,
+    tracker?: string,
     repo?: string,
   ): Promise<SourceContent> {
     try {
-      const adapter = platform
-        ? this.platformService.getAdapter(platform)
-        : this.platformService.getDefaultAdapter();
+      const adapter = tracker
+        ? this.issueTrackerService.getAdapter(tracker)
+        : this.issueTrackerService.getDefaultAdapter();
 
       // Format reference for Bitbucket
       const ticketReference =
-        platform === 'bitbucket'
+        tracker === 'bitbucket'
           ? this.formatBitbucketReference(ticketKey, repo!, this.configService)
           : ticketKey;
 
       const ticket = await adapter.getTicket(ticketReference);
 
       return {
-        type: 'platform',
+        type: 'tracker',
         source: ticketKey,
         content: `${ticket.title}\n\n${ticket.description}`,
         ticket: ticket,
@@ -925,20 +923,20 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   /**
-   * Save ticket to platform directory with generated filename
+   * Save ticket to tracker directory with generated filename
    */
   private async saveTicketLocally(
     ticket: UniversalTicket,
-    platformName: string,
+    trackerName: string,
     format: string,
     sources: string[],
     repo?: string,
   ): Promise<string> {
-    const platformDir = resolveArtifactDir(
+    const trackerDir = resolveArtifactDir(
       resolveRepoBasePath(repo),
-      platformName,
+      trackerName,
     );
-    await fs.promises.mkdir(platformDir, { recursive: true });
+    await fs.promises.mkdir(trackerDir, { recursive: true });
 
     const hash8 = hashGeneratedTicketSources(sources);
     const extension = format === 'md' ? 'md' : format;
@@ -947,7 +945,7 @@ export class IssueGenerateCommand extends CommandRunner {
     // Find an existing artifact with the same source hash and overwrite it,
     // avoiding duplicate files when the command is retried with identical inputs.
     const existingFilename = fs
-      .readdirSync(platformDir)
+      .readdirSync(trackerDir)
       .find((name) =>
         new RegExp(
           `^\\d{4}-\\d{2}-\\d{2}-${hash8}-ticket-description\\.${extension}$`,
@@ -956,10 +954,10 @@ export class IssueGenerateCommand extends CommandRunner {
 
     let artifactPath: string;
     if (existingFilename) {
-      artifactPath = path.join(platformDir, existingFilename);
+      artifactPath = path.join(trackerDir, existingFilename);
     } else {
       artifactPath = path.join(
-        platformDir,
+        trackerDir,
         buildGeneratedTicketArtifactFilename(timestamp, sources, format),
       );
     }
@@ -968,13 +966,13 @@ export class IssueGenerateCommand extends CommandRunner {
     const content = this.serializeTicketOutput(
       ticket,
       format,
-      `saved artifact for ${platformName}`,
+      `saved artifact for ${trackerName}`,
     );
     await fs.promises.writeFile(artifactPath, content, 'utf-8');
     const manifestPath = buildGeneratedTicketManifestPath(artifactPath);
     const manifest = buildGeneratedTicketSourceManifest(
       artifactPath,
-      platformName,
+      trackerName,
       format,
       sources,
       timestamp,
@@ -1676,7 +1674,7 @@ export class IssueGenerateCommand extends CommandRunner {
  * Source content interface
  */
 interface SourceContent {
-  type: 'url' | 'file' | 'platform' | 'ticket' | 'slack';
+  type: 'url' | 'file' | 'tracker' | 'ticket' | 'slack';
   source: string;
   content: any;
   ticket?: UniversalTicket;

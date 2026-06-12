@@ -29,7 +29,7 @@ export interface ConversationContext {
   stage: WorkflowStage;
   stageOutput?: any;
   repoDir?: string;
-  platformName?: string;
+  trackerName?: string;
   workflowState: {
     ticketContent: string;
     plan?: any;

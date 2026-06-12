@@ -24,8 +24,8 @@
         "description": "Disable AI generation and require manual message"
       },
       {
-        "flags": "-p, --platform <platform>",
-        "description": "Platform (jira|github|bitbucket)"
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker (jira|github|bitbucket)"
       },
       {
         "flags": "-r, --repos <repos...>",
@@ -43,7 +43,7 @@
       },
       {
         "comment": "Force conventional format",
-        "command": "wf issue:commit WBP-2971 --conventional --platform jira"
+        "command": "wf issue:commit WBP-2971 --conventional --tracker jira"
       }
     ]
   },
@@ -52,7 +52,7 @@
     "usage": "wf issue:cowsay"
   },
   "issue:create": {
-    "description": "Create tickets on various platforms from standardized input (file or stdin). When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks",
+    "description": "Create tickets on various trackers from standardized input (file or stdin). When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks",
     "usage": "wf issue:create [input] [options]",
     "options": [
       {
@@ -64,8 +64,8 @@
         "description": "Input format (json|md|yaml|yml) - overrides file extension detection; required when reading from stdin"
       },
       {
-        "flags": "-p, --platform <platform>",
-        "description": "Target platform (jira|github|bitbucket) - default from config"
+        "flags": "-t, --tracker <tracker>",
+        "description": "Target tracker (jira|github|bitbucket) - default from config"
       },
       {
         "flags": "-r, --repos <repos...>",
@@ -90,16 +90,16 @@
     ],
     "examples": [
       {
-        "comment": "Create ticket from JSON on primary platform",
+        "comment": "Create ticket from JSON on primary tracker",
         "command": "wf issue:create ticket.json"
       },
       {
-        "comment": "Create on a specific platform and override the Jira project",
-        "command": "wf issue:create ticket.md --platform jira --ticket-project WBP --type story"
+        "comment": "Create on a specific tracker and override the Jira project",
+        "command": "wf issue:create ticket.md --tracker jira --ticket-project WBP --type story"
       },
       {
         "comment": "Create Jira ticket with project-specific priority resolution",
-        "command": "wf issue:create ticket.md --platform jira --ticket-project WBP --priority medium"
+        "command": "wf issue:create ticket.md --tracker jira --ticket-project WBP --priority medium"
       },
       {
         "comment": "Dry-run a repo-scoped generated Jira artifact before creation",
@@ -112,7 +112,7 @@
     ]
   },
   "issue:fetch": {
-    "description": "Fetch ticket description from a platform. NB: This command will override the locally generated artifact with the ticket description fetched from the specified platform",
+    "description": "Fetch ticket description from a tracker. NB: This command will override the locally generated artifact with the ticket description fetched from the specified tracker",
     "usage": "wf issue:fetch <ticket-key> [options]",
     "options": [
       {
@@ -124,8 +124,8 @@
         "description": "Output format (json|md|yaml|yml)"
       },
       {
-        "flags": "-p, --platform <platform>",
-        "description": "Target platform (jira|github|bitbucket)"
+        "flags": "-t, --tracker <tracker>",
+        "description": "Target tracker (jira|github|bitbucket)"
       },
       {
         "flags": "-r, --repos <repos...>",
@@ -138,12 +138,12 @@
     ],
     "examples": [
       {
-        "comment": "Fetch ticket from primary platform",
+        "comment": "Fetch ticket from primary tracker",
         "command": "wf issue:fetch WBP-2971"
       },
       {
-        "comment": "Specify platform and format",
-        "command": "wf issue:fetch WBP-2971 --platform jira --format md"
+        "comment": "Specify tracker and format",
+        "command": "wf issue:fetch WBP-2971 --tracker jira --format md"
       }
     ]
   },
@@ -152,7 +152,7 @@
     "usage": "wf issue:generate:lookup <token> [options]",
     "options": [
       {
-        "flags": "-p, --platform <platform>",
+        "flags": "-t, --tracker <tracker>",
         "description": "Platform namespace to inspect"
       },
       {
@@ -184,8 +184,8 @@
         "description": "Output file path - default: stdout"
       },
       {
-        "flags": "-p, --platform <platform>",
-        "description": "Platform for ticket sources (jira|github|bitbucket)"
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker for ticket sources (jira|github|bitbucket)"
       },
       {
         "flags": "--priority <priority>",
@@ -197,7 +197,7 @@
       },
       {
         "flags": "--save",
-        "description": "Save generated ticket to platform directory"
+        "description": "Save generated ticket to tracker directory"
       },
       {
         "flags": "-s, --silent",
@@ -244,8 +244,8 @@
     "usage": "wf issue:implement [ticket-key-or-plan-token] [options]",
     "options": [
       {
-        "flags": "-p, --platform <platform>",
-        "description": "Platform to fetch from if local artifact not found"
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker to fetch from if local artifact not found"
       },
       {
         "flags": "--dry-run",
@@ -262,7 +262,7 @@
     ]
   },
   "issue:plan": {
-    "description": "Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary platform. Use --force to fetch and recreate artifacts. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.",
+    "description": "Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary tracker. Use --force to fetch and recreate artifacts. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.",
     "usage": "wf issue:plan [ticket-key] [options]",
     "options": [
       {
@@ -286,8 +286,8 @@
         "description": "Output format for plan (json|md|yaml|yml)"
       },
       {
-        "flags": "-p, --platform <platform>",
-        "description": "Platform to fetch from if local artifact not found"
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker to fetch from if local artifact not found"
       },
       {
         "flags": "-r, --repos <repos...>",
@@ -313,7 +313,7 @@
       },
       {
         "comment": "Force re-fetch before planning",
-        "command": "wf issue:plan WBP-2971 --action fix --force --platform jira"
+        "command": "wf issue:plan WBP-2971 --action fix --force --tracker jira"
       }
     ]
   },
@@ -334,8 +334,8 @@
         "description": "Preview the PR creation without making changes"
       },
       {
-        "flags": "-p, --platform <platform>",
-        "description": "Platform (jira|github|bitbucket)"
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker (jira|github|bitbucket)"
       },
       {
         "flags": "-r, --repos <repos...>",
@@ -386,8 +386,8 @@
         "description": "Save review to file"
       },
       {
-        "flags": "-p, --platform <platform>",
-        "description": "Platform (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary platform"
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker"
       },
       {
         "flags": "--replace-criteria <path>",
@@ -413,7 +413,7 @@
       },
       {
         "comment": "Review a ticket and its associated pull requests across credentialed repos",
-        "command": "wf issue:review WBP-2971 --platform jira --repos service-tourv3"
+        "command": "wf issue:review WBP-2971 --tracker jira --repos service-tourv3"
       },
       {
         "comment": "Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd",
@@ -446,8 +446,8 @@
         "description": "Start from stage (fetch|plan|implement|review|commit) [REQUIRED]"
       },
       {
-        "flags": "-p, --platform <platform>",
-        "description": "Platform to use (jira|github|bitbucket)"
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker to use (jira|github|bitbucket)"
       },
       {
         "flags": "--pr",
@@ -477,7 +477,7 @@
       },
       {
         "comment": "Resume from implement stage",
-        "command": "wf issue WBP-2971 --from implement --action fix --platform jira"
+        "command": "wf issue WBP-2971 --from implement --action fix --tracker jira"
       },
       {
         "comment": "Resume from a hashed plan artifact without --action",

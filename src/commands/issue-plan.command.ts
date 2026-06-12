@@ -2,7 +2,7 @@ import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiService } from '../integrations/ai/ai.service';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
@@ -45,7 +45,7 @@ const ISSUE_PLAN_EXAMPLES: CliExample[] = [
   },
   {
     comment: 'Force re-fetch before planning',
-    command: 'wf issue:plan WBP-2971 --action fix --force --platform jira',
+    command: 'wf issue:plan WBP-2971 --action fix --force --tracker jira',
   },
 ];
 
@@ -54,7 +54,7 @@ type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 interface IssuePlanOptions {
   action: ResolutionAction;
   custom?: string;
-  platform?: string;
+  tracker?: string;
   force?: boolean;
   format?: OutputFormat;
   repos?: string[];
@@ -231,7 +231,7 @@ const escapesSelectedRepo = (
   name: 'issue:plan',
   description:
     'Plan ticket implementation from a local artifact or repo-scoped custom artifact. ' +
-    'If a local artifact is not found, the command will attempt to fetch it from the primary platform. ' +
+    'If a local artifact is not found, the command will attempt to fetch it from the primary tracker. ' +
     'Use --force to fetch and recreate artifacts. ' +
     'Targeted verification commands are interpreted as repo-root-relative: redundant ' +
     '`cd <repo>` prefixes are normalized away, while commands that change directories ' +
@@ -241,7 +241,7 @@ const escapesSelectedRepo = (
 export class IssuePlanCommand extends CommandRunner {
   constructor(
     private readonly aiService: AiService,
-    private readonly platformService: PlatformService,
+    private readonly issueTrackerService: IssueTrackerService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
@@ -306,17 +306,17 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-p, --platform <platform>',
-    description: 'Platform to fetch from if local artifact not found',
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker to fetch from if local artifact not found',
   })
-  parsePlatform(platform: string): string {
-    const validPlatforms = ['jira', 'github', 'bitbucket'];
-    if (!validPlatforms.includes(platform)) {
+  parseTracker(tracker: string): string {
+    const validTrackers = ['jira', 'github', 'bitbucket'];
+    if (!validTrackers.includes(tracker)) {
       throw new Error(
-        `Invalid platform: ${platform}. Valid platforms: ${validPlatforms.join(', ')}`,
+        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
       );
     }
-    return platform;
+    return tracker;
   }
 
   @Option({
@@ -366,16 +366,11 @@ export class IssuePlanCommand extends CommandRunner {
         return;
       }
 
-      const platformName =
-        options?.platform ||
-        this.configService.get<string>('platforms.primary', 'jira');
+      const trackerName =
+        options?.tracker || this.configService.get<string>('tracker', 'jira');
 
       // Bitbucket + ticket-key requires --repos
-      if (
-        ticketKey &&
-        platformName === 'bitbucket' &&
-        !options?.repos?.length
-      ) {
+      if (ticketKey && trackerName === 'bitbucket' && !options?.repos?.length) {
         console.error(
           chalk.red('Error: --repos is required for Bitbucket ticket fetching'),
         );
@@ -527,11 +522,11 @@ export class IssuePlanCommand extends CommandRunner {
 
       // ── TICKET-KEY MODE (existing behaviour) ─────────────────────────────
       // Check for local artifact or fetch
-      const platformDir = resolveArtifactDir(artifactBaseDir, platformName);
-      const ticketPath = path.join(platformDir, `${ticketKey}.md`);
+      const trackerDir = resolveArtifactDir(artifactBaseDir, trackerName);
+      const ticketPath = path.join(trackerDir, `${ticketKey}.md`);
       const planSourceName = ticketKey;
       const planPath = path.join(
-        platformDir,
+        trackerDir,
         buildPlanArtifactFilename({
           hash: hashPlanArtifactSources([planSourceName]),
           action,
@@ -547,9 +542,9 @@ export class IssuePlanCommand extends CommandRunner {
         if (needsFetch) {
           this.dryRunPreview.previewApiCall({
             method: 'GET',
-            endpoint: `/${platformName}/issues/${ticketKey}`,
-            platform: platformName,
-            description: `Fetch ticket ${ticketKey} from ${platformName}`,
+            endpoint: `/${trackerName}/issues/${ticketKey}`,
+            platform: trackerName,
+            description: `Fetch ticket ${ticketKey} from ${trackerName}`,
             estimatedResponse: '200 OK — ticket data returned',
           });
           this.dryRunPreview.previewFileWrite({
@@ -648,13 +643,13 @@ export class IssuePlanCommand extends CommandRunner {
             this.logger.info('Forcing recreation of ticket artifact...');
           } else {
             this.logger.info(
-              'Local artifact not found. Fetching from platform...',
+              'Local artifact not found. Fetching from tracker...',
             );
           }
         }
 
         const artifact = await this.fetchStageService.fetchArtifact(ticketKey, {
-          platformName,
+          trackerName,
           repo: options?.repos?.[0],
           baseDir: artifactBaseDir,
         });
@@ -665,7 +660,7 @@ export class IssuePlanCommand extends CommandRunner {
       } else {
         const artifact = this.fetchStageService.loadArtifact(
           ticketKey,
-          platformName,
+          trackerName,
           artifactBaseDir,
         );
         if (!options?.silent) {
@@ -711,11 +706,11 @@ export class IssuePlanCommand extends CommandRunner {
           planSourceName,
           'ticket',
           new Date(),
-          platformName,
+          trackerName,
         ),
       );
       this.deleteSiblingPlanArtifacts(
-        platformDir,
+        trackerDir,
         planSourceName,
         'ticket',
         action,
@@ -811,13 +806,13 @@ export class IssuePlanCommand extends CommandRunner {
   /**
    * Remove stale standard plan siblings so a ticket keeps exactly one standard plan.
    *
-   * @param platformDir - Artifact namespace for the active repo/platform
+   * @param trackerDir - Artifact namespace for the active repo/tracker
    * @param ticketKey - Ticket identifier
    * @param retainedPlanPath - Newly selected standard plan path
    * @returns void
    */
   private deleteSiblingPlanArtifacts(
-    platformDir: string,
+    trackerDir: string,
     sourceName: string,
     sourceKind: 'ticket' | 'custom',
     currentAction: ResolutionAction,
@@ -835,7 +830,7 @@ export class IssuePlanCommand extends CommandRunner {
     for (const siblingAction of actions) {
       for (const extension of extensions) {
         const hashedSiblingPath = path.join(
-          platformDir,
+          trackerDir,
           buildPlanArtifactFilename({
             hash: planHash,
             action: siblingAction,
@@ -843,7 +838,7 @@ export class IssuePlanCommand extends CommandRunner {
           }),
         );
         const legacySiblingPath = path.join(
-          platformDir,
+          trackerDir,
           sourceKind === 'ticket'
             ? `${sourceName}-plan-${siblingAction}.${extension}`
             : `${sourceName}-${siblingAction}.${extension}`,
@@ -861,7 +856,7 @@ export class IssuePlanCommand extends CommandRunner {
           this.logger.warn(`Deleting stale plan artifact: ${siblingPath}`);
           fs.unlinkSync(siblingPath);
           const siblingManifestPath = path.join(
-            platformDir,
+            trackerDir,
             `${path.basename(siblingPath).replace(/\.[^.]+$/, '')}.sources.json`,
           );
           if (fs.existsSync(siblingManifestPath)) {
@@ -875,18 +870,18 @@ export class IssuePlanCommand extends CommandRunner {
   /**
    * Generate a collision-resistant custom plan stem under the active artifact namespace.
    *
-   * @param platformDir - Artifact namespace for the active repo/platform
+   * @param trackerDir - Artifact namespace for the active repo/tracker
    * @param action - Resolution action suffix
    * @returns Unique mnemonic stem without the trailing action or extension
    */
   private generateUniqueCustomPlanStem(
-    platformDir: string,
+    trackerDir: string,
     action: ResolutionAction,
   ): string {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const stem = generateMnemonic();
       const hasCollision = ['json', 'md', 'yaml'].some((extension) =>
-        fs.existsSync(path.join(platformDir, `${stem}-${action}.${extension}`)),
+        fs.existsSync(path.join(trackerDir, `${stem}-${action}.${extension}`)),
       );
       if (!hasCollision) {
         return stem;

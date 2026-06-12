@@ -1,7 +1,7 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
@@ -18,12 +18,12 @@ import * as YAML from 'yaml';
 
 const ISSUE_FETCH_EXAMPLES: CliExample[] = [
   {
-    comment: 'Fetch ticket from primary platform',
+    comment: 'Fetch ticket from primary tracker',
     command: 'wf issue:fetch WBP-2971',
   },
   {
-    comment: 'Specify platform and format',
-    command: 'wf issue:fetch WBP-2971 --platform jira --format md',
+    comment: 'Specify tracker and format',
+    command: 'wf issue:fetch WBP-2971 --tracker jira --format md',
   },
 ];
 
@@ -41,7 +41,7 @@ type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 interface IssueFetchOptions {
   format?: OutputFormat;
-  platform?: string;
+  tracker?: string;
   repos?: string[];
   dryRun?: boolean;
   silent?: boolean;
@@ -51,13 +51,13 @@ interface IssueFetchOptions {
 @Command({
   name: 'issue:fetch',
   description:
-    'Fetch ticket description from a platform. ' +
-    'NB: This command will override the locally generated artifact with the ticket description fetched from the specified platform',
+    'Fetch ticket description from a tracker. ' +
+    'NB: This command will override the locally generated artifact with the ticket description fetched from the specified tracker',
   arguments: '<ticket-key>',
 })
 export class IssueFetchCommand extends CommandRunner {
   constructor(
-    private readonly platformService: PlatformService,
+    private readonly issueTrackerService: IssueTrackerService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
@@ -89,17 +89,17 @@ export class IssueFetchCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-p, --platform <platform>',
-    description: 'Target platform (jira|github|bitbucket)',
+    flags: '-t, --tracker <tracker>',
+    description: 'Target tracker (jira|github|bitbucket)',
   })
-  parsePlatform(platform: string): string {
-    const validPlatforms = ['jira', 'github', 'bitbucket'];
-    if (!validPlatforms.includes(platform)) {
+  parseTracker(tracker: string): string {
+    const validTrackers = ['jira', 'github', 'bitbucket'];
+    if (!validTrackers.includes(tracker)) {
       throw new Error(
-        `Invalid platform: ${platform}. Valid platforms: ${validPlatforms.join(', ')}`,
+        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
       );
     }
-    return platform;
+    return tracker;
   }
 
   @Option({
@@ -131,10 +131,9 @@ export class IssueFetchCommand extends CommandRunner {
         warnOnIgnoredRepos(options?.repos);
       }
 
-      // Get platform (from option or config)
-      const platformName =
-        options?.platform ||
-        this.configService.get<string>('platforms.primary', 'jira');
+      // Get tracker (from option or config)
+      const trackerName =
+        options?.tracker || this.configService.get<string>('tracker', 'jira');
 
       // Get format (from option or config)
       const format: OutputFormat =
@@ -146,17 +145,17 @@ export class IssueFetchCommand extends CommandRunner {
 
       const extension = format === 'md' ? 'md' : format;
       const repoBase = resolveRepoBasePath(options?.repos?.[0]);
-      const platformDir = resolveArtifactDir(repoBase, platformName);
-      const filePath = path.join(platformDir, `${ticketKey}.${extension}`);
+      const trackerDir = resolveArtifactDir(repoBase, trackerName);
+      const filePath = path.join(trackerDir, `${ticketKey}.${extension}`);
 
       if (options?.dryRun) {
         this.dryRunPreview.showHeader('issue:fetch', ticketKey);
 
         this.dryRunPreview.previewApiCall({
           method: 'GET',
-          endpoint: `/${platformName}/issues/${ticketKey}`,
-          platform: platformName,
-          description: `Fetch ticket ${ticketKey} from ${platformName}`,
+          endpoint: `/${trackerName}/issues/${ticketKey}`,
+          platform: trackerName,
+          description: `Fetch ticket ${ticketKey} from ${trackerName}`,
           estimatedResponse: '200 OK — ticket data returned',
         });
 
@@ -177,7 +176,7 @@ export class IssueFetchCommand extends CommandRunner {
             `✓ Ticket saved to: ${filePath}`,
             '',
             'Ticket Details:',
-            '  Title: <fetched from platform>',
+            '  Title: <fetched from tracker>',
             '  Type: <type>',
             '  Status: <status>',
             '  Priority: <priority>',
@@ -189,14 +188,12 @@ export class IssueFetchCommand extends CommandRunner {
       }
 
       if (!options?.silent) {
-        this.logger.info(
-          `Fetching ticket ${ticketKey} from ${platformName}...`,
-        );
+        this.logger.info(`Fetching ticket ${ticketKey} from ${trackerName}...`);
       }
 
       // Format reference for Bitbucket
       const ticket = await this.fetchStageService.fetchTicket(ticketKey, {
-        platformName,
+        trackerName,
         repo: options?.repos?.[0],
       });
 
@@ -204,8 +201,8 @@ export class IssueFetchCommand extends CommandRunner {
       const content = this.formatTicket(ticket, format);
 
       // Determine output file path
-      if (!fs.existsSync(platformDir)) {
-        fs.mkdirSync(platformDir, { recursive: true });
+      if (!fs.existsSync(trackerDir)) {
+        fs.mkdirSync(trackerDir, { recursive: true });
       }
 
       // Write to file

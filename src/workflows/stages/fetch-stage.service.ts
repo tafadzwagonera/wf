@@ -3,19 +3,19 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { UniversalTicket } from '../../common/dto/universal-ticket.dto';
-import { PlatformService } from '../../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../../integrations/issue-trackers/issue-tracker.service';
 import { FetcherOptions, TicketArtifact } from '../../agents/interfaces';
 import { resolveArtifactDir } from '../../agents/utils';
 
 interface FetchTicketOptions {
-  platformName: string;
+  trackerName: string;
   repo?: string;
 }
 
 @Injectable()
 export class FetchStageService {
   constructor(
-    private readonly platformService: PlatformService,
+    private readonly issueTrackerService: IssueTrackerService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -24,7 +24,7 @@ export class FetchStageService {
     options: FetchTicketOptions,
   ): Promise<UniversalTicket> {
     const ticketReference = this.resolveTicketReference(ticketKey, options);
-    const adapter = this.platformService.getAdapter(options.platformName);
+    const adapter = this.issueTrackerService.getAdapter(options.trackerName);
     return adapter.getTicket(ticketReference);
   }
 
@@ -32,11 +32,11 @@ export class FetchStageService {
     ticketKey: string,
     options: FetcherOptions,
   ): Promise<TicketArtifact> {
-    const platformDir = resolveArtifactDir(
+    const trackerDir = resolveArtifactDir(
       options.baseDir ?? process.cwd(),
-      options.platformName,
+      options.trackerName,
     );
-    const ticketPath = path.join(platformDir, `${ticketKey}.md`);
+    const ticketPath = path.join(trackerDir, `${ticketKey}.md`);
 
     if (options.skipExisting && fs.existsSync(ticketPath)) {
       return {
@@ -48,11 +48,11 @@ export class FetchStageService {
     }
 
     const ticket = await this.fetchTicket(ticketKey, {
-      platformName: options.platformName,
+      trackerName: options.trackerName,
       repo: options.repo,
     });
 
-    fs.mkdirSync(platformDir, { recursive: true });
+    fs.mkdirSync(trackerDir, { recursive: true });
     const content = this.formatTicketMarkdown(ticket, ticketKey);
     fs.writeFileSync(ticketPath, content);
 
@@ -66,11 +66,11 @@ export class FetchStageService {
 
   loadArtifact(
     ticketKey: string,
-    platformName: string,
+    trackerName: string,
     baseDir: string = process.cwd(),
   ): TicketArtifact {
     const ticketPath = path.join(
-      resolveArtifactDir(baseDir, platformName),
+      resolveArtifactDir(baseDir, trackerName),
       `${ticketKey}.md`,
     );
     if (!fs.existsSync(ticketPath)) {
@@ -110,7 +110,7 @@ ${ticket.description ?? ''}
     ticketKey: string,
     options: FetchTicketOptions,
   ): string {
-    if (options.platformName !== 'bitbucket' || !options.repo) {
+    if (options.trackerName !== 'bitbucket' || !options.repo) {
       return ticketKey;
     }
 

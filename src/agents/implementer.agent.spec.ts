@@ -148,7 +148,7 @@ describe('ImplementerAgent', () => {
             repositoriesAffected: ['repo-a', 'repo-b'],
           }),
           {
-            platformName: 'jira',
+            trackerName: 'jira',
             repoDir: '/tmp/repo-a',
           },
         ),
@@ -166,7 +166,7 @@ describe('ImplementerAgent', () => {
             repositoriesAffected: ['repo-a'],
           }),
           {
-            platformName: 'jira',
+            trackerName: 'jira',
             repoDir: '/tmp/repo-a',
           },
         ),
@@ -188,7 +188,7 @@ describe('ImplementerAgent', () => {
             repositoriesAffected: ['repo-a', 'repo-b'],
           }),
           {
-            platformName: 'jira',
+            trackerName: 'jira',
             repoDir: '/tmp/repo-a',
             allowMultiRepoScope: true,
           },
@@ -209,7 +209,7 @@ describe('ImplementerAgent', () => {
             repositoriesAffected: ['repo-a'],
           }),
           {
-            platformName: 'jira',
+            trackerName: 'jira',
             repoDir: '/tmp/repo-a',
             allowMultiRepoScope: true,
           },
@@ -225,7 +225,7 @@ describe('ImplementerAgent', () => {
         .mockResolvedValue(undefined);
 
       await agent.execute(ticketArtifact, buildPlan({ filesAffected: [] }), {
-        platformName: 'jira',
+        trackerName: 'jira',
         repoDir: '/tmp/repo-a',
         customBranchSlug: 'dark-building-creek',
       });
@@ -247,7 +247,7 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { platformName: 'jira', repoDir: '/tmp/repo-a' },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a' },
       );
 
       expect(adapterSpy).toHaveBeenCalledTimes(1);
@@ -265,7 +265,7 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { platformName: 'jira', repoDir: '/tmp/repo-a' },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a' },
       );
 
       const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
@@ -325,7 +325,7 @@ describe('ImplementerAgent', () => {
         googleAgent.execute(
           ticketArtifact,
           buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-          { platformName: 'jira', repoDir: '/tmp/repo-a' },
+          { trackerName: 'jira', repoDir: '/tmp/repo-a' },
         ),
       ).rejects.toThrow(
         'Implement stage requires provider "anthropic" or "openai". Got "google".',
@@ -407,7 +407,7 @@ describe('ImplementerAgent', () => {
       await openaiAgent.execute(
         ticketArtifact,
         buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { platformName: 'jira', repoDir: '/tmp/repo-a' },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a' },
       );
 
       const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));

@@ -6,7 +6,7 @@ export interface GeneratedTicketSourceManifest {
   createdAt: string;
   format: string;
   hash: string;
-  platformName: string;
+  trackerName: string;
   sources: string[];
 }
 
@@ -79,7 +79,7 @@ export const buildGeneratedTicketManifestFilename = (
  * Build the manifest payload stored next to each generated ticket artifact.
  *
  * @param artifactPath - Absolute artifact path
- * @param platformName - Artifact platform namespace
+ * @param trackerName - Artifact platform namespace
  * @param format - Serialized artifact format
  * @param sources - Ordered raw CLI source arguments
  * @param createdAt - Creation timestamp
@@ -87,7 +87,7 @@ export const buildGeneratedTicketManifestFilename = (
  */
 export const buildGeneratedTicketSourceManifest = (
   artifactPath: string,
-  platformName: string,
+  trackerName: string,
   format: string,
   sources: string[],
   createdAt: Date,
@@ -96,7 +96,7 @@ export const buildGeneratedTicketSourceManifest = (
   createdAt: createdAt.toISOString(),
   format: normalizeFormat(format),
   hash: hashGeneratedTicketSources(sources),
-  platformName,
+  trackerName,
   sources,
 });
 

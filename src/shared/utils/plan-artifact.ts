@@ -32,7 +32,7 @@ export interface PlanArtifactManifest {
   sourceName: string;
   ticketKey?: string;
   customArtifactName?: string;
-  platformName?: string;
+  trackerName?: string;
 }
 
 export interface PlanArtifactReference {
@@ -165,7 +165,7 @@ export const buildPlanArtifactManifestPath = (artifactPath: string): string =>
  * @param sourceName - Original source token for reversible lookup
  * @param sourceKind - Whether the source came from a ticket or custom artifact
  * @param createdAt - Creation timestamp
- * @param platformName - Optional platform namespace for traceability
+ * @param trackerName - Optional platform namespace for traceability
  * @returns Manifest payload used for lookup and migration
  */
 export const buildPlanArtifactManifest = (
@@ -176,7 +176,7 @@ export const buildPlanArtifactManifest = (
   sourceName: string,
   sourceKind: PlanArtifactSourceKind,
   createdAt: Date,
-  platformName?: string,
+  trackerName?: string,
 ): PlanArtifactManifest => ({
   artifactPath,
   action,
@@ -187,7 +187,7 @@ export const buildPlanArtifactManifest = (
   sourceName,
   ticketKey: sourceKind === 'ticket' ? sourceName : undefined,
   customArtifactName: sourceKind === 'custom' ? sourceName : undefined,
-  platformName,
+  trackerName,
 });
 
 /**
@@ -267,8 +267,8 @@ export const readPlanArtifactManifest = (
         typeof value.customArtifactName === 'string'
           ? value.customArtifactName
           : undefined,
-      platformName:
-        typeof value.platformName === 'string' ? value.platformName : undefined,
+      trackerName:
+        typeof value.trackerName === 'string' ? value.trackerName : undefined,
     };
   } catch {
     return null;

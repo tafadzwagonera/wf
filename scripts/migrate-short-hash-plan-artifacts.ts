@@ -131,7 +131,7 @@ const runMigration = (options: MigrationOptions = {}): MigrationSummary => {
         sourceToken,
         sourceKind,
         createdAt,
-        existingManifest?.platformName,
+        existingManifest?.trackerName,
       );
       if (!options.dryRun) {
         writePlanArtifactManifest(migratedManifest);

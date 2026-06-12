@@ -89,7 +89,7 @@ export class ImplementerAgent {
           ticket.ticketKey,
           summary,
           planArtifact.action,
-          options.platformName,
+          options.trackerName,
         );
 
     const currentBranch = await this.gitService
@@ -634,7 +634,7 @@ export class ImplementerAgent {
     ticketKey: string,
     summary: string,
     action: ResolutionAction,
-    platformName: string,
+    trackerName: string,
   ): string {
     const prefixMapping = this.configService.get<
       Record<ResolutionAction, string>
@@ -642,7 +642,7 @@ export class ImplementerAgent {
     const prefix = prefixMapping[action] || 'feature';
 
     // Atlassian platforms (jira, bitbucket) use uppercase ticket keys
-    const isAtlassian = platformName === 'jira' || platformName === 'bitbucket';
+    const isAtlassian = trackerName === 'jira' || trackerName === 'bitbucket';
     const formattedKey = isAtlassian ? ticketKey.toUpperCase() : ticketKey;
 
     const branchName = `${prefix}/${formattedKey}__${slugify(summary)}`;

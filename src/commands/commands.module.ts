@@ -20,7 +20,7 @@ import { AgentsModule } from '../agents/agents.module';
 import { JiraModule } from '../integrations/jira/jira.module';
 import { GitModule } from '../integrations/git/git.module';
 import { AIModule } from '../integrations/ai/ai.module';
-import { PlatformModule } from '../integrations/platforms/platform.module';
+import { IssueTrackerModule } from '../integrations/issue-trackers/issue-tracker.module';
 import { ConvertersModule } from '../common/converters/converters.module';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -33,7 +33,7 @@ import { WorkflowStagesModule } from '../workflows/stages/workflow-stages.module
     JiraModule,
     GitModule,
     AIModule,
-    PlatformModule,
+    IssueTrackerModule,
     ConvertersModule,
     WorkflowStagesModule,
   ],

@@ -99,7 +99,7 @@ async function testSilentModeAgents() {
     const cap = captureConsole();
     try {
       await fetcher.execute('WBP-TEST', {
-        platformName: 'jira',
+        trackerName: 'jira',
         silent: true,
         baseDir: tmpDir,
       });
@@ -287,7 +287,7 @@ async function testSilentModeAgents() {
     const cap = captureConsole();
     try {
       await fetcher.execute('WBP-TEST', {
-        platformName: 'jira',
+        trackerName: 'jira',
         silent: false,
         baseDir: tmpDir,
       });

@@ -238,7 +238,7 @@ Return ONLY a valid JSON object:
     const systemPrompt = `You are an expert code reviewer providing constructive feedback.
 You may inspect repository files with read-only tools before answering.
 Focus on code quality, bugs, security, and the changed execution path.
-Ignore JSON or markdown files under .wf/ and platform artifact directories.`;
+Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
 
     const response = await this.runStagePrompt({
       stage: 'review',

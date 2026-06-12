@@ -2,7 +2,7 @@ import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiService, ResolutionPlan } from '../integrations/ai/ai.service';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
@@ -49,7 +49,7 @@ const loadPlanFile = (filePath: string): ResolutionPlan => {
 };
 
 interface IssueImplementOptions {
-  platform?: string;
+  tracker?: string;
   repos?: string[];
   dryRun?: boolean;
   modelRouting?: string;
@@ -90,7 +90,7 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
 export class IssueImplementCommand extends CommandRunner {
   constructor(
     private readonly aiService: AiService,
-    private readonly platformService: PlatformService,
+    private readonly issueTrackerService: IssueTrackerService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
@@ -100,17 +100,17 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-p, --platform <platform>',
-    description: 'Platform to fetch from if local artifact not found',
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker to fetch from if local artifact not found',
   })
-  parsePlatform(platform: string): string {
-    const validPlatforms = ['jira', 'github', 'bitbucket'];
-    if (!validPlatforms.includes(platform)) {
+  parseTracker(tracker: string): string {
+    const validTrackers = ['jira', 'github', 'bitbucket'];
+    if (!validTrackers.includes(tracker)) {
       throw new Error(
-        `Invalid platform: ${platform}. Valid platforms: ${validPlatforms.join(', ')}`,
+        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
       );
     }
-    return platform;
+    return tracker;
   }
 
   @Option({
@@ -152,14 +152,13 @@ export class IssueImplementCommand extends CommandRunner {
   ): Promise<void> {
     try {
       // Guard: ticketKey + Bitbucket requires --repos
-      const platformName =
-        options?.platform ||
-        this.configService.get<string>('platforms.primary', 'jira');
+      const trackerName =
+        options?.tracker || this.configService.get<string>('tracker', 'jira');
 
       if (
         identifier &&
         isTicketKey(identifier) &&
-        platformName === 'bitbucket' &&
+        trackerName === 'bitbucket' &&
         !options?.repos?.length
       ) {
         console.error(
@@ -179,7 +178,7 @@ export class IssueImplementCommand extends CommandRunner {
       }
 
       const baseDir = resolveRepoBasePath(options?.repos?.[0]);
-      const platformDir = resolveArtifactDir(baseDir, platformName);
+      const trackerDir = resolveArtifactDir(baseDir, trackerName);
       const customArtifactDir = resolveCustomArtifactDir(baseDir);
       const ticketKey = isTicketKey(identifier) ? identifier : undefined;
       let resolvedPlanReference: PlanArtifactReference | null = null;
@@ -189,7 +188,7 @@ export class IssueImplementCommand extends CommandRunner {
       if (!ticketKey) {
         resolvedPlanReference = this.resolvePlanArtifactReferenceAcrossDirs(
           identifier,
-          platformDir,
+          trackerDir,
           customArtifactDir,
           baseDir,
         );
@@ -423,7 +422,7 @@ Return ONLY a valid JSON object:
           customExecutionContext.ticketArtifact,
           planArtifact,
           {
-            platformName,
+            trackerName,
             repoDir,
             additionalRepoDirs: (options?.repos ?? [])
               .slice(1)
@@ -439,7 +438,7 @@ Return ONLY a valid JSON object:
       warnOnVerificationRepoBoundary(options?.repos);
       const resolvedTicketKey =
         ticketKey ?? resolvedPlanReference?.ticketKey ?? identifier;
-      const ticketPath = path.join(platformDir, `${resolvedTicketKey}.md`);
+      const ticketPath = path.join(trackerDir, `${resolvedTicketKey}.md`);
       // Preflight Check 1: ticket artifact must exist (gates both live + dry-run)
       if (!fs.existsSync(ticketPath)) {
         console.error(
@@ -458,7 +457,7 @@ Return ONLY a valid JSON object:
         resolvedPlanReference ??
         this.resolvePlanArtifactReferenceAcrossDirs(
           resolvedTicketKey,
-          platformDir,
+          trackerDir,
           customArtifactDir,
           baseDir,
         );
@@ -612,7 +611,7 @@ Return ONLY a valid JSON object:
         ticketArtifact,
         planArtifact,
         {
-          platformName,
+          trackerName,
           repoDir,
           additionalRepoDirs: (options?.repos ?? [])
             .slice(1)
@@ -713,19 +712,19 @@ Return ONLY a valid JSON object:
    * Resolve a plan artifact from the standard and custom artifact namespaces.
    *
    * @param identifier - Raw CLI positional argument
-   * @param platformDir - Standard platform artifact directory
+   * @param trackerDir - Standard platform artifact directory
    * @param customArtifactDir - Custom artifact directory
    * @returns Resolved plan artifact reference or null when not found
    */
   private resolvePlanArtifactReferenceAcrossDirs(
     identifier: string,
-    platformDir: string,
+    trackerDir: string,
     customArtifactDir: string,
     baseDir: string,
   ): PlanArtifactReference | null {
     const candidateDirs = isTicketKey(identifier)
-      ? [platformDir]
-      : [platformDir, customArtifactDir];
+      ? [trackerDir]
+      : [trackerDir, customArtifactDir];
 
     for (const artifactDir of candidateDirs) {
       try {

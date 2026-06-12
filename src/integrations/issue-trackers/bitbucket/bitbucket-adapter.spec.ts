@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { BitBucketAdapter } from './bitbucket-adapter';
 import { LoggerService } from '../../../shared/logger/logger.service';
-import { PlatformConfigService } from '../platform-config.service';
+import { IssueTrackerConfigService } from '../issue-tracker-config.service';
 
 describe('BitBucketAdapter', () => {
   let adapter: BitBucketAdapter;
@@ -31,8 +31,8 @@ describe('BitBucketAdapter', () => {
           useValue: { warn: jest.fn(), log: jest.fn(), error: jest.fn() },
         },
         {
-          provide: PlatformConfigService,
-          useValue: { isPlatformEnabled: jest.fn().mockReturnValue(true) },
+          provide: IssueTrackerConfigService,
+          useValue: { isTrackerEnabled: jest.fn().mockReturnValue(true) },
         },
       ],
     }).compile();

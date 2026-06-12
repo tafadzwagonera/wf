@@ -42,7 +42,7 @@ const ISSUE_EXAMPLES: CliExample[] = [
   },
   {
     comment: 'Resume from implement stage',
-    command: 'wf issue WBP-2971 --from implement --action fix --platform jira',
+    command: 'wf issue WBP-2971 --from implement --action fix --tracker jira',
   },
   {
     comment: 'Resume from a hashed plan artifact without --action',
@@ -70,7 +70,7 @@ interface IssueOptions {
   from: string;
   to?: string;
   action?: string;
-  platform?: string;
+  tracker?: string;
   silent?: boolean;
   force?: boolean;
   repos?: string[];
@@ -137,10 +137,10 @@ export class IssueCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-p, --platform <platform>',
-    description: 'Platform to use (jira|github|bitbucket)',
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker to use (jira|github|bitbucket)',
   })
-  parsePlatform(val: string): string {
+  parseTracker(val: string): string {
     return val;
   }
 
@@ -239,12 +239,10 @@ export class IssueCommand extends CommandRunner {
       const toStage = options.to
         ? this.parseStage(options.to)
         : WorkflowStage.COMMIT;
-      const platformName =
-        options?.platform ||
-        this.configService.get<string>('platforms.primary') ||
-        'jira';
+      const trackerName =
+        options?.tracker || this.configService.get<string>('tracker') || 'jira';
       const repoBaseDir = resolveRepoBasePath(options.repos?.[0]);
-      const platformDir = resolveArtifactDir(repoBaseDir, platformName);
+      const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
 
       // Validate stage range
       const fromIndex = STAGE_ORDER.indexOf(fromStage);
@@ -272,7 +270,7 @@ export class IssueCommand extends CommandRunner {
           const resolvedReference = resolvePlanArtifactReferenceInDir(
             ticketKey,
             {
-              artifactDir: platformDir,
+              artifactDir: trackerDir,
             },
           );
           if (resolvedReference.ticketKey) {
@@ -327,12 +325,12 @@ export class IssueCommand extends CommandRunner {
         : [undefined];
 
       if (options?.dryRun) {
-        const platformDir = resolveArtifactDir(repoBaseDir, platformName);
+        const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
 
         this.dryRunPreview.showHeader('issue', ticketKey);
         console.log(
           chalk.gray(
-            `   Stages : ${fromStage} → ${toStage}  |  Platform: ${platformName}\n`,
+            `   Stages : ${fromStage} → ${toStage}  |  Platform: ${trackerName}\n`,
           ),
         );
 
@@ -358,7 +356,7 @@ export class IssueCommand extends CommandRunner {
           this.dryRunPreview.showStageHeader(stage);
 
           if (stage === WorkflowStage.FETCH) {
-            const ticketPath = path.join(platformDir, `${ticketKey}.md`);
+            const ticketPath = path.join(trackerDir, `${ticketKey}.md`);
             const artifactExists = fs.existsSync(ticketPath);
 
             if (skipExisting && artifactExists) {
@@ -366,8 +364,8 @@ export class IssueCommand extends CommandRunner {
             } else {
               this.dryRunPreview.previewApiCall({
                 method: 'GET',
-                endpoint: `/${platformName}/issues/${ticketKey}`,
-                platform: platformName,
+                endpoint: `/${trackerName}/issues/${ticketKey}`,
+                platform: trackerName,
                 description: `Fetch ticket ${ticketKey}`,
                 estimatedResponse: '200 OK — ticket data',
               });
@@ -388,7 +386,7 @@ export class IssueCommand extends CommandRunner {
             const planHash = hashPlanArtifactSources([ticketKey]);
             const defaultAction = action ?? 'feature';
             const defaultPlanPath = path.join(
-              platformDir,
+              trackerDir,
               buildPlanArtifactFilename({
                 hash: planHash,
                 action: defaultAction,
@@ -398,7 +396,7 @@ export class IssueCommand extends CommandRunner {
             const resolvedPlan = (() => {
               try {
                 return resolvePlanArtifactReferenceInDir(ticketKey, {
-                  artifactDir: platformDir,
+                  artifactDir: trackerDir,
                   action: defaultAction,
                 });
               } catch {
@@ -450,7 +448,7 @@ export class IssueCommand extends CommandRunner {
           } else if (stage === WorkflowStage.IMPLEMENT) {
             if (action === 'investigate') {
               const findingsPath = path.join(
-                platformDir,
+                trackerDir,
                 `${ticketKey}-plan-investigate-findings-and-recommendations.json`,
               );
               this.dryRunPreview.previewApiCall({
@@ -523,8 +521,8 @@ export class IssueCommand extends CommandRunner {
                 );
               }
               const repoPlatformDir = repo
-                ? resolveArtifactDir(resolveRepoBasePath(repo), platformName)
-                : platformDir;
+                ? resolveArtifactDir(resolveRepoBasePath(repo), trackerName)
+                : trackerDir;
               const reviewPath = path.join(
                 repoPlatformDir,
                 `${ticketKey}-review.md`,
@@ -615,7 +613,7 @@ export class IssueCommand extends CommandRunner {
         console.log(chalk.bold.cyan('\n🚀 Complete Issue Workflow'));
         console.log(chalk.gray('═'.repeat(70)));
         console.log(chalk.gray(`Ticket: ${ticketKey}`));
-        console.log(chalk.gray(`Platform: ${platformName}`));
+        console.log(chalk.gray(`Platform: ${trackerName}`));
         if (action) {
           console.log(chalk.gray(`Action: ${action}`));
         }
@@ -629,7 +627,7 @@ export class IssueCommand extends CommandRunner {
       // STAGE 1: FETCH
       if (stagesToRun.includes(WorkflowStage.FETCH)) {
         ticketArtifact = await this.agents.fetcher.execute(ticketKey, {
-          platformName,
+          trackerName,
           repo: options?.repos?.[0],
           skipExisting,
           baseDir: repoBaseDir,
@@ -641,7 +639,7 @@ export class IssueCommand extends CommandRunner {
       } else {
         ticketArtifact = this.agents.fetcher.loadFromDisk(
           ticketKey,
-          platformName,
+          trackerName,
           repoBaseDir,
           options?.silent,
         );
@@ -684,7 +682,7 @@ export class IssueCommand extends CommandRunner {
                 plan: planArtifact.plan,
               },
               resolveRepoBasePath(repoList[0]),
-              platformName,
+              trackerName,
             );
           }
         }
@@ -725,7 +723,7 @@ export class IssueCommand extends CommandRunner {
             ticketArtifact,
             planArtifact,
             {
-              platformName,
+              trackerName,
               repoDir,
               additionalRepoDirs: (options.repos ?? [])
                 .filter((r) => r !== repo)
@@ -818,7 +816,7 @@ export class IssueCommand extends CommandRunner {
                     review: reviewArtifact.review,
                   },
                   resolveRepoBasePath(repoList[0]),
-                  platformName,
+                  trackerName,
                 );
               }
             }
@@ -903,29 +901,29 @@ export class IssueCommand extends CommandRunner {
   private checkArtifactExists(
     stage: WorkflowStage,
     ticketKey: string,
-    platformName: string,
+    trackerName: string,
     action?: ResolutionAction,
     baseDir: string = process.cwd(),
   ): { exists: boolean; path: string } {
-    const platformDir = resolveArtifactDir(baseDir, platformName);
+    const trackerDir = resolveArtifactDir(baseDir, trackerName);
 
     switch (stage) {
       case WorkflowStage.FETCH: {
-        const ticketPath = path.join(platformDir, `${ticketKey}.md`);
+        const ticketPath = path.join(trackerDir, `${ticketKey}.md`);
         return { exists: fs.existsSync(ticketPath), path: ticketPath };
       }
 
       case WorkflowStage.PLAN:
         try {
           const resolved = resolvePlanArtifactReferenceInDir(ticketKey, {
-            artifactDir: platformDir,
+            artifactDir: trackerDir,
             action,
           });
           return { exists: true, path: resolved.artifactPath };
         } catch {
           const defaultAction = action ?? 'feature';
           const planPath = path.join(
-            platformDir,
+            trackerDir,
             buildPlanArtifactFilename({
               hash: hashPlanArtifactSources([ticketKey]),
               action: defaultAction,
@@ -936,7 +934,7 @@ export class IssueCommand extends CommandRunner {
         }
 
       case WorkflowStage.REVIEW: {
-        const reviewPath = path.join(platformDir, `${ticketKey}-review.md`);
+        const reviewPath = path.join(trackerDir, `${ticketKey}-review.md`);
         return { exists: fs.existsSync(reviewPath), path: reviewPath };
       }
 
@@ -959,14 +957,14 @@ export class IssueCommand extends CommandRunner {
     stage: ConvWorkflowStage,
     workflowState: any,
     repoDir: string,
-    platformName: string,
+    trackerName: string,
   ): Promise<void> {
     const context: ConversationContext = {
       ticketKey,
       stage,
       stageOutput: stage === 'plan' ? workflowState.plan : workflowState.review,
       repoDir,
-      platformName,
+      trackerName,
       workflowState: {
         ticketContent: workflowState.ticketContent,
         plan: workflowState.plan,
@@ -978,7 +976,7 @@ export class IssueCommand extends CommandRunner {
     let conversation = await this.conversationService.loadConversation(
       ticketKey,
       repoDir,
-      platformName,
+      trackerName,
     );
     if (!conversation) {
       conversation = await this.conversationService.createConversation(

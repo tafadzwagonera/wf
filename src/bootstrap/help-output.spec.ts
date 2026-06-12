@@ -134,7 +134,7 @@ describe('getHelpText', () => {
       'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors',
     );
     expect(plainReviewHelpText).toContain(
-      'Platform (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary platform',
+      'Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker',
     );
     expect(plainImplementHelpText).toContain(
       'Anthropic or OpenAI agent backend',
@@ -191,7 +191,7 @@ describe('getHelpText', () => {
     const plainFetchHelpText = normalizeWrappedText(fetchHelpText);
 
     expect(plainFetchHelpText).toContain(
-      'Fetch ticket description from a platform. NB: This command will override the locally generated artifact with the ticket description fetched from the specified platform',
+      'Fetch ticket description from a tracker. NB: This command will override the locally generated artifact with the ticket description fetched from the specified tracker',
     );
     expect(prHelpText).toContain(
       'Create a pull request from a plan artifact (auto-detects ticket from branch)',
@@ -245,5 +245,29 @@ describe('getHelpText', () => {
       '<gray>  # Run against a quoted URL source</gray>',
     );
     expect(helpText).toContain('<yellow>--alpha</yellow>');
+  });
+
+  it('no command help text contains the legacy --platform flag', () => {
+    for (const command of Object.keys(catalog)) {
+      const helpText = getHelpText([command, '--help'], catalog);
+      expect(helpText).not.toContain('--platform');
+    }
+  });
+
+  it('tracker-aware commands expose -t, --tracker', () => {
+    const trackerCommands = [
+      'issue',
+      'issue:fetch',
+      'issue:plan',
+      'issue:implement',
+      'issue:commit',
+      'issue:create',
+      'issue:pr',
+      'issue:generate',
+    ];
+    for (const command of trackerCommands) {
+      const helpText = getHelpText([command, '--help'], catalog);
+      expect(helpText).toContain('--tracker');
+    }
   });
 });

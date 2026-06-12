@@ -14,7 +14,7 @@ import {
 } from '../shared/utils/generated-ticket-artifact';
 
 interface IssueGenerateLookupOptions {
-  platform?: string;
+  tracker?: string;
   repos?: string[];
 }
 
@@ -59,11 +59,10 @@ export class IssueGenerateLookupCommand extends CommandRunner {
       process.exit(1);
     }
 
-    const platformName =
-      options?.platform ||
-      this.configService.get<string>('platforms.primary', 'jira');
+    const trackerName =
+      options?.tracker || this.configService.get<string>('tracker', 'jira');
     const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-    const artifactDir = resolveArtifactDir(artifactBaseDir, platformName);
+    const artifactDir = resolveArtifactDir(artifactBaseDir, trackerName);
 
     if (!fs.existsSync(artifactDir)) {
       console.error(
@@ -87,10 +86,10 @@ export class IssueGenerateLookupCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-p, --platform <platform>',
+    flags: '-t, --tracker <tracker>',
     description: 'Platform namespace to inspect',
   })
-  parsePlatform(val: string): string {
+  parseTracker(val: string): string {
     return val;
   }
 

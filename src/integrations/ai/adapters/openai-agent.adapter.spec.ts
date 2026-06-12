@@ -198,7 +198,7 @@ const makeParams = (
     },
   },
   options: {
-    platformName: 'jira',
+    trackerName: 'jira',
     repoDir,
     additionalRepoDirs: ['/repo/shared'],
   },

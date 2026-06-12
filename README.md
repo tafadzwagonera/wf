@@ -1,6 +1,6 @@
 # wf — Issue Workflow CLI
 
-A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan, implement, review, commit, and PR — with pluggable AI providers and platform integrations.
+A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan, implement, review, commit, and PR — with pluggable AI providers and issue tracker integrations.
 
 ## Features
 
@@ -66,9 +66,7 @@ When multiple files exist, `wf` uses this precedence order from top to bottom. W
 import { defineConfig } from 'wf/config';
 
 export default defineConfig({
-  platforms: {
-    primary: 'jira',
-  },
+  tracker: 'jira',
   ai: [
     {
       provider: 'anthropic',
@@ -134,8 +132,7 @@ export default defineConfig({
 ### YAML Example
 
 ```yaml
-platforms:
-  primary: jira
+tracker: jira
 ai:
   - provider: anthropic
     apiKey: ${ANTHROPIC_API_KEY}
@@ -228,7 +225,7 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - Create a new API token
 - Ensure your Jira user has necessary project permissions
 
-**BitBucket API Token** (for BitBucket platform support):
+**BitBucket API Token** (for BitBucket tracker support):
 
 - Go to: BitBucket Settings → Personal Settings → App passwords → API tokens
 - Create a new token with required scopes:
@@ -253,7 +250,7 @@ yarn start list
 yarn start run test-workflow
 
 # Fetch a ticket and generate a plan
-wf issue:fetch WBP-2971 --platform jira
+wf issue:fetch WBP-2971 --tracker jira
 wf issue:plan WBP-2971 --action fix
 
 # Run the complete issue workflow in one command
@@ -271,14 +268,14 @@ The issue API is a suite of commands for the full ticket lifecycle: fetch → pl
 #### `wf issue:fetch <ticket-key>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:fetch -->
-Fetch ticket description from a platform. NB: This command will override the locally generated artifact with the ticket description fetched from the specified platform
+Fetch ticket description from a tracker. NB: This command will override the locally generated artifact with the ticket description fetched from the specified tracker
 
 ```bash
-# Fetch ticket from primary platform
+# Fetch ticket from primary tracker
 wf issue:fetch WBP-2971
 
-# Specify platform and format
-wf issue:fetch WBP-2971 --platform jira --format md
+# Specify tracker and format
+wf issue:fetch WBP-2971 --tracker jira --format md
 ```
 
 **Options:**
@@ -287,19 +284,19 @@ wf issue:fetch WBP-2971 --platform jira --format md
 | ---- | ----------- |
 | `--dry-run` | Preview the fetch operation without making changes |
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) |
-| `-p, --platform <platform>` | Target platform (jira\|github\|bitbucket) |
+| `-t, --tracker <tracker>` | Target tracker (jira\|github\|bitbucket) |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the file path for piping |
 <!-- END GENERATED COMMAND DOCS: issue:fetch -->
 
-**Output:** saves to `./<platform>/<ticket-key>.<format>` (e.g., `./jira/WBP-2971.md`).
+**Output:** saves to `./<tracker>/<ticket-key>.<format>` (e.g., `./jira/WBP-2971.md`).
 
 ---
 
 #### `wf issue:plan <ticket-key>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:plan -->
-Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary platform. Use --force to fetch and recreate artifacts. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.
+Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary tracker. Use --force to fetch and recreate artifacts. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.
 
 ```bash
 # Create a custom feature plan from a markdown artifact
@@ -312,7 +309,7 @@ wf issue:plan --action feature --custom bar.md --repos repo-a
 wf issue:plan WBP-2971 --action fix
 
 # Force re-fetch before planning
-wf issue:plan WBP-2971 --action fix --force --platform jira
+wf issue:plan WBP-2971 --action fix --force --tracker jira
 ```
 
 **Options:**
@@ -324,7 +321,7 @@ wf issue:plan WBP-2971 --action fix --force --platform jira
 | `--dry-run` | Preview the plan operation without making changes |
 | `--force` | Force fetch and recreate ticket artifact before planning |
 | `-f, --format <format>` | Output format for plan (json\|md\|yaml\|yml) |
-| `-p, --platform <platform>` | Platform to fetch from if local artifact not found |
+| `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
 | `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the plan path for piping |
 <!-- END GENERATED COMMAND DOCS: issue:plan -->
@@ -333,7 +330,7 @@ Targeted verification commands are stored as **repo-root-relative** commands. If
 
 When `--repos` is present, filename-only custom sources are resolved against the repo-scoped `~/.wf/<repo>/` artifact directory before cwd-relative paths.
 
-**Output:** saves to `./<platform>/YYYY-MM-DD-<hash>-<action>-plan.<format>` for both ticket-backed and custom plans. A sidecar `.<format>.sources.json` manifest records the original ticket key or custom source name so `issue:implement` can resolve the artifact later.
+**Output:** saves to `./<tracker>/YYYY-MM-DD-<hash>-<action>-plan.<format>` for both ticket-backed and custom plans. A sidecar `.<format>.sources.json` manifest records the original ticket key or custom source name so `issue:implement` can resolve the artifact later.
 
 ---
 
@@ -350,7 +347,7 @@ wf issue:review
 yarn start issue:review WBP-3057 -r service-bookingv3
 
 # Review a ticket and its associated pull requests across credentialed repos
-wf issue:review WBP-2971 --platform jira --repos service-tourv3
+wf issue:review WBP-2971 --tracker jira --repos service-tourv3
 
 # Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd
 yarn start issue:review CTRL-280 -r api-gateway-v1
@@ -368,7 +365,7 @@ wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 | `--dry-run` | Preview the review operation without making changes |
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
 | `-o, --output <path>` | Save review to file |
-| `-p, --platform <platform>` | Platform (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary platform |
+| `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker |
 | `--replace-criteria <path>` | Path to a markdown file whose criteria replace the default review guidelines entirely |
 | `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
@@ -382,7 +379,7 @@ Accepts three source modes:
 | `ABC-123`              | Fetch ticket context and review associated pull requests; `--repos` provides remote PR-discovery hints and local fallback roots |
 | `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request                                                                             |
 
-When a ticket key is supplied, `issue:review` fetches ticket context from the configured platform, then fans out PR discovery across registered adapters that have explicit credentials in `wf.config.*`. It reviews matching PR diffs first, in deterministic order, and the trace output uses nested call stacks plus frame-aligned state transitions so downstream dependencies and variable changes stay visible together.
+When a ticket key is supplied, `issue:review` fetches ticket context from the configured tracker, then fans out PR discovery across registered adapters that have explicit credentials in `wf.config.*`. It reviews matching PR diffs first, in deterministic order, and the trace output uses nested call stacks plus frame-aligned state transitions so downstream dependencies and variable changes stay visible together.
 
 **Staged file exclusions:** before computing the diff for review, `issue:review` stages all local changes while automatically excluding wf tooling artifacts: `.wf/**` runtime directories, `wf.config.{js,mjs,ts,mts,yaml,yml}` files, and `dist/` build output. These files are created by wf itself inside target repos and are not part of the ticket's code changes.
 
@@ -404,17 +401,17 @@ When `--comment` is used on a pull request, inline review comments use destinati
 #### `wf issue:create <input>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:create -->
-Create tickets on various platforms from standardized input (file or stdin). When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks
+Create tickets on various trackers from standardized input (file or stdin). When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks
 
 ```bash
-# Create ticket from JSON on primary platform
+# Create ticket from JSON on primary tracker
 wf issue:create ticket.json
 
-# Create on a specific platform and override the Jira project
-wf issue:create ticket.md --platform jira --ticket-project WBP --type story
+# Create on a specific tracker and override the Jira project
+wf issue:create ticket.md --tracker jira --ticket-project WBP --type story
 
 # Create Jira ticket with project-specific priority resolution
-wf issue:create ticket.md --platform jira --ticket-project WBP --priority medium
+wf issue:create ticket.md --tracker jira --ticket-project WBP --priority medium
 
 # Dry-run a repo-scoped generated Jira artifact before creation
 wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run
@@ -429,7 +426,7 @@ nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /
 | ---- | ----------- |
 | `--dry-run` | Validate without creating - preview only |
 | `-f, --format <format>` | Input format (json\|md\|yaml\|yml) - overrides file extension detection; required when reading from stdin |
-| `-p, --platform <platform>` | Target platform (jira\|github\|bitbucket) - default from config |
+| `-t, --tracker <tracker>` | Target tracker (jira\|github\|bitbucket) - default from config |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning |
 | `--ticket-project <project>` | Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file |
 | `-t, --type <type>` | Issue type (task\|bug\|story\|todo) - overrides input file |
@@ -491,10 +488,10 @@ wf issue:generate ./spec.md --save --silent | xargs wf issue:create
 | `--dry-run` | Preview the generate operation without making changes |
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default from config |
 | `-o, --output <path>` | Output file path - default: stdout |
-| `-p, --platform <platform>` | Platform for ticket sources (jira\|github\|bitbucket) |
+| `-t, --tracker <tracker>` | Tracker for ticket sources (jira\|github\|bitbucket) |
 | `--priority <priority>` | Override ticket priority (highest\|high\|medium\|low\|lowest) |
 | `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
-| `--save` | Save generated ticket to platform directory |
+| `--save` | Save generated ticket to tracker directory |
 | `-s, --silent` | Suppress decorative output and interactive prompts (clarification, disambiguation). Emits only file paths (with --save/--output) or raw ticket content for piping |
 | `-t, --title <title>` | Override generated title with custom title |
 | `--type <type>` | Override ticket type (task\|bug\|story\|epic) |
@@ -523,7 +520,7 @@ wf issue:commit WBP-2971
 yarn start issue:commit -c
 
 # Force conventional format
-wf issue:commit WBP-2971 --conventional --platform jira
+wf issue:commit WBP-2971 --conventional --tracker jira
 ```
 
 **Options:**
@@ -534,7 +531,7 @@ wf issue:commit WBP-2971 --conventional --platform jira
 | `--dry-run` | Preview the commit operation without making changes |
 | `-m, --message <message>` | Manual commit message (bypasses AI generation) |
 | `--no-ai` | Disable AI generation and require manual message |
-| `-p, --platform <platform>` | Platform (jira\|github\|bitbucket) |
+| `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 <!-- END GENERATED COMMAND DOCS: issue:commit -->
 
@@ -564,7 +561,7 @@ wf issue:pr WBP-2971 --dry-run
 | `-a, --action <action>` | Resolution action type (feature\|fix\|investigate) |
 | `-b, --base <base>` | Target branch for the PR (default: main) |
 | `--dry-run` | Preview the PR creation without making changes |
-| `-p, --platform <platform>` | Platform (jira\|github\|bitbucket) |
+| `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 | `-t, --title <title>` | Override the PR title |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the PR URL for piping |
@@ -597,7 +594,7 @@ wf issue WBP-2971 --from fetch --action investigate --chat-mode
 
 # Bitbucket with repos override
 wf issue 123 --from fetch --to review --action fix \
-  --platform bitbucket --repos myworkspace/myrepo
+  --tracker bitbucket --repos myworkspace/myrepo
 
 # Multi-repo: implement stage runs once per repo in sequence
 wf issue WBP-3070 --from implement --action feature -r terraform-aws service-document-v1
@@ -613,7 +610,7 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 | `--from <stage>`            | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit`                                                                       | —                  |
 | `--to <stage>`              | Stop stage (inclusive)                                                                                                                             | `commit`           |
 | `--action <action>`         | Resolution action: `feature \| fix \| investigate` — required when `plan` stage runs, optional when resuming from a canonical hashed plan artifact | —                  |
-| `-p, --platform <platform>` | Platform: `jira \| github \| bitbucket`                                                                                                            | `PRIMARY_PLATFORM` |
+| `-t, --tracker <tracker>` | Tracker: `jira \| github \| bitbucket`                                                                                                            | `TRACKER` |
 | `--pr`                      | Create PR after commit stage                                                                                                                       | false              |
 | `--chat-mode`               | Open AI chat after `plan` and `review` stages                                                                                                      | —                  |
 | `--force`                   | Recreate artifacts instead of using the default skip-existing behavior                                                                             | false              |
@@ -624,10 +621,10 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 
 | Stage       | Artifact                                                                                    |
 | ----------- | ------------------------------------------------------------------------------------------- |
-| `fetch`     | `./<platform>/<ticket-key>.md`                                                              |
-| `plan`      | `./<platform>/YYYY-MM-DD-<hash>-<action>-plan.json` with a `.sources.json` sidecar manifest |
+| `fetch`     | `./<tracker>/<ticket-key>.md`                                                              |
+| `plan`      | `./<tracker>/YYYY-MM-DD-<hash>-<action>-plan.json` with a `.sources.json` sidecar manifest |
 | `implement` | working tree updates in the selected repo plus branch setup                                 |
-| `review`    | `./<platform>/<ticket-key>-review.md`                                                       |
+| `review`    | `./<tracker>/<ticket-key>-review.md`                                                       |
 | `commit`    | _(display only — commit commands printed for confirmation)_                                 |
 
 **Branch naming:** `issue` generates a branch name in the format `<prefix>/<TICKET-KEY>__<slug>`, where prefix is controlled by `BRANCH_PREFIX_*` env vars (`feature`, `bugfix`, `chore`).
@@ -643,7 +640,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 
 | Flag | Description |
 | ---- | ----------- |
-| `-p, --platform <platform>` | Platform to fetch from if local artifact not found |
+| `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
 | `--dry-run` | Preview branch, file, and investigation work without making changes |
 | `--model-routing <mode>` | Model selection strategy: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto. |
 | `-r, --repos <repos...>` | Space-separated repositories; first repo anchors artifact lookup, all repos remain available as implementation context |
@@ -770,13 +767,13 @@ All `issue:*` commands that interact with Bitbucket require a `--repos` (`-r`) o
 
 ```bash
 # Single repository in full workspace/repo format
-wf issue:fetch 123 --platform bitbucket --repos myworkspace/myrepo
+wf issue:fetch 123 --tracker bitbucket --repos myworkspace/myrepo
 
 # Single repository using repo name only (uses atlassian.bitbucket.workspace from config)
-wf issue:fetch 123 --platform bitbucket --repos myrepo
+wf issue:fetch 123 --tracker bitbucket --repos myrepo
 
 # Multiple repositories (space-separated)
-wf issue:fetch 123 --platform bitbucket --repos myworkspace/repo-a myworkspace/repo-b
+wf issue:fetch 123 --tracker bitbucket --repos myworkspace/repo-a myworkspace/repo-b
 ```
 
 **Repository format:**
@@ -827,7 +824,7 @@ Each `issue:*` command follows a consistent pattern:
 1. **Command** receives CLI args and resolves config (including repo-scoped config via `--repos`)
 2. **Agent** orchestrates the domain logic — fetching tickets, calling AI, writing artifacts
 3. **Adapters** translate between wf's internal types and external APIs (Jira REST, GitHub GraphQL, AI chat/agent SDKs)
-4. **Artifacts** are written to the file system under `./<platform>/` or `~/.wf/<repo>/`
+4. **Artifacts** are written to the file system under `./<tracker>/` or `~/.wf/<repo>/`
 
 The orchestrator command (`wf issue`) chains stages together, passing artifacts forward: `fetch` output feeds `plan`, `plan` output feeds `implement`, and so on.
 
@@ -849,7 +846,7 @@ wf/
 │   │   └── config.command.ts
 │   │
 │   ├── agents/                    # Domain agents (business logic per stage)
-│   │   ├── fetcher.agent.ts       #   fetches ticket data from platform adapters
+│   │   ├── fetcher.agent.ts       #   fetches ticket data from tracker adapters
 │   │   ├── planner.agent.ts       #   generates implementation plans via AI
 │   │   ├── implementer.agent.ts   #   drives AI agent backends to write code
 │   │   ├── reviewer.agent.ts      #   AI-powered code review with trace provenance
@@ -868,12 +865,12 @@ wf/
 │   │   │       ├── llm-adapter.factory.ts      # Factory for provider resolution
 │   │   │       └── shared-routing.ts           # Model routing (auto/default/mechanical)
 │   │   │
-│   │   ├── platforms/             # Platform adapters (ticket systems)
+│   │   ├── issue-trackers/         # Issue tracker adapters (ticket systems)
 │   │   │   ├── jira/              #   Jira REST API (Basic Auth, ADF conversion)
 │   │   │   ├── github/            #   GitHub via @octokit/rest
 │   │   │   ├── bitbucket/         #   Bitbucket Cloud API
-│   │   │   ├── platform.service.ts            # Platform resolution and dispatch
-│   │   │   └── platform-adapter.interface.ts  # Shared adapter contract
+│   │   │   ├── issue-tracker.service.ts      # Tracker resolution and dispatch
+│   │   │   └── issue-tracker-adapter.interface.ts # Shared adapter contract
 │   │   │
 │   │   ├── git/                   # Git operations via simple-git
 │   │   ├── jira/                  # Jira-specific services (ADF, metadata)

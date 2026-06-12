@@ -10,7 +10,7 @@ import {
 } from './dto/jira.dto';
 import { JiraApiError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
-import { PlatformConfigService } from '../platforms/platform-config.service';
+import { IssueTrackerConfigService } from '../issue-trackers/issue-tracker-config.service';
 import { stripInlineMarkdownDelimiters } from '../../common/utils/markdown-text';
 
 /**
@@ -105,7 +105,7 @@ export class JiraService {
     private configService: ConfigService,
     private httpService: HttpService,
     private logger: LoggerService,
-    private platformConfig: PlatformConfigService,
+    private issueTrackerConfig: IssueTrackerConfigService,
   ) {
     this.baseUrl = this.configService.get<string>('atlassian.baseUrl');
     this.email = this.configService.get<string>('atlassian.email');
@@ -121,7 +121,7 @@ export class JiraService {
 
     if (!this.baseUrl || !this.email || !this.apiToken) {
       // Only warn if platform is enabled
-      if (this.platformConfig.isPlatformEnabled('jira', hasPartialConfig)) {
+      if (this.issueTrackerConfig.isTrackerEnabled('jira', hasPartialConfig)) {
         this.logger.warn(
           'Jira credentials not configured. Set atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken in wf.config.*.',
         );

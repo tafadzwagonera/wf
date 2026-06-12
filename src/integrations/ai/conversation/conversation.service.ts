@@ -75,13 +75,13 @@ export class ConversationService {
   async loadConversation(
     ticketKey: string,
     repoDir?: string,
-    platformName?: string,
+    trackerName?: string,
   ): Promise<ConversationState | null> {
     try {
       const filePath = this.getConversationFilePath(
         ticketKey,
         repoDir,
-        platformName,
+        trackerName,
       );
 
       if (!fs.existsSync(filePath)) {
@@ -214,7 +214,7 @@ export class ConversationService {
       const filePath = this.getConversationFilePath(
         state.ticketKey,
         state.context.repoDir,
-        state.context.platformName,
+        state.context.trackerName,
       );
       const dir = path.dirname(filePath);
 
@@ -325,7 +325,7 @@ export class ConversationService {
     const filePath = this.getConversationFilePath(
       state.ticketKey,
       state.context.repoDir,
-      state.context.platformName,
+      state.context.trackerName,
     );
     this.chatUI.displayChatEnd(filePath);
   }
@@ -349,14 +349,14 @@ export class ConversationService {
   private getConversationFilePath(
     ticketKey: string,
     repoDir?: string,
-    platformName?: string,
+    trackerName?: string,
   ): string {
-    if (repoDir && platformName) {
+    if (repoDir && trackerName) {
       const artifactDir = path.join(
         os.homedir(),
         '.wf',
         path.basename(path.resolve(repoDir)),
-        platformName,
+        trackerName,
       );
       return path.join(artifactDir, `${ticketKey}-conversation.json`);
     }

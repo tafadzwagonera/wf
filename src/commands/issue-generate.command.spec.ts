@@ -65,7 +65,7 @@ jest.mock('../agents/utils', () => {
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssueGenerateCommand } from './issue-generate.command';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { FormatConverterService } from '../common/converters/format-converter.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
@@ -179,7 +179,7 @@ async function buildCommand(options?: {
   const module = await Test.createTestingModule({
     providers: [
       IssueGenerateCommand,
-      { provide: PlatformService, useValue: {} },
+      { provide: IssueTrackerService, useValue: {} },
       {
         provide: FormatConverterService,
         useValue: {
@@ -216,7 +216,7 @@ async function buildCommand(options?: {
         useValue: {
           get: jest.fn((key: string, defaultValue?: string) => {
             if (key === 'output.defaultFormat') return 'md';
-            if (key === 'platforms.primary') return 'jira';
+            if (key === 'tracker') return 'jira';
             return defaultValue;
           }),
         },

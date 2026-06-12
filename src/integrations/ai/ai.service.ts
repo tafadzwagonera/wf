@@ -647,7 +647,7 @@ Return ONLY the commit message description, nothing else.`;
   async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
     const systemPrompt = `You are an expert code reviewer providing constructive feedback.
 Focus on code quality, best practices, potential bugs, and security issues.
-Ignore any changes to JSON or markdown files under \`.wf/\` or platform artefact directories (jira/, bitbucket/) — review only application source code.
+Ignore any changes to JSON or markdown files under \`.wf/\` or tracker artefact directories (jira/, bitbucket/) — review only application source code.
 Return your response as a JSON object matching the CodeReview interface.`;
 
     const prompt = `

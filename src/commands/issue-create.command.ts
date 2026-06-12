@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Command, CommandRunner, Option } from 'nest-commander';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { FormatConverterService } from '../common/converters/format-converter.service';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -14,7 +14,7 @@ import {
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
-import { JiraAdapter } from '../integrations/platforms/jira/jira-adapter';
+import { JiraAdapter } from '../integrations/issue-trackers/jira/jira-adapter';
 import { AiService, stripCodeFences } from '../integrations/ai/ai.service';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
 import { spawnSync } from 'child_process';
@@ -48,7 +48,7 @@ const parseValidationOutput = (
 
 interface IssueCreateOptions {
   format?: string;
-  platform?: string;
+  tracker?: string;
   repos?: string[];
   ticketProject?: string;
   priority?: string;
@@ -246,18 +246,18 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
 
 const ISSUE_CREATE_EXAMPLES: CliExample[] = [
   {
-    comment: 'Create ticket from JSON on primary platform',
+    comment: 'Create ticket from JSON on primary tracker',
     command: 'wf issue:create ticket.json',
   },
   {
-    comment: 'Create on a specific platform and override the Jira project',
+    comment: 'Create on a specific tracker and override the Jira project',
     command:
-      'wf issue:create ticket.md --platform jira --ticket-project WBP --type story',
+      'wf issue:create ticket.md --tracker jira --ticket-project WBP --type story',
   },
   {
     comment: 'Create Jira ticket with project-specific priority resolution',
     command:
-      'wf issue:create ticket.md --platform jira --ticket-project WBP --priority medium',
+      'wf issue:create ticket.md --tracker jira --ticket-project WBP --priority medium',
   },
   {
     comment: 'Dry-run a repo-scoped generated Jira artifact before creation',
@@ -273,20 +273,20 @@ const ISSUE_CREATE_EXAMPLES: CliExample[] = [
 ];
 
 /**
- * Command to create tickets on various platforms from standardized input
- * Supports multiple platforms and formats
+ * Command to create tickets on various trackers from standardized input
+ * Supports multiple trackers and formats
  */
 @Injectable()
 @Command({
   name: 'issue:create',
   description:
-    'Create tickets on various platforms from standardized input (file or stdin). When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks',
+    'Create tickets on various trackers from standardized input (file or stdin). When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks',
   arguments: '[input]',
   options: { isDefault: false },
 })
 export class IssueCreateCommand extends CommandRunner {
   constructor(
-    private readonly platformService: PlatformService,
+    private readonly issueTrackerService: IssueTrackerService,
     private readonly jiraAdapter: JiraAdapter,
     private readonly formatConverterService: FormatConverterService,
     private readonly configService: ConfigService,
@@ -317,7 +317,7 @@ export class IssueCreateCommand extends CommandRunner {
       );
       console.log(
         chalk.gray(
-          'Example: wf issue:create ticket.json --platform github --type bug',
+          'Example: wf issue:create ticket.json --tracker github --type bug',
         ),
       );
       console.log(
@@ -327,9 +327,8 @@ export class IssueCreateCommand extends CommandRunner {
     }
 
     try {
-      const platformName =
-        options?.platform ||
-        this.configService.get<string>('platforms.primary', 'jira');
+      const trackerName =
+        options?.tracker || this.configService.get<string>('tracker', 'jira');
       if (!options?.silent) {
         warnOnIgnoredRepos(options?.repos);
       }
@@ -351,7 +350,7 @@ export class IssueCreateCommand extends CommandRunner {
         const resolved = path.resolve(inputPath);
         const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
         const artifactPath = path.join(
-          resolveArtifactDir(repoBaseDir, platformName),
+          resolveArtifactDir(repoBaseDir, trackerName),
           path.basename(inputPath),
         );
         const inputFilePath = fs.existsSync(resolved)
@@ -400,9 +399,9 @@ export class IssueCreateCommand extends CommandRunner {
         ticket.priority = options.priority as TicketPriority;
       }
 
-      // Get platform adapter
+      // Get tracker adapter
       if (!options?.silent) {
-        console.log(chalk.gray(`  Target platform: ${platformName}\n`));
+        console.log(chalk.gray(`  Target tracker: ${trackerName}\n`));
       }
 
       // Dry run mode - just validate
@@ -413,7 +412,7 @@ export class IssueCreateCommand extends CommandRunner {
         );
 
         const payload =
-          platformName === 'jira'
+          trackerName === 'jira'
             ? this.jiraAdapter.buildCreatePayload(ticket)
             : {
                 title: ticket.title,
@@ -424,12 +423,12 @@ export class IssueCreateCommand extends CommandRunner {
 
         this.dryRunPreview.previewApiCall({
           method: 'POST',
-          endpoint: `/${platformName}/issues`,
-          platform: platformName,
-          description: `Create ticket on ${platformName}`,
+          endpoint: `/${trackerName}/issues`,
+          platform: trackerName,
+          description: `Create ticket on ${trackerName}`,
           estimatedResponse: '201 Created — ticket key and URL returned',
           payloadPreviewLines:
-            platformName === 'jira'
+            trackerName === 'jira'
               ? [
                   ...buildJiraPayloadPreviewLines(payload),
                   '',
@@ -446,15 +445,15 @@ export class IssueCreateCommand extends CommandRunner {
           terminalOutputLines: [
             '✅ Ticket created successfully!',
             '',
-            `Platform: ${platformName}`,
-            'Key: <platform-assigned-key>',
-            'ID: <platform-assigned-id>',
-            'URL: <platform-ticket-url>',
+            `Platform: ${trackerName}`,
+            'Key: <tracker-assigned-key>',
+            'ID: <tracker-assigned-id>',
+            'URL: <tracker-ticket-url>',
           ],
         });
 
         // Run ADF format validation if a create stage script is configured
-        if (platformName === 'jira') {
+        if (trackerName === 'jira') {
           const dryRunVerification =
             this.configService.get<NormalizedVerificationConditionsConfig>(
               'stages.create.verificationConditions',
@@ -515,10 +514,10 @@ export class IssueCreateCommand extends CommandRunner {
         );
       }
 
-      // Create ticket on platform
-      const adapter = this.platformService.getAdapter(platformName);
+      // Create ticket on tracker
+      const adapter = this.issueTrackerService.getAdapter(trackerName);
       if (!options?.silent) {
-        console.log(chalk.cyan('🚀 Creating ticket on platform...\n'));
+        console.log(chalk.cyan('🚀 Creating ticket on tracker...\n'));
       }
       const reference = await adapter.createTicket(ticket);
 
@@ -526,7 +525,7 @@ export class IssueCreateCommand extends CommandRunner {
         console.log(reference.key);
       } else {
         console.log(chalk.green('✅ Ticket created successfully!\n'));
-        console.log(chalk.bold('Platform:'), chalk.cyan(reference.platform));
+        console.log(chalk.bold('Tracker:'), chalk.cyan(reference.tracker));
         console.log(chalk.bold('Key:'), chalk.bold.cyan(reference.key));
         console.log(chalk.bold('ID:'), chalk.cyan(reference.id));
         if (reference.url) {
@@ -674,11 +673,10 @@ export class IssueCreateCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-p, --platform <platform>',
-    description:
-      'Target platform (jira|github|bitbucket) - default from config',
+    flags: '-t, --tracker <tracker>',
+    description: 'Target tracker (jira|github|bitbucket) - default from config',
   })
-  parsePlatform(val: string): string {
+  parseTracker(val: string): string {
     return val;
   }
 

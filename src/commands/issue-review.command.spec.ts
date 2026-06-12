@@ -54,7 +54,7 @@ import inquirer from 'inquirer';
 import { IssueReviewCommand } from './issue-review.command';
 import { AiService, CodeReview } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
@@ -212,7 +212,7 @@ const mockReview: CodeReview = {
 };
 
 const buildAdapter = (name: string, defaults: Record<string, any> = {}) => ({
-  getPlatformName: jest.fn().mockReturnValue(name),
+  getTrackerName: jest.fn().mockReturnValue(name),
   getTicket: jest.fn(),
   findPullRequestsByTicketKey: jest.fn().mockResolvedValue([]),
   getPullRequestDiff: jest.fn().mockResolvedValue(''),
@@ -304,14 +304,14 @@ async function buildCommand(overrides?: {
         },
       },
       {
-        provide: PlatformService,
+        provide: IssueTrackerService,
         useValue: {
           getDefaultAdapter: jest.fn().mockReturnValue(jiraAdapter),
-          getAdapter: jest.fn((platformName: string) => {
-            if (platformName === 'jira') return jiraAdapter;
-            if (platformName === 'github') return githubAdapter;
-            if (platformName === 'bitbucket') return bitbucketAdapter;
-            throw new Error(`Unknown platform: ${platformName}`);
+          getAdapter: jest.fn((trackerName: string) => {
+            if (trackerName === 'jira') return jiraAdapter;
+            if (trackerName === 'github') return githubAdapter;
+            if (trackerName === 'bitbucket') return bitbucketAdapter;
+            throw new Error(`Unknown platform: ${trackerName}`);
           }),
           getPullRequestDiscoveryAdapters: jest.fn().mockReturnValue(
             new Map([

@@ -20,7 +20,7 @@ export enum TicketType {
 /**
  * Normalized priority values used inside wf.
  *
- * These values are intentionally platform-agnostic. Adapters map them to the
+ * These values are intentionally tracker-agnostic. Adapters map them to the
  * exact priority names supported by each external system at runtime.
  */
 export enum TicketPriority {
@@ -66,10 +66,10 @@ export class UniversalTicket {
   status?: string;
 
   /**
-   * Normalized priority for cross-platform workflows.
+   * Normalized priority for cross-tracker workflows.
    *
    * This is not a Jira priority name. Jira, Bitbucket, and GitHub adapters
-   * resolve or translate it to a platform-specific value when needed.
+   * resolve or translate it to a tracker-specific value when needed.
    */
   @IsOptional()
   @IsEnum(TicketPriority)
@@ -110,10 +110,10 @@ export class UniversalTicket {
   @IsString({ each: true })
   components?: string[];
 
-  // Platform-specific data (preserved for round-trip conversions)
+  // Tracker-specific data (preserved for round-trip conversions)
   @IsOptional()
   @IsObject()
-  platformData?: Record<string, any>;
+  trackerData?: Record<string, any>;
 
   constructor(partial?: Partial<UniversalTicket>) {
     if (partial) {
@@ -125,8 +125,8 @@ export class UniversalTicket {
 /**
  * Reference to a ticket on a specific platform
  */
-export interface PlatformTicketReference {
-  platform: string;
+export interface IssueTrackerTicketReference {
+  tracker: string;
   id: string;
   key?: string;
   url?: string;

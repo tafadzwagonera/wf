@@ -5,7 +5,7 @@ import { of, throwError } from 'rxjs';
 import { JiraService } from './jira.service';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { JiraApiError } from '../../shared/utils/errors';
-import { PlatformConfigService } from '../platforms/platform-config.service';
+import { IssueTrackerConfigService } from '../issue-trackers/issue-tracker-config.service';
 
 describe('JiraService', () => {
   let service: JiraService;
@@ -61,8 +61,8 @@ describe('JiraService', () => {
     success: jest.fn(),
   };
 
-  const mockPlatformConfigService = {
-    isPlatformEnabled: jest.fn().mockReturnValue(true),
+  const mockIssueTrackerConfigService = {
+    isTrackerEnabled: jest.fn().mockReturnValue(true),
   };
 
   beforeEach(async () => {
@@ -73,8 +73,8 @@ describe('JiraService', () => {
         { provide: HttpService, useValue: mockHttpService },
         { provide: LoggerService, useValue: mockLoggerService },
         {
-          provide: PlatformConfigService,
-          useValue: mockPlatformConfigService,
+          provide: IssueTrackerConfigService,
+          useValue: mockIssueTrackerConfigService,
         },
       ],
     }).compile();
@@ -1060,7 +1060,7 @@ describe('JiraService', () => {
         } as any,
         httpService,
         mockLoggerService as any,
-        mockPlatformConfigService as any,
+        mockIssueTrackerConfigService as any,
       );
 
       await expect(

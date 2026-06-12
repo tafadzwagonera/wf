@@ -52,25 +52,25 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import { IssuePrCommand } from './issue-pr.command';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { GitService } from '../integrations/git/git.service';
-import { PlatformFeature } from '../integrations/platforms/platform-adapter.interface';
+import { IssueTrackerFeature } from '../integrations/issue-trackers/issue-tracker-adapter.interface';
 
 const mockCreatePullRequest = jest
   .fn()
   .mockResolvedValue('https://github.com/owner/repo/pull/1');
 
-const mockPlatformAdapter = {
+const mockIssueTrackerAdapter = {
   supports: jest.fn(),
-  getPlatformName: jest.fn().mockReturnValue('github'),
+  getTrackerName: jest.fn().mockReturnValue('github'),
   createPullRequest: mockCreatePullRequest,
 };
 
-const mockPlatformService = {
-  getAdapter: jest.fn().mockReturnValue(mockPlatformAdapter),
+const mockIssueTrackerService = {
+  getAdapter: jest.fn().mockReturnValue(mockIssueTrackerAdapter),
 };
 
 const mockAiService = {
@@ -102,7 +102,7 @@ const mockGitService = {
 
 const mockConfigService = {
   get: jest.fn((key: string, defaultValue?: string) => {
-    if (key === 'platforms.primary') return 'github';
+    if (key === 'tracker') return 'github';
     return defaultValue;
   }),
 };
@@ -111,7 +111,7 @@ async function buildCommand(): Promise<IssuePrCommand> {
   const module = await Test.createTestingModule({
     providers: [
       IssuePrCommand,
-      { provide: PlatformService, useValue: mockPlatformService },
+      { provide: IssueTrackerService, useValue: mockIssueTrackerService },
       { provide: AiService, useValue: mockAiService },
       { provide: LoggerService, useValue: mockLoggerService },
       { provide: DryRunPreviewService, useValue: mockDryRunPreviewService },
@@ -158,9 +158,9 @@ describe('IssuePrCommand', () => {
 
     describe('unsupported platform', () => {
       it('exits with error message when platform does not support CREATE_PULL_REQUEST', async () => {
-        mockPlatformAdapter.supports.mockImplementation(
-          (feature: PlatformFeature) =>
-            feature !== PlatformFeature.CREATE_PULL_REQUEST,
+        mockIssueTrackerAdapter.supports.mockImplementation(
+          (feature: IssueTrackerFeature) =>
+            feature !== IssueTrackerFeature.CREATE_PULL_REQUEST,
         );
 
         const command = await buildCommand();
@@ -179,7 +179,7 @@ describe('IssuePrCommand', () => {
 
     describe('no plan artifact found', () => {
       it('exits with error when plan artifact does not exist', async () => {
-        mockPlatformAdapter.supports.mockReturnValue(true);
+        mockIssueTrackerAdapter.supports.mockReturnValue(true);
         mockExistsSync.mockReturnValue(false);
 
         const command = await buildCommand();
@@ -196,7 +196,7 @@ describe('IssuePrCommand', () => {
 
     describe('successful PR creation', () => {
       it('calls createPullRequest() and logs the PR URL', async () => {
-        mockPlatformAdapter.supports.mockReturnValue(true);
+        mockIssueTrackerAdapter.supports.mockReturnValue(true);
 
         const planContent = JSON.stringify({
           action: 'fix',

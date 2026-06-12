@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { PlatformService } from '../../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../../integrations/issue-trackers/issue-tracker.service';
 import { FetchStageService } from './fetch-stage.service';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -25,7 +25,7 @@ describe('FetchStageService', () => {
       providers: [
         FetchStageService,
         {
-          provide: PlatformService,
+          provide: IssueTrackerService,
           useValue: {
             getAdapter: jest.fn().mockReturnValue(adapter),
           },
@@ -48,7 +48,7 @@ describe('FetchStageService', () => {
     return {
       service: module.get(FetchStageService),
       adapter,
-      platformService: module.get(PlatformService),
+      issueTrackerService: module.get(IssueTrackerService),
     };
   };
 
@@ -60,7 +60,7 @@ describe('FetchStageService', () => {
     const { service, adapter } = await buildService();
 
     await service.fetchTicket('123', {
-      platformName: 'bitbucket',
+      trackerName: 'bitbucket',
       repo: 'service-api',
     });
 
@@ -72,7 +72,7 @@ describe('FetchStageService', () => {
     const tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-fetch-'));
 
     const artifact = await service.fetchArtifact('WBP-123', {
-      platformName: 'jira',
+      trackerName: 'jira',
       baseDir: path.join(tempBaseDir, 'consumer-app'),
     });
 
@@ -94,7 +94,7 @@ describe('FetchStageService', () => {
     fs.writeFileSync(ticketPath, '# WBP-123: Cached Ticket');
 
     const artifact = await service.fetchArtifact('WBP-123', {
-      platformName: 'jira',
+      trackerName: 'jira',
       baseDir,
       skipExisting: true,
     });

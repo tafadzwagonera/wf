@@ -200,14 +200,14 @@ async function main(): Promise<void> {
 
   console.log(chalk.bold('\nTest 9: ImplementerOptions.modelRouting'));
   const opts: ImplementerOptions = {
-    platformName: 'jira',
+    trackerName: 'jira',
     modelRouting: 'mechanical',
   };
   assert(
     'ImplementerOptions accepts modelRouting field',
     opts.modelRouting === 'mechanical',
   );
-  const optsNoRouting: ImplementerOptions = { platformName: 'jira' };
+  const optsNoRouting: ImplementerOptions = { trackerName: 'jira' };
   assert(
     'ImplementerOptions allows undefined modelRouting',
     optsNoRouting.modelRouting === undefined,

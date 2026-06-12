@@ -52,7 +52,7 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssuePlanCommand } from './issue-plan.command';
 import { AiService } from '../integrations/ai/ai.service';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
@@ -77,7 +77,7 @@ async function buildCommand(): Promise<{
           getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
         },
       },
-      { provide: PlatformService, useValue: {} },
+      { provide: IssueTrackerService, useValue: {} },
       {
         provide: FetchStageService,
         useValue: {
@@ -386,7 +386,7 @@ describe('IssuePlanCommand', () => {
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
     expect(fetchStageService.fetchArtifact).toHaveBeenCalledWith('WBP-1', {
-      platformName: 'jira',
+      trackerName: 'jira',
       repo: 'repo-a',
       baseDir: '/tmp/consumer-app/repo-a',
     });

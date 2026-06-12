@@ -5,17 +5,17 @@ import chalk from 'chalk';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 /**
- * Resolve the artifact storage directory for a given platform.
+ * Resolve the artifact storage directory for a given tracker.
  *
  * @param baseDir - Base directory for artifact storage (repo path)
- * @param platformName - The platform name (e.g. 'jira', 'bitbucket')
- * @returns Absolute path to the platform artifact directory under `~/.wf/<app>/`
+ * @param trackerName - The tracker name (e.g. 'jira', 'bitbucket')
+ * @returns Absolute path to the tracker artifact directory under `~/.wf/<app>/`
  */
 export const resolveArtifactDir = (
   baseDir: string,
-  platformName: string,
+  trackerName: string,
 ): string =>
-  path.join(getWfHomeDir(), path.basename(path.resolve(baseDir)), platformName);
+  path.join(getWfHomeDir(), path.basename(path.resolve(baseDir)), trackerName);
 
 /**
  * Resolve the repository-scoped artifact directory used for custom artifacts.

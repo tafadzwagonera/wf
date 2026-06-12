@@ -2,10 +2,10 @@ import { Command, CommandRunner, Option } from 'nest-commander';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
-import { PlatformFeature } from '../integrations/platforms/platform-adapter.interface';
+import { IssueTrackerFeature } from '../integrations/issue-trackers/issue-tracker-adapter.interface';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
@@ -18,7 +18,7 @@ interface IssuePrOptions {
   action?: string;
   base?: string;
   dryRun?: boolean;
-  platform?: string;
+  tracker?: string;
   repos?: string[];
   silent?: boolean;
   title?: string;
@@ -49,7 +49,7 @@ const VALID_ACTIONS = ['feature', 'fix', 'investigate'] as const;
 
 /**
  * Command to create a pull request from a plan artifact.
- * Reads the plan JSON, builds a PR title and body, then calls the platform adapter.
+ * Reads the plan JSON, builds a PR title and body, then calls the tracker adapter.
  */
 @Command({
   name: 'issue:pr',
@@ -60,7 +60,7 @@ const VALID_ACTIONS = ['feature', 'fix', 'investigate'] as const;
 })
 export class IssuePrCommand extends CommandRunner {
   constructor(
-    private readonly platformService: PlatformService,
+    private readonly issueTrackerService: IssueTrackerService,
     private readonly aiService: AiService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
@@ -115,29 +115,29 @@ export class IssuePrCommand extends CommandRunner {
         process.exit(1);
       }
 
-      const platformName =
-        options?.platform ||
-        this.configService.get<string>('platforms.primary') ||
+      const trackerName =
+        options?.tracker ||
+        this.configService.get<string>('tracker') ||
         'github';
 
-      const adapter = this.platformService.getAdapter(platformName);
+      const adapter = this.issueTrackerService.getAdapter(trackerName);
 
-      if (!adapter.supports(PlatformFeature.CREATE_PULL_REQUEST)) {
+      if (!adapter.supports(IssueTrackerFeature.CREATE_PULL_REQUEST)) {
         console.error(
           chalk.red(
-            `Error: PR creation is not supported for platform '${platformName}'.`,
+            `Error: PR creation is not supported for platform '${trackerName}'.`,
           ),
         );
-        console.log(chalk.gray('Supported platforms: github'));
+        console.log(chalk.gray('Supported trackers: github'));
         process.exit(1);
       }
 
       // Locate plan artifact
       const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-      const platformDir = resolveArtifactDir(repoBaseDir, platformName);
+      const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
 
       const planPath = this.findPlanArtifact(
-        platformDir,
+        trackerDir,
         ticketKey,
         options?.action,
       );
@@ -145,7 +145,7 @@ export class IssuePrCommand extends CommandRunner {
       if (!planPath) {
         console.error(
           chalk.red(
-            `Error: No plan artifact found for ticket '${ticketKey}' under ${platformDir}.`,
+            `Error: No plan artifact found for ticket '${ticketKey}' under ${trackerDir}.`,
           ),
         );
         console.log(
@@ -234,10 +234,10 @@ export class IssuePrCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-p, --platform <platform>',
-    description: 'Platform (jira|github|bitbucket)',
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker (jira|github|bitbucket)',
   })
-  parsePlatform(val: string): string {
+  parseTracker(val: string): string {
     return val;
   }
 
@@ -272,13 +272,13 @@ export class IssuePrCommand extends CommandRunner {
    * If action is provided, looks for that specific variant first.
    * Otherwise tries all valid action types.
    *
-   * @param platformDir - Directory containing artifacts
+   * @param trackerDir - Directory containing artifacts
    * @param ticketKey - Ticket identifier (e.g. "WBP-2971")
    * @param action - Optional action type to narrow the search
    * @returns Absolute path to the plan file, or null if not found
    */
   private findPlanArtifact(
-    platformDir: string,
+    trackerDir: string,
     ticketKey: string,
     action?: string,
   ): string | null {
@@ -287,7 +287,7 @@ export class IssuePrCommand extends CommandRunner {
       : [...VALID_ACTIONS];
 
     for (const a of candidates) {
-      const candidate = path.join(platformDir, `${ticketKey}-plan-${a}.json`);
+      const candidate = path.join(trackerDir, `${ticketKey}-plan-${a}.json`);
       if (fs.existsSync(candidate)) {
         return candidate;
       }

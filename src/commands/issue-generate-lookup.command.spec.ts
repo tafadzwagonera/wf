@@ -74,7 +74,7 @@ describe('IssueGenerateLookupCommand', () => {
           provide: ConfigService,
           useValue: {
             get: jest.fn((key: string, defaultValue?: string) => {
-              if (key === 'platforms.primary') return 'jira';
+              if (key === 'tracker') return 'jira';
               return defaultValue;
             }),
           },

@@ -3,7 +3,7 @@ import * as path from 'path';
 import { of } from 'rxjs';
 import { UniversalTicket } from '../../common/dto/universal-ticket.dto';
 import { JiraService } from '../../integrations/jira/jira.service';
-import { JiraAdapter } from '../../integrations/platforms/jira/jira-adapter';
+import { JiraAdapter } from '../../integrations/issue-trackers/jira/jira-adapter';
 
 interface AdfNode {
   type?: string;

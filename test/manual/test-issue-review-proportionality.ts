@@ -18,7 +18,7 @@ import { ReviewStageService } from '../../src/workflows/stages/review-stage.serv
 import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
 import { IssueReviewCommand } from '../../src/commands/issue-review.command';
 import { GitService } from '../../src/integrations/git/git.service';
-import { PlatformService } from '../../src/integrations/platforms/platform.service';
+import { IssueTrackerService } from '../../src/integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../../src/shared/logger/logger.service';
 import { DryRunPreviewService } from '../../src/shared/preview/dry-run-preview.service';
 
@@ -105,9 +105,9 @@ async function run(): Promise<void> {
   const createdComments: Array<{ ref: string; body: string }> = [];
   const getPullRequestDiff = async (): Promise<string> =>
     'diff --git a/src/utils/wrap.ts b/src/utils/wrap.ts';
-  const getAdapter = (platformName: string) => {
-    if (platformName !== 'bitbucket') {
-      throw new Error(`Unknown platform: ${platformName}`);
+  const getAdapter = (trackerName: string) => {
+    if (trackerName !== 'bitbucket') {
+      throw new Error(`Unknown platform: ${trackerName}`);
     }
     return {
       getPlatformName: () => 'bitbucket',
@@ -134,7 +134,7 @@ async function run(): Promise<void> {
         },
       },
       {
-        provide: PlatformService,
+        provide: IssueTrackerService,
         useValue: {
           getDefaultAdapter: () => getAdapter('bitbucket'),
           getAdapter,

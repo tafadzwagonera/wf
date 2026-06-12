@@ -43,7 +43,7 @@ jest.mock('../agents/utils', () => {
 import { Test } from '@nestjs/testing';
 import { IssueImplementCommand } from './issue-implement.command';
 import { AiService } from '../integrations/ai/ai.service';
-import { PlatformService } from '../integrations/platforms/platform.service';
+import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -65,7 +65,7 @@ async function buildCommand(): Promise<IssueImplementCommand> {
           getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
         },
       },
-      { provide: PlatformService, useValue: {} },
+      { provide: IssueTrackerService, useValue: {} },
       {
         provide: ConfigService,
         useValue: { get: jest.fn().mockReturnValue('jira') },
@@ -244,7 +244,7 @@ describe('IssueImplementCommand', () => {
               sourceKind: 'ticket',
               sourceName: 'WBP-0001',
               ticketKey: 'WBP-0001',
-              platformName: 'jira',
+              trackerName: 'jira',
             });
           }
           return JSON.stringify({
@@ -576,7 +576,7 @@ describe('IssueImplementCommand', () => {
           ),
         }),
         expect.objectContaining({
-          platformName: 'jira',
+          trackerName: 'jira',
           repoDir: '/tmp/consumer-app/repo-a',
           customBranchSlug: 'dark-building-creek',
         }),
@@ -667,7 +667,7 @@ describe('IssueImplementCommand', () => {
               getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
             },
           },
-          { provide: PlatformService, useValue: {} },
+          { provide: IssueTrackerService, useValue: {} },
           {
             provide: ConfigService,
             useValue: { get: jest.fn().mockReturnValue('jira') },
@@ -839,7 +839,7 @@ describe('IssueImplementCommand', () => {
         providers: [
           IssueImplementCommand,
           { provide: AiService, useValue: {} },
-          { provide: PlatformService, useValue: {} },
+          { provide: IssueTrackerService, useValue: {} },
           {
             provide: ConfigService,
             useValue: { get: jest.fn().mockReturnValue('jira') },
@@ -885,7 +885,7 @@ describe('IssueImplementCommand', () => {
         expect.any(Object),
         expect.any(Object),
         expect.objectContaining({
-          platformName: 'jira',
+          trackerName: 'jira',
           repoDir: '/tmp/consumer-app/repo-a',
         }),
       );

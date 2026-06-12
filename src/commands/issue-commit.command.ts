@@ -16,7 +16,7 @@ interface IssueCommitOptions {
   noAi?: boolean;
   conventional?: boolean;
   dryRun?: boolean;
-  platform?: string;
+  tracker?: string;
   repos?: string[];
 }
 
@@ -32,7 +32,7 @@ const ISSUE_COMMIT_EXAMPLES: CliExample[] = [
   },
   {
     comment: 'Force conventional format',
-    command: 'wf issue:commit WBP-2971 --conventional --platform jira',
+    command: 'wf issue:commit WBP-2971 --conventional --tracker jira',
   },
 ];
 
@@ -250,10 +250,10 @@ export class IssueCommitCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-p, --platform <platform>',
-    description: 'Platform (jira|github|bitbucket)',
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker (jira|github|bitbucket)',
   })
-  parsePlatform(val: string): string {
+  parseTracker(val: string): string {
     return val;
   }
 

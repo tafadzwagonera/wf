@@ -76,7 +76,7 @@ async function buildCommand(): Promise<IssueCommand> {
         provide: ConfigService,
         useValue: {
           get: jest.fn((key: string, defaultValue?: string) => {
-            if (key === 'platforms.primary') return 'jira';
+            if (key === 'tracker') return 'jira';
             if (key === 'ai.provider') return 'openai';
             return defaultValue;
           }),
@@ -226,7 +226,7 @@ describe('IssueCommand', () => {
           provide: ConfigService,
           useValue: {
             get: jest.fn((key: string, defaultValue?: string) => {
-              if (key === 'platforms.primary') return 'jira';
+              if (key === 'tracker') return 'jira';
               if (key === 'ai.provider') return 'openai';
               return defaultValue;
             }),
@@ -321,7 +321,7 @@ describe('IssueCommand', () => {
     expect(mockOrchestrator.implementer.execute).toHaveBeenCalledWith(
       expect.objectContaining({ ticketKey: 'WBP-1' }),
       expect.objectContaining({ action: 'fix', path: planPath }),
-      expect.objectContaining({ platformName: 'jira' }),
+      expect.objectContaining({ trackerName: 'jira' }),
     );
   });
 });
