@@ -854,11 +854,10 @@ describe('OpenAIAgentAdapter', () => {
             { path: 'src/foo.ts', content: 'updated\n' },
             { context: workspaceContext },
           );
-          const writeParsed = JSON.parse(writeResult) as {
-            path: string;
-            status: string;
+          const writeProgress = JSON.parse(writeResult) as {
+            progress: { verdict: string };
           };
-          expect(writeParsed.status).toBe('updated');
+          expect(writeProgress.progress.verdict).toBe('continue');
 
           const verificationResult = await verifyTool.execute(
             { command: 'npm test' },
@@ -869,12 +868,10 @@ describe('OpenAIAgentAdapter', () => {
               },
             },
           );
-          const verificationParsed = JSON.parse(verificationResult) as {
-            exitCode: number;
+          const verificationProgress = JSON.parse(verificationResult) as {
             progress: { verdict: string };
           };
-          expect(verificationParsed.exitCode).toBe(0);
-          expect(verificationParsed.progress.verdict).toBe('complete');
+          expect(verificationProgress.progress.verdict).toBe('complete');
 
           return mockRunResult;
         }),
