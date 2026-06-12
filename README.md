@@ -101,11 +101,7 @@ export default defineConfig({
     commitFormat: 'auto',
   },
   log: {
-    directory: '.wf/logs',
     level: 'info',
-  },
-  state: {
-    directory: '.wf/state',
   },
   stages: {
     plan: {
@@ -145,7 +141,6 @@ atlassian:
     apiToken: ${ATLASSIAN_JIRA_API_TOKEN}
     defaultProject: WBP
 log:
-  directory: .wf/logs
   level: info
 stages:
   plan:
@@ -197,7 +192,7 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 
 ### Defaults and Notes
 
-- Built-in defaults cover provider/model selection, branch prefixes, workflow directory, state/log directories, and log level.
+- Built-in defaults cover provider/model selection, branch prefixes, workflow directory, and log level. State and log directories are fixed at `~/.wf/state` and `~/.wf/logs` respectively and are not configurable.
 - `ai[].provider` selects the backing AI provider for each entry.
 - `ai[].default` is optional when only one provider is configured, and required when two or more providers are configured.
 - `ai[].maxTokens` is only applied to Gemini provider entries using Gemini models; other providers ignore it.

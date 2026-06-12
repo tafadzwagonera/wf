@@ -1,6 +1,7 @@
 import { Command, CommandRunner, SubCommand } from 'nest-commander';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
+import { getWfLogDir, getWfStateDir } from '../shared/utils/wf-paths';
 import { createRequire } from 'module';
 import chalk from 'chalk';
 
@@ -113,8 +114,8 @@ export class ConfigListCommand extends CommandRunner {
         'git.commitFormat': this.configService.get('git.commitFormat'),
       },
       'System Settings': {
-        'state.directory': this.configService.get('state.directory'),
-        'logging.directory': this.configService.get('logging.directory'),
+        'state.directory': getWfStateDir(),
+        'logging.directory': getWfLogDir(),
         'logging.level': this.configService.get('logging.level'),
       },
     };

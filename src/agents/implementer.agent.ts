@@ -553,10 +553,7 @@ export class ImplementerAgent {
     ticketKey: string,
     repoDir?: string,
   ): string {
-    const stateDirectory = this.configService.get<string>(
-      'state.directory',
-      getWfStateDir(),
-    );
+    const stateDirectory = getWfStateDir();
     const repoName = repoDir ? path.basename(repoDir) : 'repo';
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 

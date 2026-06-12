@@ -1,5 +1,4 @@
 import * as Joi from '@hapi/joi';
-import { getWfLogDir, getWfStateDir } from '../shared/utils/wf-paths';
 
 export const validationSchema = Joi.object({
   // Tracker Configuration
@@ -37,11 +36,7 @@ export const validationSchema = Joi.object({
   BRANCH_PREFIX_FIX: Joi.string().default('bugfix'),
   BRANCH_PREFIX_INVESTIGATE: Joi.string().default('chore'),
 
-  // State Configuration
-  STATE_DIRECTORY: Joi.string().default(getWfStateDir()),
-
   // Logging Configuration
-  LOG_DIRECTORY: Joi.string().default(getWfLogDir()),
   LOG_LEVEL: Joi.string()
     .valid('error', 'warn', 'info', 'debug')
     .default('info'),

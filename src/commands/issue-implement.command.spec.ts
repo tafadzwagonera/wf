@@ -30,6 +30,10 @@ jest.mock('chalk', () => {
   return { default: chalk, ...chalk };
 });
 
+jest.mock('../shared/utils/ensure-wf-home', () => ({
+  ensureWfHome: jest.fn(),
+}));
+
 jest.mock('../agents/utils', () => {
   const actual = jest.requireActual('../agents/utils');
   return {

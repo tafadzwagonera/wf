@@ -10,9 +10,9 @@ import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
+import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import chalk from 'chalk';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as YAML from 'yaml';
 
@@ -126,7 +126,7 @@ export class IssueFetchCommand extends CommandRunner {
     }
 
     try {
-      fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
+      await ensureWfHome();
       if (!options?.silent) {
         warnOnIgnoredRepos(options?.repos);
       }

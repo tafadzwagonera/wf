@@ -625,12 +625,6 @@ describe('wf-config-loader', () => {
 
       expect(config.ai.provider).toBe('openai');
       expect(config.atlassian.apiToken).toBe('jira-token');
-      expect(config.state.directory).toBe(
-        path.join(os.homedir(), '.wf', 'state'),
-      );
-      expect(config.logging.directory).toBe(
-        path.join(os.homedir(), '.wf', 'logs'),
-      );
     });
 
     it('loads CommonJS JavaScript config files from ESM repos without falling back to defaults', async () => {

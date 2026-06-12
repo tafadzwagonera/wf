@@ -31,7 +31,7 @@ import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
-import { getWfHomeDir } from '../shared/utils/wf-paths';
+import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 
 /** Minimum description length (chars) for a ticket to bypass AI synthesis. */
 const MIN_DESCRIPTION_LENGTH = 100;
@@ -148,7 +148,7 @@ export class IssueGenerateCommand extends CommandRunner {
       printExamples(ISSUE_GENERATE_EXAMPLES);
     }
 
-    fs.mkdirSync(getWfHomeDir(), { recursive: true });
+    await ensureWfHome();
 
     if (!passedParams || passedParams.length === 0) {
       console.error(chalk.red('Error: At least one source is required'));

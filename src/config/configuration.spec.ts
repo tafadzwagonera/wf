@@ -1,7 +1,5 @@
 import configuration from './configuration';
 import { normalizeWfConfig } from './wf-config-loader';
-import * as os from 'os';
-import * as path from 'path';
 
 describe('configuration defaults', () => {
   afterEach(() => {
@@ -14,40 +12,10 @@ describe('configuration defaults', () => {
     expect(configuration()).toEqual({});
   });
 
-  it('uses home-scoped defaults for state and logging directories', () => {
-    const config = configuration();
-
-    expect(config.state.directory).toBe(
-      path.join(os.homedir(), '.wf', 'state'),
-    );
-    expect(config.logging.directory).toBe(
-      path.join(os.homedir(), '.wf', 'logs'),
-    );
-  });
-
-  it('applies normalized defaults for state and logging directories', () => {
+  it('applies default logging level', () => {
     const config = normalizeWfConfig({});
 
-    expect(config.state.directory).toBe(
-      path.join(os.homedir(), '.wf', 'state'),
-    );
-    expect(config.logging.directory).toBe(
-      path.join(os.homedir(), '.wf', 'logs'),
-    );
-  });
-
-  it('normalizes relative config overrides into the wf home directory', () => {
-    const config = normalizeWfConfig({
-      state: { directory: '.wf/state' },
-      log: { directory: '.wf/logs' },
-    });
-
-    expect(config.state.directory).toBe(
-      path.join(os.homedir(), '.wf', 'state'),
-    );
-    expect(config.logging.directory).toBe(
-      path.join(os.homedir(), '.wf', 'logs'),
-    );
+    expect(config.logging.level).toBe('info');
   });
 
   it('preserves configured Slack user token settings', () => {

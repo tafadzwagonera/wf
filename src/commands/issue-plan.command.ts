@@ -18,8 +18,8 @@ import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import type { ResolutionAction } from '../agents/interfaces';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
+import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as YAML from 'yaml';
 import chalk from 'chalk';
@@ -344,7 +344,7 @@ export class IssuePlanCommand extends CommandRunner {
     }
 
     try {
-      fs.mkdirSync(path.join(os.homedir(), '.wf'), { recursive: true });
+      await ensureWfHome();
 
       if (ticketKey && options?.custom) {
         console.error(

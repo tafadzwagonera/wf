@@ -5,7 +5,6 @@ import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
 import Joi from '@hapi/joi';
 import YAML from 'yaml';
-import { resolveWfPath } from '../shared/utils/wf-paths';
 import { ValidationError } from '../shared/utils/errors';
 import type {
   WfVerificationConditionsConfig,
@@ -144,15 +143,10 @@ export interface NormalizedWfConfig {
       investigate: string;
     };
   };
-  state: {
-    directory: string;
-  };
   logging: {
-    directory: string;
     level: 'error' | 'warn' | 'info' | 'debug';
   };
   log: {
-    directory: string;
     level: 'error' | 'warn' | 'info' | 'debug';
   };
   app: {
@@ -957,15 +951,10 @@ export const normalizeWfConfig = (
           validatedConfig.branching?.prefixMapping?.investigate ?? 'chore',
       },
     },
-    state: {
-      directory: resolveWfPath(validatedConfig.state?.directory, 'state'),
-    },
     logging: {
-      directory: resolveWfPath(loggingSource.directory, 'logs'),
       level: loggingSource.level ?? 'info',
     },
     log: {
-      directory: resolveWfPath(loggingSource.directory, 'logs'),
       level: loggingSource.level ?? 'info',
     },
     app: {

@@ -21,10 +21,7 @@ export class LoggerService implements NestLoggerService {
   constructor(private configService: ConfigService) {
     const levelStr = this.configService.get<string>('logging.level', 'info');
     this.logLevel = this.parseLogLevel(levelStr);
-    this.logDirectory = this.configService.get<string>(
-      'logging.directory',
-      getWfLogDir(),
-    );
+    this.logDirectory = getWfLogDir();
     this.ensureLogDirectory();
     this.logFile = path.join(
       this.logDirectory,

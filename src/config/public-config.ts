@@ -75,15 +75,10 @@ export interface WfConfig {
       investigate?: string;
     };
   };
-  state?: {
-    directory?: string;
-  };
   log?: {
-    directory?: string;
     level?: 'error' | 'warn' | 'info' | 'debug';
   };
   logging?: {
-    directory?: string;
     level?: 'error' | 'warn' | 'info' | 'debug';
   };
   app?: {

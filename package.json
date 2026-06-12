@@ -25,6 +25,7 @@
     "wf": "./dist/main.js"
   },
   "scripts": {
+    "postinstall": "node scripts/postinstall.js",
     "build": "nest build",
     "postbuild": "chmod +x dist/main.js && ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",
     "help:catalog": "ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",

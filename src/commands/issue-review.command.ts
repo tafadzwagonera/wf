@@ -1,6 +1,7 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import inquirer from 'inquirer';
+import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import {
   AiService,
   CodeIssue,
@@ -163,6 +164,8 @@ export class IssueReviewCommand extends CommandRunner {
     const repoInputs = options?.repos?.length ? options.repos : [];
 
     try {
+      await ensureWfHome();
+
       if (options?.criteria && options?.replaceCriteria) {
         throw new Error(
           'Cannot use --criteria and --replace-criteria together. Use one or the other.',

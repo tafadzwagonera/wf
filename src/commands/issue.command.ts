@@ -1,4 +1,5 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
+import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import {
   ConversationContext,
@@ -194,6 +195,8 @@ export class IssueCommand extends CommandRunner {
   }
 
   async run(passedParams: string[], options?: IssueOptions): Promise<void> {
+    await ensureWfHome();
+
     if (!options?.silent) {
       printExamples(ISSUE_EXAMPLES);
     }

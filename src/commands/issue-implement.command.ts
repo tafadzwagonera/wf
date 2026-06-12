@@ -2,6 +2,7 @@ import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiService, ResolutionPlan } from '../integrations/ai/ai.service';
+import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -151,6 +152,7 @@ export class IssueImplementCommand extends CommandRunner {
     options?: IssueImplementOptions,
   ): Promise<void> {
     try {
+      await ensureWfHome();
       // Guard: ticketKey + Bitbucket requires --repos
       const trackerName =
         options?.tracker || this.configService.get<string>('tracker', 'jira');
