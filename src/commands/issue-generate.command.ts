@@ -38,8 +38,47 @@ const MIN_DESCRIPTION_LENGTH = 100;
 const SLACK_CHANNEL_HISTORY_LIMIT = 50;
 const SLACK_THREAD_PATH = /^\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
 const SLACK_CHANNEL_PATH = /^\/archives\/([A-Z0-9]+)\/?$/i;
-const EM_DASH = '—';
-const ASCII_EM_DASH_REPLACEMENT = ' - ';
+const CONTRACTION_MAP: ReadonlyMap<string, string> = new Map([
+  ["don't", 'do not'],
+  ["can't", 'cannot'],
+  ["won't", 'will not'],
+  ["isn't", 'is not'],
+  ["aren't", 'are not'],
+  ["doesn't", 'does not'],
+  ["wasn't", 'was not'],
+  ["weren't", 'were not'],
+  ["couldn't", 'could not'],
+  ["wouldn't", 'would not'],
+  ["shouldn't", 'should not'],
+  ["it's", 'it is'],
+  ["that's", 'that is'],
+  ["there's", 'there is'],
+  ["here's", 'here is'],
+  ["what's", 'what is'],
+  ["who's", 'who is'],
+  ["let's", 'let us'],
+  ["i'm", 'I am'],
+  ["we're", 'we are'],
+  ["they're", 'they are'],
+  ["you're", 'you are'],
+  ["we've", 'we have'],
+  ["they've", 'they have'],
+  ["you've", 'you have'],
+  ["i've", 'I have'],
+  ["we'll", 'we will'],
+  ["they'll", 'they will'],
+  ["you'll", 'you will'],
+  ["i'll", 'I will'],
+  ["he's", 'he is'],
+  ["she's", 'she is'],
+]);
+
+const CONTRACTION_PATTERN = new RegExp(
+  Array.from(CONTRACTION_MAP.keys())
+    .map((k) => k.replace(/'/g, "['\u2019]"))
+    .join('|'),
+  'gi',
+);
 
 const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
   {
@@ -116,13 +155,13 @@ class UnresolvedSourceError extends Error {}
  * as tickets are imported as tickets; files that are not recognized as
  * ticket-formatted content remain plain file sources. When `--repos` resolves
  * to a local checkout, bootstrap config is loaded from that repository before
- * command execution. Generated serialized output is normalized to ASCII
- * punctuation before display or save.
+ * command execution. Generated serialized output enforces formal writing
+ * conventions before display or save.
  */
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output enforces formal writing conventions (no contractions, active voice, British English) before display or save. Can use an agent backend when stages.generate.agent: true is configured',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -1520,7 +1559,12 @@ export class IssueGenerateCommand extends CommandRunner {
     prompt += `- Do not wrap the output in a code fence.\n`;
     prompt += `- Use fenced Markdown code blocks (\`\`\`lang) for code samples; never use Jira wiki {code} syntax.\n`;
     prompt += `- Use \`- \` for every unordered bullet item; never use \`* \` bullets.\n`;
-    prompt += `- Do not use em dashes; use ASCII \` - \` instead.\n`;
+    prompt += `- Write in formal British English throughout.\n`;
+    prompt += `- Do not use contractions (e.g., write "do not" instead of "don't", "cannot" instead of "can't").\n`;
+    prompt += `- Use the active voice (e.g., "The system validates input" instead of "Input is validated by the system").\n`;
+    prompt += `- Do not use informal or colloquial language (e.g., avoid "basically", "just", "a lot of", "pretty much").\n`;
+    prompt += `- Use third-person perspective only (e.g., do not use "you", "we", "our").\n`;
+    prompt += `- Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").\n`;
     prompt += `- The line "## Description" MUST appear exactly once.\n\n`;
     prompt += `Sources to synthesize:\n\n`;
 
@@ -1534,7 +1578,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
   /**
    * Normalize ticket string fields in place so downstream serializers only see
-   * ASCII punctuation for generated issue content.
+   * formal writing conventions for generated issue content.
    *
    * @param ticket - Ticket object to normalize
    * @returns Nothing
@@ -1552,7 +1596,7 @@ export class IssueGenerateCommand extends CommandRunner {
    */
   private normalizeNestedValue<T>(value: T): T {
     if (typeof value === 'string') {
-      return this.normalizeEmDashText(value) as T;
+      return this.expandContractions(value) as T;
     }
 
     if (Array.isArray(value)) {
@@ -1574,19 +1618,26 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   /**
-   * Replace em dashes with readable ASCII punctuation while keeping line
-   * structure intact.
+   * Expand contractions to their formal equivalents while preserving leading
+   * capitalisation of the original match.
    *
    * @param text - Text to normalize
-   * @returns Normalized text
+   * @returns Text with contractions expanded
    */
-  private normalizeEmDashText(text: string): string {
-    return text.replace(/[ \t]*—[ \t]*/g, ASCII_EM_DASH_REPLACEMENT);
+  private expandContractions(text: string): string {
+    return text.replace(CONTRACTION_PATTERN, (match) => {
+      const key = match.replace(/\u2019/g, "'").toLowerCase();
+      const expansion = CONTRACTION_MAP.get(key) ?? match;
+      if (match[0] === match[0].toUpperCase()) {
+        return expansion[0].toUpperCase() + expansion.slice(1);
+      }
+      return expansion;
+    });
   }
 
   /**
    * Serialize a generated ticket and reject any serialized form that still
-   * contains em dashes.
+   * contains contractions.
    *
    * @param ticket - Ticket to serialize
    * @param format - Output format requested by the caller
@@ -1600,28 +1651,30 @@ export class IssueGenerateCommand extends CommandRunner {
   ): string {
     const converter = this.formatConverterService.getConverter(format);
     const output = converter.serialize(ticket);
-    this.assertNoEmDashInSerializedOutput(output, targetDescription);
+    this.assertNoContractionsInSerializedOutput(output, targetDescription);
     return output;
   }
 
   /**
-   * Ensure generated serialized output is ASCII-normalized before it is
+   * Ensure generated serialized output contains no contractions before it is
    * emitted or persisted.
    *
    * @param output - Serialized ticket content
    * @param targetDescription - Human-readable serialization target for errors
    * @returns Nothing
    */
-  private assertNoEmDashInSerializedOutput(
+  private assertNoContractionsInSerializedOutput(
     output: string,
     targetDescription: string,
   ): void {
-    if (!output.includes(EM_DASH)) {
+    const matches = output.match(CONTRACTION_PATTERN);
+    if (!matches) {
       return;
     }
 
+    const examples = matches.slice(0, 3).join(', ');
     throw new Error(
-      `issue:generate produced an em dash in ${targetDescription}. Use ASCII " - " instead.`,
+      `issue:generate produced contractions in ${targetDescription}: ${examples}. Use formal equivalents instead.`,
     );
   }
 

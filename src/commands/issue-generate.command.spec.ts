@@ -419,7 +419,7 @@ describe('IssueGenerateCommand', () => {
       );
     });
 
-    it('instructs the model to avoid em dashes and uses only ASCII punctuation in the prompt', async () => {
+    it('instructs the model to follow formal writing conventions in the prompt', async () => {
       const { command } = await buildCommand();
 
       const prompt = (command as any).buildSynthesisPrompt([
@@ -430,10 +430,22 @@ describe('IssueGenerateCommand', () => {
         },
       ]);
 
+      expect(prompt).toContain('Write in formal British English throughout.');
       expect(prompt).toContain(
-        'Do not use em dashes; use ASCII ` - ` instead.',
+        'Do not use contractions (e.g., write "do not" instead of "don\'t", "cannot" instead of "can\'t").',
       );
-      expect(prompt).not.toContain('—');
+      expect(prompt).toContain(
+        'Use the active voice (e.g., "The system validates input" instead of "Input is validated by the system").',
+      );
+      expect(prompt).toContain(
+        'Do not use informal or colloquial language (e.g., avoid "basically", "just", "a lot of", "pretty much").',
+      );
+      expect(prompt).toContain(
+        'Use third-person perspective only (e.g., do not use "you", "we", "our").',
+      );
+      expect(prompt).toContain(
+        'Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").',
+      );
     });
   });
 
@@ -977,8 +989,8 @@ describe('IssueGenerateCommand', () => {
     );
   });
 
-  describe('em dash normalization', () => {
-    it('normalizes synthesized AI output before writing generated stdout content', async () => {
+  describe('formal writing conventions enforcement', () => {
+    it('expands contractions in synthesised AI output before writing generated stdout content', async () => {
       const { command, mockAiService } = await buildCommand();
       const formatConverterService = (command as any)
         .formatConverterService as jest.Mocked<FormatConverterService>;
@@ -987,12 +999,12 @@ describe('IssueGenerateCommand', () => {
         .mockImplementation(() => {});
       const tempSourcePath = path.join(
         os.tmpdir(),
-        'wf-issue-generate-em-dash-source.md',
+        'wf-issue-generate-contraction-source.md',
       );
 
       mockAiService.execute.mockResolvedValueOnce({
         content: [
-          '# Generated Title — Needs Cleanup',
+          "# Generated Title That Don't Work",
           '',
           '**Type:** task',
           '**Priority:** medium',
@@ -1000,7 +1012,7 @@ describe('IssueGenerateCommand', () => {
           '## Description',
           '',
           '### Summary',
-          'Generated summary — with em dash',
+          "It's a summary that can't be used as-is",
         ].join('\n'),
       });
       jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((
@@ -1009,9 +1021,9 @@ describe('IssueGenerateCommand', () => {
         if (format === 'md') {
           return {
             parse: jest.fn(() => ({
-              title: 'Generated Title — Needs Cleanup',
+              title: "Generated Title That Don't Work",
               description:
-                'Generated summary — with em dash that should be normalized.',
+                "It's a summary that can't be used as-is and shouldn't stay.",
               type: 'task',
               priority: 'medium',
             })),
@@ -1041,12 +1053,12 @@ describe('IssueGenerateCommand', () => {
         .find((value) => value.includes('# Generated Title'));
 
       expect(serializedOutput).toBeDefined();
-      expect(serializedOutput).toContain('Generated Title - Needs Cleanup');
-      expect(serializedOutput).toContain('Generated summary - with em dash');
-      expect(serializedOutput).not.toContain('—');
+      expect(serializedOutput).toContain('Generated Title That Do not Work');
+      expect(serializedOutput).toContain('It is a summary that cannot be used');
+      expect(serializedOutput).not.toMatch(/don't|can't|shouldn't|it's/i);
     });
 
-    it('normalizes single-source imported tickets before writing --output files', async () => {
+    it('expands contractions in single-source imported tickets before writing --output files', async () => {
       const { command } = await buildCommand();
       const formatConverterService = (command as any)
         .formatConverterService as jest.Mocked<FormatConverterService>;
@@ -1056,9 +1068,11 @@ describe('IssueGenerateCommand', () => {
         'wf-imported-ticket-source.md',
       );
       const importedTicket = {
-        title: 'Imported ticket — Title',
+        title: "Imported ticket that don't comply",
         description:
-          'Imported description — long enough to bypass synthesis. '.repeat(3),
+          "Imported description that can't be used and it's long enough to bypass synthesis. ".repeat(
+            3,
+          ),
         type: 'task',
         priority: 'medium',
       };
@@ -1098,18 +1112,22 @@ describe('IssueGenerateCommand', () => {
       ).mock.calls.find(([filePath]) => String(filePath) === outputPath);
 
       expect(outputWrite).toBeDefined();
-      expect(String(outputWrite?.[1])).toContain('Imported ticket - Title');
-      expect(String(outputWrite?.[1])).toContain('Imported description -');
-      expect(String(outputWrite?.[1])).not.toContain('—');
+      expect(String(outputWrite?.[1])).toContain(
+        'Imported ticket that do not comply',
+      );
+      expect(String(outputWrite?.[1])).toContain(
+        'Imported description that cannot be used',
+      );
+      expect(String(outputWrite?.[1])).not.toMatch(/don't|can't|it's/i);
     });
 
-    it('normalizes saved generated artifacts before persisting them', async () => {
+    it('expands contractions in saved generated artifacts before persisting them', async () => {
       const { command } = await buildCommand();
       const formatConverterService = (command as any)
         .formatConverterService as jest.Mocked<FormatConverterService>;
       const ticket = {
-        title: 'Generated Title — Saved Artifact',
-        description: 'Generated summary — artifact content',
+        title: "Generated Title That Don't Comply",
+        description: "It's a summary that can't stay informal",
         type: 'task',
         priority: 'medium',
       } as any;
@@ -1149,12 +1167,12 @@ describe('IssueGenerateCommand', () => {
 
       expect(artifactWrite).toBeDefined();
       expect(String(artifactWrite?.[1])).toContain(
-        'Generated Title - Saved Artifact',
+        'Generated Title That Do not Comply',
       );
       expect(String(artifactWrite?.[1])).toContain(
-        'Generated summary - artifact content',
+        'It is a summary that cannot stay informal',
       );
-      expect(String(artifactWrite?.[1])).not.toContain('—');
+      expect(String(artifactWrite?.[1])).not.toMatch(/don't|can't|it's/i);
     });
   });
 

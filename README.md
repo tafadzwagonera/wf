@@ -454,7 +454,7 @@ stages: {
 #### `wf issue:generate <sources...>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->
-Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output normalizes em dashes to ASCII " - " before display or save. Can use an agent backend when stages.generate.agent: true is configured
+Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output enforces formal writing conventions (no contractions, active voice, British English) before display or save. Can use an agent backend when stages.generate.agent: true is configured
 
 ```bash
 # Generate ticket from a URL
@@ -492,10 +492,9 @@ wf issue:generate ./spec.md --save --silent | xargs wf issue:create
 | `--type <type>` | Override ticket type (task\|bug\|story\|epic) |
 <!-- END GENERATED COMMAND DOCS: issue:generate -->
 
-Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list. Generated `issue:generate` output is normalized before serialization, so em dashes are rewritten to ASCII ` - ` in stdout output and saved artifacts.
+Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<hash>-ticket-description.sources.json` in the same directory. Use `wf issue:generate:lookup <hash>` to print the original source list. Generated `issue:generate` output enforces formal writing conventions before serialisation: contractions are expanded to their formal equivalents, and the prompt instructs the model to use active voice, third-person perspective, formal British English spelling, and no informal language.
 
 When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, unresolved bare filenames stay cwd-relative and the command now tells you to retry with `--repos <repo>` when the source looks like a repo-scoped artifact. When the first `--repos` entry resolves to a local checkout, `issue:generate` also bootstraps AI provider and stage config from that repository before command execution.
-
 Slack permalinks that include query parameters should be quoted when invoked from shells such as `zsh` or `bash`.
 
 In interactive mode (TTY, no `--silent`), the command performs a pre-synthesis clarification pass: the AI identifies unaddressed ambiguities, assumptions, or risks in the sources, and prompts the user to answer them before generating the ticket. Sources that already acknowledge their own risks and assumptions are not re-surfaced. The `--silent` flag suppresses all decorative output and interactive prompts, emitting only file paths (with `--save`/`--output`) or raw ticket content suitable for piping.
