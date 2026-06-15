@@ -1,12 +1,12 @@
 /**
- * Manual Test: issue:generate em-dash normalization smoke test
+ * Manual Test: issue:generate formal writing conventions smoke test
  *
- * Run: nr test:manual -- test-issue-generate-em-dash
+ * Run: nr test:manual -- test-issue-generate-formal-writing
  *
  * Verifies:
- *   1. AI-synthesized `issue:generate` output rewrites em dashes to ` - `.
- *   2. Single-source imported ticket output rewrites em dashes to ` - `.
- *   3. Saved generated artifacts rewrite em dashes to ` - `.
+ *   1. AI-synthesized `issue:generate` output expands contractions.
+ *   2. Single-source imported ticket output expands contractions.
+ *   3. Saved generated artifacts expand contractions.
  *
  * No real AI or platform calls are made.
  */
@@ -20,7 +20,7 @@ import { IssueGenerateCommand } from '../../src/commands/issue-generate.command'
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { FormatConverterService } from '../../src/common/converters/format-converter.service';
 
-const MOCK_AI_RESPONSE = `# Generated Title — Needs Cleanup
+const MOCK_AI_RESPONSE = `# Generated Title That Don't Work
 
 **Type:** task
 **Priority:** medium
@@ -28,7 +28,7 @@ const MOCK_AI_RESPONSE = `# Generated Title — Needs Cleanup
 ## Description
 
 ### Summary
-Generated summary — with em dash
+It's a summary that can't be used as-is
 
 #### Technical Details
 - None
@@ -62,7 +62,7 @@ Generated summary — with em dash
  * @returns Nothing
  */
 const pass = (message: string): void => {
-  console.log(`  ✓ ${message}`);
+  console.log(`  \u2713 ${message}`);
 };
 
 /**
@@ -73,27 +73,26 @@ const pass = (message: string): void => {
  * @returns Nothing
  */
 const fail = (message: string, detail?: string): void => {
-  console.error(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`);
+  console.error(`  \u2717 ${message}${detail ? `\n    \u2192 ${detail}` : ''}`);
 };
 
+const CONTRACTION_PATTERN =
+  /don't|can't|won't|isn't|aren't|doesn't|wasn't|weren't|couldn't|wouldn't|shouldn't|it's|that's|there's|here's|what's|who's|let's|i'm|we're|they're|you're|we've|they've|you've|i've|we'll|they'll|you'll|i'll|he's|she's/i;
+
 /**
- * Verify a serialized output string contains only ASCII replacement punctuation.
+ * Verify a serialized output string contains no contractions.
  *
  * @param label Human-readable assertion label
  * @param content Serialized output content
  * @returns Pass/fail counters for aggregation
  */
-const assertNoEmDash = (
+const assertNoContractions = (
   label: string,
   content: string,
 ): { passed: number; failed: number } => {
-  if (content.includes('—')) {
-    fail(label, 'Found an em dash in serialized output');
-    return { passed: 0, failed: 1 };
-  }
-
-  if (!content.includes(' - ')) {
-    fail(label, 'Expected normalized ASCII " - " punctuation');
+  const match = content.match(CONTRACTION_PATTERN);
+  if (match) {
+    fail(label, `Found contraction "${match[0]}" in serialized output`);
     return { passed: 0, failed: 1 };
   }
 
@@ -103,7 +102,9 @@ const assertNoEmDash = (
 
 async function main() {
   console.log(
-    chalkHeader('\n🧪 issue:generate em-dash normalization smoke test\n'),
+    chalkHeader(
+      '\n\ud83e\uddea issue:generate formal writing conventions smoke test\n',
+    ),
   );
 
   let passed = 0;
@@ -124,19 +125,19 @@ async function main() {
 
   const synthesisSourceA = path.join(
     os.tmpdir(),
-    `wf-gen-em-dash-a-${Date.now()}.txt`,
+    `wf-gen-formal-a-${Date.now()}.txt`,
   );
   const synthesisSourceB = path.join(
     os.tmpdir(),
-    `wf-gen-em-dash-b-${Date.now()}.txt`,
+    `wf-gen-formal-b-${Date.now()}.txt`,
   );
   const synthesisOutputPath = path.join(
     os.tmpdir(),
-    `wf-gen-em-dash-output-${Date.now()}.md`,
+    `wf-gen-formal-output-${Date.now()}.md`,
   );
   const importedTicketPath = path.join(
     os.tmpdir(),
-    `wf-imported-em-dash-${Date.now()}.md`,
+    `wf-imported-formal-${Date.now()}.md`,
   );
 
   fs.writeFileSync(synthesisSourceA, 'Source A: placeholder content.', 'utf-8');
@@ -149,7 +150,7 @@ async function main() {
 
   try {
     console.log(
-      'Test 1: synthesized output written via --output excludes em dashes',
+      'Test 1: synthesized output written via --output expands contractions',
     );
     await command.run([synthesisSourceA, synthesisSourceB], {
       format: 'md',
@@ -158,14 +159,14 @@ async function main() {
     const synthesizedOutput = fs.readFileSync(synthesisOutputPath, 'utf-8');
     ({ passed, failed } = sumResults(
       { passed, failed },
-      assertNoEmDash(
-        'Synthesized output replaced em dashes with ASCII punctuation',
+      assertNoContractions(
+        'Synthesized output expanded contractions to formal equivalents',
         synthesizedOutput,
       ),
     ));
 
     console.log(
-      'Test 2: single-source imported ticket output excludes em dashes',
+      'Test 2: single-source imported ticket output expands contractions',
     );
     const detectFormatSpy = jestlessSpy(
       formatConverterService,
@@ -179,9 +180,9 @@ async function main() {
         if (format === 'md') {
           return {
             parse: () => ({
-              title: 'Imported ticket — Title',
+              title: "Imported ticket that don't comply",
               description:
-                'Imported description — long enough to bypass synthesis. '.repeat(
+                "Imported description that can't be used and it's long enough to bypass synthesis. ".repeat(
                   3,
                 ),
               type: 'task',
@@ -197,7 +198,7 @@ async function main() {
     );
     const importedOutputPath = path.join(
       os.tmpdir(),
-      `wf-imported-em-dash-output-${Date.now()}.md`,
+      `wf-imported-formal-output-${Date.now()}.md`,
     );
 
     try {
@@ -208,8 +209,8 @@ async function main() {
       const importedOutput = fs.readFileSync(importedOutputPath, 'utf-8');
       ({ passed, failed } = sumResults(
         { passed, failed },
-        assertNoEmDash(
-          'Imported ticket output replaced em dashes with ASCII punctuation',
+        assertNoContractions(
+          'Imported ticket output expanded contractions to formal equivalents',
           importedOutput,
         ),
       ));
@@ -221,11 +222,11 @@ async function main() {
       }
     }
 
-    console.log('Test 3: saved generated artifacts exclude em dashes');
+    console.log('Test 3: saved generated artifacts expand contractions');
     const savedArtifactPath = await (command as any).saveTicketLocally(
       {
-        title: 'Saved artifact — Title',
-        description: 'Saved artifact — Description',
+        title: "Saved artifact that don't comply",
+        description: "It's a saved artifact that can't stay informal",
         type: 'task',
         priority: 'medium',
       },
@@ -236,8 +237,8 @@ async function main() {
     const savedArtifact = fs.readFileSync(savedArtifactPath, 'utf-8');
     ({ passed, failed } = sumResults(
       { passed, failed },
-      assertNoEmDash(
-        'Saved artifact replaced em dashes with ASCII punctuation',
+      assertNoContractions(
+        'Saved artifact expanded contractions to formal equivalents',
         savedArtifact,
       ),
     ));
