@@ -21,6 +21,7 @@ import { GitService } from '../../src/integrations/git/git.service';
 import { IssueTrackerService } from '../../src/integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../../src/shared/logger/logger.service';
 import { DryRunPreviewService } from '../../src/shared/preview/dry-run-preview.service';
+import { ConversationService } from '../../src/integrations/ai/conversation/conversation.service';
 
 const mockReview = {
   summary: 'Adds a helper utility where a one-liner suffices',
@@ -163,6 +164,14 @@ async function run(): Promise<void> {
           previewApiCall: () => undefined,
           previewFileRead: () => undefined,
           previewFileWrite: () => undefined,
+        },
+      },
+      {
+        provide: ConversationService,
+        useValue: {
+          loadConversation: async () => null,
+          createConversation: async () => ({ conversationId: 'mock' }),
+          startChatSession: async () => undefined,
         },
       },
     ],

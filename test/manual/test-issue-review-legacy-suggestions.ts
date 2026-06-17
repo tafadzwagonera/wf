@@ -13,6 +13,7 @@ import { IssueTrackerService } from '../../src/integrations/issue-trackers/issue
 import { LoggerService } from '../../src/shared/logger/logger.service';
 import { DryRunPreviewService } from '../../src/shared/preview/dry-run-preview.service';
 import { ReviewStageService } from '../../src/workflows/stages/review-stage.service';
+import { ConversationService } from '../../src/integrations/ai/conversation/conversation.service';
 
 const mockLegacyReview = {
   summary: 'Review summary',
@@ -104,6 +105,14 @@ async function run(): Promise<void> {
           previewApiCall: () => undefined,
           previewFileRead: () => undefined,
           previewFileWrite: () => undefined,
+        },
+      },
+      {
+        provide: ConversationService,
+        useValue: {
+          loadConversation: async () => null,
+          createConversation: async () => ({ conversationId: 'mock' }),
+          startChatSession: async () => undefined,
         },
       },
     ],

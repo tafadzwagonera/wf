@@ -351,14 +351,16 @@ export class ConversationService {
     repoDir?: string,
     trackerName?: string,
   ): string {
-    if (repoDir && trackerName) {
-      const artifactDir = path.join(
+    if (repoDir) {
+      const segments = [
         os.homedir(),
         '.wf',
         path.basename(path.resolve(repoDir)),
-        trackerName,
-      );
-      return path.join(artifactDir, `${ticketKey}-conversation.json`);
+      ];
+      if (trackerName) {
+        segments.push(trackerName);
+      }
+      return path.join(...segments, `${ticketKey}-conversation.json`);
     }
     return path.join(process.cwd(), 'jira', `${ticketKey}-conversation.json`);
   }

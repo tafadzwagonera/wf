@@ -5,10 +5,23 @@ import { ChatUIService } from './chat-ui.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ConversationContext } from './interfaces';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 // Mock fs module
-jest.mock('fs');
-jest.mock('fs/promises');
+jest.mock('fs', () => {
+  const actual = jest.requireActual('fs');
+  return {
+    ...actual,
+    existsSync: jest.fn(),
+    promises: {
+      readFile: jest.fn(),
+      writeFile: jest.fn().mockResolvedValue(undefined),
+      rename: jest.fn().mockResolvedValue(undefined),
+      mkdir: jest.fn().mockResolvedValue(undefined),
+    },
+  };
+});
 
 describe('ConversationService', () => {
   let service: ConversationService;
@@ -212,6 +225,62 @@ describe('ConversationService', () => {
     it('should return undefined for non-existent conversation', () => {
       const retrieved = service.getConversation('invalid-id');
       expect(retrieved).toBeUndefined();
+    });
+  });
+
+  describe('getConversationFilePath (via saveConversation)', () => {
+    it('resolves to ~/.wf/<repo>/ when repoDir is present but trackerName is absent', async () => {
+      const context: ConversationContext = {
+        ticketKey: 'review',
+        stage: 'review',
+        repoDir: '/projects/my-app',
+        workflowState: { ticketContent: 'test' },
+      };
+
+      const conversation = await service.createConversation('review', context);
+
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      await service.saveConversation(conversation);
+
+      const expectedPath = path.join(
+        os.homedir(),
+        '.wf',
+        'my-app',
+        'review-conversation.json',
+      );
+      expect(fs.promises.rename).toHaveBeenCalledWith(
+        `${expectedPath}.tmp`,
+        expectedPath,
+      );
+    });
+
+    it('resolves to ~/.wf/<repo>/<tracker>/ when both repoDir and trackerName are present', async () => {
+      const context: ConversationContext = {
+        ticketKey: 'TAD-575',
+        stage: 'review',
+        repoDir: '/projects/my-app',
+        trackerName: 'jira',
+        workflowState: { ticketContent: 'test' },
+      };
+
+      const conversation = await service.createConversation('TAD-575', context);
+
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      await service.saveConversation(conversation);
+
+      const expectedPath = path.join(
+        os.homedir(),
+        '.wf',
+        'my-app',
+        'jira',
+        'TAD-575-conversation.json',
+      );
+      expect(fs.promises.rename).toHaveBeenCalledWith(
+        `${expectedPath}.tmp`,
+        expectedPath,
+      );
     });
   });
 });

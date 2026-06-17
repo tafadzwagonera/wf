@@ -22,6 +22,8 @@ import { resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
+import { ConversationService } from '../integrations/ai/conversation/conversation.service';
+import { ConversationContext } from '../integrations/ai/conversation/interfaces';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -148,6 +150,7 @@ export class IssueReviewCommand extends CommandRunner {
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
     private readonly reviewStageService: ReviewStageService,
+    private readonly conversationService: ConversationService,
   ) {
     super();
   }
@@ -522,6 +525,30 @@ export class IssueReviewCommand extends CommandRunner {
 
         if (options?.comment) {
           await this.postReviewComment(target, review);
+        }
+      }
+
+      if (
+        !options?.silent &&
+        this.isInteractiveSession() &&
+        reviewedTargets.length > 0
+      ) {
+        const { startChat } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'startChat',
+            message: 'Would you like to discuss the review?',
+            default: false,
+          },
+        ]);
+        if (startChat) {
+          const lastReviewed = reviewedTargets[reviewedTargets.length - 1];
+          const repoDir = lastReviewed.repoDir ?? process.cwd();
+          await this.startInteractiveChat(
+            lastReviewed.review,
+            lastReviewed.context,
+            repoDir,
+          );
         }
       }
 
@@ -1150,6 +1177,95 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private isInteractiveSession(): boolean {
     return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  }
+
+  /**
+   * Launch an interactive follow-up chat about the review output.
+   * @param review - The code review result
+   * @param reviewContext - Context string used during the review
+   * @param repoDir - Repository directory for conversation persistence
+   */
+  private async startInteractiveChat(
+    review: CodeReview,
+    reviewContext: string,
+    repoDir: string,
+  ): Promise<void> {
+    const context: ConversationContext = {
+      ticketKey: 'review',
+      stage: 'review',
+      stageOutput: review,
+      repoDir,
+      workflowState: {
+        ticketContent: reviewContext,
+        review,
+      },
+    };
+
+    let conversation = await this.conversationService.loadConversation(
+      'review',
+      repoDir,
+    );
+    if (!conversation) {
+      conversation = await this.conversationService.createConversation(
+        'review',
+        context,
+      );
+    }
+
+    const systemPrompt = this.buildChatSystemPrompt(review, reviewContext);
+
+    await this.conversationService.startChatSession(
+      conversation.conversationId,
+      {
+        systemPrompt,
+        maxTurns: 20,
+        exitCommands: ['exit', 'quit', 'continue'],
+      },
+    );
+  }
+
+  /**
+   * Build a system prompt scoped to the review output for the interactive chat.
+   * @param review - The code review result
+   * @param reviewContext - Context string describing what was reviewed
+   * @returns System prompt string
+   */
+  private buildChatSystemPrompt(
+    review: CodeReview,
+    reviewContext: string,
+  ): string {
+    const issuesText =
+      review.issues.length > 0
+        ? review.issues
+            .map(
+              (issue) =>
+                `  [${issue.severity}] ${issue.message}${issue.file ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})` : ''}`,
+            )
+            .join('\n')
+        : '  No issues found';
+
+    const suggestionsText =
+      review.suggestions.length > 0
+        ? review.suggestions.map((s) => `  - ${s}`).join('\n')
+        : '  No suggestions';
+
+    return `You are a code reviewer discussing your findings on the changes described below.
+
+Review Context:
+${reviewContext}
+
+Review Verdict: ${review.approved ? 'APPROVED' : 'NEEDS WORK'}
+
+Summary:
+${review.summary}
+
+Issues Found:
+${issuesText}
+
+Suggestions:
+${suggestionsText}
+
+Answer questions about the review, explain why specific issues were raised, suggest concrete fixes, or help the developer decide which items to address first. Reference file paths and line numbers when relevant.`;
   }
 
   /**

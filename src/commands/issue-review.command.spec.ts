@@ -62,6 +62,7 @@ import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracke
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
+import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveRepoBasePath } from '../agents/utils';
 import * as os from 'os';
@@ -247,6 +248,20 @@ const setNonInteractiveSession = (): void => {
   });
 };
 
+const mockConversationService = {
+  loadConversation: jest.fn().mockResolvedValue(null),
+  createConversation: jest.fn().mockResolvedValue({
+    conversationId: 'mock-conv-id',
+    ticketKey: 'review',
+    messages: [],
+    context: {},
+    totalTokensUsed: { input: 0, output: 0 },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }),
+  startChatSession: jest.fn().mockResolvedValue(undefined),
+};
+
 async function buildCommand(overrides?: {
   ticketAdapterName?: 'jira' | 'github' | 'bitbucket';
 }): Promise<{
@@ -254,6 +269,7 @@ async function buildCommand(overrides?: {
   reviewStageService: jest.Mocked<ReviewStageService>;
   adapters: Record<string, any>;
   promptMock: jest.MockedFunction<typeof inquirer.prompt>;
+  conversationService: typeof mockConversationService;
   dryRunPreview: {
     showHeader: jest.Mock;
     showSummary: jest.Mock;
@@ -348,6 +364,10 @@ async function buildCommand(overrides?: {
         },
       },
       {
+        provide: ConversationService,
+        useValue: mockConversationService,
+      },
+      {
         provide: DryRunPreviewService,
         useValue: {
           showHeader: jest.fn(),
@@ -379,6 +399,7 @@ async function buildCommand(overrides?: {
       bitbucketAdapter,
     },
     promptMock,
+    conversationService: mockConversationService,
     dryRunPreview,
   };
 }
@@ -930,6 +951,91 @@ describe('IssueReviewCommand', () => {
         'src/inline.ts',
         24,
         'Normalized inline issue',
+      );
+    });
+  });
+
+  describe('interactive follow-up chat', () => {
+    it('prompts for interactive chat after review when TTY is available', async () => {
+      const { command, promptMock, conversationService } = await buildCommand();
+      jest
+        .spyOn(command as any, 'reviewRepoSet')
+        .mockResolvedValue('diff content');
+      setInteractiveSession();
+
+      promptMock.mockResolvedValue({ startChat: true } as any);
+
+      await command.run([], {});
+
+      expect(promptMock).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: 'Would you like to discuss the review?',
+          }),
+        ]),
+      );
+      expect(conversationService.startChatSession).toHaveBeenCalledWith(
+        'mock-conv-id',
+        expect.objectContaining({
+          maxTurns: 20,
+          exitCommands: ['exit', 'quit', 'continue'],
+        }),
+      );
+    });
+
+    it('skips interactive chat prompt in silent mode', async () => {
+      const { command, promptMock, conversationService } = await buildCommand();
+      jest
+        .spyOn(command as any, 'reviewRepoSet')
+        .mockResolvedValue('diff content');
+      setInteractiveSession();
+
+      await command.run([], { silent: true });
+
+      expect(promptMock).not.toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: 'Would you like to discuss the review?',
+          }),
+        ]),
+      );
+      expect(conversationService.startChatSession).not.toHaveBeenCalled();
+    });
+
+    it('skips interactive chat prompt in non-interactive session', async () => {
+      const { command, promptMock, conversationService } = await buildCommand();
+      jest
+        .spyOn(command as any, 'reviewRepoSet')
+        .mockResolvedValue('diff content');
+      setNonInteractiveSession();
+
+      await command.run([], {});
+
+      expect(promptMock).not.toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: 'Would you like to discuss the review?',
+          }),
+        ]),
+      );
+      expect(conversationService.startChatSession).not.toHaveBeenCalled();
+    });
+
+    it('still outputs artifact path in silent mode', async () => {
+      const { command } = await buildCommand();
+      jest
+        .spyOn(command as any, 'reviewRepoSet')
+        .mockResolvedValue('diff content');
+      const writeFileSyncSpy = jest
+        .spyOn(require('fs'), 'writeFileSync')
+        .mockImplementation(() => {});
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      await command.run([], { silent: true, output: 'review.txt' });
+
+      expect(writeFileSyncSpy).toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining('review.txt'),
       );
     });
   });
