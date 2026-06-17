@@ -9,6 +9,7 @@ import {
   ToolCallError,
   ToolTimeoutError,
   UserError,
+  setTracingExportApiKey,
   tool,
 } from '@openai/agents';
 import type { StreamedRunResult } from '@openai/agents';
@@ -794,6 +795,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
       );
     }
 
+    setTracingExportApiKey(apiKey);
     const openaiClient = new OpenAI({ apiKey });
     const modelProvider = new OpenAIProvider({
       openAIClient: openaiClient,

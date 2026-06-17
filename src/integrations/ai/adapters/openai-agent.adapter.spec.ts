@@ -37,6 +37,7 @@ jest.mock('@openai/agents', () => ({
   },
   OpenAIProvider: jest.fn(),
   Runner: jest.fn(),
+  setTracingExportApiKey: jest.fn(),
   SystemError: class SystemError extends Error {
     constructor(message: string) {
       super(message);

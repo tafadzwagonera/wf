@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Agent, OpenAIProvider, Runner, tool } from '@openai/agents';
+import {
+  Agent,
+  OpenAIProvider,
+  Runner,
+  setTracingExportApiKey,
+  tool,
+} from '@openai/agents';
 import type { StreamedRunResult } from '@openai/agents';
 import { z } from 'zod';
 import * as fs from 'fs/promises';
@@ -436,6 +442,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       );
     }
 
+    setTracingExportApiKey(apiKey);
     const modelProvider = new OpenAIProvider({ apiKey });
     const model = this.resolveStageModel(params.stage);
     const openAiContext = await loadAiContextConfig(
@@ -758,6 +765,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       );
     }
 
+    setTracingExportApiKey(apiKey);
     const modelProvider = new OpenAIProvider({ apiKey });
     const model = this.resolveStageModel(params.stage);
     const openAiContext = await loadAiContextConfig(
