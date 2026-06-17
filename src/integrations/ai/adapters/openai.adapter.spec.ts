@@ -14,6 +14,7 @@ interface MockChatCompletionRequest {
   model: string;
   max_completion_tokens?: number;
   max_tokens?: number;
+  temperature?: number;
 }
 
 describe('OpenAIAdapter', () => {
@@ -112,6 +113,92 @@ describe('OpenAIAdapter', () => {
       expect((adapter as unknown as { maxTokens: number }).maxTokens).toBe(
         4096,
       );
+    });
+
+    it('omits temperature for reasoning models', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest
+        .fn<
+          Promise<{
+            choices: Array<{ message: { content: string } }>;
+            usage: { prompt_tokens: number; completion_tokens: number };
+          }>,
+          [MockChatCompletionRequest]
+        >()
+        .mockResolvedValue({
+          choices: [{ message: { content: 'ok' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        });
+
+      (adapter as unknown as { client: OpenAI }).client = {
+        chat: { completions: { create: mockCreate } },
+      } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'o4-mini';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'hello' });
+
+      const request = mockCreate.mock.calls[0]?.[0];
+      expect(request?.model).toBe('o4-mini');
+      expect(request?.temperature).toBeUndefined();
+    });
+
+    it('includes temperature for non-reasoning models', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest
+        .fn<
+          Promise<{
+            choices: Array<{ message: { content: string } }>;
+            usage: { prompt_tokens: number; completion_tokens: number };
+          }>,
+          [MockChatCompletionRequest]
+        >()
+        .mockResolvedValue({
+          choices: [{ message: { content: 'ok' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        });
+
+      (adapter as unknown as { client: OpenAI }).client = {
+        chat: { completions: { create: mockCreate } },
+      } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'gpt-4.1';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'hello' });
+
+      const request = mockCreate.mock.calls[0]?.[0];
+      expect(request?.model).toBe('gpt-4.1');
+      expect(request?.temperature).toBe(0.7);
+    });
+
+    it('omits temperature for reasoning models in executeWithHistory', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest
+        .fn<
+          Promise<{
+            choices: Array<{ message: { content: string } }>;
+            usage: { prompt_tokens: number; completion_tokens: number };
+          }>,
+          [MockChatCompletionRequest]
+        >()
+        .mockResolvedValue({
+          choices: [{ message: { content: 'ok' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        });
+
+      (adapter as unknown as { client: OpenAI }).client = {
+        chat: { completions: { create: mockCreate } },
+      } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'o3';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.executeWithHistory({
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+
+      const request = mockCreate.mock.calls[0]?.[0];
+      expect(request?.model).toBe('o3');
+      expect(request?.temperature).toBeUndefined();
     });
   });
 

@@ -79,6 +79,14 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
     }));
   }
 
+  /**
+   * OpenAI reasoning models (o1, o3, o4, etc.) only accept temperature=1.
+   * Passing any other value causes a 400 error.
+   */
+  private isReasoningModel(model: string): boolean {
+    return /^o\d/.test(model);
+  }
+
   private getApiErrorDetails(error: unknown): { status?: number } {
     return typeof error === 'object' &&
       error !== null &&
@@ -114,10 +122,13 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
 
       messages.push({ role: 'user', content: request.prompt });
 
+      const model = request.model || this.model;
       const response = await this.client.chat.completions.create({
-        model: request.model || this.model,
+        model,
         max_completion_tokens: request.maxTokens || this.maxTokens,
-        temperature: request.temperature || 0.7,
+        ...(this.isReasoningModel(model)
+          ? {}
+          : { temperature: request.temperature || 0.7 }),
         messages: this.buildMessages(messages),
       });
 
@@ -173,10 +184,13 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
         messages.push({ role: message.role, content: message.content });
       }
 
+      const model = request.model || this.model;
       const response = await this.client.chat.completions.create({
-        model: request.model || this.model,
+        model,
         max_completion_tokens: request.maxTokens || this.maxTokens,
-        temperature: request.temperature || 0.7,
+        ...(this.isReasoningModel(model)
+          ? {}
+          : { temperature: request.temperature || 0.7 }),
         messages: this.buildMessages(messages),
       });
 
