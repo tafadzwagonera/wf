@@ -35,6 +35,8 @@ import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 
 /** Minimum description length (chars) for a ticket to bypass AI synthesis. */
 const MIN_DESCRIPTION_LENGTH = 100;
+/** Maximum source content length (chars) before AI summarisation kicks in. */
+const MAX_SOURCE_CONTENT_LENGTH = 30_000;
 const SLACK_CHANNEL_HISTORY_LIMIT = 50;
 const SLACK_THREAD_PATH = /^\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
 const SLACK_CHANNEL_PATH = /^\/archives\/([A-Z0-9]+)\/?$/i;
@@ -435,6 +437,9 @@ export class IssueGenerateCommand extends CommandRunner {
         silent,
       );
       this.assertSourcesAvailable(sourceContents, passedParams);
+
+      // Summarise oversized sources (interactive review in TTY mode)
+      await this.summariseOversizedSources(sourceContents, silent);
 
       // Interactive clarification pass (non-silent, TTY only)
       if (!silent && this.isInteractiveSession()) {
@@ -1401,6 +1406,193 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   /**
+   * Summarise and interactively review any source whose content exceeds
+   * MAX_SOURCE_CONTENT_LENGTH. Replaces the source content in-place with
+   * the approved summary.
+   *
+   * @param sources - Fetched source contents (mutated in place)
+   * @param silent - Whether to suppress interactive output
+   */
+  private async summariseOversizedSources(
+    sources: SourceContent[],
+    silent: boolean,
+  ): Promise<void> {
+    for (let i = 0; i < sources.length; i++) {
+      const source = sources[i];
+      const raw =
+        typeof source.content === 'string'
+          ? source.content
+          : JSON.stringify(source.content);
+
+      if (raw.length <= MAX_SOURCE_CONTENT_LENGTH) {
+        continue;
+      }
+
+      if (!silent) {
+        console.log(
+          chalk.yellow(
+            `\n    Warning: Source ${i + 1} (${source.source}) exceeds ${MAX_SOURCE_CONTENT_LENGTH} characters (${raw.length}). Summarising...\n`,
+          ),
+        );
+      }
+
+      const summary = await this.summariseOversizedSource(source);
+
+      if (!silent && this.isInteractiveSession()) {
+        source.content = await this.reviewSummaryBullets(summary, source);
+      } else {
+        source.content = summary;
+      }
+    }
+  }
+
+  /**
+   * Summarise a source whose content exceeds MAX_SOURCE_CONTENT_LENGTH.
+   * Returns a bullet-point summary produced by the AI.
+   *
+   * @param source - The oversized source
+   * @returns Bullet-point summary string
+   */
+  private async summariseOversizedSource(
+    source: SourceContent,
+  ): Promise<string> {
+    const raw =
+      typeof source.content === 'string'
+        ? source.content
+        : JSON.stringify(source.content);
+
+    const prompt =
+      `Summarise the following source into concise bullet points that capture every key fact, ` +
+      `decision, root cause, timeline entry, and action item. Do not omit technical details ` +
+      `(error messages, config values, IDs, commands). ` +
+      `Return ONLY a Markdown bullet list (- item).\n\n` +
+      `### Source: ${source.source} (${source.type})\n` +
+      `\`\`\`\n${raw}\n\`\`\``;
+
+    const responseContent = this.stageAgentService.isEnabledForStage('generate')
+      ? await this.stageAgentService.generateFromPrompt(prompt)
+      : (
+          await this.aiService.execute({
+            prompt,
+            maxTokens: 2048,
+            stage: 'generate',
+          })
+        ).content;
+
+    return responseContent.trim();
+  }
+
+  /**
+   * Present AI-generated summary bullets for interactive approval.
+   * The user can accept (Y) or reject (n) each bullet, and can type
+   * free-form messages to request re-summarisation of specific content.
+   *
+   * @param summary - AI-generated bullet-point summary
+   * @param source - Original source (for re-summarisation context)
+   * @returns Approved summary string
+   */
+  private async reviewSummaryBullets(
+    summary: string,
+    source: SourceContent,
+  ): Promise<string> {
+    const bullets = summary
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('- '));
+
+    const approved: string[] = [];
+    const raw =
+      typeof source.content === 'string'
+        ? source.content
+        : JSON.stringify(source.content);
+
+    console.log(chalk.cyan('\n  Review the summarised key points:\n'));
+
+    for (const bullet of bullets) {
+      console.log(chalk.cyan(`  ${bullet}`));
+      const { accept } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'accept',
+          message: 'Include this point?',
+          default: true,
+        },
+      ]);
+      if (accept) {
+        approved.push(bullet);
+      }
+    }
+
+    console.log(
+      chalk.yellow(
+        '\n  Type a message to ask the AI to summarise specific content, or "done" to continue.\n',
+      ),
+    );
+
+    while (true) {
+      const { input } = await inquirer.prompt([
+        { type: 'input', name: 'input', message: chalk.cyan('message') },
+      ]);
+
+      const trimmed = input.trim();
+      if (!trimmed || trimmed.toLowerCase() === 'done') {
+        break;
+      }
+
+      const prompt =
+        `The user reviewed a summary of a source and wants additional or different detail.\n\n` +
+        `User's request: "${trimmed}"\n\n` +
+        `Original source:\n\`\`\`\n${raw}\n\`\`\`\n\n` +
+        `Return ONLY new Markdown bullet points (- item) addressing the user's request. ` +
+        `Do not repeat bullets already approved.`;
+
+      const extra = this.stageAgentService.isEnabledForStage('generate')
+        ? await this.stageAgentService.generateFromPrompt(prompt)
+        : (
+            await this.aiService.execute({
+              prompt,
+              maxTokens: 1024,
+              stage: 'generate',
+            })
+          ).content;
+
+      const extraBullets = extra
+        .trim()
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('- '));
+
+      for (const bullet of extraBullets) {
+        console.log(chalk.cyan(`  ${bullet}`));
+        const { accept } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'accept',
+            message: 'Include this point?',
+            default: true,
+          },
+        ]);
+        if (accept) {
+          approved.push(bullet);
+        }
+      }
+
+      console.log(
+        chalk.yellow('  💬 Type another message or "done" to continue.\n'),
+      );
+    }
+
+    if (approved.length === 0) {
+      console.log(
+        chalk.yellow('  No bullets approved — using the full AI summary.\n'),
+      );
+      return summary;
+    }
+
+    return approved.join('\n');
+  }
+
+  /**
    * Ask the AI to identify 0-5 clarification questions from the fetched sources.
    * Returns an empty array when nothing needs clarification or on parse failure.
    *
@@ -1453,7 +1645,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
     sources.forEach((source, index) => {
       prompt += `### Source ${index + 1}: ${source.source} (${source.type})\n`;
-      prompt += `\`\`\`\n${typeof source.content === 'string' ? source.content.substring(0, 2000) : JSON.stringify(source.content).substring(0, 2000)}\n\`\`\`\n\n`;
+      prompt += `\`\`\`\n${typeof source.content === 'string' ? source.content.substring(0, MAX_SOURCE_CONTENT_LENGTH) : JSON.stringify(source.content).substring(0, MAX_SOURCE_CONTENT_LENGTH)}\n\`\`\`\n\n`;
     });
 
     return prompt;
@@ -1570,7 +1762,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
     sources.forEach((source, index) => {
       prompt += `### Source ${index + 1}: ${source.source} (${source.type})\n`;
-      prompt += `\`\`\`\n${typeof source.content === 'string' ? source.content.substring(0, 2000) : JSON.stringify(source.content).substring(0, 2000)}\n\`\`\`\n\n`;
+      prompt += `\`\`\`\n${typeof source.content === 'string' ? source.content.substring(0, MAX_SOURCE_CONTENT_LENGTH) : JSON.stringify(source.content).substring(0, MAX_SOURCE_CONTENT_LENGTH)}\n\`\`\`\n\n`;
     });
 
     return prompt;
