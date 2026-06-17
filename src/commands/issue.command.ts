@@ -998,6 +998,8 @@ export class IssueCommand extends CommandRunner {
         systemPrompt,
         maxTurns: 20,
         exitCommands: ['exit', 'quit', 'continue'],
+        stage,
+        repoDir,
       },
     );
   }

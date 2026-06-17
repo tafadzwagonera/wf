@@ -4,6 +4,7 @@ import { AiService } from '../ai.service';
 import { ChatUIService } from './chat-ui.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ConversationContext } from './interfaces';
+import { StageAgentService } from '../stage-agent.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -47,6 +48,10 @@ describe('ConversationService Integration Tests', () => {
         { provide: AiService, useValue: claudeService },
         { provide: ChatUIService, useValue: chatUIService },
         { provide: LoggerService, useValue: loggerService },
+        {
+          provide: StageAgentService,
+          useValue: { isEnabledForStage: () => false, chatTurn: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -117,6 +122,10 @@ describe('ConversationService Integration Tests', () => {
           { provide: AiService, useValue: claudeService },
           { provide: ChatUIService, useValue: chatUIService },
           { provide: LoggerService, useValue: loggerService },
+          {
+            provide: StageAgentService,
+            useValue: { isEnabledForStage: () => false, chatTurn: jest.fn() },
+          },
         ],
       }).compile();
 
@@ -201,6 +210,10 @@ describe('ConversationService Integration Tests', () => {
           { provide: AiService, useValue: claudeService },
           { provide: ChatUIService, useValue: chatUIService },
           { provide: LoggerService, useValue: loggerService },
+          {
+            provide: StageAgentService,
+            useValue: { isEnabledForStage: () => false, chatTurn: jest.fn() },
+          },
         ],
       }).compile();
 
@@ -225,6 +238,10 @@ describe('ConversationService Integration Tests', () => {
           { provide: AiService, useValue: claudeService },
           { provide: ChatUIService, useValue: chatUIService },
           { provide: LoggerService, useValue: loggerService },
+          {
+            provide: StageAgentService,
+            useValue: { isEnabledForStage: () => false, chatTurn: jest.fn() },
+          },
         ],
       }).compile();
 
@@ -263,6 +280,10 @@ describe('ConversationService Integration Tests', () => {
           { provide: AiService, useValue: claudeService },
           { provide: ChatUIService, useValue: chatUIService },
           { provide: LoggerService, useValue: loggerService },
+          {
+            provide: StageAgentService,
+            useValue: { isEnabledForStage: () => false, chatTurn: jest.fn() },
+          },
         ],
       }).compile();
 

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AiService } from '../ai.service';
+import { AiService, AIConversationRequest } from '../ai.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ChatUIService } from './chat-ui.service';
 import {
@@ -7,7 +7,13 @@ import {
   ConversationContext,
   ConversationState,
   ChatSessionOptions,
+  WorkflowStage,
 } from './interfaces';
+import {
+  StageAgentService,
+  AgentChatSession,
+  AgentStageName,
+} from '../stage-agent.service';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -29,6 +35,7 @@ export class ConversationService {
     private claudeService: AiService,
     private chatUI: ChatUIService,
     private logger: LoggerService,
+    private stageAgentService: StageAgentService,
   ) {}
 
   /**
@@ -157,6 +164,7 @@ export class ConversationService {
   async getAssistantResponse(
     conversationId: string,
     systemPrompt?: string,
+    stage?: WorkflowStage,
   ): Promise<ConversationMessage> {
     const state = this.conversations.get(conversationId);
 
@@ -178,6 +186,7 @@ export class ConversationService {
     const response = await this.claudeService.executeWithHistory({
       messages,
       systemPrompt,
+      ...(stage ? { stage: stage as AIConversationRequest['stage'] } : {}),
     });
 
     // Create assistant message
@@ -255,7 +264,21 @@ export class ConversationService {
       throw new Error(`Conversation not found: ${conversationId}`);
     }
 
-    const { systemPrompt, maxTurns = 20 } = options || {};
+    const { systemPrompt, maxTurns = 20, stage, repoDir } = options || {};
+
+    const isAgentStage = stage === 'plan' || stage === 'review';
+    let useAgentBackend = false;
+    if (isAgentStage) {
+      try {
+        useAgentBackend = this.stageAgentService.isEnabledForStage(
+          stage as AgentStageName,
+        );
+      } catch {
+        // Unsupported provider for agent mode — fall back to standard
+      }
+    }
+
+    let agentSession: AgentChatSession | undefined;
 
     // Display intro
     this.chatUI.displayChatIntro(state.context.stage, state.context);
@@ -286,21 +309,42 @@ export class ConversationService {
         // Add user message
         await this.addUserMessage(conversationId, input);
 
-        // Get assistant response
-        const response = await this.getAssistantResponse(
-          conversationId,
-          systemPrompt,
-        );
+        if (useAgentBackend) {
+          const result = await this.stageAgentService.chatTurn({
+            stage: stage as AgentStageName,
+            userMessage: input,
+            systemPrompt: systemPrompt ?? '',
+            repoDir: repoDir ?? state.context.repoDir,
+            session: agentSession,
+          });
+          agentSession = result.session;
 
-        // Display response
-        this.chatUI.displayAssistantResponse(response);
-
-        // Display token usage
-        if (response.tokenUsage) {
-          this.chatUI.displayTokenUsage(
-            response.tokenUsage,
-            state.totalTokensUsed,
+          const assistantMessage: ConversationMessage = {
+            role: 'assistant',
+            content: result.content,
+            timestamp: new Date(),
+          };
+          state.messages.push(assistantMessage);
+          state.updatedAt = new Date();
+          this.chatUI.displayAssistantResponse(assistantMessage);
+        } else {
+          // Get assistant response via standard completions
+          const response = await this.getAssistantResponse(
+            conversationId,
+            systemPrompt,
+            stage,
           );
+
+          // Display response
+          this.chatUI.displayAssistantResponse(response);
+
+          // Display token usage
+          if (response.tokenUsage) {
+            this.chatUI.displayTokenUsage(
+              response.tokenUsage,
+              state.totalTokensUsed,
+            );
+          }
         }
 
         // Save conversation after each exchange

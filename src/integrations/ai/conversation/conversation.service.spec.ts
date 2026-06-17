@@ -4,6 +4,7 @@ import { AiService } from '../ai.service';
 import { ChatUIService } from './chat-ui.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ConversationContext } from './interfaces';
+import { StageAgentService } from '../stage-agent.service';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -28,6 +29,7 @@ describe('ConversationService', () => {
   let claudeService: jest.Mocked<AiService>;
   let chatUIService: jest.Mocked<ChatUIService>;
   let loggerService: jest.Mocked<LoggerService>;
+  let stageAgentService: jest.Mocked<StageAgentService>;
 
   beforeEach(async () => {
     // Create mocks
@@ -54,12 +56,18 @@ describe('ConversationService', () => {
       log: jest.fn(),
     } as any;
 
+    stageAgentService = {
+      isEnabledForStage: jest.fn().mockReturnValue(false),
+      chatTurn: jest.fn(),
+    } as any;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ConversationService,
         { provide: AiService, useValue: claudeService },
         { provide: ChatUIService, useValue: chatUIService },
         { provide: LoggerService, useValue: loggerService },
+        { provide: StageAgentService, useValue: stageAgentService },
       ],
     }).compile();
 
@@ -225,6 +233,154 @@ describe('ConversationService', () => {
     it('should return undefined for non-existent conversation', () => {
       const retrieved = service.getConversation('invalid-id');
       expect(retrieved).toBeUndefined();
+    });
+  });
+
+  describe('getAssistantResponse with stage', () => {
+    it('should forward stage to executeWithHistory', async () => {
+      const context: ConversationContext = {
+        ticketKey: 'TEST-123',
+        stage: 'review',
+        workflowState: { ticketContent: 'Test' },
+      };
+
+      const conversation = await service.createConversation(
+        'TEST-123',
+        context,
+      );
+      await service.addUserMessage(conversation.conversationId, 'Hello');
+
+      claudeService.executeWithHistory.mockResolvedValue({
+        content: 'Response',
+        usage: { inputTokens: 10, outputTokens: 5 },
+      });
+
+      await service.getAssistantResponse(
+        conversation.conversationId,
+        'system',
+        'review',
+      );
+
+      expect(claudeService.executeWithHistory).toHaveBeenCalledWith(
+        expect.objectContaining({ stage: 'review' }),
+      );
+    });
+  });
+
+  describe('startChatSession dispatch', () => {
+    it('should use standard path when stage agent is disabled', async () => {
+      const context: ConversationContext = {
+        ticketKey: 'TEST-123',
+        stage: 'review',
+        repoDir: '/projects/repo',
+        workflowState: { ticketContent: 'Test' },
+      };
+
+      const conversation = await service.createConversation(
+        'TEST-123',
+        context,
+      );
+
+      stageAgentService.isEnabledForStage.mockReturnValue(false);
+      claudeService.executeWithHistory.mockResolvedValue({
+        content: 'Standard response',
+        usage: { inputTokens: 10, outputTokens: 5 },
+      });
+
+      chatUIService.promptUserInput
+        .mockResolvedValueOnce({ input: 'question', shouldExit: false })
+        .mockResolvedValueOnce({ input: '', shouldExit: true });
+
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      await service.startChatSession(conversation.conversationId, {
+        systemPrompt: 'system',
+        stage: 'review',
+        repoDir: '/projects/repo',
+      });
+
+      expect(claudeService.executeWithHistory).toHaveBeenCalledTimes(1);
+      expect(stageAgentService.chatTurn).not.toHaveBeenCalled();
+    });
+
+    it('should use agent path when stage agent is enabled', async () => {
+      const context: ConversationContext = {
+        ticketKey: 'TEST-123',
+        stage: 'review',
+        repoDir: '/projects/repo',
+        workflowState: { ticketContent: 'Test' },
+      };
+
+      const conversation = await service.createConversation(
+        'TEST-123',
+        context,
+      );
+
+      stageAgentService.isEnabledForStage.mockReturnValue(true);
+      stageAgentService.chatTurn.mockResolvedValue({
+        content: 'Agent response',
+        session: { provider: 'anthropic', sessionId: 'sess-1' },
+      });
+
+      chatUIService.promptUserInput
+        .mockResolvedValueOnce({ input: 'question', shouldExit: false })
+        .mockResolvedValueOnce({ input: '', shouldExit: true });
+
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      await service.startChatSession(conversation.conversationId, {
+        systemPrompt: 'system',
+        stage: 'review',
+        repoDir: '/projects/repo',
+      });
+
+      expect(stageAgentService.chatTurn).toHaveBeenCalledTimes(1);
+      expect(stageAgentService.chatTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'review',
+          userMessage: 'question',
+          systemPrompt: 'system',
+          repoDir: '/projects/repo',
+        }),
+      );
+      expect(claudeService.executeWithHistory).not.toHaveBeenCalled();
+      expect(chatUIService.displayAssistantResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          role: 'assistant',
+          content: 'Agent response',
+        }),
+      );
+    });
+
+    it('should fall back to standard path when no stage is provided', async () => {
+      const context: ConversationContext = {
+        ticketKey: 'TEST-123',
+        stage: 'review',
+        workflowState: { ticketContent: 'Test' },
+      };
+
+      const conversation = await service.createConversation(
+        'TEST-123',
+        context,
+      );
+
+      claudeService.executeWithHistory.mockResolvedValue({
+        content: 'Response',
+        usage: { inputTokens: 10, outputTokens: 5 },
+      });
+
+      chatUIService.promptUserInput
+        .mockResolvedValueOnce({ input: 'hi', shouldExit: false })
+        .mockResolvedValueOnce({ input: '', shouldExit: true });
+
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      await service.startChatSession(conversation.conversationId, {
+        systemPrompt: 'system',
+      });
+
+      expect(stageAgentService.isEnabledForStage).not.toHaveBeenCalled();
+      expect(claudeService.executeWithHistory).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -1220,6 +1220,8 @@ export class IssueReviewCommand extends CommandRunner {
         systemPrompt,
         maxTurns: 20,
         exitCommands: ['exit', 'quit', 'continue'],
+        stage: 'review',
+        repoDir,
       },
     );
   }

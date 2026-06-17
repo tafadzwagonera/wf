@@ -39,7 +39,15 @@ const ALLOWED_READ_ONLY_COMMAND_PREFIXES = [
   'git diff',
 ];
 
-type AgentStageName = 'plan' | 'review' | 'generate';
+export type AgentStageName = 'plan' | 'review' | 'generate';
+
+export type AgentChatSession = {
+  provider: 'anthropic' | 'openai';
+  sessionId?: string;
+  runState?: unknown;
+  agent?: unknown;
+  runner?: unknown;
+};
 
 type OpenAiStageContext = {
   repoDir: string;
@@ -601,5 +609,330 @@ Return only the requested ticket markdown and preserve the required heading stru
     return typeof streamedRun.finalOutput === 'string'
       ? streamedRun.finalOutput.trim()
       : '';
+  }
+
+  async chatTurn(params: {
+    stage: AgentStageName;
+    userMessage: string;
+    systemPrompt: string;
+    repoDir?: string;
+    session?: AgentChatSession;
+  }): Promise<{ content: string; session: AgentChatSession }> {
+    const provider = this.resolveStageProvider(params.stage);
+    if (provider === 'anthropic') {
+      return this.anthropicChatTurn(params);
+    }
+    return this.openAiChatTurn(params);
+  }
+
+  private async anthropicChatTurn(params: {
+    stage: AgentStageName;
+    userMessage: string;
+    systemPrompt: string;
+    repoDir?: string;
+    session?: AgentChatSession;
+  }): Promise<{ content: string; session: AgentChatSession }> {
+    const apiKey = this.configService.get<string>('ai.anthropicApiKey');
+    if (!apiKey) {
+      throw new Error(
+        'Anthropic agent backend requires `ai.anthropicApiKey` to be configured.',
+      );
+    }
+
+    const model = this.resolveStageModel(params.stage);
+    const anthropicContext = await loadAiContextConfig(
+      path.join(os.homedir(), '.claude', 'CLAUDE.md'),
+      'CLAUDE.md',
+      'anthropic',
+      true,
+    );
+    const resolvedRepoDir = params.repoDir ?? process.cwd();
+    const allowInspection = Boolean(params.repoDir);
+    const anthropicTools = allowInspection ? [...ANTHROPIC_STAGE_TOOLS] : [];
+    const anthropicSystemPrompt = allowInspection
+      ? params.systemPrompt
+      : `${params.systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
+
+    const { query } = await loadAnthropicAgentSdk();
+
+    const resumeOption = params.session?.sessionId
+      ? { resume: params.session.sessionId }
+      : {};
+
+    const session = query({
+      prompt: params.userMessage,
+      options: {
+        cwd: resolvedRepoDir,
+        model,
+        tools: anthropicTools,
+        allowedTools: anthropicTools,
+        permissionMode: 'acceptEdits',
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: [anthropicContext, anthropicSystemPrompt]
+            .filter(Boolean)
+            .join('\n\n'),
+        },
+        canUseTool: async (
+          toolName: string,
+          input: Record<string, unknown>,
+        ) => {
+          if (toolName !== 'Bash') {
+            return { behavior: 'allow' as const };
+          }
+          const command =
+            typeof input['command'] === 'string' ? input['command'].trim() : '';
+          if (!command || !isReadOnlyCommand(command)) {
+            return {
+              behavior: 'deny' as const,
+              message:
+                'Only read-only repository inspection commands are allowed in this agent path.',
+              interrupt: true,
+            };
+          }
+          return { behavior: 'allow' as const };
+        },
+        env: {
+          ...process.env,
+          ANTHROPIC_API_KEY: apiKey,
+        },
+        sandbox: {
+          enabled: true,
+          failIfUnavailable: true,
+          allowUnsandboxedCommands: false,
+          autoAllowBashIfSandboxed: true,
+          filesystem: {
+            allowRead: allowInspection ? [resolvedRepoDir] : [],
+            allowWrite: [],
+          },
+        },
+        ...resumeOption,
+      },
+    });
+
+    try {
+      let sessionId: string | undefined = params.session?.sessionId;
+      for await (const message of session) {
+        if (message.type !== 'result') {
+          continue;
+        }
+
+        if ('session_id' in message && typeof message.session_id === 'string') {
+          sessionId = message.session_id;
+        }
+
+        if (message.subtype !== 'success' || message.is_error) {
+          const errorSummary =
+            'errors' in message && message.errors.length > 0
+              ? message.errors.join('; ')
+              : 'unknown error';
+          throw new Error(
+            `Claude Agent SDK failed (${message.subtype}): ${errorSummary}`,
+          );
+        }
+
+        return {
+          content: message.result.trim(),
+          session: { provider: 'anthropic' as const, sessionId },
+        };
+      }
+    } finally {
+      session.close();
+    }
+
+    throw new Error('Claude Agent SDK finished without returning a result.');
+  }
+
+  private async openAiChatTurn(params: {
+    stage: AgentStageName;
+    userMessage: string;
+    systemPrompt: string;
+    repoDir?: string;
+    session?: AgentChatSession;
+  }): Promise<{ content: string; session: AgentChatSession }> {
+    const apiKey = this.configService.get<string>('ai.openaiApiKey');
+    if (!apiKey) {
+      throw new Error(
+        'OpenAI agent backend requires `ai.openaiApiKey` to be configured.',
+      );
+    }
+
+    const modelProvider = new OpenAIProvider({ apiKey });
+    const model = this.resolveStageModel(params.stage);
+    const openAiContext = await loadAiContextConfig(
+      path.join(os.homedir(), '.openai', 'OPENAI.md'),
+      '.openai/OPENAI.md',
+      'openai',
+      true,
+    );
+    const resolvedRepoDir = params.repoDir ?? process.cwd();
+    const allowInspection = Boolean(params.repoDir);
+    const openAiSystemPrompt = allowInspection
+      ? params.systemPrompt
+      : `${params.systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
+    const context: OpenAiStageContext = { repoDir: resolvedRepoDir };
+
+    const readFileTool = tool({
+      name: 'read_file',
+      description: 'Read a file from the current repository workspace.',
+      parameters: z.object({ path: z.string().min(1) }),
+      async execute(input, runContext) {
+        const toolContext = runContext?.context as OpenAiStageContext;
+        const absolutePath = path.resolve(toolContext.repoDir, input.path);
+        const content = await fs.readFile(absolutePath, 'utf-8');
+        return JSON.stringify(
+          { path: path.relative(toolContext.repoDir, absolutePath), content },
+          null,
+          2,
+        );
+      },
+    });
+
+    const listFilesTool = tool({
+      name: 'list_files',
+      description: 'List files in the current repository workspace.',
+      parameters: z.object({
+        root: z
+          .string()
+          .min(1)
+          .describe(
+            'Repository subdirectory to list; use "." for the repo root.',
+          ),
+      }),
+      async execute(input, runContext) {
+        const toolContext = runContext?.context as OpenAiStageContext;
+        const relativeRoot = input.root.trim() || '.';
+        const command =
+          `rg --files ${relativeRoot === '.' ? '' : relativeRoot}`.trim();
+        const { stdout } = await execAsync(command, {
+          cwd: toolContext.repoDir,
+          maxBuffer: MAX_BUFFER_IN_BYTES,
+        });
+        return stdout.trim();
+      },
+    });
+
+    const searchFilesTool = tool({
+      name: 'search_files',
+      description: 'Search repository files with ripgrep.',
+      parameters: z.object({
+        pattern: z.string().min(1),
+        root: z
+          .string()
+          .min(1)
+          .describe(
+            'Repository subdirectory to search; use "." for the repo root.',
+          ),
+      }),
+      async execute(input, runContext) {
+        const toolContext = runContext?.context as OpenAiStageContext;
+        const relativeRoot = input.root.trim() || '.';
+        const command = `rg -n ${JSON.stringify(input.pattern)} ${relativeRoot}`;
+        const { stdout } = await execAsync(command, {
+          cwd: toolContext.repoDir,
+          maxBuffer: MAX_BUFFER_IN_BYTES,
+        });
+        return stdout.trim();
+      },
+    });
+
+    const runCommandTool = tool({
+      name: 'run_readonly_command',
+      description:
+        'Run a read-only repository inspection command such as pwd, ls, rg, git diff, or git status.',
+      parameters: z.object({ command: z.string().min(1) }),
+      async execute(input, runContext) {
+        const toolContext = runContext?.context as OpenAiStageContext;
+        const command = input.command.trim();
+        if (!isReadOnlyCommand(command)) {
+          return JSON.stringify(
+            {
+              allowed: false,
+              message:
+                'Only read-only repository inspection commands are allowed in this agent path.',
+            },
+            null,
+            2,
+          );
+        }
+        const { stdout, stderr } = await execAsync(command, {
+          cwd: toolContext.repoDir,
+          maxBuffer: MAX_BUFFER_IN_BYTES,
+        });
+        return JSON.stringify(
+          { allowed: true, stdout: stdout.trim(), stderr: stderr.trim() },
+          null,
+          2,
+        );
+      },
+    });
+
+    const reusableAgent = params.session?.agent as
+      | Agent<OpenAiStageContext>
+      | undefined;
+    const reusableRunner = params.session?.runner as Runner | undefined;
+
+    const agent =
+      reusableAgent ??
+      new Agent<OpenAiStageContext>({
+        name: `wf ${params.stage} openai agent backend`,
+        handoffDescription:
+          'Uses read-only tools to inspect the repository and answer the current stage prompt.',
+        instructions: [openAiContext, openAiSystemPrompt]
+          .filter(Boolean)
+          .join('\n\n'),
+        model,
+        tools: allowInspection
+          ? [readFileTool, listFilesTool, searchFilesTool, runCommandTool]
+          : [],
+        toolUseBehavior: 'run_llm_again',
+        resetToolChoice: true,
+      });
+
+    const runner = reusableRunner ?? new Runner({ modelProvider });
+
+    const runInput = params.session?.runState ?? params.userMessage;
+    const streamedRun: StreamedRunResult<OpenAiStageContext, typeof agent> =
+      await runner.run(agent, runInput as any, {
+        stream: true,
+        context,
+        maxTurns: 8,
+      });
+
+    for await (const event of streamedRun) {
+      void event;
+    }
+
+    if (streamedRun.error) {
+      const streamError =
+        streamedRun.error instanceof Error
+          ? streamedRun.error.message
+          : typeof streamedRun.error === 'string'
+            ? streamedRun.error
+            : (() => {
+                try {
+                  return JSON.stringify(streamedRun.error) ?? 'unknown error';
+                } catch {
+                  return 'unknown error';
+                }
+              })();
+      throw new Error(`OpenAI agent run failed: ${streamError}`);
+    }
+
+    const content =
+      typeof streamedRun.finalOutput === 'string'
+        ? streamedRun.finalOutput.trim()
+        : '';
+
+    return {
+      content,
+      session: {
+        provider: 'openai' as const,
+        runState: streamedRun.state,
+        agent,
+        runner,
+      },
+    };
   }
 }

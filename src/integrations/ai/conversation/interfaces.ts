@@ -60,4 +60,6 @@ export interface ChatSessionOptions {
   systemPrompt?: string;
   maxTurns?: number;
   exitCommands?: string[];
+  stage?: WorkflowStage;
+  repoDir?: string;
 }
