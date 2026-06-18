@@ -1291,6 +1291,14 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         const relativePath = path.relative(toolContext.repoDir, absolutePath);
         fileChangeStatus.set(relativePath, 'updated');
         changedFilesSinceLastVerification.add(relativePath);
+        // Clear stale validation failures for this file now that a valid
+        // edit has landed — prevents false-positive workload counts in
+        // the incomplete-work loop.
+        for (let i = validationFailures.length - 1; i >= 0; i--) {
+          if (validationFailures[i].path === relativePath) {
+            validationFailures.splice(i, 1);
+          }
+        }
         console.log(
           chalk.cyan(`  [openai-agent] File edited: ${relativePath}`),
         );

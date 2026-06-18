@@ -153,9 +153,21 @@ const run = async (): Promise<void> => {
     callSiteCastsClean,
   );
 
+  // --- Validation failure cleanup ---
+
+  // 9. Successful edit_file clears stale validation failures
+  const editToolCleanupSection = openaiAdapterSource.slice(
+    openaiAdapterSource.indexOf("name: 'edit_file'"),
+    openaiAdapterSource.indexOf('const agent = new Agent'),
+  );
+  assert(
+    'edit_file clears stale validationFailures on successful write',
+    editToolCleanupSection.includes('validationFailures.splice(i, 1)'),
+  );
+
   // --- Tool result trimming ---
 
-  // 9. write_file returns compact JSON without progress
+  // 10. write_file returns compact JSON without progress
   const writeToolSection = openaiAdapterSource.slice(
     openaiAdapterSource.indexOf("name: 'write_file'"),
     openaiAdapterSource.indexOf("name: 'delete_file'"),

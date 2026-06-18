@@ -2152,6 +2152,76 @@ describe('OpenAIAgentAdapter', () => {
           .join('\n');
         expect(logMessages).toContain('Workload not decreasing');
       });
+
+      it('clears validation failures when a corrective edit lands', async () => {
+        const repoDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), 'wf-openai-stall-clear-'),
+        );
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(
+          path.join(repoDir, 'src', 'foo.ts'),
+          [
+            'class Foo {',
+            '  constructor(private logger: Logger) {}',
+            '  run() { this.logger.log("hi"); }',
+            '}',
+            '',
+          ].join('\n'),
+        );
+
+        const mockRun = jest.fn(async (agent: Record<string, unknown>) => {
+          const callIndex = mockRun.mock.calls.length;
+          const workspaceContext = {
+            repoDir,
+            readRoots: [{ name: path.basename(repoDir), root: repoDir }],
+          };
+
+          if (callIndex === 1) {
+            const editTool = getTool(agent, 'edit_file');
+
+            // Bad edit: duplicate constructor
+            await editTool.execute(
+              {
+                path: 'src/foo.ts',
+                old_string: 'class Foo {',
+                new_string:
+                  'class Foo {\n  constructor(private pino: PinoLogger) {}',
+              },
+              { context: workspaceContext },
+            );
+
+            // Corrective edit: merge into single constructor
+            await editTool.execute(
+              {
+                path: 'src/foo.ts',
+                old_string: '  constructor(private logger: Logger) {}',
+                new_string: '  constructor(private logger: PinoLogger) {}',
+              },
+              { context: workspaceContext },
+            );
+          }
+
+          return makeStreamedRun([], 'Done.');
+        });
+
+        mockRunner.mockImplementation(() => ({
+          run: mockRun,
+          config: {},
+        }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = {
+          ...makeParams(repoDir),
+          repoFiles: ['primary/src/foo.ts'],
+        };
+        await adapter.generateAndVerify(params);
+
+        // Only the initial pass — corrective edit cleared the failure,
+        // so workload is 0 and the loop does not run
+        expect(mockRun).toHaveBeenCalledTimes(1);
+      });
     });
   });
 
