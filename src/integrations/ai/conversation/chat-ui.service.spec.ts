@@ -136,7 +136,7 @@ describe('ChatUIService', () => {
       const mockInquirer = jest.fn().mockResolvedValue({ message: 'exit' });
       (service as any).inquirer = mockInquirer;
 
-      const result = await service.promptUserInput(1);
+      const result = await service.promptUserInput(1, 20);
 
       expect(result.input).toBe('exit');
       expect(result.shouldExit).toBe(true);
@@ -149,7 +149,7 @@ describe('ChatUIService', () => {
 
       for (const cmd of exitCommands) {
         mockInquirer.mockResolvedValueOnce({ message: cmd });
-        const result = await service.promptUserInput(1);
+        const result = await service.promptUserInput(1, 20);
         expect(result.shouldExit).toBe(true);
       }
     });
@@ -160,10 +160,23 @@ describe('ChatUIService', () => {
         .mockResolvedValue({ message: 'Can you explain this?' });
       (service as any).inquirer = mockInquirer;
 
-      const result = await service.promptUserInput(1);
+      const result = await service.promptUserInput(1, 20);
 
       expect(result.input).toBe('Can you explain this?');
       expect(result.shouldExit).toBe(false);
+    });
+
+    it('should display remaining turns in prompt message', async () => {
+      const mockInquirer = jest.fn().mockResolvedValue({ message: 'hello' });
+      (service as any).inquirer = mockInquirer;
+
+      await service.promptUserInput(2, 20);
+
+      expect(mockInquirer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('18 turns left (2/20)'),
+        }),
+      );
     });
 
     it('should trim whitespace from input', async () => {
@@ -172,7 +185,7 @@ describe('ChatUIService', () => {
         .mockResolvedValue({ message: '  test message  ' });
       (service as any).inquirer = mockInquirer;
 
-      const result = await service.promptUserInput(1);
+      const result = await service.promptUserInput(1, 20);
 
       expect(result.input).toBe('test message');
     });

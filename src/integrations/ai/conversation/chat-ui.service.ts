@@ -78,15 +78,20 @@ export class ChatUIService {
    * Prompt user for input
    *
    * @param conversationTurn - Current turn number
+   * @param maxTurns - Maximum turns allowed
    * @returns User input and exit flag
    */
   async promptUserInput(
     conversationTurn: number,
+    maxTurns: number,
   ): Promise<{ input: string; shouldExit: boolean }> {
+    const turnsLeft = maxTurns - conversationTurn;
     const answer = await this.inquirer({
       type: 'input',
       name: 'message',
-      message: chalk.cyan(`💬 You [Turn ${conversationTurn}]:`),
+      message: chalk.cyan(
+        `💬 You [${turnsLeft} turns left (${conversationTurn}/${maxTurns})]:`,
+      ),
       validate: (input: string) => {
         if (!input.trim()) {
           return 'Please enter a message or command';

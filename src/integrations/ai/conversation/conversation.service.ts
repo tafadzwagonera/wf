@@ -288,7 +288,10 @@ export class ConversationService {
     while (turn <= maxTurns) {
       try {
         // Get user input
-        const { input, shouldExit } = await this.chatUI.promptUserInput(turn);
+        const { input, shouldExit } = await this.chatUI.promptUserInput(
+          turn,
+          maxTurns,
+        );
 
         // Handle special commands
         if (shouldExit) {
