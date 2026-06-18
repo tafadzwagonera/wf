@@ -114,7 +114,7 @@ as valid while the TypeScript build is broken. Compilation errors are blockers,
 not warnings.
 
 **Non-negotiable rules:**
-- Run `npm run build` (or `yarn build`) as the final pre-merge step.
+- Run `yarn build` as the final pre-merge step.
 - A passing build is a hard prerequisite for the test gate.
 - Build output in `dist/` MUST NOT be committed to source control.
 
@@ -154,7 +154,7 @@ Standard delivery sequence for every feature:
 2. **Implement** — Write code on a feature branch following module boundaries
    (Principle IV).
 3. **Test** — Run `yarn test`; all `.spec.ts` files MUST pass (Principle VIII).
-4. **Build** — Run `npm run build`; MUST exit 0 (Principle VII).
+4. **Build** — Run `yarn build`; MUST exit 0 (Principle VII).
 5. **Review** — Run `wf issue:review` or open a PR.
 6. **Commit** — Use `wf issue:commit` to enforce conventional commits
    (Principle III).
@@ -163,9 +163,9 @@ Standard delivery sequence for every feature:
 
 | Gate | Command | Blocks |
 |------|---------|--------|
-| Lint | `npm run lint` | Test run |
+| Lint | `yarn lint` | Test run |
 | Tests | `yarn test` | Build check |
-| Build | `npm run build` | PR / manual test |
+| Build | `yarn build` | PR / manual test |
 | Conventional commit | `wf issue:commit` | Merge |
 
 ## Governance

@@ -21,7 +21,7 @@ describe('PlanStageService', () => {
       targeted: [
         {
           id: 'manual-auth-smoke',
-          run: 'npm run test:manual -- test-auth-redirect',
+          run: 'yarn test:manual -- test-auth-redirect',
           policy: 'enforced',
           reason: 'Covers redirect callback flow',
         },

@@ -361,11 +361,11 @@ describe('wf-config-loader', () => {
             model: 'gemini-2.5-pro',
             verificationConditions: {
               scripts: {
-                formatWrite: 'npm run format:write',
-                formatCheck: 'npm run format:check',
-                lintFix: 'npm run lint:fix',
-                lint: 'npm run lint',
-                build: 'npm run build',
+                formatWrite: 'yarn format:write',
+                formatCheck: 'yarn format:check',
+                lintFix: 'yarn lint:fix',
+                lint: 'yarn lint',
+                build: 'yarn build',
               },
             },
           },
@@ -378,11 +378,11 @@ describe('wf-config-loader', () => {
       expect(config.stages.implement?.verificationConditions).toEqual({
         policyFile: undefined,
         scripts: {
-          formatWrite: 'npm run format:write',
-          formatCheck: 'npm run format:check',
-          lintFix: 'npm run lint:fix',
-          lint: 'npm run lint',
-          build: 'npm run build',
+          formatWrite: 'yarn format:write',
+          formatCheck: 'yarn format:check',
+          lintFix: 'yarn lint:fix',
+          lint: 'yarn lint',
+          build: 'yarn build',
         },
       });
     });

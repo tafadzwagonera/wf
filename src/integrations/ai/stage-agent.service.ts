@@ -128,7 +128,7 @@ Return ONLY a valid JSON object with these fields:
     "targeted": [
       {
         "id": "manual-review",
-        "run": "npm run test:manual -- test-issue-review",
+        "run": "yarn test:manual -- test-issue-review",
         "policy": "enforced",
         "reason": "Explain what this check covers"
       }

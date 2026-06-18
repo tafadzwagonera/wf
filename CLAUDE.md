@@ -21,7 +21,7 @@ TypeScript NestJS project with CommonJS module format. Verify config files exist
 - `atlassian`, `slack`, `git`, `branching`, `state`, `log`, `app`, `workflows`, `output`
 
 ## Build & Test
-Run `npm run build` after code changes before testing CLI commands.
+Run `yarn build` after code changes before testing CLI commands.
 
 ## Git Workflow
 Always `git add` before `git commit`. Never assume files are pre-staged.

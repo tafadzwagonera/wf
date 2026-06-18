@@ -1,7 +1,7 @@
 /**
  * Manual Test: issue:implement custom fix/feature plan execution
  *
- * Run: npm run test:manual -- test-issue-implement-custom-plan
+ * Run: yarn test:manual -- test-issue-implement-custom-plan
  *
  * Verifies:
  *   1. Custom fix plans synthesize execution context and call the shared implementer flow

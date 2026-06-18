@@ -6,8 +6,8 @@ describe('parseVerificationManifest', () => {
       JSON.stringify({
         version: 1,
         baseline: [
-          { id: 'lint', run: 'npm run lint', policy: 'enforced' },
-          { id: 'smoke', run: 'npm run smoke', policy: 'best_effort' },
+          { id: 'lint', run: 'yarn lint', policy: 'enforced' },
+          { id: 'smoke', run: 'yarn smoke', policy: 'best_effort' },
         ],
       }),
       '/tmp/verification.json',
@@ -16,8 +16,8 @@ describe('parseVerificationManifest', () => {
     expect(manifest).toEqual({
       version: 1,
       baseline: [
-        { id: 'lint', run: 'npm run lint', policy: 'enforced' },
-        { id: 'smoke', run: 'npm run smoke', policy: 'best_effort' },
+        { id: 'lint', run: 'yarn lint', policy: 'enforced' },
+        { id: 'smoke', run: 'yarn smoke', policy: 'best_effort' },
       ],
     });
   });
@@ -27,7 +27,7 @@ describe('parseVerificationManifest', () => {
       JSON.stringify({
         version: 2,
         implement: {
-          baseline: [{ id: 'build', run: 'npm run build', policy: 'enforced' }],
+          baseline: [{ id: 'build', run: 'yarn build', policy: 'enforced' }],
         },
       }),
       '/tmp/verification.json',
@@ -35,7 +35,7 @@ describe('parseVerificationManifest', () => {
     );
 
     expect(manifest.baseline).toEqual([
-      { id: 'build', run: 'npm run build', policy: 'enforced' },
+      { id: 'build', run: 'yarn build', policy: 'enforced' },
     ]);
   });
 
@@ -44,7 +44,7 @@ describe('parseVerificationManifest', () => {
       JSON.stringify({
         version: 2,
         implement: {
-          baseline: [{ id: 'build', run: 'npm run build', policy: 'enforced' }],
+          baseline: [{ id: 'build', run: 'yarn build', policy: 'enforced' }],
         },
       }),
       '/tmp/verification.json',
@@ -59,7 +59,7 @@ describe('parseVerificationManifest', () => {
       JSON.stringify({
         version: 2,
         implement: {
-          baseline: [{ id: 'lint', run: 'npm run lint', policy: 'enforced' }],
+          baseline: [{ id: 'lint', run: 'yarn lint', policy: 'enforced' }],
         },
         generate: { custom: true },
         review: { baseline: [] },
@@ -69,7 +69,7 @@ describe('parseVerificationManifest', () => {
     );
 
     expect(manifest.baseline).toEqual([
-      { id: 'lint', run: 'npm run lint', policy: 'enforced' },
+      { id: 'lint', run: 'yarn lint', policy: 'enforced' },
     ]);
   });
 
@@ -78,14 +78,14 @@ describe('parseVerificationManifest', () => {
       JSON.stringify({
         version: 2,
         implement: {
-          baseline: [{ id: 'build', run: 'npm run build', policy: 'enforced' }],
+          baseline: [{ id: 'build', run: 'yarn build', policy: 'enforced' }],
         },
       }),
       '/tmp/verification.json',
     );
 
     expect(manifest.baseline).toEqual([
-      { id: 'build', run: 'npm run build', policy: 'enforced' },
+      { id: 'build', run: 'yarn build', policy: 'enforced' },
     ]);
   });
 

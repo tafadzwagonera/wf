@@ -61,10 +61,10 @@ const run = (): void => {
   );
 
   const withoutForce = runCommand(
-    'npm run -s start -- issue WBP-999 --from fetch --to review --action fix --dry-run',
+    'yarn -s start -- issue WBP-999 --from fetch --to review --action fix --dry-run',
   );
   const withForce = runCommand(
-    'npm run -s start -- issue WBP-999 --from fetch --to review --action fix --dry-run --force',
+    'yarn -s start -- issue WBP-999 --from fetch --to review --action fix --dry-run --force',
   );
 
   if (!withoutForce.includes('artifact exists')) {

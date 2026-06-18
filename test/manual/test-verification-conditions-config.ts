@@ -86,7 +86,7 @@ console.log('\n--- v1 manifest parsing ---');
 const v1Result = parseVerificationManifest(
   JSON.stringify({
     version: 1,
-    baseline: [{ id: 'lint', run: 'npm run lint', policy: 'enforced' }],
+    baseline: [{ id: 'lint', run: 'yarn lint', policy: 'enforced' }],
   }),
   '/tmp/v1.json',
 );
@@ -102,7 +102,7 @@ const v2Result = parseVerificationManifest(
   JSON.stringify({
     version: 2,
     implement: {
-      baseline: [{ id: 'build', run: 'npm run build', policy: 'enforced' }],
+      baseline: [{ id: 'build', run: 'yarn build', policy: 'enforced' }],
     },
     review: { baseline: [] },
   }),
@@ -122,7 +122,7 @@ const v2MissingStage = parseVerificationManifest(
   JSON.stringify({
     version: 2,
     implement: {
-      baseline: [{ id: 'build', run: 'npm run build', policy: 'enforced' }],
+      baseline: [{ id: 'build', run: 'yarn build', policy: 'enforced' }],
     },
   }),
   '/tmp/v2.json',
@@ -139,7 +139,7 @@ const v2DefaultStage = parseVerificationManifest(
   JSON.stringify({
     version: 2,
     implement: {
-      baseline: [{ id: 'lint', run: 'npm run lint', policy: 'enforced' }],
+      baseline: [{ id: 'lint', run: 'yarn lint', policy: 'enforced' }],
     },
   }),
   '/tmp/v2.json',
@@ -171,9 +171,7 @@ fs.writeFileSync(
   JSON.stringify({
     version: 2,
     implement: {
-      baseline: [
-        { id: 'format', run: 'npm run format', policy: 'best_effort' },
-      ],
+      baseline: [{ id: 'format', run: 'yarn format', policy: 'best_effort' }],
     },
   }),
 );

@@ -107,7 +107,7 @@ function main(): void {
     backendConfigured: 'anthropic-agent',
     backendSelected: 'anthropic-agent',
     provider: 'anthropic',
-    verificationScripts: [{ id: 'lint', command: 'npm run lint' }],
+    verificationScripts: [{ id: 'lint', command: 'yarn lint' }],
     startedAt: new Date().toISOString(),
   };
   assert(

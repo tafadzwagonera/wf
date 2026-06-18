@@ -58,11 +58,11 @@ describe('ImplementerAgent', () => {
                   'stages.implement.verificationConditions': {
                     policyFile: undefined,
                     scripts: {
-                      formatWrite: 'npm run format:write',
-                      formatCheck: 'npm run format:check',
-                      lintFix: 'npm run lint:fix',
-                      lint: 'npm run lint',
-                      build: 'npm run build',
+                      formatWrite: 'yarn format:write',
+                      formatCheck: 'yarn format:check',
+                      lintFix: 'yarn lint:fix',
+                      lint: 'yarn lint',
+                      build: 'yarn build',
                     },
                   },
                   'stages.implement.provider': 'anthropic',
@@ -129,7 +129,7 @@ describe('ImplementerAgent', () => {
         backendConfigured: mockBackendSelection.configured,
         backendSelected: mockBackendSelection.selected,
         provider: mockBackendSelection.provider,
-        verificationScripts: [{ id: 'lint', command: 'npm run lint' }],
+        verificationScripts: [{ id: 'lint', command: 'yarn lint' }],
         startedAt: new Date().toISOString(),
       };
 

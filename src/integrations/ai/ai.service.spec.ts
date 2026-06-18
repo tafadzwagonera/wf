@@ -138,7 +138,7 @@ describe('AiService', () => {
               targeted: [
                 {
                   id: 'manual-review',
-                  run: 'npm run test:manual -- test-issue-review',
+                  run: 'yarn test:manual -- test-issue-review',
                   policy: 'enforced',
                   reason: 'Covers review command resolution paths',
                 },
@@ -173,7 +173,7 @@ describe('AiService', () => {
         targeted: [
           {
             id: 'manual-review',
-            run: 'npm run test:manual -- test-issue-review',
+            run: 'yarn test:manual -- test-issue-review',
             policy: 'enforced',
             reason: 'Covers review command resolution paths',
           },

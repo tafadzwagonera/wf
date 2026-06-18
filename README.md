@@ -164,9 +164,9 @@ Example verification manifest:
 {
   "version": 1,
   "baseline": [
-    { "id": "format", "run": "npm run format", "policy": "enforced" },
-    { "id": "lint", "run": "npm run lint", "policy": "enforced" },
-    { "id": "build", "run": "npm run build", "policy": "enforced" }
+    { "id": "format", "run": "yarn format", "policy": "enforced" },
+    { "id": "lint", "run": "yarn lint", "policy": "enforced" },
+    { "id": "build", "run": "yarn build", "policy": "enforced" }
   ]
 }
 ```
@@ -178,7 +178,7 @@ Example verification manifest:
 - Otherwise install `jiti@>=2.2.0` in the consumer project. `wf` does not install it for you.
 
 ```bash
-npm install --save-dev jiti
+yarn add --dev jiti
 ```
 
 ```bash
@@ -202,7 +202,7 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - Prefer `verificationConditions.policyFile` to point at a repository-owned verification manifest. This keeps baseline verification policy tool-agnostic and reusable from CI or other executors.
 - `verificationConditions.scripts` remains supported as a fallback when a manifest is not present.
 - Manifest baseline checks run in declaration order. Recommended sequence: `format` → `lint --fix` → `lint` → `build`. This removes formatting noise before the final lint/build gate and makes retries focus on real code issues.
-- Prefer portable wrappers such as `npm run lint`, `bash ./scripts/verify.sh`, or `node ./scripts/verify.mjs` instead of relying on executable bits or shell-specific features.
+- Prefer portable wrappers such as `yarn lint`, `bash ./scripts/verify.sh`, or `node ./scripts/verify.mjs` instead of relying on executable bits or shell-specific features.
 - `fetch` cannot be overridden.
 - `wf config get` and `wf config list` read the normalized runtime config.
 - `wf config set` is advisory only and points you at the config file to edit.
@@ -444,7 +444,7 @@ stages: {
     provider: 'openai',             // optional: enables AI self-correction
     verificationConditions: {
       scripts: {
-        format: 'npm run test:manual -- test-verify-request-format',
+        format: 'yarn test:manual -- test-verify-request-format',
       },
     },
   },

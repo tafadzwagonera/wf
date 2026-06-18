@@ -36,7 +36,7 @@ describe('implement verification helpers', () => {
   describe('classifyVerificationFailure', () => {
     it('classifies syntax failures as parse', () => {
       const result = classifyVerificationFailure({
-        command: 'npm run format',
+        command: 'yarn format',
         stdout: '',
         stderr:
           '[error] src/example.spec.ts: SyntaxError: Unterminated template literal. (9:13)',
@@ -51,7 +51,7 @@ describe('implement verification helpers', () => {
 
     it('classifies lint failures as lint', () => {
       const result = classifyVerificationFailure({
-        command: 'npm run lint:fix',
+        command: 'yarn lint:fix',
         stdout:
           '/tmp/repo/src/example.ts\n  4:7  error  x is assigned a value but never used',
         stderr: '',
@@ -64,7 +64,7 @@ describe('implement verification helpers', () => {
 
     it('falls back to unknown when no signal matches', () => {
       const result = classifyVerificationFailure({
-        command: 'npm run verify',
+        command: 'yarn verify',
         stdout: 'finished',
         stderr: '',
       });
@@ -147,11 +147,11 @@ describe('implement verification helpers', () => {
     it('builds a verification command order map from the configured scripts', () => {
       const order = buildVerificationCommandOrder([
         { command: 'npm test' },
-        { command: 'npm run lint' },
+        { command: 'yarn lint' },
       ]);
 
       expect(order.get('npm test')).toBe(0);
-      expect(order.get('npm run lint')).toBe(1);
+      expect(order.get('yarn lint')).toBe(1);
     });
 
     it('counts diagnostics and extracts error classes', () => {
@@ -175,7 +175,7 @@ describe('implement verification helpers', () => {
         backendConfigured: 'anthropic-agent',
         backendSelected: 'anthropic-agent',
         provider: 'openai',
-        verificationScripts: [{ id: 'lint', command: 'npm run lint' }],
+        verificationScripts: [{ id: 'lint', command: 'yarn lint' }],
         startedAt: '2026-04-09T00:00:00.000Z',
       };
 
@@ -200,7 +200,7 @@ describe('implement verification helpers', () => {
             backendConfigured: 'anthropic-agent',
             backendSelected: 'anthropic-agent',
             provider: 'openai',
-            verificationScripts: [{ id: 'lint', command: 'npm run lint' }],
+            verificationScripts: [{ id: 'lint', command: 'yarn lint' }],
             startedAt: '2026-04-09T00:00:00.000Z',
           },
           attempts: [],
@@ -211,7 +211,7 @@ describe('implement verification helpers', () => {
         ticketKey: 'WBP-1000',
         attemptNumber: 1,
         backend: 'anthropic-agent',
-        command: 'npm run lint',
+        command: 'yarn lint',
         exitCode: 1,
         failed: true,
         classification: {

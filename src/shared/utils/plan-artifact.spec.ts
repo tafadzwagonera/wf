@@ -21,7 +21,7 @@ describe('parsePlanArtifact', () => {
           targeted: [
             {
               id: 'manual-review',
-              run: 'npm run test:manual -- test-issue-review',
+              run: 'yarn test:manual -- test-issue-review',
               policy: 'enforced',
               reason: 'Covers review regressions',
             },
@@ -41,7 +41,7 @@ describe('parsePlanArtifact', () => {
       targeted: [
         {
           id: 'manual-review',
-          run: 'npm run test:manual -- test-issue-review',
+          run: 'yarn test:manual -- test-issue-review',
           policy: 'enforced',
           reason: 'Covers review regressions',
         },

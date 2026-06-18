@@ -376,7 +376,7 @@ describe('IssuePlanCommand', () => {
         targeted: [
           {
             id: 'manual-auth-smoke',
-            run: 'npm run test:manual -- test-auth-redirect',
+            run: 'yarn test:manual -- test-auth-redirect',
             policy: 'enforced',
           },
         ],
@@ -520,12 +520,12 @@ describe('IssuePlanCommand', () => {
         targeted: [
           {
             id: 'repo-relative-test',
-            run: 'cd repo-a && npm run test -- --runInBand src/auth.spec.ts',
+            run: 'cd repo-a && yarn test -- --runInBand src/auth.spec.ts',
             policy: 'enforced',
           },
           {
             id: 'absolute-repo-test',
-            run: 'cd /tmp/consumer-app/repo-a && npm run lint',
+            run: 'cd /tmp/consumer-app/repo-a && yarn lint',
             policy: 'enforced',
           },
         ],
@@ -542,11 +542,11 @@ describe('IssuePlanCommand', () => {
     expect(writtenPlan.verification.targeted).toEqual([
       expect.objectContaining({
         id: 'repo-relative-test',
-        run: 'npm run test -- --runInBand src/auth.spec.ts',
+        run: 'yarn test -- --runInBand src/auth.spec.ts',
       }),
       expect.objectContaining({
         id: 'absolute-repo-test',
-        run: 'npm run lint',
+        run: 'yarn lint',
       }),
     ]);
   });
@@ -577,7 +577,7 @@ describe('IssuePlanCommand', () => {
         targeted: [
           {
             id: 'wrong-repo-test',
-            run: 'cd repo-b && npm run test',
+            run: 'cd repo-b && yarn test',
             policy: 'enforced',
           },
         ],

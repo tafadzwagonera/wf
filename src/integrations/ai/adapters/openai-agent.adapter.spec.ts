@@ -995,7 +995,7 @@ describe('OpenAIAgentAdapter', () => {
         run: jest.fn(async (agent: Record<string, unknown>) => {
           const verifyTool = getTool(agent, 'verify_command');
           const result = await verifyTool.execute(
-            { command: 'npm run lint' },
+            { command: 'yarn lint' },
             {
               context: {
                 repoDir,
@@ -1031,7 +1031,7 @@ describe('OpenAIAgentAdapter', () => {
       const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
       expect(
         logCalls.some((message) =>
-          message.includes('[openai-agent] Verification denied: npm run lint'),
+          message.includes('[openai-agent] Verification denied: yarn lint'),
         ),
       ).toBe(true);
     });

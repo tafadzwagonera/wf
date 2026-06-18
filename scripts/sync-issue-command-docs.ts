@@ -19,7 +19,7 @@ const nextReadmeContent = synchronizeReadmeCommandDocs(readmeContent, catalog);
 if (checkOnly) {
   if (hasReadmeCommandDocDrift(readmeContent, catalog)) {
     console.error(
-      'README command docs are stale. Run `npm run docs:sync` and commit the changes.',
+      'README command docs are stale. Run `yarn docs:sync` and commit the changes.',
     );
     process.exit(1);
   }

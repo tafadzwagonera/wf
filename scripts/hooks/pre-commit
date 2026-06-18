@@ -4,7 +4,7 @@
 
 # Run linting
 echo "Running linting..."
-npm run lint
+yarn lint
 LINT_EXIT_CODE=$?
 
 if [ $LINT_EXIT_CODE -ne 0 ]; then
@@ -16,7 +16,7 @@ fi
 
 # Regenerate generated docs/help artifacts and fail on drift
 echo "Regenerating command docs and help artifacts..."
-npm run generated-docs:sync
+yarn generated-docs:sync
 DOCS_SYNC_EXIT_CODE=$?
 
 if [ $DOCS_SYNC_EXIT_CODE -ne 0 ]; then
@@ -32,7 +32,7 @@ DOCS_DIFF_EXIT_CODE=$?
 if [ $DOCS_DIFF_EXIT_CODE -ne 0 ]; then
     echo ""
     echo "ERROR: Generated command docs/help artifacts changed."
-    echo "Run \`npm run generated-docs:sync\`, review the updates, stage them, and retry."
+    echo "Run \`yarn generated-docs:sync\`, review the updates, stage them, and retry."
     echo ""
     git diff -- README.md docs/commands-help.catalog.json
     exit 1

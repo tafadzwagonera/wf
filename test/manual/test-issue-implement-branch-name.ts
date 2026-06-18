@@ -1,7 +1,7 @@
 /**
  * Manual Test: issue:implement branch name generation
  *
- * Run: npm run test:manual -- test-issue-implement-branch-name
+ * Run: yarn test:manual -- test-issue-implement-branch-name
  *
  * Verifies:
  *   1. ImplementerAgent creates a git branch using the full ticket summary slug
