@@ -31,7 +31,6 @@ import type {
   VerificationScript,
 } from '../../../agents/interfaces';
 import {
-  buildMutationProgressSignal,
   buildVerificationCommandOrder,
   buildVerificationProgressSignal,
   countDiagnosticLines,
@@ -52,15 +51,91 @@ const execAsync = promisify(exec);
 const DEFAULT_MODEL = 'gpt-4.1';
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 10;
 const MAX_GREP_LINE_LENGTH = 500;
-const MAX_READ_LINES = 300;
+const MAX_READ_LINES = 200;
 
 const DEFAULT_MECHANICAL_MODEL = 'gpt-5.1-codex-mini';
 const OPENAI_AGENT_LABEL = 'openai-agent';
 const MAX_VERIFICATION_OUTPUT_LINES = 200;
 const COMPACTION_INPUT_TOKEN_CEILING = 80_000;
+const STATE_PRUNING_TOKEN_CEILING = 120_000;
+const STATE_PRUNING_KEEP_TAIL_ITEMS = 20;
 
 const shellEscape = (value: string): string =>
   `'${value.replace(/'/g, "'\\''")}'`;
+
+/**
+ * Prunes the Runner's in-memory `_generatedItems` to keep context within bounds.
+ *
+ * The OpenAI SDK's `OpenAIResponsesCompactionSession` only compacts the
+ * persisted session — the Runner's live `state._generatedItems` grows
+ * unboundedly. This function directly trims the array when input tokens
+ * exceed `STATE_PRUNING_TOKEN_CEILING`, replacing older items with a
+ * compact summary while retaining the most recent items.
+ *
+ * @param state - The RunState from `streamedRun.state`
+ * @param lastObservedInputTokens - Input token count from the latest response
+ * @param fileChangeStatus - Map of file paths to change status for the summary
+ * @returns The number of items pruned, or 0 if pruning was skipped
+ */
+const pruneStateIfNeeded = (
+  state: unknown,
+  lastObservedInputTokens: number,
+  fileChangeStatus: Map<string, string>,
+): number => {
+  if (lastObservedInputTokens < STATE_PRUNING_TOKEN_CEILING) return 0;
+  const stateRecord = state as Record<string, unknown> | undefined;
+  const items = Array.isArray(stateRecord?._generatedItems)
+    ? (stateRecord._generatedItems as Array<Record<string, unknown>>)
+    : undefined;
+  if (!items || items.length <= STATE_PRUNING_KEEP_TAIL_ITEMS) return 0;
+
+  // Find a safe cut point that doesn't orphan reasoning→function_call pairs.
+  // The Responses API requires that every `function_call` item retains its
+  // preceding `reasoning` item. Walk backwards from the desired cut boundary
+  // to find a position where the first retained item is NOT a `function_call`
+  // (which would need its `reasoning` sibling that we just dropped).
+  let cutIndex = items.length - STATE_PRUNING_KEEP_TAIL_ITEMS;
+
+  // Expand the tail to include any reasoning item that precedes a function_call
+  // at the cut boundary. Keep walking back while we'd orphan a pair.
+  while (cutIndex > 0) {
+    const firstKept = items[cutIndex];
+    const rawItem = firstKept?.rawItem as Record<string, unknown> | undefined;
+    const rawType = rawItem?.type;
+    // function_call needs its preceding reasoning item
+    if (rawType === 'function_call') {
+      cutIndex--;
+      continue;
+    }
+    // reasoning item is fine as a boundary — but check if it's the one
+    // that belongs to a function_call we're keeping
+    if (rawType === 'reasoning' && cutIndex > 0) {
+      break;
+    }
+    break;
+  }
+
+  if (cutIndex <= 0) return 0;
+
+  const changedFiles = [...fileChangeStatus.entries()]
+    .map(([p, s]) => `${p} (${s})`)
+    .join(', ');
+  const summary = [
+    `[Context pruned: ${cutIndex} earlier items removed to stay within context limits.]`,
+    changedFiles ? `Files changed so far: ${changedFiles}` : '',
+    'Continue from where you left off. Do not re-read files you have already edited unless needed.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const summaryItem: Record<string, unknown> = {
+    rawItem: { role: 'user', content: summary },
+    type: 'message',
+  };
+
+  items.splice(0, cutIndex, summaryItem);
+  return cutIndex;
+};
 
 /**
  * Truncates command output to the last N lines to limit context growth.
@@ -539,7 +614,12 @@ const buildSystemPrompt = ({
   planSteps: string[];
 }): string => {
   const fileList = formatRepoFileList(repoFiles, repoName);
-  const trackedFileList = formatRepoFileList(trackedFilePaths, repoName);
+  const trackedIdentical =
+    repoFiles.length === trackedFilePaths.length &&
+    repoFiles.every((f, i) => f === trackedFilePaths[i]);
+  const trackedFileList = trackedIdentical
+    ? '  (same as files to implement)'
+    : formatRepoFileList(trackedFilePaths, repoName);
   const verificationList =
     verificationScripts.length > 0
       ? verificationScripts.map((script) => `  - ${script.command}`).join('\n')
@@ -576,6 +656,7 @@ Available tools:
 - verify_command(command): run a verification command only if it is on the whitelist
 
 Rules:
+- NEVER output free-form text, commentary, or planning at any point during the run. Every response you produce MUST contain at least one tool call. The ONLY exception is the final summary (using the exact template below) which you output after ALL work is done and ALL verification passes. If you feel the urge to describe what you will do next, call a tool instead. Text output without a tool call terminates the run immediately.
 - ALWAYS use edit_file instead of write_file for existing files. write_file should only be used for creating new files. Using write_file on existing files wastes context on unchanged lines.
 - Use search_files to find relevant line numbers, then read_file with offset/limit to read only the section you need. Avoid reading entire large files.
 - For mechanical migrations (e.g. replacing Logger with PinoLogger across many files): use search_files to find all call sites, then apply edit_file to each file without re-reading the full file — the search results show enough context.
@@ -889,21 +970,10 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         const status = existedBefore ? 'updated' : 'created';
         fileChangeStatus.set(relativePath, status);
         changedFilesSinceLastVerification.add(relativePath);
-        const progress = buildMutationProgressSignal({
-          change: status,
-          path: relativePath,
-          changedFilesSinceLastVerification: [
-            ...changedFilesSinceLastVerification,
-          ],
-        });
         console.log(
           chalk.cyan(`  [openai-agent] File ${status}: ${relativePath}`),
         );
-        return JSON.stringify(
-          { path: relativePath, status, progress },
-          null,
-          2,
-        );
+        return JSON.stringify({ path: relativePath, status });
       },
     });
 
@@ -936,21 +1006,10 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         const relativePath = path.relative(toolContext.repoDir, absolutePath);
         fileChangeStatus.set(relativePath, 'deleted');
         changedFilesSinceLastVerification.add(relativePath);
-        const progress = buildMutationProgressSignal({
-          change: 'deleted',
-          path: relativePath,
-          changedFilesSinceLastVerification: [
-            ...changedFilesSinceLastVerification,
-          ],
-        });
         console.log(
           chalk.cyan(`  [openai-agent] File deleted: ${relativePath}`),
         );
-        return JSON.stringify(
-          { path: relativePath, status: 'deleted', progress },
-          null,
-          2,
-        );
+        return JSON.stringify({ path: relativePath, status: 'deleted' });
       },
     });
 
@@ -1026,24 +1085,12 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
           console.log(
             chalk.cyan(`  [openai-agent] Verification passed: ${command}`),
           );
-          return JSON.stringify(
-            {
-              command,
-              allowed: true,
-              exitCode: 0,
-              stdout: truncateOutput(
-                stdout.trim(),
-                MAX_VERIFICATION_OUTPUT_LINES,
-              ),
-              stderr: truncateOutput(
-                stderr.trim(),
-                MAX_VERIFICATION_OUTPUT_LINES,
-              ),
-              progress,
-            },
-            null,
-            2,
-          );
+          return JSON.stringify({
+            command,
+            allowed: true,
+            exitCode: 0,
+            progress,
+          });
         } catch (error: any) {
           const stdout = error.stdout?.trim?.() ?? '';
           const stderr = error.stderr?.trim?.() ?? error.message ?? '';
@@ -1066,18 +1113,14 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
           console.log(
             chalk.red(`  [openai-agent] Verification failed: ${command}`),
           );
-          return JSON.stringify(
-            {
-              command,
-              allowed: true,
-              exitCode: error.code ?? 1,
-              stdout: truncateOutput(stdout, MAX_VERIFICATION_OUTPUT_LINES),
-              stderr: truncateOutput(stderr, MAX_VERIFICATION_OUTPUT_LINES),
-              progress,
-            },
-            null,
-            2,
-          );
+          return JSON.stringify({
+            command,
+            allowed: true,
+            exitCode: error.code ?? 1,
+            stdout: truncateOutput(stdout, MAX_VERIFICATION_OUTPUT_LINES),
+            stderr: truncateOutput(stderr, MAX_VERIFICATION_OUTPUT_LINES),
+            progress,
+          });
         }
       },
     });
@@ -1248,21 +1291,10 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         const relativePath = path.relative(toolContext.repoDir, absolutePath);
         fileChangeStatus.set(relativePath, 'updated');
         changedFilesSinceLastVerification.add(relativePath);
-        const progress = buildMutationProgressSignal({
-          change: 'updated',
-          path: relativePath,
-          changedFilesSinceLastVerification: [
-            ...changedFilesSinceLastVerification,
-          ],
-        });
         console.log(
           chalk.cyan(`  [openai-agent] File edited: ${relativePath}`),
         );
-        return JSON.stringify(
-          { path: relativePath, status: 'updated', progress },
-          null,
-          2,
-        );
+        return JSON.stringify({ path: relativePath, status: 'updated' });
       },
     });
 
@@ -1297,7 +1329,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const promptSections = [
       openAiContext ? openAiContext.trimEnd() : '',
       `Ticket key: ${params.ticket.ticketKey}`,
-      `Implement ALL ${params.planArtifact.plan.steps.length} plan steps completely. Do not output any text or plan before calling your first tool.`,
+      `Implement ALL ${params.planArtifact.plan.steps.length} plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. Output text only as the final summary after all work is done.`,
     ].filter(Boolean);
     const prompt = promptSections.join('\n\n');
 
@@ -1359,6 +1391,19 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
             lastObservedInputTokens = usage.inputTokens;
             if (usage.compacted) {
               usageSummary.compacted = true;
+              lastObservedInputTokens = 0;
+            }
+            const pruned = pruneStateIfNeeded(
+              streamedRun.state,
+              lastObservedInputTokens,
+              fileChangeStatus,
+            );
+            if (pruned > 0) {
+              console.log(
+                chalk.yellow(
+                  `  [openai-agent] State pruned: removed ${pruned} items (input was ${lastObservedInputTokens} tokens)`,
+                ),
+              );
               lastObservedInputTokens = 0;
             }
           }
@@ -1602,6 +1647,19 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
               lastObservedInputTokens = usage.inputTokens;
               if (usage.compacted) {
                 usageSummary.compacted = true;
+                lastObservedInputTokens = 0;
+              }
+              const pruned = pruneStateIfNeeded(
+                streamedRun.state,
+                lastObservedInputTokens,
+                fileChangeStatus,
+              );
+              if (pruned > 0) {
+                console.log(
+                  chalk.yellow(
+                    `  [openai-agent] State pruned: removed ${pruned} items (input was ${lastObservedInputTokens} tokens)`,
+                  ),
+                );
                 lastObservedInputTokens = 0;
               }
             }

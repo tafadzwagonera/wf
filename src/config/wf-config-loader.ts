@@ -69,6 +69,7 @@ export interface NormalizedImplementStageConfig {
   model: string;
   models?: { mechanical?: string };
   agent: boolean;
+  narrate?: boolean;
   verificationConditions?: NormalizedVerificationConditionsConfig;
 }
 
@@ -218,6 +219,7 @@ const implementStageSchema = Joi.object<WfImplementStageConfig>({
     mechanical: Joi.string().min(1).optional(),
   }).optional(),
   agent: Joi.boolean().optional(),
+  narrate: Joi.boolean().optional(),
   verificationConditions: verificationConditionsSchema.optional(),
 });
 
@@ -831,6 +833,9 @@ export const normalizeWfConfig = (
       ...implementTarget,
       ...(implementStageConfig.models && {
         models: implementStageConfig.models,
+      }),
+      ...(implementStageConfig.narrate !== undefined && {
+        narrate: implementStageConfig.narrate,
       }),
       verificationConditions: normalizeVerificationConditionsConfig(
         implementStageConfig.verificationConditions,
