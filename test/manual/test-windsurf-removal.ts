@@ -88,17 +88,9 @@ assert(
   'No workflows property in WfConfig',
 );
 
-const validationSchema = fs.readFileSync(
-  path.join(SRC, 'config/validation.schema.ts'),
-  'utf-8',
-);
 assert(
-  !validationSchema.includes('WORKFLOW_DIRECTORY'),
-  'No WORKFLOW_DIRECTORY in validation schema',
-);
-assert(
-  !validationSchema.includes('WORKFLOW_AUTO_DISCOVERY'),
-  'No WORKFLOW_AUTO_DISCOVERY in validation schema',
+  !fs.existsSync(path.join(SRC, 'config/validation.schema.ts')),
+  'validation.schema.ts does not exist',
 );
 
 // 6. config.command.ts has no Workflow Settings section

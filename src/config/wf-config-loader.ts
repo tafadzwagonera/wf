@@ -148,9 +148,6 @@ export interface NormalizedWfConfig {
   log: {
     level: 'error' | 'warn' | 'info' | 'debug';
   };
-  app: {
-    nodeEnv: 'development' | 'production' | 'test';
-  };
   slack: {
     botToken?: string;
     userToken?: string;
@@ -268,9 +265,6 @@ const configSchema = Joi.object<WfConfig>({
   logging: Joi.object({
     directory: Joi.string().optional(),
     level: Joi.string().valid('error', 'warn', 'info', 'debug').optional(),
-  }).optional(),
-  app: Joi.object({
-    nodeEnv: Joi.string().valid('development', 'production', 'test').optional(),
   }).optional(),
   slack: Joi.object({
     botToken: Joi.string().allow('').optional(),
@@ -959,9 +953,6 @@ export const normalizeWfConfig = (
     },
     log: {
       level: loggingSource.level ?? 'info',
-    },
-    app: {
-      nodeEnv: validatedConfig.app?.nodeEnv ?? 'development',
     },
     slack: {
       botToken: validatedConfig.slack?.botToken,

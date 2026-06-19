@@ -81,9 +81,6 @@ export interface WfConfig {
   logging?: {
     level?: 'error' | 'warn' | 'info' | 'debug';
   };
-  app?: {
-    nodeEnv?: 'development' | 'production' | 'test';
-  };
   slack?: {
     botToken?: string;
     userToken?: string;
