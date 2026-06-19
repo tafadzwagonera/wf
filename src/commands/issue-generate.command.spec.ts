@@ -445,6 +445,9 @@ describe('IssueGenerateCommand', () => {
       expect(prompt).toContain(
         'Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").',
       );
+      expect(prompt).toContain(
+        'Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.',
+      );
     });
   });
 

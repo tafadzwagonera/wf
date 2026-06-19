@@ -163,7 +163,7 @@ class UnresolvedSourceError extends Error {}
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output enforces formal writing conventions (no contractions, active voice, British English) before display or save. Can use an agent backend when stages.generate.backend is set to agent',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Can use an agent backend when stages.generate.backend is set to agent',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -1725,7 +1725,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * Build prompt for AI synthesis
    */
   private buildSynthesisPrompt(sources: SourceContent[]): string {
-    let prompt = `Synthesize the following sources into a single, comprehensive Jira ticket.\n\n`;
+    let prompt = `Synthesize the following sources into a single, concise Jira ticket. Every sentence must earn its place; omit filler, redundancy, and preamble.\n\n`;
     prompt += `Output ONLY valid Markdown using this exact structure. Every heading MUST appear even when source material is sparse; use "None" for sections with no relevant information:\n\n`;
     prompt += `# Heading: <concise title>\n\n`;
     prompt += `**Type:** <task|bug|story|epic|subtask>\n`;
@@ -1760,6 +1760,7 @@ export class IssueGenerateCommand extends CommandRunner {
     prompt += `- Do not use informal or colloquial language (e.g., avoid "basically", "just", "a lot of", "pretty much").\n`;
     prompt += `- Use third-person perspective only (e.g., do not use "you", "we", "our").\n`;
     prompt += `- Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").\n`;
+    prompt += `- Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.\n`;
     prompt += `- The line "## Description" MUST appear exactly once.\n\n`;
     prompt += `Sources to synthesize:\n\n`;
 
