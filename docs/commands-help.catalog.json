@@ -52,7 +52,7 @@
     "usage": "wf issue:cowsay"
   },
   "issue:create": {
-    "description": "Create tickets on various trackers from standardized input (file or stdin). When stages.create.verificationConditions.scripts is configured, validates the ADF payload before sending and uses AI self-correction to fix wiki markup leaks",
+    "description": "Create tickets on various trackers from standardized input (file or stdin)",
     "usage": "wf issue:create [input] [options]",
     "options": [
       {
