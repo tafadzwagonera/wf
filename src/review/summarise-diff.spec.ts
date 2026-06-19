@@ -138,6 +138,28 @@ describe('summariseDiff', () => {
       'big.ts',
     );
   });
+
+  it('should keep the raw patch when summarisation fails for a segment', async () => {
+    const failingPatch = 'diff --git a/fail.ts b/fail.ts\n' + 'f'.repeat(200);
+    const okPatch = 'diff --git a/ok.ts b/ok.ts\n+ok';
+
+    const failingSummarise = jest.fn(async (patch: string, _file: string) => {
+      if (patch.includes('fail.ts')) throw new Error('AI unavailable');
+      return `- Summarised`;
+    });
+
+    const segments: DiffSegment[] = [
+      { file: 'fail.ts', patch: failingPatch },
+      { file: 'ok.ts', patch: okPatch },
+    ];
+
+    const result = await summariseDiff(segments, 100, failingSummarise);
+
+    // Failed segment keeps raw patch verbatim
+    expect(result).toContain(failingPatch);
+    // Summarisation did not throw — the review still completes
+    expect(result).toBeDefined();
+  });
 });
 
 describe('MAX_REVIEW_DIFF_LENGTH', () => {

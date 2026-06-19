@@ -67,7 +67,14 @@ export const summariseDiff = async (
       continue;
     }
 
-    const summary = await summarise(segment.patch, segment.file);
+    let summary: string;
+    try {
+      summary = await summarise(segment.patch, segment.file);
+    } catch {
+      // Keep the raw patch when summarisation fails for a single segment
+      results[segment.index] = segment.patch;
+      continue;
+    }
     const summarisedPatch = `diff --git a/${segment.file} b/${segment.file} (summarised)\n${summary}`;
 
     currentLength -= segment.patch.length;
