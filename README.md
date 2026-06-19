@@ -111,7 +111,7 @@ export default defineConfig({
     implement: {
       provider: 'anthropic',
       model: 'claude-sonnet-4-20250514',
-      agent: true,
+      backend: 'agent',
       verificationConditions: {
         policyFile: 'verification.policy.json',
       },
@@ -119,7 +119,6 @@ export default defineConfig({
     review: {
       provider: 'google',
       model: 'gemini-2.5-pro',
-      agent: false,
     },
   },
 });
@@ -149,13 +148,12 @@ stages:
   implement:
     provider: anthropic
     model: claude-sonnet-4-20250514
-    agent: true
+    backend: agent
     verificationConditions:
       policyFile: verification.policy.json
   review:
     provider: google
     model: gemini-2.5-pro
-    agent: false
 ```
 
 Example verification manifest:
@@ -389,7 +387,7 @@ If `--repos` is supplied for ticket review but a listed repository is not availa
 
 The current review output keeps `Call Stack` and `State Transition` in the same order before any trailing unmatched `Suggestions`, with `Approval Status` after `Suggestions`. Paired model suggestions now render directly under their corresponding issues in terminal output, exported text, workflow artifacts, and PR summary comments. Each trace section includes explicit provenance text so the output says whether the trace is evidence-based from an agent backend, best-effort from the standard SDK path, or unavailable. The `Call Stack` section renders as a nested tree of concrete frames, and `State Transition` shows the variable changes observed at each frame.
 
-After displaying the review, an interactive TTY session prompts "Would you like to discuss the review?" When accepted, the user can ask follow-up questions about the review findings. The conversation is persisted to `~/.wf/<repo>/review-conversation.json`. The prompt is suppressed in `--silent` mode and non-interactive (no TTY) sessions. Follow-up chat honours the same stage config as the review or plan that preceded it: when `stages.review.agent` (or `stages.plan.agent`) is `true`, each chat turn routes through the agent SDK's native multi-turn session; otherwise it routes through standard completions with the correct stage-level provider and model.
+After displaying the review, an interactive TTY session prompts "Would you like to discuss the review?" When accepted, the user can ask follow-up questions about the review findings. The conversation is persisted to `~/.wf/<repo>/review-conversation.json`. The prompt is suppressed in `--silent` mode and non-interactive (no TTY) sessions. Follow-up chat honours the same stage config as the review or plan that preceded it: when `stages.review.backend` (or `stages.plan.backend`) is `'agent'` or `'cli'`, each chat turn routes through the agent SDK's native multi-turn session or the Claude CLI headless mode respectively; otherwise it routes through standard completions with the correct stage-level provider and model.
 
 When `--comment` is used on a pull request, inline review comments use destination-side changed diff lines. If the model returns the wrong changed line but the issue text clearly references a different changed line in the same file, wf prefers the stronger semantic match first. Otherwise, if the model returns an invalid changed line for a file, wf remaps it to the nearest changed destination-side line in that file before posting. If the file has no usable destination-side changed line, wf omits the inline line anchor instead of posting an invalid one.
 
@@ -456,7 +454,7 @@ stages: {
 #### `wf issue:generate <sources...>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->
-Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output enforces formal writing conventions (no contractions, active voice, British English) before display or save. Can use an agent backend when stages.generate.agent: true is configured
+Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output enforces formal writing conventions (no contractions, active voice, British English) before display or save. Can use an agent backend when stages.generate.backend is set to agent
 
 ```bash
 # Generate ticket from a URL
@@ -890,7 +888,7 @@ wf/
 
 - **File-system-only state.** No database — all artifacts, state, and logs live under `.wf/` in the target repository or `~/.wf/<repo>/` for repo-scoped artifacts. This keeps wf portable and easy to debug.
 - **Per-stage provider overrides.** Each pipeline stage can use a different AI provider and model via `stages.<command>` config, so you can use a cheaper model for planning and a more capable one for implementation.
-- **Agent vs completion mode.** Stages that need tool use (implement) run in agent mode via the Claude Agent SDK or OpenAI Agents SDK. Stages that need structured output (plan, review) use the completion API. Controlled by `stages.<command>.agent: true|false`.
+- **Agent vs completion mode.** Stages that need tool use (implement) run in agent mode via the Claude Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode. Stages that need structured output (plan, review) use the completion API. Controlled by `stages.<command>.backend: 'agent' | 'cli' | 'standard'`.
 - **Adapter pattern.** Platform adapters (Jira, GitHub, Bitbucket) and AI adapters (Anthropic, OpenAI, Gemini, DeepSeek) share a common interface so new providers can be added without changing command or agent code.
 - **Config resolution.** `wf` resolves config from the target repository when `--repos` is supplied, not from the caller's cwd. This lets a single wf installation manage many repositories with different settings.
 

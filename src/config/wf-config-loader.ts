@@ -11,6 +11,7 @@ import type {
   WfAiProviderConfig,
   WfAiStageTargetConfig,
   WfAiProviderName,
+  WfBackendMode,
   WfConfig,
   WfCreateStageConfig,
   WfImplementStageConfig,
@@ -56,7 +57,7 @@ const AGENT_SUPPORTED_PROVIDERS = new Set<WfAiProviderName>([
 export interface NormalizedAiStageTargetConfig {
   provider: WfAiProviderName;
   model: string;
-  agent: boolean;
+  backend: WfBackendMode;
 }
 
 export interface NormalizedVerificationConditionsConfig {
@@ -68,7 +69,7 @@ export interface NormalizedImplementStageConfig {
   provider: WfAiProviderName;
   model: string;
   models?: { mechanical?: string };
-  agent: boolean;
+  backend: WfBackendMode;
   narrate?: boolean;
   verificationConditions?: NormalizedVerificationConditionsConfig;
 }
@@ -76,7 +77,7 @@ export interface NormalizedImplementStageConfig {
 export interface NormalizedCreateStageConfig {
   provider?: WfAiProviderName;
   model?: string;
-  agent?: boolean;
+  backend?: WfBackendMode;
   verificationConditions?: NormalizedVerificationConditionsConfig;
 }
 
@@ -197,7 +198,7 @@ const aiStageTargetSchema = Joi.object<WfAiStageTargetConfig>({
     .valid('anthropic', 'openai', 'google', 'deepseek')
     .required(),
   model: Joi.string().min(1).optional(),
-  agent: Joi.boolean().optional(),
+  backend: Joi.string().valid('agent', 'cli', 'standard').optional(),
 });
 
 const createStageSchema = Joi.object<WfCreateStageConfig>({
@@ -205,7 +206,7 @@ const createStageSchema = Joi.object<WfCreateStageConfig>({
     .valid('anthropic', 'openai', 'google', 'deepseek')
     .optional(),
   model: Joi.string().min(1).optional(),
-  agent: Joi.boolean().optional(),
+  backend: Joi.string().valid('agent', 'cli', 'standard').optional(),
   verificationConditions: verificationConditionsSchema.optional(),
 });
 
@@ -218,7 +219,7 @@ const implementStageSchema = Joi.object<WfImplementStageConfig>({
     default: Joi.string().min(1).optional(),
     mechanical: Joi.string().min(1).optional(),
   }).optional(),
-  agent: Joi.boolean().optional(),
+  backend: Joi.string().valid('agent', 'cli', 'standard').optional(),
   narrate: Joi.boolean().optional(),
   verificationConditions: verificationConditionsSchema.optional(),
 });
@@ -710,22 +711,30 @@ const normalizeStageTarget = ({
     );
   }
 
-  const agent = stageTarget.agent === true;
-  if (agent && !AGENT_SUPPORTED_STAGES.has(stageName)) {
+  const backend: WfBackendMode = stageTarget.backend ?? 'standard';
+  if (backend !== 'standard' && !AGENT_SUPPORTED_STAGES.has(stageName)) {
     throw new ValidationError(
-      `Invalid wf config: ${stageName} stage does not support agent execution.`,
+      `Invalid wf config: ${stageName} stage does not support backend "${backend}".`,
     );
   }
-  if (agent && !AGENT_SUPPORTED_PROVIDERS.has(stageTarget.provider)) {
+  if (
+    backend === 'agent' &&
+    !AGENT_SUPPORTED_PROVIDERS.has(stageTarget.provider)
+  ) {
     throw new ValidationError(
-      `Invalid wf config: ${stageName} stage with agent: true is unsupported for provider "${stageTarget.provider}".`,
+      `Invalid wf config: ${stageName} stage with backend: 'agent' is unsupported for provider "${stageTarget.provider}".`,
+    );
+  }
+  if (backend === 'cli' && stageTarget.provider !== 'anthropic') {
+    throw new ValidationError(
+      `Invalid wf config: ${stageName} stage with backend: 'cli' is only supported for provider "anthropic". Got "${stageTarget.provider}".`,
     );
   }
 
   return {
     provider: stageTarget.provider,
     model,
-    agent,
+    backend,
   };
 };
 

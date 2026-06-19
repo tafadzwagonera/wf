@@ -30,6 +30,7 @@ import {
 } from '../shared/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
+import { ClaudeCliAdapter } from '../integrations/ai/adapters/claude-cli.adapter';
 
 const DEFAULT_PREFIX_MAPPING: Record<ResolutionAction, string> = {
   feature: 'feature',
@@ -201,10 +202,13 @@ export class ImplementerAgent {
       startedAt: new Date().toISOString(),
     });
 
-    const adapter =
-      backendSelection.selected === 'openai-agent'
-        ? new OpenAIAgentAdapter(this.configService)
-        : new AnthropicAgentAdapter(this.configService);
+    const adapter = (() => {
+      if (backendSelection.selected === 'claude-cli')
+        return new ClaudeCliAdapter(this.configService);
+      if (backendSelection.selected === 'openai-agent')
+        return new OpenAIAgentAdapter(this.configService);
+      return new AnthropicAgentAdapter(this.configService);
+    })();
     await adapter.generateAndVerify({
       ticket,
       planArtifact,
@@ -520,6 +524,25 @@ export class ImplementerAgent {
     const provider =
       this.configService.get<string>('stages.implement.provider') ??
       this.configService.get<string>('ai.provider', 'anthropic');
+    const backend = this.configService.get<string>(
+      'stages.implement.backend',
+      'agent',
+    );
+
+    if (backend === 'standard') {
+      throw new Error(
+        'Implement stage does not support backend "standard". Use "agent" or "cli".',
+      );
+    }
+
+    if (backend === 'cli') {
+      if (provider !== 'anthropic') {
+        throw new Error(
+          `Implement stage backend "cli" requires provider "anthropic". Got "${provider}".`,
+        );
+      }
+      return { configured: 'claude-cli', selected: 'claude-cli', provider };
+    }
 
     if (provider === 'anthropic') {
       return {

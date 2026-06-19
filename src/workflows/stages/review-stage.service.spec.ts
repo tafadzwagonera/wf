@@ -151,7 +151,8 @@ describe('ReviewStageService', () => {
           provide: ConfigService,
           useValue: {
             get: jest.fn((key: string, fallback?: unknown) => {
-              if (key === 'stages.review.agent') return agentEnabled;
+              if (key === 'stages.review.backend')
+                return agentEnabled ? 'agent' : 'standard';
               return fallback;
             }),
           },

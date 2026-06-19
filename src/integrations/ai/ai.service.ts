@@ -639,6 +639,7 @@ Return ONLY the commit message description, nothing else.`;
       systemPrompt,
       temperature: 0.3,
       maxTokens: 200,
+      stage: 'commit',
     });
 
     return response.content.trim();

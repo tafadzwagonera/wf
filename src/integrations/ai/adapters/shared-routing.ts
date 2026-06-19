@@ -1,10 +1,17 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
+import { exec } from 'child_process';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
+import { promisify } from 'util';
 import type { ResolutionPlan } from '../ai.service';
 import type {
   VerificationScript,
   ModelRouting,
 } from '../../../agents/interfaces';
+
+const execAsync = promisify(exec);
 
 const MECHANICAL_STEP_PATTERNS = [
   /migrate all/i,
@@ -215,3 +222,78 @@ export const stripRepoPrefix = (filePath: string, repoName: string): string => {
  */
 export const isGlobPattern = (filePath: string): boolean =>
   filePath.includes('*') || filePath.includes('?');
+
+const readOptionalFile = async (filePath: string): Promise<string | null> => {
+  try {
+    return await fs.readFile(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+};
+
+const warnMissingClaudeFile = (filePath: string): void => {
+  console.log(chalk.yellow(`⚠️ Missing CLAUDE.md file at ${filePath}`));
+};
+
+/**
+ * Loads CLAUDE.md context from global and repo-level paths.
+ *
+ * @param repoDir - Repository root directory
+ * @returns Combined CLAUDE.md context string
+ */
+export const loadClaudeContext = async (repoDir: string): Promise<string> => {
+  const globalClaudePath = path.join(os.homedir(), '.claude', 'CLAUDE.md');
+  const repoClaudePath = path.join(repoDir, 'CLAUDE.md');
+  const [rootClaude, dotClaude] = await Promise.all([
+    readOptionalFile(globalClaudePath),
+    readOptionalFile(repoClaudePath),
+  ]);
+
+  if (rootClaude === null) {
+    warnMissingClaudeFile(globalClaudePath);
+  }
+
+  if (dotClaude === null) {
+    warnMissingClaudeFile(repoClaudePath);
+  }
+
+  const sections = [
+    rootClaude && `## ~/.claude/CLAUDE.md\n${rootClaude.trimEnd()}`,
+    dotClaude && `## CLAUDE.md\n${dotClaude.trimEnd()}`,
+  ].filter(Boolean);
+
+  return sections.join('\n\n');
+};
+
+/**
+ * Discovers files changed on disk since the last commit using git.
+ * Falls back to the provided set if git is unavailable.
+ *
+ * @param repoDir - Repository root directory
+ * @param existing - Existing set of touched files to merge into
+ * @returns Merged set of relative file paths
+ */
+export const discoverChangedFiles = async (
+  repoDir: string,
+  existing: Set<string>,
+): Promise<Set<string>> => {
+  try {
+    const { stdout } = await execAsync(
+      'git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null',
+      { cwd: repoDir },
+    );
+    for (const line of stdout.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        existing.add(trimmed);
+      }
+    }
+  } catch (error) {
+    console.log(
+      chalk.gray(
+        `  git file discovery unavailable: ${error instanceof Error ? error.message : 'unknown error'}`,
+      ),
+    );
+  }
+  return existing;
+};

@@ -1,5 +1,7 @@
 export type WfAiProviderName = 'anthropic' | 'openai' | 'google' | 'deepseek';
 
+export type WfBackendMode = 'agent' | 'cli' | 'standard';
+
 export interface WfAiProviderConfig {
   provider: WfAiProviderName;
   apiKey?: string;
@@ -11,7 +13,7 @@ export interface WfAiProviderConfig {
 export interface WfAiStageTargetConfig {
   provider: WfAiProviderName;
   model?: string;
-  agent?: boolean;
+  backend?: WfBackendMode;
 }
 
 export interface WfAtlassianConfig {
@@ -47,7 +49,7 @@ export interface WfImplementStageConfig extends WfAiStageTargetConfig {
 export interface WfCreateStageConfig {
   provider?: WfAiProviderName;
   model?: string;
-  agent?: boolean;
+  backend?: WfBackendMode;
   verificationConditions?: WfVerificationConditionsConfig;
 }
 

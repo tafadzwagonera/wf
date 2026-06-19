@@ -15,7 +15,10 @@ export interface VerificationScript {
   aliases: string[];
 }
 
-export type ImplementBackendName = 'anthropic-agent' | 'openai-agent';
+export type ImplementBackendName =
+  | 'anthropic-agent'
+  | 'openai-agent'
+  | 'claude-cli';
 
 export interface ImplementBackendSelection {
   configured: ImplementBackendName;

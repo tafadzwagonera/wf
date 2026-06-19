@@ -232,12 +232,12 @@ describe('wf-config-loader', () => {
       expect(config.ai.stages.commit).toEqual({
         provider: 'google',
         model: 'gemini-2.5-pro',
-        agent: false,
+        backend: 'standard',
       });
       expect(config.stages.commit).toEqual({
         provider: 'google',
         model: 'gemini-2.5-pro',
-        agent: false,
+        backend: 'standard',
       });
     });
 
@@ -275,7 +275,7 @@ describe('wf-config-loader', () => {
           plan: {
             provider: 'anthropic',
             model: 'claude-sonnet-4-20250514',
-            agent: false,
+            backend: 'standard',
           },
           review: {
             provider: 'google',
@@ -284,7 +284,7 @@ describe('wf-config-loader', () => {
           implement: {
             provider: 'anthropic',
             model: 'claude-haiku-4-5-20251001',
-            agent: true,
+            backend: 'agent',
             verificationConditions: {
               policyFile: '.wf/verification.json',
             },
@@ -295,17 +295,17 @@ describe('wf-config-loader', () => {
       expect(config.ai.stages.review).toEqual({
         provider: 'google',
         model: 'gemini-2.5-pro',
-        agent: false,
+        backend: 'standard',
       });
       expect(config.stages.plan).toEqual({
         provider: 'anthropic',
         model: 'claude-sonnet-4-20250514',
-        agent: false,
+        backend: 'standard',
       });
       expect(config.stages.implement).toEqual({
         provider: 'anthropic',
         model: 'claude-haiku-4-5-20251001',
-        agent: true,
+        backend: 'agent',
         verificationConditions: {
           policyFile: '.wf/verification.json',
           scripts: {},
@@ -374,7 +374,7 @@ describe('wf-config-loader', () => {
 
       expect(config.stages.implement?.provider).toBe('google');
       expect(config.stages.implement?.model).toBe('gemini-2.5-pro');
-      expect(config.stages.implement?.agent).toBe(false);
+      expect(config.stages.implement?.backend).toBe('standard');
       expect(config.stages.implement?.verificationConditions).toEqual({
         policyFile: undefined,
         scripts: {
@@ -422,7 +422,7 @@ describe('wf-config-loader', () => {
       ).toThrow(/experimentalAgent/i);
     });
 
-    it('defaults stage agent flag to false when omitted', () => {
+    it('defaults stage backend to standard when omitted', () => {
       const config = normalizeWfConfig({
         ai: [
           {
@@ -440,8 +440,8 @@ describe('wf-config-loader', () => {
         },
       });
 
-      expect(config.stages.review?.agent).toBe(false);
-      expect(config.ai.stages.review?.agent).toBe(false);
+      expect(config.stages.review?.backend).toBe('standard');
+      expect(config.ai.stages.review?.backend).toBe('standard');
     });
 
     it('resolves missing stage model from configured provider defaults', () => {
@@ -462,7 +462,7 @@ describe('wf-config-loader', () => {
         stages: {
           review: {
             provider: 'openai',
-            agent: true,
+            backend: 'agent',
           },
           plan: {
             provider: 'anthropic',
@@ -473,12 +473,12 @@ describe('wf-config-loader', () => {
       expect(config.stages.review).toEqual({
         provider: 'openai',
         model: 'gpt-5.4',
-        agent: true,
+        backend: 'agent',
       });
       expect(config.stages.plan).toEqual({
         provider: 'anthropic',
         model: 'claude-sonnet-4-20250514',
-        agent: false,
+        backend: 'standard',
       });
     });
 
@@ -594,11 +594,96 @@ describe('wf-config-loader', () => {
           stages: {
             review: {
               provider: 'google',
-              agent: true,
+              backend: 'agent',
             },
           },
         }),
-      ).toThrow(/agent: true.*google/i);
+      ).toThrow(/backend.*agent.*google/i);
+    });
+
+    it('accepts backend: cli with provider: anthropic', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'anthropic',
+            apiKey: 'anthropic-key',
+            model: 'claude-sonnet-4-6',
+            default: true,
+          },
+        ],
+        stages: {
+          plan: {
+            provider: 'anthropic',
+            backend: 'cli',
+          },
+        },
+      });
+
+      expect(config.stages.plan?.backend).toBe('cli');
+    });
+
+    it('rejects backend: cli with provider: openai', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [
+            {
+              provider: 'openai',
+              apiKey: 'openai-key',
+              model: 'gpt-5.4',
+              default: true,
+            },
+          ],
+          stages: {
+            plan: {
+              provider: 'openai',
+              backend: 'cli',
+            },
+          },
+        }),
+      ).toThrow(/cli.*only.*anthropic/i);
+    });
+
+    it('rejects backend: cli on unsupported stage', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [
+            {
+              provider: 'anthropic',
+              apiKey: 'anthropic-key',
+              model: 'claude-sonnet-4-6',
+              default: true,
+            },
+          ],
+          stages: {
+            commit: {
+              provider: 'anthropic',
+              backend: 'cli',
+            },
+          },
+        }),
+      ).toThrow(/commit.*does not support.*cli/i);
+    });
+
+    it('accepts backend: standard on implement stage at config level', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            default: true,
+          },
+        ],
+        stages: {
+          implement: {
+            provider: 'openai',
+            model: 'gpt-5.4',
+            backend: 'standard',
+          },
+        },
+      });
+
+      expect(config.stages.implement?.backend).toBe('standard');
     });
   });
 
@@ -684,7 +769,7 @@ describe('wf-config-loader', () => {
       expect(config.stages.generate).toEqual({
         provider: 'openai',
         model: 'gpt-5.4',
-        agent: false,
+        backend: 'standard',
       });
     });
 
@@ -738,7 +823,7 @@ describe('wf-config-loader', () => {
       expect(config.stages.generate).toEqual({
         provider: 'google',
         model: 'gemini-2.5-pro',
-        agent: false,
+        backend: 'standard',
       });
     });
 
@@ -782,7 +867,7 @@ describe('wf-config-loader', () => {
       expect(config.ai.stages.review).toEqual({
         provider: 'google',
         model: 'gemini-2.5-pro',
-        agent: false,
+        backend: 'standard',
       });
     });
   });

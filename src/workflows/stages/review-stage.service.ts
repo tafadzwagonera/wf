@@ -59,11 +59,14 @@ export class ReviewStageService {
           options.repoDir,
         )
       : await this.aiService.reviewCode(diff, guidelines);
-    const agentEnabled =
-      this.configService.get<boolean>('stages.review.agent', false) === true;
+    const backend = this.configService.get<string>(
+      'stages.review.backend',
+      'standard',
+    );
     return {
       ...review,
-      executionMode: agentEnabled ? 'agent' : 'standard',
+      executionMode:
+        backend === 'agent' || backend === 'cli' ? 'agent' : 'standard',
     };
   }
 

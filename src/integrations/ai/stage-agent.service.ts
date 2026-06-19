@@ -18,6 +18,12 @@ import dayjs from 'dayjs';
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
 import {
+  assertClaudeCliAvailable,
+  buildCliArgs,
+  spawnCli,
+} from './adapters/claude-cli-runner';
+import type { WfBackendMode } from '../../config/public-config';
+import {
   CodeReview,
   parseJsonResponse,
   ResolutionPlan,
@@ -49,6 +55,7 @@ export type AgentStageName = 'plan' | 'review' | 'generate';
 
 export type AgentChatSession = {
   provider: 'anthropic' | 'openai';
+  backend?: 'agent' | 'cli';
   sessionId?: string;
   runState?: unknown;
   agent?: unknown;
@@ -76,9 +83,8 @@ export class StageAgentService {
   constructor(private readonly configService: ConfigService) {}
 
   isEnabledForStage(stage: AgentStageName): boolean {
-    return (
-      this.configService.get<boolean>(`stages.${stage}.agent`, false) === true
-    );
+    const backend = this.resolveStageBackend(stage);
+    return backend === 'agent' || backend === 'cli';
   }
 
   async generatePlan(params: {
@@ -291,13 +297,20 @@ Return only the requested ticket markdown and preserve the required heading stru
     });
   }
 
+  private resolveStageBackend(stage: AgentStageName): WfBackendMode {
+    return this.configService.get<WfBackendMode>(
+      `stages.${stage}.backend`,
+      'standard',
+    );
+  }
+
   private resolveStageProvider(stage: AgentStageName): 'anthropic' | 'openai' {
     const provider =
       this.configService.get<string>(`stages.${stage}.provider`) ??
       this.configService.get<string>('ai.provider', 'anthropic');
     if (provider !== 'anthropic' && provider !== 'openai') {
       throw new Error(
-        `${stage} stage agent backend is unsupported for provider "${provider}". Configure ${stage}.provider as anthropic or openai, or disable stages.${stage}.agent.`,
+        `${stage} stage agent backend is unsupported for provider "${provider}". Configure ${stage}.provider as anthropic or openai, or set stages.${stage}.backend to "standard".`,
       );
     }
     return provider;
@@ -319,6 +332,11 @@ Return only the requested ticket markdown and preserve the required heading stru
     systemPrompt: string;
     repoDir?: string;
   }): Promise<string> {
+    const backend = this.resolveStageBackend(params.stage);
+    if (backend === 'cli') {
+      return this.runCliStagePrompt(params);
+    }
+
     const provider = this.resolveStageProvider(params.stage);
     if (provider === 'anthropic') {
       return this.runAnthropicStagePrompt(params);
@@ -625,6 +643,10 @@ Return only the requested ticket markdown and preserve the required heading stru
     repoDir?: string;
     session?: AgentChatSession;
   }): Promise<{ content: string; session: AgentChatSession }> {
+    const backend = this.resolveStageBackend(params.stage);
+    if (backend === 'cli') {
+      return this.cliChatTurn(params);
+    }
     const provider = this.resolveStageProvider(params.stage);
     if (provider === 'anthropic') {
       return this.anthropicChatTurn(params);
@@ -940,6 +962,98 @@ Return only the requested ticket markdown and preserve the required heading stru
         runState: streamedRun.state,
         agent,
         runner,
+      },
+    };
+  }
+
+  private async runCliStagePrompt(params: {
+    stage: AgentStageName;
+    prompt: string;
+    systemPrompt: string;
+    repoDir?: string;
+  }): Promise<string> {
+    assertClaudeCliAvailable();
+
+    const model = this.resolveStageModel(params.stage);
+    const resolvedRepoDir = params.repoDir ?? process.cwd();
+    const allowInspection = Boolean(params.repoDir);
+
+    const args = buildCliArgs({
+      prompt: params.prompt,
+      appendSystemPrompt: params.systemPrompt,
+      model,
+      cwd: resolvedRepoDir,
+      tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
+      permissionMode: 'plan',
+    });
+
+    let result = '';
+    for await (const message of spawnCli(
+      args,
+      resolvedRepoDir,
+      params.prompt,
+    )) {
+      if (message.type === 'result' && message.result) {
+        result = message.result;
+      }
+    }
+
+    if (!result) {
+      throw new Error('Claude CLI finished without returning a result.');
+    }
+
+    return result.trim();
+  }
+
+  private async cliChatTurn(params: {
+    stage: AgentStageName;
+    userMessage: string;
+    systemPrompt: string;
+    repoDir?: string;
+    session?: AgentChatSession;
+  }): Promise<{ content: string; session: AgentChatSession }> {
+    assertClaudeCliAvailable();
+
+    const model = this.resolveStageModel(params.stage);
+    const resolvedRepoDir = params.repoDir ?? process.cwd();
+    const allowInspection = Boolean(params.repoDir);
+
+    const args = buildCliArgs({
+      prompt: params.userMessage,
+      appendSystemPrompt: params.systemPrompt,
+      model,
+      cwd: resolvedRepoDir,
+      sessionId: params.session?.sessionId,
+      tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
+      permissionMode: 'plan',
+    });
+
+    let result = '';
+    let sessionId: string | undefined = params.session?.sessionId;
+
+    for await (const message of spawnCli(
+      args,
+      resolvedRepoDir,
+      params.userMessage,
+    )) {
+      if (message.session_id) {
+        sessionId = message.session_id;
+      }
+      if (message.type === 'result' && message.result) {
+        result = message.result;
+      }
+    }
+
+    if (!result) {
+      throw new Error('Claude CLI finished without returning a result.');
+    }
+
+    return {
+      content: result.trim(),
+      session: {
+        provider: 'anthropic' as const,
+        backend: 'cli',
+        sessionId,
       },
     };
   }
