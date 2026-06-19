@@ -11,7 +11,7 @@ describe('getCommandHelpCatalog', () => {
       expect.arrayContaining([
         expect.objectContaining({
           flags: '-f, --format <format>',
-          description: 'Output format (json|md|yaml|yml) - default from config',
+          description: 'Output format (json|md|yaml|yml) - default: md',
         }),
         expect.objectContaining({
           flags: '-r, --repos <repos...>',

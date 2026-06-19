@@ -1,5 +1,4 @@
 import { Module, OnModuleInit } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { FormatConverterService } from './format-converter.service';
 import { JsonConverter } from './json/json-converter';
 import { YamlConverter } from './yaml/yaml-converter';
@@ -10,7 +9,6 @@ import { MarkdownConverter } from './markdown/markdown-converter';
  * Registers all format converters with the FormatConverterService
  */
 @Module({
-  imports: [ConfigModule],
   providers: [
     FormatConverterService,
     JsonConverter,

@@ -219,7 +219,6 @@ async function buildCommand(options?: {
         provide: ConfigService,
         useValue: {
           get: jest.fn((key: string, defaultValue?: string) => {
-            if (key === 'output.defaultFormat') return 'md';
             if (key === 'tracker') return 'jira';
             return defaultValue;
           }),

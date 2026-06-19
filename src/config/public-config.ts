@@ -14,6 +14,7 @@ export interface WfAiStageTargetConfig {
   provider: WfAiProviderName;
   model?: string;
   backend?: WfBackendMode;
+  outputFormat?: 'json' | 'md' | 'yaml' | 'yml';
 }
 
 export interface WfAtlassianConfig {
@@ -55,9 +56,6 @@ export interface WfCreateStageConfig {
 
 export interface WfConfig {
   tracker?: 'jira' | 'github' | 'bitbucket';
-  output?: {
-    defaultFormat?: 'json' | 'md' | 'yaml' | 'yml';
-  };
   ai?: WfAiProviderConfig[];
   atlassian?: WfAtlassianConfig;
   github?: {

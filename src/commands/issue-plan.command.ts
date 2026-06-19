@@ -293,7 +293,7 @@ export class IssuePlanCommand extends CommandRunner {
 
   @Option({
     flags: '-f, --format <format>',
-    description: 'Output format for plan (json|md|yaml|yml)',
+    description: 'Output format for plan (json|md|yaml|yml) - default: json',
   })
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
@@ -379,7 +379,13 @@ export class IssuePlanCommand extends CommandRunner {
 
       const action = options!.action;
       const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-      const format = options?.format || 'json';
+      // Output format: CLI flag > per-stage config > hardcoded default
+      const format =
+        options?.format ||
+        (this.configService.get<string>('stages.plan.outputFormat') as
+          | OutputFormat
+          | undefined) ||
+        'json';
       const extension = getPlanArtifactExtension(format);
 
       // ── CUSTOM MODE ──────────────────────────────────────────────────────

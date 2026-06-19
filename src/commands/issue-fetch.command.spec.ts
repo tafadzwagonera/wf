@@ -75,7 +75,6 @@ async function buildCommand(): Promise<{
         useValue: {
           get: jest.fn((key: string, defaultValue?: string) => {
             if (key === 'tracker') return 'jira';
-            if (key === 'output.defaultFormat') return 'md';
             return defaultValue;
           }),
         },

@@ -54,6 +54,7 @@ jest.mock('../agents/utils', () => {
 });
 
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import inquirer from 'inquirer';
 import { IssueReviewCommand } from './issue-review.command';
 import { AiService, CodeReview } from '../integrations/ai/ai.service';
@@ -314,6 +315,12 @@ async function buildCommand(overrides?: {
         provide: AiService,
         useValue: {
           getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
+        },
+      },
+      {
+        provide: ConfigService,
+        useValue: {
+          get: jest.fn((key: string, defaultValue?: string) => defaultValue),
         },
       },
       {

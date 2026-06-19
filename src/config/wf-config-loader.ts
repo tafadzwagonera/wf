@@ -58,6 +58,7 @@ export interface NormalizedAiStageTargetConfig {
   provider: WfAiProviderName;
   model: string;
   backend: WfBackendMode;
+  outputFormat?: 'json' | 'md' | 'yaml' | 'yml';
 }
 
 export interface NormalizedVerificationConditionsConfig {
@@ -83,9 +84,6 @@ export interface NormalizedCreateStageConfig {
 
 export interface NormalizedWfConfig {
   tracker: 'jira' | 'github' | 'bitbucket';
-  output: {
-    defaultFormat: string;
-  };
   ai: {
     provider: WfAiProviderName;
     providers: Array<
@@ -199,6 +197,7 @@ const aiStageTargetSchema = Joi.object<WfAiStageTargetConfig>({
     .required(),
   model: Joi.string().min(1).optional(),
   backend: Joi.string().valid('agent', 'cli', 'standard').optional(),
+  outputFormat: Joi.string().valid('json', 'md', 'yaml', 'yml').optional(),
 });
 
 const createStageSchema = Joi.object<WfCreateStageConfig>({
@@ -226,9 +225,6 @@ const implementStageSchema = Joi.object<WfImplementStageConfig>({
 
 const configSchema = Joi.object<WfConfig>({
   tracker: Joi.string().valid('jira', 'github', 'bitbucket').optional(),
-  output: Joi.object({
-    defaultFormat: Joi.string().valid('json', 'md', 'yaml', 'yml').optional(),
-  }).optional(),
   ai: Joi.array().items(providerSchema).optional(),
   atlassian: Joi.object({
     baseUrl: Joi.string().uri().optional(),
@@ -735,6 +731,7 @@ const normalizeStageTarget = ({
     provider: stageTarget.provider,
     model,
     backend,
+    outputFormat: stageTarget.outputFormat,
   };
 };
 
@@ -901,9 +898,6 @@ export const normalizeWfConfig = (
 
   return {
     tracker: validatedConfig.tracker ?? 'jira',
-    output: {
-      defaultFormat: validatedConfig.output?.defaultFormat ?? 'md',
-    },
     ai: {
       provider: activeProvider.provider,
       providers,

@@ -76,7 +76,7 @@ export class IssueFetchCommand extends CommandRunner {
 
   @Option({
     flags: '-f, --format <format>',
-    description: 'Output format (json|md|yaml|yml)',
+    description: 'Output format (json|md|yaml|yml) - default: md',
   })
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
@@ -135,13 +135,8 @@ export class IssueFetchCommand extends CommandRunner {
       const trackerName =
         options?.tracker || this.configService.get<string>('tracker', 'jira');
 
-      // Get format (from option or config)
-      const format: OutputFormat =
-        options?.format ||
-        (this.configService.get<string>(
-          'output.defaultFormat',
-          'md',
-        ) as OutputFormat);
+      // Output format: CLI flag > hardcoded default (fetch has no stage config)
+      const format: OutputFormat = options?.format || 'md';
 
       const extension = format === 'md' ? 'md' : format;
       const repoBase = resolveRepoBasePath(options?.repos?.[0]);

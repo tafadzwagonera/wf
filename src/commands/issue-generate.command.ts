@@ -208,7 +208,8 @@ export class IssueGenerateCommand extends CommandRunner {
       if (options?.dryRun) {
         const format =
           options?.format ||
-          this.configService.get<string>('output.defaultFormat', 'md');
+          this.configService.get<string>('stages.generate.outputFormat') ||
+          'md';
         const trackerName =
           options?.tracker || this.configService.get<string>('tracker', 'jira');
         const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
@@ -474,9 +475,11 @@ export class IssueGenerateCommand extends CommandRunner {
       this.normalizeTicketTextFields(synthesizedTicket);
 
       // Get output format
+      // Output format: CLI flag > per-stage config > hardcoded default
       const format =
         options?.format ||
-        this.configService.get<string>('output.defaultFormat', 'md');
+        this.configService.get<string>('stages.generate.outputFormat') ||
+        'md';
 
       // Serialize ticket to desired format
       const output = this.serializeTicketOutput(
@@ -556,7 +559,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
   @Option({
     flags: '-f, --format <format>',
-    description: 'Output format (json|md|yaml|yml) - default from config',
+    description: 'Output format (json|md|yaml|yml) - default: md',
   })
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];

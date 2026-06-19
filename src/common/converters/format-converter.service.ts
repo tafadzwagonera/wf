@@ -1,5 +1,4 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { FormatConverter } from './format-converter.interface';
 
 /**
@@ -9,8 +8,6 @@ import { FormatConverter } from './format-converter.interface';
 @Injectable()
 export class FormatConverterService {
   private converters: Map<string, FormatConverter> = new Map();
-
-  constructor(private readonly configService: ConfigService) {}
 
   /**
    * Register a format converter
@@ -27,13 +24,11 @@ export class FormatConverterService {
    * @returns Format converter instance
    * @throws BadRequestException if format is not supported
    */
-  getConverter(format?: string): FormatConverter {
-    const requestedFormat =
-      format || this.configService.get<string>('output.defaultFormat', 'md');
+  getConverter(format: string): FormatConverter {
     const targetFormat =
-      requestedFormat.trim().toLowerCase() === 'yml'
+      format.trim().toLowerCase() === 'yml'
         ? 'yaml'
-        : requestedFormat.trim().toLowerCase();
+        : format.trim().toLowerCase();
 
     const converter = this.converters.get(targetFormat);
     if (!converter) {
@@ -43,18 +38,6 @@ export class FormatConverterService {
     }
 
     return converter;
-  }
-
-  /**
-   * Get the default format converter from configuration
-   * @returns Default format converter
-   */
-  getDefaultConverter(): FormatConverter {
-    const defaultFormat = this.configService.get<string>(
-      'output.defaultFormat',
-      'md',
-    );
-    return this.getConverter(defaultFormat);
   }
 
   /**

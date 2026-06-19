@@ -1,5 +1,6 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import inquirer from 'inquirer';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import {
@@ -145,6 +146,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 export class IssueReviewCommand extends CommandRunner {
   constructor(
     private readonly aiService: AiService,
+    private readonly configService: ConfigService,
     private readonly gitService: GitService,
     private readonly issueTrackerService: IssueTrackerService,
     private readonly logger: LoggerService,
@@ -270,7 +272,10 @@ export class IssueReviewCommand extends CommandRunner {
             filePath: outputPath,
             operation: 'create',
             sizeEstimate: '2–5 KB',
-            format: options?.format || 'md',
+            format:
+              options?.format ||
+              this.configService.get<string>('stages.review.outputFormat') ||
+              'md',
             contentPreview: [
               'Code Review Report',
               'Context: <source>',
@@ -558,7 +563,13 @@ export class IssueReviewCommand extends CommandRunner {
 
       // Save to file if requested
       if (options?.output) {
-        const outputFormat = options?.format ?? 'md';
+        // Output format: CLI flag > per-stage config > hardcoded default
+        const outputFormat =
+          options?.format ??
+          (this.configService.get<string>('stages.review.outputFormat') as
+            | OutputFormat
+            | undefined) ??
+          'md';
         const outputPath = this.resolveOutputPath(
           options.output,
           this.resolveOutputBaseDir(source, repoInputs),

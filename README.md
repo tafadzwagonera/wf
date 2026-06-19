@@ -194,7 +194,8 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - `ai[].provider` selects the backing AI provider for each entry.
 - `ai[].default` is optional when only one provider is configured, and required when two or more providers are configured.
 - `ai[].maxTokens` is only applied to Gemini provider entries using Gemini models; other providers ignore it.
-- `stages.generate`, `stages.plan`, `stages.review`, and `stages.implement` accept `{ provider, model, agent? }`.
+- `stages.generate`, `stages.plan`, `stages.review`, and `stages.implement` accept `{ provider, model, backend? }`.
+- `stages.generate`, `stages.plan`, and `stages.review` also accept `outputFormat?: 'json' | 'md' | 'yaml' | 'yml'` to override the per-stage default format (generate=md, plan=json, review=md).
 - `stages.commit` accepts `{ provider, model }`.
 - Stage targets explicitly override the default `ai.provider` and `ai.model`.
 - Prefer `verificationConditions.policyFile` to point at a repository-owned verification manifest. This keeps baseline verification policy tool-agnostic and reusable from CI or other executors.
@@ -276,7 +277,7 @@ wf issue:fetch WBP-2971 --tracker jira --format md
 | Flag | Description |
 | ---- | ----------- |
 | `--dry-run` | Preview the fetch operation without making changes |
-| `-f, --format <format>` | Output format (json\|md\|yaml\|yml) |
+| `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
 | `-t, --tracker <tracker>` | Target tracker (jira\|github\|bitbucket) |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the file path for piping |
@@ -313,7 +314,7 @@ wf issue:plan WBP-2971 --action fix --force --tracker jira
 | `-c, --custom <source.md>` | Custom markdown source artifact to synthesize into a canonical plan (mutually exclusive with <ticket-key>) |
 | `--dry-run` | Preview the plan operation without making changes |
 | `--force` | Force fetch and recreate ticket artifact before planning |
-| `-f, --format <format>` | Output format for plan (json\|md\|yaml\|yml) |
+| `-f, --format <format>` | Output format for plan (json\|md\|yaml\|yml) - default: json |
 | `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
 | `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the plan path for piping |
@@ -481,7 +482,7 @@ wf issue:generate ./spec.md --save --silent | xargs wf issue:create
 | Flag | Description |
 | ---- | ----------- |
 | `--dry-run` | Preview the generate operation without making changes |
-| `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default from config |
+| `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
 | `-o, --output <path>` | Output file path - default: stdout |
 | `-t, --tracker <tracker>` | Tracker for ticket sources (jira\|github\|bitbucket) |
 | `--priority <priority>` | Override ticket priority (highest\|high\|medium\|low\|lowest) |

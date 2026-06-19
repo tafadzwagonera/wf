@@ -97,7 +97,12 @@ async function buildCommand(): Promise<{
       },
       {
         provide: ConfigService,
-        useValue: { get: jest.fn().mockReturnValue('jira') },
+        useValue: {
+          get: jest.fn((key: string, defaultValue?: string) => {
+            if (key === 'tracker') return 'jira';
+            return defaultValue;
+          }),
+        },
       },
       {
         provide: LoggerService,

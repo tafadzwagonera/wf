@@ -121,7 +121,7 @@
       },
       {
         "flags": "-f, --format <format>",
-        "description": "Output format (json|md|yaml|yml)"
+        "description": "Output format (json|md|yaml|yml) - default: md"
       },
       {
         "flags": "-t, --tracker <tracker>",
@@ -177,7 +177,7 @@
       },
       {
         "flags": "-f, --format <format>",
-        "description": "Output format (json|md|yaml|yml) - default from config"
+        "description": "Output format (json|md|yaml|yml) - default: md"
       },
       {
         "flags": "-o, --output <path>",
@@ -283,7 +283,7 @@
       },
       {
         "flags": "-f, --format <format>",
-        "description": "Output format for plan (json|md|yaml|yml)"
+        "description": "Output format for plan (json|md|yaml|yml) - default: json"
       },
       {
         "flags": "-t, --tracker <tracker>",
