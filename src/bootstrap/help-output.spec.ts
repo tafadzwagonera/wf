@@ -137,7 +137,7 @@ describe('getHelpText', () => {
       'Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker',
     );
     expect(plainImplementHelpText).toContain(
-      'Anthropic or OpenAI agent backend',
+      'Anthropic Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode',
     );
     expect(plainImplementHelpText).toContain(
       '~/.claude/CLAUDE.md and the repository-root CLAUDE.md',
@@ -146,7 +146,7 @@ describe('getHelpText', () => {
       '~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md',
     );
     expect(plainImplementHelpText).toContain(
-      'Both backends emit stable SDK task and tool progress lines plus explicit file mutation logs and verification logs',
+      'All backends emit stable task and tool progress lines plus explicit file mutation logs and verification logs',
     );
     expect(plainImplementHelpText).not.toContain(
       'the OpenAI backend emits heuristic progress signals',
