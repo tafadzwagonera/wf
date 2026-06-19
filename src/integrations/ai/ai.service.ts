@@ -654,7 +654,7 @@ Return your response as a JSON object matching the CodeReview interface.`;
     const prompt = `
 Code Changes:
 \`\`\`
-${diff.substring(0, 5000)} ${diff.length > 5000 ? '...(truncated)' : ''}
+${diff}
 \`\`\`
 
     Review Guidelines:
