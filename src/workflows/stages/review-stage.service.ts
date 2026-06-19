@@ -10,6 +10,11 @@ import {
 import { ReviewArtifact, TicketArtifact } from '../../agents/interfaces';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import { buildCodeReviewPresentation } from '../../review/code-review-post-processing';
+import {
+  splitDiffByFile,
+  summariseDiff,
+  MAX_REVIEW_DIFF_LENGTH,
+} from '../../review/summarise-diff';
 
 const DEFAULT_REVIEW_GUIDELINES = [
   'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
@@ -52,13 +57,39 @@ export class ReviewStageService {
           ...(options.extraCriteria ?? []),
         ];
 
+    const segments = splitDiffByFile(diff);
+    const summariseCallback = async (patch: string, file: string) => {
+      const prompt =
+        `Summarise the following diff for ${file} into concise bullet points that capture every ` +
+        `changed function, added/removed import, modified signature, and behavioural change. ` +
+        `Do not omit technical details (identifiers, types, values). ` +
+        `Return ONLY a Markdown bullet list (- item).\n\n` +
+        `\`\`\`diff\n${patch}\n\`\`\``;
+
+      return this.stageAgentService.isEnabledForStage('review')
+        ? (await this.stageAgentService.generateFromPrompt(prompt)).trim()
+        : (
+            await this.aiService.execute({
+              prompt,
+              maxTokens: 2048,
+              stage: 'review',
+            })
+          ).content.trim();
+    };
+
+    const processedDiff = await summariseDiff(
+      segments,
+      MAX_REVIEW_DIFF_LENGTH,
+      summariseCallback,
+    );
+
     const review = this.stageAgentService.isEnabledForStage('review')
       ? await this.stageAgentService.reviewCode(
-          diff,
+          processedDiff,
           guidelines,
           options.repoDir,
         )
-      : await this.aiService.reviewCode(diff, guidelines);
+      : await this.aiService.reviewCode(processedDiff, guidelines);
     const agentEnabled =
       this.configService.get<boolean>('stages.review.agent', false) === true;
     return {
