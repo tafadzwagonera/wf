@@ -36,19 +36,7 @@ It's a summary that can't be used as-is
 ### Acceptance Criteria
 - None
 
-### Unit Test Scope
-- None
-
-#### Dependencies
-- None
-
 ### Risks & Assumptions
-- None
-
-### Affected Repositories
-- None
-
-#### References
 - None
 
 #### Out of Scope

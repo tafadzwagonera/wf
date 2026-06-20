@@ -53,20 +53,8 @@ Issue generation now reads recent Slack channel messages for bare archive URLs.
 ### Acceptance Criteria
 - Bare Slack archive URLs synthesize from message text instead of page HTML.
 
-### Unit Test Scope
-- Verify Slack channel archive URL routing.
-
-#### Dependencies
-- None
-
 ### Risks & Assumptions
 - Slack bot access is still required for real workspace runs.
-
-### Affected Repositories
-- wf
-
-#### References
-- https://myworkspace.slack.com/archives/C0AP5MMCP53
 
 #### Out of Scope
 - Full channel export pagination.

@@ -1737,16 +1737,8 @@ export class IssueGenerateCommand extends CommandRunner {
     prompt += `<implementation suggestions, backward compatibility concerns, required migrations, architectural alignment>\n\n`;
     prompt += `### Acceptance Criteria\n`;
     prompt += `- <criterion 1>\n\n`;
-    prompt += `### Unit Test Scope\n`;
-    prompt += `- <unit test scope item 1>\n\n`;
-    prompt += `#### Dependencies\n`;
-    prompt += `- <dependency or "None">\n\n`;
     prompt += `### Risks & Assumptions\n`;
     prompt += `- <risk or assumption or "None">\n\n`;
-    prompt += `### Affected Repositories\n`;
-    prompt += `- <repository or "None">\n\n`;
-    prompt += `#### References\n`;
-    prompt += `- <reference or "None">\n\n`;
     prompt += `#### Out of Scope\n`;
     prompt += `- <out of scope item or "None">\n\n`;
     prompt += `Rules:\n`;

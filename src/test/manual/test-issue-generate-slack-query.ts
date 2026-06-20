@@ -52,20 +52,8 @@ Add per-client rate limiting using a token-bucket algorithm.
 ### Acceptance Criteria
 - API returns 429 when a client exceeds 100 requests per minute.
 
-### Unit Test Scope
-- Unit test the token-bucket middleware in isolation.
-
-#### Dependencies
-- redis@^4.0.0
-
 ### Risks & Assumptions
 - Redis availability is assumed.
-
-### Affected Repositories
-- api-gateway
-
-#### References
-- https://example.com/rfc-rate-limiting
 
 #### Out of Scope
 - Per-endpoint rate limits.

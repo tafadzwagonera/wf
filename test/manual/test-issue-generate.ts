@@ -41,21 +41,8 @@ app.use(rateLimit({ windowMs: 60_000, max: 100 }));
 - API returns 429 when a client exceeds 100 requests per minute.
 - The rate limit is configurable via environment variable RATE_LIMIT_MAX.
 
-### Unit Test Scope
-- Unit test the token-bucket middleware in isolation.
-- Integration test the gateway with a mocked Redis client.
-
-#### Dependencies
-- redis@^4.0.0
-
 ### Risks & Assumptions
 - Redis availability is assumed; a circuit breaker is out of scope.
-
-### Affected Repositories
-- api-gateway
-
-#### References
-- https://example.com/rfc-rate-limiting
 
 #### Out of Scope
 - Per-endpoint rate limits.
@@ -132,11 +119,7 @@ async function testIssueGenerate() {
     '### Summary',
     '#### Technical Details',
     '### Acceptance Criteria',
-    '### Unit Test Scope',
-    '#### Dependencies',
     '### Risks & Assumptions',
-    '### Affected Repositories',
-    '#### References',
     '#### Out of Scope',
   ];
 

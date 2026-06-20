@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { of } from 'rxjs';
 import { UniversalTicket } from '../../common/dto/universal-ticket.dto';
+import { stripRedundantSections } from '../../common/utils/markdown-text';
 import { JiraService } from '../../integrations/jira/jira.service';
 import { JiraAdapter } from '../../integrations/issue-trackers/jira/jira-adapter';
 
@@ -130,12 +131,11 @@ export const loadDescriptionFile = (descriptionFilePath: string): string => {
  */
 export const normalizeDescriptionMarkdown = (markdown: string): string => {
   const summaryHeadingMatch = markdown.match(/^### Summary\s*$/m);
+  const trimmed = summaryHeadingMatch?.index
+    ? markdown.slice(summaryHeadingMatch.index).trim()
+    : markdown.trim();
 
-  if (!summaryHeadingMatch?.index) {
-    return markdown.trim();
-  }
-
-  return markdown.slice(summaryHeadingMatch.index).trim();
+  return stripRedundantSections(trimmed);
 };
 
 const collectAdfNodes = (node: unknown): AdfNode[] => {

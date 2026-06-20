@@ -139,9 +139,12 @@ async function buildCommand(): Promise<IssueCreateCommand> {
           detectFormat: jest.fn().mockReturnValue('md'),
           getConverter: jest.fn().mockReturnValue({
             parse: jest.fn((content: string) => {
-              if (!content.includes('Create service document storage')) {
+              if (!content.includes('## Description')) {
                 return { ...mockTicket };
               }
+
+              const titleMatch = content.match(/^# (.+)$/m);
+              const title = titleMatch ? titleMatch[1] : mockTicket.title;
 
               const description = content
                 .split(/^## Description$/m)
@@ -151,9 +154,7 @@ async function buildCommand(): Promise<IssueCreateCommand> {
 
               return {
                 ...mockTicket,
-                title: 'Create service document storage',
-                type: 'story',
-                priority: 'medium',
+                title,
                 description,
               };
             }),
@@ -411,9 +412,6 @@ describe('IssueCreateCommand', () => {
       '',
       '### Acceptance Criteria',
       '- Documents can be created from the API.',
-      '',
-      '### Unit Test Scope',
-      '- DTO validation covers required fields.',
     ].join('\n');
 
     mockExistsSync.mockImplementation(
@@ -527,6 +525,75 @@ describe('IssueCreateCommand', () => {
         ]),
       }),
     );
+  });
+
+  it('strips removed sections from the ticket description before creating', async () => {
+    const command = await buildCommand();
+    const issueTrackerService = (command as any)
+      .issueTrackerService as jest.Mocked<IssueTrackerService>;
+    const artifactPath = path.join(
+      os.homedir(),
+      '.wf',
+      'service-document-v1',
+      'jira',
+      '2026-06-19-strip-test.md',
+    );
+    const artifactContent = [
+      '# Strip sections test',
+      '',
+      '**Type:** story',
+      '**Priority:** medium',
+      '',
+      '## Description',
+      '### Summary',
+      'A service document flow.',
+      '',
+      '### Acceptance Criteria',
+      '- Documents can be created.',
+      '',
+      '### Unit Test Scope',
+      '- DTO validation covers required fields.',
+      '',
+      '#### Dependencies',
+      '- service-auth v2',
+      '',
+      '### Risks & Assumptions',
+      '- None',
+      '',
+      '### Affected Repositories',
+      '- service-document-v1',
+      '',
+      '#### References',
+      '- https://example.com/doc',
+      '- Internal wiki link',
+      '',
+      '#### Out of Scope',
+      '- Refund handling',
+    ].join('\n');
+
+    mockExistsSync.mockImplementation(
+      (input) => String(input) === artifactPath,
+    );
+    mockReadFileSync.mockReturnValue(artifactContent);
+
+    await command.run(['2026-06-19-strip-test.md'], {
+      repos: ['service-document-v1'],
+      ticketProject: 'WBP',
+    });
+
+    const mockAdapter = (issueTrackerService.getAdapter as jest.Mock).mock
+      .results[0].value as {
+      createTicket: jest.Mock;
+    };
+    const ticket = mockAdapter.createTicket.mock.calls[0][0];
+    expect(ticket.description).not.toContain('#### References');
+    expect(ticket.description).not.toContain('https://example.com/doc');
+    expect(ticket.description).not.toContain('### Unit Test Scope');
+    expect(ticket.description).not.toContain('#### Dependencies');
+    expect(ticket.description).not.toContain('### Affected Repositories');
+    expect(ticket.description).toContain('### Acceptance Criteria');
+    expect(ticket.description).toContain('### Risks & Assumptions');
+    expect(ticket.description).toContain('#### Out of Scope');
   });
 
   it('passes normalized command priority and ticket project to the Jira adapter', async () => {

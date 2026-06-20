@@ -11,6 +11,7 @@ import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { JiraAdapter } from '../integrations/issue-trackers/jira/jira-adapter';
+import { stripRedundantSections } from '../common/utils/markdown-text';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -366,6 +367,8 @@ export class IssueCreateCommand extends CommandRunner {
       if (options?.priority) {
         ticket.priority = options.priority as TicketPriority;
       }
+
+      ticket.description = stripRedundantSections(ticket.description);
 
       // Get tracker adapter
       if (!options?.silent) {
