@@ -411,15 +411,25 @@ export class GitService {
     if (paths.length === 0) return [];
 
     const git = cwd ? simpleGit(cwd) : this.git;
-    try {
-      const result = await git.raw(['check-ignore', ...paths]);
-      return result
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean);
-    } catch {
-      // exit code 1 means "none of the paths are ignored" — not an error
-      return [];
+    // Process in chunks to avoid exceeding OS argument length limits.
+    const CHUNK_SIZE = 100;
+    const ignored: string[] = [];
+
+    for (let i = 0; i < paths.length; i += CHUNK_SIZE) {
+      const chunk = paths.slice(i, i + CHUNK_SIZE);
+      try {
+        const result = await git.raw(['check-ignore', ...chunk]);
+        ignored.push(
+          ...result
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean),
+        );
+      } catch {
+        // exit code 1 means "none of the paths are ignored" — not an error
+      }
     }
+
+    return ignored;
   }
 }
