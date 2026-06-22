@@ -694,18 +694,29 @@ export class ImplementerAgent {
     );
     const mainBranch = this.gitService.detectMainBranch(branchInfo.all);
 
+    const isRemote = (b: string): boolean =>
+      b.startsWith('remotes/') || b.startsWith('origin/');
+    const formatBranchChoice = (b: string): { name: string; value: string } =>
+      isRemote(b)
+        ? { name: chalk.gray(b), value: b }
+        : { name: chalk.white(b), value: b };
+
     // 3. Select source branch
     let sourceBranch: string | undefined;
 
     if (devBranches.length === 1) {
       sourceBranch = devBranches[0];
     } else if (devBranches.length > 1 && interactive) {
+      const choices = [
+        ...devBranches.map(formatBranchChoice),
+        ...(mainBranch ? [formatBranchChoice(mainBranch)] : []),
+      ];
       const { selected } = await inquirer.prompt<{ selected: string }>([
         {
           type: 'list',
           name: 'selected',
           message: 'Multiple dev branches found. Select source branch:',
-          choices: [...devBranches, ...(mainBranch ? [mainBranch] : [])],
+          choices,
           default: devBranches[0],
         },
       ]);
@@ -725,27 +736,40 @@ export class ImplementerAgent {
         ),
       );
     } else {
-      const hasUpstream = await this.gitService.hasUpstream(sourceBranch, cwd);
+      const branchColor = isRemote(sourceBranch) ? chalk.gray : chalk.white;
+      const hasUpstream = isRemote(sourceBranch)
+        ? true
+        : await this.gitService.hasUpstream(sourceBranch, cwd);
       console.log(
         chalk.cyan(
-          `  Source branch: ${sourceBranch}${hasUpstream ? ' (has upstream)' : ''}`,
+          `  Source branch: ${branchColor(sourceBranch)}${hasUpstream ? ' (has upstream)' : ''}`,
         ),
       );
     }
 
-    // 4. Pull latest
-    if (branchInfo.current !== sourceBranch) {
-      await this.gitService.checkoutBranch(sourceBranch);
-    }
-    try {
+    const sourceIsRemote = isRemote(sourceBranch);
+
+    // 4. Pull latest (skip for remote branches — already at remote HEAD)
+    if (!sourceIsRemote) {
+      if (branchInfo.current !== sourceBranch) {
+        await this.gitService.checkoutBranch(sourceBranch);
+      }
+      try {
+        console.log(
+          chalk.gray(`  Pulling latest from origin/${sourceBranch}...`),
+        );
+        await this.gitService.pull('origin', sourceBranch, cwd);
+      } catch {
+        console.log(
+          chalk.yellow(
+            `  Could not pull ${sourceBranch} (no upstream or network issue) — continuing with local state`,
+          ),
+        );
+      }
+    } else {
       console.log(
-        chalk.gray(`  Pulling latest from origin/${sourceBranch}...`),
-      );
-      await this.gitService.pull('origin', sourceBranch, cwd);
-    } catch {
-      console.log(
-        chalk.yellow(
-          `  Could not pull ${sourceBranch} (no upstream or network issue) — continuing with local state`,
+        chalk.gray(
+          `  Skipping pull — ${sourceBranch} is a remote tracking ref`,
         ),
       );
     }

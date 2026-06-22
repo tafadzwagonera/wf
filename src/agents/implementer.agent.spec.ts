@@ -540,6 +540,33 @@ describe('ImplementerAgent', () => {
       );
     });
 
+    it('skips pull when source branch is a remote ref', async () => {
+      gitService.detectDevelopmentBranches.mockReturnValue([
+        'remotes/origin/develop',
+      ]);
+      gitService.getBranchInfo.mockResolvedValue({
+        current: 'main',
+        all: ['main', 'remotes/origin/develop'],
+        development: 'remotes/origin/develop',
+        isClean: true,
+        hasUncommittedChanges: false,
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(gitService.pull).not.toHaveBeenCalled();
+      expect(gitService.checkoutBranch).not.toHaveBeenCalled();
+      expect(gitService.createBranch).toHaveBeenCalledWith(
+        expect.any(String),
+        'remotes/origin/develop',
+        '/tmp/repo-a',
+      );
+    });
+
     it('does not create branch when --no-branch is set', async () => {
       const result = await agent.execute(
         ticketArtifact,
