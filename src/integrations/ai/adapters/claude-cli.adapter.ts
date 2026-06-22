@@ -218,7 +218,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       );
 
       const unvisitedLines = currentUnvisited.map((f) => `- ${f}`).join('\n');
-      const continuationPrompt = `Continue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}\n\nFor each file listed above, read the full file first, then apply the required changes. After addressing all listed files, verify your work. Do not output any text or plan before making your first tool call.`;
+      const continuationPrompt = `Continue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}\n\nFor each file listed above, read the full file first, then apply the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before making your first tool call.`;
 
       const continueArgs = buildCliArgs({
         prompt: continuationPrompt,
