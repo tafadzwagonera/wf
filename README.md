@@ -738,7 +738,6 @@ stages:
   implement:
     provider: openai
     model: gpt-5.4-mini
-    narrate: true  # opt-in: narrate the plan before implementation (adds ~500-1K tokens per turn)
 ```
 
 ---

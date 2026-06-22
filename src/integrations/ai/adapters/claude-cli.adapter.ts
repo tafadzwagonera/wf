@@ -48,12 +48,12 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     planArtifact: PlanArtifact;
     options: ImplementerOptions;
     verificationScripts: VerificationScript[];
-    sceneContext: string;
+    ticketContext: string;
     repoFiles: string[];
     repoName: string;
     trackedFilePaths: string[];
   }): Promise<void> {
-    const { options, verificationScripts, sceneContext, repoFiles, repoName } =
+    const { options, verificationScripts, ticketContext, repoFiles, repoName } =
       params;
 
     const repoDir = options.repoDir ?? process.cwd();
@@ -83,8 +83,11 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       repoFiles,
       trackedFilePaths: params.trackedFilePaths,
       verificationScripts,
-      sceneContext,
+      ticketContext,
       planSteps: params.planArtifact.plan.steps,
+      planSummary: params.planArtifact.plan.summary,
+      planRisks: params.planArtifact.plan.risks,
+      planAction: params.planArtifact.plan.action,
     });
 
     const appendSystemPrompt = [

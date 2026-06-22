@@ -114,7 +114,7 @@ ${JSON.stringify(
 
 Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
-2. Specific, actionable steps to ${params.action} the issue
+2. Specific, actionable steps to ${params.action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
 3. Estimated complexity (low/medium/high)
 4. Files that will be affected — prefix EVERY path with its repository name
 5. Potential risks or considerations

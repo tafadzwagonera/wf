@@ -1,7 +1,7 @@
 // test/manual/test-anthropic-agent-prompt-fix.ts
 //
 // Smoke tests for the Anthropic agent adapter prompt fix:
-//   1. sceneContext no longer used as the SDK prompt (action directive instead)
+//   1. ticketContext no longer used as the SDK prompt (action directive instead)
 //   2. System prompt mandates the structured summary format
 //   3. Post-run prints a "Summary:" header when result is non-empty
 //   4. Post-run prints "no file changes were made" fallback when result is empty
@@ -36,7 +36,7 @@ function buildExpectedSystemPrompt(args: {
   repoFiles: string[];
   trackedFilePaths: string[];
   verificationScripts: VerificationScript[];
-  sceneContext: string;
+  ticketContext: string;
 }): string {
   const fileList =
     args.repoFiles.length === 0
@@ -83,8 +83,8 @@ Rules:
 ### Assumptions / risk note
 <Any assumptions made or risks identified. Write "None." if there are none.>
 
-Task context:
-${args.sceneContext}`;
+Ticket context:
+${args.ticketContext}`;
 }
 
 const ACTION_DIRECTIVE =
@@ -107,7 +107,7 @@ async function main() {
     repoFiles: ['variables.tf'],
     trackedFilePaths: ['variables.tf'],
     verificationScripts: [{ command: 'terraform validate' }],
-    sceneContext: SCENE,
+    ticketContext: SCENE,
   });
 
   assert(
@@ -135,14 +135,14 @@ async function main() {
     systemPrompt.includes('Do not add preamble or planning text'),
   );
   assert(
-    'system prompt still carries sceneContext under Task context:',
-    systemPrompt.includes('Task context:') && systemPrompt.includes(SCENE),
+    'system prompt still carries ticketContext under Ticket context:',
+    systemPrompt.includes('Ticket context:') && systemPrompt.includes(SCENE),
   );
 
-  // ── Test 2: SDK prompt is the action directive, not sceneContext ─────────
+  // ── Test 2: SDK prompt is the action directive, not ticketContext ─────────
   console.log(
     chalk.bold.cyan(
-      '\n🧪 Part 2: SDK prompt — action directive, not sceneContext',
+      '\n🧪 Part 2: SDK prompt — action directive, not ticketContext',
     ),
   );
   console.log(chalk.gray('─'.repeat(60)));
@@ -162,9 +162,9 @@ async function main() {
     ),
   );
   assert(
-    'action directive does NOT contain sceneContext',
+    'action directive does NOT contain ticketContext',
     !ACTION_DIRECTIVE.includes(SCENE),
-    'sceneContext must not be duplicated in the SDK prompt',
+    'ticketContext must not be duplicated in the SDK prompt',
   );
 
   // ── Test 3: post-run summary printed with header when non-empty ─────────

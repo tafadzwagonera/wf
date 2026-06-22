@@ -388,7 +388,7 @@ ${context ? `Context:\n${JSON.stringify(context, null, 2)}` : ''}
 
 ${repoHint}Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
-2. Specific, actionable steps to ${action} the issue
+2. Specific, actionable steps to ${action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
 3. Estimated complexity (low/medium/high)
 4. Files that will be affected — prefix EVERY path with its repository name
    (e.g., "service-tourv3/src/pricing/pricing.service.ts"). Use the repository
@@ -534,58 +534,6 @@ Return ONLY a valid JSON object:
         },
       );
     }
-  }
-
-  /**
-   * Produce a structured narration of the implementation plan to be shown
-   * to the developer before any file edits begin. Borrows the writing-plans
-   * skill pattern: Goal / Approach / Tasks.
-   *
-   * @param ticketContent - Raw ticket markdown for context
-   * @param plan - The resolution plan produced by PlannerAgent
-   * @returns Plain-text narration string with ## Goal, ## Approach, ## Tasks sections
-   */
-  async narrateImplementationPlan(
-    ticketContent: string,
-    plan: ResolutionPlan,
-  ): Promise<string> {
-    const systemPrompt = `You are a senior software engineer narrating an implementation plan.
-Produce a concise, structured narration that helps the developer understand what will be done and why.
-Return ONLY the narration text — no markdown code fences, no preamble.
-Use exactly this structure:
-
-## Goal
-(One sentence describing the outcome.)
-
-## Approach
-(Two to three sentences on the architectural approach: which layers are touched, key patterns used, and what is intentionally left unchanged.)
-
-## Tasks
-(Numbered list. Each item: "<file path> — <what changes> [depends on: <dependency or risk if any>]")`;
-
-    const prompt = `Ticket context:
-${ticketContent.substring(0, 800)}
-
-Plan summary: ${plan.summary}
-Action: ${plan.action}
-Estimated complexity: ${plan.estimatedComplexity}
-Steps:
-${plan.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
-Files affected:
-${(plan.filesAffected ?? []).join('\n') || '(none listed)'}
-Risks:
-${(plan.risks ?? []).join('\n') || '(none listed)'}
-
-Narrate this plan using the structure in the system prompt.`;
-
-    const response = await this.execute({
-      prompt,
-      systemPrompt,
-      temperature: 0.4,
-      maxTokens: 1024,
-    });
-
-    return response.content.trim();
   }
 
   async generateCommitMessage(

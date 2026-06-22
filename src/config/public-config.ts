@@ -43,7 +43,6 @@ export interface WfImplementStageModelsConfig {
 
 export interface WfImplementStageConfig extends WfAiStageTargetConfig {
   models?: WfImplementStageModelsConfig;
-  narrate?: boolean;
   verificationConditions?: WfVerificationConditionsConfig;
 }
 

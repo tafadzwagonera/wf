@@ -97,9 +97,6 @@ describe('ImplementerAgent', () => {
         {
           provide: AiService,
           useValue: {
-            narrateImplementationPlan: jest
-              .fn()
-              .mockResolvedValue('## Goal\nShip a verified change\n'),
             generateFindings: jest.fn(),
           },
         },
@@ -340,9 +337,6 @@ describe('ImplementerAgent', () => {
           {
             provide: AiService,
             useValue: {
-              narrateImplementationPlan: jest
-                .fn()
-                .mockResolvedValue('## Goal\nFallback\n'),
               generateFindings: jest.fn(),
             },
           },
@@ -411,9 +405,6 @@ describe('ImplementerAgent', () => {
           {
             provide: AiService,
             useValue: {
-              narrateImplementationPlan: jest
-                .fn()
-                .mockResolvedValue('## Goal\nOpenAI\n'),
               generateFindings: jest.fn(),
             },
           },

@@ -1,7 +1,7 @@
 // test/manual/test-openai-agent-prompt-fix.ts
 //
 // Smoke tests for the OpenAI agent adapter fix:
-//   1. sceneContext no longer duplicated in user prompt
+//   1. ticketContext no longer duplicated in user prompt
 //   2. System prompt mandates the structured summary format
 //   3. "No file changes" fallback is printed when fileChangeStatus is empty
 //
@@ -35,7 +35,7 @@ type BuildSystemPromptArgs = {
   repoFiles: string[];
   trackedFilePaths: string[];
   verificationScripts: Array<{ command: string }>;
-  sceneContext: string;
+  ticketContext: string;
 };
 
 /**
@@ -101,8 +101,8 @@ Rules:
 ### Assumptions / risk note
 <Any assumptions made or risks identified. Write "None." if there are none.>
 
-Task context:
-${args.sceneContext}`;
+Ticket context:
+${args.ticketContext}`;
 }
 
 function buildExpectedUserPrompt(
@@ -136,7 +136,7 @@ async function main() {
     repoFiles: ['main.tf'],
     trackedFilePaths: ['main.tf'],
     verificationScripts: [{ command: 'terraform validate' }],
-    sceneContext: SCENE,
+    ticketContext: SCENE,
   });
 
   assert(
@@ -164,14 +164,14 @@ async function main() {
     systemPrompt.includes('Do not add preamble or planning text'),
   );
   assert(
-    'system prompt still contains Task context + sceneContext',
-    systemPrompt.includes('Task context:') && systemPrompt.includes(SCENE),
+    'system prompt still contains Task context + ticketContext',
+    systemPrompt.includes('Ticket context:') && systemPrompt.includes(SCENE),
   );
 
-  // ── Test 2: user prompt — no sceneContext duplication ──────────────────
+  // ── Test 2: user prompt — no ticketContext duplication ──────────────────
   console.log(
     chalk.bold.cyan(
-      '\n🧪 Part 2: User prompt — action directive, no sceneContext',
+      '\n🧪 Part 2: User prompt — action directive, no ticketContext',
     ),
   );
   console.log(chalk.gray('─'.repeat(60)));
@@ -188,9 +188,9 @@ async function main() {
     ),
   );
   assert(
-    'user prompt does NOT contain sceneContext',
+    'user prompt does NOT contain ticketContext',
     !userPromptNoContext.includes(SCENE),
-    'sceneContext must not be duplicated in the user turn',
+    'ticketContext must not be duplicated in the user turn',
   );
   assert(
     'user prompt instructs no text before first tool call',
@@ -219,7 +219,7 @@ async function main() {
     ),
   );
   assert(
-    'sceneContext still absent when openAiContext provided',
+    'ticketContext still absent when openAiContext provided',
     !userPromptWithCtx.includes(SCENE),
   );
 

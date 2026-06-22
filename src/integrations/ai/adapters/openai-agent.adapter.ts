@@ -601,8 +601,11 @@ const buildSystemPrompt = ({
   repoFiles,
   trackedFilePaths,
   verificationScripts,
-  sceneContext,
+  ticketContext,
   planSteps,
+  planSummary,
+  planRisks,
+  planAction,
 }: {
   ticketKey: string;
   repoDir: string;
@@ -610,8 +613,11 @@ const buildSystemPrompt = ({
   repoFiles: string[];
   trackedFilePaths: string[];
   verificationScripts: VerificationScript[];
-  sceneContext: string;
+  ticketContext: string;
   planSteps: string[];
+  planSummary?: string;
+  planRisks?: string[];
+  planAction?: 'fix' | 'feature' | 'investigate';
 }): string => {
   const fileList = formatRepoFileList(repoFiles, repoName);
   const trackedIdentical =
@@ -633,6 +639,20 @@ const buildSystemPrompt = ({
 
 Repository directory: ${repoDir}
 Ticket key: ${ticketKey}
+
+Plan summary:
+${planSummary || '(none)'}
+
+Action: ${(() => {
+    switch (planAction) {
+      case 'fix':
+        return 'This is a bug fix. Make minimal, targeted changes that resolve the issue without altering unrelated behavior.';
+      case 'feature':
+        return 'This is a new feature. Extend the codebase following existing patterns and conventions.';
+      default:
+        return '(not specified)';
+    }
+  })()}
 
 Plan steps:
 ${planStepList}
@@ -687,8 +707,11 @@ Rules:
 ### Assumptions / risk note
 <Any assumptions made or risks identified. Write "None." if there are none.>
 
-Task context:
-${sceneContext}`;
+Risks and guardrails:
+${planRisks && planRisks.length > 0 ? planRisks.map((r, i) => `  ${i + 1}. ${r}`).join('\n') : '  (none identified)'}
+
+Ticket context:
+${ticketContext}`;
 };
 
 export const formatProgressMessage = (
@@ -840,12 +863,12 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     planArtifact: PlanArtifact;
     options: ImplementerOptions;
     verificationScripts: VerificationScript[];
-    sceneContext: string;
+    ticketContext: string;
     repoFiles: string[];
     repoName: string;
     trackedFilePaths: string[];
   }): Promise<void> {
-    const { options, verificationScripts, sceneContext, repoFiles, repoName } =
+    const { options, verificationScripts, ticketContext, repoFiles, repoName } =
       params;
     const repoDir = options.repoDir ?? process.cwd();
     const readRoots = toWorkspaceRoots(
@@ -1317,8 +1340,11 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         repoFiles,
         trackedFilePaths: params.trackedFilePaths,
         verificationScripts,
-        sceneContext,
+        ticketContext,
         planSteps: params.planArtifact.plan.steps,
+        planSummary: params.planArtifact.plan.summary,
+        planRisks: params.planArtifact.plan.risks,
+        planAction: params.planArtifact.plan.action,
       }),
       model,
       tools: [

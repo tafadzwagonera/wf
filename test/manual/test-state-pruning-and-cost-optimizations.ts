@@ -14,10 +14,9 @@
  *   8. Passing verify_command omits stdout/stderr
  *   9. Tracked file deduplication renders "(same as files to implement)"
  *  10. MAX_READ_LINES is 200
- *  11. Narration is opt-in via stages.implement.narrate
- *  12. Anthropic buildSystemPrompt includes ticketKey and planSteps
- *  13. Anthropic buildSystemPrompt uses Claude tool names (Read, Write, Edit, Grep, Glob, Bash)
- *  14. No `as any` casts in pruneStateIfNeeded or its call sites
+ *  11. Anthropic buildSystemPrompt includes ticketKey and planSteps
+ *  12. Anthropic buildSystemPrompt uses Claude tool names (Read, Write, Edit, Grep, Glob, Bash)
+ *  13. No `as any` casts in pruneStateIfNeeded or its call sites
  *
  * @returns Promise that resolves when the smoke test completes
  */
@@ -70,16 +69,6 @@ const run = async (): Promise<void> => {
       'adapters',
       'anthropic-agent.adapter.ts',
     ),
-    'utf8',
-  );
-
-  const implementerSource = fs.readFileSync(
-    path.join(srcRoot, 'agents', 'implementer.agent.ts'),
-    'utf8',
-  );
-
-  const configLoaderSource = fs.readFileSync(
-    path.join(srcRoot, 'config', 'wf-config-loader.ts'),
     'utf8',
   );
 
@@ -230,38 +219,23 @@ const run = async (): Promise<void> => {
     openaiAdapterSource.includes('const MAX_READ_LINES = 200'),
   );
 
-  // --- Narration opt-in ---
-
-  // 16. Narration guarded by stages.implement.narrate config
-  assert(
-    'narration is opt-in via stages.implement.narrate',
-    implementerSource.includes('stages.implement.narrate') &&
-      implementerSource.includes('shouldNarrate'),
-  );
-
-  // 17. narrate field in config schema
-  assert(
-    'narrate field in Joi schema',
-    configLoaderSource.includes('narrate: Joi.boolean().optional()'),
-  );
-
   // --- Anthropic buildSystemPrompt alignment ---
 
-  // 18. Anthropic buildSystemPrompt accepts ticketKey
+  // 16. Anthropic buildSystemPrompt accepts ticketKey
   assert(
     'Anthropic buildSystemPrompt includes ticketKey parameter',
     anthropicAdapterSource.includes('ticketKey: string;') &&
       anthropicAdapterSource.includes('Ticket key: ${ticketKey}'),
   );
 
-  // 19. Anthropic buildSystemPrompt accepts planSteps
+  // 17. Anthropic buildSystemPrompt accepts planSteps
   assert(
     'Anthropic buildSystemPrompt includes planSteps parameter',
     anthropicAdapterSource.includes('planSteps: string[];') &&
       anthropicAdapterSource.includes('Plan steps:'),
   );
 
-  // 20. Anthropic adapter uses Claude tool names
+  // 18. Anthropic adapter uses Claude tool names
   assert(
     'Anthropic adapter uses Claude tool names (Read, Write, Edit, Grep, Glob, Bash)',
     anthropicAdapterSource.includes('- Read(file_path') &&
@@ -272,7 +246,7 @@ const run = async (): Promise<void> => {
       anthropicAdapterSource.includes('- Bash(command)'),
   );
 
-  // 21. Anthropic adapter no longer uses old generic tool names
+  // 19. Anthropic adapter no longer uses old generic tool names
   assert(
     'Anthropic adapter does not use old "Use Write or Edit to write" rule',
     !anthropicAdapterSource.includes(

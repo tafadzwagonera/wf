@@ -66,7 +66,7 @@ const makeParams = () => ({
   },
   options: { trackerName: 'jira', repoDir: '/repo' },
   verificationScripts: [],
-  sceneContext: 'context',
+  ticketContext: 'context',
   repoFiles: [],
   repoName: 'repo',
   trackedFilePaths: [],

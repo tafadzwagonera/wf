@@ -75,9 +75,6 @@ async function main() {
     path: path.join(tempRoot, 'WBP-3054-plan-feature.json'),
   };
 
-  (implementer as any).aiService.narrateImplementationPlan = async () =>
-    '## Goal\nVerify long branch names.\n';
-
   const result = await implementer.execute(ticket, planArtifact, {
     trackerName: 'jira',
     repoDir,
@@ -153,9 +150,6 @@ async function main() {
     action: 'fix',
     path: path.join(tempRoot2, 'WBP-3054-plan-fix.json'),
   };
-
-  (implementer as any).aiService.narrateImplementationPlan = async () =>
-    '## Goal\nVerify bare heading branch names.\n';
 
   const result2 = await implementer.execute(ticket2, planArtifact2, {
     trackerName: 'jira',

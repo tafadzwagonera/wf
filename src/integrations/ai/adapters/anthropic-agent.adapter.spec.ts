@@ -270,7 +270,7 @@ const makeParams = (
     additionalRepoDirs: ['/repo/shared'],
   },
   verificationScripts,
-  sceneContext: 'implement it',
+  ticketContext: 'implement it',
   repoFiles: [] as string[],
   repoName: 'primary',
   trackedFilePaths: [],

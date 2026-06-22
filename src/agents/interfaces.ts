@@ -171,7 +171,7 @@ export interface ImplementerBackend {
     planArtifact: PlanArtifact;
     options: ImplementerOptions;
     verificationScripts: VerificationScript[];
-    sceneContext: string;
+    ticketContext: string;
     repoFiles: string[];
     repoName: string;
     trackedFilePaths: string[];
