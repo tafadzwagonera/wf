@@ -474,7 +474,9 @@ export class IssuePlanCommand extends CommandRunner {
           customSourceContent,
           {
             action,
-            affectedRepositories: options?.repos,
+            affectedRepositories: options?.repos ?? [
+              path.basename(artifactBaseDir),
+            ],
           },
         );
         this.validateGeneratedPlan(
@@ -683,7 +685,9 @@ export class IssuePlanCommand extends CommandRunner {
       const plan = await this.planStageService.generatePlan(ticketContent, {
         action,
         ticketKey,
-        affectedRepositories: options?.repos,
+        affectedRepositories: options?.repos ?? [
+          path.basename(artifactBaseDir),
+        ],
       });
       this.validateGeneratedPlan(
         plan,

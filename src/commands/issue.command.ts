@@ -687,7 +687,7 @@ export class IssueCommand extends CommandRunner {
         planArtifact = await this.agents.planner.execute(ticketArtifact, {
           action: action!,
           skipExisting,
-          affectedRepositories: options?.repos,
+          affectedRepositories: options?.repos ?? [path.basename(repoBaseDir)],
           silent: options?.silent,
         });
         if (options?.silent) {
