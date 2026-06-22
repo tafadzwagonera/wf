@@ -149,40 +149,6 @@ export class IssueCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
-    description: 'Tracker to use (jira|github|bitbucket)',
-  })
-  parseTracker(val: string): string {
-    return val;
-  }
-
-  @Option({
-    flags: '--pr',
-    description: 'After the COMMIT stage, print a hint to run wf issue:pr',
-  })
-  parsePr(): boolean {
-    return true;
-  }
-
-  @Option({
-    flags: '-s, --silent',
-    description:
-      'Suppress decorative output and interactive prompts. Emits only artifact paths (per stage) for piping',
-  })
-  parseSilent(): boolean {
-    return true;
-  }
-
-  @Option({
-    flags: '-r, --repos <repos...>',
-    description:
-      'Space-separated repositories; the first repo anchors artifact storage and all repos are used as workflow context',
-  })
-  parseRepos(val: string | string[], previous: string[] = []): string[] {
-    return parseReposOption(val, previous);
-  }
-
-  @Option({
     flags: '--model-routing <mode>',
     description:
       'Model selection strategy for implement stage: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto.',
@@ -205,11 +171,45 @@ export class IssueCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--pr',
+    description: 'After the COMMIT stage, print a hint to run wf issue:pr',
+  })
+  parsePr(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '-r, --repos <repos...>',
+    description:
+      'Space-separated repositories; the first repo anchors artifact storage and all repos are used as workflow context',
+  })
+  parseRepos(val: string | string[], previous: string[] = []): string[] {
+    return parseReposOption(val, previous);
+  }
+
+  @Option({
+    flags: '-s, --silent',
+    description:
+      'Suppress decorative output and interactive prompts. Emits only artifact paths (per stage) for piping',
+  })
+  parseSilent(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '--to <stage>',
     description:
       'Stop at stage (fetch|plan|implement|review|commit) - defaults to commit',
   })
   parseTo(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker to use (jira|github|bitbucket)',
+  })
+  parseTracker(val: string): string {
     return val;
   }
 

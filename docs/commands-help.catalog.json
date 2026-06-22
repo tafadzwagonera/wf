@@ -24,12 +24,12 @@
         "description": "Disable AI generation and require manual message"
       },
       {
-        "flags": "-t, --tracker <tracker>",
-        "description": "Tracker (jira|github|bitbucket)"
-      },
-      {
         "flags": "-r, --repos <repos...>",
         "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning"
+      },
+      {
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker (jira|github|bitbucket)"
       }
     ],
     "examples": [
@@ -64,28 +64,28 @@
         "description": "Input format (json|md|yaml|yml) - overrides file extension detection; required when reading from stdin"
       },
       {
-        "flags": "-t, --tracker <tracker>",
-        "description": "Target tracker (jira|github|bitbucket) - default from config"
+        "flags": "--priority <priority>",
+        "description": "Override normalized ticket priority (highest|high|medium|low|lowest); Jira resolves it to an allowed project value"
       },
       {
         "flags": "-r, --repos <repos...>",
         "description": "Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning"
       },
       {
+        "flags": "-s, --silent",
+        "description": "Suppress decorative output and interactive prompts. Emits only the ticket key for piping"
+      },
+      {
         "flags": "--ticket-project <project>",
         "description": "Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file"
       },
       {
+        "flags": "-t, --tracker <tracker>",
+        "description": "Target tracker (jira|github|bitbucket) - default from config"
+      },
+      {
         "flags": "-t, --type <type>",
         "description": "Issue type (task|bug|story|todo) - overrides input file"
-      },
-      {
-        "flags": "--priority <priority>",
-        "description": "Override normalized ticket priority (highest|high|medium|low|lowest); Jira resolves it to an allowed project value"
-      },
-      {
-        "flags": "-s, --silent",
-        "description": "Suppress decorative output and interactive prompts. Emits only the ticket key for piping"
       }
     ],
     "examples": [
@@ -124,16 +124,16 @@
         "description": "Output format (json|md|yaml|yml) - default: md"
       },
       {
-        "flags": "-t, --tracker <tracker>",
-        "description": "Target tracker (jira|github|bitbucket)"
-      },
-      {
         "flags": "-r, --repos <repos...>",
         "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning"
       },
       {
         "flags": "-s, --silent",
         "description": "Suppress decorative output and interactive prompts. Emits only the file path for piping"
+      },
+      {
+        "flags": "-t, --tracker <tracker>",
+        "description": "Target tracker (jira|github|bitbucket)"
       }
     ],
     "examples": [
@@ -152,12 +152,12 @@
     "usage": "wf issue:generate:lookup <token> [options]",
     "options": [
       {
-        "flags": "-t, --tracker <tracker>",
-        "description": "Platform namespace to inspect"
-      },
-      {
         "flags": "-r, --repos <repos...>",
         "description": "Space-separated repositories; only the first repo is used for lookup scope"
+      },
+      {
+        "flags": "-t, --tracker <tracker>",
+        "description": "Platform namespace to inspect"
       }
     ],
     "examples": [
@@ -184,10 +184,6 @@
         "description": "Output file path - default: stdout"
       },
       {
-        "flags": "-t, --tracker <tracker>",
-        "description": "Tracker for ticket sources (jira|github|bitbucket)"
-      },
-      {
         "flags": "--priority <priority>",
         "description": "Override ticket priority (highest|high|medium|low|lowest)"
       },
@@ -206,6 +202,10 @@
       {
         "flags": "-t, --title <title>",
         "description": "Override generated title with custom title"
+      },
+      {
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker for ticket sources (jira|github|bitbucket)"
       },
       {
         "flags": "--type <type>",
@@ -298,16 +298,16 @@
         "description": "Output format for plan (json|md|yaml|yml) - default: json"
       },
       {
-        "flags": "-t, --tracker <tracker>",
-        "description": "Tracker to fetch from if local artifact not found"
-      },
-      {
         "flags": "-r, --repos <repos...>",
         "description": "Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)"
       },
       {
         "flags": "-s, --silent",
         "description": "Suppress decorative output and interactive prompts. Emits only the plan path for piping"
+      },
+      {
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker to fetch from if local artifact not found"
       }
     ],
     "examples": [
@@ -346,20 +346,20 @@
         "description": "Preview the PR creation without making changes"
       },
       {
-        "flags": "-t, --tracker <tracker>",
-        "description": "Tracker (jira|github|bitbucket)"
-      },
-      {
         "flags": "-r, --repos <repos...>",
         "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning"
+      },
+      {
+        "flags": "-s, --silent",
+        "description": "Suppress decorative output and interactive prompts. Emits only the PR URL for piping"
       },
       {
         "flags": "-t, --title <title>",
         "description": "Override the PR title"
       },
       {
-        "flags": "-s, --silent",
-        "description": "Suppress decorative output and interactive prompts. Emits only the PR URL for piping"
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker (jira|github|bitbucket)"
       }
     ],
     "examples": [
@@ -398,10 +398,6 @@
         "description": "Save review to file"
       },
       {
-        "flags": "-t, --tracker <tracker>",
-        "description": "Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker"
-      },
-      {
         "flags": "--replace-criteria <path>",
         "description": "Path to a markdown file whose criteria replace the default review guidelines entirely"
       },
@@ -412,6 +408,10 @@
       {
         "flags": "-s, --silent",
         "description": "Suppress decorative output and interactive prompts. Emits only the review artifact path for piping"
+      },
+      {
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker"
       }
     ],
     "examples": [
@@ -462,22 +462,6 @@
         "description": "Start from stage (fetch|plan|implement|review|commit) [REQUIRED]"
       },
       {
-        "flags": "-t, --tracker <tracker>",
-        "description": "Tracker to use (jira|github|bitbucket)"
-      },
-      {
-        "flags": "--pr",
-        "description": "After the COMMIT stage, print a hint to run wf issue:pr"
-      },
-      {
-        "flags": "-s, --silent",
-        "description": "Suppress decorative output and interactive prompts. Emits only artifact paths (per stage) for piping"
-      },
-      {
-        "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; the first repo anchors artifact storage and all repos are used as workflow context"
-      },
-      {
         "flags": "--model-routing <mode>",
         "description": "Model selection strategy for implement stage: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto."
       },
@@ -486,8 +470,24 @@
         "description": "Suppress branch creation; work directly on the source branch"
       },
       {
+        "flags": "--pr",
+        "description": "After the COMMIT stage, print a hint to run wf issue:pr"
+      },
+      {
+        "flags": "-r, --repos <repos...>",
+        "description": "Space-separated repositories; the first repo anchors artifact storage and all repos are used as workflow context"
+      },
+      {
+        "flags": "-s, --silent",
+        "description": "Suppress decorative output and interactive prompts. Emits only artifact paths (per stage) for piping"
+      },
+      {
         "flags": "--to <stage>",
         "description": "Stop at stage (fetch|plan|implement|review|commit) - defaults to commit"
+      },
+      {
+        "flags": "-t, --tracker <tracker>",
+        "description": "Tracker to use (jira|github|bitbucket)"
       }
     ],
     "examples": [

@@ -580,14 +580,6 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
-    description: 'Tracker for ticket sources (jira|github|bitbucket)',
-  })
-  parseTracker(val: string): string {
-    return val;
-  }
-
-  @Option({
     flags: '--priority <priority>',
     description: 'Override ticket priority (highest|high|medium|low|lowest)',
   })
@@ -626,6 +618,14 @@ export class IssueGenerateCommand extends CommandRunner {
     description: 'Override generated title with custom title',
   })
   parseTitle(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker for ticket sources (jira|github|bitbucket)',
+  })
+  parseTracker(val: string): string {
     return val;
   }
 

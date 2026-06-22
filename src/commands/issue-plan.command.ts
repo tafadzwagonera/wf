@@ -306,20 +306,6 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
-    description: 'Tracker to fetch from if local artifact not found',
-  })
-  parseTracker(tracker: string): string {
-    const validTrackers = ['jira', 'github', 'bitbucket'];
-    if (!validTrackers.includes(tracker)) {
-      throw new Error(
-        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
-      );
-    }
-    return tracker;
-  }
-
-  @Option({
     flags: '-r, --repos <repos...>',
     description:
       'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
@@ -336,6 +322,20 @@ export class IssuePlanCommand extends CommandRunner {
   })
   parseSilent(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker to fetch from if local artifact not found',
+  })
+  parseTracker(tracker: string): string {
+    const validTrackers = ['jira', 'github', 'bitbucket'];
+    if (!validTrackers.includes(tracker)) {
+      throw new Error(
+        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
+      );
+    }
+    return tracker;
   }
 
   async run([ticketKey]: string[], options?: IssuePlanOptions): Promise<void> {

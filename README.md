@@ -278,9 +278,9 @@ wf issue:fetch WBP-2971 --tracker jira --format md
 | ---- | ----------- |
 | `--dry-run` | Preview the fetch operation without making changes |
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
-| `-t, --tracker <tracker>` | Target tracker (jira\|github\|bitbucket) |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the file path for piping |
+| `-t, --tracker <tracker>` | Target tracker (jira\|github\|bitbucket) |
 <!-- END GENERATED COMMAND DOCS: issue:fetch -->
 
 **Output:** saves to `./<tracker>/<ticket-key>.<format>` (e.g., `./jira/WBP-2971.md`).
@@ -315,9 +315,9 @@ wf issue:plan WBP-2971 --action fix --force --tracker jira
 | `--dry-run` | Preview the plan operation without making changes |
 | `--force` | Force fetch and recreate ticket artifact before planning |
 | `-f, --format <format>` | Output format for plan (json\|md\|yaml\|yml) - default: json |
-| `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
 | `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the plan path for piping |
+| `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
 <!-- END GENERATED COMMAND DOCS: issue:plan -->
 
 Targeted verification commands are stored as **repo-root-relative** commands. If the plan generator emits a redundant `cd <selected-repo> && ...`, `issue:plan` normalizes it before writing the artifact. If a targeted check tries to `cd` outside the selected repo, the plan is rejected.
@@ -359,10 +359,10 @@ wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 | `--dry-run` | Preview the review operation without making changes |
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
 | `-o, --output <path>` | Save review to file |
-| `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker |
 | `--replace-criteria <path>` | Path to a markdown file whose criteria replace the default review guidelines entirely |
 | `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
+| `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker |
 <!-- END GENERATED COMMAND DOCS: issue:review -->
 
 Accepts three source modes:
@@ -422,12 +422,12 @@ nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /
 | ---- | ----------- |
 | `--dry-run` | Validate without creating - preview only |
 | `-f, --format <format>` | Input format (json\|md\|yaml\|yml) - overrides file extension detection; required when reading from stdin |
-| `-t, --tracker <tracker>` | Target tracker (jira\|github\|bitbucket) - default from config |
-| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning |
-| `--ticket-project <project>` | Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file |
-| `-t, --type <type>` | Issue type (task\|bug\|story\|todo) - overrides input file |
 | `--priority <priority>` | Override normalized ticket priority (highest\|high\|medium\|low\|lowest); Jira resolves it to an allowed project value |
+| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the ticket key for piping |
+| `--ticket-project <project>` | Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file |
+| `-t, --tracker <tracker>` | Target tracker (jira\|github\|bitbucket) - default from config |
+| `-t, --type <type>` | Issue type (task\|bug\|story\|todo) - overrides input file |
 <!-- END GENERATED COMMAND DOCS: issue:create -->
 
 When creating Jira tickets, `wf` resolves the requested priority against Jira create metadata for the target project and issue type. Exact allowed names win first; otherwise normalized values such as `medium` can resolve to project values such as `Minor`. If priority is hidden from the create screen or Jira still rejects it, `wf` creates the ticket without a priority field.
@@ -468,12 +468,12 @@ wf issue:generate ./spec.md --save --silent | xargs wf issue:create
 | `--dry-run` | Preview the generate operation without making changes |
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
 | `-o, --output <path>` | Output file path - default: stdout |
-| `-t, --tracker <tracker>` | Tracker for ticket sources (jira\|github\|bitbucket) |
 | `--priority <priority>` | Override ticket priority (highest\|high\|medium\|low\|lowest) |
 | `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
 | `--save` | Save generated ticket to tracker directory |
 | `-s, --silent` | Suppress decorative output and interactive prompts (clarification, disambiguation). Emits only file paths (with --save/--output) or raw ticket content for piping |
 | `-t, --title <title>` | Override generated title with custom title |
+| `-t, --tracker <tracker>` | Tracker for ticket sources (jira\|github\|bitbucket) |
 | `--type <type>` | Override ticket type (task\|bug\|story\|epic) |
 <!-- END GENERATED COMMAND DOCS: issue:generate -->
 
@@ -510,8 +510,8 @@ wf issue:commit WBP-2971 --conventional --tracker jira
 | `--dry-run` | Preview the commit operation without making changes |
 | `-m, --message <message>` | Manual commit message (bypasses AI generation) |
 | `--no-ai` | Disable AI generation and require manual message |
-| `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
+| `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
 <!-- END GENERATED COMMAND DOCS: issue:commit -->
 
 **Branch detection:** ticket keys are extracted from the branch name using the pattern `[A-Z]+-\d+` (e.g., `feature/WBP-2971__add-oauth` → `WBP-2971`).
@@ -540,10 +540,10 @@ wf issue:pr WBP-2971 --dry-run
 | `-a, --action <action>` | Resolution action type (feature\|fix\|investigate) |
 | `-b, --base <base>` | Target branch for the PR (default: main) |
 | `--dry-run` | Preview the PR creation without making changes |
-| `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
-| `-t, --title <title>` | Override the PR title |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the PR URL for piping |
+| `-t, --title <title>` | Override the PR title |
+| `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
 <!-- END GENERATED COMMAND DOCS: issue:pr -->
 
 ---

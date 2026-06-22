@@ -475,10 +475,11 @@ export class IssueCreateCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
-    description: 'Target tracker (jira|github|bitbucket) - default from config',
+    flags: '--priority <priority>',
+    description:
+      'Override normalized ticket priority (highest|high|medium|low|lowest); Jira resolves it to an allowed project value',
   })
-  parseTracker(val: string): string {
+  parsePriority(val: string): string {
     return val;
   }
 
@@ -492,6 +493,15 @@ export class IssueCreateCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '-s, --silent',
+    description:
+      'Suppress decorative output and interactive prompts. Emits only the ticket key for piping',
+  })
+  parseSilent(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '--ticket-project <project>',
     description:
       'Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file',
@@ -501,28 +511,18 @@ export class IssueCreateCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '-t, --tracker <tracker>',
+    description: 'Target tracker (jira|github|bitbucket) - default from config',
+  })
+  parseTracker(val: string): string {
+    return val;
+  }
+
+  @Option({
     flags: '-t, --type <type>',
     description: 'Issue type (task|bug|story|todo) - overrides input file',
   })
   parseType(val: string): string {
     return val;
-  }
-
-  @Option({
-    flags: '--priority <priority>',
-    description:
-      'Override normalized ticket priority (highest|high|medium|low|lowest); Jira resolves it to an allowed project value',
-  })
-  parsePriority(val: string): string {
-    return val;
-  }
-
-  @Option({
-    flags: '-s, --silent',
-    description:
-      'Suppress decorative output and interactive prompts. Emits only the ticket key for piping',
-  })
-  parseSilent(): boolean {
-    return true;
   }
 }

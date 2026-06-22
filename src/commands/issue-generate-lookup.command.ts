@@ -86,20 +86,20 @@ export class IssueGenerateLookupCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
-    description: 'Platform namespace to inspect',
-  })
-  parseTracker(val: string): string {
-    return val;
-  }
-
-  @Option({
     flags: '-r, --repos <repos...>',
     description:
       'Space-separated repositories; only the first repo is used for lookup scope',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
+  }
+
+  @Option({
+    flags: '-t, --tracker <tracker>',
+    description: 'Platform namespace to inspect',
+  })
+  parseTracker(val: string): string {
+    return val;
   }
 
   private findMatchingManifests(

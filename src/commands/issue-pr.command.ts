@@ -234,20 +234,21 @@ export class IssuePrCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
-    description: 'Tracker (jira|github|bitbucket)',
-  })
-  parseTracker(val: string): string {
-    return val;
-  }
-
-  @Option({
     flags: '-r, --repos <repos...>',
     description:
       'Space-separated repositories; only the first repo is used and additional repos are ignored with a warning',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
+  }
+
+  @Option({
+    flags: '-s, --silent',
+    description:
+      'Suppress decorative output and interactive prompts. Emits only the PR URL for piping',
+  })
+  parseSilent(): boolean {
+    return true;
   }
 
   @Option({
@@ -259,12 +260,11 @@ export class IssuePrCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-s, --silent',
-    description:
-      'Suppress decorative output and interactive prompts. Emits only the PR URL for piping',
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker (jira|github|bitbucket)',
   })
-  parseSilent(): boolean {
-    return true;
+  parseTracker(val: string): string {
+    return val;
   }
 
   /**

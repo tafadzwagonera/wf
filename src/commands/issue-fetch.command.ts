@@ -89,20 +89,6 @@ export class IssueFetchCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
-    description: 'Target tracker (jira|github|bitbucket)',
-  })
-  parseTracker(tracker: string): string {
-    const validTrackers = ['jira', 'github', 'bitbucket'];
-    if (!validTrackers.includes(tracker)) {
-      throw new Error(
-        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
-      );
-    }
-    return tracker;
-  }
-
-  @Option({
     flags: '-r, --repos <repos...>',
     description:
       'Space-separated repositories; only the first repo is used and additional repos are ignored with a warning',
@@ -118,6 +104,20 @@ export class IssueFetchCommand extends CommandRunner {
   })
   parseSilent(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '-t, --tracker <tracker>',
+    description: 'Target tracker (jira|github|bitbucket)',
+  })
+  parseTracker(tracker: string): string {
+    const validTrackers = ['jira', 'github', 'bitbucket'];
+    if (!validTrackers.includes(tracker)) {
+      throw new Error(
+        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
+      );
+    }
+    return tracker;
   }
 
   async run([ticketKey]: [string], options?: IssueFetchOptions): Promise<void> {

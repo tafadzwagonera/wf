@@ -638,15 +638,6 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
-    description:
-      'Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker',
-  })
-  parseTracker(val: string): string {
-    return val;
-  }
-
-  @Option({
     flags: '--replace-criteria <path>',
     description:
       'Path to a markdown file whose criteria replace the default review guidelines entirely',
@@ -672,6 +663,15 @@ export class IssueReviewCommand extends CommandRunner {
   })
   parseSilent(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '-t, --tracker <tracker>',
+    description:
+      'Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker',
+  })
+  parseTracker(val: string): string {
+    return val;
   }
 
   /**
