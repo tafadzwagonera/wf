@@ -131,9 +131,13 @@ export class ImplementerAgent {
       verificationConditions,
       planArtifact.plan.verification,
     );
-    const trackedFilePaths = this.resolveTrackedFilePaths(
+    const rawTrackedFilePaths = this.resolveTrackedFilePaths(
       repoFiles,
       repoName,
+      options.repoDir,
+    );
+    const trackedFilePaths = await this.validateTrackedFilePaths(
+      rawTrackedFilePaths,
       options.repoDir,
     );
     const ticketContext = ticket.content;
@@ -292,6 +296,65 @@ export class ImplementerAgent {
         ? path.join(repoDir, relativePath)
         : path.resolve(relativePath);
     });
+  }
+
+  /**
+   * Filters tracked file paths by removing gitignored entries and logging
+   * a diagnostic breakdown (existing, new, ignored) so operators can spot
+   * when the planner fabricated paths.
+   *
+   * @param trackedPaths - Absolute paths resolved from the plan
+   * @param repoDir - Repository root used for the git check-ignore call
+   * @returns Filtered paths with gitignored entries removed
+   */
+  private async validateTrackedFilePaths(
+    trackedPaths: string[],
+    repoDir?: string,
+  ): Promise<string[]> {
+    if (trackedPaths.length === 0) return [];
+
+    const ignoredSet = new Set(
+      await this.gitService.checkIgnored(trackedPaths, repoDir),
+    );
+
+    const kept: string[] = [];
+    const existing: string[] = [];
+    const created: string[] = [];
+    const ignored: string[] = [];
+
+    for (const filePath of trackedPaths) {
+      if (ignoredSet.has(filePath)) {
+        ignored.push(filePath);
+        continue;
+      }
+      kept.push(filePath);
+      if (fs.existsSync(filePath)) {
+        existing.push(filePath);
+      } else {
+        created.push(filePath);
+      }
+    }
+
+    if (ignored.length > 0) {
+      console.log(
+        chalk.yellow(
+          `  ⚠ Dropped ${ignored.length} gitignored path(s) from tracked files:`,
+        ),
+      );
+      for (const p of ignored) {
+        console.log(chalk.yellow(`      - ${p}`));
+      }
+    }
+
+    if (existing.length > 0 || created.length > 0) {
+      console.log(
+        chalk.gray(
+          `  Tracked files: ${existing.length} existing, ${created.length} new`,
+        ),
+      );
+    }
+
+    return kept;
   }
 
   /**

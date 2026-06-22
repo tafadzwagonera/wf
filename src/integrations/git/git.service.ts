@@ -396,4 +396,30 @@ export class GitService {
       throw new GitError('Failed to push changes', error);
     }
   }
+
+  /**
+   * Returns which of the given paths are covered by .gitignore rules.
+   *
+   * Uses `git check-ignore` under the hood; paths that don't exist on disk
+   * are still checked against the ignore patterns.
+   *
+   * @param paths - Absolute or repo-relative paths to test
+   * @param cwd - Working directory (defaults to the repo root)
+   * @returns The subset of `paths` that are gitignored
+   */
+  async checkIgnored(paths: string[], cwd?: string): Promise<string[]> {
+    if (paths.length === 0) return [];
+
+    const git = cwd ? simpleGit(cwd) : this.git;
+    try {
+      const result = await git.raw(['check-ignore', ...paths]);
+      return result
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+    } catch {
+      // exit code 1 means "none of the paths are ignored" — not an error
+      return [];
+    }
+  }
 }

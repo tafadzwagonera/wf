@@ -92,6 +92,7 @@ describe('ImplementerAgent', () => {
             pull: jest.fn().mockResolvedValue(undefined),
             stashChanges: jest.fn().mockResolvedValue(undefined),
             stashPop: jest.fn().mockResolvedValue(undefined),
+            checkIgnored: jest.fn().mockResolvedValue([]),
           },
         },
         {
@@ -332,6 +333,7 @@ describe('ImplementerAgent', () => {
               pull: jest.fn().mockResolvedValue(undefined),
               stashChanges: jest.fn().mockResolvedValue(undefined),
               stashPop: jest.fn().mockResolvedValue(undefined),
+              checkIgnored: jest.fn().mockResolvedValue([]),
             },
           },
           {
@@ -400,6 +402,7 @@ describe('ImplementerAgent', () => {
               pull: jest.fn().mockResolvedValue(undefined),
               stashChanges: jest.fn().mockResolvedValue(undefined),
               stashPop: jest.fn().mockResolvedValue(undefined),
+              checkIgnored: jest.fn().mockResolvedValue([]),
             },
           },
           {
@@ -585,6 +588,90 @@ describe('ImplementerAgent', () => {
 
       // Should not throw — pull failure is non-fatal
       expect(gitService.createBranch).toHaveBeenCalled();
+    });
+  });
+
+  describe('tracked file validation', () => {
+    beforeEach(() => {
+      jest
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue(undefined);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('drops gitignored paths from trackedFilePaths', async () => {
+      gitService.checkIgnored.mockResolvedValue([
+        '/tmp/repo-a/docs/incidents/report.md',
+      ]);
+
+      const adapterSpy = jest.spyOn(
+        AnthropicAgentAdapter.prototype,
+        'generateAndVerify',
+      );
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          filesAffected: [
+            'repo-a/src/example.ts',
+            'repo-a/docs/incidents/report.md',
+          ],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.trackedFilePaths).toEqual(['/tmp/repo-a/src/example.ts']);
+      expect(call.trackedFilePaths).not.toContainEqual(
+        expect.stringContaining('docs/incidents'),
+      );
+    });
+
+    it('warns when gitignored paths are dropped', async () => {
+      gitService.checkIgnored.mockResolvedValue([
+        '/tmp/repo-a/docs/incidents/report.md',
+      ]);
+
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          filesAffected: [
+            'repo-a/src/example.ts',
+            'repo-a/docs/incidents/report.md',
+          ],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      expect(logCalls.some((msg) => msg.includes('gitignored'))).toBe(true);
+    });
+
+    it('passes all paths through when none are gitignored', async () => {
+      gitService.checkIgnored.mockResolvedValue([]);
+
+      const adapterSpy = jest.spyOn(
+        AnthropicAgentAdapter.prototype,
+        'generateAndVerify',
+      );
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          filesAffected: ['repo-a/src/a.ts', 'repo-a/src/b.ts'],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.trackedFilePaths).toEqual([
+        '/tmp/repo-a/src/a.ts',
+        '/tmp/repo-a/src/b.ts',
+      ]);
     });
   });
 });
