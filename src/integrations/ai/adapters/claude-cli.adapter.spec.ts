@@ -157,6 +157,97 @@ describe('ClaudeCliAdapter', () => {
     consoleSpy.mockRestore();
   });
 
+  it('logs session ID when present in result', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    mockSpawnCli.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'result',
+          result: 'done',
+          session_id: 'abc-123-session',
+          num_turns: 1,
+          total_cost_usd: 0.01,
+        };
+      })(),
+    );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature',
+          summary: 'test',
+          steps: ['step 1'],
+          estimatedComplexity: 'low',
+          filesAffected: [],
+          repositoriesAffected: [],
+          risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [],
+      sceneContext: 'context',
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+    });
+
+    const logCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
+    expect(logCalls.some((l) => /Session:.*abc-123-session/.test(l))).toBe(
+      true,
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it('does not log session ID when absent from result', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    mockSpawnCli.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'result',
+          result: 'done',
+          num_turns: 1,
+          total_cost_usd: 0.01,
+        };
+      })(),
+    );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature',
+          summary: 'test',
+          steps: ['step 1'],
+          estimatedComplexity: 'low',
+          filesAffected: [],
+          repositoriesAffected: [],
+          risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [],
+      sceneContext: 'context',
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+    });
+
+    const logCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
+    expect(logCalls.some((l) => /Session:/.test(l))).toBe(false);
+
+    consoleSpy.mockRestore();
+  });
+
   it('throws when CLI reports an error result', async () => {
     mockSpawnCli.mockReturnValue(
       (async function* () {

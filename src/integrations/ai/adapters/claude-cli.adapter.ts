@@ -163,6 +163,11 @@ export class ClaudeCliAdapter implements ImplementerBackend {
             ),
           );
         }
+        if (sessionId) {
+          console.log(
+            chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Session: ${sessionId}`),
+          );
+        }
       }
     }
 

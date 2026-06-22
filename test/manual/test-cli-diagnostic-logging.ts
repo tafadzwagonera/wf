@@ -282,6 +282,28 @@ async function main(): Promise<void> {
     `no match in: ${lines.filter((l) => /Cost/.test(l)).join(' | ') || '(none)'}`,
   );
 
+  // 9. Session ID from result
+  assert(
+    'Result logs session ID',
+    lines.some((l) => /Session:.*s1/.test(l)),
+    `no match in: ${lines.filter((l) => /Session/.test(l)).join(' | ') || '(none)'}`,
+  );
+
+  // 10. No session ID when absent
+  const noSessionLines = await runWithMessages([
+    {
+      type: 'result',
+      result: 'done',
+      num_turns: 1,
+      total_cost_usd: 0.01,
+    },
+  ]);
+  assert(
+    'No Session: line when session_id is absent',
+    !noSessionLines.some((l) => /Session:/.test(l)),
+    `unexpected match in: ${noSessionLines.filter((l) => /Session/.test(l)).join(' | ')}`,
+  );
+
   // Summary
   console.log(
     chalk.bold(
