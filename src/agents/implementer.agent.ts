@@ -136,10 +136,13 @@ export class ImplementerAgent {
       repoName,
       options.repoDir,
     );
-    const trackedFilePaths = await this.validateTrackedFilePaths(
-      rawTrackedFilePaths,
-      options.repoDir,
-    );
+    const { kept: trackedFilePaths, keptIndices } =
+      await this.validateTrackedFilePaths(rawTrackedFilePaths, options.repoDir);
+    // Align repoFiles with the validated tracked paths so adapter continuation
+    // loops don't chase gitignored entries that can never be committed.
+    if (keptIndices.length < repoFiles.length) {
+      repoFiles = keptIndices.map((i) => repoFiles[i]);
+    }
     const ticketContext = ticket.content;
 
     const backendSelection = this.resolveImplementBackendSelection();
@@ -305,29 +308,34 @@ export class ImplementerAgent {
    *
    * @param trackedPaths - Absolute paths resolved from the plan
    * @param repoDir - Repository root used for the git check-ignore call
-   * @returns Filtered paths with gitignored entries removed
+   * @returns Filtered paths and their original indices for parallel array alignment
    */
   private async validateTrackedFilePaths(
     trackedPaths: string[],
     repoDir?: string,
-  ): Promise<string[]> {
-    if (trackedPaths.length === 0) return [];
+  ): Promise<{ kept: string[]; keptIndices: number[] }> {
+    if (trackedPaths.length === 0) {
+      return { kept: [], keptIndices: [] };
+    }
 
     const ignoredSet = new Set(
       await this.gitService.checkIgnored(trackedPaths, repoDir),
     );
 
     const kept: string[] = [];
+    const keptIndices: number[] = [];
     const existing: string[] = [];
     const created: string[] = [];
     const ignored: string[] = [];
 
-    for (const filePath of trackedPaths) {
+    for (let i = 0; i < trackedPaths.length; i++) {
+      const filePath = trackedPaths[i];
       if (ignoredSet.has(filePath)) {
         ignored.push(filePath);
         continue;
       }
       kept.push(filePath);
+      keptIndices.push(i);
       if (fs.existsSync(filePath)) {
         existing.push(filePath);
       } else {
@@ -354,7 +362,7 @@ export class ImplementerAgent {
       );
     }
 
-    return kept;
+    return { kept, keptIndices };
   }
 
   /**

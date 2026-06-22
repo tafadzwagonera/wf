@@ -599,7 +599,7 @@ describe('ImplementerAgent', () => {
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
-    it('drops gitignored paths from trackedFilePaths', async () => {
+    it('drops gitignored paths from trackedFilePaths and repoFiles', async () => {
       gitService.checkIgnored.mockResolvedValue([
         '/tmp/repo-a/docs/incidents/report.md',
       ]);
@@ -625,6 +625,9 @@ describe('ImplementerAgent', () => {
       expect(call.trackedFilePaths).not.toContainEqual(
         expect.stringContaining('docs/incidents'),
       );
+      // repoFiles should also be filtered so the continuation loop
+      // does not chase gitignored paths
+      expect(call.repoFiles).toEqual(['repo-a/src/example.ts']);
     });
 
     it('warns when gitignored paths are dropped', async () => {
