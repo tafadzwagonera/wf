@@ -80,11 +80,12 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
   }
 
   /**
-   * OpenAI reasoning models (o1, o3, o4, etc.) only accept temperature=1.
+   * OpenAI reasoning models (o1, o3, o4, etc.) and frontier models (gpt-5,
+   * gpt-5.5, etc.) only accept the default temperature value.
    * Passing any other value causes a 400 error.
    */
-  private isReasoningModel(model: string): boolean {
-    return /^o\d/.test(model);
+  private isTemperatureRestricted(model: string): boolean {
+    return /^(o\d|gpt-5)/.test(model);
   }
 
   private getApiErrorDetails(error: unknown): { status?: number } {
@@ -126,7 +127,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       const response = await this.client.chat.completions.create({
         model,
         max_completion_tokens: request.maxTokens || this.maxTokens,
-        ...(this.isReasoningModel(model)
+        ...(this.isTemperatureRestricted(model)
           ? {}
           : { temperature: request.temperature || 0.7 }),
         messages: this.buildMessages(messages),
@@ -188,7 +189,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       const response = await this.client.chat.completions.create({
         model,
         max_completion_tokens: request.maxTokens || this.maxTokens,
-        ...(this.isReasoningModel(model)
+        ...(this.isTemperatureRestricted(model)
           ? {}
           : { temperature: request.temperature || 0.7 }),
         messages: this.buildMessages(messages),

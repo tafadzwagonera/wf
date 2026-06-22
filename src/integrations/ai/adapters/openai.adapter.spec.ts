@@ -143,6 +143,34 @@ describe('OpenAIAdapter', () => {
       expect(request?.temperature).toBeUndefined();
     });
 
+    it('omits temperature for gpt-5 frontier models', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest
+        .fn<
+          Promise<{
+            choices: Array<{ message: { content: string } }>;
+            usage: { prompt_tokens: number; completion_tokens: number };
+          }>,
+          [MockChatCompletionRequest]
+        >()
+        .mockResolvedValue({
+          choices: [{ message: { content: 'ok' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        });
+
+      (adapter as unknown as { client: OpenAI }).client = {
+        chat: { completions: { create: mockCreate } },
+      } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'gpt-5.5';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'hello', temperature: 0.5 });
+
+      const request = mockCreate.mock.calls[0]?.[0];
+      expect(request?.model).toBe('gpt-5.5');
+      expect(request?.temperature).toBeUndefined();
+    });
+
     it('includes temperature for non-reasoning models', async () => {
       const adapter = createAdapter();
       const mockCreate = jest
@@ -171,7 +199,7 @@ describe('OpenAIAdapter', () => {
       expect(request?.temperature).toBe(0.7);
     });
 
-    it('omits temperature for reasoning models in executeWithHistory', async () => {
+    it('omits temperature for temperature-restricted models in executeWithHistory', async () => {
       const adapter = createAdapter();
       const mockCreate = jest
         .fn<
@@ -198,6 +226,37 @@ describe('OpenAIAdapter', () => {
 
       const request = mockCreate.mock.calls[0]?.[0];
       expect(request?.model).toBe('o3');
+      expect(request?.temperature).toBeUndefined();
+    });
+
+    it('omits temperature for gpt-5 frontier models in executeWithHistory', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest
+        .fn<
+          Promise<{
+            choices: Array<{ message: { content: string } }>;
+            usage: { prompt_tokens: number; completion_tokens: number };
+          }>,
+          [MockChatCompletionRequest]
+        >()
+        .mockResolvedValue({
+          choices: [{ message: { content: 'ok' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        });
+
+      (adapter as unknown as { client: OpenAI }).client = {
+        chat: { completions: { create: mockCreate } },
+      } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'gpt-5.5';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.executeWithHistory({
+        messages: [{ role: 'user', content: 'hello' }],
+        temperature: 0.5,
+      });
+
+      const request = mockCreate.mock.calls[0]?.[0];
+      expect(request?.model).toBe('gpt-5.5');
       expect(request?.temperature).toBeUndefined();
     });
   });
