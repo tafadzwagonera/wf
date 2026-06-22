@@ -71,9 +71,11 @@ interface IssueOptions {
   from: string;
   to?: string;
   action?: string;
+  branchNamePattern?: string;
   tracker?: string;
   silent?: boolean;
   force?: boolean;
+  noBranch?: boolean;
   repos?: string[];
   dryRun?: boolean;
   pr?: boolean;
@@ -107,6 +109,15 @@ export class IssueCommand extends CommandRunner {
       'Resolution action type (feature|fix|investigate) - required for PLAN stage, optional when resuming from a hashed plan artifact',
   })
   parseAction(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '--branch-name-pattern <pattern>',
+    description:
+      'Override branch name validation pattern from git.branchNamePattern config',
+  })
+  parseBranchNamePattern(val: string): string {
     return val;
   }
 
@@ -186,6 +197,14 @@ export class IssueCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--no-branch',
+    description: 'Suppress branch creation; work directly on the source branch',
+  })
+  parseNoBranch(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '--to <stage>',
     description:
       'Stop at stage (fetch|plan|implement|review|commit) - defaults to commit',
@@ -196,6 +215,18 @@ export class IssueCommand extends CommandRunner {
 
   async run(passedParams: string[], options?: IssueOptions): Promise<void> {
     await ensureWfHome();
+
+    // Mutual exclusion: --no-branch + --branch-name-pattern
+    if (options?.noBranch && options?.branchNamePattern) {
+      console.error(
+        chalk.red(
+          'Error: --no-branch and --branch-name-pattern are mutually exclusive.\n' +
+            '  Use --no-branch to stay on the source branch, or\n' +
+            '  Use --branch-name-pattern <pattern> to validate a generated branch name.',
+        ),
+      );
+      process.exit(1);
+    }
 
     if (!options?.silent) {
       printExamples(ISSUE_EXAMPLES);
@@ -735,6 +766,9 @@ export class IssueCommand extends CommandRunner {
               conversationContext,
               allowMultiRepoScope: isMultiRepo,
               modelRouting: options.modelRouting as ModelRouting,
+              silent: options.silent,
+              noBranch: options.noBranch,
+              branchNamePattern: options.branchNamePattern,
             },
           );
 

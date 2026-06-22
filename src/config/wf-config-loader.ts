@@ -130,14 +130,10 @@ export interface NormalizedWfConfig {
     defaultRepo?: string;
   };
   git: {
-    defaultBranch: string;
     commitFormat: 'conventional' | 'freeform' | 'auto';
-  };
-  branching: {
-    atlassianPattern: string;
-    githubPattern: string;
-    prefixMapping: {
-      implement: string;
+    branchNamePattern: string;
+    branchPrefixMapping: {
+      feature: string;
       fix: string;
       investigate: string;
     };
@@ -241,16 +237,12 @@ const configSchema = Joi.object<WfConfig>({
     defaultRepo: Joi.string().allow('').optional(),
   }).optional(),
   git: Joi.object({
-    defaultBranch: Joi.string().optional(),
     commitFormat: Joi.string()
       .valid('conventional', 'freeform', 'auto')
       .optional(),
-  }).optional(),
-  branching: Joi.object({
-    atlassianPattern: Joi.string().optional(),
-    githubPattern: Joi.string().optional(),
-    prefixMapping: Joi.object({
-      implement: Joi.string().optional(),
+    branchNamePattern: Joi.string().optional(),
+    branchPrefixMapping: Joi.object({
+      feature: Joi.string().optional(),
       fix: Joi.string().optional(),
       investigate: Joi.string().optional(),
     }).optional(),
@@ -930,22 +922,15 @@ export const normalizeWfConfig = (
       defaultRepo: validatedConfig.github?.defaultRepo,
     },
     git: {
-      defaultBranch: validatedConfig.git?.defaultBranch ?? 'develop',
       commitFormat: validatedConfig.git?.commitFormat ?? 'auto',
-    },
-    branching: {
-      atlassianPattern:
-        validatedConfig.branching?.atlassianPattern ??
-        '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|__.+$',
-      githubPattern:
-        validatedConfig.branching?.githubPattern ??
-        '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Za-z0-9_-]+$',
-      prefixMapping: {
-        implement:
-          validatedConfig.branching?.prefixMapping?.implement ?? 'feature',
-        fix: validatedConfig.branching?.prefixMapping?.fix ?? 'bugfix',
+      branchNamePattern:
+        validatedConfig.git?.branchNamePattern ??
+        '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$',
+      branchPrefixMapping: {
+        feature: validatedConfig.git?.branchPrefixMapping?.feature ?? 'feature',
+        fix: validatedConfig.git?.branchPrefixMapping?.fix ?? 'bugfix',
         investigate:
-          validatedConfig.branching?.prefixMapping?.investigate ?? 'chore',
+          validatedConfig.git?.branchPrefixMapping?.investigate ?? 'chore',
       },
     },
     logging: {

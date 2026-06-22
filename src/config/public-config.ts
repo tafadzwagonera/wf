@@ -63,14 +63,10 @@ export interface WfConfig {
     defaultRepo?: string;
   };
   git?: {
-    defaultBranch?: string;
     commitFormat?: 'conventional' | 'freeform' | 'auto';
-  };
-  branching?: {
-    atlassianPattern?: string;
-    githubPattern?: string;
-    prefixMapping?: {
-      implement?: string;
+    branchNamePattern?: string;
+    branchPrefixMapping?: {
+      feature?: string;
       fix?: string;
       investigate?: string;
     };

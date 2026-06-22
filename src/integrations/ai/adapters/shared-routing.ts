@@ -103,15 +103,10 @@ export const resolveModelRouting = (params: {
   const mechanicalModel = modelsConfig?.mechanical || defaultMechanicalModel;
 
   if (singleModel && modelsConfig) {
-    console.log(
-      chalk.yellow(
-        `  [${adapterLabel}] Warning: both stages.implement.model ("${singleModel}") and stages.implement.models are set. models takes precedence.`,
-      ),
-    );
-    console.log(
-      chalk.yellow(
-        `  [${adapterLabel}] Effective: default=${defaultModel}, mechanical=${mechanicalModel}`,
-      ),
+    throw new Error(
+      'stages.implement.model and stages.implement.models are mutually exclusive.\n' +
+        '  Use stages.implement.model for a single model, or\n' +
+        '  Use stages.implement.models for routing-aware model selection (default + mechanical).',
     );
   }
 

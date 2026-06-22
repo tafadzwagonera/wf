@@ -50,10 +50,13 @@ const loadPlanFile = (filePath: string): ResolutionPlan => {
 };
 
 interface IssueImplementOptions {
-  tracker?: string;
-  repos?: string[];
+  branchNamePattern?: string;
   dryRun?: boolean;
   modelRouting?: string;
+  noBranch?: boolean;
+  repos?: string[];
+  silent?: boolean;
+  tracker?: string;
 }
 
 interface SyntheticCustomExecutionContext {
@@ -83,8 +86,11 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
     'Unsupported providers (google, deepseek) fail fast with a clear error listing supported providers. backend: standard is rejected at runtime because the implement stage requires an agent-capable backend. ' +
     'Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. ' +
     'When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. ' +
+    'Before implementation, the command runs an interactive branch creation workflow: checks the working tree for uncommitted changes (stashing if needed), detects and pulls the source branch (dev or main), then prompts for branch name confirmation. ' +
+    'Use --silent to suppress prompts and auto-select defaults. Use --no-branch to skip branch creation and work directly on the source branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. ' +
     'Examples: wf issue:implement PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | ' +
     'wf issue:implement PROJ-123 --repos my-repo | wf issue:implement PROJ-123 --repos repo-a repo-b | ' +
+    'wf issue:implement PROJ-123 --silent | wf issue:implement PROJ-123 --no-branch | ' +
     'wf issue:implement PROJ-123 --dry-run',
   arguments: '[ticket-key-or-plan-token]',
 })
@@ -101,17 +107,12 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
-    description: 'Tracker to fetch from if local artifact not found',
+    flags: '--branch-name-pattern <pattern>',
+    description:
+      'Override branch name validation pattern from git.branchNamePattern config',
   })
-  parseTracker(tracker: string): string {
-    const validTrackers = ['jira', 'github', 'bitbucket'];
-    if (!validTrackers.includes(tracker)) {
-      throw new Error(
-        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
-      );
-    }
-    return tracker;
+  parseBranchNamePattern(val: string): string {
+    return val;
   }
 
   @Option({
@@ -138,6 +139,14 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--no-branch',
+    description: 'Suppress branch creation; work directly on the source branch',
+  })
+  parseNoBranch(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-r, --repos <repos...>',
     description:
       'Space-separated repositories; first repo anchors artifact lookup, all repos remain available as implementation context',
@@ -147,12 +156,48 @@ export class IssueImplementCommand extends CommandRunner {
     return parseReposOption(val, previous);
   }
 
+  @Option({
+    flags: '-s, --silent',
+    description:
+      'Suppress interactive prompts; auto-select defaults while preserving decorative output',
+  })
+  parseSilent(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker to fetch from if local artifact not found',
+  })
+  parseTracker(tracker: string): string {
+    const validTrackers = ['jira', 'github', 'bitbucket'];
+    if (!validTrackers.includes(tracker)) {
+      throw new Error(
+        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
+      );
+    }
+    return tracker;
+  }
+
   async run(
     [identifier]: string[],
     options?: IssueImplementOptions,
   ): Promise<void> {
     try {
       await ensureWfHome();
+
+      // Mutual exclusion: --no-branch + --branch-name-pattern
+      if (options?.noBranch && options?.branchNamePattern) {
+        console.error(
+          chalk.red(
+            'Error: --no-branch and --branch-name-pattern are mutually exclusive.\n' +
+              '  Use --no-branch to stay on the source branch, or\n' +
+              '  Use --branch-name-pattern <pattern> to validate a generated branch name.',
+          ),
+        );
+        process.exit(1);
+      }
+
       // Guard: ticketKey + Bitbucket requires --repos
       const trackerName =
         options?.tracker || this.configService.get<string>('tracker', 'jira');
@@ -431,6 +476,9 @@ Return ONLY a valid JSON object:
               .map((r) => resolveRepoBasePath(r)),
             customBranchSlug: customExecutionContext.customBranchSlug,
             modelRouting: options?.modelRouting as ModelRouting,
+            silent: options?.silent,
+            noBranch: options?.noBranch,
+            branchNamePattern: options?.branchNamePattern,
           },
         );
         return;
@@ -619,6 +667,9 @@ Return ONLY a valid JSON object:
             .slice(1)
             .map((r) => resolveRepoBasePath(r)),
           modelRouting: options?.modelRouting as ModelRouting,
+          silent: options?.silent,
+          noBranch: options?.noBranch,
+          branchNamePattern: options?.branchNamePattern,
         },
       );
     } catch (error) {
@@ -893,7 +944,7 @@ Return ONLY a valid JSON object:
   ): string {
     const configuredPrefixMapping = this.configService.get<
       Record<string, string> | undefined
-    >('branching.prefixMapping');
+    >('git.branchPrefixMapping');
     const prefixMapping =
       configuredPrefixMapping &&
       typeof configuredPrefixMapping === 'object' &&

@@ -555,15 +555,12 @@ describe('AnthropicAgentAdapter', () => {
       expect(options.model).toBe('claude-haiku-custom');
     });
 
-    it('warns when both model and models are configured', async () => {
+    it('throws when both model and models are configured', async () => {
       const mockSession = makeSdkSession([makeResultSuccess()]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
       mockLoadAnthropicAgentSdk.mockResolvedValue({
         query: mockQuery,
       } as never);
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
 
       const adapter = new AnthropicAgentAdapter(
         makeConfigService({
@@ -571,16 +568,10 @@ describe('AnthropicAgentAdapter', () => {
           'stages.implement.models': { mechanical: 'claude-haiku-custom' },
         }),
       );
-      await adapter.generateAndVerify(makeParams());
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
-      expect(
-        logCalls.some(
-          (message) =>
-            message.includes('Warning:') &&
-            message.includes('models takes precedence'),
-        ),
-      ).toBe(true);
+      await expect(adapter.generateAndVerify(makeParams())).rejects.toThrow(
+        'stages.implement.model and stages.implement.models are mutually exclusive.',
+      );
     });
   });
 

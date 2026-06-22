@@ -870,5 +870,57 @@ describe('wf-config-loader', () => {
         backend: 'standard',
       });
     });
+
+    it('defaults git.branchNamePattern to the Atlassian regex', () => {
+      const config = normalizeWfConfig({});
+
+      expect(config.git.branchNamePattern).toBe(
+        '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$',
+      );
+    });
+
+    it('defaults git.branchPrefixMapping correctly', () => {
+      const config = normalizeWfConfig({});
+
+      expect(config.git.branchPrefixMapping).toEqual({
+        feature: 'feature',
+        fix: 'bugfix',
+        investigate: 'chore',
+      });
+    });
+
+    it('accepts custom git.branchNamePattern', () => {
+      const config = normalizeWfConfig({
+        git: { branchNamePattern: '^custom/.+$' },
+      });
+
+      expect(config.git.branchNamePattern).toBe('^custom/.+$');
+    });
+
+    it('accepts custom git.branchPrefixMapping', () => {
+      const config = normalizeWfConfig({
+        git: {
+          branchPrefixMapping: {
+            feature: 'feat',
+            fix: 'fix',
+            investigate: 'research',
+          },
+        },
+      });
+
+      expect(config.git.branchPrefixMapping).toEqual({
+        feature: 'feat',
+        fix: 'fix',
+        investigate: 'research',
+      });
+    });
+
+    it('rejects old branching.* keys', () => {
+      expect(() =>
+        normalizeWfConfig({
+          branching: { atlassianPattern: '^test$' },
+        } as never),
+      ).toThrow();
+    });
   });
 });

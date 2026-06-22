@@ -132,6 +132,12 @@ export interface ImplementerOptions {
   allowMultiRepoScope?: boolean;
   /** Controls model selection strategy for the implement stage. Defaults to 'auto'. */
   modelRouting?: ModelRouting;
+  /** Suppress interactive prompts; auto-select defaults while preserving decorative output. */
+  silent?: boolean;
+  /** Suppress branch creation; work directly on the source branch. */
+  noBranch?: boolean;
+  /** CLI override for branch name validation regex (git.branchNamePattern config). */
+  branchNamePattern?: string;
 }
 
 export interface ReviewerOptions {
@@ -151,7 +157,7 @@ export interface FindingsArtifact {
 }
 
 export type ImplementerResult =
-  | { type: 'implementation'; branchName: string }
+  | { type: 'implementation'; branchName: string | null }
   | { type: 'investigation'; artifact: FindingsArtifact };
 
 /**

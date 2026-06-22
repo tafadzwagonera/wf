@@ -29,17 +29,12 @@ export interface CommitInfo {
 @Injectable()
 export class GitService {
   private git: SimpleGit;
-  private defaultBranch: string;
 
   constructor(
     private configService: ConfigService,
     private logger: LoggerService,
   ) {
     this.git = simpleGit();
-    this.defaultBranch = this.configService.get<string>(
-      'git.defaultBranch',
-      'develop',
-    );
   }
 
   async isGitRepository(cwd?: string): Promise<boolean> {
@@ -58,13 +53,13 @@ export class GitService {
       const status: StatusResult = await git.status();
       const branches: BranchSummary = await git.branch();
 
-      // Detect development branch
-      const devBranch = this.detectDevelopmentBranch(branches.all);
+      // Detect development branch (first match for backward compat)
+      const devBranches = this.detectDevelopmentBranches(branches.all);
 
       return {
         current: status.current || 'HEAD',
         all: branches.all,
-        development: devBranch,
+        development: devBranches[0],
         isClean: status.isClean(),
         hasUncommittedChanges: !status.isClean(),
       };
@@ -73,17 +68,34 @@ export class GitService {
     }
   }
 
-  private detectDevelopmentBranch(branches: string[]): string | undefined {
-    const devPatterns = ['develop', 'devel', 'dev', 'development'];
+  detectDevelopmentBranches(branches: string[]): string[] {
+    return branches.filter((b) => {
+      const name = b.includes('/') ? b.split('/').pop()! : b;
+      return name.includes('dev');
+    });
+  }
 
-    for (const pattern of devPatterns) {
+  detectMainBranch(branches: string[]): string | undefined {
+    const mainPatterns = ['main', 'master'];
+
+    for (const pattern of mainPatterns) {
       const found = branches.find(
         (b) => b === pattern || b.endsWith(`/${pattern}`),
       );
       if (found) return found;
     }
 
-    return this.defaultBranch;
+    return undefined;
+  }
+
+  async hasUpstream(branchName: string, cwd?: string): Promise<boolean> {
+    const git = cwd ? simpleGit(cwd) : this.git;
+    try {
+      await git.raw(['rev-parse', '--abbrev-ref', `${branchName}@{upstream}`]);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async createBranch(
@@ -113,11 +125,11 @@ export class GitService {
       }
 
       // Determine base branch
-      const devBranch = this.detectDevelopmentBranch(branches.all);
-      const base = baseBranch || devBranch || status.current;
+      const devBranches = this.detectDevelopmentBranches(branches.all);
+      const base = baseBranch || devBranches[0] || status.current || 'HEAD';
 
-      // Create and checkout new branch
-      await git.checkoutLocalBranch(branchName);
+      // Create and checkout new branch from the specified base
+      await git.checkout(['-b', branchName, base]);
 
       this.logger.success(
         `Created and checked out branch: ${branchName} from ${base}`,
@@ -346,10 +358,15 @@ export class GitService {
     }
   }
 
-  async pull(remote: string = 'origin', branch?: string): Promise<void> {
+  async pull(
+    remote: string = 'origin',
+    branch?: string,
+    cwd?: string,
+  ): Promise<void> {
+    const git = cwd ? simpleGit(cwd) : this.git;
     try {
-      const currentBranch = branch || (await this.getCurrentBranch());
-      await this.git.pull(remote, currentBranch);
+      const currentBranch = branch || (await this.getCurrentBranch(cwd));
+      await git.pull(remote, currentBranch);
       this.logger.success(
         `Pulled latest changes from ${remote}/${currentBranch}`,
       );

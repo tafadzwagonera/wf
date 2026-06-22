@@ -50,7 +50,7 @@ describe('ImplementerAgent', () => {
               .fn()
               .mockImplementation((key: string, fallback?: unknown) => {
                 const values: Record<string, unknown> = {
-                  'branching.prefixMapping': {
+                  'git.branchPrefixMapping': {
                     feature: 'feature',
                     fix: 'bugfix',
                     investigate: 'chore',
@@ -77,6 +77,21 @@ describe('ImplementerAgent', () => {
           useValue: {
             getCurrentBranch: jest.fn().mockResolvedValue('main'),
             createBranch: jest.fn().mockResolvedValue(undefined),
+            getStatus: jest.fn().mockResolvedValue({ isClean: () => true }),
+            getBranchInfo: jest.fn().mockResolvedValue({
+              current: 'main',
+              all: ['main', 'develop'],
+              development: 'develop',
+              isClean: true,
+              hasUncommittedChanges: false,
+            }),
+            detectDevelopmentBranches: jest.fn().mockReturnValue(['develop']),
+            detectMainBranch: jest.fn().mockReturnValue('main'),
+            hasUpstream: jest.fn().mockResolvedValue(true),
+            checkoutBranch: jest.fn().mockResolvedValue(undefined),
+            pull: jest.fn().mockResolvedValue(undefined),
+            stashChanges: jest.fn().mockResolvedValue(undefined),
+            stashPop: jest.fn().mockResolvedValue(undefined),
           },
         },
         {
@@ -232,7 +247,7 @@ describe('ImplementerAgent', () => {
 
       expect(gitService.createBranch).toHaveBeenCalledWith(
         'feature/dark-building-creek',
-        undefined,
+        'develop',
         '/tmp/repo-a',
       );
     });
@@ -288,7 +303,7 @@ describe('ImplementerAgent', () => {
                 .mockImplementation((key: string, fallback?: unknown) => {
                   if (key === 'stages.implement.provider') return 'google';
                   if (key === 'ai.provider') return 'google';
-                  if (key === 'branching.prefixMapping')
+                  if (key === 'git.branchPrefixMapping')
                     return {
                       feature: 'feature',
                       fix: 'bugfix',
@@ -305,6 +320,21 @@ describe('ImplementerAgent', () => {
             useValue: {
               getCurrentBranch: jest.fn().mockResolvedValue('main'),
               createBranch: jest.fn().mockResolvedValue(undefined),
+              getStatus: jest.fn().mockResolvedValue({ isClean: () => true }),
+              getBranchInfo: jest.fn().mockResolvedValue({
+                current: 'main',
+                all: ['main', 'develop'],
+                development: 'develop',
+                isClean: true,
+                hasUncommittedChanges: false,
+              }),
+              detectDevelopmentBranches: jest.fn().mockReturnValue(['develop']),
+              detectMainBranch: jest.fn().mockReturnValue('main'),
+              hasUpstream: jest.fn().mockResolvedValue(true),
+              checkoutBranch: jest.fn().mockResolvedValue(undefined),
+              pull: jest.fn().mockResolvedValue(undefined),
+              stashChanges: jest.fn().mockResolvedValue(undefined),
+              stashPop: jest.fn().mockResolvedValue(undefined),
             },
           },
           {
@@ -344,7 +374,7 @@ describe('ImplementerAgent', () => {
                 .mockImplementation((key: string, fallback?: unknown) => {
                   if (key === 'stages.implement.provider') return 'openai';
                   if (key === 'ai.provider') return 'anthropic';
-                  if (key === 'branching.prefixMapping')
+                  if (key === 'git.branchPrefixMapping')
                     return {
                       feature: 'feature',
                       fix: 'bugfix',
@@ -361,6 +391,21 @@ describe('ImplementerAgent', () => {
             useValue: {
               getCurrentBranch: jest.fn().mockResolvedValue('main'),
               createBranch: jest.fn().mockResolvedValue(undefined),
+              getStatus: jest.fn().mockResolvedValue({ isClean: () => true }),
+              getBranchInfo: jest.fn().mockResolvedValue({
+                current: 'main',
+                all: ['main', 'develop'],
+                development: 'develop',
+                isClean: true,
+                hasUncommittedChanges: false,
+              }),
+              detectDevelopmentBranches: jest.fn().mockReturnValue(['develop']),
+              detectMainBranch: jest.fn().mockReturnValue('main'),
+              hasUpstream: jest.fn().mockResolvedValue(true),
+              checkoutBranch: jest.fn().mockResolvedValue(undefined),
+              pull: jest.fn().mockResolvedValue(undefined),
+              stashChanges: jest.fn().mockResolvedValue(undefined),
+              stashPop: jest.fn().mockResolvedValue(undefined),
             },
           },
           {
@@ -417,6 +462,111 @@ describe('ImplementerAgent', () => {
         ),
       ).toBe(true);
       expect(openaiAdapterSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('branch workflow', () => {
+    beforeEach(() => {
+      jest
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue(undefined);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('auto-stashes when working tree is dirty in silent mode', async () => {
+      gitService.getStatus.mockResolvedValue({
+        isClean: () => false,
+      } as any);
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(gitService.stashChanges).toHaveBeenCalled();
+      expect(gitService.stashPop).toHaveBeenCalled();
+    });
+
+    it('skips stash when working tree is clean', async () => {
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(gitService.stashChanges).not.toHaveBeenCalled();
+      expect(gitService.stashPop).not.toHaveBeenCalled();
+    });
+
+    it('auto-selects dev branch in silent mode', async () => {
+      gitService.detectDevelopmentBranches.mockReturnValue(['develop']);
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(gitService.checkoutBranch).toHaveBeenCalledWith('develop');
+      expect(gitService.pull).toHaveBeenCalledWith(
+        'origin',
+        'develop',
+        '/tmp/repo-a',
+      );
+    });
+
+    it('falls back to main when no dev branch exists', async () => {
+      gitService.detectDevelopmentBranches.mockReturnValue([]);
+      gitService.detectMainBranch.mockReturnValue('main');
+      gitService.getBranchInfo.mockResolvedValue({
+        current: 'main',
+        all: ['main'],
+        development: undefined,
+        isClean: true,
+        hasUncommittedChanges: false,
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(gitService.pull).toHaveBeenCalledWith(
+        'origin',
+        'main',
+        '/tmp/repo-a',
+      );
+    });
+
+    it('does not create branch when --no-branch is set', async () => {
+      const result = await agent.execute(
+        ticketArtifact,
+        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+        {
+          trackerName: 'jira',
+          repoDir: '/tmp/repo-a',
+          silent: true,
+          noBranch: true,
+        },
+      );
+
+      expect(gitService.createBranch).not.toHaveBeenCalled();
+      expect(result).toEqual({ type: 'implementation', branchName: null });
+    });
+
+    it('warns and continues when pull fails (no upstream)', async () => {
+      gitService.pull.mockRejectedValue(new Error('no upstream'));
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      // Should not throw — pull failure is non-fatal
+      expect(gitService.createBranch).toHaveBeenCalled();
     });
   });
 });

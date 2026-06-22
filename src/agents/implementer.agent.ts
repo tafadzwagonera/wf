@@ -31,6 +31,7 @@ import {
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import { ClaudeCliAdapter } from '../integrations/ai/adapters/claude-cli.adapter';
+import inquirer from 'inquirer';
 
 const DEFAULT_PREFIX_MAPPING: Record<ResolutionAction, string> = {
   feature: 'feature',
@@ -80,32 +81,11 @@ export class ImplementerAgent {
       options.allowMultiRepoScope,
     );
 
-    const summary = extractSummary(ticket.content);
-    const branchName = options.customBranchSlug
-      ? this.generateCustomBranchName(
-          options.customBranchSlug,
-          planArtifact.action,
-        )
-      : this.generateBranchName(
-          ticket.ticketKey,
-          summary,
-          planArtifact.action,
-          options.trackerName,
-        );
-
-    const currentBranch = await this.gitService
-      .getCurrentBranch(options.repoDir)
-      .catch(() => '');
-    if (currentBranch === branchName) {
-      console.log(chalk.green(`✓ Already on branch: ${branchName}`));
-    } else {
-      await this.gitService.createBranch(
-        branchName,
-        undefined,
-        options.repoDir,
-      );
-      console.log(chalk.green(`✓ Switched to branch: ${branchName}`));
-    }
+    const branchName = await this.handleBranchWorkflow(
+      ticket,
+      planArtifact,
+      options,
+    );
 
     console.log(chalk.bold('\n  Steps:'));
     planArtifact.plan.steps.forEach((step: string, i: number) => {
@@ -650,15 +630,230 @@ export class ImplementerAgent {
     return { type: 'investigation', artifact };
   }
 
+  /**
+   * Orchestrates the full branch creation workflow: dirty-tree check, source
+   * branch selection, pull, and branch creation with interactive or silent
+   * fallback behavior.
+   *
+   * @param ticket - Ticket artifact for branch name generation
+   * @param planArtifact - Plan artifact with action and metadata
+   * @param options - Implementation options including silent/noBranch flags
+   * @returns The created branch name, or null when --no-branch was used
+   */
+  private async handleBranchWorkflow(
+    ticket: TicketArtifact,
+    planArtifact: PlanArtifact,
+    options: ImplementerOptions,
+  ): Promise<string | null> {
+    const cwd = options.repoDir;
+    const interactive = !options.silent && this.isInteractiveSession();
+
+    // 1. Dirty tree check
+    console.log(chalk.gray('  Checking working tree status...'));
+    const status = await this.gitService.getStatus(cwd);
+    let didStash = false;
+
+    if (!status.isClean()) {
+      const stashMessage = path.basename(planArtifact.path) || 'wf-auto-stash';
+
+      if (interactive) {
+        const { shouldStash } = await inquirer.prompt<{
+          shouldStash: boolean;
+        }>([
+          {
+            type: 'confirm',
+            name: 'shouldStash',
+            message:
+              'Working tree has uncommitted changes. Stash and continue?',
+            default: true,
+          },
+        ]);
+        if (!shouldStash) {
+          throw new Error(
+            'Aborted: working tree has uncommitted changes. Commit or stash them first.',
+          );
+        }
+      }
+
+      console.log(
+        chalk.yellow(
+          `  Working tree has uncommitted changes — stashing (${stashMessage})...`,
+        ),
+      );
+      await this.gitService.stashChanges(stashMessage);
+      didStash = true;
+    } else {
+      console.log(chalk.green('  Working tree is clean'));
+    }
+
+    // 2. Detect source branches
+    console.log(chalk.gray('  Detecting source branches...'));
+    const branchInfo = await this.gitService.getBranchInfo(cwd);
+    const devBranches = this.gitService.detectDevelopmentBranches(
+      branchInfo.all,
+    );
+    const mainBranch = this.gitService.detectMainBranch(branchInfo.all);
+
+    // 3. Select source branch
+    let sourceBranch: string | undefined;
+
+    if (devBranches.length === 1) {
+      sourceBranch = devBranches[0];
+    } else if (devBranches.length > 1 && interactive) {
+      const { selected } = await inquirer.prompt<{ selected: string }>([
+        {
+          type: 'list',
+          name: 'selected',
+          message: 'Multiple dev branches found. Select source branch:',
+          choices: [...devBranches, ...(mainBranch ? [mainBranch] : [])],
+          default: devBranches[0],
+        },
+      ]);
+      sourceBranch = selected;
+    } else if (devBranches.length > 1) {
+      // Silent mode: pick the first dev branch
+      sourceBranch = devBranches[0];
+    } else {
+      sourceBranch = mainBranch;
+    }
+
+    if (!sourceBranch) {
+      sourceBranch = branchInfo.current;
+      console.log(
+        chalk.yellow(
+          `  No dev or main branch detected — using current branch: ${sourceBranch}`,
+        ),
+      );
+    } else {
+      const hasUpstream = await this.gitService.hasUpstream(sourceBranch, cwd);
+      console.log(
+        chalk.cyan(
+          `  Source branch: ${sourceBranch}${hasUpstream ? ' (has upstream)' : ''}`,
+        ),
+      );
+    }
+
+    // 4. Pull latest
+    if (branchInfo.current !== sourceBranch) {
+      await this.gitService.checkoutBranch(sourceBranch);
+    }
+    try {
+      console.log(
+        chalk.gray(`  Pulling latest from origin/${sourceBranch}...`),
+      );
+      await this.gitService.pull('origin', sourceBranch, cwd);
+    } catch {
+      console.log(
+        chalk.yellow(
+          `  Could not pull ${sourceBranch} (no upstream or network issue) — continuing with local state`,
+        ),
+      );
+    }
+
+    // 5. Restore stash
+    if (didStash) {
+      try {
+        await this.gitService.stashPop();
+      } catch {
+        console.log(
+          chalk.yellow(
+            '  Stash pop encountered conflicts. Your changes are in stash@{0} — resolve manually after implementation.',
+          ),
+        );
+      }
+    }
+
+    // 6. Branch creation decision
+    if (options.noBranch) {
+      console.log(chalk.cyan(`  Staying on ${sourceBranch} (--no-branch)`));
+      return null;
+    }
+
+    const summary = extractSummary(ticket.content);
+    const generatedName = options.customBranchSlug
+      ? this.generateCustomBranchName(
+          options.customBranchSlug,
+          planArtifact.action,
+        )
+      : this.generateBranchName(
+          ticket.ticketKey,
+          summary,
+          planArtifact.action,
+          options.trackerName,
+          options.branchNamePattern,
+        );
+
+    let branchName: string;
+
+    if (interactive) {
+      const { choice } = await inquirer.prompt<{ choice: string }>([
+        {
+          type: 'list',
+          name: 'choice',
+          message: 'Branch name:',
+          choices: [
+            { name: generatedName, value: 'accept' },
+            { name: 'Edit branch name', value: 'edit' },
+            { name: 'Skip (stay on current branch)', value: 'skip' },
+          ],
+          default: 'accept',
+        },
+      ]);
+
+      if (choice === 'skip') {
+        console.log(chalk.cyan(`  Staying on ${sourceBranch}`));
+        return null;
+      }
+
+      if (choice === 'edit') {
+        const { customName } = await inquirer.prompt<{
+          customName: string;
+        }>([
+          {
+            type: 'input',
+            name: 'customName',
+            message: 'Enter branch name:',
+            default: generatedName,
+          },
+        ]);
+        branchName = customName;
+      } else {
+        branchName = generatedName;
+      }
+    } else {
+      branchName = generatedName;
+    }
+
+    // 7. Create branch
+    const currentBranch = await this.gitService
+      .getCurrentBranch(cwd)
+      .catch(() => '');
+    if (currentBranch === branchName) {
+      console.log(chalk.green(`  Already on branch: ${branchName}`));
+    } else {
+      await this.gitService.createBranch(branchName, sourceBranch, cwd);
+      console.log(
+        chalk.green(`  Created branch: ${branchName} from ${sourceBranch}`),
+      );
+    }
+
+    return branchName;
+  }
+
+  private isInteractiveSession(): boolean {
+    return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  }
+
   private generateBranchName(
     ticketKey: string,
     summary: string,
     action: ResolutionAction,
     trackerName: string,
+    patternOverride?: string,
   ): string {
     const prefixMapping = this.configService.get<
       Record<ResolutionAction, string>
-    >('branching.prefixMapping', DEFAULT_PREFIX_MAPPING);
+    >('git.branchPrefixMapping', DEFAULT_PREFIX_MAPPING);
     const prefix = prefixMapping[action] || 'feature';
 
     // Atlassian platforms (jira, bitbucket) use uppercase ticket keys
@@ -667,24 +862,23 @@ export class ImplementerAgent {
 
     const branchName = `${prefix}/${formattedKey}__${slugify(summary)}`;
 
-    // Validate against platform-configured branch pattern if present
-    const patternKey = isAtlassian
-      ? 'branching.atlassianPattern'
-      : 'branching.githubPattern';
-    const pattern = this.configService.get<string>(patternKey);
+    // Validate against branch pattern
+    const pattern =
+      patternOverride ??
+      this.configService.get<string>('git.branchNamePattern');
     if (pattern) {
       try {
         if (!new RegExp(pattern).test(branchName)) {
           console.log(
             chalk.yellow(
-              `⚠ Generated branch name "${branchName}" does not match platform pattern: ${pattern}`,
+              `  Generated branch name "${branchName}" does not match pattern: ${pattern}`,
             ),
           );
         }
       } catch {
         console.log(
           chalk.yellow(
-            `⚠ Invalid branch pattern in config (${patternKey}): ${pattern}`,
+            `  Invalid branch pattern in config (git.branchNamePattern): ${pattern}`,
           ),
         );
       }
@@ -699,7 +893,7 @@ export class ImplementerAgent {
   ): string {
     const prefixMapping = this.configService.get<
       Record<ResolutionAction, string>
-    >('branching.prefixMapping', DEFAULT_PREFIX_MAPPING);
+    >('git.branchPrefixMapping', DEFAULT_PREFIX_MAPPING);
     const prefix = prefixMapping[action] || 'feature';
 
     return `${prefix}/${slugify(artifactStem)}`;

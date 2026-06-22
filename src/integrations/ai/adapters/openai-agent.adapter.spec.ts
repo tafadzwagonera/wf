@@ -764,6 +764,7 @@ describe('OpenAIAgentAdapter', () => {
 
       const adapter = new OpenAIAgentAdapter(
         makeConfigService({
+          'stages.implement.model': undefined,
           'stages.implement.models': { mechanical: 'gpt-4.1-nano' },
         }),
       );
@@ -782,18 +783,12 @@ describe('OpenAIAgentAdapter', () => {
       expect(agentConfig.model).toBe('gpt-4.1-nano');
     });
 
-    it('warns when both model and models are configured', async () => {
+    it('throws when both model and models are configured', async () => {
       const repoDir = fs.mkdtempSync(
         path.join(os.tmpdir(), 'wf-openai-routing-warn-'),
       );
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
-
-      const mockRunResult = makeStreamedRun([], 'Done.');
-      mockRunner.mockImplementation(() => ({
-        run: jest.fn(async () => mockRunResult),
-        config: {},
-      }));
 
       const adapter = new OpenAIAgentAdapter(
         makeConfigService({
@@ -801,20 +796,12 @@ describe('OpenAIAgentAdapter', () => {
           'stages.implement.models': { mechanical: 'gpt-4.1-nano' },
         }),
       );
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
 
-      await adapter.generateAndVerify(makeParams(repoDir));
-
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
-      expect(
-        logCalls.some(
-          (message) =>
-            message.includes('Warning:') &&
-            message.includes('models takes precedence'),
-        ),
-      ).toBe(true);
+      await expect(
+        adapter.generateAndVerify(makeParams(repoDir)),
+      ).rejects.toThrow(
+        'stages.implement.model and stages.implement.models are mutually exclusive.',
+      );
     });
   });
 

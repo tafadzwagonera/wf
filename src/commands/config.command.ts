@@ -110,8 +110,13 @@ export class ConfigListCommand extends CommandRunner {
         ),
       },
       'Git Settings': {
-        'git.defaultBranch': this.configService.get('git.defaultBranch'),
         'git.commitFormat': this.configService.get('git.commitFormat'),
+        'git.branchNamePattern': this.configService.get(
+          'git.branchNamePattern',
+        ),
+        'git.branchPrefixMapping': JSON.stringify(
+          this.configService.get('git.branchPrefixMapping'),
+        ),
       },
       'System Settings': {
         'state.directory': getWfStateDir(),
