@@ -675,7 +675,7 @@ export class ImplementerAgent {
     const formatBranchChoice = (b: string): { name: string; value: string } =>
       isRemote(b)
         ? { name: chalk.gray(b), value: b }
-        : { name: chalk.white(b), value: b };
+        : { name: chalk.cyan(b), value: b };
 
     // 3. Select source branch
     let sourceBranch: string | undefined;
@@ -712,7 +712,7 @@ export class ImplementerAgent {
         ),
       );
     } else {
-      const branchColor = isRemote(sourceBranch) ? chalk.gray : chalk.white;
+      const branchColor = isRemote(sourceBranch) ? chalk.gray : chalk.cyan;
       const hasUpstream = isRemote(sourceBranch)
         ? true
         : await this.gitService.hasUpstream(sourceBranch, cwd);
