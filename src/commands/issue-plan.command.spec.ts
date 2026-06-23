@@ -62,6 +62,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import { hashPlanArtifactSources } from '../shared/utils/plan-artifact';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -345,7 +346,7 @@ describe('IssuePlanCommand', () => {
         targeted: [
           {
             id: 'manual-auth-smoke',
-            run: 'yarn test:manual -- test-auth-redirect',
+            run: 'node -e "require(\'node:assert\').ok(true)"',
             policy: 'enforced',
           },
         ],
@@ -363,11 +364,12 @@ describe('IssuePlanCommand', () => {
     });
     expect(planStageService.generatePlan).toHaveBeenCalledWith(
       '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
-      {
+      expect.objectContaining({
         action: 'fix',
         ticketKey: 'WBP-1',
         affectedRepositories: ['repo-a'],
-      }
+        repoDir: '/tmp/consumer-app/repo-a',
+      })
     );
     expect(writeFileSpy).toHaveBeenCalled();
     expect(String(writeFileSpy.mock.calls[0][1])).toContain('"verification"');
@@ -529,7 +531,7 @@ describe('IssuePlanCommand', () => {
         targeted: [
           {
             id: 'criteria-txt-rejected',
-            run: 'yarn start issue:review --criteria criteria.txt',
+            run: 'wf issue:review --criteria criteria.txt',
             policy: 'enforced',
             reason: 'Expect command to fail for non-Markdown criteria',
           },
@@ -574,12 +576,12 @@ describe('IssuePlanCommand', () => {
         targeted: [
           {
             id: 'repo-relative-test',
-            run: 'cd repo-a && yarn test -- --runInBand src/auth.spec.ts',
+            run: 'cd repo-a && node -e "require(\'node:assert\').ok(true)"',
             policy: 'enforced',
           },
           {
             id: 'absolute-repo-test',
-            run: 'cd /tmp/consumer-app/repo-a && yarn lint',
+            run: 'cd /tmp/consumer-app/repo-a && node -e "process.exit(0)"',
             policy: 'enforced',
           },
         ],
@@ -594,11 +596,11 @@ describe('IssuePlanCommand', () => {
     expect(writtenPlan.verification.targeted).toEqual([
       expect.objectContaining({
         id: 'repo-relative-test',
-        run: 'yarn test -- --runInBand src/auth.spec.ts',
+        run: 'node -e "require(\'node:assert\').ok(true)"',
       }),
       expect.objectContaining({
         id: 'absolute-repo-test',
-        run: 'yarn lint',
+        run: 'node -e "process.exit(0)"',
       }),
     ]);
   });
@@ -643,6 +645,109 @@ describe('IssuePlanCommand', () => {
 
     consoleErrorSpy.mockRestore();
     exitSpy.mockRestore();
+  });
+
+  it('rejects enforced verification referencing a nonexistent package.json script', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-infra-'));
+    const repoPath = path.join(repoDir, 'repo-a');
+    fs.mkdirSync(repoPath, { recursive: true });
+    fs.writeFileSync(path.join(repoPath, 'package.json'), JSON.stringify({ scripts: { test: 'jest' } }));
+
+    const { resolveRepoBasePath } = require('../agents/utils');
+    (resolveRepoBasePath as jest.Mock).mockImplementation((repo?: string) =>
+      repo ? path.join(repoDir, repo) : repoDir
+    );
+
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: path.join(repoDir, '.wf', 'repo-a', 'jira', 'WBP-1.md'),
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['repo-a/src/auth.ts'],
+      repositoriesAffected: ['repo-a'],
+      verification: {
+        targeted: [
+          {
+            id: 'nonexistent-script',
+            run: 'yarn test:integration -- --bail',
+            policy: 'enforced',
+          },
+        ],
+      },
+    } as any);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
+      'does not exist in package.json'
+    );
+
+    consoleErrorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('allows enforced verification referencing an existing package.json script', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-infra-'));
+    const repoPath = path.join(repoDir, 'repo-a');
+    fs.mkdirSync(repoPath, { recursive: true });
+    fs.writeFileSync(
+      path.join(repoPath, 'package.json'),
+      JSON.stringify({ scripts: { test: 'jest', 'test:manual': 'ts-node run-manual-test.ts' } })
+    );
+
+    const { resolveRepoBasePath } = require('../agents/utils');
+    (resolveRepoBasePath as jest.Mock).mockImplementation((repo?: string) =>
+      repo ? path.join(repoDir, repo) : repoDir
+    );
+
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: path.join(repoDir, '.wf', 'repo-a', 'jira', 'WBP-1.md'),
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: path.join(repoDir, '.wf', 'repo-a', 'jira', 'WBP-1.md'),
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['repo-a/src/auth.ts'],
+      repositoriesAffected: ['repo-a'],
+      verification: {
+        targeted: [
+          {
+            id: 'existing-script',
+            run: 'yarn test:manual -- test-auth-redirect',
+            policy: 'enforced',
+          },
+        ],
+      },
+    } as any);
+
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    // Validation passed — the plan was written (script exists in package.json)
+    expect(writeFileSpy).toHaveBeenCalled();
+
+    writeFileSpy.mockRestore();
   });
 
   it('deletes sibling standard plans before writing a new ticket plan', async () => {

@@ -67,11 +67,16 @@ describe('PlanStageService', () => {
       affectedRepositories: ['repo-a', 'repo-b'],
     });
 
-    expect(aiService.generatePlan).toHaveBeenCalledWith('fix', expect.stringContaining('Restore callback flow'), {
-      ticketKey: 'WBP-123',
-      summary: 'Fix auth redirect',
-      affectedRepositories: ['repo-a', 'repo-b'],
-    });
+    expect(aiService.generatePlan).toHaveBeenCalledWith(
+      'fix',
+      expect.stringContaining('Restore callback flow'),
+      expect.objectContaining({
+        ticketKey: 'WBP-123',
+        summary: 'Fix auth redirect',
+        affectedRepositories: ['repo-a', 'repo-b'],
+        testInfra: expect.objectContaining({ primary: expect.any(String) }),
+      })
+    );
   });
 
   it('uses the stage agent service when plan agent mode is enabled', async () => {
@@ -83,12 +88,15 @@ describe('PlanStageService', () => {
       affectedRepositories: ['repo-a'],
     });
 
-    expect(stageAgentService.generatePlan).toHaveBeenCalledWith({
-      action: 'fix',
-      issueContent: 'Ticket body',
-      ticketKey: 'WBP-321',
-      affectedRepositories: ['repo-a'],
-    });
+    expect(stageAgentService.generatePlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'fix',
+        issueContent: 'Ticket body',
+        ticketKey: 'WBP-321',
+        affectedRepositories: ['repo-a'],
+        testInfra: expect.objectContaining({ primary: expect.any(String) }),
+      })
+    );
     expect(aiService.generatePlan).not.toHaveBeenCalled();
   });
 

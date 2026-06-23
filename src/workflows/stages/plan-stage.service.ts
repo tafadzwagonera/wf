@@ -12,11 +12,13 @@ import {
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
+import { detectTestInfra } from '../../shared/utils/detect-test-infra';
 
 interface GeneratePlanOptions {
   action: ResolutionAction;
   ticketKey?: string;
   affectedRepositories?: string[];
+  repoDir?: string;
 }
 
 @Injectable()
@@ -27,12 +29,15 @@ export class PlanStageService {
   ) {}
 
   async generatePlan(ticketContent: string, options: GeneratePlanOptions): Promise<ResolutionPlan> {
+    const testInfra = detectTestInfra(options.repoDir ?? process.cwd());
+
     if (this.stageAgentService.isEnabledForStage('plan')) {
       return this.stageAgentService.generatePlan({
         action: options.action,
         issueContent: ticketContent,
         ticketKey: options.ticketKey,
         affectedRepositories: options.affectedRepositories,
+        testInfra,
       });
     }
 
@@ -40,6 +45,7 @@ export class PlanStageService {
       ticketKey: options.ticketKey,
       summary: this.extractSummary(ticketContent),
       affectedRepositories: options.affectedRepositories,
+      testInfra,
     });
   }
 

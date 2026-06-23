@@ -6,6 +6,7 @@ import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
 import type { PlanVerificationConfig } from '../../shared/utils/verification-manifest';
+import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
 import type { ReviewTraceCallStackNode, ReviewTraceStateTransition } from './review-trace';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 
@@ -503,13 +504,23 @@ ${repoHint}Create a detailed resolution plan with:
    exists before listing it.
 6. Potential risks or considerations
 7. Repositories that will be affected (if known — use provided hints or infer from ticket text)
+
+${context?.testInfra ? formatTestInfraPromptSection(context.testInfra) : ''}
+
 8. Task-specific verification only when needed:
    - Use "verification.targeted" for focused checks required by this specific plan
    - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
    - Omit "verification" entirely when no targeted checks or waivers are needed
-   - Keep verification tool-agnostic and command-based, e.g. "yarn test:manual -- test-issue-review"
-   - Verification commands run from the selected repository root; do not prefix them with "cd <repo>" or any other repo-selection step
+   - Verification commands run from the selected repository root
    - Every verification command must exit 0 when it succeeds
+   - Commands must be copy-paste-runnable: reference ONLY scripts/binaries listed in the
+     "Available test infrastructure" section. Do not invent scripts.
+   - Each verification command MUST be relevant to this plan: it should verify a side effect
+     or behavior introduced by the steps above, not just run the whole test suite.
+     Good: "node -e \\"require('node:assert').ok(require('./src/config').validate())\\""
+     Bad: "yarn test" (too broad — does not target the planned change)
+   - For inline assertions, prefer: node -e "const assert = require('node:assert'); ..."
+     (when node:test is available) or the installed test framework CLI
    - If you need to prove an expected failure, wrap it in a shell assertion that exits 0 when the expected failure occurs.
 
 Return ONLY a valid JSON object with these fields:

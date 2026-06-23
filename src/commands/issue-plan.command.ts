@@ -15,6 +15,8 @@ import type { ResolutionAction } from '../agents/interfaces';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
+import { detectTestInfra } from '../shared/utils/detect-test-infra';
+import type { TestInfraContext, NodeInfra } from '../shared/utils/detect-test-infra';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
@@ -67,6 +69,7 @@ interface RepoAwarePlan {
       id?: string;
       run?: string;
       reason?: string;
+      policy?: string;
     }>;
   };
 }
@@ -209,6 +212,17 @@ const escapesSelectedRepo = (command: string, selectedRepoDir: string): boolean 
   }
 
   return true;
+};
+
+/**
+ * Extract the script name from a package-manager-style verification command.
+ *
+ * @param command - Verification run command
+ * @returns Script name when the command uses a package manager runner, undefined otherwise
+ */
+const extractScriptName = (command: string): string | undefined => {
+  const match = command.match(/^(?:yarn|npm run|pnpm|pnpm run|npx|nr)\s+([^\s]+)/);
+  return match?.[1];
 };
 
 @Injectable()
@@ -426,11 +440,13 @@ export class IssuePlanCommand extends CommandRunner {
         const plan = await this.planStageService.generatePlan(customSourceContent, {
           action,
           affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
+          repoDir: artifactBaseDir,
         });
         this.validateGeneratedPlan(
           plan,
           artifactBaseDir,
-          this.resolveExpectedRepositories(artifactBaseDir, options?.repos)
+          this.resolveExpectedRepositories(artifactBaseDir, options?.repos),
+          detectTestInfra(artifactBaseDir)
         );
 
         let planContent: string;
@@ -620,11 +636,13 @@ export class IssuePlanCommand extends CommandRunner {
         action,
         ticketKey,
         affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
+        repoDir: artifactBaseDir,
       });
       this.validateGeneratedPlan(
         plan,
         artifactBaseDir,
-        this.resolveExpectedRepositories(artifactBaseDir, options?.repos)
+        this.resolveExpectedRepositories(artifactBaseDir, options?.repos),
+        detectTestInfra(artifactBaseDir)
       );
 
       // Save plan to file
@@ -889,7 +907,12 @@ export class IssuePlanCommand extends CommandRunner {
    * @param expectedRepositories - Repository names allowed for this plan
    * @returns Nothing; throws when the plan metadata is incompatible
    */
-  private validateGeneratedPlan(plan: RepoAwarePlan, selectedRepoDir: string, expectedRepositories: string[]): void {
+  private validateGeneratedPlan(
+    plan: RepoAwarePlan,
+    selectedRepoDir: string,
+    expectedRepositories: string[],
+    testInfra?: TestInfraContext
+  ): void {
     const repositoriesAffected = plan.repositoriesAffected ?? [];
     const normalizedAffected = normalizeFileEntries(plan.filesAffected ?? []);
     const normalizedContext = normalizeFileEntries(plan.filesContext ?? []);
@@ -1005,6 +1028,86 @@ export class IssuePlanCommand extends CommandRunner {
         ...check,
         run: typeof check.run === 'string' ? normalizeVerificationRunCommand(check.run, selectedRepoDir) : check.run,
       }));
+    }
+
+    if (plan.verification?.targeted?.length && testInfra) {
+      const nodeEco = testInfra.ecosystems.find((e): e is NodeInfra => e.ecosystem === 'node');
+      const hasTerraform = testInfra.ecosystems.some(e => e.ecosystem === 'terraform');
+      const hasPython = testInfra.ecosystems.some(e => e.ecosystem === 'python');
+      const hasGo = testInfra.ecosystems.some(e => e.ecosystem === 'go');
+
+      for (const check of plan.verification.targeted) {
+        const cmd = typeof check.run === 'string' ? check.run : '';
+        if (!cmd) continue;
+
+        // Skip validation for inline scripts, raw binaries, and npx (auto-installs)
+        if (/^(node -e|sh -c|bash -c|grep |test |npx )/.test(cmd) || cmd.startsWith('!')) continue;
+
+        // Node.js package manager script validation
+        const scriptName = extractScriptName(cmd);
+        if (scriptName && nodeEco) {
+          if (!nodeEco.allScriptNames.includes(scriptName)) {
+            if (check.policy === 'enforced') {
+              throw createPlanValidationError(
+                `verification command "${cmd}" references script "${scriptName}" which does not exist in package.json.`
+              );
+            }
+            console.log(
+              chalk.yellow(
+                `  ⚠️ verification command "${cmd}" references script "${scriptName}" not found in package.json`
+              )
+            );
+          }
+          continue;
+        }
+
+        // Terraform command without terraform ecosystem
+        if (/^terraform\s/.test(cmd) && !hasTerraform) {
+          if (check.policy === 'enforced') {
+            throw createPlanValidationError(
+              `verification command "${cmd}" uses terraform but no .tf files were detected in the repository.`
+            );
+          }
+          console.log(chalk.yellow(`  ⚠️ verification command "${cmd}" uses terraform but no .tf files were detected`));
+          continue;
+        }
+
+        // Python command without python ecosystem
+        if (/^(pytest|python -m pytest)\s/.test(cmd) && !hasPython) {
+          if (check.policy === 'enforced') {
+            throw createPlanValidationError(
+              `verification command "${cmd}" uses pytest but no Python project files were detected in the repository.`
+            );
+          }
+          console.log(chalk.yellow(`  ⚠️ verification command "${cmd}" uses pytest but no Python project detected`));
+          continue;
+        }
+
+        // Go command without go ecosystem
+        if (/^go (test|vet)\s/.test(cmd) && !hasGo) {
+          if (check.policy === 'enforced') {
+            throw createPlanValidationError(
+              `verification command "${cmd}" uses go but no go.mod was detected in the repository.`
+            );
+          }
+          console.log(chalk.yellow(`  ⚠️ verification command "${cmd}" uses go but no go.mod detected`));
+          continue;
+        }
+
+        // Package manager script in non-node repo
+        if (scriptName && !nodeEco) {
+          if (check.policy === 'enforced') {
+            throw createPlanValidationError(
+              `verification command "${cmd}" references a package manager script but no package.json was detected.`
+            );
+          }
+          console.log(
+            chalk.yellow(
+              `  ⚠️ verification command "${cmd}" references a package manager script but no package.json detected`
+            )
+          );
+        }
+      }
     }
 
     const invalidVerificationCommand = plan.verification?.targeted?.find(check => {
