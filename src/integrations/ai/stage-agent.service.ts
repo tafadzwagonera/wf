@@ -52,6 +52,8 @@ const ALLOWED_READ_ONLY_COMMAND_PREFIXES = [
   'git diff',
 ];
 
+const CLI_STAGE_MAX_RETRIES = 1;
+
 const extractCliDiagnostic = (
   message: ClaudeCliMessage,
 ): string | undefined => {
@@ -1004,39 +1006,42 @@ Return only the requested ticket markdown and preserve the required heading stru
     const resolvedRepoDir = params.repoDir ?? process.cwd();
     const allowInspection = Boolean(params.repoDir);
 
-    const args = buildCliArgs({
-      prompt: params.prompt,
-      appendSystemPrompt: params.systemPrompt,
-      model,
-      cwd: resolvedRepoDir,
-      tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
-      permissionMode: 'plan',
-    });
+    let lastDiagnostics: string[] = [];
+    for (let attempt = 0; attempt <= CLI_STAGE_MAX_RETRIES; attempt++) {
+      const args = buildCliArgs({
+        prompt: params.prompt,
+        appendSystemPrompt: params.systemPrompt,
+        model,
+        cwd: resolvedRepoDir,
+        tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
+        permissionMode: 'plan',
+      });
 
-    let result = '';
-    const cliDiagnostics: string[] = [];
-    for await (const message of spawnCli(
-      args,
-      resolvedRepoDir,
-      params.prompt,
-    )) {
-      if (message.type === 'result' && message.result) {
-        result = message.result;
+      let result = '';
+      const cliDiagnostics: string[] = [];
+      for await (const message of spawnCli(
+        args,
+        resolvedRepoDir,
+        params.prompt,
+      )) {
+        if (message.type === 'result' && message.result && !message.is_error) {
+          result = message.result;
+        }
+        const diagnostic = extractCliDiagnostic(message);
+        if (diagnostic) cliDiagnostics.push(diagnostic);
       }
-      const diagnostic = extractCliDiagnostic(message);
-      if (diagnostic) cliDiagnostics.push(diagnostic);
+
+      if (result) return result.trim();
+
+      lastDiagnostics = cliDiagnostics;
     }
 
-    if (!result) {
-      const detail = cliDiagnostics.length
-        ? ` Diagnostics:\n${cliDiagnostics.join('\n')}`
-        : '';
-      throw new Error(
-        `Claude CLI finished without returning a result.${detail}`,
-      );
-    }
-
-    return result.trim();
+    const detail = lastDiagnostics.length
+      ? ` Diagnostics:\n${lastDiagnostics.join('\n')}`
+      : '';
+    throw new Error(
+      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`,
+    );
   }
 
   private async cliChatTurn(params: {
@@ -1052,51 +1057,57 @@ Return only the requested ticket markdown and preserve the required heading stru
     const resolvedRepoDir = params.repoDir ?? process.cwd();
     const allowInspection = Boolean(params.repoDir);
 
-    const args = buildCliArgs({
-      prompt: params.userMessage,
-      appendSystemPrompt: params.systemPrompt,
-      model,
-      cwd: resolvedRepoDir,
-      sessionId: params.session?.sessionId,
-      tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
-      permissionMode: 'plan',
-    });
-
-    let result = '';
+    let lastDiagnostics: string[] = [];
     let sessionId: string | undefined = params.session?.sessionId;
-    const cliDiagnostics: string[] = [];
 
-    for await (const message of spawnCli(
-      args,
-      resolvedRepoDir,
-      params.userMessage,
-    )) {
-      if (message.session_id) {
-        sessionId = message.session_id;
+    for (let attempt = 0; attempt <= CLI_STAGE_MAX_RETRIES; attempt++) {
+      const args = buildCliArgs({
+        prompt: params.userMessage,
+        appendSystemPrompt: params.systemPrompt,
+        model,
+        cwd: resolvedRepoDir,
+        sessionId: params.session?.sessionId,
+        tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
+        permissionMode: 'plan',
+      });
+
+      let result = '';
+      const cliDiagnostics: string[] = [];
+
+      for await (const message of spawnCli(
+        args,
+        resolvedRepoDir,
+        params.userMessage,
+      )) {
+        if (message.session_id) {
+          sessionId = message.session_id;
+        }
+        if (message.type === 'result' && message.result && !message.is_error) {
+          result = message.result;
+        }
+        const diagnostic = extractCliDiagnostic(message);
+        if (diagnostic) cliDiagnostics.push(diagnostic);
       }
-      if (message.type === 'result' && message.result) {
-        result = message.result;
+
+      if (result) {
+        return {
+          content: result.trim(),
+          session: {
+            provider: 'anthropic' as const,
+            backend: 'cli',
+            sessionId,
+          },
+        };
       }
-      const diagnostic = extractCliDiagnostic(message);
-      if (diagnostic) cliDiagnostics.push(diagnostic);
+
+      lastDiagnostics = cliDiagnostics;
     }
 
-    if (!result) {
-      const detail = cliDiagnostics.length
-        ? ` Diagnostics:\n${cliDiagnostics.join('\n')}`
-        : '';
-      throw new Error(
-        `Claude CLI finished without returning a result.${detail}`,
-      );
-    }
-
-    return {
-      content: result.trim(),
-      session: {
-        provider: 'anthropic' as const,
-        backend: 'cli',
-        sessionId,
-      },
-    };
+    const detail = lastDiagnostics.length
+      ? ` Diagnostics:\n${lastDiagnostics.join('\n')}`
+      : '';
+    throw new Error(
+      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`,
+    );
   }
 }
