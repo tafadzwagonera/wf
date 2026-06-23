@@ -6,6 +6,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { ValidationError } from '../shared/utils/errors';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
@@ -79,7 +80,7 @@ export class IssueFetchCommand extends CommandRunner {
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
     if (!validFormats.includes(format as OutputFormat)) {
-      throw new Error(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
+      throw new ValidationError(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
     }
     return format as OutputFormat;
   }
@@ -108,7 +109,7 @@ export class IssueFetchCommand extends CommandRunner {
   parseTracker(tracker: string): string {
     const validTrackers = ['jira', 'github', 'bitbucket'];
     if (!validTrackers.includes(tracker)) {
-      throw new Error(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
+      throw new ValidationError(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
     }
     return tracker;
   }

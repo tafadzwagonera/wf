@@ -16,6 +16,7 @@ import {
   VerificationScript,
 } from './interfaces';
 import { extractSummary, slugify } from './utils';
+import { ConfigurationError, GitError, ValidationError } from '../shared/utils/errors';
 import { formatBackendSelection, writeImplementVerificationRunFile } from '../shared/utils/implement-verification';
 import { getWfStateDir } from '../shared/utils/wf-paths';
 import * as fs from 'fs';
@@ -258,7 +259,7 @@ export class ImplementerAgent {
     const repoName = repoDir ? path.basename(repoDir) : '';
     const repositoriesAffected = [...new Set(planArtifact.plan.repositoriesAffected ?? [])];
     if (repositoriesAffected.length > 1 && !allowMultiRepoScope) {
-      throw new Error(
+      throw new ValidationError(
         `issue:implement only verifies a single repository. This plan affects multiple repositories: ${repositoriesAffected.join(', ')}. Use wf issue or run wf issue:implement separately per repository.`
       );
     }
@@ -296,7 +297,7 @@ export class ImplementerAgent {
       return prefix !== repoName && !localPathPrefixes.has(prefix);
     });
     if (offendingPaths.length > 0) {
-      throw new Error(
+      throw new ValidationError(
         `issue:implement can only modify and verify files for ${repoName}. Found paths for other repositories: ${offendingPaths.map(e => e.filePath).join(', ')}. Use wf issue or run wf issue:implement separately per repository.`
       );
     }
@@ -539,12 +540,12 @@ export class ImplementerAgent {
     const backend = this.configService.get<string>('stages.implement.backend', 'agent');
 
     if (backend === 'standard') {
-      throw new Error('Implement stage does not support backend "standard". Use "agent" or "cli".');
+      throw new ConfigurationError('Implement stage does not support backend "standard". Use "agent" or "cli".');
     }
 
     if (backend === 'cli') {
       if (provider !== 'anthropic') {
-        throw new Error(`Implement stage backend "cli" requires provider "anthropic". Got "${provider}".`);
+        throw new ConfigurationError(`Implement stage backend "cli" requires provider "anthropic". Got "${provider}".`);
       }
       return { configured: 'claude-cli', selected: 'claude-cli', provider };
     }
@@ -565,7 +566,7 @@ export class ImplementerAgent {
       };
     }
 
-    throw new Error(`Implement stage requires provider "anthropic" or "openai". Got "${provider}".`);
+    throw new ConfigurationError(`Implement stage requires provider "anthropic" or "openai". Got "${provider}".`);
   }
 
   /**
@@ -668,7 +669,7 @@ export class ImplementerAgent {
           },
         ]);
         if (!shouldStash) {
-          throw new Error('Aborted: working tree has uncommitted changes. Commit or stash them first.');
+          throw new GitError('Aborted: working tree has uncommitted changes. Commit or stash them first.');
         }
       }
 

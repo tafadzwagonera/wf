@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { ConfigurationError, ExecutionError } from '../../shared/utils/errors';
 
 interface SlackMessage {
   user: string;
@@ -93,7 +94,7 @@ export class SlackService {
         : [];
 
     if (tokens.length === 0) {
-      throw new Error('Set slack.botToken or slack.userToken before using Slack sources');
+      throw new ConfigurationError('Set slack.botToken or slack.userToken before using Slack sources');
     }
 
     let lastResponseData: any;
@@ -164,17 +165,17 @@ export class SlackService {
 
     const error = responseData.error as string;
     if (error === 'not_in_channel') {
-      throw new Error(
+      throw new ExecutionError(
         `Slack bot is not a member of channel ${channelId}. ` +
           `Invite it first: open the channel in Slack and run /invite @<your-bot-name>`
       );
     }
     if (error === 'channel_not_found') {
-      throw new Error(
+      throw new ExecutionError(
         `Slack channel ${channelId} not found. ` +
           `Check the permalink, ensure the token has access to the workspace, or configure slack.userToken for DM/MPDM conversations.`
       );
     }
-    throw new Error(`Slack API error: ${error}`);
+    throw new ExecutionError(`Slack API error: ${error}`);
   }
 }

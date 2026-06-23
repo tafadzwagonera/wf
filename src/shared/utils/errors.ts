@@ -100,6 +100,13 @@ export class UserCancelledError extends AgentError {
   }
 }
 
+export class ConfigurationError extends AgentError {
+  constructor(message: string, details?: any) {
+    super(ErrorCode.CONFIGURATION_ERROR, message, details, false);
+    this.name = 'ConfigurationError';
+  }
+}
+
 export class FileSystemError extends AgentError {
   constructor(message: string, details?: any) {
     super(ErrorCode.FILE_SYSTEM_ERROR, message, details, true);

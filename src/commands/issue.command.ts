@@ -6,6 +6,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { ValidationError } from '../shared/utils/errors';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import {
   buildPlanArtifactFilename,
@@ -149,7 +150,9 @@ export class IssueCommand extends CommandRunner {
   })
   parseModelRouting(val: string): string {
     if (!VALID_MODEL_ROUTINGS.includes(val as ModelRouting)) {
-      throw new Error(`Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTINGS.join(', ')}`);
+      throw new ValidationError(
+        `Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTINGS.join(', ')}`
+      );
     }
     return val;
   }
@@ -253,7 +256,7 @@ export class IssueCommand extends CommandRunner {
       const fromIndex = STAGE_ORDER.indexOf(fromStage);
       const toIndex = STAGE_ORDER.indexOf(toStage);
       if (fromIndex > toIndex) {
-        throw new Error(
+        throw new ValidationError(
           `Invalid stage range: --from ${fromStage} --to ${toStage}. ` +
             `The --from stage must come before or equal the --to stage.`
         );
@@ -273,7 +276,7 @@ export class IssueCommand extends CommandRunner {
             ticketKey = resolvedReference.ticketKey;
           }
         } catch {
-          throw new Error(
+          throw new ValidationError(
             `Plan artifact not found for ${ticketKey}. Run wf issue:plan first or provide a supported plan filename.`
           );
         }
@@ -283,21 +286,21 @@ export class IssueCommand extends CommandRunner {
       let action: ResolutionAction | undefined;
       if (stagesToRun.includes(WorkflowStage.PLAN)) {
         if (!options?.action) {
-          throw new Error(
+          throw new ValidationError(
             'Error: --action is required when running PLAN stage.\n' + 'Specify: --action <feature|fix|investigate>'
           );
         }
         // Validate action
         const validActions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
         if (!validActions.includes(options.action as ResolutionAction)) {
-          throw new Error(`Invalid action: ${options.action}. Must be one of: ${validActions.join(', ')}`);
+          throw new ValidationError(`Invalid action: ${options.action}. Must be one of: ${validActions.join(', ')}`);
         }
         action = options.action as ResolutionAction;
       } else if (options?.action) {
         // Action provided but PLAN stage not running - validate it
         const validActions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
         if (!validActions.includes(options.action as ResolutionAction)) {
-          throw new Error(`Invalid action: ${options.action}. Must be one of: ${validActions.join(', ')}`);
+          throw new ValidationError(`Invalid action: ${options.action}. Must be one of: ${validActions.join(', ')}`);
         }
         action = options.action as ResolutionAction;
       }
@@ -762,7 +765,7 @@ export class IssueCommand extends CommandRunner {
   private parseStage(stage: string): WorkflowStage {
     const normalized = stage.toLowerCase();
     if (!Object.values(WorkflowStage).includes(normalized as WorkflowStage)) {
-      throw new Error(`Invalid stage: ${stage}. Must be one of: ${Object.values(WorkflowStage).join(', ')}`);
+      throw new ValidationError(`Invalid stage: ${stage}. Must be one of: ${Object.values(WorkflowStage).join(', ')}`);
     }
     return normalized as WorkflowStage;
   }
@@ -772,7 +775,7 @@ export class IssueCommand extends CommandRunner {
     const toIndex = STAGE_ORDER.indexOf(to);
 
     if (fromIndex > toIndex) {
-      throw new Error(`Invalid stage range: --from ${from} --to ${to}. 'from' must come before 'to'.`);
+      throw new ValidationError(`Invalid stage range: --from ${from} --to ${to}. 'from' must come before 'to'.`);
     }
 
     return STAGE_ORDER.slice(fromIndex, toIndex + 1);

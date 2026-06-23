@@ -1,4 +1,5 @@
 import { AgentError, ErrorCode } from './errors';
+import { isZodErrorLike, formatZodError } from './zod-error.util';
 import chalk from 'chalk';
 
 export class ErrorHandler {
@@ -16,8 +17,11 @@ export class ErrorHandler {
     console.error(chalk.red(error.message));
 
     if (error.details) {
-      console.error(chalk.gray('\nDetails:'));
-      console.error(chalk.gray(JSON.stringify(error.details, null, 2)));
+      const detailsOutput = isZodErrorLike(error.details)
+        ? `\n${formatZodError(error.details)}`
+        : `\nDetails:\n${JSON.stringify(error.details, null, 2)}`;
+
+      console.error(chalk.gray(detailsOutput));
     }
 
     const suggestion = this.getSuggestion(error.code);

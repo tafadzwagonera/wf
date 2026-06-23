@@ -3,9 +3,10 @@ import * as path from 'path';
 import * as vm from 'vm';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
-import Joi from '@hapi/joi';
+import { z } from 'zod';
 import YAML from 'yaml';
 import { ValidationError } from '../shared/utils/errors';
+import { formatFieldNames } from '../shared/utils/zod-error.util';
 import type {
   WfVerificationConditionsConfig,
   WfAiProviderConfig,
@@ -13,8 +14,6 @@ import type {
   WfAiProviderName,
   WfBackendMode,
   WfConfig,
-  WfCreateStageConfig,
-  WfImplementStageConfig,
 } from './public-config';
 import {
   type StageBackendDefaultStageName,
@@ -147,98 +146,135 @@ interface WfConfigLoadOptions extends TypeScriptConfigLoadOptions {
 
 let loadedConfig: NormalizedWfConfig | null = null;
 
-const providerSchema = Joi.object<WfAiProviderConfig>({
-  provider: Joi.string().valid('anthropic', 'openai', 'google', 'deepseek').required(),
-  apiKey: Joi.string().allow('').optional(),
-  model: Joi.string().allow('').optional(),
-  maxTokens: Joi.number().integer().min(1).optional(),
-  default: Joi.boolean().optional(),
+const providerNames = ['anthropic', 'openai', 'google', 'deepseek'] as const;
+const backendModes = ['agent', 'cli', 'standard'] as const;
+
+const providerSchema = z.object({
+  provider: z.enum(providerNames),
+  apiKey: z.string().optional(),
+  model: z.string().optional(),
+  maxTokens: z.number().int().min(1).optional(),
+  default: z.boolean().optional(),
 });
 
-const verificationConditionsSchema = Joi.object<WfVerificationConditionsConfig>({
-  policyFile: Joi.string().min(1).optional(),
-  scripts: Joi.object().pattern(Joi.string().min(1), Joi.string().min(1).required()).min(1).optional(),
-}).or('policyFile', 'scripts');
+const verificationConditionsSchema = z
+  .object({
+    policyFile: z.string().min(1).optional(),
+    scripts: z.record(z.string().min(1), z.string().min(1)).optional(),
+  })
+  .refine(data => data.policyFile || (data.scripts && Object.keys(data.scripts).length > 0), {
+    message: 'verificationConditions must specify policyFile or scripts',
+  });
 
-const aiStageTargetSchema = Joi.object<WfAiStageTargetConfig>({
-  provider: Joi.string().valid('anthropic', 'openai', 'google', 'deepseek').required(),
-  model: Joi.string().min(1).optional(),
-  backend: Joi.string().valid('agent', 'cli', 'standard').optional(),
-  outputFormat: Joi.string().valid('json', 'md', 'yaml', 'yml').optional(),
+const aiStageTargetSchema = z.object({
+  provider: z.enum(providerNames),
+  model: z.string().min(1).optional(),
+  backend: z.enum(backendModes).optional(),
+  outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
 });
 
-const createStageSchema = Joi.object<WfCreateStageConfig>({
-  provider: Joi.string().valid('anthropic', 'openai', 'google', 'deepseek').optional(),
-  model: Joi.string().min(1).optional(),
-  backend: Joi.string().valid('agent', 'cli', 'standard').optional(),
+const createStageSchema = z.object({
+  provider: z.enum(providerNames).optional(),
+  model: z.string().min(1).optional(),
+  backend: z.enum(backendModes).optional(),
   verificationConditions: verificationConditionsSchema.optional(),
 });
 
-const implementStageSchema = Joi.object<WfImplementStageConfig>({
-  provider: Joi.string().valid('anthropic', 'openai', 'google', 'deepseek').required(),
-  model: Joi.string().min(1).optional(),
-  models: Joi.object({
-    default: Joi.string().min(1).optional(),
-    mechanical: Joi.string().min(1).optional(),
-  }).optional(),
-  backend: Joi.string().valid('agent', 'cli', 'standard').optional(),
-  verificationConditions: verificationConditionsSchema.optional(),
-});
+const implementStageSchema = z
+  .object({
+    provider: z.enum(providerNames),
+    model: z.string().min(1).optional(),
+    models: z
+      .object({
+        default: z.string().min(1).optional(),
+        mechanical: z.string().min(1).optional(),
+      })
+      .optional(),
+    backend: z.enum(backendModes).optional(),
+    verificationConditions: verificationConditionsSchema.optional(),
+  })
+  .strict();
 
-const configSchema = Joi.object<WfConfig>({
-  tracker: Joi.string().valid('jira', 'github', 'bitbucket').optional(),
-  ai: Joi.array().items(providerSchema).optional(),
-  atlassian: Joi.object({
-    baseUrl: Joi.string().uri().optional(),
-    email: Joi.string().email().optional(),
-    apiToken: Joi.string().allow('').optional(),
-    jira: Joi.object({
-      apiToken: Joi.string().allow('').optional(),
-      defaultProject: Joi.string().allow('').optional(),
-    }).optional(),
-    bitbucket: Joi.object({
-      workspace: Joi.string().allow('').optional(),
-      apiToken: Joi.string().allow('').optional(),
-    }).optional(),
-  }).optional(),
-  github: Joi.object({
-    token: Joi.string().allow('').optional(),
-    defaultRepo: Joi.string().allow('').optional(),
-  }).optional(),
-  git: Joi.object({
-    commitFormat: Joi.string().valid('conventional', 'freeform', 'auto').optional(),
-    branchNamePattern: Joi.string().optional(),
-    branchPrefixMapping: Joi.object({
-      feature: Joi.string().optional(),
-      fix: Joi.string().optional(),
-      investigate: Joi.string().optional(),
-    }).optional(),
-  }).optional(),
-  state: Joi.object({
-    directory: Joi.string().optional(),
-  }).optional(),
-  log: Joi.object({
-    directory: Joi.string().optional(),
-    level: Joi.string().valid('error', 'warn', 'info', 'debug').optional(),
-  }).optional(),
-  logging: Joi.object({
-    directory: Joi.string().optional(),
-    level: Joi.string().valid('error', 'warn', 'info', 'debug').optional(),
-  }).optional(),
-  slack: Joi.object({
-    botToken: Joi.string().allow('').optional(),
-    userToken: Joi.string().allow('').optional(),
-  }).optional(),
-  stages: Joi.object({
-    plan: aiStageTargetSchema.optional(),
-    implement: implementStageSchema.optional(),
-    create: createStageSchema.optional(),
-    review: aiStageTargetSchema.optional(),
-    generate: aiStageTargetSchema.optional(),
-    fetch: Joi.string().optional(),
-    commit: aiStageTargetSchema.optional(),
-  }).optional(),
-});
+const logLevels = ['error', 'warn', 'info', 'debug'] as const;
+
+const configSchema = z
+  .object({
+    tracker: z.enum(['jira', 'github', 'bitbucket']).optional(),
+    ai: z.array(providerSchema).optional(),
+    atlassian: z
+      .object({
+        baseUrl: z.string().url().optional(),
+        email: z.string().email().optional(),
+        apiToken: z.string().optional(),
+        jira: z
+          .object({
+            apiToken: z.string().optional(),
+            defaultProject: z.string().optional(),
+          })
+          .optional(),
+        bitbucket: z
+          .object({
+            workspace: z.string().optional(),
+            apiToken: z.string().optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+    github: z
+      .object({
+        token: z.string().optional(),
+        defaultRepo: z.string().optional(),
+      })
+      .optional(),
+    git: z
+      .object({
+        commitFormat: z.enum(['conventional', 'freeform', 'auto']).optional(),
+        branchNamePattern: z.string().optional(),
+        branchPrefixMapping: z
+          .object({
+            feature: z.string().optional(),
+            fix: z.string().optional(),
+            investigate: z.string().optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+    state: z
+      .object({
+        directory: z.string().optional(),
+      })
+      .optional(),
+    log: z
+      .object({
+        directory: z.string().optional(),
+        level: z.enum(logLevels).optional(),
+      })
+      .optional(),
+    logging: z
+      .object({
+        directory: z.string().optional(),
+        level: z.enum(logLevels).optional(),
+      })
+      .optional(),
+    slack: z
+      .object({
+        botToken: z.string().optional(),
+        userToken: z.string().optional(),
+      })
+      .optional(),
+    stages: z
+      .object({
+        plan: aiStageTargetSchema.optional(),
+        implement: implementStageSchema.optional(),
+        create: createStageSchema.optional(),
+        review: aiStageTargetSchema.optional(),
+        generate: aiStageTargetSchema.optional(),
+        fetch: z.string().optional(),
+        commit: aiStageTargetSchema.optional(),
+      })
+      .optional(),
+  })
+  .strict();
 
 const getDefaultModelForProvider = (provider: WfAiProviderName): string => {
   if (provider === 'openai') return DEFAULT_OPENAI_MODEL;
@@ -623,15 +659,16 @@ const normalizeStageTarget = ({
  * @returns Normalized config with defaults applied
  */
 export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig => {
-  const { error, value } = configSchema.validate(rawConfig, {
-    abortEarly: false,
-  });
-
-  if (error) {
-    throw new ValidationError(`Invalid wf config: ${error.details.map(detail => detail.message).join('; ')}`);
+  const result = configSchema.safeParse(rawConfig);
+  if (!result.success) {
+    const fieldNames = result.error.issues.map(i => i.path.join('.'));
+    throw new ValidationError(
+      `Invalid wf config: validation failed for: ${formatFieldNames(fieldNames)}`,
+      result.error
+    );
   }
 
-  const validatedConfig = value as WfConfig;
+  const validatedConfig = result.data as WfConfig;
   const inputProviders = validatedConfig.ai?.length
     ? validatedConfig.ai
     : [

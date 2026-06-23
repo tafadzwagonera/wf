@@ -235,7 +235,7 @@ describe('wf-config-loader', () => {
             implement: 'gpt-5.4',
           } as never,
         })
-      ).toThrow(/implement.*object/i);
+      ).toThrow(/validation failed for.*stages\.implement/i);
     });
 
     it('accepts explicit stage objects with optional agent flag', () => {
@@ -307,7 +307,7 @@ describe('wf-config-loader', () => {
             review: 'gemini-2.5-pro',
           } as never,
         })
-      ).toThrow(/review/i);
+      ).toThrow(/validation failed for.*stages\.review/i);
     });
 
     it('rejects stage targets that reference providers not configured in ai[]', () => {
@@ -410,7 +410,7 @@ describe('wf-config-loader', () => {
             } as never,
           },
         })
-      ).toThrow(/experimentalAgent/i);
+      ).toThrow(/validation failed for.*stages\.implement/i);
     });
 
     it('defaults stage backend to standard when omitted', () => {
@@ -917,7 +917,7 @@ describe('wf-config-loader', () => {
         normalizeWfConfig({
           branching: { atlassianPattern: '^test$' },
         } as never)
-      ).toThrow();
+      ).toThrow(/validation failed/i);
     });
   });
 });
