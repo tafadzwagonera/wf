@@ -9,6 +9,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   AnthropicAgentAdapter,
+  buildSystemPrompt,
   formatActivityMessages,
   formatProgressMessage,
 } from './anthropic-agent.adapter';
@@ -1068,6 +1069,44 @@ describe('AnthropicAgentAdapter', () => {
       await adapter.generateAndVerify(params);
 
       expect(mockQuery).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  describe('buildSystemPrompt', () => {
+    const baseArgs = {
+      ticketKey: 'WBP-1',
+      repoDir: '/tmp/repo-a',
+      repoName: 'repo-a',
+      repoFiles: ['repo-a/src/example.ts'],
+      trackedFilePaths: ['repo-a/src/example.ts'],
+      verificationScripts: [
+        { id: 'build', command: 'yarn build', policy: 'enforced' },
+      ] as VerificationScript[],
+      ticketContext: '# WBP-1: Fix\n',
+      planSteps: ['Update source'],
+      planSummary: 'Fix the widget',
+      planAction: 'fix' as const,
+    };
+
+    it('includes "Files for context" section when contextFiles is non-empty', () => {
+      const result = buildSystemPrompt({
+        ...baseArgs,
+        contextFiles: ['repo-a/package.json'],
+      });
+      expect(result).toContain(
+        'Files for context (read-only — do NOT edit these):',
+      );
+      expect(result).toContain('package.json');
+    });
+
+    it('omits "Files for context" section when contextFiles is empty', () => {
+      const result = buildSystemPrompt({ ...baseArgs, contextFiles: [] });
+      expect(result).not.toContain('Files for context');
+    });
+
+    it('omits "Files for context" section when contextFiles is undefined', () => {
+      const result = buildSystemPrompt(baseArgs);
+      expect(result).not.toContain('Files for context');
     });
   });
 });

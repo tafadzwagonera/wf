@@ -1,7 +1,11 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AiService, ResolutionPlan } from '../integrations/ai/ai.service';
+import {
+  AiService,
+  ResolutionPlan,
+  normalizeFileEntries,
+} from '../integrations/ai/ai.service';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -888,10 +892,23 @@ Return ONLY a valid JSON object:
       '',
       '## Files Affected',
       '',
-      ...((plan.filesAffected ?? []).length > 0
-        ? (plan.filesAffected ?? []).map((filePath) => `- ${filePath}`)
-        : ['- (none listed)']),
+      ...(() => {
+        const affected = normalizeFileEntries(plan.filesAffected ?? []);
+        return affected.length > 0
+          ? affected.map((e) => `- ${e.filePath} (${e.status})`)
+          : ['- (none listed)'];
+      })(),
       '',
+      ...(() => {
+        const context = normalizeFileEntries(plan.filesContext ?? []);
+        if (context.length === 0) return [];
+        return [
+          '## Files for Context (Read-Only)',
+          '',
+          ...context.map((e) => `- ${e.filePath} (${e.status})`),
+          '',
+        ];
+      })(),
       '## Risks',
       '',
       ...((plan.risks ?? []).length > 0
@@ -921,14 +938,16 @@ Return ONLY a valid JSON object:
     repoDir: string,
   ): string[] {
     const repoName = path.basename(repoDir);
-    const files = plan.filesAffected ?? [];
+    const entries = normalizeFileEntries(plan.filesAffected ?? []);
 
-    return files.map((filePath) => {
-      const relativePath = filePath.startsWith(`${repoName}/`)
-        ? filePath.slice(repoName.length + 1)
-        : filePath;
-      return path.join(repoDir, relativePath);
-    });
+    return entries
+      .filter((entry) => entry.status !== 'not-found')
+      .map((entry) => {
+        const relativePath = entry.filePath.startsWith(`${repoName}/`)
+          ? entry.filePath.slice(repoName.length + 1)
+          : entry.filePath;
+        return path.join(repoDir, relativePath);
+      });
   }
 
   /**

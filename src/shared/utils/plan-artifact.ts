@@ -1,7 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
-import { ResolutionPlan } from '../../integrations/ai/ai.service';
+import type {
+  ResolutionPlan,
+  FileEntry,
+} from '../../integrations/ai/ai.service';
 import type { ResolutionAction } from '../../agents/interfaces';
 import {
   hashGeneratedTicketSources,
@@ -563,7 +566,8 @@ const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
     summary: typeof rawPlan.summary === 'string' ? rawPlan.summary : '',
     steps: normalizeStringList(rawPlan.steps),
     estimatedComplexity,
-    filesAffected: normalizeOptionalStringList(rawPlan.filesAffected),
+    filesAffected: normalizeFileEntryList(rawPlan.filesAffected),
+    filesContext: normalizeFileEntryList(rawPlan.filesContext),
     repositoriesAffected: normalizeOptionalStringList(
       rawPlan.repositoriesAffected,
     ),
@@ -684,4 +688,23 @@ const normalizeOptionalStringList = (value: unknown): string[] | undefined => {
   }
 
   return value.map((item) => String(item));
+};
+
+const isFileEntry = (item: unknown): item is FileEntry =>
+  typeof item === 'object' &&
+  item !== null &&
+  'filePath' in item &&
+  typeof (item as FileEntry).filePath === 'string';
+
+const normalizeFileEntryList = (
+  value: unknown,
+): (string | FileEntry)[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.map((item) => {
+    if (isFileEntry(item)) return item;
+    return String(item);
+  });
 };

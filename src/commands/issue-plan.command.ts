@@ -1,7 +1,7 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AiService } from '../integrations/ai/ai.service';
+import { AiService, normalizeFileEntries } from '../integrations/ai/ai.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -63,7 +63,11 @@ interface IssuePlanOptions {
 }
 
 interface RepoAwarePlan {
-  filesAffected?: string[];
+  filesAffected?: (
+    | string
+    | import('../integrations/ai/ai.service').FileEntry
+  )[];
+  filesContext?: (string | import('../integrations/ai/ai.service').FileEntry)[];
   repositoriesAffected?: string[];
   verification?: {
     targeted?: Array<{
@@ -760,8 +764,18 @@ export class IssuePlanCommand extends CommandRunner {
 
     if (plan.filesAffected && plan.filesAffected.length > 0) {
       md += `## Files Affected\n\n`;
-      plan.filesAffected.forEach((file: string) => {
-        md += `- ${file}\n`;
+      plan.filesAffected.forEach((file) => {
+        const label = typeof file === 'string' ? file : file.filePath;
+        md += `- ${label}\n`;
+      });
+      md += '\n';
+    }
+
+    if (plan.filesContext && plan.filesContext.length > 0) {
+      md += `## Files for Context (Read-Only)\n\n`;
+      plan.filesContext.forEach((file) => {
+        const label = typeof file === 'string' ? file : file.filePath;
+        md += `- ${label}\n`;
       });
       md += '\n';
     }
@@ -992,7 +1006,8 @@ export class IssuePlanCommand extends CommandRunner {
     expectedRepositories: string[],
   ): void {
     const repositoriesAffected = plan.repositoriesAffected ?? [];
-    const filesAffected = plan.filesAffected ?? [];
+    const normalizedAffected = normalizeFileEntries(plan.filesAffected ?? []);
+    const normalizedContext = normalizeFileEntries(plan.filesContext ?? []);
 
     if (repositoriesAffected.some((repository) => repository === 'repo-name')) {
       throw createPlanValidationError(
@@ -1000,9 +1015,21 @@ export class IssuePlanCommand extends CommandRunner {
       );
     }
 
-    if (filesAffected.some((filePath) => filePath.startsWith('repo-name/'))) {
+    if (
+      normalizedAffected.some((entry) =>
+        entry.filePath.startsWith('repo-name/'),
+      )
+    ) {
       throw createPlanValidationError(
         'placeholder repository metadata found in filesAffected.',
+      );
+    }
+
+    if (
+      normalizedContext.some((entry) => entry.filePath.startsWith('repo-name/'))
+    ) {
+      throw createPlanValidationError(
+        'placeholder repository metadata found in filesContext.',
       );
     }
 
@@ -1021,15 +1048,79 @@ export class IssuePlanCommand extends CommandRunner {
       );
     }
 
-    const invalidFiles = filesAffected.filter((filePath) => {
-      const [prefix] = filePath.split('/');
+    const invalidAffectedFiles = normalizedAffected.filter((entry) => {
+      const [prefix] = entry.filePath.split('/');
       return !prefix || !repositoriesAffected.includes(prefix);
     });
-    if (invalidFiles.length > 0) {
+    if (invalidAffectedFiles.length > 0) {
       throw createPlanValidationError(
-        `filesAffected must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidFiles.join(', ')}.`,
+        `filesAffected must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidAffectedFiles.map((e) => e.filePath).join(', ')}.`,
       );
     }
+
+    const invalidContextFiles = normalizedContext.filter((entry) => {
+      const [prefix] = entry.filePath.split('/');
+      return !prefix || !repositoriesAffected.includes(prefix);
+    });
+    if (invalidContextFiles.length > 0) {
+      throw createPlanValidationError(
+        `filesContext must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidContextFiles.map((e) => e.filePath).join(', ')}.`,
+      );
+    }
+
+    // Validate to-create is not used in filesContext (cannot read a non-existent file)
+    const invalidContextStatus = normalizedContext.filter(
+      (entry) => entry.status === 'to-create',
+    );
+    if (invalidContextStatus.length > 0) {
+      throw createPlanValidationError(
+        `filesContext entries cannot have status "to-create" — context files must already exist. Invalid: ${invalidContextStatus.map((e) => e.filePath).join(', ')}.`,
+      );
+    }
+
+    // Filesystem verification: check each file path against disk and correct statuses
+    const repoBaseDir = path.dirname(selectedRepoDir);
+    const allEntries = [...normalizedAffected, ...normalizedContext];
+
+    for (const entry of allEntries) {
+      const [repoPrefix, ...rest] = entry.filePath.split('/');
+      const fullPath = path.join(repoBaseDir, repoPrefix, ...rest);
+      const existsOnDisk = fs.existsSync(fullPath);
+
+      if (existsOnDisk && entry.status === 'to-create') {
+        console.log(
+          chalk.yellow(
+            `  ⚠ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`,
+          ),
+        );
+        entry.status = 'found';
+      }
+
+      if (!existsOnDisk && entry.status === 'found') {
+        console.log(
+          chalk.yellow(
+            `  ⚠ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`,
+          ),
+        );
+        entry.status = 'not-found';
+      }
+    }
+
+    const notFoundCount = allEntries.filter(
+      (entry) => entry.status === 'not-found',
+    ).length;
+
+    if (allEntries.length > 0 && notFoundCount / allEntries.length > 0.5) {
+      console.log(
+        chalk.yellow(
+          `  ⚠ More than 50% of file entries are unresolvable (${notFoundCount}/${allEntries.length}) — the plan may contain hallucinated paths.`,
+        ),
+      );
+    }
+
+    // Write back normalized entries so downstream consumers see FileEntry objects
+    plan.filesAffected = normalizedAffected;
+    plan.filesContext = normalizedContext;
 
     if (plan.verification?.targeted?.length) {
       plan.verification.targeted = plan.verification.targeted.map((check) => ({

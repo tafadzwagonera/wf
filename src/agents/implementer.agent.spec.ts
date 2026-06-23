@@ -677,4 +677,112 @@ describe('ImplementerAgent', () => {
       ]);
     });
   });
+
+  describe('filesContext / contextFiles', () => {
+    beforeEach(() => {
+      jest
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue(undefined);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('passes contextFiles to adapter when filesContext is present', async () => {
+      const adapterSpy = jest.spyOn(
+        AnthropicAgentAdapter.prototype,
+        'generateAndVerify',
+      );
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          filesAffected: ['repo-a/src/example.ts'],
+          filesContext: [{ filePath: 'repo-a/package.json', status: 'found' }],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.contextFiles).toEqual(['repo-a/package.json']);
+    });
+
+    it('passes empty contextFiles when filesContext is absent', async () => {
+      const adapterSpy = jest.spyOn(
+        AnthropicAgentAdapter.prototype,
+        'generateAndVerify',
+      );
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.contextFiles).toEqual([]);
+    });
+
+    it('deduplicates contextFiles that overlap with repoFiles', async () => {
+      const adapterSpy = jest.spyOn(
+        AnthropicAgentAdapter.prototype,
+        'generateAndVerify',
+      );
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          filesAffected: ['repo-a/src/example.ts'],
+          filesContext: [
+            { filePath: 'repo-a/src/example.ts', status: 'found' },
+            { filePath: 'repo-a/package.json', status: 'found' },
+          ],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.contextFiles).toEqual(['repo-a/package.json']);
+    });
+
+    it('filters out not-found entries from contextFiles', async () => {
+      const adapterSpy = jest.spyOn(
+        AnthropicAgentAdapter.prototype,
+        'generateAndVerify',
+      );
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          filesAffected: ['repo-a/src/example.ts'],
+          filesContext: [
+            { filePath: 'repo-a/package.json', status: 'found' },
+            { filePath: 'repo-a/missing.ts', status: 'not-found' },
+          ],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.contextFiles).toEqual(['repo-a/package.json']);
+    });
+
+    it('normalizes legacy string[] filesAffected to FileEntry[]', async () => {
+      const adapterSpy = jest.spyOn(
+        AnthropicAgentAdapter.prototype,
+        'generateAndVerify',
+      );
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          filesAffected: ['repo-a/src/example.ts'],
+          filesContext: ['repo-a/package.json'],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.repoFiles).toEqual(['repo-a/src/example.ts']);
+      expect(call.contextFiles).toEqual(['repo-a/package.json']);
+    });
+  });
 });

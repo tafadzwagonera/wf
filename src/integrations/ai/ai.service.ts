@@ -299,12 +299,36 @@ export interface FindingsDocument {
   conclusion: string;
 }
 
+export type FileStatus = 'found' | 'to-create' | 'not-found';
+
+export interface FileEntry {
+  filePath: string;
+  status: FileStatus;
+}
+
+/**
+ * Normalizes a mixed array of legacy string paths and FileEntry objects
+ * into a uniform FileEntry array. Legacy strings default to status 'found'.
+ *
+ * @param raw - Array of string paths or FileEntry objects
+ * @returns Normalized FileEntry array
+ */
+export const normalizeFileEntries = (
+  raw: (string | FileEntry)[],
+): FileEntry[] =>
+  raw.map((entry) =>
+    typeof entry === 'string'
+      ? { filePath: entry, status: 'found' as const }
+      : entry,
+  );
+
 export interface ResolutionPlan {
   action: 'fix' | 'feature' | 'investigate';
   summary: string;
   steps: string[];
   estimatedComplexity: 'low' | 'medium' | 'high';
-  filesAffected?: string[];
+  filesAffected?: (string | FileEntry)[];
+  filesContext?: (string | FileEntry)[];
   repositoriesAffected?: string[];
   risks?: string[];
   verification?: PlanVerificationConfig;
@@ -390,12 +414,17 @@ ${repoHint}Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
 2. Specific, actionable steps to ${action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
 3. Estimated complexity (low/medium/high)
-4. Files that will be affected — prefix EVERY path with its repository name
-   (e.g., "service-tourv3/src/pricing/pricing.service.ts"). Use the repository
-   names from repositoriesAffected when available.
-5. Potential risks or considerations
-6. Repositories that will be affected (if known — use provided hints or infer from ticket text)
-7. Task-specific verification only when needed:
+4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
+   path with its repository name (e.g., "service-tourv3/src/pricing/pricing.service.ts").
+   Use the repository names from repositoriesAffected when available. Use REAL file paths
+   from the repository — not globs, not placeholders. Set status to "found" for existing
+   files or "to-create" for new files the plan will create.
+5. Files needed for **context only** (read, not edit) — same object shape as filesAffected.
+   E.g., reading package.json to confirm a dependency is installed. All context files must
+   have status "found" — you cannot read a file that does not exist yet.
+6. Potential risks or considerations
+7. Repositories that will be affected (if known — use provided hints or infer from ticket text)
+8. Task-specific verification only when needed:
    - Use "verification.targeted" for focused checks required by this specific plan
    - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
    - Omit "verification" entirely when no targeted checks or waivers are needed
@@ -410,8 +439,9 @@ Return ONLY a valid JSON object with these fields:
   "summary": "...",
   "steps": ["step 1", "step 2", ...],
   "estimatedComplexity": "low|medium|high",
-  "filesAffected": ["${repoExample}/src/path/to/file.ts", ...],
-  "repositoriesAffected": ["${repoExample}", ...],
+  "filesAffected": [{ "filePath": "${repoExample}/src/path/to/file.ts", "status": "found" }, { "filePath": "${repoExample}/src/path/to/new-file.ts", "status": "to-create" }],
+  "filesContext": [{ "filePath": "${repoExample}/package.json", "status": "found" }],
+  "repositoriesAffected": ["${repoExample}"],
   "risks": ["risk 1", ...],
   "verification": {
     "targeted": [

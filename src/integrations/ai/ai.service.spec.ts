@@ -208,7 +208,7 @@ describe('AiService', () => {
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            '"filesAffected": ["repo-a/src/path/to/file.ts", ...]',
+            '"filesAffected": [{ "filePath": "repo-a/src/path/to/file.ts", "status": "found" }',
           ),
         }),
       );

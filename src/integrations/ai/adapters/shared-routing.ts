@@ -218,6 +218,83 @@ export const stripRepoPrefix = (filePath: string, repoName: string): string => {
 export const isGlobPattern = (filePath: string): boolean =>
   filePath.includes('*') || filePath.includes('?');
 
+/**
+ * Builds the shared plan-context portion of the system prompt used by all
+ * implementer adapters. Contains everything from the role description through
+ * the verification commands list. Adapter-specific tool names, rules, and
+ * summary templates are appended by each adapter separately.
+ *
+ * @param params - Plan context parameters
+ * @returns Formatted plan-context prompt string
+ */
+export const buildPlanContext = (params: {
+  ticketKey: string;
+  repoDir: string;
+  repoName: string;
+  repoFiles: string[];
+  contextFiles?: string[];
+  trackedFilePaths: string[];
+  verificationScripts: VerificationScript[];
+  planSteps: string[];
+  planSummary?: string;
+  planRisks?: string[];
+  planAction?: 'fix' | 'feature' | 'investigate';
+}): string => {
+  const fileList = formatRepoFileList(params.repoFiles, params.repoName);
+  const trackedIdentical =
+    params.repoFiles.length === params.trackedFilePaths.length &&
+    params.repoFiles.every((f, i) => f === params.trackedFilePaths[i]);
+  const trackedFileList = trackedIdentical
+    ? '  (same as files to implement)'
+    : formatRepoFileList(params.trackedFilePaths, params.repoName);
+  const verificationList =
+    params.verificationScripts.length > 0
+      ? params.verificationScripts
+          .map((script) => `  - ${script.command}`)
+          .join('\n')
+      : '  (none configured)';
+  const planStepList =
+    params.planSteps.length > 0
+      ? params.planSteps.map((step, i) => `  ${i + 1}. ${step}`).join('\n')
+      : '  (none listed)';
+
+  const contextFileSection =
+    params.contextFiles && params.contextFiles.length > 0
+      ? `\n\nFiles for context (read-only — do NOT edit these):\n${formatRepoFileList(params.contextFiles, params.repoName)}`
+      : '';
+
+  return `You are an expert software engineer implementing code changes inside a repository.
+
+Repository directory: ${params.repoDir}
+Ticket key: ${params.ticketKey}
+
+Plan summary:
+${params.planSummary || '(none)'}
+
+Action: ${(() => {
+    switch (params.planAction) {
+      case 'fix':
+        return 'This is a bug fix. Make minimal, targeted changes that resolve the issue without altering unrelated behavior.';
+      case 'feature':
+        return 'This is a new feature. Extend the codebase following existing patterns and conventions.';
+      default:
+        return '(not specified)';
+    }
+  })()}
+
+Plan steps:
+${planStepList}
+
+Files to implement:
+${fileList}${contextFileSection}
+
+Tracked files:
+${trackedFileList}
+
+Verification commands:
+${verificationList}`;
+};
+
 const readOptionalFile = async (filePath: string): Promise<string | null> => {
   try {
     return await fs.readFile(filePath, 'utf-8');

@@ -21,11 +21,11 @@ import {
   resolveModelRouting,
   normalizeCommand,
   buildAllowedCommands,
-  formatRepoFileList,
   stripRepoPrefix,
   isGlobPattern,
   loadClaudeContext,
   discoverChangedFiles,
+  buildPlanContext,
 } from './shared-routing';
 
 const CLAUDE_CODE_TOOLS = [
@@ -254,6 +254,7 @@ export const buildSystemPrompt = ({
   repoDir,
   repoName,
   repoFiles,
+  contextFiles,
   trackedFilePaths,
   verificationScripts,
   ticketContext,
@@ -266,6 +267,7 @@ export const buildSystemPrompt = ({
   repoDir: string;
   repoName: string;
   repoFiles: string[];
+  contextFiles?: string[];
   trackedFilePaths: string[];
   verificationScripts: VerificationScript[];
   ticketContext: string;
@@ -274,52 +276,21 @@ export const buildSystemPrompt = ({
   planRisks?: string[];
   planAction?: 'fix' | 'feature' | 'investigate';
 }): string => {
-  const fileList = formatRepoFileList(repoFiles, repoName);
-  const trackedIdentical =
-    repoFiles.length === trackedFilePaths.length &&
-    repoFiles.every((f, i) => f === trackedFilePaths[i]);
-  const trackedFileList = trackedIdentical
-    ? '  (same as files to implement)'
-    : formatRepoFileList(trackedFilePaths, repoName);
-  const verificationList =
-    verificationScripts.length > 0
-      ? verificationScripts.map((script) => `  - ${script.command}`).join('\n')
-      : '  (none configured)';
-  const planStepList =
-    planSteps.length > 0
-      ? planSteps.map((step, i) => `  ${i + 1}. ${step}`).join('\n')
-      : '  (none listed)';
+  const planContext = buildPlanContext({
+    ticketKey,
+    repoDir,
+    repoName,
+    repoFiles,
+    contextFiles,
+    trackedFilePaths,
+    verificationScripts,
+    planSteps,
+    planSummary,
+    planRisks,
+    planAction,
+  });
 
-  return `You are an expert software engineer implementing code changes inside a repository.
-
-Repository directory: ${repoDir}
-Ticket key: ${ticketKey}
-
-Plan summary:
-${planSummary || '(none)'}
-
-Action: ${(() => {
-    switch (planAction) {
-      case 'fix':
-        return 'This is a bug fix. Make minimal, targeted changes that resolve the issue without altering unrelated behavior.';
-      case 'feature':
-        return 'This is a new feature. Extend the codebase following existing patterns and conventions.';
-      default:
-        return '(not specified)';
-    }
-  })()}
-
-Plan steps:
-${planStepList}
-
-Files to implement:
-${fileList}
-
-Tracked files:
-${trackedFileList}
-
-Verification commands:
-${verificationList}
+  return `${planContext}
 
 Available tools:
 - Read(file_path, offset?, limit?): read a file with optional line range
@@ -383,6 +354,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     verificationScripts: VerificationScript[];
     ticketContext: string;
     repoFiles: string[];
+    contextFiles?: string[];
     repoName: string;
     trackedFilePaths: string[];
   }): Promise<void> {
@@ -443,6 +415,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
             repoDir,
             repoName,
             repoFiles,
+            contextFiles: params.contextFiles,
             trackedFilePaths: params.trackedFilePaths,
             verificationScripts,
             ticketContext,

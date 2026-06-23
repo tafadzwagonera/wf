@@ -50,6 +50,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     verificationScripts: VerificationScript[];
     ticketContext: string;
     repoFiles: string[];
+    contextFiles?: string[];
     repoName: string;
     trackedFilePaths: string[];
   }): Promise<void> {
@@ -81,6 +82,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       repoDir,
       repoName,
       repoFiles,
+      contextFiles: params.contextFiles,
       trackedFilePaths: params.trackedFilePaths,
       verificationScripts,
       ticketContext,

@@ -451,6 +451,129 @@ describe('IssuePlanCommand', () => {
     exitSpy.mockRestore();
   });
 
+  it('rejects filesContext with placeholder prefix', async () => {
+    const { command, fetchStageService, planStageService } =
+      await buildCommand();
+    const consoleErrorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    const exitSpy = jest
+      .spyOn(process, 'exit')
+      .mockImplementation((() => {}) as any);
+
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['repo-a/src/auth.ts'],
+      filesContext: ['repo-name/package.json'],
+      repositoriesAffected: ['repo-a'],
+    } as any);
+
+    const writeFileSpy = jest
+      .spyOn(require('fs').promises, 'writeFile')
+      .mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(
+      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
+    ).toContain('placeholder repository metadata found in filesContext');
+
+    consoleErrorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('rejects filesContext with invalid repo prefix', async () => {
+    const { command, fetchStageService, planStageService } =
+      await buildCommand();
+    const consoleErrorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    const exitSpy = jest
+      .spyOn(process, 'exit')
+      .mockImplementation((() => {}) as any);
+
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['repo-a/src/auth.ts'],
+      filesContext: [{ filePath: 'repo-b/package.json', status: 'found' }],
+      repositoriesAffected: ['repo-a'],
+    } as any);
+
+    const writeFileSpy = jest
+      .spyOn(require('fs').promises, 'writeFile')
+      .mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(
+      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
+    ).toContain('filesContext must use explicit repository prefixes');
+
+    consoleErrorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('rejects filesContext entries with to-create status', async () => {
+    const { command, fetchStageService, planStageService } =
+      await buildCommand();
+    const consoleErrorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    const exitSpy = jest
+      .spyOn(process, 'exit')
+      .mockImplementation((() => {}) as any);
+
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['repo-a/src/auth.ts'],
+      filesContext: [{ filePath: 'repo-a/package.json', status: 'to-create' }],
+      repositoriesAffected: ['repo-a'],
+    } as any);
+
+    const writeFileSpy = jest
+      .spyOn(require('fs').promises, 'writeFile')
+      .mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(
+      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
+    ).toContain('cannot have status "to-create"');
+
+    consoleErrorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
   it('rejects a generated ticket-mode plan with a non-asserted failing verification command', async () => {
     const { command, fetchStageService, planStageService } =
       await buildCommand();

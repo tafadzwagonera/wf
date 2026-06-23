@@ -116,10 +116,14 @@ Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
 2. Specific, actionable steps to ${params.action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
 3. Estimated complexity (low/medium/high)
-4. Files that will be affected — prefix EVERY path with its repository name
-5. Potential risks or considerations
-6. Repositories that will be affected (if known)
-7. Task-specific verification only when needed
+4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
+   path with its repository name. Use REAL file paths from the repository — not globs, not
+   placeholders. Set status to "found" for existing files or "to-create" for new files.
+5. Files needed for **context only** (read, not edit) — same object shape as filesAffected.
+   E.g., reading package.json to confirm a dependency. All context files must have status "found".
+6. Potential risks or considerations
+7. Repositories that will be affected (if known)
+8. Task-specific verification only when needed
 
 Return ONLY a valid JSON object with these fields:
 {
@@ -127,7 +131,8 @@ Return ONLY a valid JSON object with these fields:
   "summary": "...",
   "steps": ["step 1", "step 2"],
   "estimatedComplexity": "low|medium|high",
-  "filesAffected": ["${repoExample}/src/path/to/file.ts"],
+  "filesAffected": [{ "filePath": "${repoExample}/src/path/to/file.ts", "status": "found" }],
+  "filesContext": [{ "filePath": "${repoExample}/package.json", "status": "found" }],
   "repositoriesAffected": ["${repoExample}"],
   "risks": ["risk 1"],
   "verification": {

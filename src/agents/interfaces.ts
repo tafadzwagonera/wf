@@ -173,6 +173,7 @@ export interface ImplementerBackend {
     verificationScripts: VerificationScript[];
     ticketContext: string;
     repoFiles: string[];
+    contextFiles?: string[];
     repoName: string;
     trackedFilePaths: string[];
   }): Promise<void>;

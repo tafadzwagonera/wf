@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import { GitService } from '../integrations/git/git.service';
-import { AiService } from '../integrations/ai/ai.service';
+import { AiService, normalizeFileEntries } from '../integrations/ai/ai.service';
 import {
   ImplementBackendSelection,
   ImplementRunArtifact,
@@ -94,7 +94,12 @@ export class ImplementerAgent {
 
     // Generate and write code changes for files belonging to this repo
     const repoName = options.repoDir ? path.basename(options.repoDir) : '';
-    const allFiles = planArtifact.plan.filesAffected ?? [];
+    const normalizedAffected = normalizeFileEntries(
+      planArtifact.plan.filesAffected ?? [],
+    );
+    const allFiles = normalizedAffected
+      .filter((entry) => entry.status !== 'not-found')
+      .map((entry) => entry.filePath);
 
     // Primary: files explicitly prefixed with this repo's name.
     let repoFiles = repoName
@@ -124,6 +129,33 @@ export class ImplementerAgent {
         }
       }
     }
+
+    // Derive context files (read-only references) from filesContext
+    const normalizedContext = normalizeFileEntries(
+      planArtifact.plan.filesContext ?? [],
+    );
+    const allContextPaths = normalizedContext
+      .filter((entry) => entry.status !== 'not-found')
+      .map((entry) => entry.filePath);
+    let contextFiles = repoName
+      ? allContextPaths.filter((f) => f.startsWith(`${repoName}/`))
+      : allContextPaths;
+    // Unprefixed fallback — same logic as repoFiles
+    if (contextFiles.length === 0 && allContextPaths.length > 0) {
+      const planRepos = planArtifact.plan.repositoriesAffected ?? [];
+      const hasAnyRepoPrefix = allContextPaths.some((f) =>
+        planRepos.some((repo) => f.startsWith(`${repo}/`)),
+      );
+      if (
+        !hasAnyRepoPrefix &&
+        (planRepos.includes(repoName) || planRepos.length === 0)
+      ) {
+        contextFiles = allContextPaths;
+      }
+    }
+    // Silent dedup: remove context files already in repoFiles
+    const repoFilesSet = new Set(repoFiles);
+    contextFiles = contextFiles.filter((f) => !repoFilesSet.has(f));
 
     const verificationConditions = this.getVerificationConditionsConfig();
     const verificationScripts = this.prepareVerificationScripts(
@@ -179,6 +211,7 @@ export class ImplementerAgent {
       verificationScripts,
       ticketContext,
       repoFiles,
+      contextFiles,
       repoName,
       trackedFilePaths,
     });
@@ -250,15 +283,16 @@ export class ImplementerAgent {
       'tsconfig.build.json',
       'README.md',
     ]);
-    const offendingPaths = (planArtifact.plan.filesAffected ?? []).filter(
-      (filePath) => {
-        const [prefix] = filePath.split('/');
-        return prefix !== repoName && !localPathPrefixes.has(prefix);
-      },
+    const normalizedPaths = normalizeFileEntries(
+      planArtifact.plan.filesAffected ?? [],
     );
+    const offendingPaths = normalizedPaths.filter((entry) => {
+      const [prefix] = entry.filePath.split('/');
+      return prefix !== repoName && !localPathPrefixes.has(prefix);
+    });
     if (offendingPaths.length > 0) {
       throw new Error(
-        `issue:implement can only modify and verify files for ${repoName}. Found paths for other repositories: ${offendingPaths.join(', ')}. Use wf issue or run wf issue:implement separately per repository.`,
+        `issue:implement can only modify and verify files for ${repoName}. Found paths for other repositories: ${offendingPaths.map((e) => e.filePath).join(', ')}. Use wf issue or run wf issue:implement separately per repository.`,
       );
     }
   }
