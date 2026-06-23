@@ -703,7 +703,7 @@ export class IssueCommand extends CommandRunner {
             {
               type: 'confirm',
               name: 'startChat',
-              message: 'Would you like to discuss the plan?',
+              message: 'Would you like to discuss the plan',
               default: false,
             },
           ]);
@@ -839,7 +839,7 @@ export class IssueCommand extends CommandRunner {
                 {
                   type: 'confirm',
                   name: 'startChat',
-                  message: 'Would you like to discuss the review?',
+                  message: 'Would you like to discuss the review',
                   default: false,
                 },
               ]);
