@@ -310,7 +310,7 @@ Return only the requested ticket markdown and preserve the required heading stru
   private resolveStageBackend(stage: AgentStageName): WfBackendMode {
     return this.configService.get<WfBackendMode>(
       `stages.${stage}.backend`,
-      'standard',
+      'agent',
     );
   }
 
