@@ -111,7 +111,16 @@ describe('ImplementerAgent', () => {
     jest
       .spyOn(require('fs'), 'mkdirSync')
       .mockImplementation(() => undefined as any);
-    jest.spyOn(require('fs'), 'existsSync').mockImplementation(() => false);
+    jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => {
+      const s = String(p);
+      // Allow planned file paths to pass the existence check while keeping
+      // infrastructure files (verification manifests, .wf/, etc.) as non-existent.
+      return (
+        s.startsWith('/tmp/repo-a/src/') ||
+        s.startsWith('/tmp/repo-a/docs/') ||
+        s.endsWith('/package.json')
+      );
+    });
     jest
       .spyOn(require('fs'), 'readFileSync')
       .mockImplementation((filePath: string) => {
@@ -783,6 +792,100 @@ describe('ImplementerAgent', () => {
       const call = adapterSpy.mock.calls[0][0];
       expect(call.repoFiles).toEqual(['repo-a/src/example.ts']);
       expect(call.contextFiles).toEqual(['repo-a/package.json']);
+    });
+
+    it('removes nonexistent repoFiles and warns about hallucinated paths', async () => {
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((p: string) => String(p).includes('real-file.ts'));
+
+      const adapterSpy = jest.spyOn(
+        AnthropicAgentAdapter.prototype,
+        'generateAndVerify',
+      );
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          filesAffected: [
+            { filePath: 'repo-a/src/real-file.ts', status: 'found' },
+            { filePath: 'repo-a/src/phantom.ts', status: 'found' },
+          ],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.repoFiles).toEqual(['repo-a/src/real-file.ts']);
+      const logCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
+      expect(logCalls.some((msg) => msg.includes('nonexistent path'))).toBe(
+        true,
+      );
+      expect(logCalls.some((msg) => msg.includes('phantom.ts'))).toBe(true);
+    });
+
+    it('keeps to-create entries even when file does not exist', async () => {
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation(() => false);
+
+      const adapterSpy = jest.spyOn(
+        AnthropicAgentAdapter.prototype,
+        'generateAndVerify',
+      );
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          filesAffected: [
+            { filePath: 'repo-a/src/new-file.ts', status: 'to-create' },
+          ],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.repoFiles).toEqual(['repo-a/src/new-file.ts']);
+    });
+
+    it('removes nonexistent context files and warns', async () => {
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((p: string) =>
+          String(p).includes('real-config.json'),
+        );
+
+      const adapterSpy = jest.spyOn(
+        AnthropicAgentAdapter.prototype,
+        'generateAndVerify',
+      );
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          filesAffected: [
+            { filePath: 'repo-a/src/real-config.json', status: 'found' },
+          ],
+          filesContext: [
+            { filePath: 'repo-a/real-config.json', status: 'found' },
+            { filePath: 'repo-a/phantom-ctx.ts', status: 'found' },
+          ],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.contextFiles).not.toContainEqual(
+        expect.stringContaining('phantom-ctx'),
+      );
+      const logCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
+      expect(
+        logCalls.some((msg) => msg.includes('nonexistent context file')),
+      ).toBe(true);
     });
   });
 });

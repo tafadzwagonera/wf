@@ -119,8 +119,12 @@ Create a detailed resolution plan with:
 4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not
    placeholders. Set status to "found" for existing files or "to-create" for new files.
+   IMPORTANT: Do NOT guess or infer file paths from conventions. You MUST use your read-only
+   tools (grep, find, or directory listings) to verify each path exists before listing it.
+   Hallucinated paths cause the implementer to stall.
 5. Files needed for **context only** (read, not edit) — same object shape as filesAffected.
-   E.g., reading package.json to confirm a dependency. All context files must have status "found".
+   E.g., reading package.json to confirm a dependency. All context files must have status
+   "found". Verify each path exists with tools before listing it.
 6. Potential risks or considerations
 7. Repositories that will be affected (if known)
 8. Task-specific verification only when needed
@@ -161,6 +165,7 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
       stage: 'plan',
       prompt,
       systemPrompt,
+      repoDir: process.cwd(),
     });
 
     try {
@@ -993,6 +998,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     });
 
     let result = '';
+    const cliDiagnostics: string[] = [];
     for await (const message of spawnCli(
       args,
       resolvedRepoDir,
@@ -1001,10 +1007,20 @@ Return only the requested ticket markdown and preserve the required heading stru
       if (message.type === 'result' && message.result) {
         result = message.result;
       }
+      if (message.is_error) {
+        cliDiagnostics.push(
+          message.result ?? message.summary ?? JSON.stringify(message),
+        );
+      }
     }
 
     if (!result) {
-      throw new Error('Claude CLI finished without returning a result.');
+      const detail = cliDiagnostics.length
+        ? ` Diagnostics:\n${cliDiagnostics.join('\n')}`
+        : '';
+      throw new Error(
+        `Claude CLI finished without returning a result.${detail}`,
+      );
     }
 
     return result.trim();
@@ -1035,6 +1051,7 @@ Return only the requested ticket markdown and preserve the required heading stru
 
     let result = '';
     let sessionId: string | undefined = params.session?.sessionId;
+    const cliDiagnostics: string[] = [];
 
     for await (const message of spawnCli(
       args,
@@ -1047,10 +1064,20 @@ Return only the requested ticket markdown and preserve the required heading stru
       if (message.type === 'result' && message.result) {
         result = message.result;
       }
+      if (message.is_error) {
+        cliDiagnostics.push(
+          message.result ?? message.summary ?? JSON.stringify(message),
+        );
+      }
     }
 
     if (!result) {
-      throw new Error('Claude CLI finished without returning a result.');
+      const detail = cliDiagnostics.length
+        ? ` Diagnostics:\n${cliDiagnostics.join('\n')}`
+        : '';
+      throw new Error(
+        `Claude CLI finished without returning a result.${detail}`,
+      );
     }
 
     return {

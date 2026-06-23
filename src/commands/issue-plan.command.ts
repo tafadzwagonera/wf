@@ -1118,9 +1118,34 @@ export class IssuePlanCommand extends CommandRunner {
       );
     }
 
-    // Write back normalized entries so downstream consumers see FileEntry objects
-    plan.filesAffected = normalizedAffected;
-    plan.filesContext = normalizedContext;
+    // Strip not-found entries from the persisted artifact so downstream
+    // consumers (ImplementerAgent, dry-run display) never see hallucinated paths.
+    const cleanedAffected = normalizedAffected.filter(
+      (entry) => entry.status !== 'not-found',
+    );
+    const cleanedContext = normalizedContext.filter(
+      (entry) => entry.status !== 'not-found',
+    );
+
+    if (cleanedAffected.length < normalizedAffected.length) {
+      const removed = normalizedAffected.length - cleanedAffected.length;
+      console.log(
+        chalk.yellow(
+          `  ⚠ Removed ${removed} unresolvable path(s) from filesAffected`,
+        ),
+      );
+    }
+    if (cleanedContext.length < normalizedContext.length) {
+      const removed = normalizedContext.length - cleanedContext.length;
+      console.log(
+        chalk.yellow(
+          `  ⚠ Removed ${removed} unresolvable path(s) from filesContext`,
+        ),
+      );
+    }
+
+    plan.filesAffected = cleanedAffected;
+    plan.filesContext = cleanedContext;
 
     if (plan.verification?.targeted?.length) {
       plan.verification.targeted = plan.verification.targeted.map((check) => ({

@@ -157,6 +157,66 @@ export class ImplementerAgent {
     const repoFilesSet = new Set(repoFiles);
     contextFiles = contextFiles.filter((f) => !repoFilesSet.has(f));
 
+    // Remove nonexistent context files — they are read-only, so they must exist.
+    const repoDir = options.repoDir ?? process.cwd();
+    const phantomContextPaths: string[] = [];
+    contextFiles = contextFiles.filter((filePath) => {
+      const relativePath =
+        repoName && filePath.startsWith(`${repoName}/`)
+          ? filePath.slice(repoName.length + 1)
+          : filePath;
+      const fullPath = path.join(repoDir, relativePath);
+      if (!fs.existsSync(fullPath)) {
+        phantomContextPaths.push(filePath);
+        return false;
+      }
+      return true;
+    });
+    if (phantomContextPaths.length > 0) {
+      console.log(
+        chalk.yellow(
+          `  ⚠ Removed ${phantomContextPaths.length} nonexistent context file(s):`,
+        ),
+      );
+      for (const p of phantomContextPaths) {
+        console.log(chalk.yellow(`      - ${p}`));
+      }
+    }
+
+    // Filesystem existence check: verify each planned file against disk.
+    // Entries marked to-create are kept (new files). Entries that claim found
+    // but don't exist on disk are removed with a warning — the planner likely
+    // hallucinated the path. Legacy string entries default to found, so they
+    // are also checked.
+    const statusByPath = new Map(
+      normalizedAffected.map((e) => [e.filePath, e.status]),
+    );
+    const phantomPaths: string[] = [];
+    repoFiles = repoFiles.filter((filePath) => {
+      const status = statusByPath.get(filePath) ?? 'found';
+      if (status === 'to-create') return true;
+      const relativePath =
+        repoName && filePath.startsWith(`${repoName}/`)
+          ? filePath.slice(repoName.length + 1)
+          : filePath;
+      const fullPath = path.join(repoDir, relativePath);
+      if (!fs.existsSync(fullPath)) {
+        phantomPaths.push(filePath);
+        return false;
+      }
+      return true;
+    });
+    if (phantomPaths.length > 0) {
+      console.log(
+        chalk.yellow(
+          `  ⚠ Removed ${phantomPaths.length} nonexistent path(s) from repoFiles (planner hallucination):`,
+        ),
+      );
+      for (const p of phantomPaths) {
+        console.log(chalk.yellow(`      - ${p}`));
+      }
+    }
+
     const verificationConditions = this.getVerificationConditionsConfig();
     const verificationScripts = this.prepareVerificationScripts(
       options.repoDir,

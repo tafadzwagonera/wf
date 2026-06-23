@@ -419,9 +419,13 @@ ${repoHint}Create a detailed resolution plan with:
    Use the repository names from repositoriesAffected when available. Use REAL file paths
    from the repository — not globs, not placeholders. Set status to "found" for existing
    files or "to-create" for new files the plan will create.
+   IMPORTANT: Do NOT guess or infer file paths from conventions. You MUST verify each path
+   exists by searching the repository (e.g., grep, find, or reading directory listings)
+   before listing it. Hallucinated paths cause the implementer to stall.
 5. Files needed for **context only** (read, not edit) — same object shape as filesAffected.
    E.g., reading package.json to confirm a dependency is installed. All context files must
-   have status "found" — you cannot read a file that does not exist yet.
+   have status "found" — you cannot read a file that does not exist yet. Verify each path
+   exists before listing it.
 6. Potential risks or considerations
 7. Repositories that will be affected (if known — use provided hints or infer from ticket text)
 8. Task-specific verification only when needed:
