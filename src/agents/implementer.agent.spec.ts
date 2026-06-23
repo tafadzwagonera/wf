@@ -887,5 +887,27 @@ describe('ImplementerAgent', () => {
         logCalls.some((msg) => msg.includes('nonexistent context file')),
       ).toBe(true);
     });
+
+    it('warns when repoFiles is empty after filtering', async () => {
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation(() => false);
+
+      jest
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue(undefined);
+      const consoleSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+
+      await agent.execute(ticketArtifact, buildPlan({ filesAffected: [] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      const logCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
+      expect(
+        logCalls.some((msg) => msg.includes('No planned files to implement')),
+      ).toBe(true);
+    });
   });
 });

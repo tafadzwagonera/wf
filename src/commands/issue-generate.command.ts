@@ -663,7 +663,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
         if (resolvedSources.length === 0) {
           if (!silent) {
-            console.log(chalk.yellow('    ⚠ Skipped: no sources selected'));
+            console.log(chalk.yellow('    ⚠️ Skipped: no sources selected'));
           }
           continue;
         }
@@ -685,7 +685,7 @@ export class IssueGenerateCommand extends CommandRunner {
         }
 
         if (!silent) {
-          console.log(chalk.yellow(`    ⚠ Failed: ${error.message}`));
+          console.log(chalk.yellow(`    ⚠️ Failed: ${error.message}`));
         }
       }
     }
@@ -1365,7 +1365,7 @@ export class IssueGenerateCommand extends CommandRunner {
       if (!resolvedRepo) {
         console.log(
           chalk.yellow(
-            `⚠ Repository '${repo}' not found as a path or sibling directory.`,
+            `⚠️ Repository '${repo}' not found as a path or sibling directory.`,
           ),
         );
         return [];

@@ -73,7 +73,7 @@ export class CommitterAgent {
     } catch (err) {
       if (err instanceof GitError && err.message === 'No changes to commit') {
         if (!silent) {
-          console.log(chalk.yellow('\n⚠ Nothing to commit — skipping'));
+          console.log(chalk.yellow('\n⚠️ Nothing to commit — skipping'));
         }
         return;
       }

@@ -22,7 +22,7 @@ async function testConversationArtefactPath() {
   const ticketKey = process.env.WF_TEST_TICKET;
   if (!ticketKey) {
     console.log(
-      '⚠ WF_TEST_TICKET is not set — skipping test.\n' +
+      '⚠️ WF_TEST_TICKET is not set — skipping test.\n' +
         '  Set it to a ticket key for which you have already run:\n' +
         '    wf issue <ticket> --from fetch -a fix --chat-mode\n',
     );

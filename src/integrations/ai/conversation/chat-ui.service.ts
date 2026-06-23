@@ -67,7 +67,7 @@ export class ChatUIService {
     } else if (stage === 'review' && output.summary) {
       console.log(chalk.dim(`Review Summary: ${output.summary}`));
       if (output.approved !== undefined) {
-        const status = output.approved ? '✓ Approved' : '⚠ Needs Work';
+        const status = output.approved ? '✓ Approved' : '⚠️ Needs Work';
         const color = output.approved ? chalk.green : chalk.yellow;
         console.log(color(status));
       }
@@ -294,7 +294,7 @@ export class ChatUIService {
    */
   displayWarning(message: string): void {
     console.log();
-    console.log(chalk.yellow(`⚠ Warning: ${message}`));
+    console.log(chalk.yellow(`⚠️ Warning: ${message}`));
     console.log();
   }
 
@@ -307,7 +307,7 @@ export class ChatUIService {
     console.log();
     console.log(
       chalk.yellow(
-        `⚠ Maximum conversation turns (${maxTurns}) reached. Ending chat session.`,
+        `⚠️ Maximum conversation turns (${maxTurns}) reached. Ending chat session.`,
       ),
     );
     console.log();

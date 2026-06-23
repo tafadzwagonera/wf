@@ -123,7 +123,7 @@ export class ImplementerAgent {
         if (repoName) {
           console.log(
             chalk.yellow(
-              `  ⚠ filesAffected lacks "${repoName}/" prefix — treating all paths as relative to ${repoName}`,
+              `  ⚠️ filesAffected lacks "${repoName}/" prefix — treating all paths as relative to ${repoName}`,
             ),
           );
         }
@@ -175,7 +175,7 @@ export class ImplementerAgent {
     if (phantomContextPaths.length > 0) {
       console.log(
         chalk.yellow(
-          `  ⚠ Removed ${phantomContextPaths.length} nonexistent context file(s):`,
+          `  ⚠️ Removed ${phantomContextPaths.length} nonexistent context file(s):`,
         ),
       );
       for (const p of phantomContextPaths) {
@@ -209,12 +209,20 @@ export class ImplementerAgent {
     if (phantomPaths.length > 0) {
       console.log(
         chalk.yellow(
-          `  ⚠ Removed ${phantomPaths.length} nonexistent path(s) from repoFiles (planner hallucination):`,
+          `  ⚠️ Removed ${phantomPaths.length} nonexistent path(s) from repoFiles (planner hallucination):`,
         ),
       );
       for (const p of phantomPaths) {
         console.log(chalk.yellow(`      - ${p}`));
       }
+    }
+
+    if (repoFiles.length === 0) {
+      console.log(
+        chalk.yellow(
+          '  ⚠️ No planned files to implement — the agent will be fully self-directed with no continuation passes.',
+        ),
+      );
     }
 
     const verificationConditions = this.getVerificationConditionsConfig();
@@ -440,7 +448,7 @@ export class ImplementerAgent {
     if (ignored.length > 0) {
       console.log(
         chalk.yellow(
-          `  ⚠ Dropped ${ignored.length} gitignored path(s) from tracked files:`,
+          `  ⚠️ Dropped ${ignored.length} gitignored path(s) from tracked files:`,
         ),
       );
       for (const p of ignored) {
@@ -479,7 +487,7 @@ export class ImplementerAgent {
     } catch {
       console.log(
         chalk.yellow(
-          `  ⚠ Unable to parse ${packageJsonPath}; continuing without package.json alias discovery.`,
+          `  ⚠️ Unable to parse ${packageJsonPath}; continuing without package.json alias discovery.`,
         ),
       );
       return {};

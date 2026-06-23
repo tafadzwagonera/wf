@@ -1090,7 +1090,7 @@ export class IssuePlanCommand extends CommandRunner {
       if (existsOnDisk && entry.status === 'to-create') {
         console.log(
           chalk.yellow(
-            `  ⚠ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`,
+            `  ⚠️ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`,
           ),
         );
         entry.status = 'found';
@@ -1099,7 +1099,7 @@ export class IssuePlanCommand extends CommandRunner {
       if (!existsOnDisk && entry.status === 'found') {
         console.log(
           chalk.yellow(
-            `  ⚠ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`,
+            `  ⚠️ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`,
           ),
         );
         entry.status = 'not-found';
@@ -1113,7 +1113,7 @@ export class IssuePlanCommand extends CommandRunner {
     if (allEntries.length > 0 && notFoundCount / allEntries.length > 0.5) {
       console.log(
         chalk.yellow(
-          `  ⚠ More than 50% of file entries are unresolvable (${notFoundCount}/${allEntries.length}) — the plan may contain hallucinated paths.`,
+          `  ⚠️ More than 50% of file entries are unresolvable (${notFoundCount}/${allEntries.length}) — the plan may contain hallucinated paths.`,
         ),
       );
     }
@@ -1131,7 +1131,7 @@ export class IssuePlanCommand extends CommandRunner {
       const removed = normalizedAffected.length - cleanedAffected.length;
       console.log(
         chalk.yellow(
-          `  ⚠ Removed ${removed} unresolvable path(s) from filesAffected`,
+          `  ⚠️ Removed ${removed} unresolvable path(s) from filesAffected`,
         ),
       );
     }
@@ -1139,7 +1139,7 @@ export class IssuePlanCommand extends CommandRunner {
       const removed = normalizedContext.length - cleanedContext.length;
       console.log(
         chalk.yellow(
-          `  ⚠ Removed ${removed} unresolvable path(s) from filesContext`,
+          `  ⚠️ Removed ${removed} unresolvable path(s) from filesContext`,
         ),
       );
     }
