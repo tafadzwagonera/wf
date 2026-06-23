@@ -199,6 +199,38 @@ describe('OpenAIAdapter', () => {
       expect(request?.temperature).toBe(0.7);
     });
 
+    it('preserves empty-content diagnostics from the provider response', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        choices: [
+          {
+            finish_reason: 'content_filter',
+            message: {
+              content: null,
+              refusal: 'Blocked by policy',
+            },
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 0 },
+      });
+
+      (adapter as unknown as { client: OpenAI }).client = {
+        chat: { completions: { create: mockCreate } },
+      } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'gpt-5.4';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject(
+        {
+          content: '',
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'content_filter',
+          refusal: 'Blocked by policy',
+        },
+      );
+    });
+
     it('omits temperature for temperature-restricted models in executeWithHistory', async () => {
       const adapter = createAdapter();
       const mockCreate = jest

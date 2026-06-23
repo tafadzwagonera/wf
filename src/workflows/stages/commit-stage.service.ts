@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { AiService } from '../../integrations/ai/ai.service';
+import {
+  AiService,
+  requireAiResponseContent,
+} from '../../integrations/ai/ai.service';
 
 interface GenerateCommitMessageOptions {
   diff: string;
@@ -38,7 +41,10 @@ export class CommitStageService {
       stage: 'commit',
     });
     return this.normalizeCommitMessage(
-      response.content.trim(),
+      requireAiResponseContent(
+        response,
+        'AI provider returned an empty commit message response',
+      ),
       options.ticketKey,
       false,
     );

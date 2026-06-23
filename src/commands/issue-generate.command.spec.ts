@@ -1655,6 +1655,55 @@ describe('IssueGenerateCommand', () => {
       expect(mockAiService.execute).toHaveBeenCalledTimes(1);
       expect(promptMock).not.toHaveBeenCalled();
     });
+
+    it('propagates empty clarification responses instead of silently treating them as []', async () => {
+      const { command, mockAiService } = await buildCommand();
+      const errorHandlerSpy = jest
+        .spyOn(ErrorHandler, 'handle')
+        .mockImplementation((() => {
+          throw new Error('handled');
+        }) as any);
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+
+      mockAiService.execute.mockResolvedValueOnce({
+        content: '',
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
+
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-empty-clarify-test.md');
+      fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
+      (
+        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
+      ).mockImplementation((input) =>
+        jest.requireActual('fs').existsSync(String(input)),
+      );
+
+      try {
+        await expect(command.run([tempSourcePath])).rejects.toThrow('handled');
+      } finally {
+        fs.unlinkSync(tempSourcePath);
+      }
+
+      expect(errorHandlerSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'AI provider returned an empty clarification response',
+          details: expect.objectContaining({
+            provider: 'openai',
+            model: 'gpt-5.4',
+          }),
+        }),
+      );
+
+      errorHandlerSpy.mockRestore();
+    });
   });
 
   describe('silent mode output', () => {

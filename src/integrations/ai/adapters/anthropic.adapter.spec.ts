@@ -75,6 +75,34 @@ describe('AnthropicAdapter', () => {
         }),
       );
     });
+
+    it('surfaces non-text content blocks as empty-response diagnostics', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        content: [
+          { type: 'tool_use', id: 'tool_1', name: 'search', input: {} },
+        ],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model =
+        'claude-sonnet-4-20250514';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject(
+        {
+          content: '',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+          stopReason: 'end_turn',
+          contentTypes: ['tool_use'],
+        },
+      );
+    });
   });
 
   describe('onModuleInit', () => {

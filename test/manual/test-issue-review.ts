@@ -136,24 +136,22 @@ async function testIssueReview() {
       fail(`Test 3: ${err.message}`);
     }
 
-    // Test 4: --dry-run with a valid non-git directory path
-    console.log('Test 4: --dry-run with non-git directory path');
-    try {
-      await command.run([nonGitDir], { dryRun: true });
-      pass('Dry-run with non-git directory completed without error');
-    } catch (err: any) {
-      fail(`Test 4: ${err.message}`);
-    }
+    // Test 4: --dry-run rejects a non-git directory path as an invalid source
+    console.log('Test 4: --dry-run rejects non-git directory path');
+    const invalidNonGitDirHandled = await expectProcessExit('Test 4', () =>
+      command.run([nonGitDir], { dryRun: true }),
+    );
+    if (invalidNonGitDirHandled) passed++;
+    if (!invalidNonGitDirHandled) failed++;
 
-    // Test 5: --dry-run with a valid git directory path (skipped if cwd has no .git)
-    console.log('Test 5: --dry-run with git directory path');
+    // Test 5: --dry-run rejects a git directory path as an invalid source
+    console.log('Test 5: --dry-run rejects git directory path');
     if (gitDir) {
-      try {
-        await command.run([gitDir], { dryRun: true });
-        pass('Dry-run with git directory completed without error');
-      } catch (err: any) {
-        fail(`Test 5: ${err.message}`);
-      }
+      const invalidGitDirHandled = await expectProcessExit('Test 5', () =>
+        command.run([gitDir], { dryRun: true }),
+      );
+      if (invalidGitDirHandled) passed++;
+      if (!invalidGitDirHandled) failed++;
     } else {
       console.log('  ↷ Skipped — cwd is not a git repo\n');
     }
@@ -190,48 +188,35 @@ async function testIssueReview() {
       fs.unlinkSync(replaceCriteriaPath);
     }
 
-    // Test 8: --criteria and --replace-criteria together (expect immediate throw)
-    // After the Step 1 fix, this throws before the try-catch in run(), so it
-    // propagates naturally without going through ErrorHandler.handle().
+    // Test 8: --criteria and --replace-criteria together (expect ErrorHandler exit)
     console.log(
       'Test 8: --criteria and --replace-criteria together (expect error)',
     );
     const criteriaA = writeTempCriteria(['- A: criterion A']);
     const criteriaB = writeTempCriteria(['- B: criterion B']);
     try {
-      await command.run([], {
-        criteria: criteriaA,
-        replaceCriteria: criteriaB,
-      });
-      fail('Test 8: expected mutual-exclusion error but none was thrown');
-    } catch (err: any) {
-      if (
-        err.message.includes('Cannot use --criteria and --replace-criteria')
-      ) {
-        pass('Correctly threw mutual-exclusion error');
-      } else {
-        fail(`Test 8: unexpected error: ${err.message}`);
-      }
+      const test8Passed = await expectProcessExit('Test 8', () =>
+        command.run([], {
+          criteria: criteriaA,
+          replaceCriteria: criteriaB,
+        }),
+      );
+      if (test8Passed) passed++;
+      if (!test8Passed) failed++;
     } finally {
       fs.unlinkSync(criteriaA);
       fs.unlinkSync(criteriaB);
     }
 
-    // Test 9: --criteria with a non-existent file (expect immediate throw)
-    // After the Step 1 fix, loadCriteriaFromFile runs before the try-catch.
+    // Test 9: --criteria with a non-existent file (expect ErrorHandler exit)
     console.log('Test 9: --criteria with non-existent file (expect error)');
-    try {
-      await command.run([], {
+    const test9Passed = await expectProcessExit('Test 9', () =>
+      command.run([], {
         criteria: '/tmp/does-not-exist-criteria-xyzzy.md',
-      });
-      fail('Test 9: expected file-not-found error but none was thrown');
-    } catch (err: any) {
-      if (err.message.includes('Criteria file not found')) {
-        pass('Correctly threw file-not-found error');
-      } else {
-        fail(`Test 9: unexpected error: ${err.message}`);
-      }
-    }
+      }),
+    );
+    if (test9Passed) passed++;
+    if (!test9Passed) failed++;
 
     // Test 10: Invalid source string (expect ErrorHandler → process.exit(1))
     // The "Invalid source" error is thrown inside run()'s try-catch and handled
@@ -246,24 +231,13 @@ async function testIssueReview() {
     if (t10Passed) passed++;
     else failed++;
 
-    // Test 11: Live AI review of a non-git directory — tests the git-waiver fix.
-    // Requires ANTHROPIC_API_KEY. Expects the yellow warning + successful review.
+    // Test 11: retired legacy scenario.
+    // Directory paths are no longer accepted as explicit review sources, so this
+    // historical live-AI case is now intentionally skipped.
     console.log(
-      'Test 11: Live AI review of non-git directory (tests git-waiver fix)',
+      'Test 11: legacy non-git directory live review scenario (skipped)',
     );
-    console.log(`  Directory: ${nonGitDir}`);
-    try {
-      await command.run([nonGitDir], {});
-      pass('Live review of non-git directory completed successfully');
-    } catch (err: any) {
-      if (err.message.includes('Not a git repository')) {
-        fail(
-          `Test 11 REGRESSION: fix not applied — still throwing: ${err.message}`,
-        );
-      } else {
-        fail(`Test 11: ${err.message}`);
-      }
-    }
+    console.log('  ↷ Skipped — directory sources are no longer supported\n');
 
     // Test 13: invalid --repos path emits a warning and falls back to cwd
     // Verifies that resolveRepoBasePath is called and its warning surfaces.

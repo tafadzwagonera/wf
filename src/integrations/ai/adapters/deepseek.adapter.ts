@@ -93,16 +93,22 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
       }
 
       messages.push({ role: 'user', content: request.prompt });
+      const model = request.model || this.model;
 
       const response = await this.client.chat.completions.create({
-        model: request.model || this.model,
+        model,
         max_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         messages,
       });
+      const choice = response.choices[0];
 
       return {
-        content: response.choices[0].message.content ?? '',
+        content: choice.message.content ?? '',
+        provider: 'deepseek',
+        model,
+        finishReason: choice.finish_reason ?? undefined,
+        refusal: choice.message.refusal ?? null,
         usage: {
           inputTokens: response.usage?.prompt_tokens ?? 0,
           outputTokens: response.usage?.completion_tokens ?? 0,
@@ -151,16 +157,22 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
       for (const msg of request.messages) {
         messages.push({ role: msg.role, content: msg.content });
       }
+      const model = request.model || this.model;
 
       const response = await this.client.chat.completions.create({
-        model: request.model || this.model,
+        model,
         max_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         messages,
       });
+      const choice = response.choices[0];
 
       return {
-        content: response.choices[0].message.content ?? '',
+        content: choice.message.content ?? '',
+        provider: 'deepseek',
+        model,
+        finishReason: choice.finish_reason ?? undefined,
+        refusal: choice.message.refusal ?? null,
         usage: {
           inputTokens: response.usage?.prompt_tokens ?? 0,
           outputTokens: response.usage?.completion_tokens ?? 0,

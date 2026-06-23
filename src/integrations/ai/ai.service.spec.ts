@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { AiService } from './ai.service';
 import { LoggerService } from '../../shared/logger/logger.service';
 import type { LlmAdapter } from './llm-adapter.interface';
+import { AIError } from '../../shared/utils/errors';
 
 describe('AiService', () => {
   const mockLogger = {
@@ -220,9 +221,167 @@ describe('AiService', () => {
         }),
       );
     });
+
+    it('raises an AIError with provider metadata when the plan response is blank', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: '',
+        provider: 'openai',
+        model: 'gpt-5.4',
+        finishReason: 'stop',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(
+        service.generatePlan('fix', '# WBP-123: Fix criteria resolution'),
+      ).rejects.toMatchObject({
+        message: 'AI provider returned an empty plan response',
+        details: expect.objectContaining({
+          provider: 'openai',
+          model: 'gpt-5.4',
+        }),
+      });
+    });
+  });
+
+  describe('non-review empty response handling', () => {
+    it('raises an AIError with provider metadata when findings output is blank', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: '  ',
+        provider: 'openai',
+        model: 'gpt-5.4',
+        finishReason: 'stop',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(
+        service.generateFindings({
+          action: 'investigate',
+          summary: 'Investigate',
+          findings: [],
+          recommendations: [],
+          conclusion: 'Pending',
+        } as any),
+      ).rejects.toMatchObject({
+        message:
+          'AI provider returned an empty investigation findings response',
+        details: expect.objectContaining({
+          provider: 'openai',
+          model: 'gpt-5.4',
+        }),
+      });
+    });
+
+    it('raises an AIError with provider metadata when commit output is blank', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: '',
+        provider: 'openai',
+        model: 'gpt-5.4',
+        finishReason: 'stop',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(
+        service.generateCommitMessage('diff --git a/file b/file', []),
+      ).rejects.toMatchObject({
+        message: 'AI provider returned an empty commit message response',
+        details: expect.objectContaining({
+          provider: 'openai',
+          model: 'gpt-5.4',
+        }),
+      });
+    });
   });
 
   describe('reviewCode trace validation', () => {
+    it('raises an AIError with provider metadata when the review response is blank', async () => {
+      const adapter = createAdapter();
+      adapter.execute
+        .mockResolvedValueOnce({
+          content: '   ',
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: '   ',
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(
+        service.reviewCode('diff', ['guideline']),
+      ).rejects.toMatchObject({
+        message: 'AI provider returned an empty review response',
+        details: expect.objectContaining({
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        }),
+      });
+      expect(adapter.execute).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries a blank review response once and returns the second valid review', async () => {
+      const adapter = createAdapter();
+      adapter.execute
+        .mockResolvedValueOnce({
+          content: '',
+          provider: 'google',
+          model: 'gemini-2.5-pro',
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: JSON.stringify({
+            summary: 'ok',
+            issues: [],
+            traceProvenance: 'unavailable',
+            callStack: [],
+            stateTransition: {},
+            suggestions: [],
+            approved: true,
+          }),
+          provider: 'google',
+          model: 'gemini-2.5-pro',
+          finishReason: 'stop',
+        });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const review = await service.reviewCode('diff', ['guideline']);
+
+      expect(adapter.execute).toHaveBeenCalledTimes(2);
+      expect(review.summary).toBe('ok');
+      expect(review.executionMode).toBe('standard');
+    });
+
+    it('does not retry blank responses when provider metadata indicates refusal', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: '',
+        provider: 'openai',
+        model: 'gpt-5.4',
+        finishReason: 'content_filter',
+        refusal: 'Safety refusal',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(
+        service.reviewCode('diff', ['guideline']),
+      ).rejects.toMatchObject({
+        message: 'AI provider returned an empty review response',
+        details: expect.objectContaining({
+          provider: 'openai',
+          refusal: 'Safety refusal',
+          finishReason: 'content_filter',
+        }),
+      });
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
+    });
+
     it('parses the first valid JSON payload when extra fenced output trails the review', async () => {
       const adapter = createAdapter();
       adapter.execute.mockResolvedValueOnce({

@@ -73,6 +73,28 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     return this.contextConfig + (systemPrompt ?? '');
   }
 
+  private extractContent(
+    response: Anthropic.Messages.Message,
+    model: string,
+  ): AIResponse {
+    const textBlocks = response.content.filter(
+      (block): block is Anthropic.TextBlock => block.type === 'text',
+    );
+    const content = textBlocks.map((block) => block.text).join('');
+
+    return {
+      content,
+      provider: 'anthropic',
+      model,
+      stopReason: response.stop_reason ?? undefined,
+      contentTypes: response.content.map((block) => block.type),
+      usage: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+      },
+    };
+  }
+
   async execute(request: AIRequest): Promise<AIResponse> {
     this.initializeClient();
 
@@ -87,24 +109,15 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     this.logger.debug('Executing AI request via Anthropic');
 
     try {
+      const model = request.model || this.model;
       const response = await this.client.messages.create({
-        model: request.model || this.model,
+        model,
         max_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         system: this.prependConfig(request.systemPrompt),
         messages: [{ role: 'user', content: request.prompt }],
       });
-
-      const content =
-        response.content[0].type === 'text' ? response.content[0].text : '';
-
-      return {
-        content,
-        usage: {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-        },
-      };
+      return this.extractContent(response, model);
     } catch (error) {
       if (error instanceof Anthropic.APIError) {
         throw new AIError(
@@ -138,24 +151,15 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     );
 
     try {
+      const model = request.model || this.model;
       const response = await this.client.messages.create({
-        model: request.model || this.model,
+        model,
         max_tokens: request.maxTokens || this.maxTokens,
         temperature: request.temperature || 0.7,
         system: this.prependConfig(request.systemPrompt),
         messages: request.messages,
       });
-
-      const content =
-        response.content[0].type === 'text' ? response.content[0].text : '';
-
-      return {
-        content,
-        usage: {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-        },
-      };
+      return this.extractContent(response, model);
     } catch (error) {
       if (error instanceof Anthropic.APIError) {
         throw new AIError(

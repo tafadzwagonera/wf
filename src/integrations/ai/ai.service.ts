@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import dayjs from 'dayjs';
-import { AIError } from '../../shared/utils/errors';
+import { AIError, isAIErrorLike } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
@@ -271,11 +271,133 @@ export interface AIRequest {
 
 export interface AIResponse {
   content: string;
+  provider?: string;
+  model?: string;
+  finishReason?: string;
+  stopReason?: string;
+  refusal?: string | null;
+  contentTypes?: string[];
   usage?: {
     inputTokens: number;
     outputTokens: number;
   };
 }
+
+type ReviewResponseDiagnostics = Pick<
+  AIResponse,
+  | 'provider'
+  | 'model'
+  | 'finishReason'
+  | 'stopReason'
+  | 'refusal'
+  | 'contentTypes'
+  | 'usage'
+> & {
+  content: string;
+};
+
+type ResponseContentDiagnostics = Pick<
+  AIResponse,
+  | 'provider'
+  | 'model'
+  | 'finishReason'
+  | 'stopReason'
+  | 'refusal'
+  | 'contentTypes'
+  | 'usage'
+> & {
+  content: string;
+};
+
+const REVIEW_EMPTY_RESPONSE_RETRY_LIMIT = 1;
+
+const BLANK_REVIEW_FINISH_REASONS = new Set([
+  'content_filter',
+  'error',
+  'guardrail',
+  'invalid_request',
+  'model_context_window_exceeded',
+  'recitation',
+  'refusal',
+  'safety',
+  'tool_use',
+]);
+
+const isBlankReviewResponse = (response: ReviewResponseDiagnostics): boolean =>
+  response.content.trim().length === 0;
+
+const hasRecoverableBlankReviewMetadata = (
+  response: ReviewResponseDiagnostics,
+): boolean => {
+  if (response.refusal?.trim()) {
+    return false;
+  }
+
+  const finishReason = response.finishReason?.trim().toLowerCase();
+  if (finishReason && BLANK_REVIEW_FINISH_REASONS.has(finishReason)) {
+    return false;
+  }
+
+  const stopReason = response.stopReason?.trim().toLowerCase();
+  if (stopReason && BLANK_REVIEW_FINISH_REASONS.has(stopReason)) {
+    return false;
+  }
+
+  const contentTypes = response.contentTypes ?? [];
+  if (contentTypes.length > 0 && !contentTypes.includes('text')) {
+    return false;
+  }
+
+  return true;
+};
+
+/**
+ * Validates that a review-stage model response contains JSON-bearing text.
+ *
+ * @param response - Adapter or stage-agent response plus diagnostics
+ * @returns Trimmed response content when non-empty
+ * @throws AIError when the provider returned blank or non-text review output
+ */
+export const requireReviewResponseContent = (
+  response: ReviewResponseDiagnostics,
+): string => {
+  return requireAiResponseContent(
+    response,
+    'AI provider returned an empty review response',
+  );
+};
+
+/**
+ * Validates that a provider response contains non-empty text content.
+ *
+ * @param response - Adapter response plus diagnostics
+ * @param message - Error message to raise for empty output
+ * @returns Trimmed response content when non-empty
+ * @throws AIError when the provider returned blank output
+ */
+export const requireAiResponseContent = (
+  response: ResponseContentDiagnostics,
+  message: string,
+): string => {
+  if (!isBlankReviewResponse(response)) {
+    return response.content.trim();
+  }
+
+  throw new AIError(
+    message,
+    {
+      provider: response.provider,
+      model: response.model,
+      finishReason: response.finishReason,
+      stopReason: response.stopReason,
+      refusal: response.refusal,
+      contentTypes: response.contentTypes,
+      usage: response.usage,
+      response: response.content,
+    },
+    hasRecoverableBlankReviewMetadata(response),
+  );
+};
 
 /**
  * Request interface for multi-turn conversations
@@ -473,7 +595,12 @@ Return ONLY a valid JSON object with these fields:
     });
 
     try {
-      const stripped = stripCodeFences(response.content.trim());
+      const stripped = stripCodeFences(
+        requireAiResponseContent(
+          response,
+          'AI provider returned an empty plan response',
+        ),
+      );
       const plan = JSON.parse(stripped) as ResolutionPlan;
 
       const rawSteps: unknown[] = Array.isArray(plan.steps) ? plan.steps : [];
@@ -510,6 +637,10 @@ Return ONLY a valid JSON object with these fields:
 
       return plan;
     } catch (error) {
+      if (isAIErrorLike(error)) {
+        throw error;
+      }
+
       this.logger.error('Failed to parse AI response as JSON', error);
       throw new AIError('Failed to parse resolution plan from AI response', {
         response: response.content,
@@ -556,9 +687,18 @@ Return ONLY a valid JSON object:
     });
 
     try {
-      const stripped = stripCodeFences(response.content.trim());
+      const stripped = stripCodeFences(
+        requireAiResponseContent(
+          response,
+          'AI provider returned an empty investigation findings response',
+        ),
+      );
       return JSON.parse(stripped) as FindingsDocument;
     } catch (error) {
+      if (isAIErrorLike(error)) {
+        throw error;
+      }
+
       this.logger.error('Failed to parse findings response', error);
       throw new AIError(
         'Failed to parse investigation findings from AI response',
@@ -624,7 +764,10 @@ Return ONLY the commit message description, nothing else.`;
       stage: 'commit',
     });
 
-    return response.content.trim();
+    return requireAiResponseContent(
+      response,
+      'AI provider returned an empty commit message response',
+    );
   }
 
   async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
@@ -714,15 +857,37 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
       "approved": true|false
     }`;
 
-    const response = await this.execute({
+    let response = await this.execute({
       prompt,
       systemPrompt,
       temperature: 0.3,
       stage: 'review',
     });
 
+    let attemptCount = 0;
+    while (attemptCount < REVIEW_EMPTY_RESPONSE_RETRY_LIMIT) {
+      try {
+        requireReviewResponseContent(response);
+        break;
+      } catch (error) {
+        if (!isAIErrorLike(error) || !error.recoverable) {
+          throw error;
+        }
+
+        attemptCount += 1;
+        response = await this.execute({
+          prompt,
+          systemPrompt,
+          temperature: 0.3,
+          stage: 'review',
+        });
+      }
+    }
+
     try {
-      const parsed = parseJsonResponse<CodeReview>(response.content);
+      const parsed = parseJsonResponse<CodeReview>(
+        requireReviewResponseContent(response),
+      );
       const processedReview = postProcessCodeReview(
         sanitizeCodeReviewTrace(parsed, diff),
         diff,
@@ -732,6 +897,10 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
         executionMode: 'standard',
       };
     } catch (error) {
+      if (isAIErrorLike(error)) {
+        throw error;
+      }
+
       this.logger.error('Failed to parse code review response', error);
       throw new AIError('Failed to parse code review from AI response', {
         response: response.content,

@@ -67,6 +67,27 @@ export class AIError extends AgentError {
   }
 }
 
+/**
+ * Detects AI errors even when they cross module or runtime boundaries.
+ *
+ * @param error - Unknown thrown value
+ * @returns True when the value represents an AI error
+ */
+export const isAIErrorLike = (error: unknown): error is AIError => {
+  if (error instanceof AIError) {
+    return true;
+  }
+
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const maybeError = error as { code?: unknown; name?: unknown };
+  return (
+    maybeError.code === ErrorCode.AI_ERROR || maybeError.name === 'AIError'
+  );
+};
+
 export class StateError extends AgentError {
   constructor(message: string, details?: any, recoverable: boolean = true) {
     super(ErrorCode.STATE_ERROR, message, details, recoverable);

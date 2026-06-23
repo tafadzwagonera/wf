@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
-import { AiService, CodeReview } from '../../integrations/ai/ai.service';
+import {
+  AiService,
+  CodeReview,
+  requireAiResponseContent,
+} from '../../integrations/ai/ai.service';
 import {
   formatReviewCallStack,
   formatReviewStateTransition,
@@ -66,15 +70,20 @@ export class ReviewStageService {
         `Return ONLY a Markdown bullet list (- item).\n\n` +
         `\`\`\`diff\n${patch}\n\`\`\``;
 
-      return this.stageAgentService.isEnabledForStage('review')
-        ? (await this.stageAgentService.generateFromPrompt(prompt)).trim()
-        : (
-            await this.aiService.execute({
-              prompt,
-              maxTokens: 2048,
-              stage: 'review',
-            })
-          ).content.trim();
+      if (this.stageAgentService.isEnabledForStage('review')) {
+        return (await this.stageAgentService.generateFromPrompt(prompt)).trim();
+      }
+
+      const response = await this.aiService.execute({
+        prompt,
+        maxTokens: 2048,
+        stage: 'review',
+      });
+
+      return requireAiResponseContent(
+        response,
+        'AI provider returned an empty review summary response',
+      );
     };
 
     const processedDiff = await summariseDiff(

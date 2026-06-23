@@ -5,12 +5,14 @@ import {
   AiService,
   ResolutionPlan,
   normalizeFileEntries,
+  requireAiResponseContent,
 } from '../integrations/ai/ai.service';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { isAIErrorLike } from '../shared/utils/errors';
 import {
   isTicketKey,
   parsePlanArtifact,
@@ -88,6 +90,7 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
     'Verification commands are expected to be repo-root-relative; stale plan artifacts that still embed redundant repo-selection `cd` prefixes are normalized, while cross-repo directory jumps are treated as setup errors. ' +
     'Set stages.implement.provider and stages.implement.backend in wf.config to select the backend. Use backend: agent with provider anthropic or openai for the Agent SDK path, or backend: cli with provider anthropic for the Claude CLI headless mode. The Anthropic backend explicitly loads ~/.claude/CLAUDE.md and the repository-root CLAUDE.md, warning when either file is missing. The OpenAI backend loads ~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md with the same warning behavior and only exposes an exact-match verify_command tool for whitelisted verification commands. When running from source, use `yarn start issue:implement ...` for the implementation stage and `yarn start issue:commit -c` to stage the final conventional commit once the work is accepted. ' +
     'Unsupported providers (google, deepseek) fail fast with a clear error listing supported providers. backend: standard is rejected at runtime because the implement stage requires an agent-capable backend. ' +
+    'Blank AI findings responses fail fast with provider-aware diagnostics instead of generic parse errors. ' +
     'Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. ' +
     'When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. ' +
     'Before implementation, the command runs an interactive branch creation workflow: checks the working tree for uncommitted changes (stashing if needed), detects and pulls the source branch (dev or main), then prompts for branch name confirmation. ' +
@@ -418,15 +421,23 @@ Return ONLY a valid JSON object:
             systemPrompt,
             temperature: 0.4,
           });
+          const findingsContent = requireAiResponseContent(
+            response,
+            'AI provider returned an empty investigation findings response',
+          );
 
           let findings: any;
           try {
             const jsonMatch =
-              response.content.match(/```json\s*([\s\S]*?)\s*```/) ||
-              response.content.match(/\{[\s\S]*\}/);
+              findingsContent.match(/```json\s*([\s\S]*?)\s*```/) ||
+              findingsContent.match(/\{[\s\S]*\}/);
             if (!jsonMatch) throw new Error('No JSON found in response');
             findings = JSON.parse(jsonMatch[1] ?? jsonMatch[0]);
-          } catch {
+          } catch (error) {
+            if (isAIErrorLike(error)) {
+              throw error;
+            }
+
             throw new Error(
               'Failed to parse investigation findings from AI response',
             );

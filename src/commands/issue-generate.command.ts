@@ -1,11 +1,15 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { FormatConverterService } from '../common/converters/format-converter.service';
-import { AiService } from '../integrations/ai/ai.service';
+import {
+  AiService,
+  requireAiResponseContent,
+} from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { isAIErrorLike } from '../shared/utils/errors';
 import { SlackService } from '../integrations/slack/slack.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import {
@@ -163,7 +167,7 @@ class UnresolvedSourceError extends Error {}
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Can use an agent backend when stages.generate.backend is set to agent',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -1476,15 +1480,20 @@ export class IssueGenerateCommand extends CommandRunner {
 
     const responseContent = this.stageAgentService.isEnabledForStage('generate')
       ? await this.stageAgentService.generateFromPrompt(prompt)
-      : (
-          await this.aiService.execute({
-            prompt,
-            maxTokens: 2048,
-            stage: 'generate',
-          })
-        ).content;
+      : await this.aiService.execute({
+          prompt,
+          maxTokens: 2048,
+          stage: 'generate',
+        });
 
-    return responseContent.trim();
+    if (typeof responseContent === 'string') {
+      return responseContent.trim();
+    }
+
+    return requireAiResponseContent(
+      responseContent,
+      'AI provider returned an empty summary response',
+    );
   }
 
   /**
@@ -1559,15 +1568,21 @@ export class IssueGenerateCommand extends CommandRunner {
 
       const extra = this.stageAgentService.isEnabledForStage('generate')
         ? await this.stageAgentService.generateFromPrompt(prompt)
-        : (
-            await this.aiService.execute({
-              prompt,
-              maxTokens: 1024,
-              stage: 'generate',
-            })
-          ).content;
+        : await this.aiService.execute({
+            prompt,
+            maxTokens: 1024,
+            stage: 'generate',
+          });
 
-      const extraBullets = extra
+      const extraContent =
+        typeof extra === 'string'
+          ? extra
+          : requireAiResponseContent(
+              extra,
+              'AI provider returned an empty summary response',
+            );
+
+      const extraBullets = extraContent
         .trim()
         .split('\n')
         .map((line) => line.trim())
@@ -1621,22 +1636,32 @@ export class IssueGenerateCommand extends CommandRunner {
         'generate',
       )
         ? await this.stageAgentService.generateFromPrompt(prompt)
-        : (
-            await this.aiService.execute({
-              prompt,
-              maxTokens: 1024,
-              stage: 'generate',
-            })
-          ).content;
+        : await this.aiService.execute({
+            prompt,
+            maxTokens: 1024,
+            stage: 'generate',
+          });
 
-      const parsed = JSON.parse(responseContent.trim());
+      const clarificationContent =
+        typeof responseContent === 'string'
+          ? responseContent
+          : requireAiResponseContent(
+              responseContent,
+              'AI provider returned an empty clarification response',
+            );
+
+      const parsed = JSON.parse(clarificationContent.trim());
       if (!Array.isArray(parsed)) {
         return [];
       }
       return parsed.filter(
         (item: unknown) => typeof item === 'string' && item.trim().length > 0,
       );
-    } catch {
+    } catch (error) {
+      if (isAIErrorLike(error)) {
+        throw error;
+      }
+
       return [];
     }
   }
@@ -1715,17 +1740,23 @@ export class IssueGenerateCommand extends CommandRunner {
     // Call AI to synthesize
     const responseContent = this.stageAgentService.isEnabledForStage('generate')
       ? await this.stageAgentService.generateFromPrompt(prompt)
-      : (
-          await this.aiService.execute({
-            prompt: prompt,
-            maxTokens: 4096,
-            stage: 'generate',
-          })
-        ).content;
+      : await this.aiService.execute({
+          prompt: prompt,
+          maxTokens: 4096,
+          stage: 'generate',
+        });
+
+    const synthesisContent =
+      typeof responseContent === 'string'
+        ? responseContent
+        : requireAiResponseContent(
+            responseContent,
+            'AI provider returned an empty ticket synthesis response',
+          );
 
     // Parse AI response as markdown (default) and convert to UniversalTicket
     const mdConverter = this.formatConverterService.getConverter('md');
-    const ticket = mdConverter.parse(responseContent);
+    const ticket = mdConverter.parse(synthesisContent);
     this.normalizeTicketTextFields(ticket);
 
     return ticket;

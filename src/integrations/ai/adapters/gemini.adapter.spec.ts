@@ -114,6 +114,39 @@ describe('GeminiAdapter', () => {
         }),
       );
     });
+
+    it('preserves metadata for blank Gemini text responses', async () => {
+      const adapter = createAdapter();
+      const mockGenerateContent = jest.fn().mockResolvedValue({
+        response: {
+          text: () => '   ',
+          candidates: [{ finishReason: 'STOP', content: { parts: [] } }],
+          usageMetadata: {
+            promptTokenCount: 10,
+            candidatesTokenCount: 0,
+          },
+        },
+      });
+      const mockGetGenerativeModel = jest.fn().mockReturnValue({
+        generateContent: mockGenerateContent,
+      });
+
+      (adapter as unknown as { client: GoogleGenerativeAI }).client = {
+        getGenerativeModel: mockGetGenerativeModel,
+      } as unknown as GoogleGenerativeAI;
+      (adapter as unknown as { model: string }).model = 'gemini-2.5-pro';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 8192;
+
+      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject(
+        {
+          content: '   ',
+          provider: 'google',
+          model: 'gemini-2.5-pro',
+          finishReason: 'STOP',
+          contentTypes: ['text'],
+        },
+      );
+    });
   });
 
   describe('onModuleInit', () => {

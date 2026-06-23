@@ -5,6 +5,7 @@ import { ChatUIService } from './chat-ui.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ConversationContext } from './interfaces';
 import { StageAgentService } from '../stage-agent.service';
+import { AIError } from '../../../shared/utils/errors';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -211,6 +212,34 @@ describe('ConversationService', () => {
       await expect(service.getAssistantResponse('invalid-id')).rejects.toThrow(
         'Conversation not found',
       );
+    });
+
+    it('raises an AIError when the standard assistant response is blank', async () => {
+      const ticketKey = 'TEST-123';
+      const context: ConversationContext = {
+        ticketKey,
+        stage: 'review',
+        workflowState: { ticketContent: 'Test' },
+      };
+
+      const conversation = await service.createConversation(ticketKey, context);
+      await service.addUserMessage(conversation.conversationId, 'Hello');
+
+      claudeService.executeWithHistory.mockResolvedValue({
+        content: '',
+        provider: 'openai',
+        model: 'gpt-5.4',
+      } as any);
+
+      await expect(
+        service.getAssistantResponse(conversation.conversationId),
+      ).rejects.toMatchObject({
+        message: 'AI provider returned an empty chat response',
+        details: expect.objectContaining({
+          provider: 'openai',
+          model: 'gpt-5.4',
+        }),
+      } satisfies Partial<AIError>);
     });
   });
 

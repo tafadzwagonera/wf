@@ -79,6 +79,44 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
     return this.contextConfig + (systemPrompt ?? '');
   }
 
+  private buildResponseMetadata(
+    content: string,
+    model: string,
+    response: {
+      candidates?: Array<{
+        finishReason?: string;
+        content?: {
+          parts?: Array<{ text?: string }>;
+        };
+      }>;
+      usageMetadata?: {
+        promptTokenCount?: number;
+        candidatesTokenCount?: number;
+      };
+    },
+  ): AIResponse {
+    const contentTypes = response.candidates?.flatMap((candidate) => {
+      const parts = candidate.content?.parts ?? [];
+      if (parts.length === 0) {
+        return ['text'];
+      }
+
+      return parts.map((part) => ('text' in part ? 'text' : 'unknown'));
+    });
+
+    return {
+      content,
+      provider: 'google',
+      model,
+      finishReason: response.candidates?.[0]?.finishReason,
+      contentTypes,
+      usage: {
+        inputTokens: response.usageMetadata?.promptTokenCount ?? 0,
+        outputTokens: response.usageMetadata?.candidatesTokenCount ?? 0,
+      },
+    };
+  }
+
   async execute(request: AIRequest): Promise<AIResponse> {
     this.initializeClient();
 
@@ -110,14 +148,9 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
 
       const result = await generativeModel.generateContent(request.prompt);
       const response = result.response;
+      const content = response.text();
 
-      return {
-        content: response.text(),
-        usage: {
-          inputTokens: response.usageMetadata?.promptTokenCount ?? 0,
-          outputTokens: response.usageMetadata?.candidatesTokenCount ?? 0,
-        },
-      };
+      return this.buildResponseMetadata(content, model, response);
     } catch (error) {
       throw new AIError(
         `Gemini API error: ${error instanceof Error ? error.message : String(error)}`,
@@ -170,14 +203,9 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
       const chat = generativeModel.startChat({ history });
       const result = await chat.sendMessage(lastMessage.content);
       const response = result.response;
+      const content = response.text();
 
-      return {
-        content: response.text(),
-        usage: {
-          inputTokens: response.usageMetadata?.promptTokenCount ?? 0,
-          outputTokens: response.usageMetadata?.candidatesTokenCount ?? 0,
-        },
-      };
+      return this.buildResponseMetadata(content, model, response);
     } catch (error) {
       throw new AIError(
         `Gemini API error: ${error instanceof Error ? error.message : String(error)}`,

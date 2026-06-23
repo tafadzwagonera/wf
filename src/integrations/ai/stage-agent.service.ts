@@ -26,11 +26,13 @@ import {
 import type { WfBackendMode } from '../../config/public-config';
 import {
   CodeReview,
+  requireAiResponseContent,
   parseJsonResponse,
+  requireReviewResponseContent,
   ResolutionPlan,
   sanitizeCodeReviewTrace,
 } from './ai.service';
-import { AIError } from '../../shared/utils/errors';
+import { AIError, isAIErrorLike } from '../../shared/utils/errors';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 
 const execAsync = promisify(exec);
@@ -187,7 +189,16 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     });
 
     try {
-      const plan = parseJsonResponse<ResolutionPlan>(response);
+      const plan = parseJsonResponse<ResolutionPlan>(
+        requireAiResponseContent(
+          {
+            content: response,
+            provider: this.resolveStageProvider('plan'),
+            model: this.resolveStageModel('plan'),
+          },
+          'AI provider returned an empty plan response',
+        ),
+      );
       const provider = this.resolveStageProvider('plan');
       const model = this.resolveStageModel('plan');
       const prefixMap: Record<string, string> = {
@@ -206,6 +217,10 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
       plan.timestamp = dayjs().toISOString();
       return plan;
     } catch (error) {
+      if (isAIErrorLike(error)) {
+        throw error;
+      }
+
       throw new AIError('Failed to parse resolution plan from agent response', {
         response,
         error,
@@ -296,7 +311,13 @@ Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
     });
 
     try {
-      const parsed = parseJsonResponse<CodeReview>(response);
+      const parsed = parseJsonResponse<CodeReview>(
+        requireReviewResponseContent({
+          content: response,
+          provider: this.resolveStageProvider('review'),
+          model: this.resolveStageModel('review'),
+        }),
+      );
       const processedReview = postProcessCodeReview(
         sanitizeCodeReviewTrace(parsed, diff),
         diff,
@@ -306,6 +327,10 @@ Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
         executionMode: 'agent',
       };
     } catch (error) {
+      if (isAIErrorLike(error)) {
+        throw error;
+      }
+
       throw new AIError('Failed to parse code review from agent response', {
         response,
         error,
@@ -318,11 +343,20 @@ Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
 You may inspect repository files with read-only tools before answering.
 Return only the requested ticket markdown and preserve the required heading structure exactly.`;
 
-    return this.runStagePrompt({
+    const response = await this.runStagePrompt({
       stage: 'generate',
       prompt,
       systemPrompt,
     });
+
+    return requireAiResponseContent(
+      {
+        content: response,
+        provider: this.resolveStageProvider('generate'),
+        model: this.resolveStageModel('generate'),
+      },
+      'AI provider returned an empty generated content response',
+    );
   }
 
   private resolveStageBackend(stage: AgentStageName): WfBackendMode {
@@ -679,7 +713,16 @@ Return only the requested ticket markdown and preserve the required heading stru
     if (provider === 'anthropic') {
       return this.anthropicChatTurn(params);
     }
-    return this.openAiChatTurn(params);
+    const result = await this.openAiChatTurn(params);
+    requireAiResponseContent(
+      {
+        content: result.content,
+        provider: 'openai',
+        model: this.resolveStageModel(params.stage),
+      },
+      'AI provider returned an empty chat response',
+    );
+    return result;
   }
 
   private async anthropicChatTurn(params: {

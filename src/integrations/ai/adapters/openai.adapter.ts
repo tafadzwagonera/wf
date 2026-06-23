@@ -132,9 +132,14 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
           : { temperature: request.temperature || 0.7 }),
         messages: this.buildMessages(messages),
       });
+      const choice = response.choices[0];
 
       return {
-        content: response.choices[0].message.content ?? '',
+        content: choice.message.content ?? '',
+        provider: 'openai',
+        model,
+        finishReason: choice.finish_reason ?? undefined,
+        refusal: choice.message.refusal ?? null,
         usage: {
           inputTokens: response.usage?.prompt_tokens ?? 0,
           outputTokens: response.usage?.completion_tokens ?? 0,
@@ -194,9 +199,14 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
           : { temperature: request.temperature || 0.7 }),
         messages: this.buildMessages(messages),
       });
+      const choice = response.choices[0];
 
       return {
-        content: response.choices[0].message.content ?? '',
+        content: choice.message.content ?? '',
+        provider: 'openai',
+        model,
+        finishReason: choice.finish_reason ?? undefined,
+        refusal: choice.message.refusal ?? null,
         usage: {
           inputTokens: response.usage?.prompt_tokens ?? 0,
           outputTokens: response.usage?.completion_tokens ?? 0,

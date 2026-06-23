@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { AiService, AIConversationRequest } from '../ai.service';
+import {
+  AiService,
+  AIConversationRequest,
+  requireAiResponseContent,
+} from '../ai.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ChatUIService } from './chat-ui.service';
 import {
@@ -188,11 +192,15 @@ export class ConversationService {
       systemPrompt,
       ...(stage ? { stage: stage as AIConversationRequest['stage'] } : {}),
     });
+    const content = requireAiResponseContent(
+      response,
+      'AI provider returned an empty chat response',
+    );
 
     // Create assistant message
     const assistantMessage: ConversationMessage = {
       role: 'assistant',
-      content: response.content,
+      content,
       timestamp: new Date(),
       tokenUsage: response.usage,
     };

@@ -79,6 +79,37 @@ describe('DeepSeekAdapter', () => {
         }),
       );
     });
+
+    it('preserves empty DeepSeek completion diagnostics', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        choices: [
+          {
+            finish_reason: 'length',
+            message: {
+              content: null,
+              refusal: null,
+            },
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 0 },
+      });
+
+      (adapter as unknown as { client: OpenAI }).client = {
+        chat: { completions: { create: mockCreate } },
+      } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'deepseek-reasoner';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject(
+        {
+          content: '',
+          provider: 'deepseek',
+          model: 'deepseek-reasoner',
+          finishReason: 'length',
+        },
+      );
+    });
   });
 
   describe('onModuleInit', () => {

@@ -6,6 +6,7 @@ import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { AIError } from '../../shared/utils/errors';
 
 describe('ReviewStageService', () => {
   const mockReview = {
@@ -355,5 +356,27 @@ describe('ReviewStageService', () => {
     expect(review.executionMode).toBe('agent');
     expect(reviewMarkdown).toContain('Execution mode: agent');
     expect(reviewMarkdown).toContain('Provenance: evidence-based');
+  });
+
+  it('propagates empty-response AI errors from the standard review path', async () => {
+    const { service, aiService } = await buildService();
+    (aiService.reviewCode as jest.Mock).mockRejectedValueOnce(
+      new AIError('AI provider returned an empty review response', {
+        provider: 'google',
+        model: 'gemini-2.5-pro',
+      }),
+    );
+
+    await expect(
+      service.reviewDiff('diff --git a/file b/file', {
+        context: 'ticket WBP-126: Empty AI review response',
+      }),
+    ).rejects.toMatchObject({
+      message: 'AI provider returned an empty review response',
+      details: expect.objectContaining({
+        provider: 'google',
+        model: 'gemini-2.5-pro',
+      }),
+    });
   });
 });
