@@ -814,6 +814,7 @@ export class ImplementerAgent {
             name: 'shouldStash',
             message:
               'Working tree has uncommitted changes. Stash and continue?',
+            prefix: ' ',
             default: true,
           },
         ]);
@@ -865,6 +866,7 @@ export class ImplementerAgent {
           type: 'list',
           name: 'selected',
           message: 'Multiple dev branches found. Select source branch:',
+          prefix: ' ',
           choices,
           default: devBranches[0],
         },
@@ -964,6 +966,7 @@ export class ImplementerAgent {
           type: 'list',
           name: 'choice',
           message: 'Branch name:',
+          prefix: ' ',
           choices: [
             { name: generatedName, value: 'accept' },
             { name: 'Edit branch name', value: 'edit' },
@@ -986,6 +989,7 @@ export class ImplementerAgent {
             type: 'input',
             name: 'customName',
             message: 'Enter branch name:',
+            prefix: ' ',
             default: generatedName,
           },
         ]);

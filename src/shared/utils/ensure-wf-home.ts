@@ -32,6 +32,7 @@ export const ensureWfHome = async (): Promise<void> => {
       type: 'confirm',
       name: 'confirm',
       message: 'Create it now?',
+      prefix: ' ',
       default: true,
     },
   ]);

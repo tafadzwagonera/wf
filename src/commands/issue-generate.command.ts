@@ -1239,7 +1239,8 @@ export class IssueGenerateCommand extends CommandRunner {
       {
         type: 'checkbox',
         name: 'selectedSources',
-        message: `Select matching files for ${source}`,
+        message: `Select matching files for ${source}:`,
+        prefix: ' ',
         choices: matches.map(({ filePath, repoInput }) => ({
           name: `${repoInput}: ${filePath}`,
           value: filePath,
@@ -1339,7 +1340,8 @@ export class IssueGenerateCommand extends CommandRunner {
       {
         type: 'checkbox',
         name: 'selectedRepos',
-        message: 'Select repositories to save the generated artifact into',
+        message: 'Select repositories to save the generated artifact into:',
+        prefix: ' ',
         choices: resolvedRepos.map(({ input, basePath }) => ({
           name: `${input}: ${basePath}`,
           value: input,
@@ -1518,6 +1520,7 @@ export class IssueGenerateCommand extends CommandRunner {
           type: 'confirm',
           name: 'accept',
           message: 'Include this point?',
+          prefix: ' ',
           default: true,
         },
       ]);
@@ -1534,7 +1537,12 @@ export class IssueGenerateCommand extends CommandRunner {
 
     while (true) {
       const { input } = await inquirer.prompt([
-        { type: 'input', name: 'input', message: chalk.cyan('message') },
+        {
+          type: 'input',
+          name: 'input',
+          message: chalk.cyan('message'),
+          prefix: ' ',
+        },
       ]);
 
       const trimmed = input.trim();
@@ -1572,6 +1580,7 @@ export class IssueGenerateCommand extends CommandRunner {
             type: 'confirm',
             name: 'accept',
             message: 'Include this point?',
+            prefix: ' ',
             default: true,
           },
         ]);
@@ -1670,6 +1679,7 @@ export class IssueGenerateCommand extends CommandRunner {
           type: 'input',
           name: 'answer',
           message: question,
+          prefix: ' ',
         },
       ]);
       pairs.push(`Q: ${question}\nA: ${answer}`);

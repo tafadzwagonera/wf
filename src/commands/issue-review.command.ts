@@ -543,6 +543,7 @@ export class IssueReviewCommand extends CommandRunner {
             type: 'confirm',
             name: 'startChat',
             message: 'Would you like to discuss the review?',
+            prefix: ' ',
             default: false,
           },
         ]);
@@ -1172,6 +1173,7 @@ export class IssueReviewCommand extends CommandRunner {
         type: 'list',
         name: 'decision',
         message: 'No pull request was found. What would you like to do?',
+        prefix: ' ',
         choices: [
           { name: 'Review local changes', value: 'local' },
           { name: 'Return without reviewing', value: 'return' },

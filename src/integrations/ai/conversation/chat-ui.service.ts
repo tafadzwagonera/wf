@@ -89,6 +89,7 @@ export class ChatUIService {
     const answer = await this.inquirer({
       type: 'input',
       name: 'message',
+      prefix: ' ',
       message: chalk.cyan(
         `💬 You [${turnsLeft} turns left (${conversationTurn}/${maxTurns})]:`,
       ),
