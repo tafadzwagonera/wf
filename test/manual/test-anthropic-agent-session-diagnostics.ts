@@ -38,9 +38,7 @@ const pass = (message: string): void => {
  * @returns Void
  */
 const fail = (message: string, detail?: string): void => {
-  console.error(
-    chalk.red(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`),
-  );
+  console.error(chalk.red(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`));
   failed += 1;
 };
 
@@ -62,9 +60,7 @@ const assert = (message: string, condition: boolean, detail?: string): void => {
 };
 
 async function main(): Promise<void> {
-  console.log(
-    chalk.bold.cyan('\n🧪 Anthropic agent session diagnostics smoke test\n'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Anthropic agent session diagnostics smoke test\n'));
 
   console.log(chalk.bold('Test 1: api_retry with HTTP status'));
   const apiRetryHttp = formatProgressMessage({
@@ -77,9 +73,8 @@ async function main(): Promise<void> {
   } as SDKMessage);
   assert(
     'api_retry renders HTTP status and backoff',
-    apiRetryHttp ===
-      '  [claude-agent-sdk] API retry: attempt 2/5 after HTTP 529 (4000ms backoff)',
-    apiRetryHttp ?? 'received null',
+    apiRetryHttp === '  [claude-agent-sdk] API retry: attempt 2/5 after HTTP 529 (4000ms backoff)',
+    apiRetryHttp ?? 'received null'
   );
 
   console.log(chalk.bold('\nTest 2: api_retry with null error_status'));
@@ -93,9 +88,8 @@ async function main(): Promise<void> {
   } as SDKMessage);
   assert(
     'api_retry renders connection error when error_status is null',
-    apiRetryConn ===
-      '  [claude-agent-sdk] API retry: attempt 1/3 after connection error (1000ms backoff)',
-    apiRetryConn ?? 'received null',
+    apiRetryConn === '  [claude-agent-sdk] API retry: attempt 1/3 after connection error (1000ms backoff)',
+    apiRetryConn ?? 'received null'
   );
 
   console.log(chalk.bold('\nTest 3: status message'));
@@ -107,7 +101,7 @@ async function main(): Promise<void> {
   assert(
     'status renders the status string',
     statusMsg === '  [claude-agent-sdk] Status: compacting',
-    statusMsg ?? 'received null',
+    statusMsg ?? 'received null'
   );
 
   console.log(chalk.bold('\nTest 4: status with null returns null'));
@@ -125,7 +119,7 @@ async function main(): Promise<void> {
   assert(
     'rate_limit_event renders',
     rateLimit === '  [claude-agent-sdk] Rate limit: updated',
-    rateLimit ?? 'received null',
+    rateLimit ?? 'received null'
   );
 
   console.log(chalk.bold('\nTest 6: compact_boundary'));
@@ -139,9 +133,8 @@ async function main(): Promise<void> {
   } as SDKMessage);
   assert(
     'compact_boundary renders trigger and token count',
-    compact ===
-      '  [claude-agent-sdk] Context compacted (auto, 32000 tokens before)',
-    compact ?? 'received null',
+    compact === '  [claude-agent-sdk] Context compacted (auto, 32000 tokens before)',
+    compact ?? 'received null'
   );
 
   console.log(chalk.bold('\nTest 7: session_state_changed'));
@@ -153,7 +146,7 @@ async function main(): Promise<void> {
   assert(
     'session_state_changed renders state',
     stateChanged === '  [claude-agent-sdk] Session state: idle',
-    stateChanged ?? 'received null',
+    stateChanged ?? 'received null'
   );
 
   console.log(chalk.bold('\nSummary'));

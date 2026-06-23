@@ -11,11 +11,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueImplementCommand } from '../../src/commands/issue-implement.command';
-import type {
-  ImplementerOptions,
-  PlanArtifact,
-  TicketArtifact,
-} from '../../src/agents/interfaces';
+import type { ImplementerOptions, PlanArtifact, TicketArtifact } from '../../src/agents/interfaces';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -36,9 +32,7 @@ const fail = (message: string, detail?: string) => {
 const captureStdout = (): { restore: () => string } => {
   let output = '';
   const originalWrite = process.stdout.write.bind(process.stdout);
-  (process.stdout.write as unknown as (chunk: string) => boolean) = (
-    chunk: string,
-  ) => {
+  (process.stdout.write as unknown as (chunk: string) => boolean) = (chunk: string) => {
     output += String(chunk);
     return true;
   };
@@ -71,31 +65,19 @@ async function main() {
   });
   const command = app.get(IssueImplementCommand);
   const implementer = (command as any).orchestrator.implementer as {
-    execute: (
-      ticket: TicketArtifact,
-      planArtifact: PlanArtifact,
-      options: ImplementerOptions,
-    ) => Promise<unknown>;
+    execute: (ticket: TicketArtifact, planArtifact: PlanArtifact, options: ImplementerOptions) => Promise<unknown>;
   };
 
-  console.log(
-    '\n🧪 Test 1: custom fix plan uses synthetic execution context\n' +
-      '─'.repeat(60),
-  );
+  console.log('\n🧪 Test 1: custom fix plan uses synthetic execution context\n' + '─'.repeat(60));
   {
-    const tmpBaseDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'wf-custom-implement-'),
-    );
+    const tmpBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-implement-'));
     const appDir = path.join(tmpBaseDir, 'app');
     const repoDir = path.join(tmpBaseDir, 'repo-a');
     const customArtifactDir = path.join(tmpBaseDir, '.wf', 'repo-a');
     fs.mkdirSync(appDir, { recursive: true });
     fs.mkdirSync(repoDir, { recursive: true });
     fs.mkdirSync(customArtifactDir, { recursive: true });
-    const planPath = path.join(
-      customArtifactDir,
-      'dark-building-creek-fix.json',
-    );
+    const planPath = path.join(customArtifactDir, 'dark-building-creek-fix.json');
     fs.writeFileSync(
       planPath,
       JSON.stringify({
@@ -106,7 +88,7 @@ async function main() {
         filesAffected: ['repo-a/src/commands/issue-implement.command.ts'],
         repositoriesAffected: ['repo-a'],
       }),
-      'utf-8',
+      'utf-8'
     );
 
     const restoreHome = overrideHomeDir(tmpBaseDir);
@@ -118,11 +100,7 @@ async function main() {
     const originalExecute = implementer.execute.bind(implementer);
 
     (process as any).cwd = () => appDir;
-    implementer.execute = async (
-      ticket: TicketArtifact,
-      planArtifact: PlanArtifact,
-      options: ImplementerOptions,
-    ) => {
+    implementer.execute = async (ticket: TicketArtifact, planArtifact: PlanArtifact, options: ImplementerOptions) => {
       capturedTicket = ticket;
       capturedPlanArtifact = planArtifact;
       capturedOptions = options;
@@ -139,43 +117,27 @@ async function main() {
       const output = stdoutCapture.restore();
 
       if (capturedTicket?.ticketKey === 'dark-building-creek') {
-        pass(
-          'Synthetic ticket key strips the trailing action from the artifact stem',
-        );
+        pass('Synthetic ticket key strips the trailing action from the artifact stem');
       } else {
-        fail(
-          'Synthetic ticket key did not match the expected artifact stem',
-          JSON.stringify(capturedTicket, null, 2),
-        );
+        fail('Synthetic ticket key did not match the expected artifact stem', JSON.stringify(capturedTicket, null, 2));
       }
 
       if (capturedOptions?.customBranchSlug === 'dark-building-creek') {
         pass('Custom branch slug is forwarded to the implementer');
       } else {
-        fail(
-          'Custom branch slug was not forwarded to the implementer',
-          JSON.stringify(capturedOptions, null, 2),
-        );
+        fail('Custom branch slug was not forwarded to the implementer', JSON.stringify(capturedOptions, null, 2));
       }
 
-      if (
-        capturedPlanArtifact?.path === planPath &&
-        capturedPlanArtifact.action === 'fix'
-      ) {
+      if (capturedPlanArtifact?.path === planPath && capturedPlanArtifact.action === 'fix') {
         pass('Custom fix plan artifact is passed through unchanged');
       } else {
-        fail(
-          'Custom fix plan artifact was not forwarded correctly',
-          JSON.stringify(capturedPlanArtifact, null, 2),
-        );
+        fail('Custom fix plan artifact was not forwarded correctly', JSON.stringify(capturedPlanArtifact, null, 2));
       }
 
       if (output.includes('synthetic execution context')) {
         pass('Command warns when it creates a synthetic execution context');
       } else {
-        fail(
-          'Command output did not include the synthetic execution context warning',
-        );
+        fail('Command output did not include the synthetic execution context warning');
       }
     } finally {
       stdoutCapture.restore();
@@ -186,31 +148,18 @@ async function main() {
     }
   }
 
-  console.log(
-    '\n🧪 Test 2: custom feature dry-run previews branch and file work\n' +
-      '─'.repeat(60),
-  );
+  console.log('\n🧪 Test 2: custom feature dry-run previews branch and file work\n' + '─'.repeat(60));
   {
-    const tmpBaseDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'wf-custom-implement-'),
-    );
+    const tmpBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-implement-'));
     const appDir = path.join(tmpBaseDir, 'app');
     const repoDir = path.join(tmpBaseDir, 'repo-a');
     const customArtifactDir = path.join(tmpBaseDir, '.wf', 'repo-a');
     fs.mkdirSync(appDir, { recursive: true });
     fs.mkdirSync(path.join(repoDir, 'src', 'commands'), { recursive: true });
     fs.mkdirSync(customArtifactDir, { recursive: true });
-    const trackedFile = path.join(
-      repoDir,
-      'src',
-      'commands',
-      'issue-implement.command.ts',
-    );
+    const trackedFile = path.join(repoDir, 'src', 'commands', 'issue-implement.command.ts');
     fs.writeFileSync(trackedFile, '// existing file\n', 'utf-8');
-    const planPath = path.join(
-      customArtifactDir,
-      'dark-building-creek-feature.json',
-    );
+    const planPath = path.join(customArtifactDir, 'dark-building-creek-feature.json');
     fs.writeFileSync(
       planPath,
       JSON.stringify({
@@ -221,7 +170,7 @@ async function main() {
         filesAffected: ['repo-a/src/commands/issue-implement.command.ts'],
         repositoriesAffected: ['repo-a'],
       }),
-      'utf-8',
+      'utf-8'
     );
 
     const restoreHome = overrideHomeDir(tmpBaseDir);
@@ -246,19 +195,13 @@ async function main() {
       if (output.includes('feature/dark-building-creek')) {
         pass('Dry-run previews the artifact-derived custom branch name');
       } else {
-        fail(
-          'Dry-run output did not include the expected custom branch name',
-          output,
-        );
+        fail('Dry-run output did not include the expected custom branch name', output);
       }
 
       if (output.includes(trackedFile)) {
         pass('Dry-run previews the repo-local file write target');
       } else {
-        fail(
-          'Dry-run output did not include the expected file write target',
-          output,
-        );
+        fail('Dry-run output did not include the expected file write target', output);
       }
     } finally {
       stdoutCapture.restore();
@@ -280,7 +223,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+main().catch(error => {
   console.error(error);
   process.exit(1);
 });

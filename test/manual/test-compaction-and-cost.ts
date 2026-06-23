@@ -47,10 +47,7 @@ const run = async (): Promise<void> => {
     cachedInputTokens: 25,
     compacted: false,
   };
-  assert(
-    'OpenAiUsageSummary has cachedInputTokens field',
-    summary.cachedInputTokens === 25,
-  );
+  assert('OpenAiUsageSummary has cachedInputTokens field', summary.cachedInputTokens === 25);
 
   // 2. extractUsageFromEvent extracts cachedInputTokens
   const eventWithCached = {
@@ -70,7 +67,7 @@ const run = async (): Promise<void> => {
   const resultCached = extractUsageFromEvent(eventWithCached);
   assert(
     'extractUsageFromEvent extracts cachedInputTokens from inputTokensDetails',
-    resultCached?.cachedInputTokens === 12000,
+    resultCached?.cachedInputTokens === 12000
   );
 
   // 3. extractUsageFromEvent defaults cachedInputTokens to 0
@@ -88,10 +85,7 @@ const run = async (): Promise<void> => {
     },
   };
   const resultNoCached = extractUsageFromEvent(eventWithoutCached);
-  assert(
-    'extractUsageFromEvent defaults cachedInputTokens to 0 when absent',
-    resultNoCached?.cachedInputTokens === 0,
-  );
+  assert('extractUsageFromEvent defaults cachedInputTokens to 0 when absent', resultNoCached?.cachedInputTokens === 0);
 
   // 4. extractUsageFromEvent detects compaction
   const eventCompacted = {
@@ -109,10 +103,7 @@ const run = async (): Promise<void> => {
     },
   };
   const resultCompacted = extractUsageFromEvent(eventCompacted);
-  assert(
-    'extractUsageFromEvent detects compaction from requestUsageEntries',
-    resultCompacted?.compacted === true,
-  );
+  assert('extractUsageFromEvent detects compaction from requestUsageEntries', resultCompacted?.compacted === true);
 
   console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));
 

@@ -22,7 +22,7 @@ jest.mock('chalk', () => {
       'gray',
       'grey',
     ];
-    colorNames.forEach((name) => {
+    colorNames.forEach(name => {
       chain[name] = identity;
     });
     return chain;
@@ -78,9 +78,9 @@ describe('DryRunPreviewService', () => {
         description: 'Generate plan',
         estimatedResponse: '{ "action": "fix" }',
       });
-      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
-      expect(calls.some((c) => c.includes('Response:'))).toBe(true);
-      expect(calls.some((c) => c.includes('"action"'))).toBe(true);
+      const calls = mockConsoleLog.mock.calls.map(c => c[0] as string);
+      expect(calls.some(c => c.includes('Response:'))).toBe(true);
+      expect(calls.some(c => c.includes('"action"'))).toBe(true);
     });
 
     it('omits estimatedResponse line when absent', () => {
@@ -90,8 +90,8 @@ describe('DryRunPreviewService', () => {
         platform: 'x',
         description: 'desc',
       });
-      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
-      expect(calls.every((c) => !c.includes('Response:'))).toBe(true);
+      const calls = mockConsoleLog.mock.calls.map(c => c[0] as string);
+      expect(calls.every(c => !c.includes('Response:'))).toBe(true);
     });
 
     it('renders payload when non-empty', () => {
@@ -100,16 +100,11 @@ describe('DryRunPreviewService', () => {
         endpoint: '/x',
         platform: 'x',
         description: 'desc',
-        payloadPreviewLines: [
-          'Formatting Summary',
-          '  Verdict: looks Jira-safe',
-        ],
+        payloadPreviewLines: ['Formatting Summary', '  Verdict: looks Jira-safe'],
       });
-      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
-      expect(calls.some((c) => c.includes('Payload:'))).toBe(true);
-      expect(calls.some((c) => c.includes('Verdict: looks Jira-safe'))).toBe(
-        true,
-      );
+      const calls = mockConsoleLog.mock.calls.map(c => c[0] as string);
+      expect(calls.some(c => c.includes('Payload:'))).toBe(true);
+      expect(calls.some(c => c.includes('Verdict: looks Jira-safe'))).toBe(true);
     });
 
     it('renders payload preview lines below payload with two-space indentation', () => {
@@ -120,14 +115,10 @@ describe('DryRunPreviewService', () => {
         description: 'desc',
         payloadPreviewLines: ['Formatting Summary', '  Code blocks: 1'],
       });
-      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
-      expect(calls.some((c) => c.includes('↳ Payload:'))).toBe(true);
-      expect(calls.some((c) => c.includes('       Formatting Summary'))).toBe(
-        true,
-      );
-      expect(calls.some((c) => c.includes('         Code blocks: 1'))).toBe(
-        true,
-      );
+      const calls = mockConsoleLog.mock.calls.map(c => c[0] as string);
+      expect(calls.some(c => c.includes('↳ Payload:'))).toBe(true);
+      expect(calls.some(c => c.includes('       Formatting Summary'))).toBe(true);
+      expect(calls.some(c => c.includes('         Code blocks: 1'))).toBe(true);
     });
 
     it('omits payload line when empty', () => {
@@ -137,8 +128,8 @@ describe('DryRunPreviewService', () => {
         platform: 'x',
         description: 'desc',
       });
-      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
-      expect(calls.every((c) => !c.includes('Payload:'))).toBe(true);
+      const calls = mockConsoleLog.mock.calls.map(c => c[0] as string);
+      expect(calls.every(c => !c.includes('Payload:'))).toBe(true);
     });
   });
 
@@ -160,30 +151,28 @@ describe('DryRunPreviewService', () => {
         sizeEstimate: '1 KB',
         contentPreview: 'line1\nline2\nline3',
       });
-      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
-      expect(calls.some((c) => c.includes('line1'))).toBe(true);
-      expect(calls.some((c) => c.includes('line2'))).toBe(true);
-      expect(calls.some((c) => c.includes('line3'))).toBe(true);
+      const calls = mockConsoleLog.mock.calls.map(c => c[0] as string);
+      expect(calls.some(c => c.includes('line1'))).toBe(true);
+      expect(calls.some(c => c.includes('line2'))).toBe(true);
+      expect(calls.some(c => c.includes('line3'))).toBe(true);
     });
 
     it('truncates contentPreview at 10 lines and appends ellipsis', () => {
-      const preview = Array.from({ length: 15 }, (_, i) => `line${i}`).join(
-        '\n',
-      );
+      const preview = Array.from({ length: 15 }, (_, i) => `line${i}`).join('\n');
       service.previewFileWrite({
         filePath: '/x',
         operation: 'create',
         sizeEstimate: '1 KB',
         contentPreview: preview,
       });
-      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
+      const calls = mockConsoleLog.mock.calls.map(c => c[0] as string);
       // First 10 lines should appear
-      expect(calls.some((c) => c.includes('line0'))).toBe(true);
-      expect(calls.some((c) => c.includes('line9'))).toBe(true);
+      expect(calls.some(c => c.includes('line0'))).toBe(true);
+      expect(calls.some(c => c.includes('line9'))).toBe(true);
       // 11th line (line10) should NOT appear
-      expect(calls.every((c) => !c.includes('line10'))).toBe(true);
+      expect(calls.every(c => !c.includes('line10'))).toBe(true);
       // Ellipsis must appear
-      expect(calls.some((c) => c.includes('...'))).toBe(true);
+      expect(calls.some(c => c.includes('...'))).toBe(true);
     });
 
     it('renders overwrite operation label', () => {
@@ -192,8 +181,8 @@ describe('DryRunPreviewService', () => {
         operation: 'overwrite',
         sizeEstimate: '1 KB',
       });
-      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
-      expect(calls.some((c) => c.includes('overwrite'))).toBe(true);
+      const calls = mockConsoleLog.mock.calls.map(c => c[0] as string);
+      expect(calls.some(c => c.includes('overwrite'))).toBe(true);
     });
 
     it('omits contentPreview block when absent', () => {
@@ -209,12 +198,10 @@ describe('DryRunPreviewService', () => {
   describe('showTerminalOutput', () => {
     it('renders each line with │ prefix', () => {
       service.showTerminalOutput(['line A', 'line B']);
-      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
-      expect(calls.some((c) => c.includes('Terminal output preview:'))).toBe(
-        true,
-      );
-      expect(calls.some((c) => c.includes('│ line A'))).toBe(true);
-      expect(calls.some((c) => c.includes('│ line B'))).toBe(true);
+      const calls = mockConsoleLog.mock.calls.map(c => c[0] as string);
+      expect(calls.some(c => c.includes('Terminal output preview:'))).toBe(true);
+      expect(calls.some(c => c.includes('│ line A'))).toBe(true);
+      expect(calls.some(c => c.includes('│ line B'))).toBe(true);
     });
 
     it('is a no-op when lines array is empty', () => {
@@ -231,9 +218,9 @@ describe('DryRunPreviewService', () => {
         fileModifiedCount: 0,
         gitOperationCount: 0,
       });
-      const calls = mockConsoleLog.mock.calls.map((c) => c[0] as string);
-      expect(calls.some((c) => c.includes('2 API calls'))).toBe(true);
-      expect(calls.some((c) => c.includes('1 file created'))).toBe(true);
+      const calls = mockConsoleLog.mock.calls.map(c => c[0] as string);
+      expect(calls.some(c => c.includes('2 API calls'))).toBe(true);
+      expect(calls.some(c => c.includes('1 file created'))).toBe(true);
     });
 
     it('calls showTerminalOutput when terminalOutputLines provided', () => {

@@ -3,11 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import * as os from 'os';
 import * as path from 'path';
-import type {
-  AIConversationRequest,
-  AIRequest,
-  AIResponse,
-} from '../ai.service';
+import type { AIConversationRequest, AIRequest, AIResponse } from '../ai.service';
 import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
@@ -28,18 +24,17 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
 
   constructor(
     private configService: ConfigService,
-    private logger: LoggerService,
+    private logger: LoggerService
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const providers =
-      this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
+    const providers = this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
 
     this.contextConfig = await loadAiContextConfig(
       path.join(os.homedir(), '.deepseek', 'DEEPSEEK.md'),
       'DEEPSEEK.md',
       'deepseek',
-      hasProviderUsageIntent(providers, 'deepseek'),
+      hasProviderUsageIntent(providers, 'deepseek')
     );
   }
 
@@ -53,7 +48,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
     if (!apiKey) {
       if (!this.didWarnMissingConfig) {
         this.logger.warn(
-          'DeepSeek API key not configured. Add `ai: [{ provider: "deepseek", apiKey: "..." }]` to wf.config.*.',
+          'DeepSeek API key not configured. Add `ai: [{ provider: "deepseek", apiKey: "..." }]` to wf.config.*.'
         );
         this.didWarnMissingConfig = true;
       }
@@ -78,7 +73,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
       throw new AIError(
         'DeepSeek client not initialized. Configure `ai[].apiKey` for the `deepseek` provider in wf.config.*.',
         null,
-        false,
+        false
       );
     }
 
@@ -121,7 +116,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
           {
             status: error.status,
           },
-          true,
+          true
         );
       }
 
@@ -129,22 +124,18 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
     }
   }
 
-  async executeWithHistory(
-    request: AIConversationRequest,
-  ): Promise<AIResponse> {
+  async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
     this.initializeClient();
 
     if (!this.client) {
       throw new AIError(
         'DeepSeek client not initialized. Configure `ai[].apiKey` for the `deepseek` provider in wf.config.*.',
         null,
-        false,
+        false
       );
     }
 
-    this.logger.debug(
-      `Executing conversation request with ${request.messages.length} messages via DeepSeek`,
-    );
+    this.logger.debug(`Executing conversation request with ${request.messages.length} messages via DeepSeek`);
 
     try {
       const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
@@ -185,7 +176,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
           {
             status: error.status,
           },
-          true,
+          true
         );
       }
 

@@ -21,10 +21,7 @@ describe('normalizeFileEntries', () => {
   });
 
   it('handles mixed string and FileEntry arrays', () => {
-    const result = normalizeFileEntries([
-      'src/a.ts',
-      { filePath: 'src/b.ts', status: 'to-create' as const },
-    ]);
+    const result = normalizeFileEntries(['src/a.ts', { filePath: 'src/b.ts', status: 'to-create' as const }]);
     expect(result).toEqual([
       { filePath: 'src/a.ts', status: 'found' },
       { filePath: 'src/b.ts', status: 'to-create' },
@@ -43,9 +40,7 @@ describe('buildPlanContext', () => {
     repoName: 'repo-a',
     repoFiles: ['repo-a/src/example.ts'],
     trackedFilePaths: ['repo-a/src/example.ts'],
-    verificationScripts: [
-      { id: 'build', command: 'yarn build', policy: 'enforced' },
-    ] as VerificationScript[],
+    verificationScripts: [{ id: 'build', command: 'yarn build', policy: 'enforced' }] as VerificationScript[],
     planSteps: ['Update source file', 'Add tests'],
     planSummary: 'Fix the widget',
     planAction: 'fix' as const,
@@ -83,9 +78,7 @@ describe('buildPlanContext', () => {
       ...baseParams,
       contextFiles: ['repo-a/package.json', 'repo-a/tsconfig.json'],
     });
-    expect(result).toContain(
-      'Files for context (read-only — do NOT edit these):',
-    );
+    expect(result).toContain('Files for context (read-only — do NOT edit these):');
     expect(result).toContain('package.json');
     expect(result).toContain('tsconfig.json');
   });

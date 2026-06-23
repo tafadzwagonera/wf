@@ -45,14 +45,7 @@ async function testReposOption() {
     }
   };
 
-  const commands = [
-    'issue:fetch',
-    'issue:plan',
-    'issue:implement',
-    'issue:review',
-    'issue',
-    'issue:generate',
-  ];
+  const commands = ['issue:fetch', 'issue:plan', 'issue:implement', 'issue:review', 'issue', 'issue:generate'];
 
   for (const cmd of commands) {
     const help = helpOutput(cmd);

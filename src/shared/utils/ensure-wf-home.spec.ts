@@ -6,13 +6,9 @@ import { getWfHomeDir } from './wf-paths';
 jest.mock('fs');
 jest.mock('inquirer');
 
-const mockExistsSync = fs.existsSync as jest.MockedFunction<
-  typeof fs.existsSync
->;
+const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
 const mockMkdirSync = fs.mkdirSync as jest.MockedFunction<typeof fs.mkdirSync>;
-const mockPrompt = inquirer.prompt as jest.MockedFunction<
-  typeof inquirer.prompt
->;
+const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
 
 describe('ensureWfHome', () => {
   const originalIsTTY = process.stdin.isTTY;
@@ -55,9 +51,7 @@ describe('ensureWfHome', () => {
     });
     mockPrompt.mockResolvedValue({ confirm: false });
 
-    await expect(ensureWfHome()).rejects.toThrow(
-      /wf home directory.*is required/,
-    );
+    await expect(ensureWfHome()).rejects.toThrow(/wf home directory.*is required/);
   });
 
   it('throws when no TTY available', async () => {
@@ -67,8 +61,6 @@ describe('ensureWfHome', () => {
       writable: true,
     });
 
-    await expect(ensureWfHome()).rejects.toThrow(
-      /does not exist.*Create it manually/,
-    );
+    await expect(ensureWfHome()).rejects.toThrow(/does not exist.*Create it manually/);
   });
 });

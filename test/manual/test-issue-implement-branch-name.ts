@@ -39,9 +39,7 @@ async function main() {
   });
   const implementer = app.get(ImplementerAgent);
 
-  console.log(
-    '\n🧪 Test: full branch name for long Jira summary\n' + '─'.repeat(60),
-  );
+  console.log('\n🧪 Test: full branch name for long Jira summary\n' + '─'.repeat(60));
 
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-branch-name-'));
   const repoDir = path.join(tempRoot, 'service-tourv3');
@@ -87,13 +85,11 @@ async function main() {
 
   if (result.type === 'implementation') {
     if (result.branchName === expectedBranchName) {
-      pass(
-        `Returned branch name matches expected value: ${expectedBranchName}`,
-      );
+      pass(`Returned branch name matches expected value: ${expectedBranchName}`);
     } else {
       fail(
         'Returned branch name did not match expected value',
-        `expected: ${expectedBranchName}\nreceived: ${result.branchName}`,
+        `expected: ${expectedBranchName}\nreceived: ${result.branchName}`
       );
     }
   } else {
@@ -103,23 +99,15 @@ async function main() {
   if (currentBranchName === expectedBranchName) {
     pass(`Git checked out expected branch: ${expectedBranchName}`);
   } else {
-    fail(
-      'Git checked out an unexpected branch',
-      `expected: ${expectedBranchName}\nreceived: ${currentBranchName}`,
-    );
+    fail('Git checked out an unexpected branch', `expected: ${expectedBranchName}\nreceived: ${currentBranchName}`);
   }
 
   fs.rmSync(tempRoot, { recursive: true, force: true });
 
   // ── Scenario 2: bare H1 heading (no key prefix) ──────────────────────────
-  console.log(
-    '\n🧪 Test: branch name falls back to bare H1 heading (no key prefix)\n' +
-      '─'.repeat(60),
-  );
+  console.log('\n🧪 Test: branch name falls back to bare H1 heading (no key prefix)\n' + '─'.repeat(60));
 
-  const tempRoot2 = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'wf-branch-name-bare-'),
-  );
+  const tempRoot2 = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-branch-name-bare-'));
   const repoDir2 = path.join(tempRoot2, 'service-tourv3');
   fs.mkdirSync(repoDir2, { recursive: true });
 
@@ -132,8 +120,7 @@ async function main() {
 
   const ticket2: TicketArtifact = {
     ticketKey: 'WBP-3054',
-    content:
-      '# Map and validate tour availability fields\n\n## Description\n\nManual test bare heading.',
+    content: '# Map and validate tour availability fields\n\n## Description\n\nManual test bare heading.',
     path: path.join(tempRoot2, 'WBP-3054.md'),
   };
 
@@ -157,19 +144,16 @@ async function main() {
     suppressHeader: true,
   });
 
-  const expectedBranchName2 =
-    'bugfix/WBP-3054__map-and-validate-tour-availability-fields';
+  const expectedBranchName2 = 'bugfix/WBP-3054__map-and-validate-tour-availability-fields';
   const currentBranchName2 = runGit(repoDir2, ['branch', '--show-current']);
 
   if (result2.type === 'implementation') {
     if (result2.branchName === expectedBranchName2) {
-      pass(
-        `Returned branch name matches expected value: ${expectedBranchName2}`,
-      );
+      pass(`Returned branch name matches expected value: ${expectedBranchName2}`);
     } else {
       fail(
         'Returned branch name did not match expected value',
-        `expected: ${expectedBranchName2}\nreceived: ${result2.branchName}`,
+        `expected: ${expectedBranchName2}\nreceived: ${result2.branchName}`
       );
     }
   } else {
@@ -179,10 +163,7 @@ async function main() {
   if (currentBranchName2 === expectedBranchName2) {
     pass(`Git checked out expected branch: ${expectedBranchName2}`);
   } else {
-    fail(
-      'Git checked out an unexpected branch',
-      `expected: ${expectedBranchName2}\nreceived: ${currentBranchName2}`,
-    );
+    fail('Git checked out an unexpected branch', `expected: ${expectedBranchName2}\nreceived: ${currentBranchName2}`);
   }
 
   fs.rmSync(tempRoot2, { recursive: true, force: true });
@@ -196,7 +177,7 @@ async function main() {
   if (failed > 0) process.exit(1);
 }
 
-main().catch((error) => {
+main().catch(error => {
   console.error(error);
   process.exit(1);
 });

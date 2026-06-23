@@ -38,8 +38,7 @@ const fail = (msg: string, detail?: string) => {
 
 function makeRepo(): string {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-commit-test-'));
-  const git = (cmd: string) =>
-    execSync(`git ${cmd}`, { cwd: tmpDir, stdio: 'pipe' });
+  const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: tmpDir, stdio: 'pipe' });
   git('init');
   git('config user.email "test@example.com"');
   git('config user.name "Test User"');
@@ -99,10 +98,7 @@ async function main() {
       'wf.config.yml',
     ];
     for (const cfgFile of wfConfigFiles) {
-      fs.writeFileSync(
-        path.join(dir1, cfgFile),
-        `// wf tooling artifact\nmodule.exports = {};\n`,
-      );
+      fs.writeFileSync(path.join(dir1, cfgFile), `// wf tooling artifact\nmodule.exports = {};\n`);
     }
 
     // dist/ build output
@@ -215,10 +211,7 @@ async function main() {
 
     const committedFiles3 = committedFiles(dir3);
     if (committedFiles3.includes('.gitignore')) {
-      fail(
-        '.gitignore was committed despite the hard failure',
-        committedFiles3,
-      );
+      fail('.gitignore was committed despite the hard failure', committedFiles3);
     } else {
       pass('.gitignore was not committed after the hard failure');
     }
@@ -247,10 +240,7 @@ async function main() {
       if (message.includes('.gitignore')) {
         pass('commit() rejected an explicit files list containing .gitignore');
       } else {
-        fail(
-          'commit() rejected the explicit files list without naming .gitignore',
-          message,
-        );
+        fail('commit() rejected the explicit files list without naming .gitignore', message);
       }
     }
 
@@ -260,14 +250,9 @@ async function main() {
 
     const committedFiles4 = committedFiles(dir4);
     if (committedFiles4.includes('.gitignore')) {
-      fail(
-        '.gitignore was committed despite the explicit-files hard failure',
-        committedFiles4,
-      );
+      fail('.gitignore was committed despite the explicit-files hard failure', committedFiles4);
     } else {
-      pass(
-        '.gitignore was not committed after the explicit-files hard failure',
-      );
+      pass('.gitignore was not committed after the explicit-files hard failure');
     }
   } finally {
     await app.close();
@@ -288,7 +273,7 @@ async function main() {
   if (failed > 0) process.exit(1);
 }
 
-main().catch((err) => {
+main().catch(err => {
   console.error(err);
   process.exit(1);
 });

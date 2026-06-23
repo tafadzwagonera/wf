@@ -20,10 +20,7 @@ import chalk from 'chalk';
 import { detectMechanicalTask } from '../../src/integrations/ai/adapters/shared-routing';
 const openAiDetect = detectMechanicalTask;
 const anthropicDetect = detectMechanicalTask;
-import type {
-  ModelRouting,
-  ImplementerOptions,
-} from '../../src/agents/interfaces';
+import type { ModelRouting, ImplementerOptions } from '../../src/agents/interfaces';
 
 let passed = 0;
 let failed = 0;
@@ -47,9 +44,7 @@ const pass = (message: string): void => {
  * @returns Void
  */
 const fail = (message: string, detail?: string): void => {
-  console.error(
-    chalk.red(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`),
-  );
+  console.error(chalk.red(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`));
   failed += 1;
 };
 
@@ -71,11 +66,7 @@ const assert = (message: string, condition: boolean, detail?: string): void => {
 };
 
 async function main(): Promise<void> {
-  console.log(
-    chalk.bold.cyan(
-      '\n🧪 Model routing and mechanical task detection smoke test\n',
-    ),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Model routing and mechanical task detection smoke test\n'));
 
   // ── OpenAI detectMechanicalTask ──────────────────────────────────────
   console.log(chalk.bold('Test 1: OpenAI — step language pattern'));
@@ -89,13 +80,9 @@ async function main(): Promise<void> {
   assert(
     'detects "migrate all" pattern',
     openAi1.isMechanical === true,
-    `isMechanical=${openAi1.isMechanical}, reason=${openAi1.reason}`,
+    `isMechanical=${openAi1.isMechanical}, reason=${openAi1.reason}`
   );
-  assert(
-    'reason contains "pattern"',
-    openAi1.reason.includes('pattern'),
-    openAi1.reason,
-  );
+  assert('reason contains "pattern"', openAi1.reason.includes('pattern'), openAi1.reason);
 
   console.log(chalk.bold('\nTest 2: OpenAI — high file-to-step ratio'));
   const openAi2 = openAiDetect({
@@ -108,13 +95,9 @@ async function main(): Promise<void> {
   assert(
     'detects high file-to-step ratio (15 files / 1 step)',
     openAi2.isMechanical === true,
-    `isMechanical=${openAi2.isMechanical}, reason=${openAi2.reason}`,
+    `isMechanical=${openAi2.isMechanical}, reason=${openAi2.reason}`
   );
-  assert(
-    'reason contains "file-to-step"',
-    openAi2.reason.includes('file-to-step'),
-    openAi2.reason,
-  );
+  assert('reason contains "file-to-step"', openAi2.reason.includes('file-to-step'), openAi2.reason);
 
   console.log(chalk.bold('\nTest 3: OpenAI — low complexity + many files'));
   const openAi3 = openAiDetect({
@@ -127,7 +110,7 @@ async function main(): Promise<void> {
   assert(
     'detects low complexity with 25 files',
     openAi3.isMechanical === true,
-    `isMechanical=${openAi3.isMechanical}, reason=${openAi3.reason}`,
+    `isMechanical=${openAi3.isMechanical}, reason=${openAi3.reason}`
   );
 
   console.log(chalk.bold('\nTest 4: OpenAI — creative task'));
@@ -141,7 +124,7 @@ async function main(): Promise<void> {
   assert(
     'returns creative for small focused plan',
     openAi4.isMechanical === false,
-    `isMechanical=${openAi4.isMechanical}`,
+    `isMechanical=${openAi4.isMechanical}`
   );
   assert('reason is "creative task"', openAi4.reason === 'creative task');
 
@@ -157,7 +140,7 @@ async function main(): Promise<void> {
   assert(
     'detects "replace every" pattern',
     anthropic1.isMechanical === true,
-    `isMechanical=${anthropic1.isMechanical}, reason=${anthropic1.reason}`,
+    `isMechanical=${anthropic1.isMechanical}, reason=${anthropic1.reason}`
   );
 
   console.log(chalk.bold('\nTest 6: Anthropic — high file-to-step ratio'));
@@ -171,7 +154,7 @@ async function main(): Promise<void> {
   assert(
     'detects high file-to-step ratio (12 files / 1 step)',
     anthropic2.isMechanical === true,
-    `isMechanical=${anthropic2.isMechanical}, reason=${anthropic2.reason}`,
+    `isMechanical=${anthropic2.isMechanical}, reason=${anthropic2.reason}`
   );
 
   console.log(chalk.bold('\nTest 7: Anthropic — creative task'));
@@ -182,10 +165,7 @@ async function main(): Promise<void> {
     estimatedComplexity: 'high',
     filesAffected: ['src/dashboard.ts'],
   });
-  assert(
-    'returns creative for focused plan',
-    anthropic3.isMechanical === false,
-  );
+  assert('returns creative for focused plan', anthropic3.isMechanical === false);
 
   // ── Type-level checks ────────────────────────────────────────────────
   console.log(chalk.bold('\nTest 8: ModelRouting type values'));
@@ -195,7 +175,7 @@ async function main(): Promise<void> {
     validValues.length === 3 &&
       validValues.includes('auto') &&
       validValues.includes('default') &&
-      validValues.includes('mechanical'),
+      validValues.includes('mechanical')
   );
 
   console.log(chalk.bold('\nTest 9: ImplementerOptions.modelRouting'));
@@ -203,15 +183,9 @@ async function main(): Promise<void> {
     trackerName: 'jira',
     modelRouting: 'mechanical',
   };
-  assert(
-    'ImplementerOptions accepts modelRouting field',
-    opts.modelRouting === 'mechanical',
-  );
+  assert('ImplementerOptions accepts modelRouting field', opts.modelRouting === 'mechanical');
   const optsNoRouting: ImplementerOptions = { trackerName: 'jira' };
-  assert(
-    'ImplementerOptions allows undefined modelRouting',
-    optsNoRouting.modelRouting === undefined,
-  );
+  assert('ImplementerOptions allows undefined modelRouting', optsNoRouting.modelRouting === undefined);
 
   // ── Summary ──────────────────────────────────────────────────────────
   console.log(chalk.bold('\nSummary'));

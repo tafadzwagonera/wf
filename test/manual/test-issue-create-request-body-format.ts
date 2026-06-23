@@ -29,19 +29,15 @@ const createJiraService = (): JiraService =>
     } as any,
     { post: () => undefined } as any,
     { warn: () => undefined, success: () => undefined } as any,
-    { isPlatformEnabled: () => true } as any,
+    { isPlatformEnabled: () => true } as any
   );
 
 const runValidator = (payload: unknown): ValidationResult => {
-  const result = spawnSync(
-    'npx',
-    ['ts-node', 'test/manual/test-verify-request-format.ts'],
-    {
-      input: JSON.stringify(payload),
-      encoding: 'utf-8',
-      timeout: 30_000,
-    },
-  );
+  const result = spawnSync('npx', ['ts-node', 'test/manual/test-verify-request-format.ts'], {
+    input: JSON.stringify(payload),
+    encoding: 'utf-8',
+    timeout: 30_000,
+  });
   return JSON.parse(result.stdout);
 };
 
@@ -53,13 +49,13 @@ function main() {
   // 1. Known-bad: wiki markup leaks — after normalizeMarkdownForADF these should be converted
   {
     const adf = service.markdownToADF(
-      '### Summary\n\nThe {{bufferPx}} variable.\n\n{noformat}raw text{noformat}\n\n* First item.\n* Second item.',
+      '### Summary\n\nThe {{bufferPx}} variable.\n\n{noformat}raw text{noformat}\n\n* First item.\n* Second item.'
     );
     const payload = { fields: { description: adf } };
     const result = runValidator(payload);
 
     console.log(
-      `  ${result.passed ? 'PASS' : 'FAIL'}: known-bad wiki markup through markdownToADF (${result.issues.length} issue(s))`,
+      `  ${result.passed ? 'PASS' : 'FAIL'}: known-bad wiki markup through markdownToADF (${result.issues.length} issue(s))`
     );
 
     if (!result.passed) {
@@ -72,15 +68,12 @@ function main() {
   // 2. Known-good: proper markdown
   {
     const adf = service.markdownToADF(
-      '### Summary\n\nClean description.\n\n```css\n.a4 { display: block; }\n```\n\n- First item.\n- Second item.',
+      '### Summary\n\nClean description.\n\n```css\n.a4 { display: block; }\n```\n\n- First item.\n- Second item.'
     );
     const payload = { fields: { description: adf } };
     const result = runValidator(payload);
 
-    assert(
-      result.passed,
-      `Expected clean markdown to pass validation but got: ${JSON.stringify(result.issues)}`,
-    );
+    assert(result.passed, `Expected clean markdown to pass validation but got: ${JSON.stringify(result.issues)}`);
     console.log('  PASS: known-good markdown produces valid ADF');
   }
 
@@ -92,8 +85,8 @@ function main() {
 
     assert(!result.passed, 'Expected empty description to fail validation');
     assert(
-      result.issues.some((i) => i.error.includes('no block nodes')),
-      `Expected 'no block nodes' issue but got: ${JSON.stringify(result.issues)}`,
+      result.issues.some(i => i.error.includes('no block nodes')),
+      `Expected 'no block nodes' issue but got: ${JSON.stringify(result.issues)}`
     );
     console.log('  PASS: empty description correctly rejected');
   }
@@ -103,10 +96,7 @@ function main() {
     const adf = service.markdownToADF('### Summary\n\nClean text.');
     const result = runValidator(adf);
 
-    assert(
-      result.passed,
-      `Expected bare ADF doc to pass but got: ${JSON.stringify(result.issues)}`,
-    );
+    assert(result.passed, `Expected bare ADF doc to pass but got: ${JSON.stringify(result.issues)}`);
     console.log('  PASS: bare ADF doc (no fields wrapper) accepted');
   }
 

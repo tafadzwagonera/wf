@@ -69,13 +69,9 @@ async function main() {
   const command = app.get(IssueImplementCommand);
 
   // ── Test 1: bare filename → ~/.wf/<app>/<platform>/<filename> ───────────
-  console.log(
-    '\n🧪 Test 1: bare filename resolves to artifact dir\n' + '─'.repeat(60),
-  );
+  console.log('\n🧪 Test 1: bare filename resolves to artifact dir\n' + '─'.repeat(60));
   {
-    const tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'wf-plan-resolution-'),
-    );
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-resolution-'));
     const restoreHome = overrideHomeDir(tmpDir);
     const artifactDir = path.join(tmpDir, '.wf', path.basename(tmpDir), 'jira');
     fs.mkdirSync(artifactDir, { recursive: true });
@@ -98,19 +94,15 @@ async function main() {
     } else {
       fail(
         'Dry-run output does not contain expected artifact path',
-        `expected: ${expectedPath}\noutput snippet: ${output.slice(0, 400)}`,
+        `expected: ${expectedPath}\noutput snippet: ${output.slice(0, 400)}`
       );
     }
   }
 
   // ── Test 2: relative path → resolved from app root ───────────────────────
-  console.log(
-    '\n🧪 Test 2: relative path resolves from app root\n' + '─'.repeat(60),
-  );
+  console.log('\n🧪 Test 2: relative path resolves from app root\n' + '─'.repeat(60));
   {
-    const tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'wf-plan-resolution-'),
-    );
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-resolution-'));
     const restoreHome = overrideHomeDir(tmpDir);
     const subDir = path.join(tmpDir, 'subdir');
     fs.mkdirSync(subDir, { recursive: true });
@@ -133,16 +125,13 @@ async function main() {
     } else {
       fail(
         'Dry-run output does not contain expected resolved path',
-        `expected: ${expectedPath}\noutput snippet: ${output.slice(0, 400)}`,
+        `expected: ${expectedPath}\noutput snippet: ${output.slice(0, 400)}`
       );
     }
   }
 
   // ── Test 3: bare filename + --repos → repo namespace under ~/.wf ────────
-  console.log(
-    '\n🧪 Test 3: bare filename with --repos resolves to repo artifact dir\n' +
-      '─'.repeat(60),
-  );
+  console.log('\n🧪 Test 3: bare filename with --repos resolves to repo artifact dir\n' + '─'.repeat(60));
   {
     // Simulate a sibling repo directory: <tmp>/myapp/ (cwd) and <tmp>/bar/ (repo)
     const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-repos-'));
@@ -177,7 +166,7 @@ async function main() {
     } else {
       fail(
         'Dry-run output does not contain expected repo artifact path',
-        `expected: ${expectedPath}\noutput snippet: ${output.slice(0, 400)}`,
+        `expected: ${expectedPath}\noutput snippet: ${output.slice(0, 400)}`
       );
     }
   }
@@ -192,7 +181,7 @@ async function main() {
   if (failed > 0) process.exit(1);
 }
 
-main().catch((err) => {
+main().catch(err => {
   console.error(err);
   process.exit(1);
 });

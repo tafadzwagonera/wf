@@ -21,19 +21,13 @@ import { PlanStageService } from '../../src/workflows/stages/plan-stage.service'
 import * as fs from 'fs';
 import * as path from 'path';
 
-type AsyncMock<TArgs extends unknown[], TResult> = ((
-  ...args: TArgs
-) => Promise<TResult>) & {
+type AsyncMock<TArgs extends unknown[], TResult> = ((...args: TArgs) => Promise<TResult>) & {
   calls: TArgs[];
   mockResolvedValue: (value: TResult) => void;
 };
 
-const createAsyncMock = <TArgs extends unknown[], TResult>(): AsyncMock<
-  TArgs,
-  TResult
-> => {
-  let implementation = async (..._args: TArgs): Promise<TResult> =>
-    undefined as TResult;
+const createAsyncMock = <TArgs extends unknown[], TResult>(): AsyncMock<TArgs, TResult> => {
+  let implementation = async (..._args: TArgs): Promise<TResult> => undefined as TResult;
   const mock = (async (...args: TArgs): Promise<TResult> => {
     mock.calls.push(args);
     return implementation(...args);
@@ -88,10 +82,7 @@ const buildCommand = async (): Promise<{
     { ticketKey: string; content: string; path: string }
   >;
   generatePlan: AsyncMock<
-    [
-      string,
-      { action: string; ticketKey?: string; affectedRepositories?: string[] },
-    ],
+    [string, { action: string; ticketKey?: string; affectedRepositories?: string[] }],
     Record<string, unknown>
   >;
 }> => {
@@ -104,10 +95,7 @@ const buildCommand = async (): Promise<{
     { ticketKey: string; content: string; path: string }
   >();
   const generatePlan = createAsyncMock<
-    [
-      string,
-      { action: string; ticketKey?: string; affectedRepositories?: string[] },
-    ],
+    [string, { action: string; ticketKey?: string; affectedRepositories?: string[] }],
     Record<string, unknown>
   >();
 
@@ -153,9 +141,7 @@ const buildCommand = async (): Promise<{
   };
 };
 
-const captureWriteFileCalls = async (
-  runCommand: () => Promise<void>,
-): Promise<{ callCount: number }> => {
+const captureWriteFileCalls = async (runCommand: () => Promise<void>): Promise<{ callCount: number }> => {
   const originalWriteFile = fs.promises.writeFile;
   let callCount = 0;
 
@@ -174,7 +160,7 @@ const captureWriteFileCalls = async (
 };
 
 const captureCommandOutput = async (
-  runCommand: () => Promise<void>,
+  runCommand: () => Promise<void>
 ): Promise<{ output: string; exitCodes: number[] }> => {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
@@ -183,17 +169,11 @@ const captureCommandOutput = async (
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
   const originalExit = process.exit.bind(process);
 
-  (process.stdout.write as unknown as (...args: unknown[]) => boolean) = (
-    chunk: unknown,
-    ...args: unknown[]
-  ) => {
+  (process.stdout.write as unknown as (...args: unknown[]) => boolean) = (chunk: unknown, ...args: unknown[]) => {
     stdoutChunks.push(typeof chunk === 'string' ? chunk : String(chunk));
     return originalStdoutWrite(chunk as never, ...(args as []));
   };
-  (process.stderr.write as unknown as (...args: unknown[]) => boolean) = (
-    chunk: unknown,
-    ...args: unknown[]
-  ) => {
+  (process.stderr.write as unknown as (...args: unknown[]) => boolean) = (chunk: unknown, ...args: unknown[]) => {
     stderrChunks.push(typeof chunk === 'string' ? chunk : String(chunk));
     return originalStderrWrite(chunk as never, ...(args as []));
   };
@@ -219,9 +199,7 @@ const captureCommandOutput = async (
 };
 
 const main = async (): Promise<void> => {
-  console.log(
-    '\n🧪 Test 1: valid plan passes repo hints through ticket-mode planning\n',
-  );
+  console.log('\n🧪 Test 1: valid plan passes repo hints through ticket-mode planning\n');
   {
     const { command, fetchArtifact, generatePlan } = await buildCommand();
 
@@ -243,7 +221,7 @@ const main = async (): Promise<void> => {
       command.run(['PLAN-1'], {
         action: 'fix',
         repos: [repoName],
-      }),
+      })
     );
 
     const [, planOptions] = generatePlan.calls[0] ?? [];
@@ -252,20 +230,13 @@ const main = async (): Promise<void> => {
       planOptions.affectedRepositories[0] === repoName &&
       callCount === 1
     ) {
-      pass(
-        'Ticket-mode planning forwards repo hints and persists a valid plan',
-      );
+      pass('Ticket-mode planning forwards repo hints and persists a valid plan');
     } else {
-      fail(
-        'Ticket-mode planning did not forward repo hints correctly',
-        JSON.stringify(planOptions),
-      );
+      fail('Ticket-mode planning did not forward repo hints correctly', JSON.stringify(planOptions));
     }
   }
 
-  console.log(
-    '\n🧪 Test 2: placeholder repository metadata is rejected before write\n',
-  );
+  console.log('\n🧪 Test 2: placeholder repository metadata is rejected before write\n');
   {
     const { command, fetchArtifact, generatePlan } = await buildCommand();
 
@@ -301,20 +272,14 @@ const main = async (): Promise<void> => {
       }
     });
 
-    if (
-      writeCallCount === 0 &&
-      exitCodes.includes(1) &&
-      output.includes('placeholder repository metadata')
-    ) {
+    if (writeCallCount === 0 && exitCodes.includes(1) && output.includes('placeholder repository metadata')) {
       pass('Placeholder metadata fails fast before artifact write');
     } else {
       fail('Placeholder metadata was not rejected as expected', output);
     }
   }
 
-  console.log(
-    '\n🧪 Test 3: non-asserted expected-failure verification commands are rejected\n',
-  );
+  console.log('\n🧪 Test 3: non-asserted expected-failure verification commands are rejected\n');
   {
     const { command, fetchArtifact, generatePlan } = await buildCommand();
 

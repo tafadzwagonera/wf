@@ -28,10 +28,7 @@ const collectAdfNodes = (node: unknown): AdfNode[] => {
   }
 
   const objectNode = node as AdfNode;
-  return [
-    objectNode,
-    ...Object.values(objectNode).flatMap((value) => collectAdfNodes(value)),
-  ];
+  return [objectNode, ...Object.values(objectNode).flatMap(value => collectAdfNodes(value))];
 };
 
 const createJiraService = (): {
@@ -61,7 +58,7 @@ const createJiraService = (): {
     } as any,
     {
       isPlatformEnabled: () => true,
-    } as any,
+    } as any
   );
 
   service.resolveCreatePriorityName = async () => 'Low';
@@ -70,26 +67,16 @@ const createJiraService = (): {
 
 const hasInlineCodeMark = (nodes: AdfNode[]): boolean =>
   nodes.some(
-    (node) =>
-      node.type === 'text' &&
-      Array.isArray(node.marks) &&
-      node.marks.some((mark) => mark.type === 'code'),
+    node => node.type === 'text' && Array.isArray(node.marks) && node.marks.some(mark => mark.type === 'code')
   );
 
 const hasRawBulletText = (nodes: AdfNode[]): boolean =>
-  nodes.some(
-    (node) =>
-      node.type === 'text' &&
-      typeof node.text === 'string' &&
-      /^[*-]\s/.test(node.text),
-  );
+  nodes.some(node => node.type === 'text' && typeof node.text === 'string' && /^[*-]\s/.test(node.text));
 
 const hasWikiInlineCodeText = (nodes: AdfNode[]): boolean =>
   nodes.some(
-    (node) =>
-      node.type === 'text' &&
-      typeof node.text === 'string' &&
-      (node.text.includes('{{') || node.text.includes('}}')),
+    node =>
+      node.type === 'text' && typeof node.text === 'string' && (node.text.includes('{{') || node.text.includes('}}'))
   );
 
 async function main() {
@@ -99,8 +86,7 @@ async function main() {
 
   await service.createTicket({
     project: 'WBP',
-    summary:
-      'Fix `service-document` startup failures: health-check grace period too short',
+    summary: 'Fix `service-document` startup failures: health-check grace period too short',
     description: [
       '### Summary',
       '',
@@ -131,21 +117,19 @@ async function main() {
 
   assert.strictEqual(
     payload.fields.summary,
-    'Fix service-document startup failures: health-check grace period too short',
+    'Fix service-document startup failures: health-check grace period too short'
   );
   assert.strictEqual(payload.fields.description.type, 'doc');
-  assert(adfNodes.some((node) => node.type === 'heading'));
-  assert(adfNodes.some((node) => node.type === 'bulletList'));
+  assert(adfNodes.some(node => node.type === 'heading'));
+  assert(adfNodes.some(node => node.type === 'bulletList'));
   assert(hasInlineCodeMark(adfNodes));
   assert(!hasRawBulletText(adfNodes));
   assert(!hasWikiInlineCodeText(adfNodes));
 
-  console.log(
-    'PASS: Jira create payload avoids inline wiki and bullet marker leaks.',
-  );
+  console.log('PASS: Jira create payload avoids inline wiki and bullet marker leaks.');
 }
 
-main().catch((error) => {
+main().catch(error => {
   console.error(error);
   process.exit(1);
 });

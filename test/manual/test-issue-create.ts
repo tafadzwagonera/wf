@@ -15,12 +15,12 @@ async function testIssueCreate() {
 
   const result = execSync(
     'yarn start issue:create ~/.wf/wf/jira/GENERATED-2026-03-30-927636c4.md --ticket-project WBP',
-    { encoding: 'utf8', stdio: 'pipe', cwd: process.cwd() },
+    { encoding: 'utf8', stdio: 'pipe', cwd: process.cwd() }
   );
   console.log(result);
 }
 
-testIssueCreate().catch((err) => {
+testIssueCreate().catch(err => {
   console.error(err.stdout || err.message);
   process.exit(1);
 });

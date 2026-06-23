@@ -2,11 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import { FormatConverter } from '../format-converter.interface';
-import {
-  UniversalTicket,
-  TicketType,
-  TicketPriority,
-} from '../../dto/universal-ticket.dto';
+import { UniversalTicket, TicketType, TicketPriority } from '../../dto/universal-ticket.dto';
 import { stripInlineMarkdownDelimiters } from '../../utils/markdown-text';
 
 const SYNTHETIC_TITLE_LABEL_PATTERN = /^(?:title|heading)\s*:\s*(.+)$/i;
@@ -44,7 +40,7 @@ export class MarkdownConverter implements FormatConverter {
       const data: Partial<UniversalTicket> = {};
 
       // Parse title and key from first line (# [KEY]: Title or # Title)
-      const titleLine = lines.find((l) => l.trim().startsWith('#'));
+      const titleLine = lines.find(l => l.trim().startsWith('#'));
       if (titleLine) {
         const titleMatch = titleLine.match(/^#\s+(?:\[([^\]]+)\]:\s*)?(.+)$/);
         if (titleMatch) {
@@ -87,12 +83,12 @@ export class MarkdownConverter implements FormatConverter {
               break;
             case 'labels':
               if (value && value !== 'None') {
-                data.labels = value.split(',').map((l) => l.trim());
+                data.labels = value.split(',').map(l => l.trim());
               }
               break;
             case 'components':
               if (value && value !== 'None') {
-                data.components = value.split(',').map((c) => c.trim());
+                data.components = value.split(',').map(c => c.trim());
               }
               break;
             case 'created':
@@ -106,9 +102,7 @@ export class MarkdownConverter implements FormatConverter {
       }
 
       // Parse description section
-      const descriptionIndex = lines.findIndex((l) =>
-        l.trim().match(/^##\s+Description$/i),
-      );
+      const descriptionIndex = lines.findIndex(l => l.trim().match(/^##\s+Description$/i));
       if (descriptionIndex !== -1) {
         const descriptionLines = lines.slice(descriptionIndex + 1);
         data.description = descriptionLines.join('\n').trim();
@@ -127,7 +121,7 @@ export class MarkdownConverter implements FormatConverter {
       // Validate the ticket
       const errors = validateSync(ticket);
       if (errors.length > 0) {
-        const messages = errors.map((e) => Object.values(e.constraints || {}));
+        const messages = errors.map(e => Object.values(e.constraints || {}));
         throw new Error(`Validation failed: ${messages.join(', ')}`);
       }
 
@@ -175,12 +169,12 @@ export class MarkdownConverter implements FormatConverter {
     }
     if (ticket.created) {
       lines.push(
-        `**Created:** ${ticket.created instanceof Date ? ticket.created.toLocaleDateString() : ticket.created}`,
+        `**Created:** ${ticket.created instanceof Date ? ticket.created.toLocaleDateString() : ticket.created}`
       );
     }
     if (ticket.updated) {
       lines.push(
-        `**Updated:** ${ticket.updated instanceof Date ? ticket.updated.toLocaleDateString() : ticket.updated}`,
+        `**Updated:** ${ticket.updated instanceof Date ? ticket.updated.toLocaleDateString() : ticket.updated}`
       );
     }
     if (ticket.labels && ticket.labels.length > 0) {

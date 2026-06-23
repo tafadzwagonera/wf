@@ -16,12 +16,7 @@ import * as path from 'path';
 import chalk from 'chalk';
 
 const repoRoot = path.join(__dirname, '..', '..');
-const specPath = path.join(
-  repoRoot,
-  'src',
-  'commands',
-  'issue-plan.command.spec.ts',
-);
+const specPath = path.join(repoRoot, 'src', 'commands', 'issue-plan.command.spec.ts');
 
 const pass = (message: string): void => {
   console.log(chalk.green(`  \u2713 ${message}`));
@@ -32,21 +27,13 @@ const fail = (message: string): void => {
 };
 
 async function main() {
-  console.log(
-    chalk.bold.cyan(
-      '\n\uD83E\uDDEA issue-plan writePlanArtifactManifest mock coverage\n',
-    ),
-  );
+  console.log(chalk.bold.cyan('\n\uD83E\uDDEA issue-plan writePlanArtifactManifest mock coverage\n'));
 
   let passed = 0;
   let failed = 0;
 
   // Test 1: Verify spec file mocks writePlanArtifactManifest at module level
-  console.log(
-    chalk.bold(
-      'Test 1: Spec mocks writePlanArtifactManifest at the module level',
-    ),
-  );
+  console.log(chalk.bold('Test 1: Spec mocks writePlanArtifactManifest at the module level'));
   try {
     const content = fs.readFileSync(specPath, 'utf8');
     const hasModuleMock =
@@ -68,10 +55,11 @@ async function main() {
   // Test 2: Run the Jest spec and verify it passes
   console.log(chalk.bold('Test 2: npx jest issue-plan.command.spec.ts passes'));
   try {
-    const output = execSync(
-      'npx jest src/commands/issue-plan.command.spec.ts --no-coverage 2>&1',
-      { cwd: repoRoot, encoding: 'utf8', timeout: 30_000 },
-    );
+    const output = execSync('npx jest src/commands/issue-plan.command.spec.ts --no-coverage 2>&1', {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
 
     if (output.includes('Tests:') && !output.includes('failed')) {
       pass('All issue-plan spec tests pass');

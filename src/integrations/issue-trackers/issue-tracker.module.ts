@@ -14,25 +14,16 @@ import { BitBucketAdapter } from './bitbucket/bitbucket-adapter';
  * Provides centralized access to different ticket trackers
  */
 @Module({
-  imports: [
-    ConfigModule,
-    JiraIssueTrackerModule,
-    GitHubIssueTrackerModule,
-    BitBucketIssueTrackerModule,
-  ],
+  imports: [ConfigModule, JiraIssueTrackerModule, GitHubIssueTrackerModule, BitBucketIssueTrackerModule],
   providers: [IssueTrackerService, IssueTrackerConfigService],
-  exports: [
-    IssueTrackerService,
-    IssueTrackerConfigService,
-    JiraIssueTrackerModule,
-  ],
+  exports: [IssueTrackerService, IssueTrackerConfigService, JiraIssueTrackerModule],
 })
 export class IssueTrackerModule implements OnModuleInit {
   constructor(
     private readonly issueTrackerService: IssueTrackerService,
     private readonly jiraAdapter: JiraAdapter,
     private readonly githubAdapter: GitHubAdapter,
-    private readonly bitbucketAdapter: BitBucketAdapter,
+    private readonly bitbucketAdapter: BitBucketAdapter
   ) {}
 
   /**

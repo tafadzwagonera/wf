@@ -63,15 +63,11 @@ export class ConfigSetCommand extends CommandRunner {
 
     const configPath = discoverConfigPath(process.cwd());
 
-    console.log(
-      chalk.yellow(
-        '\n⚠️  wf config set is advisory. Update your wf.config.* file manually.\n',
-      ),
-    );
+    console.log(chalk.yellow('\n⚠️  wf config set is advisory. Update your wf.config.* file manually.\n'));
     console.log(
       chalk.gray(
-        `Resolved config file: ${configPath ?? 'none found. Create wf.config.js, wf.config.mjs, wf.config.ts, wf.config.mts, wf.config.yaml, or wf.config.yml.'}`,
-      ),
+        `Resolved config file: ${configPath ?? 'none found. Create wf.config.js, wf.config.mjs, wf.config.ts, wf.config.mts, wf.config.yaml, or wf.config.yml.'}`
+      )
     );
     console.log(chalk.gray('Suggested update:'));
     console.log(chalk.cyan(`${key}: ${value}\n`));
@@ -99,24 +95,14 @@ export class ConfigListCommand extends CommandRunner {
       'Atlassian Settings': {
         'atlassian.baseUrl': this.configService.get('atlassian.baseUrl'),
         'atlassian.email': this.configService.get('atlassian.email'),
-        'atlassian.apiToken': this.maskSecret(
-          this.configService.get('atlassian.apiToken'),
-        ),
-        'atlassian.jira.defaultProject': this.configService.get(
-          'atlassian.jira.defaultProject',
-        ),
-        'atlassian.bitbucket.workspace': this.configService.get(
-          'atlassian.bitbucket.workspace',
-        ),
+        'atlassian.apiToken': this.maskSecret(this.configService.get('atlassian.apiToken')),
+        'atlassian.jira.defaultProject': this.configService.get('atlassian.jira.defaultProject'),
+        'atlassian.bitbucket.workspace': this.configService.get('atlassian.bitbucket.workspace'),
       },
       'Git Settings': {
         'git.commitFormat': this.configService.get('git.commitFormat'),
-        'git.branchNamePattern': this.configService.get(
-          'git.branchNamePattern',
-        ),
-        'git.branchPrefixMapping': JSON.stringify(
-          this.configService.get('git.branchPrefixMapping'),
-        ),
+        'git.branchNamePattern': this.configService.get('git.branchNamePattern'),
+        'git.branchPrefixMapping': JSON.stringify(this.configService.get('git.branchPrefixMapping')),
       },
       'System Settings': {
         'state.directory': getWfStateDir(),
@@ -151,7 +137,7 @@ export class ConfigListCommand extends CommandRunner {
 export class ConfigCommand extends CommandRunner {
   constructor(
     private configService: ConfigService,
-    private logger: LoggerService,
+    private logger: LoggerService
   ) {
     super();
   }

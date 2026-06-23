@@ -54,19 +54,14 @@ async function testIssueAffectedRepos() {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-'));
     const homeDir = path.join(tmpRoot, 'home');
     const platformName = opts.platformName ?? 'jira';
-    const platformDir = path.join(
-      homeDir,
-      '.wf',
-      path.basename(tmpRoot),
-      platformName,
-    );
+    const platformDir = path.join(homeDir, '.wf', path.basename(tmpRoot), platformName);
     fs.mkdirSync(platformDir, { recursive: true });
 
     const ticketPath = path.join(platformDir, `${opts.ticketKey}.md`);
     fs.writeFileSync(
       ticketPath,
       `# ${opts.ticketKey}: Test ticket\n\n**Type:** Task\n**Status:** Open\n\n## Description\n\nTest ticket for affected-repos tests.\n`,
-      'utf-8',
+      'utf-8'
     );
 
     // Always write a plan file (required when starting from implement stage).
@@ -80,10 +75,7 @@ async function testIssueAffectedRepos() {
     if (opts.planRepositoriesAffected) {
       plan.repositoriesAffected = opts.planRepositoriesAffected;
     }
-    const planPath = path.join(
-      platformDir,
-      `${opts.ticketKey}-plan-${action}.json`,
-    );
+    const planPath = path.join(platformDir, `${opts.ticketKey}-plan-${action}.json`);
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2), 'utf-8');
 
     // Initialise a bare git repo so branch operations don't throw.
@@ -110,9 +102,7 @@ async function testIssueAffectedRepos() {
    * Swaps process.stdout.write so chalk output is intercepted.
    * Also mocks process.exit so a failed command doesn't kill the test process.
    */
-  const captureOutput = async (
-    fn: () => Promise<void>,
-  ): Promise<{ output: string; error?: string }> => {
+  const captureOutput = async (fn: () => Promise<void>): Promise<{ output: string; error?: string }> => {
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
     const originalStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -158,7 +148,7 @@ async function testIssueAffectedRepos() {
           to: 'implement',
           action: 'fix',
           repos: ['repo-a'],
-        }),
+        })
       );
       if (output.includes('repo-a')) {
         pass('IMPLEMENT stage shows explicitly provided repo-a');
@@ -173,9 +163,7 @@ async function testIssueAffectedRepos() {
   }
 
   // Test 2: Empty --repos; plan repositories do not trigger a required-option error
-  console.log(
-    'Test 2: empty --repos; plan repositories do not trigger a required-option error',
-  );
+  console.log('Test 2: empty --repos; plan repositories do not trigger a required-option error');
   {
     const { tmpRoot, homeDir, cleanup } = makeFixtures({
       ticketKey: 'TEST-2',
@@ -193,21 +181,13 @@ async function testIssueAffectedRepos() {
           to: 'implement',
           action: 'fix',
           repos: [],
-        }),
+        })
       );
-      const commanderRequiredError =
-        output.includes('required option') && output.includes('--repos');
-      if (
-        !commanderRequiredError &&
-        output.includes('STAGE 3: Implementation Guide')
-      ) {
-        pass(
-          'Empty --repos still runs IMPLEMENT without a required-option error',
-        );
+      const commanderRequiredError = output.includes('required option') && output.includes('--repos');
+      if (!commanderRequiredError && output.includes('STAGE 3: Implementation Guide')) {
+        pass('Empty --repos still runs IMPLEMENT without a required-option error');
       } else {
-        fail(
-          `Test 2: expected IMPLEMENT output without a required-option error. Output:\n${output}`,
-        );
+        fail(`Test 2: expected IMPLEMENT output without a required-option error. Output:\n${output}`);
       }
     } finally {
       process.chdir(originalCwd);
@@ -220,9 +200,7 @@ async function testIssueAffectedRepos() {
   // When `wf issue` is called with multiple --repos, allowMultiRepoScope:true
   // is passed to ImplementerAgent so the per-repo loop proceeds without error,
   // even when the plan's repositoriesAffected lists more than one repo.
-  console.log(
-    'Test 3: explicit multi-repos + multi-repo plan → issue orchestration proceeds (no single-repo error)',
-  );
+  console.log('Test 3: explicit multi-repos + multi-repo plan → issue orchestration proceeds (no single-repo error)');
   {
     const { tmpRoot, homeDir, cleanup } = makeFixtures({
       ticketKey: 'TEST-3',
@@ -240,22 +218,13 @@ async function testIssueAffectedRepos() {
           to: 'implement',
           action: 'fix',
           repos: ['repo-a', 'repo-b'],
-        }),
+        })
       );
-      const hasMultiRepoError = output.includes(
-        'issue:implement only verifies a single repository',
-      );
-      if (
-        !hasMultiRepoError &&
-        output.includes('STAGE 3: Implementation Guide')
-      ) {
-        pass(
-          'Multi-repo issue orchestration proceeds without the single-repo boundary error',
-        );
+      const hasMultiRepoError = output.includes('issue:implement only verifies a single repository');
+      if (!hasMultiRepoError && output.includes('STAGE 3: Implementation Guide')) {
+        pass('Multi-repo issue orchestration proceeds without the single-repo boundary error');
       } else {
-        fail(
-          `Test 3: expected IMPLEMENT to run for each repo without a single-repo error. Output:\n${output}`,
-        );
+        fail(`Test 3: expected IMPLEMENT to run for each repo without a single-repo error. Output:\n${output}`);
       }
     } finally {
       process.chdir(originalCwd);
@@ -279,7 +248,7 @@ async function testIssueAffectedRepos() {
           to: 'implement',
           action: 'fix',
           repos: ['only-repo'],
-        }),
+        })
       );
       if (output.includes('only-repo')) {
         pass('IMPLEMENT stage displays the single provided repo');
@@ -312,14 +281,12 @@ async function testIssueAffectedRepos() {
           to: 'review',
           action: 'fix',
           repos: ['review-repo'],
-        }),
+        })
       );
       if (output.includes('review-repo')) {
         pass('REVIEW stage shows repositories in scope');
       } else {
-        fail(
-          `Test 5: review-repo not found in REVIEW output. Output:\n${output}`,
-        );
+        fail(`Test 5: review-repo not found in REVIEW output. Output:\n${output}`);
       }
     } finally {
       process.chdir(originalCwd);
@@ -346,10 +313,9 @@ async function testIssueAffectedRepos() {
           to: 'implement',
           action: 'fix',
           repos: ['repo-a', 'repo-b'],
-        }),
+        })
       );
-      const headerCount = (output.match(/STAGE 3: Implementation Guide/g) ?? [])
-        .length;
+      const headerCount = (output.match(/STAGE 3: Implementation Guide/g) ?? []).length;
       if (headerCount === 1) {
         pass('Multi-repo: STAGE 3 header appears exactly once');
       } else {
@@ -380,11 +346,10 @@ async function testIssueAffectedRepos() {
           to: 'implement',
           action: 'fix',
           // repos intentionally omitted
-        }),
+        })
       );
       // Commander emits: "error: required option '-r, --repos <repos>' not supplied"
-      const commanderRequiredError =
-        output.includes('required option') && output.includes('--repos');
+      const commanderRequiredError = output.includes('required option') && output.includes('--repos');
       if (!commanderRequiredError) {
         pass('Omitting --repos does not produce a "required" error');
       } else {

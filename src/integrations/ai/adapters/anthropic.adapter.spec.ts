@@ -26,7 +26,7 @@ describe('AnthropicAdapter', () => {
         model: 'claude-sonnet-4-20250514',
         default: true,
       },
-    ],
+    ]
   ): AnthropicAdapter => {
     const mockConfigService = {
       get: jest.fn((key: string, defaultValue?: unknown) => {
@@ -42,9 +42,7 @@ describe('AnthropicAdapter', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (
-      loadAiContextConfig as jest.MockedFunction<typeof loadAiContextConfig>
-    ).mockResolvedValue('');
+    (loadAiContextConfig as jest.MockedFunction<typeof loadAiContextConfig>).mockResolvedValue('');
   });
 
   describe('execute', () => {
@@ -58,11 +56,9 @@ describe('AnthropicAdapter', () => {
       (adapter as unknown as { client: Anthropic }).client = {
         messages: { create: mockCreate },
       } as unknown as Anthropic;
-      (adapter as unknown as { model: string }).model =
-        'claude-sonnet-4-20250514';
+      (adapter as unknown as { model: string }).model = 'claude-sonnet-4-20250514';
       (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
-      (adapter as unknown as { contextConfig: string }).contextConfig =
-        '## Project Config\nrules\n\n';
+      (adapter as unknown as { contextConfig: string }).contextConfig = '## Project Config\nrules\n\n';
 
       await adapter.execute({
         prompt: 'hello',
@@ -72,16 +68,14 @@ describe('AnthropicAdapter', () => {
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           system: '## Project Config\nrules\n\noriginal prompt',
-        }),
+        })
       );
     });
 
     it('surfaces non-text content blocks as empty-response diagnostics', async () => {
       const adapter = createAdapter();
       const mockCreate = jest.fn().mockResolvedValue({
-        content: [
-          { type: 'tool_use', id: 'tool_1', name: 'search', input: {} },
-        ],
+        content: [{ type: 'tool_use', id: 'tool_1', name: 'search', input: {} }],
         stop_reason: 'end_turn',
         usage: { input_tokens: 10, output_tokens: 5 },
       });
@@ -89,19 +83,16 @@ describe('AnthropicAdapter', () => {
       (adapter as unknown as { client: Anthropic }).client = {
         messages: { create: mockCreate },
       } as unknown as Anthropic;
-      (adapter as unknown as { model: string }).model =
-        'claude-sonnet-4-20250514';
+      (adapter as unknown as { model: string }).model = 'claude-sonnet-4-20250514';
       (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
 
-      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject(
-        {
-          content: '',
-          provider: 'anthropic',
-          model: 'claude-sonnet-4-20250514',
-          stopReason: 'end_turn',
-          contentTypes: ['tool_use'],
-        },
-      );
+      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject({
+        content: '',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+        stopReason: 'end_turn',
+        contentTypes: ['tool_use'],
+      });
     });
   });
 
@@ -115,7 +106,7 @@ describe('AnthropicAdapter', () => {
         path.join(os.homedir(), '.claude', 'CLAUDE.md'),
         'CLAUDE.md',
         'anthropic',
-        true,
+        true
       );
     });
 
@@ -133,7 +124,7 @@ describe('AnthropicAdapter', () => {
         path.join(os.homedir(), '.claude', 'CLAUDE.md'),
         'CLAUDE.md',
         'anthropic',
-        false,
+        false
       );
     });
   });

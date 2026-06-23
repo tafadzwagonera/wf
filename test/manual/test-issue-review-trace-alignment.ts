@@ -19,10 +19,7 @@ import * as path from 'path';
 type MockAdapter = {
   getPlatformName: () => string;
   getTicket: () => Promise<{ key: string; title: string; description: string }>;
-  findPullRequestsByTicketKey: (
-    ticketKey: string,
-    repoHint?: string,
-  ) => Promise<string[]>;
+  findPullRequestsByTicketKey: (ticketKey: string, repoHint?: string) => Promise<string[]>;
   getPullRequestDiff: (url: string) => Promise<string>;
 };
 
@@ -161,10 +158,7 @@ async function run(): Promise<void> {
   const originalConsoleLog = console.log;
   const originalBitbucketFind = bitbucketAdapter.findPullRequestsByTicketKey;
   const bitbucketCalls: Array<string | undefined> = [];
-  bitbucketAdapter.findPullRequestsByTicketKey = async (
-    ticketKey: string,
-    repoHint?: string,
-  ) => {
+  bitbucketAdapter.findPullRequestsByTicketKey = async (ticketKey: string, repoHint?: string) => {
     void ticketKey;
     bitbucketCalls.push(repoHint);
     return originalBitbucketFind(ticketKey, repoHint);
@@ -180,48 +174,33 @@ async function run(): Promise<void> {
   console.log = originalConsoleLog;
 
   if (bitbucketCalls[0] !== repoName) {
-    throw new Error(
-      `Expected default discovery repo hint "${repoName}", received "${bitbucketCalls[0]}"`,
-    );
+    throw new Error(`Expected default discovery repo hint "${repoName}", received "${bitbucketCalls[0]}"`);
   }
 
   if (reviewDiffCalls.length < 2) {
-    throw new Error(
-      `Expected at least 2 reviewDiff calls, received ${reviewDiffCalls.length}`,
-    );
+    throw new Error(`Expected at least 2 reviewDiff calls, received ${reviewDiffCalls.length}`);
   }
 
   if (reviewDiffCalls[0].repoDir !== repoDir) {
-    throw new Error(
-      `Expected inferred run repoDir "${repoDir}", received "${reviewDiffCalls[0].repoDir}"`,
-    );
+    throw new Error(`Expected inferred run repoDir "${repoDir}", received "${reviewDiffCalls[0].repoDir}"`);
   }
 
   if (reviewDiffCalls[1].repoDir !== repoDir) {
-    throw new Error(
-      `Expected explicit run repoDir "${repoDir}", received "${reviewDiffCalls[1].repoDir}"`,
-    );
+    throw new Error(`Expected explicit run repoDir "${repoDir}", received "${reviewDiffCalls[1].repoDir}"`);
   }
 
   if (!capturedLogs.includes('Call Stack:') || !capturedLogs.includes('└─')) {
-    throw new Error(
-      'Expected nested Call Stack output with tree branches from ebfc4612 renderer.',
-    );
+    throw new Error('Expected nested Call Stack output with tree branches from ebfc4612 renderer.');
   }
 
-  if (
-    !capturedLogs.includes('State Transition:') ||
-    !capturedLogs.includes('from: A')
-  ) {
-    throw new Error(
-      'Expected State Transition output to include nested trace content.',
-    );
+  if (!capturedLogs.includes('State Transition:') || !capturedLogs.includes('from: A')) {
+    throw new Error('Expected State Transition output to include nested trace content.');
   }
 
   console.log('✅ Manual smoke test passed: issue:review trace alignment');
 }
 
-run().catch((error) => {
+run().catch(error => {
   console.error(`❌ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

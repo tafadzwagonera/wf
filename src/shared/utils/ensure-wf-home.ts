@@ -19,13 +19,11 @@ export const ensureWfHome = async (): Promise<void> => {
 
   if (!process.stdin.isTTY) {
     throw new Error(
-      `The wf home directory (${wfHome}) does not exist. Create it manually:\n\n  mkdir -p ${wfHome}/logs ${wfHome}/state`,
+      `The wf home directory (${wfHome}) does not exist. Create it manually:\n\n  mkdir -p ${wfHome}/logs ${wfHome}/state`
     );
   }
 
-  console.warn(
-    chalk.yellow(`The wf home directory (${wfHome}) does not exist.`),
-  );
+  console.warn(chalk.yellow(`The wf home directory (${wfHome}) does not exist.`));
 
   const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
     {
@@ -39,7 +37,7 @@ export const ensureWfHome = async (): Promise<void> => {
 
   if (!confirm) {
     throw new Error(
-      `The wf home directory (${wfHome}) is required. Create it manually:\n\n  mkdir -p ${wfHome}/logs ${wfHome}/state`,
+      `The wf home directory (${wfHome}) is required. Create it manually:\n\n  mkdir -p ${wfHome}/logs ${wfHome}/state`
     );
   }
 

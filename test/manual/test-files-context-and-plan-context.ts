@@ -48,18 +48,13 @@ const run = async (): Promise<void> => {
   console.log(chalk.bold('\nSmoke test: filesContext and buildPlanContext\n'));
 
   // 1. Exports exist
-  assert(
-    'FileEntry type is importable',
-    typeof normalizeFileEntries === 'function',
-  );
+  assert('FileEntry type is importable', typeof normalizeFileEntries === 'function');
 
   // 2. normalizeFileEntries converts legacy strings
   const fromStrings = normalizeFileEntries(['src/a.ts', 'src/b.ts']);
   assert(
     'normalizeFileEntries converts strings to FileEntry',
-    fromStrings.length === 2 &&
-      fromStrings[0].filePath === 'src/a.ts' &&
-      fromStrings[0].status === 'found',
+    fromStrings.length === 2 && fromStrings[0].filePath === 'src/a.ts' && fromStrings[0].status === 'found'
   );
 
   // 3. normalizeFileEntries preserves FileEntry objects
@@ -67,25 +62,15 @@ const run = async (): Promise<void> => {
   const fromEntries = normalizeFileEntries([entry]);
   assert(
     'normalizeFileEntries preserves FileEntry objects',
-    fromEntries[0].filePath === 'src/c.ts' &&
-      fromEntries[0].status === 'to-create',
+    fromEntries[0].filePath === 'src/c.ts' && fromEntries[0].status === 'to-create'
   );
 
   // 4. normalizeFileEntries handles mixed arrays
-  const mixed = normalizeFileEntries([
-    'src/a.ts',
-    { filePath: 'src/b.ts', status: 'not-found' },
-  ]);
-  assert(
-    'normalizeFileEntries handles mixed arrays',
-    mixed[0].status === 'found' && mixed[1].status === 'not-found',
-  );
+  const mixed = normalizeFileEntries(['src/a.ts', { filePath: 'src/b.ts', status: 'not-found' }]);
+  assert('normalizeFileEntries handles mixed arrays', mixed[0].status === 'found' && mixed[1].status === 'not-found');
 
   // 5. buildPlanContext is exported
-  assert(
-    'buildPlanContext is exported from shared-routing',
-    typeof buildPlanContext === 'function',
-  );
+  assert('buildPlanContext is exported from shared-routing', typeof buildPlanContext === 'function');
 
   const baseParams = {
     ticketKey: 'TEST-1',
@@ -93,9 +78,7 @@ const run = async (): Promise<void> => {
     repoName: 'repo',
     repoFiles: ['repo/src/a.ts'],
     trackedFilePaths: ['repo/src/a.ts'],
-    verificationScripts: [
-      { id: 'build', command: 'yarn build', policy: 'enforced' },
-    ] as VerificationScript[],
+    verificationScripts: [{ id: 'build', command: 'yarn build', policy: 'enforced' }] as VerificationScript[],
     planSteps: ['Step 1'],
     planSummary: 'Summary',
     planAction: 'fix' as const,
@@ -108,24 +91,17 @@ const run = async (): Promise<void> => {
   });
   assert(
     'buildPlanContext includes context files section when non-empty',
-    withContext.includes('Files for context (read-only') &&
-      withContext.includes('package.json'),
+    withContext.includes('Files for context (read-only') && withContext.includes('package.json')
   );
 
   // 7. Omits context files section when empty/undefined
   const withoutContext = buildPlanContext(baseParams);
-  assert(
-    'buildPlanContext omits context files section when undefined',
-    !withoutContext.includes('Files for context'),
-  );
+  assert('buildPlanContext omits context files section when undefined', !withoutContext.includes('Files for context'));
   const withEmptyContext = buildPlanContext({
     ...baseParams,
     contextFiles: [],
   });
-  assert(
-    'buildPlanContext omits context files section when empty',
-    !withEmptyContext.includes('Files for context'),
-  );
+  assert('buildPlanContext omits context files section when empty', !withEmptyContext.includes('Files for context'));
 
   // 8. ResolutionPlan type accepts filesContext
   const plan: ResolutionPlan = {
@@ -133,16 +109,13 @@ const run = async (): Promise<void> => {
     summary: 'Test',
     steps: ['Step 1'],
     estimatedComplexity: 'low',
-    filesAffected: [
-      { filePath: 'repo/src/a.ts', status: 'found' },
-      'repo/src/legacy.ts',
-    ],
+    filesAffected: [{ filePath: 'repo/src/a.ts', status: 'found' }, 'repo/src/legacy.ts'],
     filesContext: [{ filePath: 'repo/package.json', status: 'found' }],
     repositoriesAffected: ['repo'],
   };
   assert(
     'ResolutionPlan accepts filesContext and mixed filesAffected',
-    plan.filesContext!.length === 1 && plan.filesAffected!.length === 2,
+    plan.filesContext!.length === 1 && plan.filesAffected!.length === 2
   );
 
   // 9 & 10. Plan artifact parser preserves FileEntry objects and legacy strings
@@ -152,10 +125,7 @@ const run = async (): Promise<void> => {
     summary: 'Test plan',
     steps: ['Step 1'],
     estimatedComplexity: 'low',
-    filesAffected: [
-      { filePath: 'repo/src/a.ts', status: 'found' },
-      'repo/src/b.ts',
-    ],
+    filesAffected: [{ filePath: 'repo/src/a.ts', status: 'found' }, 'repo/src/b.ts'],
     filesContext: [{ filePath: 'repo/package.json', status: 'found' }],
     repositoriesAffected: ['repo'],
   };
@@ -169,22 +139,18 @@ const run = async (): Promise<void> => {
   const secondEntry = parsedAffected[1];
   assert(
     'parsePlanArtifact preserves FileEntry objects from JSON',
-    typeof firstEntry === 'object' &&
-      firstEntry.filePath === 'repo/src/a.ts' &&
-      firstEntry.status === 'found',
+    typeof firstEntry === 'object' && firstEntry.filePath === 'repo/src/a.ts' && firstEntry.status === 'found'
   );
   assert(
     'parsePlanArtifact preserves legacy string entries',
-    typeof secondEntry === 'string' && secondEntry === 'repo/src/b.ts',
+    typeof secondEntry === 'string' && secondEntry === 'repo/src/b.ts'
   );
 
   const parsedContext = parsed.filesContext ?? [];
   const firstContext = parsedContext[0];
   assert(
     'parsePlanArtifact preserves filesContext',
-    parsedContext.length === 1 &&
-      typeof firstContext === 'object' &&
-      firstContext.filePath === 'repo/package.json',
+    parsedContext.length === 1 && typeof firstContext === 'object' && firstContext.filePath === 'repo/package.json'
   );
 
   // Cleanup

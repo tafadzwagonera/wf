@@ -22,7 +22,7 @@ jest.mock('chalk', () => {
       'whiteBright',
       'gray',
       'grey',
-    ].forEach((name) => {
+    ].forEach(name => {
       chain[name] = identity;
     });
     return chain;
@@ -47,9 +47,7 @@ jest.mock('../agents/utils', () => {
   const actual = jest.requireActual('../agents/utils');
   return {
     ...actual,
-    resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/mock', repo) : '/mock/repo',
-    ),
+    resolveRepoBasePath: jest.fn((repo?: string) => (repo ? path.join('/mock', repo) : '/mock/repo')),
   };
 });
 
@@ -101,8 +99,7 @@ const mockReview: CodeReview = {
                   frame: 'AgentApiClient.fetchAgentApiData()',
                   children: [
                     {
-                      frame:
-                        'HttpClient.get(GET https://agentapi.expatexplore.com/agent/1.0/data)',
+                      frame: 'HttpClient.get(GET https://agentapi.expatexplore.com/agent/1.0/data)',
                     },
                   ],
                 },
@@ -112,8 +109,7 @@ const mockReview: CodeReview = {
               frame: 'TripcomMapper.mapAgentApiToTripcom(productCode, tour)',
               children: [
                 {
-                  frame:
-                    'TripcomMapper.mapGalleryToMedias(tour.gallery, tour.title)',
+                  frame: 'TripcomMapper.mapGalleryToMedias(tour.gallery, tour.title)',
                   children: [
                     {
                       frame: 'Array.prototype.slice(0, 10)',
@@ -146,8 +142,7 @@ const mockReview: CodeReview = {
     to: 'ProfileResponse.linkedProfiles',
     steps: [
       {
-        frame:
-          'CanonicalProfileRepository.findLinkedProfiles(canonicalCustomerId)',
+        frame: 'CanonicalProfileRepository.findLinkedProfiles(canonicalCustomerId)',
         captured: {
           canonicalCustomerId: '123',
         },
@@ -263,9 +258,7 @@ const mockConversationService = {
   startChatSession: jest.fn().mockResolvedValue(undefined),
 };
 
-async function buildCommand(overrides?: {
-  ticketAdapterName?: 'jira' | 'github' | 'bitbucket';
-}): Promise<{
+async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' | 'bitbucket' }): Promise<{
   command: IssueReviewCommand;
   reviewStageService: jest.Mocked<ReviewStageService>;
   adapters: Record<string, any>;
@@ -285,10 +278,8 @@ async function buildCommand(overrides?: {
     overrides?.ticketAdapterName === 'jira'
       ? { getTicket: jest.fn().mockResolvedValue(mockTicket) }
       : {
-          getTicket: jest
-            .fn()
-            .mockRejectedValue(new Error('Unexpected ticket lookup')),
-        },
+          getTicket: jest.fn().mockRejectedValue(new Error('Unexpected ticket lookup')),
+        }
   );
   const githubAdapter = buildAdapter('github');
   const bitbucketAdapter = buildAdapter('bitbucket');
@@ -303,9 +294,7 @@ async function buildCommand(overrides?: {
     jiraAdapter.getTicket = jest.fn().mockResolvedValue(mockTicket);
   }
 
-  const promptMock = inquirer.prompt as jest.MockedFunction<
-    typeof inquirer.prompt
-  >;
+  const promptMock = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
   promptMock.mockReset();
 
   const module = await Test.createTestingModule({
@@ -344,14 +333,14 @@ async function buildCommand(overrides?: {
             new Map([
               ['bitbucket', bitbucketAdapter],
               ['github', githubAdapter],
-            ]),
+            ])
           ),
           getAllAdapters: jest.fn().mockReturnValue(
             new Map([
               ['bitbucket', bitbucketAdapter],
               ['github', githubAdapter],
               ['jira', jiraAdapter],
-            ]),
+            ])
           ),
         },
       },
@@ -440,25 +429,21 @@ describe('IssueReviewCommand', () => {
     it('returns trimmed repo values from variadic option input', async () => {
       const { command } = await buildCommand();
 
-      expect(
-        command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any),
-      ).toEqual(['repo-a', 'workspace/repo-b']);
+      expect(command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any)).toEqual(['repo-a', 'workspace/repo-b']);
     });
   });
 
   describe('ticket-driven review', () => {
     it('reviews open pull request diffs instead of local changes when PRs are discovered', async () => {
       const { command, reviewStageService, adapters } = await buildCommand();
-      const reviewRepoSetSpy = jest
-        .spyOn(command as any, 'reviewRepoSet')
-        .mockResolvedValue('local diff');
+      const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('local diff');
 
       adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
         'https://bitbucket.org/workspace/repo/pull-requests/161',
         'https://bitbucket.org/workspace/repo/pull-requests/160',
       ]);
-      adapters.bitbucketAdapter.getPullRequestDiff.mockImplementation(
-        async (url: string) => (url.includes('/160') ? 'diff 160' : 'diff 161'),
+      adapters.bitbucketAdapter.getPullRequestDiff.mockImplementation(async (url: string) =>
+        url.includes('/160') ? 'diff 160' : 'diff 161'
       );
 
       await command.run(['TAD-575'], { repos: ['service-tourv3'] });
@@ -469,53 +454,41 @@ describe('IssueReviewCommand', () => {
         'diff 160',
         expect.objectContaining({
           context: expect.stringContaining('ticket TAD-575'),
-        }),
+        })
       );
       expect(reviewStageService.reviewDiff).toHaveBeenNthCalledWith(
         2,
         'diff 161',
         expect.objectContaining({
-          context: expect.stringContaining(
-            'pull request: https://bitbucket.org/workspace/repo/pull-requests/161',
-          ),
-        }),
+          context: expect.stringContaining('pull request: https://bitbucket.org/workspace/repo/pull-requests/161'),
+        })
       );
     });
 
     it('uses the current repo name as a discovery hint when --repos is omitted', async () => {
       const { command, adapters } = await buildCommand();
-      const handleSpy = jest
-        .spyOn(ErrorHandler, 'handle')
-        .mockImplementation(() => undefined as never);
+      const handleSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
-        [],
-      );
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       setNonInteractiveSession();
 
       await command.run(['TAD-575'], {});
 
-      expect(
-        adapters.bitbucketAdapter.findPullRequestsByTicketKey,
-      ).toHaveBeenCalledWith('TAD-575', path.basename(process.cwd()));
-      expect(handleSpy).not.toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        '⚠️ Non-interactive session; returning without local review',
+      expect(adapters.bitbucketAdapter.findPullRequestsByTicketKey).toHaveBeenCalledWith(
+        'TAD-575',
+        path.basename(process.cwd())
       );
+      expect(handleSpy).not.toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith('⚠️ Non-interactive session; returning without local review');
     });
 
     it('does not warn about cwd fallback when remote ticket PR review succeeds without a local checkout', async () => {
       const { command, adapters } = await buildCommand();
-      const resolveRepoBasePathMock =
-        resolveRepoBasePath as jest.MockedFunction<typeof resolveRepoBasePath>;
+      const resolveRepoBasePathMock = resolveRepoBasePath as jest.MockedFunction<typeof resolveRepoBasePath>;
 
       resolveRepoBasePathMock.mockImplementation((repo?: string) =>
-        repo === 'api-gateway-v1'
-          ? process.cwd()
-          : repo
-            ? path.join('/mock', repo)
-            : '/mock/repo',
+        repo === 'api-gateway-v1' ? process.cwd() : repo ? path.join('/mock', repo) : '/mock/repo'
       );
       adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
         'https://bitbucket.org/workspace/repo/pull-requests/43',
@@ -524,37 +497,26 @@ describe('IssueReviewCommand', () => {
 
       await command.run(['TAD-575'], { repos: ['api-gateway-v1'] });
 
-      expect(resolveRepoBasePathMock).not.toHaveBeenCalledWith(
-        'api-gateway-v1',
-      );
+      expect(resolveRepoBasePathMock).not.toHaveBeenCalledWith('api-gateway-v1');
     });
 
     it('fails hard when ticket lookup does not succeed', async () => {
       const { command, adapters } = await buildCommand();
-      const handleSpy = jest
-        .spyOn(ErrorHandler, 'handle')
-        .mockImplementation(() => undefined as never);
+      const handleSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
 
       adapters.jiraAdapter.getTicket.mockRejectedValue(new Error('boom'));
 
       await command.run(['TAD-575'], {});
 
-      expect(handleSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ message: 'boom' }),
-      );
+      expect(handleSpy).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom' }));
     });
 
     it('prompts for local review when no pull request is found', async () => {
-      const { command, reviewStageService, adapters, promptMock } =
-        await buildCommand();
-      const reviewRepoSetSpy = jest
-        .spyOn(command as any, 'reviewRepoSet')
-        .mockResolvedValue('local diff');
+      const { command, reviewStageService, adapters, promptMock } = await buildCommand();
+      const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('local diff');
       jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(true);
 
-      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
-        [],
-      );
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       promptMock.mockResolvedValue({ decision: 'local' } as any);
       setInteractiveSession();
@@ -567,33 +529,21 @@ describe('IssueReviewCommand', () => {
         'local diff',
         expect.objectContaining({
           context: expect.stringContaining('repositories under review'),
-        }),
+        })
       );
     });
 
     it('fails when ticket review would fall back to local changes for an unresolved repo input', async () => {
-      const { command, reviewStageService, adapters, promptMock } =
-        await buildCommand();
+      const { command, reviewStageService, adapters, promptMock } = await buildCommand();
       const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet');
-      jest
-        .spyOn(command as any, 'canResolveRepoLocally')
-        .mockReturnValue(false);
-      const handleSpy = jest
-        .spyOn(ErrorHandler, 'handle')
-        .mockImplementation(() => undefined as never);
-      const resolveRepoBasePathMock =
-        resolveRepoBasePath as jest.MockedFunction<typeof resolveRepoBasePath>;
+      jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(false);
+      const handleSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
+      const resolveRepoBasePathMock = resolveRepoBasePath as jest.MockedFunction<typeof resolveRepoBasePath>;
 
       resolveRepoBasePathMock.mockImplementation((repo?: string) =>
-        repo === 'api-gateway-v1'
-          ? process.cwd()
-          : repo
-            ? path.join('/mock', repo)
-            : '/mock/repo',
+        repo === 'api-gateway-v1' ? process.cwd() : repo ? path.join('/mock', repo) : '/mock/repo'
       );
-      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
-        [],
-      );
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       setInteractiveSession();
 
@@ -602,9 +552,9 @@ describe('IssueReviewCommand', () => {
       expect(handleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining(
-            "Repository 'api-gateway-v1' was provided for ticket review but was not found as a local path or sibling directory.",
+            "Repository 'api-gateway-v1' was provided for ticket review but was not found as a local path or sibling directory."
           ),
-        }),
+        })
       );
       expect(promptMock).not.toHaveBeenCalled();
       expect(reviewRepoSetSpy).not.toHaveBeenCalled();
@@ -612,22 +562,17 @@ describe('IssueReviewCommand', () => {
     });
 
     it('fails with an actionable error when discovery cannot run without remote repo scope', async () => {
-      const { command, reviewStageService, adapters, promptMock } =
-        await buildCommand();
+      const { command, reviewStageService, adapters, promptMock } = await buildCommand();
       const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet');
-      const handleSpy = jest
-        .spyOn(ErrorHandler, 'handle')
-        .mockImplementation(() => undefined as never);
+      const handleSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
 
       adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockRejectedValue(
-        new Error(
-          'No BitBucket repository specified. Provide the repository as "workspace/repo".',
-        ),
+        new Error('No BitBucket repository specified. Provide the repository as "workspace/repo".')
       );
       adapters.githubAdapter.findPullRequestsByTicketKey.mockRejectedValue(
         new Error(
-          'No GitHub repository specified and no default repository configured. Provide project as "owner/repo" or set github.defaultRepo in wf.config.*.',
-        ),
+          'No GitHub repository specified and no default repository configured. Provide project as "owner/repo" or set github.defaultRepo in wf.config.*.'
+        )
       );
       setInteractiveSession();
 
@@ -635,10 +580,8 @@ describe('IssueReviewCommand', () => {
 
       expect(handleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: expect.stringContaining(
-            'Pull request discovery for ticket TAD-575 requires a repository',
-          ),
-        }),
+          message: expect.stringContaining('Pull request discovery for ticket TAD-575 requires a repository'),
+        })
       );
       expect(promptMock).not.toHaveBeenCalled();
       expect(reviewRepoSetSpy).not.toHaveBeenCalled();
@@ -646,46 +589,34 @@ describe('IssueReviewCommand', () => {
     });
 
     it('fans out only across credentialed pull-request discovery adapters', async () => {
-      const { command, reviewStageService, adapters, promptMock } =
-        await buildCommand();
-      const reviewRepoSetSpy = jest
-        .spyOn(command as any, 'reviewRepoSet')
-        .mockResolvedValue('local diff');
+      const { command, reviewStageService, adapters, promptMock } = await buildCommand();
+      const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('local diff');
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
       jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(true);
 
-      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
-        [],
-      );
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       promptMock.mockResolvedValue({ decision: 'local' } as any);
       setInteractiveSession();
 
       await command.run(['TAD-575'], { repos: ['service-tourv3'] });
 
       expect(reviewRepoSetSpy).toHaveBeenCalled();
-      expect(
-        adapters.githubAdapter.findPullRequestsByTicketKey,
-      ).toHaveBeenCalled();
+      expect(adapters.githubAdapter.findPullRequestsByTicketKey).toHaveBeenCalled();
       expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
         'local diff',
         expect.objectContaining({
           context: expect.stringContaining('repositories under review'),
-        }),
+        })
       );
-      expect(consoleLogSpy).not.toHaveBeenCalledWith(
-        expect.stringContaining('PR discovery skipped for github'),
-      );
+      expect(consoleLogSpy).not.toHaveBeenCalledWith(expect.stringContaining('PR discovery skipped for github'));
     });
 
     it('returns without reviewing when the fallback prompt selects return', async () => {
-      const { command, reviewStageService, adapters, promptMock } =
-        await buildCommand();
+      const { command, reviewStageService, adapters, promptMock } = await buildCommand();
       const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet');
       jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(true);
 
-      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
-        [],
-      );
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       promptMock.mockResolvedValue({ decision: 'return' } as any);
       setInteractiveSession();
@@ -698,23 +629,18 @@ describe('IssueReviewCommand', () => {
     });
 
     it('logs the standardized non-interactive warning before returning', async () => {
-      const { command, reviewStageService, adapters, promptMock } =
-        await buildCommand();
+      const { command, reviewStageService, adapters, promptMock } = await buildCommand();
       const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet');
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
       jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(true);
 
-      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue(
-        [],
-      );
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       setNonInteractiveSession();
 
       await command.run(['TAD-575'], { repos: ['service-tourv3'] });
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        '⚠️ Non-interactive session; returning without local review',
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith('⚠️ Non-interactive session; returning without local review');
       expect(promptMock).not.toHaveBeenCalled();
       expect(reviewRepoSetSpy).not.toHaveBeenCalled();
       expect(reviewStageService.reviewDiff).not.toHaveBeenCalled();
@@ -727,8 +653,8 @@ describe('IssueReviewCommand', () => {
         'https://bitbucket.org/workspace/repo/pull-requests/161',
         'https://bitbucket.org/workspace/repo/pull-requests/160',
       ]);
-      adapters.bitbucketAdapter.getPullRequestDiff.mockImplementation(
-        async (url: string) => (url.includes('/160') ? 'diff 160' : 'diff 161'),
+      adapters.bitbucketAdapter.getPullRequestDiff.mockImplementation(async (url: string) =>
+        url.includes('/160') ? 'diff 160' : 'diff 161'
       );
 
       await command.run(['TAD-575'], {
@@ -740,12 +666,12 @@ describe('IssueReviewCommand', () => {
       expect(adapters.bitbucketAdapter.createComment).toHaveBeenNthCalledWith(
         1,
         'https://bitbucket.org/workspace/repo/pull-requests/160',
-        expect.stringContaining('## AI Code Review'),
+        expect.stringContaining('## AI Code Review')
       );
       expect(adapters.bitbucketAdapter.createComment).toHaveBeenNthCalledWith(
         2,
         'https://bitbucket.org/workspace/repo/pull-requests/161',
-        expect.stringContaining('## AI Code Review'),
+        expect.stringContaining('## AI Code Review')
       );
     });
   });
@@ -756,24 +682,14 @@ describe('IssueReviewCommand', () => {
 
       await command.run([], { dryRun: true });
 
-      expect(dryRunPreview.showHeader).toHaveBeenCalledWith(
-        'issue:review',
-        expect.stringContaining(process.cwd()),
-      );
-      expect(dryRunPreview.showHeader).toHaveBeenCalledWith(
-        'issue:review',
-        expect.stringContaining('current repo'),
-      );
+      expect(dryRunPreview.showHeader).toHaveBeenCalledWith('issue:review', expect.stringContaining(process.cwd()));
+      expect(dryRunPreview.showHeader).toHaveBeenCalledWith('issue:review', expect.stringContaining('current repo'));
     });
 
     it('writes the new review sections in the expected order', async () => {
       const { command } = await buildCommand();
-      const reviewRepoSetSpy = jest
-        .spyOn(command as any, 'reviewRepoSet')
-        .mockResolvedValue('diff content');
-      const writeFileSyncSpy = jest
-        .spyOn(require('fs'), 'writeFileSync')
-        .mockImplementation(() => {});
+      const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('diff content');
+      const writeFileSyncSpy = jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => {});
 
       await command.run([], { output: 'review.txt' });
 
@@ -782,49 +698,29 @@ describe('IssueReviewCommand', () => {
       expect(output).toContain('CALL STACK:');
       expect(output).toContain('STATE TRANSITION:');
       expect(output).toContain('APPROVAL STATUS: APPROVED');
-      expect(output).toContain(
-        'Provenance: best-effort (code-path trace inferred from the diff and AI output)',
-      );
+      expect(output).toContain('Provenance: best-effort (code-path trace inferred from the diff and AI output)');
       expect(output).toContain('Execution mode: standard');
-      expect(output).toContain(
-        'Best effort: call stack is inferred from the changed code and AI output.',
-      );
-      expect(output).toContain(
-        'Hindrance: there is no runtime execution trace backend in this path.',
-      );
-      expect(output).toContain(
-        'TripcomController.syncProduct(productCode, slug)',
-      );
-      expect(output).toContain(
-        'CanonicalProfileRepository.findLinkedProfiles(canonicalCustomerId)',
-      );
+      expect(output).toContain('Best effort: call stack is inferred from the changed code and AI output.');
+      expect(output).toContain('Hindrance: there is no runtime execution trace backend in this path.');
+      expect(output).toContain('TripcomController.syncProduct(productCode, slug)');
+      expect(output).toContain('CanonicalProfileRepository.findLinkedProfiles(canonicalCustomerId)');
       expect(output).toContain('fullName._value = Jane Smith');
-      expect(output.indexOf('SUMMARY:')).toBeLessThan(
-        output.indexOf('ISSUES FOUND'),
-      );
-      expect(output.indexOf('ISSUES FOUND')).toBeLessThan(
-        output.indexOf('CALL STACK:'),
-      );
-      expect(output.indexOf('CALL STACK:')).toBeLessThan(
-        output.indexOf('STATE TRANSITION:'),
-      );
+      expect(output.indexOf('SUMMARY:')).toBeLessThan(output.indexOf('ISSUES FOUND'));
+      expect(output.indexOf('ISSUES FOUND')).toBeLessThan(output.indexOf('CALL STACK:'));
+      expect(output.indexOf('CALL STACK:')).toBeLessThan(output.indexOf('STATE TRANSITION:'));
       expect(output).toContain('Suggestion: Add a regression test');
-      expect(output.indexOf('STATE TRANSITION:')).toBeLessThan(
-        output.indexOf('APPROVAL STATUS'),
-      );
+      expect(output.indexOf('STATE TRANSITION:')).toBeLessThan(output.indexOf('APPROVAL STATUS'));
       expect(output).not.toContain('SUGGESTIONS (1):');
     });
 
     it('renders unavailable trace sections when no code-path trace can be inferred', async () => {
       const { command } = await buildCommand();
-      const mockDiff =
-        'diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.ts';
+      const mockDiff = 'diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.ts';
 
       const output = (command as any).formatReviewAsText([
         {
           title: 'Bitbucket PR #160',
-          context:
-            'pull request: https://bitbucket.org/workspace/repo/pull-requests/160',
+          context: 'pull request: https://bitbucket.org/workspace/repo/pull-requests/160',
           diff: mockDiff,
           review: {
             ...mockReview,
@@ -836,15 +732,13 @@ describe('IssueReviewCommand', () => {
       ]);
 
       expect(output).toContain('CALL STACK:');
-      expect(output).toContain(
-        'Provenance: unavailable (no concrete code-path trace could be inferred from the diff)',
-      );
+      expect(output).toContain('Provenance: unavailable (no concrete code-path trace could be inferred from the diff)');
       expect(output).toContain('Execution mode: standard');
       expect(output).toContain(
-        'Trace unavailable: no concrete code-path trace could be inferred for the call stack section.',
+        'Trace unavailable: no concrete code-path trace could be inferred for the call stack section.'
       );
       expect(output).toContain(
-        'Trace unavailable: no concrete code-path trace could be inferred for the state transition section.',
+        'Trace unavailable: no concrete code-path trace could be inferred for the state transition section.'
       );
     });
 
@@ -854,8 +748,7 @@ describe('IssueReviewCommand', () => {
       const output = (command as any).formatReviewAsText([
         {
           title: 'Bitbucket PR #160',
-          context:
-            'pull request: https://bitbucket.org/workspace/repo/pull-requests/160',
+          context: 'pull request: https://bitbucket.org/workspace/repo/pull-requests/160',
           diff: 'diff --git a/src/auth.ts b/src/auth.ts',
           review: {
             ...mockReview,
@@ -865,12 +758,8 @@ describe('IssueReviewCommand', () => {
       ]);
 
       expect(output).toContain('Execution mode: agent');
-      expect(output).toContain(
-        'Provenance: evidence-based (code-path trace backed by the execution backend)',
-      );
-      expect(output).not.toContain(
-        'Execution mode: standard\n  Provenance: evidence-based',
-      );
+      expect(output).toContain('Provenance: evidence-based (code-path trace backed by the execution backend)');
+      expect(output).not.toContain('Execution mode: standard\n  Provenance: evidence-based');
     });
 
     it('renders paired suggestions directly under each issue in text output and keeps extras trailing', async () => {
@@ -900,11 +789,9 @@ describe('IssueReviewCommand', () => {
       expect(output).toContain('1. [WARNING] First issue');
       expect(output).toContain('   Suggestion: First suggestion');
       expect(output.indexOf('1. [WARNING] First issue')).toBeLessThan(
-        output.indexOf('   Suggestion: First suggestion'),
+        output.indexOf('   Suggestion: First suggestion')
       );
-      expect(output.indexOf('   Suggestion: First suggestion')).toBeLessThan(
-        output.indexOf('2. [ERROR] Second issue'),
-      );
+      expect(output.indexOf('   Suggestion: First suggestion')).toBeLessThan(output.indexOf('2. [ERROR] Second issue'));
       expect(output).toContain('SUGGESTIONS (1):');
       expect(output).toContain('1. Extra idea');
     });
@@ -926,9 +813,7 @@ describe('IssueReviewCommand', () => {
         suggestions: ['Trailing suggestion'],
       });
 
-      expect(output).toContain(
-        '- [warning] Inline issue (src/inline.ts:24)\n  Suggestion: Pair this suggestion',
-      );
+      expect(output).toContain('- [warning] Inline issue (src/inline.ts:24)\n  Suggestion: Pair this suggestion');
       expect(output).toContain('### Suggestions');
       expect(output).toContain('- Trailing suggestion');
     });
@@ -971,18 +856,13 @@ describe('IssueReviewCommand', () => {
       });
       adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 24');
 
-      await command.run(
-        ['https://bitbucket.org/workspace/repo/pull-requests/160'],
-        { comment: true },
-      );
+      await command.run(['https://bitbucket.org/workspace/repo/pull-requests/160'], { comment: true });
 
-      expect(
-        adapters.bitbucketAdapter.createInlineComment,
-      ).toHaveBeenCalledWith(
+      expect(adapters.bitbucketAdapter.createInlineComment).toHaveBeenCalledWith(
         'https://bitbucket.org/workspace/repo/pull-requests/160',
         'src/inline.ts',
         24,
-        'Normalized inline issue',
+        'Normalized inline issue'
       );
     });
   });
@@ -990,9 +870,7 @@ describe('IssueReviewCommand', () => {
   describe('interactive follow-up chat', () => {
     it('prompts for interactive chat after review when TTY is available', async () => {
       const { command, promptMock, conversationService } = await buildCommand();
-      jest
-        .spyOn(command as any, 'reviewRepoSet')
-        .mockResolvedValue('diff content');
+      jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('diff content');
       setInteractiveSession();
 
       promptMock.mockResolvedValue({ startChat: true } as any);
@@ -1004,22 +882,20 @@ describe('IssueReviewCommand', () => {
           expect.objectContaining({
             message: 'Would you like to discuss the review?',
           }),
-        ]),
+        ])
       );
       expect(conversationService.startChatSession).toHaveBeenCalledWith(
         'mock-conv-id',
         expect.objectContaining({
           maxTurns: 20,
           exitCommands: ['exit', 'quit', 'continue'],
-        }),
+        })
       );
     });
 
     it('skips interactive chat prompt in silent mode', async () => {
       const { command, promptMock, conversationService } = await buildCommand();
-      jest
-        .spyOn(command as any, 'reviewRepoSet')
-        .mockResolvedValue('diff content');
+      jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('diff content');
       setInteractiveSession();
 
       await command.run([], { silent: true });
@@ -1029,16 +905,14 @@ describe('IssueReviewCommand', () => {
           expect.objectContaining({
             message: 'Would you like to discuss the review?',
           }),
-        ]),
+        ])
       );
       expect(conversationService.startChatSession).not.toHaveBeenCalled();
     });
 
     it('skips interactive chat prompt in non-interactive session', async () => {
       const { command, promptMock, conversationService } = await buildCommand();
-      jest
-        .spyOn(command as any, 'reviewRepoSet')
-        .mockResolvedValue('diff content');
+      jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('diff content');
       setNonInteractiveSession();
 
       await command.run([], {});
@@ -1048,27 +922,21 @@ describe('IssueReviewCommand', () => {
           expect.objectContaining({
             message: 'Would you like to discuss the review?',
           }),
-        ]),
+        ])
       );
       expect(conversationService.startChatSession).not.toHaveBeenCalled();
     });
 
     it('still outputs artifact path in silent mode', async () => {
       const { command } = await buildCommand();
-      jest
-        .spyOn(command as any, 'reviewRepoSet')
-        .mockResolvedValue('diff content');
-      const writeFileSyncSpy = jest
-        .spyOn(require('fs'), 'writeFileSync')
-        .mockImplementation(() => {});
+      jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('diff content');
+      const writeFileSyncSpy = jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => {});
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
 
       await command.run([], { silent: true, output: 'review.txt' });
 
       expect(writeFileSyncSpy).toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('review.txt'),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('review.txt'));
     });
   });
 });

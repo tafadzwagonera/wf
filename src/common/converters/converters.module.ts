@@ -9,12 +9,7 @@ import { MarkdownConverter } from './markdown/markdown-converter';
  * Registers all format converters with the FormatConverterService
  */
 @Module({
-  providers: [
-    FormatConverterService,
-    JsonConverter,
-    YamlConverter,
-    MarkdownConverter,
-  ],
+  providers: [FormatConverterService, JsonConverter, YamlConverter, MarkdownConverter],
   exports: [FormatConverterService],
 })
 export class ConvertersModule implements OnModuleInit {
@@ -22,7 +17,7 @@ export class ConvertersModule implements OnModuleInit {
     private readonly formatConverterService: FormatConverterService,
     private readonly jsonConverter: JsonConverter,
     private readonly yamlConverter: YamlConverter,
-    private readonly markdownConverter: MarkdownConverter,
+    private readonly markdownConverter: MarkdownConverter
   ) {}
 
   /**

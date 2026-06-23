@@ -67,13 +67,9 @@ const fail = (message: string, detail?: string): void => {
 };
 
 async function main() {
-  console.log(
-    '\n🧪 Manual Test: issue:generate repo-scoped wf.config.js loading in ESM repos\n',
-  );
+  console.log('\n🧪 Manual Test: issue:generate repo-scoped wf.config.js loading in ESM repos\n');
 
-  const tempRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'wf-manual-repo-config-loader-'),
-  );
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-manual-repo-config-loader-'));
   const repoRoot = path.join(tempRoot, 'repo-scoped-esm-app');
   fs.mkdirSync(repoRoot, { recursive: true });
 
@@ -82,7 +78,7 @@ async function main() {
   fs.writeFileSync(
     path.join(repoRoot, 'package.json'),
     JSON.stringify({ name: 'repo-scoped-esm-app', type: 'module' }, null, 2),
-    'utf-8',
+    'utf-8'
   );
   fs.writeFileSync(
     path.join(repoRoot, 'wf.config.js'),
@@ -110,30 +106,14 @@ async function main() {
       '};',
       '',
     ].join('\n'),
-    'utf-8',
+    'utf-8'
   );
-  fs.writeFileSync(
-    sourceFileA,
-    '# Notes A\n\nShort repo-scoped source content.\n',
-    'utf-8',
-  );
-  fs.writeFileSync(
-    sourceFileB,
-    '# Notes B\n\nA second short source forces AI synthesis.\n',
-    'utf-8',
-  );
+  fs.writeFileSync(sourceFileA, '# Notes A\n\nShort repo-scoped source content.\n', 'utf-8');
+  fs.writeFileSync(sourceFileB, '# Notes B\n\nA second short source forces AI synthesis.\n', 'utf-8');
 
-  const configCwd = resolveConfigCwd([
-    'issue:generate',
-    sourceFileA,
-    sourceFileB,
-    '--repos',
-    repoRoot,
-  ]);
+  const configCwd = resolveConfigCwd(['issue:generate', sourceFileA, sourceFileB, '--repos', repoRoot]);
 
-  let app:
-    | Awaited<ReturnType<typeof NestFactory.createApplicationContext>>
-    | undefined;
+  let app: Awaited<ReturnType<typeof NestFactory.createApplicationContext>> | undefined;
   let passed = 0;
   let failed = 0;
   const originalExecute = AiService.prototype.execute;
@@ -161,16 +141,10 @@ async function main() {
     const activeProvider = configService.get<string>('ai.provider');
     const openaiApiKey = configService.get<string>('ai.openaiApiKey');
     const geminiApiKey = configService.get<string>('ai.geminiApiKey');
-    const generateProvider = configService.get<string>(
-      'stages.generate.provider',
-    );
+    const generateProvider = configService.get<string>('stages.generate.provider');
     const generateModel = configService.get<string>('stages.generate.model');
 
-    if (
-      activeProvider === 'openai' &&
-      openaiApiKey === 'repo-openai-key' &&
-      geminiApiKey === 'repo-gemini-key'
-    ) {
+    if (activeProvider === 'openai' && openaiApiKey === 'repo-openai-key' && geminiApiKey === 'repo-gemini-key') {
       pass('repo-local providers were loaded instead of built-in defaults');
       passed += 1;
     } else {
@@ -180,7 +154,7 @@ async function main() {
           activeProvider,
           openaiApiKey,
           geminiApiKey,
-        }),
+        })
       );
       failed += 1;
     }
@@ -191,14 +165,12 @@ async function main() {
     } else {
       fail(
         'stages.generate override was not loaded from the repo-local config',
-        JSON.stringify({ generateProvider, generateModel }),
+        JSON.stringify({ generateProvider, generateModel })
       );
       failed += 1;
     }
 
-    (AiService.prototype as any).execute = async (
-      input: Parameters<AiService['execute']>[0],
-    ) => {
+    (AiService.prototype as any).execute = async (input: Parameters<AiService['execute']>[0]) => {
       aiCallCount += 1;
       executedStage = input.stage;
       executedProvider = activeProvider;
@@ -222,7 +194,7 @@ async function main() {
     } else {
       fail(
         'issue:generate did not reach the expected AI synthesis path',
-        JSON.stringify({ aiCallCount, executedStage }),
+        JSON.stringify({ aiCallCount, executedStage })
       );
       failed += 1;
     }
@@ -235,10 +207,7 @@ async function main() {
       pass('generated output used the mocked synthesized ticket content');
       passed += 1;
     } else {
-      fail(
-        'generated output did not match the mocked synthesized ticket',
-        capturedStdout.slice(0, 400),
-      );
+      fail('generated output did not match the mocked synthesized ticket', capturedStdout.slice(0, 400));
       failed += 1;
     }
   } finally {

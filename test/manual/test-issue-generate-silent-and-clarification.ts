@@ -43,14 +43,10 @@ const MOCK_TICKET_RESPONSE = [
   '- None',
 ].join('\n');
 
-const MOCK_CLARIFICATION_RESPONSE = JSON.stringify([
-  'What is the target deployment environment?',
-]);
+const MOCK_CLARIFICATION_RESPONSE = JSON.stringify(['What is the target deployment environment?']);
 
 async function testSilentAndClarification() {
-  console.log(
-    '\n🧪 Manual Test: issue:generate --silent output and clarification pass\n',
-  );
+  console.log('\n🧪 Manual Test: issue:generate --silent output and clarification pass\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
@@ -71,8 +67,7 @@ async function testSilentAndClarification() {
 
   app.get(AiService);
   const originalProtoExecute = AiService.prototype.execute;
-  const originalGenerateFromPrompt =
-    StageAgentService.prototype.generateFromPrompt;
+  const originalGenerateFromPrompt = StageAgentService.prototype.generateFromPrompt;
 
   const tmpFile1 = path.join(os.tmpdir(), `wf-silent-test-a-${Date.now()}.txt`);
   const tmpFile2 = path.join(os.tmpdir(), `wf-silent-test-b-${Date.now()}.txt`);
@@ -137,10 +132,7 @@ async function testSilentAndClarification() {
     if (capturedOutput.includes('Test summary for silent mode')) {
       pass('Silent mode emits raw ticket content to stdout');
     } else {
-      fail(
-        'Silent mode did not emit raw ticket content',
-        `Got: ${capturedOutput.slice(0, 300)}`,
-      );
+      fail('Silent mode did not emit raw ticket content', `Got: ${capturedOutput.slice(0, 300)}`);
     }
 
     // Only 1 AI call (synthesis), no clarification call
@@ -164,9 +156,7 @@ async function testSilentAndClarification() {
       lastPromptContent = prompt;
       return { content: MOCK_TICKET_RESPONSE };
     };
-    (StageAgentService.prototype as any).generateFromPrompt = async (
-      prompt: string,
-    ) => {
+    (StageAgentService.prototype as any).generateFromPrompt = async (prompt: string) => {
       aiCallCount++;
       if (aiCallCount === 1) {
         return MOCK_CLARIFICATION_RESPONSE;

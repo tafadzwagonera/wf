@@ -15,11 +15,7 @@ import * as path from 'path';
 import chalk from 'chalk';
 
 const repoRoot = path.join(__dirname, '..', '..');
-const docsCatalogPath = path.join(
-  repoRoot,
-  'docs',
-  'commands-help.catalog.json',
-);
+const docsCatalogPath = path.join(repoRoot, 'docs', 'commands-help.catalog.json');
 const readmePath = path.join(repoRoot, 'README.md');
 
 /**
@@ -82,10 +78,7 @@ const main = async (): Promise<void> => {
   console.log(chalk.bold('Test 2: help catalog includes priority option'));
   try {
     const catalog = fs.readFileSync(docsCatalogPath, 'utf8');
-    if (
-      catalog.includes('"issue:create"') &&
-      catalog.includes('--priority <priority>')
-    ) {
+    if (catalog.includes('"issue:create"') && catalog.includes('--priority <priority>')) {
       pass('catalog includes issue:create priority option');
     } else {
       fail('catalog is missing issue:create priority option');
@@ -96,15 +89,10 @@ const main = async (): Promise<void> => {
     failed += 1;
   }
 
-  console.log(
-    chalk.bold('Test 3: README command docs include priority option'),
-  );
+  console.log(chalk.bold('Test 3: README command docs include priority option'));
   try {
     const readme = fs.readFileSync(readmePath, 'utf8');
-    if (
-      readme.includes('BEGIN GENERATED COMMAND DOCS: issue:create') &&
-      readme.includes('`--priority <priority>`')
-    ) {
+    if (readme.includes('BEGIN GENERATED COMMAND DOCS: issue:create') && readme.includes('`--priority <priority>`')) {
       pass('README issue:create docs include priority option');
     } else {
       fail('README issue:create docs are missing priority option');

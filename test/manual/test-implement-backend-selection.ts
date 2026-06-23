@@ -47,18 +47,9 @@ function main(): void {
   console.log(chalk.bold('\nImplement backend selection smoke test\n'));
 
   // 1. ImplementBackendName only includes anthropic-agent and openai-agent
-  const validNames: ImplementBackendName[] = [
-    'anthropic-agent',
-    'openai-agent',
-  ];
-  assert(
-    'ImplementBackendName includes anthropic-agent',
-    validNames.includes('anthropic-agent'),
-  );
-  assert(
-    'ImplementBackendName includes openai-agent',
-    validNames.includes('openai-agent'),
-  );
+  const validNames: ImplementBackendName[] = ['anthropic-agent', 'openai-agent'];
+  assert('ImplementBackendName includes anthropic-agent', validNames.includes('anthropic-agent'));
+  assert('ImplementBackendName includes openai-agent', validNames.includes('openai-agent'));
 
   // 2. formatBackendSelection renders the simplified format
   const anthropicSelection: ImplementBackendSelection = {
@@ -69,9 +60,8 @@ function main(): void {
   const anthropicResult = formatBackendSelection(anthropicSelection);
   assert(
     'formatBackendSelection renders anthropic without redundant configured field',
-    anthropicResult ===
-      'Implement backend: anthropic-agent (provider: anthropic)',
-    `got: ${anthropicResult}`,
+    anthropicResult === 'Implement backend: anthropic-agent (provider: anthropic)',
+    `got: ${anthropicResult}`
   );
 
   const openaiSelection: ImplementBackendSelection = {
@@ -83,21 +73,21 @@ function main(): void {
   assert(
     'formatBackendSelection renders openai without redundant configured field',
     openaiResult === 'Implement backend: openai-agent (provider: openai)',
-    `got: ${openaiResult}`,
+    `got: ${openaiResult}`
   );
 
   // 3. formatBackendSelection does not include "configured:" in output
   assert(
     'formatBackendSelection output does not contain "configured:"',
     !anthropicResult.includes('configured:'),
-    `got: ${anthropicResult}`,
+    `got: ${anthropicResult}`
   );
 
   // 4. formatBackendSelection does not include "reason:" in output
   assert(
     'formatBackendSelection output does not contain "reason:"',
     !anthropicResult.includes('reason:'),
-    `got: ${anthropicResult}`,
+    `got: ${anthropicResult}`
   );
 
   // 5. ImplementRunArtifact compiles without fallbackReason
@@ -112,14 +102,11 @@ function main(): void {
   };
   assert(
     'ImplementRunArtifact compiles without fallbackReason',
-    runArtifact.ticketKey === 'TEST-1' && !('fallbackReason' in runArtifact),
+    runArtifact.ticketKey === 'TEST-1' && !('fallbackReason' in runArtifact)
   );
 
   // 6. ImplementBackendSelection compiles without fallbackReason
-  assert(
-    'ImplementBackendSelection compiles without fallbackReason',
-    !('fallbackReason' in anthropicSelection),
-  );
+  assert('ImplementBackendSelection compiles without fallbackReason', !('fallbackReason' in anthropicSelection));
 
   console.log(chalk.bold('\nSummary'));
   console.log(`  Passed: ${passed}`);

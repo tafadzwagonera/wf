@@ -19,7 +19,7 @@ jest.mock('chalk', () => {
       'white',
       'gray',
       'grey',
-    ].forEach((name) => {
+    ].forEach(name => {
       chain[name] = identity;
     });
     return chain;
@@ -105,35 +105,22 @@ describe('IssueGenerateLookupCommand', () => {
     const command = module.get(IssueGenerateLookupCommand);
     const artifactDir = path.join(os.homedir(), '.wf', 'consumer-app', 'jira');
 
-    (
-      fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-    ).mockReturnValue(true);
-    (
-      fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>
-    ).mockReturnValue([
+    (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReturnValue(true);
+    (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockReturnValue([
       '2026-04-16-1a2b3c4d-ticket-description.sources.json',
     ] as any);
-    (
-      fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>
-    ).mockReturnValue(
+    (fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>).mockReturnValue(
       JSON.stringify({
-        artifactPath: path.join(
-          artifactDir,
-          '2026-04-16-1a2b3c4d-ticket-description.md',
-        ),
+        artifactPath: path.join(artifactDir, '2026-04-16-1a2b3c4d-ticket-description.md'),
         createdAt: '2026-04-16T00:00:00.000Z',
         hash: '1a2b3c4d',
         sources: ['https://example.com/spec', './notes.md'],
-      }),
+      })
     );
 
     await command.run(['1a2b3c4d']);
 
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      expect.stringContaining('https://example.com/spec'),
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      expect.stringContaining('./notes.md'),
-    );
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('https://example.com/spec'));
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('./notes.md'));
   });
 });

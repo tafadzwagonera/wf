@@ -5,13 +5,8 @@
  * @param previous Previously parsed repo values for repeated parser invocations
  * @returns Trimmed non-empty repository values in input order
  */
-export const parseReposOption = (
-  value: string | string[],
-  previous: string[] = [],
-): string[] => {
-  const nextValues = (Array.isArray(value) ? value : [value])
-    .map((repo) => repo.trim())
-    .filter(Boolean);
+export const parseReposOption = (value: string | string[], previous: string[] = []): string[] => {
+  const nextValues = (Array.isArray(value) ? value : [value]).map(repo => repo.trim()).filter(Boolean);
 
   return [...previous, ...nextValues];
 };

@@ -1,11 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsEnum,
-  IsDate,
-  IsArray,
-  IsObject,
-} from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsDate, IsArray, IsObject } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum TicketType {

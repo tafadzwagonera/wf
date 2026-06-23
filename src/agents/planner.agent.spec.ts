@@ -40,7 +40,7 @@ describe('PlannerAgent', () => {
       {
         action: 'fix',
         affectedRepositories: ['repo-a'],
-      },
+      }
     );
 
     expect(planStageService.createPlanArtifact).toHaveBeenCalledWith(
@@ -52,7 +52,7 @@ describe('PlannerAgent', () => {
       {
         action: 'fix',
         affectedRepositories: ['repo-a'],
-      },
+      }
     );
   });
 });

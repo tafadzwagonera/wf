@@ -15,9 +15,7 @@ const capturedMessages: string[] = [];
 };
 
 const runTest = async () => {
-  console.log(
-    chalk.bold('\n--- Test: message budget in conversation prompt ---\n'),
-  );
+  console.log(chalk.bold('\n--- Test: message budget in conversation prompt ---\n'));
 
   const cases = [
     { turn: 1, maxTurns: 20, expected: '19 turns left (1/20)' },
@@ -38,7 +36,7 @@ const runTest = async () => {
     console.log(
       ok ? chalk.green('  PASS') : chalk.red('  FAIL'),
       `turn=${turn}, maxTurns=${maxTurns}`,
-      ok ? `contains "${expected}"` : `expected "${expected}" in "${message}"`,
+      ok ? `contains "${expected}"` : `expected "${expected}" in "${message}"`
     );
 
     if (ok) passed += 1;
@@ -48,7 +46,7 @@ const runTest = async () => {
   console.log(
     passed === cases.length
       ? chalk.green(`All ${cases.length} cases passed.`)
-      : chalk.red(`${passed}/${cases.length} cases passed.`),
+      : chalk.red(`${passed}/${cases.length} cases passed.`)
   );
   console.log(chalk.bold('\n--- End of test ---\n'));
 

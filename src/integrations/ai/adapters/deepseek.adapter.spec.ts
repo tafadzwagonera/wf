@@ -26,7 +26,7 @@ describe('DeepSeekAdapter', () => {
         model: 'deepseek-reasoner',
         default: true,
       },
-    ],
+    ]
   ): DeepSeekAdapter => {
     const mockConfigService = {
       get: jest.fn((key: string, defaultValue?: unknown) => {
@@ -42,9 +42,7 @@ describe('DeepSeekAdapter', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (
-      loadAiContextConfig as jest.MockedFunction<typeof loadAiContextConfig>
-    ).mockResolvedValue('');
+    (loadAiContextConfig as jest.MockedFunction<typeof loadAiContextConfig>).mockResolvedValue('');
   });
 
   describe('execute', () => {
@@ -60,8 +58,7 @@ describe('DeepSeekAdapter', () => {
       } as unknown as OpenAI;
       (adapter as unknown as { model: string }).model = 'deepseek-reasoner';
       (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
-      (adapter as unknown as { contextConfig: string }).contextConfig =
-        '## Project Config\nrules\n\n';
+      (adapter as unknown as { contextConfig: string }).contextConfig = '## Project Config\nrules\n\n';
 
       await adapter.execute({
         prompt: 'hello',
@@ -76,7 +73,7 @@ describe('DeepSeekAdapter', () => {
               content: '## Project Config\nrules\n\noriginal prompt',
             },
           ]),
-        }),
+        })
       );
     });
 
@@ -101,14 +98,12 @@ describe('DeepSeekAdapter', () => {
       (adapter as unknown as { model: string }).model = 'deepseek-reasoner';
       (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
 
-      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject(
-        {
-          content: '',
-          provider: 'deepseek',
-          model: 'deepseek-reasoner',
-          finishReason: 'length',
-        },
-      );
+      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject({
+        content: '',
+        provider: 'deepseek',
+        model: 'deepseek-reasoner',
+        finishReason: 'length',
+      });
     });
   });
 
@@ -122,7 +117,7 @@ describe('DeepSeekAdapter', () => {
         path.join(os.homedir(), '.deepseek', 'DEEPSEEK.md'),
         'DEEPSEEK.md',
         'deepseek',
-        true,
+        true
       );
     });
 
@@ -140,7 +135,7 @@ describe('DeepSeekAdapter', () => {
         path.join(os.homedir(), '.deepseek', 'DEEPSEEK.md'),
         'DEEPSEEK.md',
         'deepseek',
-        false,
+        false
       );
     });
   });

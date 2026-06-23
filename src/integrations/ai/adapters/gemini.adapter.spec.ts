@@ -20,9 +20,7 @@ describe('GeminiAdapter', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (
-      loadAiContextConfig as jest.MockedFunction<typeof loadAiContextConfig>
-    ).mockResolvedValue('');
+    (loadAiContextConfig as jest.MockedFunction<typeof loadAiContextConfig>).mockResolvedValue('');
   });
 
   const createAdapter = (configOverrides?: Record<string, string | number>) => {
@@ -79,7 +77,7 @@ describe('GeminiAdapter', () => {
           generationConfig: expect.objectContaining({
             maxOutputTokens: 8192,
           }),
-        }),
+        })
       );
     });
 
@@ -111,7 +109,7 @@ describe('GeminiAdapter', () => {
           generationConfig: expect.objectContaining({
             maxOutputTokens: 4096,
           }),
-        }),
+        })
       );
     });
 
@@ -137,15 +135,13 @@ describe('GeminiAdapter', () => {
       (adapter as unknown as { model: string }).model = 'gemini-2.5-pro';
       (adapter as unknown as { maxTokens: number }).maxTokens = 8192;
 
-      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject(
-        {
-          content: '   ',
-          provider: 'google',
-          model: 'gemini-2.5-pro',
-          finishReason: 'STOP',
-          contentTypes: ['text'],
-        },
-      );
+      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject({
+        content: '   ',
+        provider: 'google',
+        model: 'gemini-2.5-pro',
+        finishReason: 'STOP',
+        contentTypes: ['text'],
+      });
     });
   });
 
@@ -159,7 +155,7 @@ describe('GeminiAdapter', () => {
         path.join(os.homedir(), '.gemini', 'GEMINI.md'),
         'GEMINI.md',
         'gemini',
-        true,
+        true
       );
     });
   });

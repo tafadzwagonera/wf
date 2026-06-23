@@ -19,9 +19,7 @@ describe('SlackService', () => {
       if (key === 'slack.botToken') return 'xoxb-test-token';
       return undefined;
     });
-    slackService = new SlackService(
-      mockConfigService as unknown as ConfigService,
-    );
+    slackService = new SlackService(mockConfigService as unknown as ConfigService);
   });
 
   describe('fetchChannelHistory', () => {
@@ -45,7 +43,7 @@ describe('SlackService', () => {
         'https://slack.com/api/conversations.history',
         expect.objectContaining({
           params: { channel: 'C0AP5MMCP53', limit: 50 },
-        }),
+        })
       );
       expect(result).toEqual({
         channelId: 'C0AP5MMCP53',
@@ -67,10 +65,8 @@ describe('SlackService', () => {
         },
       } as any);
 
-      await expect(
-        slackService.fetchChannelHistory('C0AP5MMCP53', 50),
-      ).rejects.toThrow(
-        'Slack bot is not a member of channel C0AP5MMCP53. Invite it first: open the channel in Slack and run /invite @<your-bot-name>',
+      await expect(slackService.fetchChannelHistory('C0AP5MMCP53', 50)).rejects.toThrow(
+        'Slack bot is not a member of channel C0AP5MMCP53. Invite it first: open the channel in Slack and run /invite @<your-bot-name>'
       );
     });
 
@@ -82,10 +78,8 @@ describe('SlackService', () => {
         },
       } as any);
 
-      await expect(
-        slackService.fetchChannelHistory('C0AP5MMCP53', 50),
-      ).rejects.toThrow(
-        'Slack channel C0AP5MMCP53 not found. Check the permalink, ensure the token has access to the workspace, or configure slack.userToken for DM/MPDM conversations.',
+      await expect(slackService.fetchChannelHistory('C0AP5MMCP53', 50)).rejects.toThrow(
+        'Slack channel C0AP5MMCP53 not found. Check the permalink, ensure the token has access to the workspace, or configure slack.userToken for DM/MPDM conversations.'
       );
     });
 
@@ -97,9 +91,9 @@ describe('SlackService', () => {
         },
       } as any);
 
-      await expect(
-        slackService.fetchChannelHistory('C0AP5MMCP53', 50),
-      ).rejects.toThrow('Slack API error: internal_error');
+      await expect(slackService.fetchChannelHistory('C0AP5MMCP53', 50)).rejects.toThrow(
+        'Slack API error: internal_error'
+      );
     });
 
     it('retries with a configured user token when the bot token cannot resolve the conversation', async () => {
@@ -137,7 +131,7 @@ describe('SlackService', () => {
         expect.objectContaining({
           params: { channel: 'C0AP5MMCP53', limit: 50 },
           headers: { Authorization: 'Bearer xoxb-test-token' },
-        }),
+        })
       );
       expect(mockAxios.get).toHaveBeenNthCalledWith(
         2,
@@ -145,7 +139,7 @@ describe('SlackService', () => {
         expect.objectContaining({
           params: { channel: 'C0AP5MMCP53', limit: 50 },
           headers: { Authorization: 'Bearer xoxp-test-token' },
-        }),
+        })
       );
       expect(result.messages[0].text).toBe('Recovered with user token');
     });

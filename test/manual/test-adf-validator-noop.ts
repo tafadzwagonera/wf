@@ -38,9 +38,7 @@ const assert = (label: string, condition: boolean, detail?: string): void => {
 };
 
 function main(): void {
-  console.log(
-    chalk.bold('\nverificationConditions no-op in issue:create smoke test\n'),
-  );
+  console.log(chalk.bold('\nverificationConditions no-op in issue:create smoke test\n'));
 
   // 1. Joi still accepts verificationConditions in stages.create
   try {
@@ -52,21 +50,17 @@ function main(): void {
           provider: 'anthropic',
           verificationConditions: {
             scripts: {
-              testVerifyRequestFormat:
-                'yarn test:manual -- test-verify-request-format',
+              testVerifyRequestFormat: 'yarn test:manual -- test-verify-request-format',
             },
           },
         },
       },
       tracker: 'jira',
     });
-    assert(
-      'Joi accepts verificationConditions in stages.create',
-      config != null,
-    );
+    assert('Joi accepts verificationConditions in stages.create', config != null);
     assert(
       'Normalised config has verificationConditions populated',
-      config.stages?.create?.verificationConditions != null,
+      config.stages?.create?.verificationConditions != null
     );
   } catch (error) {
     fail('Joi accepts verificationConditions in stages.create', String(error));
@@ -85,49 +79,27 @@ function main(): void {
       },
       tracker: 'jira',
     });
-    assert(
-      'Config without verificationConditions in create stage is valid',
-      config != null,
-    );
+    assert('Config without verificationConditions in create stage is valid', config != null);
   } catch (error) {
-    fail(
-      'Config without verificationConditions in create stage is valid',
-      String(error),
-    );
+    fail('Config without verificationConditions in create stage is valid', String(error));
   }
 
   // 3. The compiled command file no longer imports spawnSync or child_process
-  const commandDistPath = path.join(
-    __dirname,
-    '../../dist/commands/issue-create.command.js',
-  );
-  const commandSrcPath = path.join(
-    __dirname,
-    '../../src/commands/issue-create.command.ts',
-  );
+  const commandDistPath = path.join(__dirname, '../../dist/commands/issue-create.command.js');
+  const commandSrcPath = path.join(__dirname, '../../src/commands/issue-create.command.ts');
 
-  const filePath = fs.existsSync(commandDistPath)
-    ? commandDistPath
-    : commandSrcPath;
+  const filePath = fs.existsSync(commandDistPath) ? commandDistPath : commandSrcPath;
   const source = fs.readFileSync(filePath, 'utf-8');
 
-  assert(
-    'issue-create.command does not import child_process',
-    !source.includes('child_process'),
-  );
-  assert(
-    'issue-create.command does not reference spawnSync',
-    !source.includes('spawnSync'),
-  );
+  assert('issue-create.command does not import child_process', !source.includes('child_process'));
+  assert('issue-create.command does not reference spawnSync', !source.includes('spawnSync'));
   assert(
     'issue-create.command does not reference validateAndCorrectDescription',
-    !source.includes('validateAndCorrectDescription'),
+    !source.includes('validateAndCorrectDescription')
   );
 
   // Summary
-  console.log(
-    `\n${chalk.bold('Results:')} ${chalk.green(`${passed} passed`)}, ${chalk.red(`${failed} failed`)}\n`,
-  );
+  console.log(`\n${chalk.bold('Results:')} ${chalk.green(`${passed} passed`)}, ${chalk.red(`${failed} failed`)}\n`);
   if (failed > 0) process.exit(1);
 }
 

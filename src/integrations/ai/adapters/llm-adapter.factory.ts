@@ -6,11 +6,7 @@ import { AnthropicAdapter } from './anthropic.adapter';
 import { GeminiAdapter } from './gemini.adapter';
 import { DeepSeekAdapter } from './deepseek.adapter';
 import { OpenAIAdapter } from './openai.adapter';
-import type {
-  AIConversationRequest,
-  AIRequest,
-  AIResponse,
-} from '../ai.service';
+import type { AIConversationRequest, AIRequest, AIResponse } from '../ai.service';
 
 export const LlmAdapterFactory = {
   provide: LLM_ADAPTER,
@@ -20,13 +16,12 @@ export const LlmAdapterFactory = {
     anthropicAdapter: AnthropicAdapter,
     openaiAdapter: OpenAIAdapter,
     geminiAdapter: GeminiAdapter,
-    deepseekAdapter: DeepSeekAdapter,
+    deepseekAdapter: DeepSeekAdapter
   ): LlmAdapter => {
     void logger;
 
     const getAdapter = (provider?: string): LlmAdapter => {
-      const resolvedProvider =
-        provider ?? configService.get<string>('ai.provider', 'anthropic');
+      const resolvedProvider = provider ?? configService.get<string>('ai.provider', 'anthropic');
 
       if (resolvedProvider === 'openai') return openaiAdapter;
       if (resolvedProvider === 'google') return geminiAdapter;
@@ -38,19 +33,10 @@ export const LlmAdapterFactory = {
       async execute(request: AIRequest): Promise<AIResponse> {
         return getAdapter(request.provider).execute(request);
       },
-      async executeWithHistory(
-        request: AIConversationRequest,
-      ): Promise<AIResponse> {
+      async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
         return getAdapter(request.provider).executeWithHistory(request);
       },
     };
   },
-  inject: [
-    ConfigService,
-    LoggerService,
-    AnthropicAdapter,
-    OpenAIAdapter,
-    GeminiAdapter,
-    DeepSeekAdapter,
-  ],
+  inject: [ConfigService, LoggerService, AnthropicAdapter, OpenAIAdapter, GeminiAdapter, DeepSeekAdapter],
 };

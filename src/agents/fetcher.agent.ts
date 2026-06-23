@@ -15,36 +15,23 @@ export class FetcherAgent {
    * @param options - Fetch options including trackerName, optional repo override, and skipExisting flag
    * @returns The TicketArtifact with key, markdown content, and file path
    */
-  async execute(
-    ticketKey: string,
-    options: FetcherOptions,
-  ): Promise<TicketArtifact> {
+  async execute(ticketKey: string, options: FetcherOptions): Promise<TicketArtifact> {
     if (!options.silent) {
       console.log(chalk.bold.yellow('📋 STAGE 1: Fetch Ticket'));
       console.log(chalk.gray('─'.repeat(70)));
     }
-    const artifact = await this.fetchStageService.fetchArtifact(
-      ticketKey,
-      options,
-    );
+    const artifact = await this.fetchStageService.fetchArtifact(ticketKey, options);
     const titleMatch = artifact.content.match(/^#\s+[^:]+:\s+(.+)$/m);
     if (!options.silent) {
       if (artifact.fromCache) {
-        console.log(
-          chalk.yellow(`⚠️  Using existing FETCH artifact: ${artifact.path}`),
-        );
+        console.log(chalk.yellow(`⚠️  Using existing FETCH artifact: ${artifact.path}`));
       } else if (options.skipExisting === false) {
-        console.log(
-          chalk.yellow(`⚠️  --force enabled; overwrote ticket artifact`),
-        );
+        console.log(chalk.yellow(`⚠️  --force enabled; overwrote ticket artifact`));
         console.log(chalk.green('✓ Ticket refetched'));
       } else {
         console.log(chalk.green('✓ Ticket fetched'));
       }
-      console.log(
-        chalk.bold('  Title:'),
-        chalk.bold.cyan(titleMatch?.[1] ?? ticketKey),
-      );
+      console.log(chalk.bold('  Title:'), chalk.bold.cyan(titleMatch?.[1] ?? ticketKey));
       console.log(chalk.gray(`  Saved to: ${artifact.path}`));
     }
     return artifact;
@@ -63,13 +50,9 @@ export class FetcherAgent {
     ticketKey: string,
     trackerName: string,
     baseDir: string = process.cwd(),
-    silent?: boolean,
+    silent?: boolean
   ): TicketArtifact {
-    const artifact = this.fetchStageService.loadArtifact(
-      ticketKey,
-      trackerName,
-      baseDir,
-    );
+    const artifact = this.fetchStageService.loadArtifact(ticketKey, trackerName, baseDir);
     if (!silent) {
       console.log(chalk.gray(`📋 Using existing ticket: ${artifact.path}`));
     }

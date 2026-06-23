@@ -31,10 +31,7 @@ const assert = (label: string, condition: boolean): void => {
  * Scans for `inquirer.prompt(` or `this.inquirer(` call sites, then checks
  * whether each question object in the array contains `prefix:`.
  */
-const findMissingPrefix = (
-  file: string,
-  content: string,
-): { line: number; text: string }[] => {
+const findMissingPrefix = (file: string, content: string): { line: number; text: string }[] => {
   const lines = content.split('\n');
   const violations: { line: number; text: string }[] = [];
 
@@ -71,9 +68,7 @@ const findMissingPrefix = (
 };
 
 const run = async (): Promise<void> => {
-  console.log(
-    chalk.bold('\nSmoke test: inquirer prompts suppress default `?` prefix\n'),
-  );
+  console.log(chalk.bold('\nSmoke test: inquirer prompts suppress default `?` prefix\n'));
 
   const srcDir = path.resolve(__dirname, '../../src');
   const tsFiles: string[] = [];
@@ -82,11 +77,7 @@ const run = async (): Promise<void> => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) collectTs(full);
-      if (
-        entry.isFile() &&
-        entry.name.endsWith('.ts') &&
-        !entry.name.endsWith('.spec.ts')
-      ) {
+      if (entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts')) {
         tsFiles.push(full);
       }
     }
@@ -98,10 +89,7 @@ const run = async (): Promise<void> => {
   for (const file of tsFiles) {
     const content = fs.readFileSync(file, 'utf-8');
     // Only check files that call inquirer.prompt or this.inquirer
-    if (
-      !content.includes('inquirer.prompt') &&
-      !content.includes('this.inquirer')
-    ) {
+    if (!content.includes('inquirer.prompt') && !content.includes('this.inquirer')) {
       continue;
     }
     const violations = findMissingPrefix(file, content);
@@ -111,10 +99,7 @@ const run = async (): Promise<void> => {
     }
   }
 
-  assert(
-    'All inquirer prompt objects set prefix to suppress the default `?`',
-    allViolations.length === 0,
-  );
+  assert('All inquirer prompt objects set prefix to suppress the default `?`', allViolations.length === 0);
 
   if (allViolations.length > 0) {
     console.log(chalk.yellow("\n  Missing `prefix: ''` in:"));
@@ -124,9 +109,7 @@ const run = async (): Promise<void> => {
   }
 
   // Summary
-  console.log(
-    `\n${chalk.bold('Results:')} ${chalk.green(`${passed} passed`)}, ${chalk.red(`${failed} failed`)}\n`,
-  );
+  console.log(`\n${chalk.bold('Results:')} ${chalk.green(`${passed} passed`)}, ${chalk.red(`${failed} failed`)}\n`);
 
   if (failed > 0) process.exit(1);
 };

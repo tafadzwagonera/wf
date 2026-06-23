@@ -14,22 +14,12 @@ describe('main bootstrap', () => {
 
   describe('startup-time command failures', () => {
     it('exits with code 1 when bootstrap rejects during command startup', async () => {
-      const exitSpy = jest
-        .spyOn(process, 'exit')
-        .mockImplementation(((_code?: number) => undefined) as never);
-      const consoleErrorSpy = jest
-        .spyOn(console, 'error')
-        .mockImplementation(() => {});
+      const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((_code?: number) => undefined) as never);
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
       jest.doMock('nest-commander', () => ({
         CommandFactory: {
-          run: jest
-            .fn()
-            .mockRejectedValue(
-              new Error(
-                'Criteria file must be a Markdown (.md) file: criteria.txt',
-              ),
-            ),
+          run: jest.fn().mockRejectedValue(new Error('Criteria file must be a Markdown (.md) file: criteria.txt')),
         },
       }));
       jest.doMock('./bootstrap/is-help-invocation', () => ({
@@ -47,13 +37,11 @@ describe('main bootstrap', () => {
 
       await jest.isolateModulesAsync(async () => {
         require('./main');
-        await new Promise((resolve) => setImmediate(resolve));
+        await new Promise(resolve => setImmediate(resolve));
       });
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          'Criteria file must be a Markdown (.md) file: criteria.txt',
-        ),
+        expect.stringContaining('Criteria file must be a Markdown (.md) file: criteria.txt')
       );
       expect(exitSpy).toHaveBeenCalledWith(1);
     });

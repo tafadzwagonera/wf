@@ -31,10 +31,7 @@ async function diagnose() {
   console.log(chalk.bold('Configuration:'));
   console.log(chalk.gray('Base URL:'), chalk.white(baseUrl));
   console.log(chalk.gray('Email:'), chalk.white(email));
-  console.log(
-    chalk.gray('Token:'),
-    chalk.white(apiToken?.substring(0, 10) + '...'),
-  );
+  console.log(chalk.gray('Token:'), chalk.white(apiToken?.substring(0, 10) + '...'));
   console.log();
 
   // Test 1: Get current user
@@ -45,14 +42,8 @@ async function diagnose() {
     });
     console.log(chalk.green('✓ Success'));
     console.log(chalk.gray('  User:'), chalk.white(response.data.displayName));
-    console.log(
-      chalk.gray('  Email:'),
-      chalk.white(response.data.emailAddress),
-    );
-    console.log(
-      chalk.gray('  Account ID:'),
-      chalk.white(response.data.accountId),
-    );
+    console.log(chalk.gray('  Email:'), chalk.white(response.data.emailAddress));
+    console.log(chalk.gray('  Account ID:'), chalk.white(response.data.accountId));
     console.log();
   } catch (error: any) {
     console.log(chalk.red('✗ Failed:'), error.response?.status, error.message);
@@ -66,19 +57,13 @@ async function diagnose() {
       headers,
     });
     console.log(chalk.green('✓ Success'));
-    console.log(
-      chalk.gray('  Permissions:'),
-      Object.keys(response.data.permissions).length,
-    );
+    console.log(chalk.gray('  Permissions:'), Object.keys(response.data.permissions).length);
 
     // Check key permissions
     const keyPerms = ['BROWSE_PROJECTS', 'CREATE_ISSUES', 'EDIT_ISSUES'];
-    keyPerms.forEach((perm) => {
+    keyPerms.forEach(perm => {
       const hasPerm = response.data.permissions[perm]?.havePermission;
-      console.log(
-        chalk.gray(`  ${perm}:`),
-        hasPerm ? chalk.green('✓') : chalk.red('✗'),
-      );
+      console.log(chalk.gray(`  ${perm}:`), hasPerm ? chalk.green('✓') : chalk.red('✗'));
     });
     console.log();
   } catch (error: any) {
@@ -94,22 +79,13 @@ async function diagnose() {
     });
     console.log(chalk.green('✓ Success! Ticket found'));
     console.log(chalk.gray('  Key:'), chalk.white(response.data.key));
-    console.log(
-      chalk.gray('  Summary:'),
-      chalk.white(response.data.fields.summary),
-    );
-    console.log(
-      chalk.gray('  Status:'),
-      chalk.white(response.data.fields.status.name),
-    );
+    console.log(chalk.gray('  Summary:'), chalk.white(response.data.fields.summary));
+    console.log(chalk.gray('  Status:'), chalk.white(response.data.fields.status.name));
     console.log();
   } catch (error: any) {
     console.log(chalk.red('✗ Failed:'), error.response?.status);
     if (error.response?.data) {
-      console.log(
-        chalk.red('  Error:'),
-        error.response.data.errorMessages?.join(', '),
-      );
+      console.log(chalk.red('  Error:'), error.response.data.errorMessages?.join(', '));
     }
     console.log();
   }
@@ -124,13 +100,10 @@ async function diagnose() {
         maxResults: 1,
         fields: ['summary', 'status'],
       },
-      { headers },
+      { headers }
     );
     console.log(chalk.green('✓ Success'));
-    console.log(
-      chalk.gray('  Response:'),
-      JSON.stringify(response.data, null, 2).substring(0, 500),
-    );
+    console.log(chalk.gray('  Response:'), JSON.stringify(response.data, null, 2).substring(0, 500));
     console.log(chalk.gray('  Total found:'), chalk.white(response.data.total));
     if (response.data.issues && response.data.issues.length > 0) {
       const issue = response.data.issues[0];
@@ -141,10 +114,7 @@ async function diagnose() {
   } catch (error: any) {
     console.log(chalk.red('✗ Failed:'), error.response?.status);
     if (error.response?.data) {
-      console.log(
-        chalk.red('  Error:'),
-        error.response.data.errorMessages?.join(', '),
-      );
+      console.log(chalk.red('  Error:'), error.response.data.errorMessages?.join(', '));
     }
     console.log();
   }
@@ -156,10 +126,7 @@ async function diagnose() {
       headers,
     });
     console.log(chalk.green('✓ Success'));
-    console.log(
-      chalk.gray('  Projects found:'),
-      chalk.white(response.data.length),
-    );
+    console.log(chalk.gray('  Projects found:'), chalk.white(response.data.length));
     response.data.slice(0, 5).forEach((project: any) => {
       console.log(chalk.gray(`  - ${project.key}:`), chalk.white(project.name));
     });

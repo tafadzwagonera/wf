@@ -9,8 +9,7 @@ describe('MarkdownConverter', () => {
 
   describe('parse', () => {
     it('strips inline markdown delimiters from the parsed title', () => {
-      const ticket =
-        converter.parse(`# Fix \`service-document\` startup failures
+      const ticket = converter.parse(`# Fix \`service-document\` startup failures
 
 **Type:** bug
 **Priority:** low

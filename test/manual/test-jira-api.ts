@@ -32,19 +32,13 @@ async function testJiraApi() {
 
     console.log('✓ Success!');
     console.log('Status:', response.status);
-    console.log(
-      'Response Data:',
-      JSON.stringify(response.data, null, 2).substring(0, 1000),
-    );
+    console.log('Response Data:', JSON.stringify(response.data, null, 2).substring(0, 1000));
     console.log();
   } catch (error: any) {
     console.error('✗ Error:', error.message);
     if (error.response) {
       console.error('Status:', error.response.status);
-      console.error(
-        'Data:',
-        JSON.stringify(error.response.data, null, 2).substring(0, 500),
-      );
+      console.error('Data:', JSON.stringify(error.response.data, null, 2).substring(0, 500));
     }
   }
 }

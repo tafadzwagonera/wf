@@ -2,23 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
-import {
-  AiService,
-  CodeReview,
-  requireAiResponseContent,
-} from '../../integrations/ai/ai.service';
-import {
-  formatReviewCallStack,
-  formatReviewStateTransition,
-} from '../../integrations/ai/review-trace';
+import { AiService, CodeReview, requireAiResponseContent } from '../../integrations/ai/ai.service';
+import { formatReviewCallStack, formatReviewStateTransition } from '../../integrations/ai/review-trace';
 import { ReviewArtifact, TicketArtifact } from '../../agents/interfaces';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import { buildCodeReviewPresentation } from '../../review/code-review-post-processing';
-import {
-  splitDiffByFile,
-  summariseDiff,
-  MAX_REVIEW_DIFF_LENGTH,
-} from '../../review/summarise-diff';
+import { splitDiffByFile, summariseDiff, MAX_REVIEW_DIFF_LENGTH } from '../../review/summarise-diff';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 
 const DEFAULT_REVIEW_GUIDELINES = [
@@ -47,13 +36,10 @@ export class ReviewStageService {
   constructor(
     private readonly aiService: AiService,
     private readonly configService: ConfigService,
-    private readonly stageAgentService: StageAgentService,
+    private readonly stageAgentService: StageAgentService
   ) {}
 
-  async reviewDiff(
-    diff: string,
-    options: ReviewDiffOptions,
-  ): Promise<CodeReview> {
+  async reviewDiff(diff: string, options: ReviewDiffOptions): Promise<CodeReview> {
     const guidelines = options.replaceCriteria
       ? [...(options.extraCriteria ?? [])]
       : [
@@ -81,52 +67,31 @@ export class ReviewStageService {
         stage: 'review',
       });
 
-      return requireAiResponseContent(
-        response,
-        'AI provider returned an empty review summary response',
-      );
+      return requireAiResponseContent(response, 'AI provider returned an empty review summary response');
     };
 
-    const processedDiff = await summariseDiff(
-      segments,
-      MAX_REVIEW_DIFF_LENGTH,
-      summariseCallback,
-    );
+    const processedDiff = await summariseDiff(segments, MAX_REVIEW_DIFF_LENGTH, summariseCallback);
 
     const review = this.stageAgentService.isEnabledForStage('review')
-      ? await this.stageAgentService.reviewCode(
-          processedDiff,
-          guidelines,
-          options.repoDir,
-        )
+      ? await this.stageAgentService.reviewCode(processedDiff, guidelines, options.repoDir)
       : await this.aiService.reviewCode(processedDiff, guidelines);
 
     if (review.executionMode) {
       return review;
     }
 
-    const backend = this.configService.get<string>(
-      'stages.review.backend',
-      resolveDefaultStageBackend('review'),
-    );
+    const backend = this.configService.get<string>('stages.review.backend', resolveDefaultStageBackend('review'));
 
     return {
       ...review,
-      executionMode:
-        backend === 'agent' || backend === 'cli' ? 'agent' : 'standard',
+      executionMode: backend === 'agent' || backend === 'cli' ? 'agent' : 'standard',
     };
   }
 
-  createReviewArtifact(
-    ticket: TicketArtifact,
-    review: CodeReview,
-  ): ReviewArtifact {
+  createReviewArtifact(ticket: TicketArtifact, review: CodeReview): ReviewArtifact {
     const reviewPath = ticket.path.replace('.md', '-review.md');
     fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
-    fs.writeFileSync(
-      reviewPath,
-      this.formatReviewMarkdown(ticket.ticketKey, review),
-    );
+    fs.writeFileSync(reviewPath, this.formatReviewMarkdown(ticket.ticketKey, review));
 
     return {
       review,
@@ -138,9 +103,7 @@ export class ReviewStageService {
   private formatReviewMarkdown(ticketKey: string, review: CodeReview): string {
     const presentation = buildCodeReviewPresentation(review);
     const callStackSection = this.formatCallStackMarkdown(review.callStack);
-    const stateTransitionSection = this.formatStateTransitionMarkdown(
-      review.stateTransition,
-    );
+    const stateTransitionSection = this.formatStateTransitionMarkdown(review.stateTransition);
     const provenanceSection = this.formatTraceProvenance(review);
     const issuesSection =
       presentation.issueRows.length > 0
@@ -151,13 +114,13 @@ export class ReviewStageService {
                 suggestion ? `  - Suggestion: ${suggestion}` : null,
               ]
                 .filter((line): line is string => line != null)
-                .join('\n'),
+                .join('\n')
             )
             .join('\n')
         : '- None';
     const trailingSuggestionsSection =
       presentation.unmatchedSuggestions.length > 0
-        ? `\n## Suggestions\n${presentation.unmatchedSuggestions.map((suggestion) => `- ${suggestion}`).join('\n')}\n`
+        ? `\n## Suggestions\n${presentation.unmatchedSuggestions.map(suggestion => `- ${suggestion}`).join('\n')}\n`
         : '\n';
 
     return `# Code Review: ${ticketKey}
@@ -184,8 +147,7 @@ ${review.approved ? '✓ Approved' : '✗ Changes needed'}
 
   private resolveTraceProvenance(review: CodeReview): string {
     const hasStructuredTrace =
-      Boolean(review.callStack?.length) ||
-      Object.keys(review.stateTransition ?? {}).length > 0;
+      Boolean(review.callStack?.length) || Object.keys(review.stateTransition ?? {}).length > 0;
     if (!hasStructuredTrace || review.traceProvenance === 'unavailable') {
       return 'unavailable';
     }
@@ -227,14 +189,10 @@ ${review.approved ? '✓ Approved' : '✗ Changes needed'}
 
   private formatCallStackMarkdown(callStack?: CodeReview['callStack']): string {
     const lines = formatReviewCallStack(callStack);
-    return lines.length > 0
-      ? lines.join('\n')
-      : '- (no structured call stack was returned)';
+    return lines.length > 0 ? lines.join('\n') : '- (no structured call stack was returned)';
   }
 
-  private formatStateTransitionMarkdown(
-    stateTransition?: CodeReview['stateTransition'],
-  ): string {
+  private formatStateTransitionMarkdown(stateTransition?: CodeReview['stateTransition']): string {
     const lines = formatReviewStateTransition(stateTransition);
     if (lines.length === 0) {
       return '```text\n(no structured state transition was returned)\n```';

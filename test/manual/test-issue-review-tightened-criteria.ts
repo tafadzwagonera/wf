@@ -31,18 +31,10 @@ const EXPECTED_CRITERIA = [
   'Testing',
 ];
 
-const REMOVED_CRITERIA = [
-  'Deletability',
-  'Proportionality',
-  'Quality',
-  'Simplicity',
-  'Structure',
-];
+const REMOVED_CRITERIA = ['Deletability', 'Proportionality', 'Quality', 'Simplicity', 'Structure'];
 
 async function run(): Promise<void> {
-  console.log(
-    '🧪 Manual smoke: tightened review criteria + second/third-order thinking\n',
-  );
+  console.log('🧪 Manual smoke: tightened review criteria + second/third-order thinking\n');
 
   let capturedGuidelines: string[] = [];
 
@@ -89,10 +81,10 @@ async function run(): Promise<void> {
   // ── Part 1: All 11 expected criteria are present ──
 
   for (const criterion of EXPECTED_CRITERIA) {
-    const found = capturedGuidelines.some((g) => g.startsWith(`${criterion}:`));
+    const found = capturedGuidelines.some(g => g.startsWith(`${criterion}:`));
     if (!found) {
       throw new Error(
-        `Expected "${criterion}" criterion in default guidelines. Got:\n${capturedGuidelines.join('\n')}`,
+        `Expected "${criterion}" criterion in default guidelines. Got:\n${capturedGuidelines.join('\n')}`
       );
     }
   }
@@ -102,35 +94,29 @@ async function run(): Promise<void> {
   // ── Part 2: Removed criteria are absent ──
 
   for (const removed of REMOVED_CRITERIA) {
-    const found = capturedGuidelines.some((g) => g.startsWith(`${removed}:`));
+    const found = capturedGuidelines.some(g => g.startsWith(`${removed}:`));
     if (found) {
-      throw new Error(
-        `Removed criterion "${removed}" should not appear in default guidelines.`,
-      );
+      throw new Error(`Removed criterion "${removed}" should not appear in default guidelines.`);
     }
   }
 
   console.log(
-    '  ✅ Part 2: Removed criteria (Deletability, Simplicity, Proportionality, Quality, Structure) are absent',
+    '  ✅ Part 2: Removed criteria (Deletability, Simplicity, Proportionality, Quality, Structure) are absent'
   );
 
   // ── Part 3: Guidelines are alphabetically ordered ──
 
   const criteriaNames = capturedGuidelines
-    .filter((g) => g.includes(':'))
+    .filter(g => g.includes(':'))
     .slice(0, 11)
-    .map((g) => g.split(':')[0]);
+    .map(g => g.split(':')[0]);
 
-  const sorted = [...criteriaNames].sort((a, b) =>
-    a.localeCompare(b, 'en', { sensitivity: 'base' }),
-  );
+  const sorted = [...criteriaNames].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
 
-  const isOrdered = criteriaNames.every(
-    (name, index) => name === sorted[index],
-  );
+  const isOrdered = criteriaNames.every((name, index) => name === sorted[index]);
   if (!isOrdered) {
     throw new Error(
-      `Guidelines are not alphabetically ordered.\nExpected: ${sorted.join(', ')}\nGot: ${criteriaNames.join(', ')}`,
+      `Guidelines are not alphabetically ordered.\nExpected: ${sorted.join(', ')}\nGot: ${criteriaNames.join(', ')}`
     );
   }
 
@@ -138,27 +124,17 @@ async function run(): Promise<void> {
 
   // ── Part 4: Second-order (Contracts) and third-order (Ripple effects) criteria have specific phrasing ──
 
-  const contractsGuideline = capturedGuidelines.find((g) =>
-    g.startsWith('Contracts:'),
-  );
+  const contractsGuideline = capturedGuidelines.find(g => g.startsWith('Contracts:'));
   if (!contractsGuideline?.includes('function signatures')) {
-    throw new Error(
-      'Contracts criterion must mention "function signatures" for second-order thinking.',
-    );
+    throw new Error('Contracts criterion must mention "function signatures" for second-order thinking.');
   }
 
-  const rippleGuideline = capturedGuidelines.find((g) =>
-    g.startsWith('Ripple effects:'),
-  );
+  const rippleGuideline = capturedGuidelines.find(g => g.startsWith('Ripple effects:'));
   if (!rippleGuideline?.includes('downstream consumers')) {
-    throw new Error(
-      'Ripple effects criterion must mention "downstream consumers" for third-order thinking.',
-    );
+    throw new Error('Ripple effects criterion must mention "downstream consumers" for third-order thinking.');
   }
 
-  console.log(
-    '  ✅ Part 4: Second-order (Contracts) and third-order (Ripple effects) phrasing verified',
-  );
+  console.log('  ✅ Part 4: Second-order (Contracts) and third-order (Ripple effects) phrasing verified');
 
   // ── Part 5: replaceCriteria bypasses defaults entirely ──
 
@@ -206,30 +182,22 @@ async function run(): Promise<void> {
     replaceCriteria: true,
   });
 
-  const hasDefault = replacedGuidelines.some((g) =>
-    g.startsWith('Boundaries:'),
-  );
+  const hasDefault = replacedGuidelines.some(g => g.startsWith('Boundaries:'));
   if (hasDefault) {
-    throw new Error(
-      'replaceCriteria=true should bypass all default guidelines.',
-    );
+    throw new Error('replaceCriteria=true should bypass all default guidelines.');
   }
 
-  const hasCustom = replacedGuidelines.some((g) => g.startsWith('Custom:'));
+  const hasCustom = replacedGuidelines.some(g => g.startsWith('Custom:'));
   if (!hasCustom) {
-    throw new Error(
-      'replaceCriteria=true should include the custom criterion.',
-    );
+    throw new Error('replaceCriteria=true should include the custom criterion.');
   }
 
   console.log('  ✅ Part 5: replaceCriteria bypasses defaults entirely');
 
-  console.log(
-    '\n✅ Manual smoke test passed: tightened review criteria + second/third-order thinking',
-  );
+  console.log('\n✅ Manual smoke test passed: tightened review criteria + second/third-order thinking');
 }
 
-run().catch((error) => {
+run().catch(error => {
   console.error(`❌ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

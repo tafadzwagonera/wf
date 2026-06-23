@@ -1,10 +1,7 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
-import {
-  ConversationContext,
-  WorkflowStage as ConvWorkflowStage,
-} from '../integrations/ai/conversation/interfaces';
+import { ConversationContext, WorkflowStage as ConvWorkflowStage } from '../integrations/ai/conversation/interfaces';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
@@ -98,7 +95,7 @@ export class IssueCommand extends CommandRunner {
     private configService: ConfigService,
     private dryRunPreview: DryRunPreviewService,
     private agents: AgentOrchestrator,
-    private readonly aiService: AiService,
+    private readonly aiService: AiService
   ) {
     super();
   }
@@ -114,8 +111,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--branch-name-pattern <pattern>',
-    description:
-      'Override branch name validation pattern from git.branchNamePattern config',
+    description: 'Override branch name validation pattern from git.branchNamePattern config',
   })
   parseBranchNamePattern(val: string): string {
     return val;
@@ -131,8 +127,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--force',
-    description:
-      'Force refetch and recreate all local artifacts, ignoring any cached files',
+    description: 'Force refetch and recreate all local artifacts, ignoring any cached files',
   })
   parseForce(): boolean {
     return true;
@@ -140,8 +135,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--from <stage>',
-    description:
-      'Start from stage (fetch|plan|implement|review|commit) [REQUIRED]',
+    description: 'Start from stage (fetch|plan|implement|review|commit) [REQUIRED]',
     required: true,
   })
   parseFrom(val: string): string {
@@ -155,9 +149,7 @@ export class IssueCommand extends CommandRunner {
   })
   parseModelRouting(val: string): string {
     if (!VALID_MODEL_ROUTINGS.includes(val as ModelRouting)) {
-      throw new Error(
-        `Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTINGS.join(', ')}`,
-      );
+      throw new Error(`Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTINGS.join(', ')}`);
     }
     return val;
   }
@@ -189,8 +181,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '-s, --silent',
-    description:
-      'Suppress decorative output and interactive prompts. Emits only artifact paths (per stage) for piping',
+    description: 'Suppress decorative output and interactive prompts. Emits only artifact paths (per stage) for piping',
   })
   parseSilent(): boolean {
     return true;
@@ -198,8 +189,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--to <stage>',
-    description:
-      'Stop at stage (fetch|plan|implement|review|commit) - defaults to commit',
+    description: 'Stop at stage (fetch|plan|implement|review|commit) - defaults to commit',
   })
   parseTo(val: string): string {
     return val;
@@ -222,8 +212,8 @@ export class IssueCommand extends CommandRunner {
         chalk.red(
           'Error: --no-branch and --branch-name-pattern are mutually exclusive.\n' +
             '  Use --no-branch to stay on the source branch, or\n' +
-            '  Use --branch-name-pattern <pattern> to validate a generated branch name.',
-        ),
+            '  Use --branch-name-pattern <pattern> to validate a generated branch name.'
+        )
       );
       process.exit(1);
     }
@@ -236,32 +226,16 @@ export class IssueCommand extends CommandRunner {
 
     if (!ticketKey) {
       console.error(chalk.red('Error: Ticket key is required'));
-      console.log(
-        chalk.gray(
-          'Usage: wf issue <ticket-key> --from <stage> [--to <stage>] [options]',
-        ),
-      );
-      console.log(
-        chalk.gray(
-          'Example: wf issue WBP-2971 --from fetch --to review --action fix\n',
-        ),
-      );
+      console.log(chalk.gray('Usage: wf issue <ticket-key> --from <stage> [--to <stage>] [options]'));
+      console.log(chalk.gray('Example: wf issue WBP-2971 --from fetch --to review --action fix\n'));
       process.exit(1);
     }
 
     if (!options?.from) {
       console.error(chalk.red('Error: --from option is required'));
-      console.log(
-        chalk.gray(
-          'Usage: wf issue <ticket-key> --from <stage> [--to <stage>] [options]',
-        ),
-      );
+      console.log(chalk.gray('Usage: wf issue <ticket-key> --from <stage> [--to <stage>] [options]'));
       console.log(chalk.gray('Stages: fetch|plan|implement|review|commit'));
-      console.log(
-        chalk.gray(
-          'Example: wf issue WBP-2971 --from fetch --to review --action fix\n',
-        ),
-      );
+      console.log(chalk.gray('Example: wf issue WBP-2971 --from fetch --to review --action fix\n'));
       process.exit(1);
     }
 
@@ -270,11 +244,8 @@ export class IssueCommand extends CommandRunner {
 
       // Parse stages first to determine if PLAN stage will run
       const fromStage = this.parseStage(options.from);
-      const toStage = options.to
-        ? this.parseStage(options.to)
-        : WorkflowStage.COMMIT;
-      const trackerName =
-        options?.tracker || this.configService.get<string>('tracker') || 'jira';
+      const toStage = options.to ? this.parseStage(options.to) : WorkflowStage.COMMIT;
+      const trackerName = options?.tracker || this.configService.get<string>('tracker') || 'jira';
       const repoBaseDir = resolveRepoBasePath(options.repos?.[0]);
       const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
 
@@ -284,7 +255,7 @@ export class IssueCommand extends CommandRunner {
       if (fromIndex > toIndex) {
         throw new Error(
           `Invalid stage range: --from ${fromStage} --to ${toStage}. ` +
-            `The --from stage must come before or equal the --to stage.`,
+            `The --from stage must come before or equal the --to stage.`
         );
       }
 
@@ -292,27 +263,18 @@ export class IssueCommand extends CommandRunner {
 
       if (
         !isTicketKey(ticketKey) &&
-        stagesToRun.some((stage) =>
-          [
-            WorkflowStage.IMPLEMENT,
-            WorkflowStage.REVIEW,
-            WorkflowStage.COMMIT,
-          ].includes(stage),
-        )
+        stagesToRun.some(stage => [WorkflowStage.IMPLEMENT, WorkflowStage.REVIEW, WorkflowStage.COMMIT].includes(stage))
       ) {
         try {
-          const resolvedReference = resolvePlanArtifactReferenceInDir(
-            ticketKey,
-            {
-              artifactDir: trackerDir,
-            },
-          );
+          const resolvedReference = resolvePlanArtifactReferenceInDir(ticketKey, {
+            artifactDir: trackerDir,
+          });
           if (resolvedReference.ticketKey) {
             ticketKey = resolvedReference.ticketKey;
           }
         } catch {
           throw new Error(
-            `Plan artifact not found for ${ticketKey}. Run wf issue:plan first or provide a supported plan filename.`,
+            `Plan artifact not found for ${ticketKey}. Run wf issue:plan first or provide a supported plan filename.`
           );
         }
       }
@@ -322,61 +284,39 @@ export class IssueCommand extends CommandRunner {
       if (stagesToRun.includes(WorkflowStage.PLAN)) {
         if (!options?.action) {
           throw new Error(
-            'Error: --action is required when running PLAN stage.\n' +
-              'Specify: --action <feature|fix|investigate>',
+            'Error: --action is required when running PLAN stage.\n' + 'Specify: --action <feature|fix|investigate>'
           );
         }
         // Validate action
-        const validActions: ResolutionAction[] = [
-          'feature',
-          'fix',
-          'investigate',
-        ];
+        const validActions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
         if (!validActions.includes(options.action as ResolutionAction)) {
-          throw new Error(
-            `Invalid action: ${options.action}. Must be one of: ${validActions.join(', ')}`,
-          );
+          throw new Error(`Invalid action: ${options.action}. Must be one of: ${validActions.join(', ')}`);
         }
         action = options.action as ResolutionAction;
       } else if (options?.action) {
         // Action provided but PLAN stage not running - validate it
-        const validActions: ResolutionAction[] = [
-          'feature',
-          'fix',
-          'investigate',
-        ];
+        const validActions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
         if (!validActions.includes(options.action as ResolutionAction)) {
-          throw new Error(
-            `Invalid action: ${options.action}. Must be one of: ${validActions.join(', ')}`,
-          );
+          throw new Error(`Invalid action: ${options.action}. Must be one of: ${validActions.join(', ')}`);
         }
         action = options.action as ResolutionAction;
       }
       // If action not provided and PLAN stage not running, it will be auto-discovered later
 
-      const repoList: (string | undefined)[] = options.repos?.length
-        ? options.repos
-        : [undefined];
+      const repoList: (string | undefined)[] = options.repos?.length ? options.repos : [undefined];
 
       if (options?.dryRun) {
         const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
 
         this.dryRunPreview.showHeader('issue', ticketKey);
-        console.log(
-          chalk.gray(
-            `   Stages : ${fromStage} → ${toStage}  |  Platform: ${trackerName}\n`,
-          ),
-        );
+        console.log(chalk.gray(`   Stages : ${fromStage} → ${toStage}  |  Platform: ${trackerName}\n`));
 
         let totalApiCalls = 0;
         let totalFilesCreated = 0;
         const terminalLines: string[] = [];
 
         const aiPlatformName = this.aiService.getProviderDisplayName();
-        const aiProvider = this.configService.get<string>(
-          'ai.provider',
-          'anthropic',
-        );
+        const aiProvider = this.configService.get<string>('ai.provider', 'anthropic');
         const aiEndpoint =
           aiProvider === 'google'
             ? '/v1beta/models'
@@ -412,9 +352,7 @@ export class IssueCommand extends CommandRunner {
               });
               totalApiCalls++;
               totalFilesCreated++;
-              terminalLines.push(
-                `✓ Ticket fetched and saved to: ${ticketPath}`,
-              );
+              terminalLines.push(`✓ Ticket fetched and saved to: ${ticketPath}`);
             }
           } else if (stage === WorkflowStage.PLAN) {
             const planHash = hashPlanArtifactSources([ticketKey]);
@@ -425,7 +363,7 @@ export class IssueCommand extends CommandRunner {
                 hash: planHash,
                 action: defaultAction,
                 format: 'json',
-              }),
+              })
             );
             const resolvedPlan = (() => {
               try {
@@ -483,14 +421,13 @@ export class IssueCommand extends CommandRunner {
             if (action === 'investigate') {
               const findingsPath = path.join(
                 trackerDir,
-                `${ticketKey}-plan-investigate-findings-and-recommendations.json`,
+                `${ticketKey}-plan-investigate-findings-and-recommendations.json`
               );
               this.dryRunPreview.previewApiCall({
                 method: 'POST',
                 endpoint: aiEndpoint,
                 platform: aiPlatformName,
-                description:
-                  'Generate investigation findings and recommendations',
+                description: 'Generate investigation findings and recommendations',
                 estimatedResponse: [
                   '{',
                   '  "action": "investigate",',
@@ -518,49 +455,30 @@ export class IssueCommand extends CommandRunner {
               });
               totalApiCalls++;
               totalFilesCreated++;
-              terminalLines.push(
-                '✓ Investigation findings saved to: ' + findingsPath,
-              );
+              terminalLines.push('✓ Investigation findings saved to: ' + findingsPath);
             } else {
               for (const repo of repoList) {
                 if (repoList.length > 1) {
-                  console.log(
-                    chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
-                  );
+                  console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
                 }
                 this.dryRunPreview.showNoSideEffects();
-                console.log(
-                  chalk.gray(
-                    '     Displays: branch name, implementation steps, affected files',
-                  ),
-                );
+                console.log(chalk.gray('     Displays: branch name, implementation steps, affected files'));
                 totalApiCalls++;
                 totalFilesCreated++;
-                terminalLines.push(
-                  `✓ Implementation guide displayed for: ${repo ?? 'current directory'}`,
-                );
+                terminalLines.push(`✓ Implementation guide displayed for: ${repo ?? 'current directory'}`);
               }
             }
           } else if (stage === WorkflowStage.REVIEW) {
             if (action === 'investigate') {
-              this.dryRunPreview.showSkipped(
-                'investigation workflow ends at IMPLEMENT stage',
-              );
+              this.dryRunPreview.showSkipped('investigation workflow ends at IMPLEMENT stage');
               continue;
             }
             for (const repo of repoList) {
               if (repoList.length > 1) {
-                console.log(
-                  chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
-                );
+                console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
               }
-              const repoPlatformDir = repo
-                ? resolveArtifactDir(resolveRepoBasePath(repo), trackerName)
-                : trackerDir;
-              const reviewPath = path.join(
-                repoPlatformDir,
-                `${ticketKey}-review.md`,
-              );
+              const repoPlatformDir = repo ? resolveArtifactDir(resolveRepoBasePath(repo), trackerName) : trackerDir;
+              const reviewPath = path.join(repoPlatformDir, `${ticketKey}-review.md`);
               const artifactExists = fs.existsSync(reviewPath);
 
               if (skipExisting && artifactExists) {
@@ -607,23 +525,15 @@ export class IssueCommand extends CommandRunner {
             }
           } else if (stage === WorkflowStage.COMMIT) {
             if (action === 'investigate') {
-              this.dryRunPreview.showSkipped(
-                'investigation workflow ends at IMPLEMENT stage',
-              );
+              this.dryRunPreview.showSkipped('investigation workflow ends at IMPLEMENT stage');
               continue;
             }
             for (const repo of repoList) {
               if (repoList.length > 1) {
-                console.log(
-                  chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
-                );
+                console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
               }
               this.dryRunPreview.showNoSideEffects();
-              console.log(
-                chalk.gray(
-                  '     Displays: commit commands — user confirms before execution',
-                ),
-              );
+              console.log(chalk.gray('     Displays: commit commands — user confirms before execution'));
               // Optimistic preview — live path may emit 'No changes to commit' if diff is empty
               terminalLines.push('✓ Commit message generated');
               terminalLines.push(`  Message: ${ticketKey}: <AI-generated>`);
@@ -671,12 +581,7 @@ export class IssueCommand extends CommandRunner {
           console.log(ticketArtifact.path);
         }
       } else {
-        ticketArtifact = this.agents.fetcher.loadFromDisk(
-          ticketKey,
-          trackerName,
-          repoBaseDir,
-          options?.silent,
-        );
+        ticketArtifact = this.agents.fetcher.loadFromDisk(ticketKey, trackerName, repoBaseDir, options?.silent);
         if (options?.silent) {
           console.log(ticketArtifact.path);
         }
@@ -694,11 +599,7 @@ export class IssueCommand extends CommandRunner {
           console.log(planArtifact.path);
         }
 
-        if (
-          !options?.silent &&
-          this.isInteractiveSession() &&
-          !planArtifact.fromCache
-        ) {
+        if (!options?.silent && this.isInteractiveSession() && !planArtifact.fromCache) {
           const { startChat } = await inquirer.prompt([
             {
               type: 'confirm',
@@ -717,24 +618,15 @@ export class IssueCommand extends CommandRunner {
                 plan: planArtifact.plan,
               },
               resolveRepoBasePath(repoList[0]),
-              trackerName,
+              trackerName
             );
           }
         }
       }
 
       // Load plan for IMPLEMENT or REVIEW stages when PLAN stage was skipped
-      if (
-        stagesToRun.some((s) =>
-          [WorkflowStage.IMPLEMENT, WorkflowStage.REVIEW].includes(s),
-        ) &&
-        !planArtifact
-      ) {
-        planArtifact = this.agents.planner.loadFromDisk(
-          ticketArtifact.path,
-          action,
-          options?.silent,
-        );
+      if (stagesToRun.some(s => [WorkflowStage.IMPLEMENT, WorkflowStage.REVIEW].includes(s)) && !planArtifact) {
+        planArtifact = this.agents.planner.loadFromDisk(ticketArtifact.path, action, options?.silent);
         if (planArtifact.action !== action) action = planArtifact.action;
       }
 
@@ -750,46 +642,30 @@ export class IssueCommand extends CommandRunner {
         }
         for (const repo of repoList) {
           const repoDir = resolveRepoBasePath(repo);
-          if (isMultiRepo && !options?.silent)
-            console.log(
-              chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
-            );
-          implementerResult = await this.agents.implementer.execute(
-            ticketArtifact,
-            planArtifact,
-            {
-              trackerName,
-              repoDir,
-              additionalRepoDirs: (options.repos ?? [])
-                .filter((r) => r !== repo)
-                .map((r) => resolveRepoBasePath(r)),
-              suppressHeader: isMultiRepo,
-              conversationContext,
-              allowMultiRepoScope: isMultiRepo,
-              modelRouting: options.modelRouting as ModelRouting,
-              silent: options.silent,
-              noBranch: options.noBranch,
-              branchNamePattern: options.branchNamePattern,
-            },
-          );
+          if (isMultiRepo && !options?.silent) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+          implementerResult = await this.agents.implementer.execute(ticketArtifact, planArtifact, {
+            trackerName,
+            repoDir,
+            additionalRepoDirs: (options.repos ?? []).filter(r => r !== repo).map(r => resolveRepoBasePath(r)),
+            suppressHeader: isMultiRepo,
+            conversationContext,
+            allowMultiRepoScope: isMultiRepo,
+            modelRouting: options.modelRouting as ModelRouting,
+            silent: options.silent,
+            noBranch: options.noBranch,
+            branchNamePattern: options.branchNamePattern,
+          });
 
           // Investigation workflows end at the IMPLEMENT stage
           if (implementerResult?.type === 'investigation') {
-            console.log(
-              chalk.bold.green(
-                '\n✓ Investigation workflow complete — no further stages will run',
-              ),
-            );
+            console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
             return;
           }
         }
       }
 
       // ── STAGE 4: REVIEW ─────────────────────────────────────────────────
-      if (
-        stagesToRun.includes(WorkflowStage.REVIEW) &&
-        planArtifact?.action !== 'investigate'
-      ) {
+      if (stagesToRun.includes(WorkflowStage.REVIEW) && planArtifact?.action !== 'investigate') {
         const isMultiRepo = repoList.length > 1;
         if (isMultiRepo && !options?.silent) {
           console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
@@ -797,10 +673,7 @@ export class IssueCommand extends CommandRunner {
         }
         for (const repo of repoList) {
           const repoDir = resolveRepoBasePath(repo);
-          if (isMultiRepo && !options?.silent)
-            console.log(
-              chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
-            );
+          if (isMultiRepo && !options?.silent) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
           reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
             skipExisting,
             repoDir,
@@ -816,22 +689,10 @@ export class IssueCommand extends CommandRunner {
             if (!options?.silent) {
               console.log(chalk.bold('\n  Status:'));
               if (reviewArtifact.approved) {
-                console.log(
-                  chalk.cyan(
-                    '    Changes approved - proceeding to commit stage',
-                  ),
-                );
+                console.log(chalk.cyan('    Changes approved - proceeding to commit stage'));
               } else {
-                console.log(
-                  chalk.yellow(
-                    '    ⚠️  Review found issues - address before committing',
-                  ),
-                );
-                console.log(
-                  chalk.cyan(
-                    '    Commit stage will still execute (you can skip it if needed)',
-                  ),
-                );
+                console.log(chalk.yellow('    ⚠️  Review found issues - address before committing'));
+                console.log(chalk.cyan('    Commit stage will still execute (you can skip it if needed)'));
               }
             }
 
@@ -855,7 +716,7 @@ export class IssueCommand extends CommandRunner {
                     review: reviewArtifact.review,
                   },
                   resolveRepoBasePath(repoList[0]),
-                  trackerName,
+                  trackerName
                 );
               }
             }
@@ -864,10 +725,7 @@ export class IssueCommand extends CommandRunner {
       }
 
       // ── STAGE 5: COMMIT ──────────────────────────────────────────────────
-      if (
-        stagesToRun.includes(WorkflowStage.COMMIT) &&
-        planArtifact?.action !== 'investigate'
-      ) {
+      if (stagesToRun.includes(WorkflowStage.COMMIT) && planArtifact?.action !== 'investigate') {
         const isMultiRepo = repoList.length > 1;
         if (isMultiRepo && !options?.silent) {
           console.log(chalk.bold.yellow('\n💾 STAGE 5: Commit Changes'));
@@ -875,16 +733,13 @@ export class IssueCommand extends CommandRunner {
         }
         for (const repo of repoList) {
           const repoDir = resolveRepoBasePath(repo);
-          if (isMultiRepo && !options?.silent)
-            console.log(
-              chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`),
-            );
+          if (isMultiRepo && !options?.silent) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
           await this.agents.committer.execute(
             ticketKey,
             repoDir,
             planArtifact?.plan?.summary,
             isMultiRepo,
-            options?.silent,
+            options?.silent
           );
         }
       }
@@ -896,11 +751,7 @@ export class IssueCommand extends CommandRunner {
         console.log(chalk.bold.cyan('\n🎯 Done!\n'));
 
         if (options?.pr) {
-          console.log(
-            chalk.cyan(
-              `\n  ℹ  Run: wf issue:pr ${ticketKey} to create a pull request`,
-            ),
-          );
+          console.log(chalk.cyan(`\n  ℹ  Run: wf issue:pr ${ticketKey} to create a pull request`));
         }
       }
     } catch (error) {
@@ -911,24 +762,17 @@ export class IssueCommand extends CommandRunner {
   private parseStage(stage: string): WorkflowStage {
     const normalized = stage.toLowerCase();
     if (!Object.values(WorkflowStage).includes(normalized as WorkflowStage)) {
-      throw new Error(
-        `Invalid stage: ${stage}. Must be one of: ${Object.values(WorkflowStage).join(', ')}`,
-      );
+      throw new Error(`Invalid stage: ${stage}. Must be one of: ${Object.values(WorkflowStage).join(', ')}`);
     }
     return normalized as WorkflowStage;
   }
 
-  private getStagesToRun(
-    from: WorkflowStage,
-    to: WorkflowStage,
-  ): WorkflowStage[] {
+  private getStagesToRun(from: WorkflowStage, to: WorkflowStage): WorkflowStage[] {
     const fromIndex = STAGE_ORDER.indexOf(from);
     const toIndex = STAGE_ORDER.indexOf(to);
 
     if (fromIndex > toIndex) {
-      throw new Error(
-        `Invalid stage range: --from ${from} --to ${to}. 'from' must come before 'to'.`,
-      );
+      throw new Error(`Invalid stage range: --from ${from} --to ${to}. 'from' must come before 'to'.`);
     }
 
     return STAGE_ORDER.slice(fromIndex, toIndex + 1);
@@ -942,7 +786,7 @@ export class IssueCommand extends CommandRunner {
     ticketKey: string,
     trackerName: string,
     action?: ResolutionAction,
-    baseDir: string = process.cwd(),
+    baseDir: string = process.cwd()
   ): { exists: boolean; path: string } {
     const trackerDir = resolveArtifactDir(baseDir, trackerName);
 
@@ -967,7 +811,7 @@ export class IssueCommand extends CommandRunner {
               hash: hashPlanArtifactSources([ticketKey]),
               action: defaultAction,
               format: 'json',
-            }),
+            })
           );
           return { exists: false, path: planPath };
         }
@@ -996,7 +840,7 @@ export class IssueCommand extends CommandRunner {
     stage: ConvWorkflowStage,
     workflowState: any,
     repoDir: string,
-    trackerName: string,
+    trackerName: string
   ): Promise<void> {
     const context: ConversationContext = {
       ticketKey,
@@ -1012,32 +856,22 @@ export class IssueCommand extends CommandRunner {
     };
 
     // Load or create conversation
-    let conversation = await this.conversationService.loadConversation(
-      ticketKey,
-      repoDir,
-      trackerName,
-    );
+    let conversation = await this.conversationService.loadConversation(ticketKey, repoDir, trackerName);
     if (!conversation) {
-      conversation = await this.conversationService.createConversation(
-        ticketKey,
-        context,
-      );
+      conversation = await this.conversationService.createConversation(ticketKey, context);
     }
 
     // Build system prompt with stage context
     const systemPrompt = this.buildChatSystemPrompt(stage, workflowState);
 
     // Start interactive session
-    await this.conversationService.startChatSession(
-      conversation.conversationId,
-      {
-        systemPrompt,
-        maxTurns: 20,
-        exitCommands: ['exit', 'quit', 'continue'],
-        stage,
-        repoDir,
-      },
-    );
+    await this.conversationService.startChatSession(conversation.conversationId, {
+      systemPrompt,
+      maxTurns: 20,
+      exitCommands: ['exit', 'quit', 'continue'],
+      stage,
+      repoDir,
+    });
   }
 
   /**
@@ -1048,10 +882,7 @@ export class IssueCommand extends CommandRunner {
    * @returns System prompt with contextual information
    */
 
-  private buildChatSystemPrompt(
-    stage: ConvWorkflowStage,
-    workflowState: any,
-  ): string {
+  private buildChatSystemPrompt(stage: ConvWorkflowStage, workflowState: any): string {
     const basePrompt = `You are an AI assistant helping a developer with a ticket workflow.
 The developer is currently at the ${stage.toUpperCase()} stage.
 
@@ -1068,7 +899,7 @@ Generated Plan:
 - Complexity: ${workflowState.plan.estimatedComplexity}
 - Steps:
 ${workflowState.plan.steps.map((step: string, i: number) => `  ${i + 1}. ${step}`).join('\n')}
-${workflowState.plan.filesAffected ? `\nFiles Affected:\n${workflowState.plan.filesAffected.map((f) => `  - ${typeof f === 'string' ? f : f.filePath}`).join('\n')}` : ''}
+${workflowState.plan.filesAffected ? `\nFiles Affected:\n${workflowState.plan.filesAffected.map(f => `  - ${typeof f === 'string' ? f : f.filePath}`).join('\n')}` : ''}
 ${workflowState.plan.risks ? `\nRisks:\n${workflowState.plan.risks.map((r: string) => `  - ${r}`).join('\n')}` : ''}
 
 Help the developer refine the implementation plan, discuss the approach, or address concerns.`;
@@ -1080,16 +911,14 @@ Help the developer refine the implementation plan, discuss the approach, or addr
           ? workflowState.review.issues
               .map(
                 (issue: any) =>
-                  `  [${issue.severity}] ${issue.message}${issue.file ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})` : ''}`,
+                  `  [${issue.severity}] ${issue.message}${issue.file ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})` : ''}`
               )
               .join('\n')
           : '  No issues found';
 
       const suggestionsText =
         workflowState.review.suggestions.length > 0
-          ? workflowState.review.suggestions
-              .map((s: string) => `  - ${s}`)
-              .join('\n')
+          ? workflowState.review.suggestions.map((s: string) => `  - ${s}`).join('\n')
           : '  No suggestions';
 
       return `${basePrompt}

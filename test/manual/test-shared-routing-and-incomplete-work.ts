@@ -44,60 +44,23 @@ const assert = (label: string, condition: boolean): void => {
   }
 };
 
-const adaptersDir = path.join(
-  __dirname,
-  '..',
-  '..',
-  'src',
-  'integrations',
-  'ai',
-  'adapters',
-);
+const adaptersDir = path.join(__dirname, '..', '..', 'src', 'integrations', 'ai', 'adapters');
 
 const run = async (): Promise<void> => {
-  console.log(
-    chalk.bold('\nSmoke test: shared routing and incomplete-work loop\n'),
-  );
+  console.log(chalk.bold('\nSmoke test: shared routing and incomplete-work loop\n'));
 
-  const openaiSource = fs.readFileSync(
-    path.join(adaptersDir, 'openai-agent.adapter.ts'),
-    'utf8',
-  );
-  const anthropicSource = fs.readFileSync(
-    path.join(adaptersDir, 'anthropic-agent.adapter.ts'),
-    'utf8',
-  );
-  const sharedSource = fs.readFileSync(
-    path.join(adaptersDir, 'shared-routing.ts'),
-    'utf8',
-  );
+  const openaiSource = fs.readFileSync(path.join(adaptersDir, 'openai-agent.adapter.ts'), 'utf8');
+  const anthropicSource = fs.readFileSync(path.join(adaptersDir, 'anthropic-agent.adapter.ts'), 'utf8');
+  const sharedSource = fs.readFileSync(path.join(adaptersDir, 'shared-routing.ts'), 'utf8');
 
   // --- Shared routing exports ---
 
-  assert(
-    'detectMechanicalTask is a function',
-    typeof detectMechanicalTask === 'function',
-  );
-  assert(
-    'resolveModelRouting is a function',
-    typeof resolveModelRouting === 'function',
-  );
-  assert(
-    'normalizeCommand is a function',
-    typeof normalizeCommand === 'function',
-  );
-  assert(
-    'buildAllowedCommands is a function',
-    typeof buildAllowedCommands === 'function',
-  );
-  assert(
-    'formatRepoFileList is a function',
-    typeof formatRepoFileList === 'function',
-  );
-  assert(
-    'stripRepoPrefix is a function',
-    typeof stripRepoPrefix === 'function',
-  );
+  assert('detectMechanicalTask is a function', typeof detectMechanicalTask === 'function');
+  assert('resolveModelRouting is a function', typeof resolveModelRouting === 'function');
+  assert('normalizeCommand is a function', typeof normalizeCommand === 'function');
+  assert('buildAllowedCommands is a function', typeof buildAllowedCommands === 'function');
+  assert('formatRepoFileList is a function', typeof formatRepoFileList === 'function');
+  assert('stripRepoPrefix is a function', typeof stripRepoPrefix === 'function');
 
   // --- detectMechanicalTask behaviour ---
 
@@ -123,47 +86,37 @@ const run = async (): Promise<void> => {
 
   assert(
     'shared-routing exports adapterLabel param in resolveModelRouting',
-    sharedSource.includes('adapterLabel: string'),
+    sharedSource.includes('adapterLabel: string')
   );
-  assert(
-    'shared-routing exports fallbackDefaultModel param',
-    sharedSource.includes('fallbackDefaultModel: string'),
-  );
+  assert('shared-routing exports fallbackDefaultModel param', sharedSource.includes('fallbackDefaultModel: string'));
   assert(
     'shared-routing exports defaultMechanicalModel param',
-    sharedSource.includes('defaultMechanicalModel: string'),
+    sharedSource.includes('defaultMechanicalModel: string')
   );
 
   // --- No local duplicates in adapters ---
 
   assert(
     'OpenAI adapter does not define local MECHANICAL_STEP_PATTERNS',
-    !openaiSource.includes('const MECHANICAL_STEP_PATTERNS'),
+    !openaiSource.includes('const MECHANICAL_STEP_PATTERNS')
   );
   assert(
     'Anthropic adapter does not define local MECHANICAL_STEP_PATTERNS',
-    !anthropicSource.includes('const MECHANICAL_STEP_PATTERNS'),
+    !anthropicSource.includes('const MECHANICAL_STEP_PATTERNS')
   );
-  assert(
-    'OpenAI adapter imports from shared-routing',
-    openaiSource.includes("from './shared-routing'"),
-  );
-  assert(
-    'Anthropic adapter imports from shared-routing',
-    anthropicSource.includes("from './shared-routing'"),
-  );
+  assert('OpenAI adapter imports from shared-routing', openaiSource.includes("from './shared-routing'"));
+  assert('Anthropic adapter imports from shared-routing', anthropicSource.includes("from './shared-routing'"));
 
   // --- Incomplete-work loop uses workload reduction ---
 
   assert(
     'OpenAI adapter uses workload-reduction stall detection',
-    openaiSource.includes('currentWorkload < previousWorkload') &&
-      !openaiSource.includes('MAX_INCOMPLETE_WORK_PASSES'),
+    openaiSource.includes('currentWorkload < previousWorkload') && !openaiSource.includes('MAX_INCOMPLETE_WORK_PASSES')
   );
   assert(
     'Anthropic adapter uses workload-reduction stall detection',
     anthropicSource.includes('currentWorkload < previousWorkload') &&
-      !anthropicSource.includes('MAX_INCOMPLETE_WORK_PASSES'),
+      !anthropicSource.includes('MAX_INCOMPLETE_WORK_PASSES')
   );
 
   // --- Context continuity ---
@@ -172,78 +125,50 @@ const run = async (): Promise<void> => {
     'OpenAI adapter reuses cached agent/runner/session across passes',
     openaiSource.includes('continuationPrompt') &&
       !openaiSource.includes('iterationAgent') &&
-      !openaiSource.includes('iterationRunner'),
+      !openaiSource.includes('iterationRunner')
   );
   assert(
     'Anthropic adapter resumes session across passes',
-    anthropicSource.includes('resume: sessionId') &&
-      !anthropicSource.includes('lastPassSummary'),
+    anthropicSource.includes('resume: sessionId') && !anthropicSource.includes('lastPassSummary')
   );
 
   // --- Anthropic git-based file discovery ---
 
-  assert(
-    'Anthropic adapter uses discoverChangedFiles',
-    anthropicSource.includes('discoverChangedFiles'),
-  );
+  assert('Anthropic adapter uses discoverChangedFiles', anthropicSource.includes('discoverChangedFiles'));
 
   // --- OpenAI verification truncation ---
 
   assert(
     'OpenAI adapter defines MAX_VERIFICATION_OUTPUT_LINES',
-    openaiSource.includes('MAX_VERIFICATION_OUTPUT_LINES'),
+    openaiSource.includes('MAX_VERIFICATION_OUTPUT_LINES')
   );
-  assert(
-    'OpenAI adapter uses truncateOutput in verify_command',
-    openaiSource.includes('truncateOutput('),
-  );
+  assert('OpenAI adapter uses truncateOutput in verify_command', openaiSource.includes('truncateOutput('));
 
   // --- Edit validation context ---
 
-  assert(
-    'OpenAI edit_file returns existing_code on validation failure',
-    openaiSource.includes('existing_code:'),
-  );
+  assert('OpenAI edit_file returns existing_code on validation failure', openaiSource.includes('existing_code:'));
   assert(
     'OpenAI edit_file returns hint on validation failure',
-    openaiSource.includes('Merge your changes into the existing declaration'),
+    openaiSource.includes('Merge your changes into the existing declaration')
   );
 
   // --- stripRepoPrefix behaviour ---
 
-  assert(
-    'stripRepoPrefix strips prefix correctly',
-    stripRepoPrefix('primary/src/foo.ts', 'primary') === 'src/foo.ts',
-  );
+  assert('stripRepoPrefix strips prefix correctly', stripRepoPrefix('primary/src/foo.ts', 'primary') === 'src/foo.ts');
   assert(
     'stripRepoPrefix returns path unchanged when no prefix match',
-    stripRepoPrefix('src/foo.ts', 'primary') === 'src/foo.ts',
+    stripRepoPrefix('src/foo.ts', 'primary') === 'src/foo.ts'
   );
 
   // --- isGlobPattern behaviour ---
 
   assert('isGlobPattern detects star wildcard', isGlobPattern('src/**/*.ts'));
-  assert(
-    'isGlobPattern detects single star',
-    isGlobPattern('src/*.controller.ts'),
-  );
+  assert('isGlobPattern detects single star', isGlobPattern('src/*.controller.ts'));
   assert('isGlobPattern detects question mark', isGlobPattern('src/foo?.ts'));
-  assert(
-    'isGlobPattern returns false for concrete path',
-    !isGlobPattern('src/main.ts'),
-  );
-  assert(
-    'isGlobPattern returns false for path with dots',
-    !isGlobPattern('src/app.module.ts'),
-  );
-  assert(
-    'OpenAI adapter filters glob patterns from unvisited files',
-    openaiSource.includes('isGlobPattern'),
-  );
-  assert(
-    'Anthropic adapter filters glob patterns from unvisited files',
-    anthropicSource.includes('isGlobPattern'),
-  );
+  assert('isGlobPattern returns false for concrete path', !isGlobPattern('src/main.ts'));
+  assert('isGlobPattern returns false for path with dots', !isGlobPattern('src/app.module.ts'));
+  assert('OpenAI adapter filters glob patterns from unvisited files', openaiSource.includes('isGlobPattern'));
+  assert('Anthropic adapter filters glob patterns from unvisited files', anthropicSource.includes('isGlobPattern'));
 
   console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));
 

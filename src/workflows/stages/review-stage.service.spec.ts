@@ -27,8 +27,7 @@ describe('ReviewStageService', () => {
                     frame: 'AgentApiClient.fetchAgentApiData()',
                     children: [
                       {
-                        frame:
-                          'HttpClient.get(GET https://agentapi.expatexplore.com/agent/1.0/data)',
+                        frame: 'HttpClient.get(GET https://agentapi.expatexplore.com/agent/1.0/data)',
                       },
                     ],
                   },
@@ -38,8 +37,7 @@ describe('ReviewStageService', () => {
                 frame: 'TripcomMapper.mapAgentApiToTripcom(productCode, tour)',
                 children: [
                   {
-                    frame:
-                      'TripcomMapper.mapGalleryToMedias(tour.gallery, tour.title)',
+                    frame: 'TripcomMapper.mapGalleryToMedias(tour.gallery, tour.title)',
                     children: [
                       {
                         frame: 'Array.prototype.slice(0, 10)',
@@ -58,8 +56,7 @@ describe('ReviewStageService', () => {
                 frame: 'TripcomApiClient.syncProduct(mappedProduct)',
                 children: [
                   {
-                    frame:
-                      'HttpClient.post(POST {TRIPCOM_API_URL}/syncProduct)',
+                    frame: 'HttpClient.post(POST {TRIPCOM_API_URL}/syncProduct)',
                   },
                 ],
               },
@@ -73,8 +70,7 @@ describe('ReviewStageService', () => {
       to: 'ProfileResponse.linkedProfiles',
       steps: [
         {
-          frame:
-            'CanonicalProfileRepository.findLinkedProfiles(canonicalCustomerId)',
+          frame: 'CanonicalProfileRepository.findLinkedProfiles(canonicalCustomerId)',
           captured: {
             canonicalCustomerId: '123',
           },
@@ -158,8 +154,7 @@ describe('ReviewStageService', () => {
           provide: ConfigService,
           useValue: {
             get: jest.fn((key: string, fallback?: unknown) => {
-              if (key === 'stages.review.backend')
-                return reviewBackend ?? fallback;
+              if (key === 'stages.review.backend') return reviewBackend ?? fallback;
               return fallback;
             }),
           },
@@ -209,13 +204,13 @@ describe('ReviewStageService', () => {
         expect.stringContaining('Scope'),
         expect.stringContaining('ticket WBP-123: Fix auth callback'),
         'Accessibility: keyboard flow still works',
-      ]),
+      ])
     );
   });
 
   it.each(['Contracts', 'Ripple effects', 'Documentation', 'Testing'])(
     'includes the %s criterion in the assembled guidelines',
-    async (criterion) => {
+    async criterion => {
       const { service, aiService } = await buildService();
 
       await service.reviewDiff('diff --git a/file b/file', {
@@ -224,9 +219,9 @@ describe('ReviewStageService', () => {
 
       expect(aiService.reviewCode).toHaveBeenCalledWith(
         'diff --git a/file b/file',
-        expect.arrayContaining([expect.stringContaining(criterion)]),
+        expect.arrayContaining([expect.stringContaining(criterion)])
       );
-    },
+    }
   );
 
   it('writes a markdown review artifact for workflow review stage consumers', async () => {
@@ -241,42 +236,23 @@ describe('ReviewStageService', () => {
         content: '# WBP-123: Fix auth callback',
         path: ticketPath,
       },
-      mockReview as any,
+      mockReview as any
     );
 
-    expect(
-      fs.readFileSync(path.join(tempDir, 'WBP-123-review.md'), 'utf-8'),
-    ).toContain('# Code Review: WBP-123');
+    expect(fs.readFileSync(path.join(tempDir, 'WBP-123-review.md'), 'utf-8')).toContain('# Code Review: WBP-123');
 
-    const reviewMarkdown = fs.readFileSync(
-      path.join(tempDir, 'WBP-123-review.md'),
-      'utf-8',
-    );
-    expect(reviewMarkdown.indexOf('## Summary')).toBeLessThan(
-      reviewMarkdown.indexOf('## Issues'),
-    );
-    expect(reviewMarkdown.indexOf('## Issues')).toBeLessThan(
-      reviewMarkdown.indexOf('## Call Stack'),
-    );
+    const reviewMarkdown = fs.readFileSync(path.join(tempDir, 'WBP-123-review.md'), 'utf-8');
+    expect(reviewMarkdown.indexOf('## Summary')).toBeLessThan(reviewMarkdown.indexOf('## Issues'));
+    expect(reviewMarkdown.indexOf('## Issues')).toBeLessThan(reviewMarkdown.indexOf('## Call Stack'));
     expect(reviewMarkdown).toContain('Provenance: best-effort');
     expect(reviewMarkdown).toContain('Execution mode: standard');
-    expect(reviewMarkdown.indexOf('## Call Stack')).toBeLessThan(
-      reviewMarkdown.indexOf('## State Transition'),
-    );
-    expect(reviewMarkdown).toContain(
-      'TripcomController.syncProduct(productCode, slug)',
-    );
-    expect(reviewMarkdown).toContain(
-      'CanonicalProfileRepository.findLinkedProfiles(canonicalCustomerId)',
-    );
+    expect(reviewMarkdown.indexOf('## Call Stack')).toBeLessThan(reviewMarkdown.indexOf('## State Transition'));
+    expect(reviewMarkdown).toContain('TripcomController.syncProduct(productCode, slug)');
+    expect(reviewMarkdown).toContain('CanonicalProfileRepository.findLinkedProfiles(canonicalCustomerId)');
     expect(reviewMarkdown).toContain('firstName.dep =');
     expect(reviewMarkdown).toContain('fullName._value = Jane Smith');
-    expect(reviewMarkdown.indexOf('## State Transition')).toBeLessThan(
-      reviewMarkdown.indexOf('## Suggestions'),
-    );
-    expect(reviewMarkdown.indexOf('## Suggestions')).toBeLessThan(
-      reviewMarkdown.indexOf('## Approval Status'),
-    );
+    expect(reviewMarkdown.indexOf('## State Transition')).toBeLessThan(reviewMarkdown.indexOf('## Suggestions'));
+    expect(reviewMarkdown.indexOf('## Suggestions')).toBeLessThan(reviewMarkdown.indexOf('## Approval Status'));
     expect(reviewMarkdown).toContain('Provenance: best-effort');
     expect(artifact.path).toBe(path.join(tempDir, 'WBP-123-review.md'));
     expect(artifact.approved).toBe(true);
@@ -313,20 +289,14 @@ describe('ReviewStageService', () => {
           },
         ],
         suggestions: ['Trailing idea'],
-      } as any,
+      } as any
     );
 
     const reviewMarkdown = fs.readFileSync(artifact.path, 'utf-8');
-    expect(reviewMarkdown).toContain(
-      '- [warning] First issue (src/first.ts:10)',
-    );
+    expect(reviewMarkdown).toContain('- [warning] First issue (src/first.ts:10)');
     expect(reviewMarkdown).toContain('  - Suggestion: First suggestion');
-    expect(reviewMarkdown.indexOf('First issue')).toBeLessThan(
-      reviewMarkdown.indexOf('Suggestion: First suggestion'),
-    );
-    expect(reviewMarkdown.indexOf('Suggestion: First suggestion')).toBeLessThan(
-      reviewMarkdown.indexOf('Second issue'),
-    );
+    expect(reviewMarkdown.indexOf('First issue')).toBeLessThan(reviewMarkdown.indexOf('Suggestion: First suggestion'));
+    expect(reviewMarkdown.indexOf('Suggestion: First suggestion')).toBeLessThan(reviewMarkdown.indexOf('Second issue'));
     expect(reviewMarkdown).toContain('## Suggestions');
     expect(reviewMarkdown).toContain('- Trailing idea');
   });
@@ -351,7 +321,7 @@ describe('ReviewStageService', () => {
         content: '# WBP-124: Agent-backed review',
         path: ticketPath,
       },
-      review,
+      review
     );
 
     const reviewMarkdown = fs.readFileSync(artifact.path, 'utf-8');
@@ -359,7 +329,7 @@ describe('ReviewStageService', () => {
     expect(stageAgentService.reviewCode).toHaveBeenCalledWith(
       'diff --git a/file b/file',
       expect.any(Array),
-      '/tmp/repo',
+      '/tmp/repo'
     );
     expect(aiService.reviewCode).not.toHaveBeenCalled();
     expect(review.executionMode).toBe('agent');
@@ -377,9 +347,7 @@ describe('ReviewStageService', () => {
       repoDir: '/tmp/repo',
     });
 
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'wf-review-agent-default-'),
-    );
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-agent-default-'));
     const ticketPath = path.join(tempDir, 'WBP-127.md');
     fs.writeFileSync(ticketPath, '# WBP-127: Inferred agent review');
 
@@ -389,7 +357,7 @@ describe('ReviewStageService', () => {
         content: '# WBP-127: Inferred agent review',
         path: ticketPath,
       },
-      review,
+      review
     );
 
     const reviewMarkdown = fs.readFileSync(artifact.path, 'utf-8');
@@ -406,13 +374,13 @@ describe('ReviewStageService', () => {
       new AIError('AI provider returned an empty review response', {
         provider: 'google',
         model: 'gemini-2.5-pro',
-      }),
+      })
     );
 
     await expect(
       service.reviewDiff('diff --git a/file b/file', {
         context: 'ticket WBP-126: Empty AI review response',
-      }),
+      })
     ).rejects.toMatchObject({
       message: 'AI provider returned an empty review response',
       details: expect.objectContaining({

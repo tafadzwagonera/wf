@@ -25,10 +25,8 @@ import * as path from 'path';
  * where repoBaseDir = resolveRepoBasePath(options.repos?.[0]) which,
  * when repos is undefined, falls back to process.cwd().
  */
-const resolveAffectedRepositories = (
-  repos: string[] | undefined,
-  repoBaseDir: string,
-): string[] => repos ?? [path.basename(repoBaseDir)];
+const resolveAffectedRepositories = (repos: string[] | undefined, repoBaseDir: string): string[] =>
+  repos ?? [path.basename(repoBaseDir)];
 
 // --------------------------------------------------------------------------
 // Test harness
@@ -61,108 +59,69 @@ console.log('Testing: plan stage repo fallback when --repos is omitted\n');
 
 // Test 1: explicit --repos passes through unchanged
 {
-  const result = resolveAffectedRepositories(
-    ['repo-a', 'repo-b'],
-    '/Users/dev/projects/terraform-aws',
-  );
+  const result = resolveAffectedRepositories(['repo-a', 'repo-b'], '/Users/dev/projects/terraform-aws');
   assert(
     result.length === 2 && result[0] === 'repo-a' && result[1] === 'repo-b',
-    'explicit --repos passes through unchanged',
+    'explicit --repos passes through unchanged'
   );
 }
 
 // Test 2: undefined repos falls back to basename of repoBaseDir
 {
-  const result = resolveAffectedRepositories(
-    undefined,
-    '/Users/dev/projects/terraform-aws',
-  );
+  const result = resolveAffectedRepositories(undefined, '/Users/dev/projects/terraform-aws');
   assert(
     result.length === 1 && result[0] === 'terraform-aws',
-    'undefined repos falls back to basename of repoBaseDir (terraform-aws)',
+    'undefined repos falls back to basename of repoBaseDir (terraform-aws)'
   );
 }
 
 // Test 3: fallback works for nested paths
 {
-  const result = resolveAffectedRepositories(
-    undefined,
-    '/home/ci/workspace/service-tourv3',
-  );
-  assert(
-    result.length === 1 && result[0] === 'service-tourv3',
-    'fallback works for nested path (service-tourv3)',
-  );
+  const result = resolveAffectedRepositories(undefined, '/home/ci/workspace/service-tourv3');
+  assert(result.length === 1 && result[0] === 'service-tourv3', 'fallback works for nested path (service-tourv3)');
 }
 
 // Test 4: empty array repos still passes through (not nullish)
 {
-  const result = resolveAffectedRepositories(
-    [],
-    '/Users/dev/projects/terraform-aws',
-  );
-  assert(
-    result.length === 0,
-    'empty array passes through (nullish coalescing only triggers on undefined)',
-  );
+  const result = resolveAffectedRepositories([], '/Users/dev/projects/terraform-aws');
+  assert(result.length === 0, 'empty array passes through (nullish coalescing only triggers on undefined)');
 }
 
 // Test 5: single-element repos passes through
 {
-  const result = resolveAffectedRepositories(
-    ['explicit-repo'],
-    '/Users/dev/projects/terraform-aws',
-  );
-  assert(
-    result.length === 1 && result[0] === 'explicit-repo',
-    'single-element repos passes through unchanged',
-  );
+  const result = resolveAffectedRepositories(['explicit-repo'], '/Users/dev/projects/terraform-aws');
+  assert(result.length === 1 && result[0] === 'explicit-repo', 'single-element repos passes through unchanged');
 }
 
 // Test 6: verify the fallback produces a valid repoHint
 {
-  const repos = resolveAffectedRepositories(
-    undefined,
-    '/Users/dev/projects/terraform-aws',
-  );
-  const repoHint = repos.length
-    ? `Affected repositories (hint): ${repos.join(', ')}`
-    : '';
+  const repos = resolveAffectedRepositories(undefined, '/Users/dev/projects/terraform-aws');
+  const repoHint = repos.length ? `Affected repositories (hint): ${repos.join(', ')}` : '';
   assert(
     repoHint === 'Affected repositories (hint): terraform-aws',
-    'fallback produces correct repoHint string for AI prompt',
+    'fallback produces correct repoHint string for AI prompt'
   );
 }
 
 // Test 7: verify the fallback feeds resolvePlanPromptRepoExample correctly
 {
-  const repos = resolveAffectedRepositories(
-    undefined,
-    '/Users/dev/projects/terraform-aws',
-  );
-  const firstRepository = repos.find(
-    (repository) => typeof repository === 'string' && repository.trim(),
-  );
+  const repos = resolveAffectedRepositories(undefined, '/Users/dev/projects/terraform-aws');
+  const firstRepository = repos.find(repository => typeof repository === 'string' && repository.trim());
   const repoExample = firstRepository?.trim() || 'current-repo';
   assert(
     repoExample === 'terraform-aws',
-    'fallback feeds resolvePlanPromptRepoExample with real repo name, not "current-repo"',
+    'fallback feeds resolvePlanPromptRepoExample with real repo name, not "current-repo"'
   );
 }
 
 // Test 8: without the fix, undefined repos would yield "current-repo"
 {
-  const repos = resolveAffectedRepositories(
-    undefined,
-    '/Users/dev/projects/terraform-aws',
-  );
-  const firstRepository = repos.find(
-    (repository) => typeof repository === 'string' && repository.trim(),
-  );
+  const repos = resolveAffectedRepositories(undefined, '/Users/dev/projects/terraform-aws');
+  const firstRepository = repos.find(repository => typeof repository === 'string' && repository.trim());
   const repoExample = firstRepository?.trim() || 'current-repo';
   assert(
     repoExample !== 'current-repo',
-    'repo example is never the generic "current-repo" placeholder when cwd is available',
+    'repo example is never the generic "current-repo" placeholder when cwd is available'
   );
 }
 
@@ -170,8 +129,7 @@ console.log('Testing: plan stage repo fallback when --repos is omitted\n');
 // Summary
 // --------------------------------------------------------------------------
 
-const separator =
-  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+const separator = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
 console.log(`\n${separator}`);
 console.log(`Results: ${passed} passed   ${failed} failed`);
 if (failed === 0) {

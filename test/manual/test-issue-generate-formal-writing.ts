@@ -74,10 +74,7 @@ const CONTRACTION_PATTERN =
  * @param content Serialized output content
  * @returns Pass/fail counters for aggregation
  */
-const assertNoContractions = (
-  label: string,
-  content: string,
-): { passed: number; failed: number } => {
+const assertNoContractions = (label: string, content: string): { passed: number; failed: number } => {
   const match = content.match(CONTRACTION_PATTERN);
   if (match) {
     fail(label, `Found contraction "${match[0]}" in serialized output`);
@@ -89,11 +86,7 @@ const assertNoContractions = (
 };
 
 async function main() {
-  console.log(
-    chalkHeader(
-      '\n\ud83e\uddea issue:generate formal writing conventions smoke test\n',
-    ),
-  );
+  console.log(chalkHeader('\n\ud83e\uddea issue:generate formal writing conventions smoke test\n'));
 
   let passed = 0;
   let failed = 0;
@@ -111,35 +104,17 @@ async function main() {
     content: MOCK_AI_RESPONSE,
   });
 
-  const synthesisSourceA = path.join(
-    os.tmpdir(),
-    `wf-gen-formal-a-${Date.now()}.txt`,
-  );
-  const synthesisSourceB = path.join(
-    os.tmpdir(),
-    `wf-gen-formal-b-${Date.now()}.txt`,
-  );
-  const synthesisOutputPath = path.join(
-    os.tmpdir(),
-    `wf-gen-formal-output-${Date.now()}.md`,
-  );
-  const importedTicketPath = path.join(
-    os.tmpdir(),
-    `wf-imported-formal-${Date.now()}.md`,
-  );
+  const synthesisSourceA = path.join(os.tmpdir(), `wf-gen-formal-a-${Date.now()}.txt`);
+  const synthesisSourceB = path.join(os.tmpdir(), `wf-gen-formal-b-${Date.now()}.txt`);
+  const synthesisOutputPath = path.join(os.tmpdir(), `wf-gen-formal-output-${Date.now()}.md`);
+  const importedTicketPath = path.join(os.tmpdir(), `wf-imported-formal-${Date.now()}.md`);
 
   fs.writeFileSync(synthesisSourceA, 'Source A: placeholder content.', 'utf-8');
   fs.writeFileSync(synthesisSourceB, 'Source B: placeholder content.', 'utf-8');
-  fs.writeFileSync(
-    importedTicketPath,
-    '# Imported ticket placeholder',
-    'utf-8',
-  );
+  fs.writeFileSync(importedTicketPath, '# Imported ticket placeholder', 'utf-8');
 
   try {
-    console.log(
-      'Test 1: synthesized output written via --output expands contractions',
-    );
+    console.log('Test 1: synthesized output written via --output expands contractions');
     await command.run([synthesisSourceA, synthesisSourceB], {
       format: 'md',
       output: synthesisOutputPath,
@@ -147,47 +122,28 @@ async function main() {
     const synthesizedOutput = fs.readFileSync(synthesisOutputPath, 'utf-8');
     ({ passed, failed } = sumResults(
       { passed, failed },
-      assertNoContractions(
-        'Synthesized output expanded contractions to formal equivalents',
-        synthesizedOutput,
-      ),
+      assertNoContractions('Synthesized output expanded contractions to formal equivalents', synthesizedOutput)
     ));
 
-    console.log(
-      'Test 2: single-source imported ticket output expands contractions',
-    );
-    const detectFormatSpy = jestlessSpy(
-      formatConverterService,
-      'detectFormat',
-      () => 'md',
-    );
-    const getConverterSpy = jestlessSpy(
-      formatConverterService,
-      'getConverter',
-      ((format: string) => {
-        if (format === 'md') {
-          return {
-            parse: () => ({
-              title: "Imported ticket that don't comply",
-              description:
-                "Imported description that can't be used and it's long enough to bypass synthesis. ".repeat(
-                  3,
-                ),
-              type: 'task',
-              priority: 'medium',
-            }),
-            serialize: (ticket: { title: string; description: string }) =>
-              [`# ${ticket.title}`, '', ticket.description].join('\n'),
-          };
-        }
+    console.log('Test 2: single-source imported ticket output expands contractions');
+    const detectFormatSpy = jestlessSpy(formatConverterService, 'detectFormat', () => 'md');
+    const getConverterSpy = jestlessSpy(formatConverterService, 'getConverter', ((format: string) => {
+      if (format === 'md') {
+        return {
+          parse: () => ({
+            title: "Imported ticket that don't comply",
+            description: "Imported description that can't be used and it's long enough to bypass synthesis. ".repeat(3),
+            type: 'task',
+            priority: 'medium',
+          }),
+          serialize: (ticket: { title: string; description: string }) =>
+            [`# ${ticket.title}`, '', ticket.description].join('\n'),
+        };
+      }
 
-        return originalMdConverter;
-      }) as any,
-    );
-    const importedOutputPath = path.join(
-      os.tmpdir(),
-      `wf-imported-formal-output-${Date.now()}.md`,
-    );
+      return originalMdConverter;
+    }) as any);
+    const importedOutputPath = path.join(os.tmpdir(), `wf-imported-formal-output-${Date.now()}.md`);
 
     try {
       await command.run([importedTicketPath], {
@@ -197,10 +153,7 @@ async function main() {
       const importedOutput = fs.readFileSync(importedOutputPath, 'utf-8');
       ({ passed, failed } = sumResults(
         { passed, failed },
-        assertNoContractions(
-          'Imported ticket output expanded contractions to formal equivalents',
-          importedOutput,
-        ),
+        assertNoContractions('Imported ticket output expanded contractions to formal equivalents', importedOutput)
       ));
     } finally {
       detectFormatSpy.restore();
@@ -220,15 +173,12 @@ async function main() {
       },
       'jira',
       'md',
-      ['https://example.com/spec'],
+      ['https://example.com/spec']
     );
     const savedArtifact = fs.readFileSync(savedArtifactPath, 'utf-8');
     ({ passed, failed } = sumResults(
       { passed, failed },
-      assertNoContractions(
-        'Saved artifact expanded contractions to formal equivalents',
-        savedArtifact,
-      ),
+      assertNoContractions('Saved artifact expanded contractions to formal equivalents', savedArtifact)
     ));
 
     const savedManifestPath = `${savedArtifactPath}.sources.json`;
@@ -281,7 +231,7 @@ const chalkHeader = (message: string): string => message;
  */
 const sumResults = (
   totals: { passed: number; failed: number },
-  result: { passed: number; failed: number },
+  result: { passed: number; failed: number }
 ): { passed: number; failed: number } => ({
   passed: totals.passed + result.passed,
   failed: totals.failed + result.failed,
@@ -298,7 +248,7 @@ const sumResults = (
 const jestlessSpy = <T extends object, K extends keyof T>(
   target: T,
   key: K,
-  replacement: T[K],
+  replacement: T[K]
 ): { restore: () => void } => {
   const original = target[key];
   target[key] = replacement;

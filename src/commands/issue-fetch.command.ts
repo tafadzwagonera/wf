@@ -30,9 +30,7 @@ const ISSUE_FETCH_EXAMPLES: CliExample[] = [
 const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
-      chalk.yellow(
-        `⚠️ Only the first repository will be used for issue:fetch. Ignoring: ${repos!.slice(1).join(', ')}`,
-      ),
+      chalk.yellow(`⚠️ Only the first repository will be used for issue:fetch. Ignoring: ${repos!.slice(1).join(', ')}`)
     );
   }
 };
@@ -61,7 +59,7 @@ export class IssueFetchCommand extends CommandRunner {
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
-    private readonly fetchStageService: FetchStageService,
+    private readonly fetchStageService: FetchStageService
   ) {
     super();
   }
@@ -81,9 +79,7 @@ export class IssueFetchCommand extends CommandRunner {
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
     if (!validFormats.includes(format as OutputFormat)) {
-      throw new Error(
-        `Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`,
-      );
+      throw new Error(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
     }
     return format as OutputFormat;
   }
@@ -99,8 +95,7 @@ export class IssueFetchCommand extends CommandRunner {
 
   @Option({
     flags: '-s, --silent',
-    description:
-      'Suppress decorative output and interactive prompts. Emits only the file path for piping',
+    description: 'Suppress decorative output and interactive prompts. Emits only the file path for piping',
   })
   parseSilent(): boolean {
     return true;
@@ -113,9 +108,7 @@ export class IssueFetchCommand extends CommandRunner {
   parseTracker(tracker: string): string {
     const validTrackers = ['jira', 'github', 'bitbucket'];
     if (!validTrackers.includes(tracker)) {
-      throw new Error(
-        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
-      );
+      throw new Error(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
     }
     return tracker;
   }
@@ -132,8 +125,7 @@ export class IssueFetchCommand extends CommandRunner {
       }
 
       // Get tracker (from option or config)
-      const trackerName =
-        options?.tracker || this.configService.get<string>('tracker', 'jira');
+      const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
 
       // Output format: CLI flag > hardcoded default (fetch has no stage config)
       const format: OutputFormat = options?.format || 'md';
@@ -257,10 +249,7 @@ export class IssueFetchCommand extends CommandRunner {
    * @param format Output format
    * @returns Truncated preview string (at most 10 lines)
    */
-  private buildTicketContentPreview(
-    ticketKey: string,
-    format: OutputFormat,
-  ): string {
+  private buildTicketContentPreview(ticketKey: string, format: OutputFormat): string {
     if (format === 'json') {
       return [
         '{',

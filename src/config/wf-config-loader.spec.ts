@@ -1,12 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import {
-  discoverWfConfigPath,
-  loadTypeScriptConfig,
-  loadWfConfig,
-  normalizeWfConfig,
-} from './wf-config-loader';
+import { discoverWfConfigPath, loadTypeScriptConfig, loadWfConfig, normalizeWfConfig } from './wf-config-loader';
 
 describe('wf-config-loader', () => {
   const tempRoots: string[] = [];
@@ -28,10 +23,7 @@ describe('wf-config-loader', () => {
       const projectRoot = createProjectRoot();
       const jsPath = path.join(projectRoot, 'wf.config.js');
 
-      fs.writeFileSync(
-        path.join(projectRoot, 'wf.config.ts'),
-        'export default {}',
-      );
+      fs.writeFileSync(path.join(projectRoot, 'wf.config.ts'), 'export default {}');
       fs.writeFileSync(path.join(projectRoot, 'wf.config.yaml'), 'ai: []\n');
       fs.writeFileSync(jsPath, 'module.exports = {};\n');
 
@@ -43,10 +35,7 @@ describe('wf-config-loader', () => {
       const jsPath = path.join(projectRoot, 'wf.config.js');
 
       fs.writeFileSync(jsPath, 'module.exports = {};\n');
-      fs.writeFileSync(
-        path.join(projectRoot, 'wf.config.mjs'),
-        'export default {};\n',
-      );
+      fs.writeFileSync(path.join(projectRoot, 'wf.config.mjs'), 'export default {};\n');
 
       expect(discoverWfConfigPath(projectRoot)).toBe(jsPath);
     });
@@ -68,7 +57,7 @@ describe('wf-config-loader', () => {
           loadJiti: () => {
             throw new Error('jiti not installed');
           },
-        }),
+        })
       ).rejects.toThrow(/install.*jiti/i);
     });
 
@@ -87,9 +76,7 @@ describe('wf-config-loader', () => {
           return {
             __esModule: true,
             default: {
-              ai: [
-                { provider: 'openai', apiKey: 'test-key', model: 'gpt-5.4' },
-              ],
+              ai: [{ provider: 'openai', apiKey: 'test-key', model: 'gpt-5.4' }],
             },
           };
         },
@@ -123,7 +110,7 @@ describe('wf-config-loader', () => {
               model: 'gemini-2.5-pro',
             },
           ],
-        }),
+        })
       ).toThrow(/default AI provider.*required/i);
     });
 
@@ -196,7 +183,7 @@ describe('wf-config-loader', () => {
               default: true,
             },
           ],
-        }),
+        })
       ).toThrow(/at most one AI provider/i);
     });
 
@@ -206,7 +193,7 @@ describe('wf-config-loader', () => {
           stages: {
             fetch: 'gpt-5.4',
           } as never,
-        }),
+        })
       ).toThrow(/fetch.*cannot be overridden/i);
     });
 
@@ -247,7 +234,7 @@ describe('wf-config-loader', () => {
           stages: {
             implement: 'gpt-5.4',
           } as never,
-        }),
+        })
       ).toThrow(/implement.*object/i);
     });
 
@@ -319,7 +306,7 @@ describe('wf-config-loader', () => {
           stages: {
             review: 'gemini-2.5-pro',
           } as never,
-        }),
+        })
       ).toThrow(/review/i);
     });
 
@@ -340,7 +327,7 @@ describe('wf-config-loader', () => {
               model: 'gemini-2.5-pro',
             },
           },
-        }),
+        })
       ).toThrow(/review.*google.*configured/i);
     });
 
@@ -422,7 +409,7 @@ describe('wf-config-loader', () => {
               experimentalAgent: true,
             } as never,
           },
-        }),
+        })
       ).toThrow(/experimentalAgent/i);
     });
 
@@ -524,8 +511,7 @@ describe('wf-config-loader', () => {
           create: {
             verificationConditions: {
               scripts: {
-                testVerifyRequestFormat:
-                  'nr test:manual -- test-verify-request-format',
+                testVerifyRequestFormat: 'nr test:manual -- test-verify-request-format',
               },
             },
           },
@@ -537,8 +523,7 @@ describe('wf-config-loader', () => {
       expect(config.stages.create!.verificationConditions).toEqual({
         policyFile: undefined,
         scripts: {
-          testVerifyRequestFormat:
-            'nr test:manual -- test-verify-request-format',
+          testVerifyRequestFormat: 'nr test:manual -- test-verify-request-format',
         },
       });
     });
@@ -589,8 +574,7 @@ describe('wf-config-loader', () => {
           create: {
             verificationConditions: {
               scripts: {
-                testVerifyRequestFormat:
-                  'nr test:manual -- test-verify-request-format',
+                testVerifyRequestFormat: 'nr test:manual -- test-verify-request-format',
               },
             },
           },
@@ -602,8 +586,7 @@ describe('wf-config-loader', () => {
       expect(config.stages.create!.verificationConditions).toEqual({
         policyFile: undefined,
         scripts: {
-          testVerifyRequestFormat:
-            'nr test:manual -- test-verify-request-format',
+          testVerifyRequestFormat: 'nr test:manual -- test-verify-request-format',
         },
       });
     });
@@ -625,7 +608,7 @@ describe('wf-config-loader', () => {
               backend: 'agent',
             },
           },
-        }),
+        })
       ).toThrow(/backend.*agent.*google/i);
     });
 
@@ -667,7 +650,7 @@ describe('wf-config-loader', () => {
               backend: 'cli',
             },
           },
-        }),
+        })
       ).toThrow(/cli.*only.*anthropic/i);
     });
 
@@ -688,7 +671,7 @@ describe('wf-config-loader', () => {
               backend: 'cli',
             },
           },
-        }),
+        })
       ).toThrow(/commit.*does not support.*cli/i);
     });
 
@@ -731,7 +714,7 @@ describe('wf-config-loader', () => {
           '  },',
           '};',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
 
       const config = await loadWfConfig({ cwd: projectRoot });
@@ -743,10 +726,7 @@ describe('wf-config-loader', () => {
     it('loads CommonJS JavaScript config files from ESM repos without falling back to defaults', async () => {
       const projectRoot = createProjectRoot();
 
-      fs.writeFileSync(
-        path.join(projectRoot, 'package.json'),
-        JSON.stringify({ type: 'module' }, null, 2),
-      );
+      fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ type: 'module' }, null, 2));
       fs.writeFileSync(
         path.join(projectRoot, 'wf.config.js'),
         [
@@ -772,7 +752,7 @@ describe('wf-config-loader', () => {
           '  },',
           '};',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
 
       const config = await loadWfConfig({ cwd: projectRoot });
@@ -806,12 +786,9 @@ describe('wf-config-loader', () => {
 
       fs.writeFileSync(
         path.join(projectRoot, 'wf.config.js'),
-        [
-          'exports.default = {',
-          '  ai: [{ provider: "openai", apiKey: "test-key", model: "gpt-5.4" }],',
-          '};',
-          '',
-        ].join('\n'),
+        ['exports.default = {', '  ai: [{ provider: "openai", apiKey: "test-key", model: "gpt-5.4" }],', '};', ''].join(
+          '\n'
+        )
       );
 
       const config = await loadWfConfig({ cwd: projectRoot });
@@ -824,10 +801,7 @@ describe('wf-config-loader', () => {
     it('keeps loading ESM-style JavaScript config files', async () => {
       const projectRoot = createProjectRoot();
 
-      fs.writeFileSync(
-        path.join(projectRoot, 'package.json'),
-        JSON.stringify({ type: 'module' }, null, 2),
-      );
+      fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ type: 'module' }, null, 2));
       fs.writeFileSync(
         path.join(projectRoot, 'wf.config.js'),
         [
@@ -841,7 +815,7 @@ describe('wf-config-loader', () => {
           '  },',
           '};',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
 
       const config = await loadWfConfig({ cwd: projectRoot });
@@ -858,15 +832,10 @@ describe('wf-config-loader', () => {
     it('fails fast when a discovered JavaScript config loads as an empty module namespace', async () => {
       const projectRoot = createProjectRoot();
 
-      fs.writeFileSync(
-        path.join(projectRoot, 'package.json'),
-        JSON.stringify({ type: 'module' }, null, 2),
-      );
+      fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ type: 'module' }, null, 2));
       fs.writeFileSync(path.join(projectRoot, 'wf.config.js'), 'export {};\n');
 
-      await expect(loadWfConfig({ cwd: projectRoot })).rejects.toThrow(
-        /did not export a config object/i,
-      );
+      await expect(loadWfConfig({ cwd: projectRoot })).rejects.toThrow(/did not export a config object/i);
     });
 
     it('loads YAML config files', async () => {
@@ -885,7 +854,7 @@ describe('wf-config-loader', () => {
           '    provider: openai',
           '    model: gpt-5.4',
           '',
-        ].join('\n'),
+        ].join('\n')
       );
 
       const config = await loadWfConfig({ cwd: projectRoot });
@@ -903,7 +872,7 @@ describe('wf-config-loader', () => {
       const config = normalizeWfConfig({});
 
       expect(config.git.branchNamePattern).toBe(
-        '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$',
+        '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$'
       );
     });
 
@@ -947,7 +916,7 @@ describe('wf-config-loader', () => {
       expect(() =>
         normalizeWfConfig({
           branching: { atlassianPattern: '^test$' },
-        } as never),
+        } as never)
       ).toThrow();
     });
   });

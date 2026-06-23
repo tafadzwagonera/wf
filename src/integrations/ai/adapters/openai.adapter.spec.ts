@@ -50,9 +50,7 @@ describe('OpenAIAdapter', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (
-      loadAiContextConfig as jest.MockedFunction<typeof loadAiContextConfig>
-    ).mockResolvedValue('');
+    (loadAiContextConfig as jest.MockedFunction<typeof loadAiContextConfig>).mockResolvedValue('');
   });
 
   describe('execute', () => {
@@ -106,13 +104,9 @@ describe('OpenAIAdapter', () => {
       } as unknown as ConfigService;
       const adapter = new OpenAIAdapter(mockConfigService, mockLogger);
 
-      (
-        adapter as unknown as { initializeClient: () => void }
-      ).initializeClient();
+      (adapter as unknown as { initializeClient: () => void }).initializeClient();
 
-      expect((adapter as unknown as { maxTokens: number }).maxTokens).toBe(
-        4096,
-      );
+      expect((adapter as unknown as { maxTokens: number }).maxTokens).toBe(4096);
     });
 
     it('omits temperature for reasoning models', async () => {
@@ -220,15 +214,13 @@ describe('OpenAIAdapter', () => {
       (adapter as unknown as { model: string }).model = 'gpt-5.4';
       (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
 
-      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject(
-        {
-          content: '',
-          provider: 'openai',
-          model: 'gpt-5.4',
-          finishReason: 'content_filter',
-          refusal: 'Blocked by policy',
-        },
-      );
+      await expect(adapter.execute({ prompt: 'hello' })).resolves.toMatchObject({
+        content: '',
+        provider: 'openai',
+        model: 'gpt-5.4',
+        finishReason: 'content_filter',
+        refusal: 'Blocked by policy',
+      });
     });
 
     it('omits temperature for temperature-restricted models in executeWithHistory', async () => {
@@ -303,7 +295,7 @@ describe('OpenAIAdapter', () => {
         path.join(os.homedir(), '.openai', 'OPENAI.md'),
         '.openai/OPENAI.md',
         'openai',
-        true,
+        true
       );
     });
   });

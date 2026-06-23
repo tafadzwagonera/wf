@@ -41,14 +41,12 @@ describe('LlmAdapterFactory', () => {
         mockAnthropicAdapter as any,
         mockOpenAIAdapter as any,
         mockGeminiAdapter as any,
-        mockDeepSeekAdapter as any,
+        mockDeepSeekAdapter as any
       );
 
       await adapter.execute({ prompt: 'hello' });
 
-      expect(mockOpenAIAdapter.execute).toHaveBeenCalledWith(
-        expect.objectContaining({ prompt: 'hello' }),
-      );
+      expect(mockOpenAIAdapter.execute).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'hello' }));
     });
   });
 });

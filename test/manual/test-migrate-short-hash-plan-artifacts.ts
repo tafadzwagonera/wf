@@ -10,10 +10,7 @@ const run = (): void => {
   fs.mkdirSync(jiraDir, { recursive: true });
 
   const shortPlanPath = path.join(jiraDir, '91d8ea76-fix-plan.json');
-  const shortManifestPath = path.join(
-    jiraDir,
-    '91d8ea76-fix-plan.sources.json',
-  );
+  const shortManifestPath = path.join(jiraDir, '91d8ea76-fix-plan.sources.json');
   fs.writeFileSync(
     shortPlanPath,
     JSON.stringify(
@@ -24,8 +21,8 @@ const run = (): void => {
         steps: ['rename file'],
       },
       null,
-      2,
-    ),
+      2
+    )
   );
   fs.writeFileSync(
     shortManifestPath,
@@ -41,19 +38,13 @@ const run = (): void => {
         ticketKey: 'WBP-42',
       },
       null,
-      2,
-    ),
+      2
+    )
   );
 
   const summary = runMigration({ rootDir });
-  const canonicalPlanPath = path.join(
-    jiraDir,
-    '2026-04-29-91d8ea76-fix-plan.json',
-  );
-  const canonicalManifestPath = path.join(
-    jiraDir,
-    '2026-04-29-91d8ea76-fix-plan.sources.json',
-  );
+  const canonicalPlanPath = path.join(jiraDir, '2026-04-29-91d8ea76-fix-plan.json');
+  const canonicalManifestPath = path.join(jiraDir, '2026-04-29-91d8ea76-fix-plan.sources.json');
 
   if (summary.convertedCount !== 1) {
     throw new Error(`Expected convertedCount=1, got ${summary.convertedCount}`);

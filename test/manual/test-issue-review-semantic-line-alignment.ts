@@ -40,9 +40,7 @@ async function run(): Promise<void> {
   const processed = postProcessCodeReview(review, diff);
 
   if (processed.review.issues[0]?.line !== 121) {
-    throw new Error(
-      `Expected semantic remap to line 121, received ${processed.review.issues[0]?.line}`,
-    );
+    throw new Error(`Expected semantic remap to line 121, received ${processed.review.issues[0]?.line}`);
   }
 
   console.log('  ✅ Test 1 passed: message-only anchors remap correctly\n');
@@ -55,8 +53,7 @@ async function run(): Promise<void> {
       {
         severity: 'warning' as const,
         message: 'The variable value looks incorrect.',
-        suggestion:
-          'Change `DB_PASSWORD` to use a real secret reference instead of a placeholder.',
+        suggestion: 'Change `DB_PASSWORD` to use a real secret reference instead of a placeholder.',
         file: 'main.tf',
         line: 13,
       },
@@ -75,14 +72,11 @@ async function run(): Promise<void> {
 +  })
 `;
 
-  const suggestionProcessed = postProcessCodeReview(
-    suggestionReview,
-    suggestionDiff,
-  );
+  const suggestionProcessed = postProcessCodeReview(suggestionReview, suggestionDiff);
 
   if (suggestionProcessed.review.issues[0]?.line !== 12) {
     throw new Error(
-      `Expected suggestion anchor remap to line 12, received ${suggestionProcessed.review.issues[0]?.line}`,
+      `Expected suggestion anchor remap to line 12, received ${suggestionProcessed.review.issues[0]?.line}`
     );
   }
 
@@ -95,10 +89,8 @@ async function run(): Promise<void> {
     issues: [
       {
         severity: 'error' as const,
-        message:
-          'This PR does not add the DNS record in Route53 or any ACM certificate attachment.',
-        suggestion:
-          'Add an `aws_route53_record` for the hostname and attach a certificate.',
+        message: 'This PR does not add the DNS record in Route53 or any ACM certificate attachment.',
+        suggestion: 'Add an `aws_route53_record` for the hostname and attach a certificate.',
         file: 'infra.tf',
         line: 80,
       },
@@ -116,14 +108,11 @@ async function run(): Promise<void> {
 +}
 `;
 
-  const zeroScoreProcessed = postProcessCodeReview(
-    zeroScoreReview,
-    zeroScoreDiff,
-  );
+  const zeroScoreProcessed = postProcessCodeReview(zeroScoreReview, zeroScoreDiff);
 
   if (zeroScoreProcessed.review.issues[0]?.line !== undefined) {
     throw new Error(
-      `Expected line to be omitted for zero-score anchors, received ${zeroScoreProcessed.review.issues[0]?.line}`,
+      `Expected line to be omitted for zero-score anchors, received ${zeroScoreProcessed.review.issues[0]?.line}`
     );
   }
 
@@ -136,8 +125,7 @@ async function run(): Promise<void> {
     issues: [
       {
         severity: 'warning' as const,
-        message:
-          'The `aws_lb_target_group` health check path should use a deeper readiness probe.',
+        message: 'The `aws_lb_target_group` health check path should use a deeper readiness probe.',
         file: 'main.tf',
         line: 12,
       },
@@ -163,18 +151,16 @@ async function run(): Promise<void> {
 
   if (hunkSpanProcessed.review.issues[0]?.line !== 13) {
     throw new Error(
-      `Expected hunk-span preservation to yield line 13, received ${hunkSpanProcessed.review.issues[0]?.line}`,
+      `Expected hunk-span preservation to yield line 13, received ${hunkSpanProcessed.review.issues[0]?.line}`
     );
   }
 
   console.log('  ✅ Test 4 passed: hunk-span preserves in-range model line\n');
 
-  console.log(
-    '✅ Manual smoke test passed: issue:review semantic line alignment',
-  );
+  console.log('✅ Manual smoke test passed: issue:review semantic line alignment');
 }
 
-run().catch((error) => {
+run().catch(error => {
   console.error(`❌ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

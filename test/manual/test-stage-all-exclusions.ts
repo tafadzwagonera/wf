@@ -44,8 +44,7 @@ async function main() {
     // ── Set up temporary git repo ──────────────────────────────────────────
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-stage-test-'));
 
-    const git = (cmd: string) =>
-      execSync(`git ${cmd}`, { cwd: tmpDir, stdio: 'pipe' });
+    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: tmpDir, stdio: 'pipe' });
 
     git('init');
     git('config user.email "test@example.com"');
@@ -79,10 +78,7 @@ async function main() {
       'wf.config.yml',
     ];
     for (const cfgFile of wfConfigFiles) {
-      fs.writeFileSync(
-        path.join(tmpDir, cfgFile),
-        `// wf tooling artifact\nmodule.exports = {};\n`,
-      );
+      fs.writeFileSync(path.join(tmpDir, cfgFile), `// wf tooling artifact\nmodule.exports = {};\n`);
     }
 
     // dist/ build output
@@ -160,7 +156,7 @@ async function main() {
   if (failed > 0) process.exit(1);
 }
 
-main().catch((err) => {
+main().catch(err => {
   console.error(err);
   process.exit(1);
 });

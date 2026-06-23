@@ -79,12 +79,8 @@ describe('ChatUIService', () => {
 
       service.displayChatIntro('plan', context);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Interactive Chat Mode'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Current Stage: PLAN'),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Interactive Chat Mode'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Current Stage: PLAN'));
     });
 
     it('should display plan context when available', () => {
@@ -100,12 +96,8 @@ describe('ChatUIService', () => {
 
       service.displayChatIntro('plan', context);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Plan Summary: Fix authentication bug'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Complexity: MEDIUM'),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Plan Summary: Fix authentication bug'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Complexity: MEDIUM'));
     });
 
     it('should display review context when available', () => {
@@ -121,12 +113,8 @@ describe('ChatUIService', () => {
 
       service.displayChatIntro('review', context);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Review Summary: Code looks good'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Approved'),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Review Summary: Code looks good'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Approved'));
     });
   });
 
@@ -155,9 +143,7 @@ describe('ChatUIService', () => {
     });
 
     it('should not flag regular messages as exit', async () => {
-      const mockInquirer = jest
-        .fn()
-        .mockResolvedValue({ message: 'Can you explain this?' });
+      const mockInquirer = jest.fn().mockResolvedValue({ message: 'Can you explain this?' });
       (service as any).inquirer = mockInquirer;
 
       const result = await service.promptUserInput(1, 20);
@@ -175,14 +161,12 @@ describe('ChatUIService', () => {
       expect(mockInquirer).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('18 turns left (2/20)'),
-        }),
+        })
       );
     });
 
     it('should trim whitespace from input', async () => {
-      const mockInquirer = jest
-        .fn()
-        .mockResolvedValue({ message: '  test message  ' });
+      const mockInquirer = jest.fn().mockResolvedValue({ message: '  test message  ' });
       (service as any).inquirer = mockInquirer;
 
       const result = await service.promptUserInput(1, 20);
@@ -201,12 +185,8 @@ describe('ChatUIService', () => {
 
       service.displayAssistantResponse(message);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Claude:'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'This is a response from Claude',
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Claude:'));
+      expect(consoleLogSpy).toHaveBeenCalledWith('This is a response from Claude');
     });
 
     it('should handle multiline content', () => {
@@ -232,11 +212,9 @@ describe('ChatUIService', () => {
       service.displayTokenUsage(currentUsage, totalUsage);
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Tokens: Input: 100 | Output: 50 | Total: 150'),
+        expect.stringContaining('Tokens: Input: 100 | Output: 50 | Total: 150')
       );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Conversation Total: 750 (500 in, 250 out)'),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Conversation Total: 750 (500 in, 250 out)'));
     });
   });
 
@@ -244,12 +222,8 @@ describe('ChatUIService', () => {
     it('should display empty history message', () => {
       service.displayConversationHistory([]);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Conversation History'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('No messages yet'),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Conversation History'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('No messages yet'));
     });
 
     it('should display message history', () => {
@@ -269,18 +243,10 @@ describe('ChatUIService', () => {
 
       service.displayConversationHistory(messages);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('You [1]:'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Claude [2]:'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Hello'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Hi there!'),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('You [1]:'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Claude [2]:'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Hello'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Hi there!'));
     });
 
     it('should truncate long messages in history', () => {
@@ -297,8 +263,7 @@ describe('ChatUIService', () => {
 
       // Should display truncated version (150 chars + ...)
       const truncatedCalls = consoleLogSpy.mock.calls.filter(
-        (call) =>
-          call[0] && typeof call[0] === 'string' && call[0].includes('...'),
+        call => call[0] && typeof call[0] === 'string' && call[0].includes('...')
       );
       expect(truncatedCalls.length).toBeGreaterThan(0);
     });
@@ -308,18 +273,10 @@ describe('ChatUIService', () => {
     it('should display help information', () => {
       service.displayHelp();
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Chat Commands'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('history'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('help'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('exit'),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Chat Commands'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('history'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('help'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('exit'));
     });
   });
 
@@ -329,12 +286,8 @@ describe('ChatUIService', () => {
 
       service.displayChatEnd(filePath);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Chat session saved'),
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining(filePath),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Chat session saved'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining(filePath));
     });
   });
 
@@ -342,9 +295,7 @@ describe('ChatUIService', () => {
     it('should display error message', () => {
       service.displayError('Something went wrong');
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Error: Something went wrong'),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Error: Something went wrong'));
     });
   });
 
@@ -352,9 +303,7 @@ describe('ChatUIService', () => {
     it('should display warning message', () => {
       service.displayWarning('This is a warning');
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Warning: This is a warning'),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Warning: This is a warning'));
     });
   });
 
@@ -362,9 +311,7 @@ describe('ChatUIService', () => {
     it('should display max turns message', () => {
       service.displayMaxTurnsReached(20);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Maximum conversation turns (20) reached'),
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Maximum conversation turns (20) reached'));
     });
   });
 });

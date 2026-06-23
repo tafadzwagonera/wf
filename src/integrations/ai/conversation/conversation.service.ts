@@ -1,9 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  AiService,
-  AIConversationRequest,
-  requireAiResponseContent,
-} from '../ai.service';
+import { AiService, AIConversationRequest, requireAiResponseContent } from '../ai.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ChatUIService } from './chat-ui.service';
 import {
@@ -13,11 +9,7 @@ import {
   ChatSessionOptions,
   WorkflowStage,
 } from './interfaces';
-import {
-  StageAgentService,
-  AgentChatSession,
-  AgentStageName,
-} from '../stage-agent.service';
+import { StageAgentService, AgentChatSession, AgentStageName } from '../stage-agent.service';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -39,7 +31,7 @@ export class ConversationService {
     private claudeService: AiService,
     private chatUI: ChatUIService,
     private logger: LoggerService,
-    private stageAgentService: StageAgentService,
+    private stageAgentService: StageAgentService
   ) {}
 
   /**
@@ -49,10 +41,7 @@ export class ConversationService {
    * @param context - Workflow context for the conversation
    * @returns New conversation state
    */
-  async createConversation(
-    ticketKey: string,
-    context: ConversationContext,
-  ): Promise<ConversationState> {
+  async createConversation(ticketKey: string, context: ConversationContext): Promise<ConversationState> {
     const conversationId = randomUUID();
     const now = new Date();
 
@@ -70,9 +59,7 @@ export class ConversationService {
     };
 
     this.conversations.set(conversationId, state);
-    this.logger.debug(
-      `Created conversation: ${conversationId} for ticket: ${ticketKey}`,
-    );
+    this.logger.debug(`Created conversation: ${conversationId} for ticket: ${ticketKey}`);
 
     return state;
   }
@@ -83,22 +70,12 @@ export class ConversationService {
    * @param ticketKey - Ticket identifier
    * @returns Loaded conversation state or null if not found
    */
-  async loadConversation(
-    ticketKey: string,
-    repoDir?: string,
-    trackerName?: string,
-  ): Promise<ConversationState | null> {
+  async loadConversation(ticketKey: string, repoDir?: string, trackerName?: string): Promise<ConversationState | null> {
     try {
-      const filePath = this.getConversationFilePath(
-        ticketKey,
-        repoDir,
-        trackerName,
-      );
+      const filePath = this.getConversationFilePath(ticketKey, repoDir, trackerName);
 
       if (!fs.existsSync(filePath)) {
-        this.logger.debug(
-          `No conversation file found for ticket: ${ticketKey}`,
-        );
+        this.logger.debug(`No conversation file found for ticket: ${ticketKey}`);
         return null;
       }
 
@@ -108,21 +85,17 @@ export class ConversationService {
       // Parse Date objects
       state.createdAt = new Date(state.createdAt);
       state.updatedAt = new Date(state.updatedAt);
-      state.messages.forEach((msg) => {
+      state.messages.forEach(msg => {
         msg.timestamp = new Date(msg.timestamp);
       });
 
       // Store in memory
       this.conversations.set(state.conversationId, state);
-      this.logger.debug(
-        `Loaded conversation: ${state.conversationId} for ticket: ${ticketKey}`,
-      );
+      this.logger.debug(`Loaded conversation: ${state.conversationId} for ticket: ${ticketKey}`);
 
       return state;
     } catch (error) {
-      this.logger.error(
-        `Failed to load conversation for ticket ${ticketKey}: ${error.message}`,
-      );
+      this.logger.error(`Failed to load conversation for ticket ${ticketKey}: ${error.message}`);
       return null;
     }
   }
@@ -134,10 +107,7 @@ export class ConversationService {
    * @param content - Message content
    * @returns Updated conversation state
    */
-  async addUserMessage(
-    conversationId: string,
-    content: string,
-  ): Promise<ConversationState> {
+  async addUserMessage(conversationId: string, content: string): Promise<ConversationState> {
     const state = this.conversations.get(conversationId);
 
     if (!state) {
@@ -168,7 +138,7 @@ export class ConversationService {
   async getAssistantResponse(
     conversationId: string,
     systemPrompt?: string,
-    stage?: WorkflowStage,
+    stage?: WorkflowStage
   ): Promise<ConversationMessage> {
     const state = this.conversations.get(conversationId);
 
@@ -177,13 +147,13 @@ export class ConversationService {
     }
 
     // Build messages array for API
-    const messages = state.messages.map((msg) => ({
+    const messages = state.messages.map(msg => ({
       role: msg.role,
       content: msg.content,
     }));
 
     this.logger.debug(
-      `Getting assistant response for conversation: ${conversationId} with ${messages.length} messages`,
+      `Getting assistant response for conversation: ${conversationId} with ${messages.length} messages`
     );
 
     // Call Claude with full history
@@ -192,10 +162,7 @@ export class ConversationService {
       systemPrompt,
       ...(stage ? { stage: stage as AIConversationRequest['stage'] } : {}),
     });
-    const content = requireAiResponseContent(
-      response,
-      'AI provider returned an empty chat response',
-    );
+    const content = requireAiResponseContent(response, 'AI provider returned an empty chat response');
 
     // Create assistant message
     const assistantMessage: ConversationMessage = {
@@ -215,7 +182,7 @@ export class ConversationService {
     }
 
     this.logger.debug(
-      `Assistant response added. Total tokens: ${state.totalTokensUsed.input + state.totalTokensUsed.output}`,
+      `Assistant response added. Total tokens: ${state.totalTokensUsed.input + state.totalTokensUsed.output}`
     );
 
     return assistantMessage;
@@ -228,11 +195,7 @@ export class ConversationService {
    */
   async saveConversation(state: ConversationState): Promise<void> {
     try {
-      const filePath = this.getConversationFilePath(
-        state.ticketKey,
-        state.context.repoDir,
-        state.context.trackerName,
-      );
+      const filePath = this.getConversationFilePath(state.ticketKey, state.context.repoDir, state.context.trackerName);
       const dir = path.dirname(filePath);
 
       // Ensure directory exists
@@ -242,11 +205,7 @@ export class ConversationService {
 
       // Write with atomic operation (temp file + rename)
       const tempPath = `${filePath}.tmp`;
-      await fs.promises.writeFile(
-        tempPath,
-        JSON.stringify(state, null, 2),
-        'utf-8',
-      );
+      await fs.promises.writeFile(tempPath, JSON.stringify(state, null, 2), 'utf-8');
       await fs.promises.rename(tempPath, filePath);
 
       this.logger.debug(`Saved conversation to: ${filePath}`);
@@ -262,10 +221,7 @@ export class ConversationService {
    * @param conversationId - Conversation identifier
    * @param options - Chat session options
    */
-  async startChatSession(
-    conversationId: string,
-    options?: ChatSessionOptions,
-  ): Promise<void> {
+  async startChatSession(conversationId: string, options?: ChatSessionOptions): Promise<void> {
     const state = this.conversations.get(conversationId);
 
     if (!state) {
@@ -278,9 +234,7 @@ export class ConversationService {
     let useAgentBackend = false;
     if (isAgentStage) {
       try {
-        useAgentBackend = this.stageAgentService.isEnabledForStage(
-          stage as AgentStageName,
-        );
+        useAgentBackend = this.stageAgentService.isEnabledForStage(stage as AgentStageName);
       } catch {
         // Unsupported provider for agent mode — fall back to standard
       }
@@ -296,10 +250,7 @@ export class ConversationService {
     while (turn <= maxTurns) {
       try {
         // Get user input
-        const { input, shouldExit } = await this.chatUI.promptUserInput(
-          turn,
-          maxTurns,
-        );
+        const { input, shouldExit } = await this.chatUI.promptUserInput(turn, maxTurns);
 
         // Handle special commands
         if (shouldExit) {
@@ -340,21 +291,14 @@ export class ConversationService {
           this.chatUI.displayAssistantResponse(assistantMessage);
         } else {
           // Get assistant response via standard completions
-          const response = await this.getAssistantResponse(
-            conversationId,
-            systemPrompt,
-            stage,
-          );
+          const response = await this.getAssistantResponse(conversationId, systemPrompt, stage);
 
           // Display response
           this.chatUI.displayAssistantResponse(response);
 
           // Display token usage
           if (response.tokenUsage) {
-            this.chatUI.displayTokenUsage(
-              response.tokenUsage,
-              state.totalTokensUsed,
-            );
+            this.chatUI.displayTokenUsage(response.tokenUsage, state.totalTokensUsed);
           }
         }
 
@@ -377,11 +321,7 @@ export class ConversationService {
     await this.saveConversation(state);
 
     // Display end message
-    const filePath = this.getConversationFilePath(
-      state.ticketKey,
-      state.context.repoDir,
-      state.context.trackerName,
-    );
+    const filePath = this.getConversationFilePath(state.ticketKey, state.context.repoDir, state.context.trackerName);
     this.chatUI.displayChatEnd(filePath);
   }
 
@@ -401,17 +341,9 @@ export class ConversationService {
    * @param ticketKey - Ticket identifier
    * @returns Full path to conversation JSON file
    */
-  private getConversationFilePath(
-    ticketKey: string,
-    repoDir?: string,
-    trackerName?: string,
-  ): string {
+  private getConversationFilePath(ticketKey: string, repoDir?: string, trackerName?: string): string {
     if (repoDir) {
-      const segments = [
-        os.homedir(),
-        '.wf',
-        path.basename(path.resolve(repoDir)),
-      ];
+      const segments = [os.homedir(), '.wf', path.basename(path.resolve(repoDir))];
       if (trackerName) {
         segments.push(trackerName);
       }

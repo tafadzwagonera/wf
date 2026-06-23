@@ -9,7 +9,7 @@ import { CommitStageService } from '../workflows/stages/commit-stage.service';
 export class CommitterAgent {
   constructor(
     private readonly gitService: GitService,
-    private readonly commitStageService: CommitStageService,
+    private readonly commitStageService: CommitStageService
   ) {}
 
   /**
@@ -29,7 +29,7 @@ export class CommitterAgent {
     repoDir?: string,
     ticketContext?: string,
     suppressHeader?: boolean,
-    silent?: boolean,
+    silent?: boolean
   ): Promise<void> {
     if (!suppressHeader && !silent) {
       console.log(chalk.bold.yellow('\n💾 STAGE 5: Commit Changes'));
@@ -50,7 +50,7 @@ export class CommitterAgent {
 
     const diff = await this.gitService.getDiff(false, repoDir);
     const commits = await this.gitService.getRecentCommits(10, repoDir);
-    const commitHistory = commits.map((c) => c.message);
+    const commitHistory = commits.map(c => c.message);
 
     const finalMsg = await this.commitStageService.generateCommitMessage({
       diff,

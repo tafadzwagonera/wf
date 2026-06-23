@@ -80,9 +80,7 @@ export interface WfConfig {
     botToken?: string;
     userToken?: string;
   };
-  stages?: Partial<
-    Record<'plan' | 'review' | 'generate' | 'commit', WfAiStageTargetConfig>
-  > & {
+  stages?: Partial<Record<'plan' | 'review' | 'generate' | 'commit', WfAiStageTargetConfig>> & {
     create?: WfCreateStageConfig;
     implement?: WfImplementStageConfig;
     fetch?: string;

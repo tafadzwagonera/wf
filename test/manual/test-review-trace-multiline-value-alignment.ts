@@ -14,25 +14,17 @@ import { formatReviewStateTransition } from '../../src/integrations/ai/review-tr
 function assertNoEmbeddedNewlines(lines: string[], label: string): void {
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].includes('\n')) {
-      throw new Error(
-        `${label}\n  Line ${i} contains embedded newline:\n  ${JSON.stringify(lines[i])}`,
-      );
+      throw new Error(`${label}\n  Line ${i} contains embedded newline:\n  ${JSON.stringify(lines[i])}`);
     }
   }
 }
 
-function assertConsistentPrefix(
-  lines: string[],
-  outerPrefix: string,
-  label: string,
-): void {
-  const prefixed = lines.map((line) => `${outerPrefix}${line}`);
+function assertConsistentPrefix(lines: string[], outerPrefix: string, label: string): void {
+  const prefixed = lines.map(line => `${outerPrefix}${line}`);
   for (let i = 0; i < prefixed.length; i++) {
     const line = prefixed[i];
     if (!line.startsWith(outerPrefix)) {
-      throw new Error(
-        `${label}\n  Line ${i} missing outer prefix:\n  ${JSON.stringify(line)}`,
-      );
+      throw new Error(`${label}\n  Line ${i} missing outer prefix:\n  ${JSON.stringify(line)}`);
     }
   }
 }
@@ -50,14 +42,7 @@ async function run(): Promise<void> {
         frame: 'aws_ssm_parameter.config',
         captured: {
           name: '/agent-ipi/config',
-          payloadKeys: [
-            'API_URL',
-            'LOG_LEVEL',
-            'NODE_ENV',
-            'STAGE',
-            'PORT',
-            'NATS_URL',
-          ],
+          payloadKeys: ['API_URL', 'LOG_LEVEL', 'NODE_ENV', 'STAGE', 'PORT', 'NATS_URL'],
         },
         changes: {
           'ssm.parameter': { before: 'absent', after: 'present' },
@@ -66,19 +51,12 @@ async function run(): Promise<void> {
     ],
   });
 
-  const prefixed = arrayResult.map((line) => `  ${line}`);
+  const prefixed = arrayResult.map(line => `  ${line}`);
   console.log(prefixed.join('\n'));
   console.log();
 
-  assertNoEmbeddedNewlines(
-    arrayResult,
-    'Test 1: array values must not contain embedded newlines',
-  );
-  assertConsistentPrefix(
-    arrayResult,
-    '',
-    'Test 1: all lines must be plain single lines',
-  );
+  assertNoEmbeddedNewlines(arrayResult, 'Test 1: array values must not contain embedded newlines');
+  assertConsistentPrefix(arrayResult, '', 'Test 1: all lines must be plain single lines');
 
   console.log('  ✅ Test 1 passed: array values have no embedded newlines\n');
 
@@ -100,14 +78,11 @@ async function run(): Promise<void> {
     ],
   });
 
-  const prefixed2 = objectResult.map((line) => `  ${line}`);
+  const prefixed2 = objectResult.map(line => `  ${line}`);
   console.log(prefixed2.join('\n'));
   console.log();
 
-  assertNoEmbeddedNewlines(
-    objectResult,
-    'Test 2: object values must not contain embedded newlines',
-  );
+  assertNoEmbeddedNewlines(objectResult, 'Test 2: object values must not contain embedded newlines');
 
   console.log('  ✅ Test 2 passed: object values have no embedded newlines\n');
 
@@ -135,23 +110,18 @@ async function run(): Promise<void> {
     ],
   });
 
-  const prefixed3 = nestedResult.map((line) => `  ${line}`);
+  const prefixed3 = nestedResult.map(line => `  ${line}`);
   console.log(prefixed3.join('\n'));
   console.log();
 
-  assertNoEmbeddedNewlines(
-    nestedResult,
-    'Test 3: nested multiline values must not contain embedded newlines',
-  );
+  assertNoEmbeddedNewlines(nestedResult, 'Test 3: nested multiline values must not contain embedded newlines');
 
   console.log('  ✅ Test 3 passed: nested values have no embedded newlines\n');
 
-  console.log(
-    '✅ Manual smoke test passed: review-trace multiline value alignment',
-  );
+  console.log('✅ Manual smoke test passed: review-trace multiline value alignment');
 }
 
-run().catch((error) => {
+run().catch(error => {
   console.error(`❌ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

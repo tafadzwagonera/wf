@@ -1,20 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JiraService } from '../../jira/jira.service';
-import {
-  IssueTrackerAdapter,
-  IssueTrackerFeature,
-} from '../issue-tracker-adapter.interface';
+import { IssueTrackerAdapter, IssueTrackerFeature } from '../issue-tracker-adapter.interface';
 import {
   UniversalTicket,
   IssueTrackerTicketReference,
   TicketType,
   TicketPriority,
 } from '../../../common/dto/universal-ticket.dto';
-import {
-  CreateTicketRequest,
-  UpdateTicketRequest,
-} from '../../jira/dto/jira.dto';
+import { CreateTicketRequest, UpdateTicketRequest } from '../../jira/dto/jira.dto';
 
 const JIRA_NEUTRAL_PRIORITY = 'Medium';
 
@@ -26,15 +20,13 @@ const JIRA_NEUTRAL_PRIORITY = 'Medium';
 export class JiraAdapter implements IssueTrackerAdapter {
   constructor(
     private readonly jiraService: JiraService,
-    private readonly configService: ConfigService,
+    private readonly configService: ConfigService
   ) {}
 
   /**
    * Create a ticket on Jira
    */
-  async createTicket(
-    ticket: UniversalTicket,
-  ): Promise<IssueTrackerTicketReference> {
+  async createTicket(ticket: UniversalTicket): Promise<IssueTrackerTicketReference> {
     const request = this.buildCreateRequest(ticket);
 
     const ticketKey = await this.jiraService.createTicket(request);
@@ -107,10 +99,7 @@ export class JiraAdapter implements IssueTrackerAdapter {
   /**
    * Update a ticket on Jira
    */
-  async updateTicket(
-    reference: string,
-    updates: Partial<UniversalTicket>,
-  ): Promise<void> {
+  async updateTicket(reference: string, updates: Partial<UniversalTicket>): Promise<void> {
     const request: UpdateTicketRequest = {};
 
     if (updates.title) {
@@ -165,7 +154,7 @@ export class JiraAdapter implements IssueTrackerAdapter {
     });
 
     return jiraTickets.map(
-      (jiraTicket) =>
+      jiraTicket =>
         new UniversalTicket({
           key: jiraTicket.key,
           title: jiraTicket.summary,
@@ -183,7 +172,7 @@ export class JiraAdapter implements IssueTrackerAdapter {
             jiraId: jiraTicket.id,
             jiraKey: jiraTicket.key,
           },
-        }),
+        })
     );
   }
 

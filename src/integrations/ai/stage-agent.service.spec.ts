@@ -39,7 +39,7 @@ describe('StageAgentService', () => {
       service.generatePlan({
         action: 'fix',
         issueContent: 'Fix callback handling',
-      }),
+      })
     ).rejects.toMatchObject({
       message: 'AI provider returned an empty plan response',
       details: expect.objectContaining({
@@ -57,9 +57,7 @@ describe('StageAgentService', () => {
       }
     ).runStagePrompt = jest.fn().mockResolvedValue('');
 
-    await expect(
-      service.generateFromPrompt('Summarise this diff'),
-    ).rejects.toMatchObject({
+    await expect(service.generateFromPrompt('Summarise this diff')).rejects.toMatchObject({
       message: 'AI provider returned an empty generated content response',
       details: expect.objectContaining({
         provider: 'openai',
@@ -100,7 +98,7 @@ describe('StageAgentService', () => {
         stage: 'review',
         userMessage: 'Why is this failing?',
         systemPrompt: 'Help',
-      }),
+      })
     ).rejects.toMatchObject({
       message: 'AI provider returned an empty chat response',
       details: expect.objectContaining({

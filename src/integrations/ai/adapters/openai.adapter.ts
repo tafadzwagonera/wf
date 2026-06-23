@@ -3,11 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import * as os from 'os';
 import * as path from 'path';
-import type {
-  AIConversationRequest,
-  AIRequest,
-  AIResponse,
-} from '../ai.service';
+import type { AIConversationRequest, AIRequest, AIResponse } from '../ai.service';
 import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
@@ -27,18 +23,17 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
 
   constructor(
     private configService: ConfigService,
-    private logger: LoggerService,
+    private logger: LoggerService
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const providers =
-      this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
+    const providers = this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
 
     this.contextConfig = await loadAiContextConfig(
       path.join(os.homedir(), '.openai', 'OPENAI.md'),
       '.openai/OPENAI.md',
       'openai',
-      hasProviderUsageIntent(providers, 'openai'),
+      hasProviderUsageIntent(providers, 'openai')
     );
   }
 
@@ -52,7 +47,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
     if (!apiKey) {
       if (!this.didWarnMissingConfig) {
         this.logger.warn(
-          'OpenAI API key not configured. Add `ai: [{ provider: "openai", apiKey: "..." }]` to wf.config.*.',
+          'OpenAI API key not configured. Add `ai: [{ provider: "openai", apiKey: "..." }]` to wf.config.*.'
         );
         this.didWarnMissingConfig = true;
       }
@@ -71,9 +66,9 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
   }
 
   private buildMessages(
-    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
   ): OpenAI.Chat.ChatCompletionMessageParam[] {
-    return messages.map((message) => ({
+    return messages.map(message => ({
       role: message.role,
       content: message.content,
     }));
@@ -89,10 +84,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
   }
 
   private getApiErrorDetails(error: unknown): { status?: number } {
-    return typeof error === 'object' &&
-      error !== null &&
-      'status' in error &&
-      typeof error.status === 'number'
+    return typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number'
       ? { status: error.status }
       : {};
   }
@@ -104,7 +96,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       throw new AIError(
         'OpenAI client not initialized. Configure `ai[].apiKey` for the `openai` provider in wf.config.*.',
         null,
-        false,
+        false
       );
     }
 
@@ -127,9 +119,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       const response = await this.client.chat.completions.create({
         model,
         max_completion_tokens: request.maxTokens || this.maxTokens,
-        ...(this.isTemperatureRestricted(model)
-          ? {}
-          : { temperature: request.temperature || 0.7 }),
+        ...(this.isTemperatureRestricted(model) ? {} : { temperature: request.temperature || 0.7 }),
         messages: this.buildMessages(messages),
       });
       const choice = response.choices[0];
@@ -147,33 +137,25 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       };
     } catch (error) {
       if (error instanceof OpenAI.APIError) {
-        throw new AIError(
-          `OpenAI API error: ${error.message}`,
-          this.getApiErrorDetails(error),
-          true,
-        );
+        throw new AIError(`OpenAI API error: ${error.message}`, this.getApiErrorDetails(error), true);
       }
 
       throw new AIError('Failed to execute AI request', error);
     }
   }
 
-  async executeWithHistory(
-    request: AIConversationRequest,
-  ): Promise<AIResponse> {
+  async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
     this.initializeClient();
 
     if (!this.client) {
       throw new AIError(
         'OpenAI client not initialized. Configure `ai[].apiKey` for the `openai` provider in wf.config.*.',
         null,
-        false,
+        false
       );
     }
 
-    this.logger.debug(
-      `Executing conversation request with ${request.messages.length} messages via OpenAI`,
-    );
+    this.logger.debug(`Executing conversation request with ${request.messages.length} messages via OpenAI`);
 
     try {
       const messages: Array<{
@@ -194,9 +176,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       const response = await this.client.chat.completions.create({
         model,
         max_completion_tokens: request.maxTokens || this.maxTokens,
-        ...(this.isTemperatureRestricted(model)
-          ? {}
-          : { temperature: request.temperature || 0.7 }),
+        ...(this.isTemperatureRestricted(model) ? {} : { temperature: request.temperature || 0.7 }),
         messages: this.buildMessages(messages),
       });
       const choice = response.choices[0];
@@ -214,11 +194,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       };
     } catch (error) {
       if (error instanceof OpenAI.APIError) {
-        throw new AIError(
-          `OpenAI API error: ${error.message}`,
-          this.getApiErrorDetails(error),
-          true,
-        );
+        throw new AIError(`OpenAI API error: ${error.message}`, this.getApiErrorDetails(error), true);
       }
 
       throw new AIError('Failed to execute conversation request', error);

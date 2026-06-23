@@ -15,14 +15,7 @@ import { WorkflowStagesModule } from '../workflows/stages/workflow-stages.module
   // NestJS deduplicates providers per module scope — no double-registration occurs.
   // ConfigModule is global; do NOT import it here.
   imports: [AIModule, IssueTrackerModule, GitModule, WorkflowStagesModule],
-  providers: [
-    FetcherAgent,
-    PlannerAgent,
-    ImplementerAgent,
-    ReviewerAgent,
-    CommitterAgent,
-    AgentOrchestrator,
-  ],
+  providers: [FetcherAgent, PlannerAgent, ImplementerAgent, ReviewerAgent, CommitterAgent, AgentOrchestrator],
   exports: [AgentOrchestrator],
 })
 export class AgentsModule {}

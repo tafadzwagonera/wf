@@ -18,9 +18,7 @@ import { ConfigService } from '@nestjs/config';
 import type { ConversationContext } from '../../src/integrations/ai/conversation/interfaces';
 
 async function testEmptyAiResponseDiagnostics() {
-  console.log(
-    '\n🧪 Manual Test: provider-aware empty AI response diagnostics\n',
-  );
+  console.log('\n🧪 Manual Test: provider-aware empty AI response diagnostics\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
@@ -38,12 +36,7 @@ async function testEmptyAiResponseDiagnostics() {
     console.error(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`);
     failed++;
   };
-  const passWhen = (
-    condition: boolean,
-    successMessage: string,
-    failureMessage: string,
-    detail?: string,
-  ) => {
+  const passWhen = (condition: boolean, successMessage: string, failureMessage: string, detail?: string) => {
     if (condition) {
       pass(successMessage);
       return;
@@ -79,7 +72,7 @@ async function testEmptyAiResponseDiagnostics() {
         hasExpectedError,
         'AiService.generatePlan reports provider-aware blank-plan errors',
         'AiService.generatePlan returned the wrong error shape',
-        error?.message ?? String(error),
+        error?.message ?? String(error)
       );
     }
 
@@ -91,15 +84,14 @@ async function testEmptyAiResponseDiagnostics() {
       fail('StageAgentService.generateFromPrompt should reject blank output');
     } catch (error: any) {
       const hasExpectedError =
-        error?.message ===
-          'AI provider returned an empty generated content response' &&
+        error?.message === 'AI provider returned an empty generated content response' &&
         error?.details?.provider &&
         error?.details?.model;
       passWhen(
         hasExpectedError,
         'StageAgentService.generateFromPrompt reports provider-aware blank generate errors',
         'StageAgentService.generateFromPrompt returned the wrong error shape',
-        error?.message ?? String(error),
+        error?.message ?? String(error)
       );
     }
 
@@ -111,14 +103,8 @@ async function testEmptyAiResponseDiagnostics() {
         ticketContent: 'Chat test ticket content',
       },
     };
-    const conversation = await conversationService.createConversation(
-      'TEST-CHAT',
-      conversationContext,
-    );
-    await conversationService.addUserMessage(
-      conversation.conversationId,
-      'Why did the stage fail?',
-    );
+    const conversation = await conversationService.createConversation('TEST-CHAT', conversationContext);
+    await conversationService.addUserMessage(conversation.conversationId, 'Why did the stage fail?');
 
     (AiService.prototype as any).executeWithHistory = async () => ({
       content: '',
@@ -127,12 +113,8 @@ async function testEmptyAiResponseDiagnostics() {
     });
 
     try {
-      await conversationService.getAssistantResponse(
-        conversation.conversationId,
-      );
-      fail(
-        'ConversationService.getAssistantResponse should reject blank output',
-      );
+      await conversationService.getAssistantResponse(conversation.conversationId);
+      fail('ConversationService.getAssistantResponse should reject blank output');
     } catch (error: any) {
       const hasExpectedError =
         error?.message === 'AI provider returned an empty chat response' &&
@@ -142,7 +124,7 @@ async function testEmptyAiResponseDiagnostics() {
         hasExpectedError,
         'ConversationService.getAssistantResponse reports provider-aware blank chat errors',
         'ConversationService.getAssistantResponse returned the wrong error shape',
-        error?.message ?? String(error),
+        error?.message ?? String(error)
       );
     }
 
@@ -168,7 +150,7 @@ async function testEmptyAiResponseDiagnostics() {
       {} as any,
       {} as any,
       {} as any,
-      mockClarificationStageAgentService as unknown as StageAgentService,
+      mockClarificationStageAgentService as unknown as StageAgentService
     );
 
     try {
@@ -182,15 +164,14 @@ async function testEmptyAiResponseDiagnostics() {
       fail('issue:generate clarification stage should reject blank output');
     } catch (error: any) {
       const hasExpectedError =
-        error?.message ===
-          'AI provider returned an empty clarification response' &&
+        error?.message === 'AI provider returned an empty clarification response' &&
         error?.details?.provider === 'openai' &&
         error?.details?.model === 'gpt-5.4';
       passWhen(
         hasExpectedError,
         'issue:generate clarification stage surfaces provider-aware blank-output errors',
         'issue:generate clarification stage returned the wrong error shape',
-        error?.message ?? String(error),
+        error?.message ?? String(error)
       );
     }
   } finally {

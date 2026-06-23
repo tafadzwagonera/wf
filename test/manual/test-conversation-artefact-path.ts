@@ -24,25 +24,15 @@ async function testConversationArtefactPath() {
     console.log(
       '⚠️ WF_TEST_TICKET is not set — skipping test.\n' +
         '  Set it to a ticket key for which you have already run:\n' +
-        '    wf issue <ticket> --from fetch -a fix --chat-mode\n',
+        '    wf issue <ticket> --from fetch -a fix --chat-mode\n'
     );
     process.exit(0);
   }
 
   // Derive the app name from cwd (mirrors resolveArtifactDir / getConversationFilePath logic)
   const appName = path.basename(path.resolve(process.cwd()));
-  const expectedPath = path.join(
-    os.homedir(),
-    '.wf',
-    appName,
-    'jira',
-    `${ticketKey}-conversation.json`,
-  );
-  const wrongPath = path.join(
-    process.cwd(),
-    'jira',
-    `${ticketKey}-conversation.json`,
-  );
+  const expectedPath = path.join(os.homedir(), '.wf', appName, 'jira', `${ticketKey}-conversation.json`);
+  const wrongPath = path.join(process.cwd(), 'jira', `${ticketKey}-conversation.json`);
 
   let passed = 0;
   let failed = 0;
@@ -66,7 +56,7 @@ async function testConversationArtefactPath() {
   } else {
     fail(
       `Artefact NOT found at expected location: ${expectedPath}\n` +
-        '  Run wf issue with --chat-mode first, or check that Bug 1 fix was applied.',
+        '  Run wf issue with --chat-mode first, or check that Bug 1 fix was applied.'
     );
   }
 
@@ -76,7 +66,7 @@ async function testConversationArtefactPath() {
   } else {
     fail(
       `Artefact found at WRONG location: ${wrongPath}\n` +
-        '  Bug 1 regression — conversation is still being saved to <cwd>/jira/.',
+        '  Bug 1 regression — conversation is still being saved to <cwd>/jira/.'
     );
   }
 

@@ -61,11 +61,7 @@ try {
   const grepResult = execSync(`grep -ri "windsurf" ${SRC} || true`, {
     encoding: 'utf-8',
   }).trim();
-  assert(
-    grepResult === '',
-    'No windsurf matches in src/',
-    grepResult.split('\n')[0],
-  );
+  assert(grepResult === '', 'No windsurf matches in src/', grepResult.split('\n')[0]);
 } catch {
   pass('No windsurf matches in src/');
 }
@@ -79,30 +75,15 @@ for (const file of ['wf.config.ts', 'README.md', '.gitignore']) {
 
 // 5. workflows config removed from public-config.ts
 console.log('\n5. Config cleanup');
-const publicConfig = fs.readFileSync(
-  path.join(SRC, 'config/public-config.ts'),
-  'utf-8',
-);
-assert(
-  !publicConfig.includes('workflows?'),
-  'No workflows property in WfConfig',
-);
+const publicConfig = fs.readFileSync(path.join(SRC, 'config/public-config.ts'), 'utf-8');
+assert(!publicConfig.includes('workflows?'), 'No workflows property in WfConfig');
 
-assert(
-  !fs.existsSync(path.join(SRC, 'config/validation.schema.ts')),
-  'validation.schema.ts does not exist',
-);
+assert(!fs.existsSync(path.join(SRC, 'config/validation.schema.ts')), 'validation.schema.ts does not exist');
 
 // 6. config.command.ts has no Workflow Settings section
 console.log('\n6. Config command cleanup');
-const configCommand = fs.readFileSync(
-  path.join(SRC, 'commands/config.command.ts'),
-  'utf-8',
-);
-assert(
-  !configCommand.includes('Workflow Settings'),
-  'No Workflow Settings in config.command.ts',
-);
+const configCommand = fs.readFileSync(path.join(SRC, 'commands/config.command.ts'), 'utf-8');
+assert(!configCommand.includes('Workflow Settings'), 'No Workflow Settings in config.command.ts');
 
 // 7. Issue commands still exist
 console.log('\n7. Issue pipeline intact');
@@ -131,16 +112,11 @@ const catalogPath = path.join(ROOT, 'docs/commands-help.catalog.json');
 if (fs.existsSync(catalogPath)) {
   const catalog = fs.readFileSync(catalogPath, 'utf-8');
   for (const cmd of ['run', 'list', 'resume', 'history', 'validate']) {
-    assert(
-      !catalog.includes(`"${cmd}"`),
-      `No "${cmd}" command in help catalog`,
-    );
+    assert(!catalog.includes(`"${cmd}"`), `No "${cmd}" command in help catalog`);
   }
 } else {
   fail('Help catalog exists');
 }
 
-console.log(
-  `\n${failures === 0 ? '✅ All checks passed' : `❌ ${failures} check(s) failed`}`,
-);
+console.log(`\n${failures === 0 ? '✅ All checks passed' : `❌ ${failures} check(s) failed`}`);
 process.exit(failures === 0 ? 0 : 1);

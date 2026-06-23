@@ -50,7 +50,7 @@ describe('ReviewerAgent', () => {
         content: '# WBP-123: Fix auth callback',
         path: '/tmp/.wf/repo/jira/WBP-123.md',
       },
-      { repoDir: '/tmp/repo' },
+      { repoDir: '/tmp/repo' }
     );
 
     expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
@@ -58,15 +58,13 @@ describe('ReviewerAgent', () => {
       expect.objectContaining({
         context: 'ticket WBP-123',
         repoDir: '/tmp/repo',
-      }),
+      })
     );
   });
 
   it('skips review when artifact exists and skipExisting is true', async () => {
     jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
-    jest
-      .spyOn(require('fs'), 'readFileSync')
-      .mockReturnValue('## Approval Status\n✓ Approved');
+    jest.spyOn(require('fs'), 'readFileSync').mockReturnValue('## Approval Status\n✓ Approved');
 
     const module = await Test.createTestingModule({
       providers: [
@@ -96,7 +94,7 @@ describe('ReviewerAgent', () => {
         content: '# WBP-123: Fix auth callback',
         path: '/tmp/.wf/repo/jira/WBP-123.md',
       },
-      { skipExisting: true, repoDir: '/tmp/repo' },
+      { skipExisting: true, repoDir: '/tmp/repo' }
     );
 
     expect(artifact?.approved).toBe(true);
@@ -131,7 +129,7 @@ describe('ReviewerAgent', () => {
         content: '# WBP-123: Fix auth callback',
         path: '/tmp/.wf/repo/jira/WBP-123.md',
       },
-      { skipExisting: false, repoDir: '/tmp/repo' },
+      { skipExisting: false, repoDir: '/tmp/repo' }
     );
 
     expect(artifact).toBeNull();

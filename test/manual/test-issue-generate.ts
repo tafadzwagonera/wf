@@ -49,9 +49,7 @@ app.use(rateLimit({ windowMs: 60_000, max: 100 }));
 `;
 
 async function testIssueGenerate() {
-  console.log(
-    '\n🧪 Manual Test: issue:generate buildSynthesisPrompt template sections\n',
-  );
+  console.log('\n🧪 Manual Test: issue:generate buildSynthesisPrompt template sections\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
@@ -72,8 +70,7 @@ async function testIssueGenerate() {
 
   app.get(AiService); // ensure singleton is initialized
   const originalProtoExecute = AiService.prototype.execute;
-  const originalGenerateFromPrompt =
-    StageAgentService.prototype.generateFromPrompt;
+  const originalGenerateFromPrompt = StageAgentService.prototype.generateFromPrompt;
   let synthesisCallCount = 0;
   let synthesisBackend: 'ai' | 'agent' | undefined;
   (AiService.prototype as any).execute = async () => {
@@ -127,10 +124,7 @@ async function testIssueGenerate() {
     if (capturedOutput.includes(section)) {
       pass(`Output contains "${section}"`);
     } else {
-      fail(
-        `Output is missing "${section}"`,
-        `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`,
-      );
+      fail(`Output is missing "${section}"`, `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`);
     }
   }
 
@@ -147,10 +141,7 @@ async function testIssueGenerate() {
     if (!sanitized.endsWith('-')) {
       pass('sanitizedTitle does not end with a trailing dash');
     } else {
-      fail(
-        'sanitizedTitle still ends with a trailing dash',
-        `Got: "${sanitized}"`,
-      );
+      fail('sanitizedTitle still ends with a trailing dash', `Got: "${sanitized}"`);
     }
   }
 
@@ -158,9 +149,7 @@ async function testIssueGenerate() {
   // Verifies aiService.execute was called at least once during the two-source run above.
   // This is a direct call-count spy — immune to false positives from source content.
   if (synthesisCallCount > 0) {
-    pass(
-      `AI synthesis was invoked through the ${synthesisBackend} backend (${synthesisCallCount} call(s))`,
-    );
+    pass(`AI synthesis was invoked through the ${synthesisBackend} backend (${synthesisCallCount} call(s))`);
   } else {
     fail('AI synthesis was NOT invoked — both synthesis backends were idle');
   }
@@ -171,7 +160,7 @@ async function testIssueGenerate() {
   } else {
     fail(
       'Output is missing a non-empty markdown heading line',
-      `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`,
+      `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`
     );
   }
 
@@ -180,16 +169,11 @@ async function testIssueGenerate() {
   // Uses a single .md source with a 20-char description — should NOT be short-circuited.
   {
     const stubFile = path.join(os.tmpdir(), `wf-gen-stub-${Date.now()}.md`);
-    fs.writeFileSync(
-      stubFile,
-      '# Plan: Quick Stub Feature\n\nShort stub description.\n',
-      'utf-8',
-    );
+    fs.writeFileSync(stubFile, '# Plan: Quick Stub Feature\n\nShort stub description.\n', 'utf-8');
 
     let stubSynthesisCallCount = 0;
     const existingProtoExecute = AiService.prototype.execute;
-    const existingGenerateFromPrompt =
-      StageAgentService.prototype.generateFromPrompt;
+    const existingGenerateFromPrompt = StageAgentService.prototype.generateFromPrompt;
     (AiService.prototype as any).execute = async () => {
       stubSynthesisCallCount++;
       return { content: MOCK_AI_RESPONSE };
@@ -214,18 +198,13 @@ async function testIssueGenerate() {
       process.stdout.write = origWriteStub;
       fs.unlinkSync(stubFile);
       AiService.prototype.execute = existingProtoExecute;
-      StageAgentService.prototype.generateFromPrompt =
-        existingGenerateFromPrompt;
+      StageAgentService.prototype.generateFromPrompt = existingGenerateFromPrompt;
     }
 
     if (stubSynthesisCallCount > 0) {
-      pass(
-        'single-source stub description triggered AI synthesis (not short-circuited)',
-      );
+      pass('single-source stub description triggered AI synthesis (not short-circuited)');
     } else {
-      fail(
-        'single-source stub description was short-circuited — AI was NOT called',
-      );
+      fail('single-source stub description was short-circuited — AI was NOT called');
     }
   }
 

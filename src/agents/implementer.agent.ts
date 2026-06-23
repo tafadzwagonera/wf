@@ -16,18 +16,12 @@ import {
   VerificationScript,
 } from './interfaces';
 import { extractSummary, slugify } from './utils';
-import {
-  formatBackendSelection,
-  writeImplementVerificationRunFile,
-} from '../shared/utils/implement-verification';
+import { formatBackendSelection, writeImplementVerificationRunFile } from '../shared/utils/implement-verification';
 import { getWfStateDir } from '../shared/utils/wf-paths';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
-import {
-  loadVerificationManifest,
-  type VerificationStep,
-} from '../shared/utils/verification-manifest';
+import { loadVerificationManifest, type VerificationStep } from '../shared/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import { ClaudeCliAdapter } from '../integrations/ai/adapters/claude-cli.adapter';
@@ -44,7 +38,7 @@ export class ImplementerAgent {
   constructor(
     private configService: ConfigService,
     private gitService: GitService,
-    private aiService: AiService,
+    private aiService: AiService
   ) {}
 
   /**
@@ -64,7 +58,7 @@ export class ImplementerAgent {
   async execute(
     ticket: TicketArtifact,
     planArtifact: PlanArtifact,
-    options: ImplementerOptions,
+    options: ImplementerOptions
   ): Promise<ImplementerResult> {
     if (planArtifact.action === 'investigate') {
       return this.executeInvestigation(ticket, planArtifact);
@@ -75,17 +69,9 @@ export class ImplementerAgent {
       console.log(chalk.gray('─'.repeat(70)));
     }
 
-    this.validateImplementationScope(
-      planArtifact,
-      options.repoDir,
-      options.allowMultiRepoScope,
-    );
+    this.validateImplementationScope(planArtifact, options.repoDir, options.allowMultiRepoScope);
 
-    const branchName = await this.handleBranchWorkflow(
-      ticket,
-      planArtifact,
-      options,
-    );
+    const branchName = await this.handleBranchWorkflow(ticket, planArtifact, options);
 
     console.log(chalk.bold('\n  Steps:'));
     planArtifact.plan.steps.forEach((step: string, i: number) => {
@@ -94,17 +80,11 @@ export class ImplementerAgent {
 
     // Generate and write code changes for files belonging to this repo
     const repoName = options.repoDir ? path.basename(options.repoDir) : '';
-    const normalizedAffected = normalizeFileEntries(
-      planArtifact.plan.filesAffected ?? [],
-    );
-    const allFiles = normalizedAffected
-      .filter((entry) => entry.status !== 'not-found')
-      .map((entry) => entry.filePath);
+    const normalizedAffected = normalizeFileEntries(planArtifact.plan.filesAffected ?? []);
+    const allFiles = normalizedAffected.filter(entry => entry.status !== 'not-found').map(entry => entry.filePath);
 
     // Primary: files explicitly prefixed with this repo's name.
-    let repoFiles = repoName
-      ? allFiles.filter((f) => f.startsWith(`${repoName}/`))
-      : allFiles;
+    let repoFiles = repoName ? allFiles.filter(f => f.startsWith(`${repoName}/`)) : allFiles;
 
     // Fallback: plan was generated without repo-name prefixes (older format or
     // AI non-compliance). Safe to apply only when NO file in the plan carries ANY
@@ -112,59 +92,43 @@ export class ImplementerAgent {
     // empty result is intentional and we must not override it.
     if (repoFiles.length === 0 && allFiles.length > 0) {
       const planRepos = planArtifact.plan.repositoriesAffected ?? [];
-      const hasAnyRepoPrefix = allFiles.some((f) =>
-        planRepos.some((repo) => f.startsWith(`${repo}/`)),
-      );
-      if (
-        !hasAnyRepoPrefix &&
-        (planRepos.includes(repoName) || planRepos.length === 0)
-      ) {
+      const hasAnyRepoPrefix = allFiles.some(f => planRepos.some(repo => f.startsWith(`${repo}/`)));
+      if (!hasAnyRepoPrefix && (planRepos.includes(repoName) || planRepos.length === 0)) {
         repoFiles = allFiles;
         if (repoName) {
           console.log(
             chalk.yellow(
-              `  ⚠️ filesAffected lacks "${repoName}/" prefix — treating all paths as relative to ${repoName}`,
-            ),
+              `  ⚠️ filesAffected lacks "${repoName}/" prefix — treating all paths as relative to ${repoName}`
+            )
           );
         }
       }
     }
 
     // Derive context files (read-only references) from filesContext
-    const normalizedContext = normalizeFileEntries(
-      planArtifact.plan.filesContext ?? [],
-    );
+    const normalizedContext = normalizeFileEntries(planArtifact.plan.filesContext ?? []);
     const allContextPaths = normalizedContext
-      .filter((entry) => entry.status !== 'not-found')
-      .map((entry) => entry.filePath);
-    let contextFiles = repoName
-      ? allContextPaths.filter((f) => f.startsWith(`${repoName}/`))
-      : allContextPaths;
+      .filter(entry => entry.status !== 'not-found')
+      .map(entry => entry.filePath);
+    let contextFiles = repoName ? allContextPaths.filter(f => f.startsWith(`${repoName}/`)) : allContextPaths;
     // Unprefixed fallback — same logic as repoFiles
     if (contextFiles.length === 0 && allContextPaths.length > 0) {
       const planRepos = planArtifact.plan.repositoriesAffected ?? [];
-      const hasAnyRepoPrefix = allContextPaths.some((f) =>
-        planRepos.some((repo) => f.startsWith(`${repo}/`)),
-      );
-      if (
-        !hasAnyRepoPrefix &&
-        (planRepos.includes(repoName) || planRepos.length === 0)
-      ) {
+      const hasAnyRepoPrefix = allContextPaths.some(f => planRepos.some(repo => f.startsWith(`${repo}/`)));
+      if (!hasAnyRepoPrefix && (planRepos.includes(repoName) || planRepos.length === 0)) {
         contextFiles = allContextPaths;
       }
     }
     // Silent dedup: remove context files already in repoFiles
     const repoFilesSet = new Set(repoFiles);
-    contextFiles = contextFiles.filter((f) => !repoFilesSet.has(f));
+    contextFiles = contextFiles.filter(f => !repoFilesSet.has(f));
 
     // Remove nonexistent context files — they are read-only, so they must exist.
     const repoDir = options.repoDir ?? process.cwd();
     const phantomContextPaths: string[] = [];
-    contextFiles = contextFiles.filter((filePath) => {
+    contextFiles = contextFiles.filter(filePath => {
       const relativePath =
-        repoName && filePath.startsWith(`${repoName}/`)
-          ? filePath.slice(repoName.length + 1)
-          : filePath;
+        repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
       const fullPath = path.join(repoDir, relativePath);
       if (!fs.existsSync(fullPath)) {
         phantomContextPaths.push(filePath);
@@ -173,11 +137,7 @@ export class ImplementerAgent {
       return true;
     });
     if (phantomContextPaths.length > 0) {
-      console.log(
-        chalk.yellow(
-          `  ⚠️ Removed ${phantomContextPaths.length} nonexistent context file(s):`,
-        ),
-      );
+      console.log(chalk.yellow(`  ⚠️ Removed ${phantomContextPaths.length} nonexistent context file(s):`));
       for (const p of phantomContextPaths) {
         console.log(chalk.yellow(`      - ${p}`));
       }
@@ -188,17 +148,13 @@ export class ImplementerAgent {
     // but don't exist on disk are removed with a warning — the planner likely
     // hallucinated the path. Legacy string entries default to found, so they
     // are also checked.
-    const statusByPath = new Map(
-      normalizedAffected.map((e) => [e.filePath, e.status]),
-    );
+    const statusByPath = new Map(normalizedAffected.map(e => [e.filePath, e.status]));
     const phantomPaths: string[] = [];
-    repoFiles = repoFiles.filter((filePath) => {
+    repoFiles = repoFiles.filter(filePath => {
       const status = statusByPath.get(filePath) ?? 'found';
       if (status === 'to-create') return true;
       const relativePath =
-        repoName && filePath.startsWith(`${repoName}/`)
-          ? filePath.slice(repoName.length + 1)
-          : filePath;
+        repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
       const fullPath = path.join(repoDir, relativePath);
       if (!fs.existsSync(fullPath)) {
         phantomPaths.push(filePath);
@@ -208,9 +164,7 @@ export class ImplementerAgent {
     });
     if (phantomPaths.length > 0) {
       console.log(
-        chalk.yellow(
-          `  ⚠️ Removed ${phantomPaths.length} nonexistent path(s) from repoFiles (planner hallucination):`,
-        ),
+        chalk.yellow(`  ⚠️ Removed ${phantomPaths.length} nonexistent path(s) from repoFiles (planner hallucination):`)
       );
       for (const p of phantomPaths) {
         console.log(chalk.yellow(`      - ${p}`));
@@ -220,8 +174,8 @@ export class ImplementerAgent {
     if (repoFiles.length === 0) {
       console.log(
         chalk.yellow(
-          '  ⚠️ No planned files to implement — the agent will be fully self-directed with no continuation passes.',
-        ),
+          '  ⚠️ No planned files to implement — the agent will be fully self-directed with no continuation passes.'
+        )
       );
     }
 
@@ -229,29 +183,24 @@ export class ImplementerAgent {
     const verificationScripts = this.prepareVerificationScripts(
       options.repoDir,
       verificationConditions,
-      planArtifact.plan.verification,
+      planArtifact.plan.verification
     );
-    const rawTrackedFilePaths = this.resolveTrackedFilePaths(
-      repoFiles,
-      repoName,
-      options.repoDir,
+    const rawTrackedFilePaths = this.resolveTrackedFilePaths(repoFiles, repoName, options.repoDir);
+    const { kept: trackedFilePaths, keptIndices } = await this.validateTrackedFilePaths(
+      rawTrackedFilePaths,
+      options.repoDir
     );
-    const { kept: trackedFilePaths, keptIndices } =
-      await this.validateTrackedFilePaths(rawTrackedFilePaths, options.repoDir);
     // Align repoFiles with the validated tracked paths so adapter continuation
     // loops don't chase gitignored entries that can never be committed.
     if (keptIndices.length < repoFiles.length) {
-      repoFiles = keptIndices.map((i) => repoFiles[i]);
+      repoFiles = keptIndices.map(i => repoFiles[i]);
     }
     const ticketContext = ticket.content;
 
     const backendSelection = this.resolveImplementBackendSelection();
     console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));
 
-    const verificationRunFilePath = this.getImplementVerificationRunPath(
-      ticket.ticketKey,
-      options.repoDir,
-    );
+    const verificationRunFilePath = this.getImplementVerificationRunPath(ticket.ticketKey, options.repoDir);
     this.writeImplementVerificationRunArtifact(verificationRunFilePath, {
       ticketKey: ticket.ticketKey,
       repoDir: options.repoDir ?? process.cwd(),
@@ -266,10 +215,8 @@ export class ImplementerAgent {
     });
 
     const adapter = (() => {
-      if (backendSelection.selected === 'claude-cli')
-        return new ClaudeCliAdapter(this.configService);
-      if (backendSelection.selected === 'openai-agent')
-        return new OpenAIAgentAdapter(this.configService);
+      if (backendSelection.selected === 'claude-cli') return new ClaudeCliAdapter(this.configService);
+      if (backendSelection.selected === 'openai-agent') return new OpenAIAgentAdapter(this.configService);
       return new AnthropicAgentAdapter(this.configService);
     })();
     await adapter.generateAndVerify({
@@ -286,18 +233,12 @@ export class ImplementerAgent {
 
     if ((planArtifact.plan.repositoriesAffected?.length ?? 0) > 0) {
       console.log(chalk.bold('\n  Repositories affected:'));
-      planArtifact.plan.repositoriesAffected!.forEach((repo: string) =>
-        console.log(chalk.gray(`    - ${repo}`)),
-      );
+      planArtifact.plan.repositoriesAffected!.forEach((repo: string) => console.log(chalk.gray(`    - ${repo}`)));
     }
 
     console.log(chalk.bold('\n  Status:'));
-    console.log(
-      chalk.cyan('    Changes generated, verified, and written to disk'),
-    );
-    console.log(
-      chalk.cyan('    issue:implement completed for the selected repository'),
-    );
+    console.log(chalk.cyan('    Changes generated, verified, and written to disk'));
+    console.log(chalk.cyan('    issue:implement completed for the selected repository'));
 
     return { type: 'implementation', branchName };
   }
@@ -312,15 +253,13 @@ export class ImplementerAgent {
   private validateImplementationScope(
     planArtifact: PlanArtifact,
     repoDir?: string,
-    allowMultiRepoScope?: boolean,
+    allowMultiRepoScope?: boolean
   ): void {
     const repoName = repoDir ? path.basename(repoDir) : '';
-    const repositoriesAffected = [
-      ...new Set(planArtifact.plan.repositoriesAffected ?? []),
-    ];
+    const repositoriesAffected = [...new Set(planArtifact.plan.repositoriesAffected ?? [])];
     if (repositoriesAffected.length > 1 && !allowMultiRepoScope) {
       throw new Error(
-        `issue:implement only verifies a single repository. This plan affects multiple repositories: ${repositoriesAffected.join(', ')}. Use wf issue or run wf issue:implement separately per repository.`,
+        `issue:implement only verifies a single repository. This plan affects multiple repositories: ${repositoriesAffected.join(', ')}. Use wf issue or run wf issue:implement separately per repository.`
       );
     }
 
@@ -351,16 +290,14 @@ export class ImplementerAgent {
       'tsconfig.build.json',
       'README.md',
     ]);
-    const normalizedPaths = normalizeFileEntries(
-      planArtifact.plan.filesAffected ?? [],
-    );
-    const offendingPaths = normalizedPaths.filter((entry) => {
+    const normalizedPaths = normalizeFileEntries(planArtifact.plan.filesAffected ?? []);
+    const offendingPaths = normalizedPaths.filter(entry => {
       const [prefix] = entry.filePath.split('/');
       return prefix !== repoName && !localPathPrefixes.has(prefix);
     });
     if (offendingPaths.length > 0) {
       throw new Error(
-        `issue:implement can only modify and verify files for ${repoName}. Found paths for other repositories: ${offendingPaths.map((e) => e.filePath).join(', ')}. Use wf issue or run wf issue:implement separately per repository.`,
+        `issue:implement can only modify and verify files for ${repoName}. Found paths for other repositories: ${offendingPaths.map(e => e.filePath).join(', ')}. Use wf issue or run wf issue:implement separately per repository.`
       );
     }
   }
@@ -370,12 +307,10 @@ export class ImplementerAgent {
    *
    * @returns Configured verification conditions, if any
    */
-  private getVerificationConditionsConfig():
-    | NormalizedVerificationConditionsConfig
-    | undefined {
-    return this.configService.get<
-      NormalizedVerificationConditionsConfig | undefined
-    >('stages.implement.verificationConditions');
+  private getVerificationConditionsConfig(): NormalizedVerificationConditionsConfig | undefined {
+    return this.configService.get<NormalizedVerificationConditionsConfig | undefined>(
+      'stages.implement.verificationConditions'
+    );
   }
 
   /**
@@ -386,20 +321,12 @@ export class ImplementerAgent {
    * @param repoDir - Repository directory
    * @returns Absolute file paths for tracked files
    */
-  private resolveTrackedFilePaths(
-    repoFiles: string[],
-    repoName: string,
-    repoDir?: string,
-  ): string[] {
-    return repoFiles.map((filePath) => {
+  private resolveTrackedFilePaths(repoFiles: string[], repoName: string, repoDir?: string): string[] {
+    return repoFiles.map(filePath => {
       const relativePath =
-        repoName && filePath.startsWith(`${repoName}/`)
-          ? filePath.slice(repoName.length + 1)
-          : filePath;
+        repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
 
-      return repoDir
-        ? path.join(repoDir, relativePath)
-        : path.resolve(relativePath);
+      return repoDir ? path.join(repoDir, relativePath) : path.resolve(relativePath);
     });
   }
 
@@ -414,15 +341,13 @@ export class ImplementerAgent {
    */
   private async validateTrackedFilePaths(
     trackedPaths: string[],
-    repoDir?: string,
+    repoDir?: string
   ): Promise<{ kept: string[]; keptIndices: number[] }> {
     if (trackedPaths.length === 0) {
       return { kept: [], keptIndices: [] };
     }
 
-    const ignoredSet = new Set(
-      await this.gitService.checkIgnored(trackedPaths, repoDir),
-    );
+    const ignoredSet = new Set(await this.gitService.checkIgnored(trackedPaths, repoDir));
 
     const kept: string[] = [];
     const keptIndices: number[] = [];
@@ -446,22 +371,14 @@ export class ImplementerAgent {
     }
 
     if (ignored.length > 0) {
-      console.log(
-        chalk.yellow(
-          `  ⚠️ Dropped ${ignored.length} gitignored path(s) from tracked files:`,
-        ),
-      );
+      console.log(chalk.yellow(`  ⚠️ Dropped ${ignored.length} gitignored path(s) from tracked files:`));
       for (const p of ignored) {
         console.log(chalk.yellow(`      - ${p}`));
       }
     }
 
     if (existing.length > 0 || created.length > 0) {
-      console.log(
-        chalk.gray(
-          `  Tracked files: ${existing.length} existing, ${created.length} new`,
-        ),
-      );
+      console.log(chalk.gray(`  Tracked files: ${existing.length} existing, ${created.length} new`));
     }
 
     return { kept, keptIndices };
@@ -480,15 +397,11 @@ export class ImplementerAgent {
     }
 
     try {
-      const packageJson = JSON.parse(
-        fs.readFileSync(packageJsonPath, 'utf-8'),
-      ) as { scripts?: Record<string, string> };
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as { scripts?: Record<string, string> };
       return packageJson.scripts ?? {};
     } catch {
       console.log(
-        chalk.yellow(
-          `  ⚠️ Unable to parse ${packageJsonPath}; continuing without package.json alias discovery.`,
-        ),
+        chalk.yellow(`  ⚠️ Unable to parse ${packageJsonPath}; continuing without package.json alias discovery.`)
       );
       return {};
     }
@@ -504,26 +417,16 @@ export class ImplementerAgent {
   private prepareVerificationScripts(
     repoDir: string | undefined,
     verificationConditions: NormalizedVerificationConditionsConfig | undefined,
-    planVerification?: PlanArtifact['plan']['verification'],
+    planVerification?: PlanArtifact['plan']['verification']
   ): VerificationScript[] {
     const packageScripts = this.readPackageScripts(repoDir);
-    const baselineSteps = this.resolveBaselineVerificationSteps(
-      repoDir,
-      verificationConditions,
-    );
-    const waiverIds = new Set(
-      (planVerification?.waivers ?? []).map((waiver) => waiver.id),
-    );
+    const baselineSteps = this.resolveBaselineVerificationSteps(repoDir, verificationConditions);
+    const waiverIds = new Set((planVerification?.waivers ?? []).map(waiver => waiver.id));
     const targetedSteps = planVerification?.targeted ?? [];
-    const resolvedSteps = [...baselineSteps, ...targetedSteps].filter(
-      (step) => !waiverIds.has(step.id),
-    );
+    const resolvedSteps = [...baselineSteps, ...targetedSteps].filter(step => !waiverIds.has(step.id));
 
-    return resolvedSteps.map((step) => {
-      const normalizedCommand = this.normalizeVerificationCommand(
-        step.run,
-        repoDir,
-      );
+    return resolvedSteps.map(step => {
+      const normalizedCommand = this.normalizeVerificationCommand(step.run, repoDir);
 
       return {
         id: step.id,
@@ -536,10 +439,7 @@ export class ImplementerAgent {
     });
   }
 
-  private normalizeVerificationCommand(
-    command: string,
-    repoDir: string | undefined,
-  ): string {
+  private normalizeVerificationCommand(command: string, repoDir: string | undefined): string {
     const trimmed = command.trim();
     if (!repoDir) {
       return trimmed;
@@ -555,15 +455,10 @@ export class ImplementerAgent {
     const normalizedRepoDir = path.resolve(repoDir);
     const repoName = path.basename(normalizedRepoDir);
     const normalizedRelativeTarget =
-      target === repoName || target === `./${repoName}`
-        ? normalizedRepoDir
-        : path.resolve(repoDir, target);
+      target === repoName || target === `./${repoName}` ? normalizedRepoDir : path.resolve(repoDir, target);
     const normalizedAbsoluteTarget = path.resolve(target);
 
-    if (
-      normalizedRelativeTarget === normalizedRepoDir ||
-      normalizedAbsoluteTarget === normalizedRepoDir
-    ) {
+    if (normalizedRelativeTarget === normalizedRepoDir || normalizedAbsoluteTarget === normalizedRepoDir) {
       return remainder.trim();
     }
 
@@ -572,12 +467,9 @@ export class ImplementerAgent {
 
   private resolveBaselineVerificationSteps(
     repoDir: string | undefined,
-    verificationConditions: NormalizedVerificationConditionsConfig | undefined,
+    verificationConditions: NormalizedVerificationConditionsConfig | undefined
   ): VerificationStep[] {
-    const manifestPath = this.resolveVerificationManifestPath(
-      repoDir,
-      verificationConditions,
-    );
+    const manifestPath = this.resolveVerificationManifestPath(repoDir, verificationConditions);
 
     if (manifestPath) {
       return loadVerificationManifest(manifestPath, 'implement').baseline;
@@ -587,25 +479,21 @@ export class ImplementerAgent {
       return [];
     }
 
-    return Object.entries(verificationConditions.scripts).map(
-      ([name, command]) => ({
-        id: name,
-        run: command,
-        policy: 'enforced',
-      }),
-    );
+    return Object.entries(verificationConditions.scripts).map(([name, command]) => ({
+      id: name,
+      run: command,
+      policy: 'enforced',
+    }));
   }
 
   private resolveVerificationManifestPath(
     repoDir: string | undefined,
-    verificationConditions: NormalizedVerificationConditionsConfig | undefined,
+    verificationConditions: NormalizedVerificationConditionsConfig | undefined
   ): string | undefined {
     const baseDir = repoDir ?? process.cwd();
     const configuredPath = verificationConditions?.policyFile;
     if (configuredPath) {
-      return path.isAbsolute(configuredPath)
-        ? configuredPath
-        : path.join(baseDir, configuredPath);
+      return path.isAbsolute(configuredPath) ? configuredPath : path.join(baseDir, configuredPath);
     }
 
     const defaultPath = path.join(baseDir, '.wf', 'verification.json');
@@ -619,14 +507,9 @@ export class ImplementerAgent {
    * @param packageScripts - package.json scripts map
    * @returns Matching package.json aliases
    */
-  private findPackageAliases(
-    command: string,
-    packageScripts: Record<string, string>,
-  ): string[] {
+  private findPackageAliases(command: string, packageScripts: Record<string, string>): string[] {
     const aliases = new Set<string>();
-    const directScriptMatch = command.match(
-      /^(?:npm run|pnpm|yarn|nr)\s+([A-Za-z0-9:_-]+)$/,
-    );
+    const directScriptMatch = command.match(/^(?:npm run|pnpm|yarn|nr)\s+([A-Za-z0-9:_-]+)$/);
 
     if (directScriptMatch) {
       const [, scriptName] = directScriptMatch;
@@ -653,22 +536,15 @@ export class ImplementerAgent {
     const provider =
       this.configService.get<string>('stages.implement.provider') ??
       this.configService.get<string>('ai.provider', 'anthropic');
-    const backend = this.configService.get<string>(
-      'stages.implement.backend',
-      'agent',
-    );
+    const backend = this.configService.get<string>('stages.implement.backend', 'agent');
 
     if (backend === 'standard') {
-      throw new Error(
-        'Implement stage does not support backend "standard". Use "agent" or "cli".',
-      );
+      throw new Error('Implement stage does not support backend "standard". Use "agent" or "cli".');
     }
 
     if (backend === 'cli') {
       if (provider !== 'anthropic') {
-        throw new Error(
-          `Implement stage backend "cli" requires provider "anthropic". Got "${provider}".`,
-        );
+        throw new Error(`Implement stage backend "cli" requires provider "anthropic". Got "${provider}".`);
       }
       return { configured: 'claude-cli', selected: 'claude-cli', provider };
     }
@@ -689,9 +565,7 @@ export class ImplementerAgent {
       };
     }
 
-    throw new Error(
-      `Implement stage requires provider "anthropic" or "openai". Got "${provider}".`,
-    );
+    throw new Error(`Implement stage requires provider "anthropic" or "openai". Got "${provider}".`);
   }
 
   /**
@@ -701,20 +575,12 @@ export class ImplementerAgent {
    * @param repoDir - Selected repository directory, used for namespacing
    * @returns Absolute path to the persisted verification run file
    */
-  private getImplementVerificationRunPath(
-    ticketKey: string,
-    repoDir?: string,
-  ): string {
+  private getImplementVerificationRunPath(ticketKey: string, repoDir?: string): string {
     const stateDirectory = getWfStateDir();
     const repoName = repoDir ? path.basename(repoDir) : 'repo';
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
-    return path.join(
-      stateDirectory,
-      'implement-verification',
-      repoName,
-      `${ticketKey}-${timestamp}.json`,
-    );
+    return path.join(stateDirectory, 'implement-verification', repoName, `${ticketKey}-${timestamp}.json`);
   }
 
   /**
@@ -724,31 +590,19 @@ export class ImplementerAgent {
    * @param run - Run metadata to persist before generation starts
    * @returns Nothing
    */
-  private writeImplementVerificationRunArtifact(
-    filePath: string,
-    run: ImplementRunArtifact,
-  ): void {
+  private writeImplementVerificationRunArtifact(filePath: string, run: ImplementRunArtifact): void {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     writeImplementVerificationRunFile(filePath, run);
   }
 
-  private async executeInvestigation(
-    ticket: TicketArtifact,
-    planArtifact: PlanArtifact,
-  ): Promise<ImplementerResult> {
+  private async executeInvestigation(ticket: TicketArtifact, planArtifact: PlanArtifact): Promise<ImplementerResult> {
     console.log(chalk.bold.yellow('\n🔍 STAGE 3: Investigation Findings'));
     console.log(chalk.gray('─'.repeat(70)));
     console.log(chalk.gray('  Generating findings and recommendations...'));
 
-    const findings = await this.aiService.generateFindings(
-      planArtifact.plan,
-      ticket.content,
-    );
+    const findings = await this.aiService.generateFindings(planArtifact.plan, ticket.content);
 
-    const findingsPath = planArtifact.path.replace(
-      '.json',
-      '-findings-and-recommendations.json',
-    );
+    const findingsPath = planArtifact.path.replace('.json', '-findings-and-recommendations.json');
 
     fs.mkdirSync(path.dirname(findingsPath), { recursive: true });
     fs.writeFileSync(findingsPath, JSON.stringify(findings, null, 2), 'utf-8');
@@ -760,16 +614,12 @@ export class ImplementerAgent {
 
     if (artifact.findings.length > 0) {
       console.log(chalk.bold('\n  Findings:'));
-      artifact.findings.forEach((f, i) =>
-        console.log(chalk.cyan(`    ${i + 1}. ${f}`)),
-      );
+      artifact.findings.forEach((f, i) => console.log(chalk.cyan(`    ${i + 1}. ${f}`)));
     }
 
     if (artifact.recommendations.length > 0) {
       console.log(chalk.bold('\n  Recommendations:'));
-      artifact.recommendations.forEach((r, i) =>
-        console.log(chalk.cyan(`    ${i + 1}. ${r}`)),
-      );
+      artifact.recommendations.forEach((r, i) => console.log(chalk.cyan(`    ${i + 1}. ${r}`)));
     }
 
     console.log(chalk.bold('\n  Conclusion:'));
@@ -792,7 +642,7 @@ export class ImplementerAgent {
   private async handleBranchWorkflow(
     ticket: TicketArtifact,
     planArtifact: PlanArtifact,
-    options: ImplementerOptions,
+    options: ImplementerOptions
   ): Promise<string | null> {
     const cwd = options.repoDir;
     const interactive = !options.silent && this.isInteractiveSession();
@@ -812,24 +662,17 @@ export class ImplementerAgent {
           {
             type: 'confirm',
             name: 'shouldStash',
-            message:
-              'Working tree has uncommitted changes. Stash and continue?',
+            message: 'Working tree has uncommitted changes. Stash and continue?',
             prefix: ' ',
             default: true,
           },
         ]);
         if (!shouldStash) {
-          throw new Error(
-            'Aborted: working tree has uncommitted changes. Commit or stash them first.',
-          );
+          throw new Error('Aborted: working tree has uncommitted changes. Commit or stash them first.');
         }
       }
 
-      console.log(
-        chalk.yellow(
-          `  Working tree has uncommitted changes — stashing (${stashMessage})...`,
-        ),
-      );
+      console.log(chalk.yellow(`  Working tree has uncommitted changes — stashing (${stashMessage})...`));
       await this.gitService.stashChanges(stashMessage);
       didStash = true;
     } else {
@@ -839,17 +682,12 @@ export class ImplementerAgent {
     // 2. Detect source branches
     console.log(chalk.gray('  Detecting source branches...'));
     const branchInfo = await this.gitService.getBranchInfo(cwd);
-    const devBranches = this.gitService.detectDevelopmentBranches(
-      branchInfo.all,
-    );
+    const devBranches = this.gitService.detectDevelopmentBranches(branchInfo.all);
     const mainBranch = this.gitService.detectMainBranch(branchInfo.all);
 
-    const isRemote = (b: string): boolean =>
-      b.startsWith('remotes/') || b.startsWith('origin/');
+    const isRemote = (b: string): boolean => b.startsWith('remotes/') || b.startsWith('origin/');
     const formatBranchChoice = (b: string): { name: string; value: string } =>
-      isRemote(b)
-        ? { name: chalk.gray(b), value: b }
-        : { name: chalk.cyan(b), value: b };
+      isRemote(b) ? { name: chalk.gray(b), value: b } : { name: chalk.cyan(b), value: b };
 
     // 3. Select source branch
     let sourceBranch: string | undefined;
@@ -857,10 +695,7 @@ export class ImplementerAgent {
     if (devBranches.length === 1) {
       sourceBranch = devBranches[0];
     } else if (devBranches.length > 1 && interactive) {
-      const choices = [
-        ...devBranches.map(formatBranchChoice),
-        ...(mainBranch ? [formatBranchChoice(mainBranch)] : []),
-      ];
+      const choices = [...devBranches.map(formatBranchChoice), ...(mainBranch ? [formatBranchChoice(mainBranch)] : [])];
       const { selected } = await inquirer.prompt<{ selected: string }>([
         {
           type: 'list',
@@ -881,21 +716,11 @@ export class ImplementerAgent {
 
     if (!sourceBranch) {
       sourceBranch = branchInfo.current;
-      console.log(
-        chalk.yellow(
-          `  No dev or main branch detected — using current branch: ${sourceBranch}`,
-        ),
-      );
+      console.log(chalk.yellow(`  No dev or main branch detected — using current branch: ${sourceBranch}`));
     } else {
       const branchColor = isRemote(sourceBranch) ? chalk.gray : chalk.cyan;
-      const hasUpstream = isRemote(sourceBranch)
-        ? true
-        : await this.gitService.hasUpstream(sourceBranch, cwd);
-      console.log(
-        chalk.cyan(
-          `  Source branch: ${branchColor(sourceBranch)}${hasUpstream ? ' (has upstream)' : ''}`,
-        ),
-      );
+      const hasUpstream = isRemote(sourceBranch) ? true : await this.gitService.hasUpstream(sourceBranch, cwd);
+      console.log(chalk.cyan(`  Source branch: ${branchColor(sourceBranch)}${hasUpstream ? ' (has upstream)' : ''}`));
     }
 
     const sourceIsRemote = isRemote(sourceBranch);
@@ -906,23 +731,15 @@ export class ImplementerAgent {
         await this.gitService.checkoutBranch(sourceBranch);
       }
       try {
-        console.log(
-          chalk.gray(`  Pulling latest from origin/${sourceBranch}...`),
-        );
+        console.log(chalk.gray(`  Pulling latest from origin/${sourceBranch}...`));
         await this.gitService.pull('origin', sourceBranch, cwd);
       } catch {
         console.log(
-          chalk.yellow(
-            `  Could not pull ${sourceBranch} (no upstream or network issue) — continuing with local state`,
-          ),
+          chalk.yellow(`  Could not pull ${sourceBranch} (no upstream or network issue) — continuing with local state`)
         );
       }
     } else {
-      console.log(
-        chalk.gray(
-          `  Skipping pull — ${sourceBranch} is a remote tracking ref`,
-        ),
-      );
+      console.log(chalk.gray(`  Skipping pull — ${sourceBranch} is a remote tracking ref`));
     }
 
     // 5. Restore stash
@@ -932,8 +749,8 @@ export class ImplementerAgent {
       } catch {
         console.log(
           chalk.yellow(
-            '  Stash pop encountered conflicts. Your changes are in stash@{0} — resolve manually after implementation.',
-          ),
+            '  Stash pop encountered conflicts. Your changes are in stash@{0} — resolve manually after implementation.'
+          )
         );
       }
     }
@@ -946,16 +763,13 @@ export class ImplementerAgent {
 
     const summary = extractSummary(ticket.content);
     const generatedName = options.customBranchSlug
-      ? this.generateCustomBranchName(
-          options.customBranchSlug,
-          planArtifact.action,
-        )
+      ? this.generateCustomBranchName(options.customBranchSlug, planArtifact.action)
       : this.generateBranchName(
           ticket.ticketKey,
           summary,
           planArtifact.action,
           options.trackerName,
-          options.branchNamePattern,
+          options.branchNamePattern
         );
 
     let branchName: string;
@@ -1002,16 +816,12 @@ export class ImplementerAgent {
     }
 
     // 7. Create branch
-    const currentBranch = await this.gitService
-      .getCurrentBranch(cwd)
-      .catch(() => '');
+    const currentBranch = await this.gitService.getCurrentBranch(cwd).catch(() => '');
     if (currentBranch === branchName) {
       console.log(chalk.green(`  Already on branch: ${branchName}`));
     } else {
       await this.gitService.createBranch(branchName, sourceBranch, cwd);
-      console.log(
-        chalk.green(`  Created branch: ${branchName} from ${sourceBranch}`),
-      );
+      console.log(chalk.green(`  Created branch: ${branchName} from ${sourceBranch}`));
     }
 
     return branchName;
@@ -1026,11 +836,12 @@ export class ImplementerAgent {
     summary: string,
     action: ResolutionAction,
     trackerName: string,
-    patternOverride?: string,
+    patternOverride?: string
   ): string {
-    const prefixMapping = this.configService.get<
-      Record<ResolutionAction, string>
-    >('git.branchPrefixMapping', DEFAULT_PREFIX_MAPPING);
+    const prefixMapping = this.configService.get<Record<ResolutionAction, string>>(
+      'git.branchPrefixMapping',
+      DEFAULT_PREFIX_MAPPING
+    );
     const prefix = prefixMapping[action] || 'feature';
 
     // Atlassian platforms (jira, bitbucket) use uppercase ticket keys
@@ -1040,37 +851,25 @@ export class ImplementerAgent {
     const branchName = `${prefix}/${formattedKey}__${slugify(summary)}`;
 
     // Validate against branch pattern
-    const pattern =
-      patternOverride ??
-      this.configService.get<string>('git.branchNamePattern');
+    const pattern = patternOverride ?? this.configService.get<string>('git.branchNamePattern');
     if (pattern) {
       try {
         if (!new RegExp(pattern).test(branchName)) {
-          console.log(
-            chalk.yellow(
-              `  Generated branch name "${branchName}" does not match pattern: ${pattern}`,
-            ),
-          );
+          console.log(chalk.yellow(`  Generated branch name "${branchName}" does not match pattern: ${pattern}`));
         }
       } catch {
-        console.log(
-          chalk.yellow(
-            `  Invalid branch pattern in config (git.branchNamePattern): ${pattern}`,
-          ),
-        );
+        console.log(chalk.yellow(`  Invalid branch pattern in config (git.branchNamePattern): ${pattern}`));
       }
     }
 
     return branchName;
   }
 
-  private generateCustomBranchName(
-    artifactStem: string,
-    action: ResolutionAction,
-  ): string {
-    const prefixMapping = this.configService.get<
-      Record<ResolutionAction, string>
-    >('git.branchPrefixMapping', DEFAULT_PREFIX_MAPPING);
+  private generateCustomBranchName(artifactStem: string, action: ResolutionAction): string {
+    const prefixMapping = this.configService.get<Record<ResolutionAction, string>>(
+      'git.branchPrefixMapping',
+      DEFAULT_PREFIX_MAPPING
+    );
     const prefix = prefixMapping[action] || 'feature';
 
     return `${prefix}/${slugify(artifactStem)}`;

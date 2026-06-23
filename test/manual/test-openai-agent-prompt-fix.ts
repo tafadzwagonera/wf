@@ -47,13 +47,11 @@ type BuildSystemPromptArgs = {
  */
 function buildExpectedSystemPrompt(args: BuildSystemPromptArgs): string {
   const fileList =
-    args.repoFiles.length === 0
-      ? '  (none listed)'
-      : args.repoFiles.map((f) => `  - ${args.repoName}/${f}`).join('\n');
+    args.repoFiles.length === 0 ? '  (none listed)' : args.repoFiles.map(f => `  - ${args.repoName}/${f}`).join('\n');
 
   const verificationList =
     args.verificationScripts.length > 0
-      ? args.verificationScripts.map((s) => `  - ${s.command}`).join('\n')
+      ? args.verificationScripts.map(s => `  - ${s.command}`).join('\n')
       : '  (none configured)';
 
   return `You are an expert software engineer implementing code changes inside a repository.
@@ -105,10 +103,7 @@ Ticket context:
 ${args.ticketContext}`;
 }
 
-function buildExpectedUserPrompt(
-  ticketKey: string,
-  openAiContext?: string,
-): string {
+function buildExpectedUserPrompt(ticketKey: string, openAiContext?: string): string {
   const sections = [
     openAiContext ? openAiContext.trimEnd() : '',
     `Ticket key: ${ticketKey}`,
@@ -118,15 +113,12 @@ function buildExpectedUserPrompt(
 }
 
 async function main() {
-  const SCENE =
-    '## Plan\n- I will modify main.tf to add a resource.\n- I will verify with terraform validate.';
+  const SCENE = '## Plan\n- I will modify main.tf to add a resource.\n- I will verify with terraform validate.';
   const TICKET = 'TF-42';
   const REPO_DIR = '/repos/terraform-aws';
 
   // ── Test 1: system prompt contains the structured summary headings ──────
-  console.log(
-    chalk.bold.cyan('\n🧪 Part 1: System prompt — structured summary format'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Part 1: System prompt — structured summary format'));
   console.log(chalk.gray('─'.repeat(60)));
 
   const systemPrompt = buildExpectedSystemPrompt({
@@ -139,94 +131,61 @@ async function main() {
     ticketContext: SCENE,
   });
 
-  assert(
-    'system prompt contains "### What I changed" heading',
-    systemPrompt.includes('### What I changed'),
-  );
-  assert(
-    'system prompt contains "### Verification run" heading',
-    systemPrompt.includes('### Verification run'),
-  );
-  assert(
-    'system prompt contains "### Files" heading',
-    systemPrompt.includes('### Files'),
-  );
+  assert('system prompt contains "### What I changed" heading', systemPrompt.includes('### What I changed'));
+  assert('system prompt contains "### Verification run" heading', systemPrompt.includes('### Verification run'));
+  assert('system prompt contains "### Files" heading', systemPrompt.includes('### Files'));
   assert(
     'system prompt contains "### Assumptions / risk note" heading',
-    systemPrompt.includes('### Assumptions / risk note'),
+    systemPrompt.includes('### Assumptions / risk note')
   );
   assert(
     'system prompt contains "no file changes are required" clause',
-    systemPrompt.includes('no file changes are required'),
+    systemPrompt.includes('no file changes are required')
   );
   assert(
     'system prompt contains "Do not add preamble or planning text"',
-    systemPrompt.includes('Do not add preamble or planning text'),
+    systemPrompt.includes('Do not add preamble or planning text')
   );
   assert(
     'system prompt still contains Task context + ticketContext',
-    systemPrompt.includes('Ticket context:') && systemPrompt.includes(SCENE),
+    systemPrompt.includes('Ticket context:') && systemPrompt.includes(SCENE)
   );
 
   // ── Test 2: user prompt — no ticketContext duplication ──────────────────
-  console.log(
-    chalk.bold.cyan(
-      '\n🧪 Part 2: User prompt — action directive, no ticketContext',
-    ),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Part 2: User prompt — action directive, no ticketContext'));
   console.log(chalk.gray('─'.repeat(60)));
 
   const userPromptNoContext = buildExpectedUserPrompt(TICKET);
-  assert(
-    'user prompt contains ticket key',
-    userPromptNoContext.includes(`Ticket key: ${TICKET}`),
-  );
+  assert('user prompt contains ticket key', userPromptNoContext.includes(`Ticket key: ${TICKET}`));
   assert(
     'user prompt contains action directive',
-    userPromptNoContext.includes(
-      'Call read_file on each target file before editing',
-    ),
+    userPromptNoContext.includes('Call read_file on each target file before editing')
   );
   assert(
     'user prompt does NOT contain ticketContext',
     !userPromptNoContext.includes(SCENE),
-    'ticketContext must not be duplicated in the user turn',
+    'ticketContext must not be duplicated in the user turn'
   );
   assert(
     'user prompt instructs no text before first tool call',
-    userPromptNoContext.includes(
-      'Do not output any text or plan before calling your first tool',
-    ),
+    userPromptNoContext.includes('Do not output any text or plan before calling your first tool')
   );
 
   // ── Test 3: user prompt with openAiContext prepended ───────────────────
-  console.log(
-    chalk.bold.cyan('\n🧪 Part 3: User prompt — openAiContext prefix'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Part 3: User prompt — openAiContext prefix'));
   console.log(chalk.gray('─'.repeat(60)));
 
-  const AI_CTX =
-    'Additional context from wf.config.openai.context:\n- enforce idiomatic HCL';
+  const AI_CTX = 'Additional context from wf.config.openai.context:\n- enforce idiomatic HCL';
   const userPromptWithCtx = buildExpectedUserPrompt(TICKET, AI_CTX);
-  assert(
-    'openAiContext appears first in user prompt',
-    userPromptWithCtx.startsWith(AI_CTX),
-  );
+  assert('openAiContext appears first in user prompt', userPromptWithCtx.startsWith(AI_CTX));
   assert(
     'action directive still present when openAiContext provided',
-    userPromptWithCtx.includes(
-      'Call read_file on each target file before editing',
-    ),
+    userPromptWithCtx.includes('Call read_file on each target file before editing')
   );
-  assert(
-    'ticketContext still absent when openAiContext provided',
-    !userPromptWithCtx.includes(SCENE),
-  );
+  assert('ticketContext still absent when openAiContext provided', !userPromptWithCtx.includes(SCENE));
 
   // ── Test 4: "no file changes" fallback branch ──────────────────────────
-  console.log(
-    chalk.bold.cyan('\n🧪 Part 4: File summary — no changes fallback'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Part 4: File summary — no changes fallback'));
   console.log(chalk.gray('─'.repeat(60)));
 
   // Simulate the fallback logic from generateAndVerify post-run section.
@@ -237,19 +196,16 @@ async function main() {
 
   if (fileSummaryLines.length > 0) {
     mockLog('  File summary:');
-    fileSummaryLines.forEach((l) => mockLog(l));
+    fileSummaryLines.forEach(l => mockLog(l));
   } else {
     mockLog(chalk.gray('\n  File summary: no file changes were made.'));
   }
 
   assert(
     'fallback message is emitted when no files changed',
-    capturedLines.some((l) => l.includes('no file changes were made')),
+    capturedLines.some(l => l.includes('no file changes were made'))
   );
-  assert(
-    '"File summary:" header is NOT emitted without changes',
-    !capturedLines.some((l) => l === '  File summary:'),
-  );
+  assert('"File summary:" header is NOT emitted without changes', !capturedLines.some(l => l === '  File summary:'));
 
   // ── Test 5: file summary header emitted when changes exist ─────────────
   console.log(chalk.bold.cyan('\n🧪 Part 5: File summary — changes present'));
@@ -260,18 +216,15 @@ async function main() {
 
   if (fileSummaryLinesWithChanges.length > 0) {
     linesWithChanges.push('  File summary:');
-    fileSummaryLinesWithChanges.forEach((l) => linesWithChanges.push(l));
+    fileSummaryLinesWithChanges.forEach(l => linesWithChanges.push(l));
   } else {
     linesWithChanges.push('\n  File summary: no file changes were made.');
   }
 
-  assert(
-    '"File summary:" header is emitted when changes exist',
-    linesWithChanges.includes('  File summary:'),
-  );
+  assert('"File summary:" header is emitted when changes exist', linesWithChanges.includes('  File summary:'));
   assert(
     'fallback message NOT emitted when changes exist',
-    !linesWithChanges.some((l) => l.includes('no file changes were made')),
+    !linesWithChanges.some(l => l.includes('no file changes were made'))
   );
 
   // ── Summary ──────────────────────────────────────────────────────────────
@@ -279,9 +232,7 @@ async function main() {
   if (failed === 0) {
     console.log(chalk.bold.green(`\n✅ All ${passed} tests passed\n`));
   } else {
-    console.log(
-      chalk.bold.red(`\n✗ ${failed} of ${passed + failed} tests failed\n`),
-    );
+    console.log(chalk.bold.red(`\n✗ ${failed} of ${passed + failed} tests failed\n`));
     process.exit(1);
   }
 }

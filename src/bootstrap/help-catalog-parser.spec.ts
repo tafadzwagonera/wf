@@ -15,10 +15,9 @@ describe('getCommandHelpCatalog', () => {
         }),
         expect.objectContaining({
           flags: '-r, --repos <repos...>',
-          description:
-            'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+          description: 'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
         }),
-      ]),
+      ])
     );
   });
 
@@ -33,10 +32,9 @@ describe('getCommandHelpCatalog', () => {
         }),
         expect.objectContaining({
           comment: 'Save with overridden title',
-          command:
-            'wf issue:generate ./requirements.md --title "Add OAuth2" --save',
+          command: 'wf issue:generate ./requirements.md --title "Add OAuth2" --save',
         }),
-      ]),
+      ])
     );
   });
 });

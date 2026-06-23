@@ -1,7 +1,4 @@
-import {
-  UniversalTicket,
-  IssueTrackerTicketReference,
-} from '../../common/dto/universal-ticket.dto';
+import { UniversalTicket, IssueTrackerTicketReference } from '../../common/dto/universal-ticket.dto';
 
 /**
  * Features that a tracker may or may not support
@@ -63,10 +60,7 @@ export interface IssueTrackerAdapter {
    * @param reference Ticket key/ID
    * @param updates Partial ticket data to update
    */
-  updateTicket(
-    reference: string,
-    updates: Partial<UniversalTicket>,
-  ): Promise<void>;
+  updateTicket(reference: string, updates: Partial<UniversalTicket>): Promise<void>;
 
   /**
    * Check if the tracker supports a specific feature
@@ -113,12 +107,7 @@ export interface IssueTrackerAdapter {
    * @param line Destination-side line number to anchor the comment to
    * @param body Markdown comment body
    */
-  createInlineComment?(
-    prUrl: string,
-    filePath: string,
-    line: number,
-    body: string,
-  ): Promise<void>;
+  createInlineComment?(prUrl: string, filePath: string, line: number, body: string): Promise<void>;
 
   /**
    * Find an open pull request whose source branch name contains the ticket key
@@ -127,10 +116,7 @@ export interface IssueTrackerAdapter {
    * @param repoOverride Optional repo in "workspace/repo" format; falls back to default
    * @returns PR URL if found, null otherwise
    */
-  findPullRequestByTicketKey?(
-    ticketKey: string,
-    repoOverride?: string,
-  ): Promise<string | null>;
+  findPullRequestByTicketKey?(ticketKey: string, repoOverride?: string): Promise<string | null>;
 
   /**
    * Find all open pull requests whose source branch or title contains the ticket key.
@@ -139,10 +125,7 @@ export interface IssueTrackerAdapter {
    * @param repoOverride Optional repo in tracker-specific format; falls back to default
    * @returns Array of matching PR URLs in deterministic order
    */
-  findPullRequestsByTicketKey?(
-    ticketKey: string,
-    repoOverride?: string,
-  ): Promise<string[]>;
+  findPullRequestsByTicketKey?(ticketKey: string, repoOverride?: string): Promise<string[]>;
 
   /**
    * Create a pull request on the tracker.

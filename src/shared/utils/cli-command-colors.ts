@@ -8,8 +8,7 @@ const COMMAND_TOKEN_PATTERN = /"[^"]*"|'[^']*'|[^\s]+/g;
  * @param command - Full CLI command text
  * @returns Ordered command tokens
  */
-export const tokenizeCliCommand = (command: string): string[] =>
-  command.match(COMMAND_TOKEN_PATTERN) ?? [];
+export const tokenizeCliCommand = (command: string): string[] => command.match(COMMAND_TOKEN_PATTERN) ?? [];
 
 /**
  * Apply the shared help/example color theme to CLI command tokens.
@@ -56,5 +55,4 @@ export const formatCliCommandTokens = (command: string): string[] => {
  * @param command - Full CLI command text
  * @returns ANSI-colored command string
  */
-export const formatCliCommand = (command: string): string =>
-  formatCliCommandTokens(command).join(' ');
+export const formatCliCommand = (command: string): string => formatCliCommandTokens(command).join(' ');

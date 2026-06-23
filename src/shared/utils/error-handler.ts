@@ -26,11 +26,7 @@ export class ErrorHandler {
     }
 
     if (error.recoverable) {
-      console.error(
-        chalk.blue(
-          '\nℹ️  This error is recoverable. You can retry the operation.',
-        ),
-      );
+      console.error(chalk.blue('\nℹ️  This error is recoverable. You can retry the operation.'));
     }
   }
 
@@ -47,25 +43,19 @@ export class ErrorHandler {
     const suggestions: Record<ErrorCode, string | null> = {
       [ErrorCode.WORKFLOW_PARSE_ERROR]:
         'Check your workflow file syntax. Ensure YAML frontmatter is valid and markdown is properly formatted.',
-      [ErrorCode.VALIDATION_ERROR]:
-        'Review the validation errors above and correct the invalid values.',
-      [ErrorCode.EXECUTION_ERROR]:
-        'Check the execution logs for more details. Ensure all prerequisites are met.',
+      [ErrorCode.VALIDATION_ERROR]: 'Review the validation errors above and correct the invalid values.',
+      [ErrorCode.EXECUTION_ERROR]: 'Check the execution logs for more details. Ensure all prerequisites are met.',
       [ErrorCode.JIRA_API_ERROR]:
         'Verify your Jira credentials in wf.config.* under atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken.',
-      [ErrorCode.GIT_ERROR]:
-        'Ensure you are in a git repository and have necessary permissions. Check git status.',
+      [ErrorCode.GIT_ERROR]: 'Ensure you are in a git repository and have necessary permissions. Check git status.',
       [ErrorCode.AI_ERROR]:
         'Check your wf.config.* AI provider entries and API keys. Verify the selected provider has a valid apiKey, model, quota, and network access.',
-      [ErrorCode.STATE_ERROR]:
-        'State file may be corrupted. Check .wf/state/ directory permissions.',
+      [ErrorCode.STATE_ERROR]: 'State file may be corrupted. Check .wf/state/ directory permissions.',
       [ErrorCode.USER_CANCELLED]: null,
-      [ErrorCode.APPROVAL_ERROR]:
-        'There was an issue with the approval process. Try again.',
+      [ErrorCode.APPROVAL_ERROR]: 'There was an issue with the approval process. Try again.',
       [ErrorCode.CONFIGURATION_ERROR]:
         'Check your wf.config.* file and ensure the required configuration values are present and valid.',
-      [ErrorCode.FILE_SYSTEM_ERROR]:
-        'Check file permissions and ensure the path exists.',
+      [ErrorCode.FILE_SYSTEM_ERROR]: 'Check file permissions and ensure the path exists.',
     };
 
     return suggestions[code] || null;
@@ -74,7 +64,7 @@ export class ErrorHandler {
   static async executeWithRetry<T>(
     operation: () => Promise<T>,
     maxRetries: number = 3,
-    delay: number = 1000,
+    delay: number = 1000
   ): Promise<T> {
     let lastError: Error;
 
@@ -89,11 +79,7 @@ export class ErrorHandler {
         }
 
         if (attempt < maxRetries) {
-          console.log(
-            chalk.yellow(
-              `\n⚠️  Attempt ${attempt} failed. Retrying in ${delay}ms...`,
-            ),
-          );
+          console.log(chalk.yellow(`\n⚠️  Attempt ${attempt} failed. Retrying in ${delay}ms...`));
           await this.sleep(delay);
           delay *= 2; // Exponential backoff
         }
@@ -104,6 +90,6 @@ export class ErrorHandler {
   }
 
   private static sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

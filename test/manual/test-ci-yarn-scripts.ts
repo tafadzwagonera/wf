@@ -19,12 +19,7 @@ import chalk from 'chalk';
 const repoRoot = path.join(__dirname, '..', '..');
 const ciPath = path.join(repoRoot, '.github', 'workflows', 'ci.yml');
 const packageJsonPath = path.join(repoRoot, 'package.json');
-const helpOutputPath = path.join(
-  repoRoot,
-  'src',
-  'bootstrap',
-  'help-output.ts',
-);
+const helpOutputPath = path.join(repoRoot, 'src', 'bootstrap', 'help-output.ts');
 
 /**
  * Print a pass result.
@@ -57,9 +52,9 @@ async function main() {
     const ciContent = fs.readFileSync(ciPath, 'utf8');
     const runLines = ciContent
       .split('\n')
-      .filter((line) => /^\s+run:\s/.test(line))
-      .map((line) => line.trim());
-    const npmRunLines = runLines.filter((line) => line.includes('npm run'));
+      .filter(line => /^\s+run:\s/.test(line))
+      .map(line => line.trim());
+    const npmRunLines = runLines.filter(line => line.includes('npm run'));
 
     if (npmRunLines.length === 0) {
       pass('No npm run references in CI workflow run steps');
@@ -73,15 +68,11 @@ async function main() {
     failed += 1;
   }
 
-  console.log(
-    chalk.bold('Test 2: package.json scripts contain no npm run references'),
-  );
+  console.log(chalk.bold('Test 2: package.json scripts contain no npm run references'));
   try {
     const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
     const scripts = pkg.scripts ?? {};
-    const npmRunScripts = Object.entries(scripts).filter(([, value]) =>
-      (value as string).includes('npm run'),
-    );
+    const npmRunScripts = Object.entries(scripts).filter(([, value]) => (value as string).includes('npm run'));
 
     if (npmRunScripts.length === 0) {
       pass('No npm run in package.json scripts');
@@ -126,16 +117,11 @@ async function main() {
     failed += 1;
   }
 
-  console.log(
-    chalk.bold('Test 5: help-output references yarn build, not npm run build'),
-  );
+  console.log(chalk.bold('Test 5: help-output references yarn build, not npm run build'));
   try {
     const helpOutput = fs.readFileSync(helpOutputPath, 'utf8');
 
-    if (
-      helpOutput.includes('yarn build') &&
-      !helpOutput.includes('npm run build')
-    ) {
+    if (helpOutput.includes('yarn build') && !helpOutput.includes('npm run build')) {
       pass('help-output.ts references yarn build');
       passed += 1;
     } else {

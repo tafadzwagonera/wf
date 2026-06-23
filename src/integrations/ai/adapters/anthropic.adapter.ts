@@ -3,11 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
 import * as os from 'os';
 import * as path from 'path';
-import type {
-  AIConversationRequest,
-  AIRequest,
-  AIResponse,
-} from '../ai.service';
+import type { AIConversationRequest, AIRequest, AIResponse } from '../ai.service';
 import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
@@ -25,18 +21,17 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
 
   constructor(
     private configService: ConfigService,
-    private logger: LoggerService,
+    private logger: LoggerService
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const providers =
-      this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
+    const providers = this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
 
     this.contextConfig = await loadAiContextConfig(
       path.join(os.homedir(), '.claude', 'CLAUDE.md'),
       'CLAUDE.md',
       'anthropic',
-      hasProviderUsageIntent(providers, 'anthropic'),
+      hasProviderUsageIntent(providers, 'anthropic')
     );
   }
 
@@ -50,7 +45,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     if (!apiKey) {
       if (!this.didWarnMissingConfig) {
         this.logger.warn(
-          'Anthropic API key not configured. Add `ai: [{ provider: "anthropic", apiKey: "..." }]` to wf.config.*.',
+          'Anthropic API key not configured. Add `ai: [{ provider: "anthropic", apiKey: "..." }]` to wf.config.*.'
         );
         this.didWarnMissingConfig = true;
       }
@@ -58,14 +53,9 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     }
 
     this.client = new Anthropic({ apiKey });
-    this.model = this.configService.get<string>(
-      'ai.model',
-      'claude-sonnet-4-20250514',
-    );
+    this.model = this.configService.get<string>('ai.model', 'claude-sonnet-4-20250514');
 
-    this.logger.debug(
-      `Initialized Anthropic adapter with model: ${this.model}`,
-    );
+    this.logger.debug(`Initialized Anthropic adapter with model: ${this.model}`);
   }
 
   private prependConfig(systemPrompt: string | undefined): string | undefined {
@@ -73,21 +63,16 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     return this.contextConfig + (systemPrompt ?? '');
   }
 
-  private extractContent(
-    response: Anthropic.Messages.Message,
-    model: string,
-  ): AIResponse {
-    const textBlocks = response.content.filter(
-      (block): block is Anthropic.TextBlock => block.type === 'text',
-    );
-    const content = textBlocks.map((block) => block.text).join('');
+  private extractContent(response: Anthropic.Messages.Message, model: string): AIResponse {
+    const textBlocks = response.content.filter((block): block is Anthropic.TextBlock => block.type === 'text');
+    const content = textBlocks.map(block => block.text).join('');
 
     return {
       content,
       provider: 'anthropic',
       model,
       stopReason: response.stop_reason ?? undefined,
-      contentTypes: response.content.map((block) => block.type),
+      contentTypes: response.content.map(block => block.type),
       usage: {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
@@ -102,7 +87,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
       throw new AIError(
         'Anthropic client not initialized. Configure `ai[].apiKey` for the `anthropic` provider in wf.config.*.',
         null,
-        false,
+        false
       );
     }
 
@@ -125,7 +110,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
           {
             status: error.status,
           },
-          true,
+          true
         );
       }
 
@@ -133,22 +118,18 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     }
   }
 
-  async executeWithHistory(
-    request: AIConversationRequest,
-  ): Promise<AIResponse> {
+  async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
     this.initializeClient();
 
     if (!this.client) {
       throw new AIError(
         'Anthropic client not initialized. Configure `ai[].apiKey` for the `anthropic` provider in wf.config.*.',
         null,
-        false,
+        false
       );
     }
 
-    this.logger.debug(
-      `Executing conversation request with ${request.messages.length} messages via Anthropic`,
-    );
+    this.logger.debug(`Executing conversation request with ${request.messages.length} messages via Anthropic`);
 
     try {
       const model = request.model || this.model;
@@ -167,7 +148,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
           {
             status: error.status,
           },
-          true,
+          true
         );
       }
 

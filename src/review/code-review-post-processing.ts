@@ -39,8 +39,7 @@ const ENVIRONMENT_TOKEN_PATTERN = /\b[A-Z][A-Z0-9_]{2,}\b/g;
  * @param filePath - Diff or review file path
  * @returns Comparable file path without diff-specific prefixes
  */
-const normalizeFilePath = (filePath: string): string =>
-  filePath.replace(/^[ab]\//, '').trim();
+const normalizeFilePath = (filePath: string): string => filePath.replace(/^[ab]\//, '').trim();
 
 /**
  * Record a changed destination-side line against a file path.
@@ -54,7 +53,7 @@ const addChangedLine = (
   changedLinesByFile: Map<string, ChangedDestinationLine[]>,
   filePath: string,
   line: number,
-  content: string,
+  content: string
 ): void => {
   const normalizedPath = normalizeFilePath(filePath);
   const changedLines = changedLinesByFile.get(normalizedPath) ?? [];
@@ -87,9 +86,7 @@ const collectDiffFileInfo = (diff: string): Map<string, DiffFileInfo> => {
     if (destinationFileMatch) {
       const destinationFilePath = destinationFileMatch[1]?.trim();
       currentFile =
-        destinationFilePath && destinationFilePath !== '/dev/null'
-          ? normalizeFilePath(destinationFilePath)
-          : null;
+        destinationFilePath && destinationFilePath !== '/dev/null' ? normalizeFilePath(destinationFilePath) : null;
       currentDestinationLine = null;
       continue;
     }
@@ -97,9 +94,7 @@ const collectDiffFileInfo = (diff: string): Map<string, DiffFileInfo> => {
     const hunkHeaderMatch = line.match(HUNK_HEADER_PATTERN);
     if (hunkHeaderMatch) {
       const startLine = Number.parseInt(hunkHeaderMatch[1] ?? '', 10);
-      const lineCount = hunkHeaderMatch[2]
-        ? Number.parseInt(hunkHeaderMatch[2], 10)
-        : 1;
+      const lineCount = hunkHeaderMatch[2] ? Number.parseInt(hunkHeaderMatch[2], 10) : 1;
       currentDestinationLine = startLine;
 
       if (currentFile) {
@@ -123,12 +118,7 @@ const collectDiffFileInfo = (diff: string): Map<string, DiffFileInfo> => {
     }
 
     if (line.startsWith('+') && !line.startsWith('+++')) {
-      addChangedLine(
-        changedLinesByFile,
-        currentFile,
-        currentDestinationLine,
-        line.slice(1),
-      );
+      addChangedLine(changedLinesByFile, currentFile, currentDestinationLine, line.slice(1));
       currentDestinationLine += 1;
       continue;
     }
@@ -146,12 +136,9 @@ const collectDiffFileInfo = (diff: string): Map<string, DiffFileInfo> => {
   for (const [filePath, changedLines] of changedLinesByFile) {
     const span = hunkSpansByFile.get(filePath);
     result.set(filePath, {
-      changedLines: [...changedLines].sort(
-        (left, right) => left.line - right.line,
-      ),
+      changedLines: [...changedLines].sort((left, right) => left.line - right.line),
       hunkSpanFirst: span?.first ?? changedLines[0]?.line ?? 0,
-      hunkSpanLast:
-        span?.last ?? changedLines[changedLines.length - 1]?.line ?? 0,
+      hunkSpanLast: span?.last ?? changedLines[changedLines.length - 1]?.line ?? 0,
     });
   }
 
@@ -165,10 +152,7 @@ const collectDiffFileInfo = (diff: string): Map<string, DiffFileInfo> => {
  * @param changedLines - Valid changed destination-side lines for the file
  * @returns Preserved or normalized line number
  */
-const normalizeIssueLine = (
-  modelLine: number,
-  changedLines: number[],
-): number => {
+const normalizeIssueLine = (modelLine: number, changedLines: number[]): number => {
   if (changedLines.includes(modelLine)) {
     return modelLine;
   }
@@ -181,9 +165,7 @@ const normalizeIssueLine = (
       return candidateLine;
     }
 
-    return candidateDistance === nearestDistance && candidateLine < nearestLine
-      ? candidateLine
-      : nearestLine;
+    return candidateDistance === nearestDistance && candidateLine < nearestLine ? candidateLine : nearestLine;
   });
 };
 
@@ -221,10 +203,7 @@ const extractIssueAnchors = (text: string): string[] => {
  * @param anchors - Extracted issue anchors
  * @returns Relative semantic match score
  */
-const scoreChangedLineAgainstIssue = (
-  changedLine: ChangedDestinationLine,
-  anchors: string[],
-): number => {
+const scoreChangedLineAgainstIssue = (changedLine: ChangedDestinationLine, anchors: string[]): number => {
   return anchors.reduce((score, anchor) => {
     if (!anchor) {
       return score;
@@ -250,13 +229,13 @@ const scoreChangedLineAgainstIssue = (
 const resolveSemanticIssueLine = (
   issue: CodeIssue,
   changedLines: ChangedDestinationLine[],
-  anchors: string[],
+  anchors: string[]
 ): number | null => {
   if (anchors.length === 0) {
     return null;
   }
 
-  const scoredChangedLines = changedLines.map((changedLine) => ({
+  const scoredChangedLines = changedLines.map(changedLine => ({
     changedLine,
     score: scoreChangedLineAgainstIssue(changedLine, anchors),
   }));
@@ -264,14 +243,13 @@ const resolveSemanticIssueLine = (
     (best, candidate) =>
       candidate.score > best.score
         ? candidate
-        : candidate.score === best.score &&
-            candidate.changedLine.line < best.changedLine.line
+        : candidate.score === best.score && candidate.changedLine.line < best.changedLine.line
           ? candidate
           : best,
     {
       changedLine: changedLines[0],
       score: scoreChangedLineAgainstIssue(changedLines[0], anchors),
-    },
+    }
   );
   if (bestMatch.score === 0) {
     return null;
@@ -279,9 +257,7 @@ const resolveSemanticIssueLine = (
 
   const rawLineScore =
     typeof issue.line === 'number'
-      ? (scoredChangedLines.find(
-          ({ changedLine }) => changedLine.line === issue.line,
-        )?.score ?? 0)
+      ? (scoredChangedLines.find(({ changedLine }) => changedLine.line === issue.line)?.score ?? 0)
       : 0;
 
   return bestMatch.score > rawLineScore ? bestMatch.changedLine.line : null;
@@ -294,15 +270,12 @@ const resolveSemanticIssueLine = (
  * @param diff - Raw unified diff used for the review
  * @returns Review with issue lines aligned to destination-side diff anchors
  */
-const normalizeReviewIssues = (
-  review: CodeReview,
-  diff: string,
-): CodeReview => {
+const normalizeReviewIssues = (review: CodeReview, diff: string): CodeReview => {
   const diffInfoByFile = collectDiffFileInfo(diff);
 
   return {
     ...review,
-    issues: review.issues.map((issue) => {
+    issues: review.issues.map(issue => {
       if (!issue.file) {
         return issue;
       }
@@ -317,15 +290,9 @@ const normalizeReviewIssues = (
 
       const { changedLines, hunkSpanFirst, hunkSpanLast } = fileInfo;
 
-      const anchors = extractIssueAnchors(
-        `${issue.message} ${issue.suggestion ?? ''}`,
-      );
+      const anchors = extractIssueAnchors(`${issue.message} ${issue.suggestion ?? ''}`);
 
-      const semanticLine = resolveSemanticIssueLine(
-        issue,
-        changedLines,
-        anchors,
-      );
+      const semanticLine = resolveSemanticIssueLine(issue, changedLines, anchors);
       if (semanticLine != null) {
         return {
           ...issue,
@@ -335,15 +302,12 @@ const normalizeReviewIssues = (
 
       if (anchors.length > 0) {
         const maxScore = changedLines.reduce(
-          (best, cl) =>
-            Math.max(best, scoreChangedLineAgainstIssue(cl, anchors)),
-          0,
+          (best, cl) => Math.max(best, scoreChangedLineAgainstIssue(cl, anchors)),
+          0
         );
         if (maxScore === 0) {
           const withinHunkSpan =
-            typeof issue.line === 'number' &&
-            issue.line >= hunkSpanFirst &&
-            issue.line <= hunkSpanLast;
+            typeof issue.line === 'number' && issue.line >= hunkSpanFirst && issue.line <= hunkSpanLast;
 
           if (!withinHunkSpan) {
             return { ...issue, line: undefined };
@@ -351,11 +315,7 @@ const normalizeReviewIssues = (
         }
       }
 
-      if (
-        typeof issue.line !== 'number' ||
-        !Number.isFinite(issue.line) ||
-        issue.line <= 0
-      ) {
+      if (typeof issue.line !== 'number' || !Number.isFinite(issue.line) || issue.line <= 0) {
         return {
           ...issue,
           line: undefined,
@@ -366,7 +326,7 @@ const normalizeReviewIssues = (
         ...issue,
         line: normalizeIssueLine(
           issue.line,
-          changedLines.map((changedLine) => changedLine.line),
+          changedLines.map(changedLine => changedLine.line)
         ),
       };
     }),
@@ -379,10 +339,8 @@ const normalizeReviewIssues = (
  * @param review - Review payload to present
  * @returns Presentation data shared by CLI and workflow renderers
  */
-export const buildCodeReviewPresentation = (
-  review: CodeReview,
-): CodeReviewPresentation => ({
-  issueRows: review.issues.map((issue) => ({
+export const buildCodeReviewPresentation = (review: CodeReview): CodeReviewPresentation => ({
+  issueRows: review.issues.map(issue => ({
     issue,
     suggestion: issue.suggestion,
   })),
@@ -396,10 +354,7 @@ export const buildCodeReviewPresentation = (
  * @param diff - Raw unified diff used for the review
  * @returns Normalized review plus shared presentation metadata
  */
-export const postProcessCodeReview = (
-  review: CodeReview,
-  diff: string,
-): ProcessedCodeReview => {
+export const postProcessCodeReview = (review: CodeReview, diff: string): ProcessedCodeReview => {
   const normalizedReview = normalizeReviewIssues(review, diff);
 
   return {

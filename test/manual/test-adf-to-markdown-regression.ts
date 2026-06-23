@@ -24,13 +24,11 @@ const createJiraService = (): JiraService =>
     } as any,
     { post: () => undefined } as any,
     { warn: () => undefined, success: () => undefined } as any,
-    { isPlatformEnabled: () => true } as any,
+    { isPlatformEnabled: () => true } as any
   );
 
 function main() {
-  console.log(
-    '\nManual Test: adfToMarkdown regression — silent data loss fix\n',
-  );
+  console.log('\nManual Test: adfToMarkdown regression — silent data loss fix\n');
 
   const service = createJiraService();
 
@@ -42,18 +40,11 @@ function main() {
       content: [
         {
           type: 'paragraph',
-          content: [
-            { type: 'text', text: 'Line A' },
-            { type: 'hardBreak' },
-            { type: 'text', text: 'Line B' },
-          ],
+          content: [{ type: 'text', text: 'Line A' }, { type: 'hardBreak' }, { type: 'text', text: 'Line B' }],
         },
       ],
     });
-    assert(
-      md.includes('Line A\nLine B'),
-      `hardBreak lost: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('Line A\nLine B'), `hardBreak lost: ${JSON.stringify(md)}`);
     console.log('  PASS: hardBreak preserved');
   }
 
@@ -111,10 +102,7 @@ function main() {
         },
       ],
     });
-    assert(
-      md.includes('https://jira.example.com/browse/WBP-100'),
-      `inlineCard lost: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('https://jira.example.com/browse/WBP-100'), `inlineCard lost: ${JSON.stringify(md)}`);
     console.log('  PASS: inlineCard preserved');
   }
 
@@ -192,14 +180,8 @@ function main() {
         },
       ],
     });
-    assert(
-      md.includes('Parent'),
-      `nested list parent lost: ${JSON.stringify(md)}`,
-    );
-    assert(
-      md.includes('Child'),
-      `nested list child lost: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('Parent'), `nested list parent lost: ${JSON.stringify(md)}`);
+    assert(md.includes('Child'), `nested list child lost: ${JSON.stringify(md)}`);
     console.log('  PASS: nested bullet list preserved');
   }
 
@@ -229,18 +211,9 @@ function main() {
         },
       ],
     });
-    assert(
-      md.includes('Para one'),
-      `multi-para first lost: ${JSON.stringify(md)}`,
-    );
-    assert(
-      md.includes('Para two'),
-      `multi-para second lost: ${JSON.stringify(md)}`,
-    );
-    assert(
-      !md.includes('Para onePara two'),
-      `multi-para concatenated without separator: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('Para one'), `multi-para first lost: ${JSON.stringify(md)}`);
+    assert(md.includes('Para two'), `multi-para second lost: ${JSON.stringify(md)}`);
+    assert(!md.includes('Para onePara two'), `multi-para concatenated without separator: ${JSON.stringify(md)}`);
     console.log('  PASS: multi-paragraph list item separated');
   }
 
@@ -303,18 +276,9 @@ function main() {
         },
       ],
     });
-    assert(
-      md.includes('| Name | Value |'),
-      `table header lost: ${JSON.stringify(md)}`,
-    );
-    assert(
-      md.includes('| foo | bar |'),
-      `table row lost: ${JSON.stringify(md)}`,
-    );
-    assert(
-      md.includes('| --- | --- |'),
-      `table separator lost: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('| Name | Value |'), `table header lost: ${JSON.stringify(md)}`);
+    assert(md.includes('| foo | bar |'), `table row lost: ${JSON.stringify(md)}`);
+    assert(md.includes('| --- | --- |'), `table separator lost: ${JSON.stringify(md)}`);
     console.log('  PASS: table preserved');
   }
 

@@ -1,7 +1,4 @@
-import {
-  hasReadmeCommandDocDrift,
-  synchronizeReadmeCommandDocs,
-} from './issue-command-docs';
+import { hasReadmeCommandDocDrift, synchronizeReadmeCommandDocs } from './issue-command-docs';
 import { CommandHelpEntry } from './help-catalog-parser';
 
 const issueGenerateEntry: CommandHelpEntry = {
@@ -15,8 +12,7 @@ const issueGenerateEntry: CommandHelpEntry = {
     },
     {
       flags: '-r, --repos <repos...>',
-      description:
-        'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+      description: 'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
     },
   ],
   examples: [
@@ -26,8 +22,7 @@ const issueGenerateEntry: CommandHelpEntry = {
     },
     {
       comment: 'Save with overridden title',
-      command:
-        'wf issue:generate ./requirements.md --title "Add OAuth2" --save',
+      command: 'wf issue:generate ./requirements.md --title "Add OAuth2" --save',
     },
   ],
 };
@@ -50,11 +45,9 @@ describe('synchronizeReadmeCommandDocs', () => {
       'issue:generate': issueGenerateEntry,
     });
 
+    expect(updated).toContain('<!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->');
     expect(updated).toContain(
-      '<!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->',
-    );
-    expect(updated).toContain(
-      'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Can use an agent backend when stages.generate.backend is set to agent',
+      'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Can use an agent backend when stages.generate.backend is set to agent'
     );
     expect(updated).toContain('# Generate ticket from a URL');
     expect(updated).toContain('`-f, --format <format>`');
@@ -76,7 +69,7 @@ describe('synchronizeReadmeCommandDocs', () => {
     expect(
       hasReadmeCommandDocDrift(staleReadme, {
         'issue:generate': issueGenerateEntry,
-      }),
+      })
     ).toBe(true);
     expect(
       hasReadmeCommandDocDrift(
@@ -85,8 +78,8 @@ describe('synchronizeReadmeCommandDocs', () => {
         }),
         {
           'issue:generate': issueGenerateEntry,
-        },
-      ),
+        }
+      )
     ).toBe(false);
   });
 });

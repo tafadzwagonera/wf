@@ -23,9 +23,7 @@ import { LoggerService } from '../../src/shared/logger/logger.service';
 const configPath = path.join(process.cwd(), 'wf.config.js');
 const anthropicProjectPath = path.join(process.cwd(), 'CLAUDE.md');
 const deepseekProjectPath = path.join(process.cwd(), 'DEEPSEEK.md');
-const tempHomePath = fs.mkdtempSync(
-  path.join(os.tmpdir(), 'wf-manual-ai-context-'),
-);
+const tempHomePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-manual-ai-context-'));
 const anthropicGlobalPath = path.join(tempHomePath, '.claude', 'CLAUDE.md');
 const deepseekGlobalPath = path.join(tempHomePath, '.deepseek', 'DEEPSEEK.md');
 
@@ -53,11 +51,7 @@ const removeFileIfPresent = (filePath: string): void => {
   }
 };
 
-const restoreFile = ({
-  path: filePath,
-  existed,
-  content,
-}: BackupEntry): void => {
+const restoreFile = ({ path: filePath, existed, content }: BackupEntry): void => {
   if (!existed) {
     fs.rmSync(filePath, { force: true });
     return;
@@ -72,9 +66,7 @@ function testAiContextConfig() {
 }
 
 async function run() {
-  console.log(
-    '🧪 Testing issue:generate warning gating for AI context files\n',
-  );
+  console.log('🧪 Testing issue:generate warning gating for AI context files\n');
 
   let passed = 0;
   let failed = 0;
@@ -89,11 +81,7 @@ async function run() {
     failed++;
   };
 
-  const backups = [
-    backupFile(configPath),
-    backupFile(anthropicProjectPath),
-    backupFile(deepseekProjectPath),
-  ];
+  const backups = [backupFile(configPath), backupFile(anthropicProjectPath), backupFile(deepseekProjectPath)];
   const originalHome = process.env.HOME;
   const warnSpy = jestLikeSpy();
 
@@ -115,7 +103,7 @@ async function run() {
         '};',
         '',
       ].join('\n'),
-      'utf-8',
+      'utf-8'
     );
 
     process.env.HOME = tempHomePath;
@@ -165,41 +153,22 @@ async function run() {
 
     const output = warnSpy.messages.join('\n');
 
-    if (
-      output.includes(
-        'No global or project-level configuration found for anthropic',
-      )
-    ) {
-      pass(
-        'Anthropic warns when usage intent exists and context files are missing',
-      );
+    if (output.includes('No global or project-level configuration found for anthropic')) {
+      pass('Anthropic warns when usage intent exists and context files are missing');
     } else {
       fail('Anthropic warning missing', output || '(no warnings captured)');
     }
 
-    if (
-      output.includes(
-        'No global or project-level configuration found for deepseek',
-      )
-    ) {
-      pass(
-        'DeepSeek warns when usage intent exists and both DeepSeek context files are missing',
-      );
+    if (output.includes('No global or project-level configuration found for deepseek')) {
+      pass('DeepSeek warns when usage intent exists and both DeepSeek context files are missing');
     } else {
       fail('DeepSeek warning missing', output || '(no warnings captured)');
     }
 
-    if (
-      !output.includes(
-        'No global or project-level configuration found for openai',
-      )
-    ) {
+    if (!output.includes('No global or project-level configuration found for openai')) {
       pass('OpenAI does not warn when provider intent is incomplete');
     } else {
-      fail(
-        'OpenAI warning should be suppressed when model is missing',
-        output || '(no warnings captured)',
-      );
+      fail('OpenAI warning should be suppressed when model is missing', output || '(no warnings captured)');
     }
   } finally {
     warnSpy.restore();

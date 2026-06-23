@@ -8,11 +8,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { getPlanArtifactExtension } from '../shared/utils/plan-artifact';
-import {
-  resolveArtifactDir,
-  resolveCustomArtifactDir,
-  resolveRepoBasePath,
-} from '../agents/utils';
+import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import type { ResolutionAction } from '../agents/interfaces';
@@ -63,10 +59,7 @@ interface IssuePlanOptions {
 }
 
 interface RepoAwarePlan {
-  filesAffected?: (
-    | string
-    | import('../integrations/ai/ai.service').FileEntry
-  )[];
+  filesAffected?: (string | import('../integrations/ai/ai.service').FileEntry)[];
   filesContext?: (string | import('../integrations/ai/ai.service').FileEntry)[];
   repositoriesAffected?: string[];
   verification?: {
@@ -156,8 +149,7 @@ const generateMnemonic = (): string => {
  * @param message - Validation failure detail
  * @returns Error with consistent command-facing wording
  */
-const createPlanValidationError = (message: string): Error =>
-  new Error(`Generated plan is invalid: ${message}`);
+const createPlanValidationError = (message: string): Error => new Error(`Generated plan is invalid: ${message}`);
 
 /**
  * Detect whether a verification reason describes an expected failure case.
@@ -167,7 +159,7 @@ const createPlanValidationError = (message: string): Error =>
  */
 const describesExpectedFailure = (value?: string): boolean =>
   /expected failure|expect(?:ed)? .*fail|should fail|must fail|non-markdown|reject(?:ed|ion)?|invalid input|exit code 1/i.test(
-    value ?? '',
+    value ?? ''
   );
 
 /**
@@ -179,13 +171,10 @@ const describesExpectedFailure = (value?: string): boolean =>
  */
 const usesAssertionWrapper = (command?: string): boolean =>
   /(?:^|[ (])!|(?:\|\|)|(?:&&)|\bif\b|\bthen\b|\belse\b|\bfi\b|\bexit\s+0\b|\btest\b|\$\?|\bsh\s+-c\b|\bbash\s+-c\b|\bzsh\s+-c\b/.test(
-    command ?? '',
+    command ?? ''
   );
 
-const normalizeVerificationRunCommand = (
-  command: string,
-  selectedRepoDir: string,
-): string => {
+const normalizeVerificationRunCommand = (command: string, selectedRepoDir: string): string => {
   const trimmed = command.trim();
   const cdPrefixMatch = trimmed.match(/^cd\s+(.+?)\s*&&\s*(.+)$/);
   if (!cdPrefixMatch) {
@@ -197,25 +186,17 @@ const normalizeVerificationRunCommand = (
   const normalizedRepoDir = path.resolve(selectedRepoDir);
   const repoName = path.basename(normalizedRepoDir);
   const normalizedRelativeTarget =
-    target === repoName || target === `./${repoName}`
-      ? normalizedRepoDir
-      : path.resolve(selectedRepoDir, target);
+    target === repoName || target === `./${repoName}` ? normalizedRepoDir : path.resolve(selectedRepoDir, target);
   const normalizedAbsoluteTarget = path.resolve(target);
 
-  if (
-    normalizedRelativeTarget === normalizedRepoDir ||
-    normalizedAbsoluteTarget === normalizedRepoDir
-  ) {
+  if (normalizedRelativeTarget === normalizedRepoDir || normalizedAbsoluteTarget === normalizedRepoDir) {
     return remainder.trim();
   }
 
   return trimmed;
 };
 
-const escapesSelectedRepo = (
-  command: string,
-  selectedRepoDir: string,
-): boolean => {
+const escapesSelectedRepo = (command: string, selectedRepoDir: string): boolean => {
   const trimmed = command.trim();
   const cdPrefixMatch = trimmed.match(/^cd\s+(.+?)\s*&&\s*(.+)$/);
   if (!cdPrefixMatch) {
@@ -250,7 +231,7 @@ export class IssuePlanCommand extends CommandRunner {
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
     private readonly fetchStageService: FetchStageService,
-    private readonly planStageService: PlanStageService,
+    private readonly planStageService: PlanStageService
   ) {
     super();
   }
@@ -263,9 +244,7 @@ export class IssuePlanCommand extends CommandRunner {
   parseAction(action: string): ResolutionAction {
     const validActions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
     if (!validActions.includes(action as ResolutionAction)) {
-      throw new Error(
-        `Invalid action: ${action}. Valid actions: ${validActions.join(', ')}`,
-      );
+      throw new Error(`Invalid action: ${action}. Valid actions: ${validActions.join(', ')}`);
     }
     return action as ResolutionAction;
   }
@@ -302,17 +281,14 @@ export class IssuePlanCommand extends CommandRunner {
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
     if (!validFormats.includes(format as OutputFormat)) {
-      throw new Error(
-        `Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`,
-      );
+      throw new Error(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
     }
     return format as OutputFormat;
   }
 
   @Option({
     flags: '-r, --repos <repos...>',
-    description:
-      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+    description: 'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
     required: false,
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
@@ -321,8 +297,7 @@ export class IssuePlanCommand extends CommandRunner {
 
   @Option({
     flags: '-s, --silent',
-    description:
-      'Suppress decorative output and interactive prompts. Emits only the plan path for piping',
+    description: 'Suppress decorative output and interactive prompts. Emits only the plan path for piping',
   })
   parseSilent(): boolean {
     return true;
@@ -335,9 +310,7 @@ export class IssuePlanCommand extends CommandRunner {
   parseTracker(tracker: string): string {
     const validTrackers = ['jira', 'github', 'bitbucket'];
     if (!validTrackers.includes(tracker)) {
-      throw new Error(
-        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
-      );
+      throw new Error(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
     }
     return tracker;
   }
@@ -351,33 +324,22 @@ export class IssuePlanCommand extends CommandRunner {
       await ensureWfHome();
 
       if (ticketKey && options?.custom) {
-        console.error(
-          chalk.red(
-            'Error: --custom cannot be used together with <ticket-key>',
-          ),
-        );
+        console.error(chalk.red('Error: --custom cannot be used together with <ticket-key>'));
         process.exit(1);
         return;
       }
 
       if (!ticketKey && !options?.custom) {
-        console.error(
-          chalk.red(
-            'Error: Provide a <ticket-key> or use --custom <source.md> for a custom plan',
-          ),
-        );
+        console.error(chalk.red('Error: Provide a <ticket-key> or use --custom <source.md> for a custom plan'));
         process.exit(1);
         return;
       }
 
-      const trackerName =
-        options?.tracker || this.configService.get<string>('tracker', 'jira');
+      const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
 
       // Bitbucket + ticket-key requires --repos
       if (ticketKey && trackerName === 'bitbucket' && !options?.repos?.length) {
-        console.error(
-          chalk.red('Error: --repos is required for Bitbucket ticket fetching'),
-        );
+        console.error(chalk.red('Error: --repos is required for Bitbucket ticket fetching'));
         process.exit(1);
       }
 
@@ -386,9 +348,7 @@ export class IssuePlanCommand extends CommandRunner {
       // Output format: CLI flag > per-stage config > hardcoded default
       const format =
         options?.format ||
-        (this.configService.get<string>('stages.plan.outputFormat') as
-          | OutputFormat
-          | undefined) ||
+        (this.configService.get<string>('stages.plan.outputFormat') as OutputFormat | undefined) ||
         'json';
       const extension = getPlanArtifactExtension(format);
 
@@ -396,22 +356,13 @@ export class IssuePlanCommand extends CommandRunner {
       if (options?.custom) {
         const customArtifactDir = resolveCustomArtifactDir(artifactBaseDir);
         if (!options.custom.toLowerCase().endsWith('.md')) {
-          console.error(
-            chalk.red('Error: --custom only accepts Markdown (.md) sources'),
-          );
+          console.error(chalk.red('Error: --custom only accepts Markdown (.md) sources'));
           process.exit(1);
           return;
         }
 
-        const customSourcePath = this.resolveCustomSourcePath(
-          options.custom,
-          artifactBaseDir,
-          options?.repos,
-        );
-        const customSourceName = this.generateUniqueCustomPlanStem(
-          customArtifactDir,
-          action,
-        );
+        const customSourcePath = this.resolveCustomSourcePath(options.custom, artifactBaseDir, options?.repos);
+        const customSourceName = this.generateUniqueCustomPlanStem(customArtifactDir, action);
         const planFilename = buildPlanArtifactFilename({
           hash: hashPlanArtifactSources([customSourceName]),
           action,
@@ -424,9 +375,7 @@ export class IssuePlanCommand extends CommandRunner {
           this.dryRunPreview.previewFileRead({
             filePath: customSourcePath,
             exists: fs.existsSync(customSourcePath),
-            sizeInKb: fs.existsSync(customSourcePath)
-              ? (fs.statSync(customSourcePath).size / 1024).toFixed(2)
-              : '0',
+            sizeInKb: fs.existsSync(customSourcePath) ? (fs.statSync(customSourcePath).size / 1024).toFixed(2) : '0',
           });
           this.dryRunPreview.previewApiCall({
             method: 'POST',
@@ -474,19 +423,14 @@ export class IssuePlanCommand extends CommandRunner {
         }
 
         const customSourceContent = fs.readFileSync(customSourcePath, 'utf-8');
-        const plan = await this.planStageService.generatePlan(
-          customSourceContent,
-          {
-            action,
-            affectedRepositories: options?.repos ?? [
-              path.basename(artifactBaseDir),
-            ],
-          },
-        );
+        const plan = await this.planStageService.generatePlan(customSourceContent, {
+          action,
+          affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
+        });
         this.validateGeneratedPlan(
           plan,
           artifactBaseDir,
-          this.resolveExpectedRepositories(artifactBaseDir, options?.repos),
+          this.resolveExpectedRepositories(artifactBaseDir, options?.repos)
         );
 
         let planContent: string;
@@ -507,16 +451,10 @@ export class IssuePlanCommand extends CommandRunner {
             hashPlanArtifactSources([customSourceName]),
             customSourceName,
             'custom',
-            new Date(),
-          ),
+            new Date()
+          )
         );
-        this.deleteSiblingPlanArtifacts(
-          customArtifactDir,
-          customSourceName,
-          'custom',
-          action,
-          planPath,
-        );
+        this.deleteSiblingPlanArtifacts(customArtifactDir, customSourceName, 'custom', action, planPath);
         if (options?.silent) {
           console.log(planPath);
         } else {
@@ -525,9 +463,7 @@ export class IssuePlanCommand extends CommandRunner {
           this.logger.info(`  Action: ${plan.action}`);
           this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
           this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
-          this.logger.info(
-            `  Files affected: ${plan.filesAffected?.length || 0}`,
-          );
+          this.logger.info(`  Files affected: ${plan.filesAffected?.length || 0}`);
         }
         return;
       }
@@ -543,7 +479,7 @@ export class IssuePlanCommand extends CommandRunner {
           hash: hashPlanArtifactSources([planSourceName]),
           action,
           format: extension,
-        }),
+        })
       );
       const ticketExists = fs.existsSync(ticketPath);
       const needsFetch = options?.force || !ticketExists;
@@ -654,9 +590,7 @@ export class IssuePlanCommand extends CommandRunner {
           if (options?.force) {
             this.logger.info('Forcing recreation of ticket artifact...');
           } else {
-            this.logger.info(
-              'Local artifact not found. Fetching from tracker...',
-            );
+            this.logger.info('Local artifact not found. Fetching from tracker...');
           }
         }
 
@@ -670,11 +604,7 @@ export class IssuePlanCommand extends CommandRunner {
           this.logger.success(`✓ Ticket saved to: ${artifact.path}`);
         }
       } else {
-        const artifact = this.fetchStageService.loadArtifact(
-          ticketKey,
-          trackerName,
-          artifactBaseDir,
-        );
+        const artifact = this.fetchStageService.loadArtifact(ticketKey, trackerName, artifactBaseDir);
         if (!options?.silent) {
           this.logger.info(`Using local artifact: ${artifact.path}`);
         }
@@ -689,14 +619,12 @@ export class IssuePlanCommand extends CommandRunner {
       const plan = await this.planStageService.generatePlan(ticketContent, {
         action,
         ticketKey,
-        affectedRepositories: options?.repos ?? [
-          path.basename(artifactBaseDir),
-        ],
+        affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
       });
       this.validateGeneratedPlan(
         plan,
         artifactBaseDir,
-        this.resolveExpectedRepositories(artifactBaseDir, options?.repos),
+        this.resolveExpectedRepositories(artifactBaseDir, options?.repos)
       );
 
       // Save plan to file
@@ -720,16 +648,10 @@ export class IssuePlanCommand extends CommandRunner {
           planSourceName,
           'ticket',
           new Date(),
-          trackerName,
-        ),
+          trackerName
+        )
       );
-      this.deleteSiblingPlanArtifacts(
-        trackerDir,
-        planSourceName,
-        'ticket',
-        action,
-        planPath,
-      );
+      this.deleteSiblingPlanArtifacts(trackerDir, planSourceName, 'ticket', action, planPath);
 
       if (options?.silent) {
         console.log(planPath);
@@ -739,9 +661,7 @@ export class IssuePlanCommand extends CommandRunner {
         this.logger.info(`  Action: ${plan.action}`);
         this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
         this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
-        this.logger.info(
-          `  Files affected: ${plan.filesAffected?.length || 0}`,
-        );
+        this.logger.info(`  Files affected: ${plan.filesAffected?.length || 0}`);
       }
     } catch (error) {
       ErrorHandler.handle(error as Error);
@@ -764,7 +684,7 @@ export class IssuePlanCommand extends CommandRunner {
 
     if (plan.filesAffected && plan.filesAffected.length > 0) {
       md += `## Files Affected\n\n`;
-      plan.filesAffected.forEach((file) => {
+      plan.filesAffected.forEach(file => {
         const label = typeof file === 'string' ? file : file.filePath;
         md += `- ${label}\n`;
       });
@@ -773,7 +693,7 @@ export class IssuePlanCommand extends CommandRunner {
 
     if (plan.filesContext && plan.filesContext.length > 0) {
       md += `## Files for Context (Read-Only)\n\n`;
-      plan.filesContext.forEach((file) => {
+      plan.filesContext.forEach(file => {
         const label = typeof file === 'string' ? file : file.filePath;
         md += `- ${label}\n`;
       });
@@ -788,10 +708,7 @@ export class IssuePlanCommand extends CommandRunner {
       md += '\n';
     }
 
-    if (
-      plan.verification?.targeted?.length ||
-      plan.verification?.waivers?.length
-    ) {
+    if (plan.verification?.targeted?.length || plan.verification?.waivers?.length) {
       md += `## Verification\n\n`;
 
       if (plan.verification.targeted?.length) {
@@ -840,15 +757,10 @@ export class IssuePlanCommand extends CommandRunner {
     sourceName: string,
     sourceKind: 'ticket' | 'custom',
     currentAction: ResolutionAction,
-    retainedPlanPath: string,
+    retainedPlanPath: string
   ): void {
     const actions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
-    const extensions: Array<'json' | 'md' | 'yaml' | 'yml'> = [
-      'json',
-      'md',
-      'yaml',
-      'yml',
-    ];
+    const extensions: Array<'json' | 'md' | 'yaml' | 'yml'> = ['json', 'md', 'yaml', 'yml'];
     const planHash = hashPlanArtifactSources([sourceName]);
 
     for (const siblingAction of actions) {
@@ -859,21 +771,17 @@ export class IssuePlanCommand extends CommandRunner {
             hash: planHash,
             action: siblingAction,
             format: extension,
-          }),
+          })
         );
         const legacySiblingPath = path.join(
           trackerDir,
           sourceKind === 'ticket'
             ? `${sourceName}-plan-${siblingAction}.${extension}`
-            : `${sourceName}-${siblingAction}.${extension}`,
+            : `${sourceName}-${siblingAction}.${extension}`
         );
 
         for (const siblingPath of [hashedSiblingPath, legacySiblingPath]) {
-          if (
-            siblingPath === retainedPlanPath ||
-            siblingAction === currentAction ||
-            !fs.existsSync(siblingPath)
-          ) {
+          if (siblingPath === retainedPlanPath || siblingAction === currentAction || !fs.existsSync(siblingPath)) {
             continue;
           }
 
@@ -881,7 +789,7 @@ export class IssuePlanCommand extends CommandRunner {
           fs.unlinkSync(siblingPath);
           const siblingManifestPath = path.join(
             trackerDir,
-            `${path.basename(siblingPath).replace(/\.[^.]+$/, '')}.sources.json`,
+            `${path.basename(siblingPath).replace(/\.[^.]+$/, '')}.sources.json`
           );
           if (fs.existsSync(siblingManifestPath)) {
             fs.unlinkSync(siblingManifestPath);
@@ -898,14 +806,11 @@ export class IssuePlanCommand extends CommandRunner {
    * @param action - Resolution action suffix
    * @returns Unique mnemonic stem without the trailing action or extension
    */
-  private generateUniqueCustomPlanStem(
-    trackerDir: string,
-    action: ResolutionAction,
-  ): string {
+  private generateUniqueCustomPlanStem(trackerDir: string, action: ResolutionAction): string {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const stem = generateMnemonic();
-      const hasCollision = ['json', 'md', 'yaml'].some((extension) =>
-        fs.existsSync(path.join(trackerDir, `${stem}-${action}.${extension}`)),
+      const hasCollision = ['json', 'md', 'yaml'].some(extension =>
+        fs.existsSync(path.join(trackerDir, `${stem}-${action}.${extension}`))
       );
       if (!hasCollision) {
         return stem;
@@ -926,29 +831,18 @@ export class IssuePlanCommand extends CommandRunner {
    * @param repos - Optional repo list supplied via `--repos`
    * @returns Absolute or cwd-relative source path
    */
-  private resolveCustomSourcePath(
-    source: string,
-    baseDir: string,
-    repos?: string[],
-  ): string {
+  private resolveCustomSourcePath(source: string, baseDir: string, repos?: string[]): string {
     if (path.isAbsolute(source)) {
       return source;
     }
 
     if (repos?.length && path.dirname(source) === '.') {
       const matches = (repos ?? [])
-        .map((repo) =>
-          path.join(
-            resolveCustomArtifactDir(resolveRepoBasePath(repo)),
-            source,
-          ),
-        )
-        .filter((candidate) => fs.existsSync(candidate));
+        .map(repo => path.join(resolveCustomArtifactDir(resolveRepoBasePath(repo)), source))
+        .filter(candidate => fs.existsSync(candidate));
 
       if (matches.length > 1) {
-        throw new Error(
-          `Custom source "${source}" matches multiple repositories: ${matches.join(', ')}`,
-        );
+        throw new Error(`Custom source "${source}" matches multiple repositories: ${matches.join(', ')}`);
       }
 
       if (matches.length === 1) {
@@ -975,13 +869,8 @@ export class IssuePlanCommand extends CommandRunner {
    * @param repos - Optional repos argument from the CLI
    * @returns Normalized repository names accepted in plan metadata
    */
-  private resolveExpectedRepositories(
-    baseDir: string,
-    repos?: string[],
-  ): string[] {
-    const normalizedRepos = (repos ?? [])
-      .map((repo) => path.basename(resolveRepoBasePath(repo)))
-      .filter(Boolean);
+  private resolveExpectedRepositories(baseDir: string, repos?: string[]): string[] {
+    const normalizedRepos = (repos ?? []).map(repo => path.basename(resolveRepoBasePath(repo))).filter(Boolean);
 
     if (normalizedRepos.length > 0) {
       return [...new Set(normalizedRepos)];
@@ -1000,81 +889,63 @@ export class IssuePlanCommand extends CommandRunner {
    * @param expectedRepositories - Repository names allowed for this plan
    * @returns Nothing; throws when the plan metadata is incompatible
    */
-  private validateGeneratedPlan(
-    plan: RepoAwarePlan,
-    selectedRepoDir: string,
-    expectedRepositories: string[],
-  ): void {
+  private validateGeneratedPlan(plan: RepoAwarePlan, selectedRepoDir: string, expectedRepositories: string[]): void {
     const repositoriesAffected = plan.repositoriesAffected ?? [];
     const normalizedAffected = normalizeFileEntries(plan.filesAffected ?? []);
     const normalizedContext = normalizeFileEntries(plan.filesContext ?? []);
 
-    if (repositoriesAffected.some((repository) => repository === 'repo-name')) {
-      throw createPlanValidationError(
-        'placeholder repository metadata found in repositoriesAffected.',
-      );
+    if (repositoriesAffected.some(repository => repository === 'repo-name')) {
+      throw createPlanValidationError('placeholder repository metadata found in repositoriesAffected.');
     }
 
-    if (
-      normalizedAffected.some((entry) =>
-        entry.filePath.startsWith('repo-name/'),
-      )
-    ) {
-      throw createPlanValidationError(
-        'placeholder repository metadata found in filesAffected.',
-      );
+    if (normalizedAffected.some(entry => entry.filePath.startsWith('repo-name/'))) {
+      throw createPlanValidationError('placeholder repository metadata found in filesAffected.');
     }
 
-    if (
-      normalizedContext.some((entry) => entry.filePath.startsWith('repo-name/'))
-    ) {
-      throw createPlanValidationError(
-        'placeholder repository metadata found in filesContext.',
-      );
+    if (normalizedContext.some(entry => entry.filePath.startsWith('repo-name/'))) {
+      throw createPlanValidationError('placeholder repository metadata found in filesContext.');
     }
 
     if (expectedRepositories.length > 0 && repositoriesAffected.length === 0) {
       throw createPlanValidationError(
-        `repositoriesAffected must be present and limited to: ${expectedRepositories.join(', ')}.`,
+        `repositoriesAffected must be present and limited to: ${expectedRepositories.join(', ')}.`
       );
     }
 
     const unexpectedRepositories = repositoriesAffected.filter(
-      (repository) => !expectedRepositories.includes(repository),
+      repository => !expectedRepositories.includes(repository)
     );
     if (unexpectedRepositories.length > 0) {
       throw createPlanValidationError(
-        `repositoriesAffected contains out-of-scope repositories: ${unexpectedRepositories.join(', ')}.`,
+        `repositoriesAffected contains out-of-scope repositories: ${unexpectedRepositories.join(', ')}.`
       );
     }
 
-    const invalidAffectedFiles = normalizedAffected.filter((entry) => {
+    const invalidAffectedFiles = normalizedAffected.filter(entry => {
       const [prefix] = entry.filePath.split('/');
       return !prefix || !repositoriesAffected.includes(prefix);
     });
     if (invalidAffectedFiles.length > 0) {
       throw createPlanValidationError(
-        `filesAffected must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidAffectedFiles.map((e) => e.filePath).join(', ')}.`,
+        `filesAffected must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidAffectedFiles.map(e => e.filePath).join(', ')}.`
       );
     }
 
-    const invalidContextFiles = normalizedContext.filter((entry) => {
+    const invalidContextFiles = normalizedContext.filter(entry => {
       const [prefix] = entry.filePath.split('/');
       return !prefix || !repositoriesAffected.includes(prefix);
     });
     if (invalidContextFiles.length > 0) {
       throw createPlanValidationError(
-        `filesContext must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidContextFiles.map((e) => e.filePath).join(', ')}.`,
+        `filesContext must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidContextFiles.map(e => e.filePath).join(', ')}.`
       );
     }
 
     // Validate to-create is not used in filesContext (cannot read a non-existent file)
-    const invalidContextStatus = normalizedContext.filter(
-      (entry) => entry.status === 'to-create',
-    );
+    const invalidContextStatus = normalizedContext.filter(entry => entry.status === 'to-create');
     if (invalidContextStatus.length > 0) {
       throw createPlanValidationError(
-        `filesContext entries cannot have status "to-create" — context files must already exist. Invalid: ${invalidContextStatus.map((e) => e.filePath).join(', ')}.`,
+        `filesContext entries cannot have status "to-create" — context files must already exist. Invalid: ${invalidContextStatus.map(e => e.filePath).join(', ')}.`
       );
     }
 
@@ -1089,101 +960,72 @@ export class IssuePlanCommand extends CommandRunner {
 
       if (existsOnDisk && entry.status === 'to-create') {
         console.log(
-          chalk.yellow(
-            `  ⚠️ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`,
-          ),
+          chalk.yellow(`  ⚠️ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`)
         );
         entry.status = 'found';
       }
 
       if (!existsOnDisk && entry.status === 'found') {
         console.log(
-          chalk.yellow(
-            `  ⚠️ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`,
-          ),
+          chalk.yellow(`  ⚠️ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`)
         );
         entry.status = 'not-found';
       }
     }
 
-    const notFoundCount = allEntries.filter(
-      (entry) => entry.status === 'not-found',
-    ).length;
+    const notFoundCount = allEntries.filter(entry => entry.status === 'not-found').length;
 
     if (allEntries.length > 0 && notFoundCount / allEntries.length > 0.5) {
       console.log(
         chalk.yellow(
-          `  ⚠️ More than 50% of file entries are unresolvable (${notFoundCount}/${allEntries.length}) — the plan may contain hallucinated paths.`,
-        ),
+          `  ⚠️ More than 50% of file entries are unresolvable (${notFoundCount}/${allEntries.length}) — the plan may contain hallucinated paths.`
+        )
       );
     }
 
     // Strip not-found entries from the persisted artifact so downstream
     // consumers (ImplementerAgent, dry-run display) never see hallucinated paths.
-    const cleanedAffected = normalizedAffected.filter(
-      (entry) => entry.status !== 'not-found',
-    );
-    const cleanedContext = normalizedContext.filter(
-      (entry) => entry.status !== 'not-found',
-    );
+    const cleanedAffected = normalizedAffected.filter(entry => entry.status !== 'not-found');
+    const cleanedContext = normalizedContext.filter(entry => entry.status !== 'not-found');
 
     if (cleanedAffected.length < normalizedAffected.length) {
       const removed = normalizedAffected.length - cleanedAffected.length;
-      console.log(
-        chalk.yellow(
-          `  ⚠️ Removed ${removed} unresolvable path(s) from filesAffected`,
-        ),
-      );
+      console.log(chalk.yellow(`  ⚠️ Removed ${removed} unresolvable path(s) from filesAffected`));
     }
     if (cleanedContext.length < normalizedContext.length) {
       const removed = normalizedContext.length - cleanedContext.length;
-      console.log(
-        chalk.yellow(
-          `  ⚠️ Removed ${removed} unresolvable path(s) from filesContext`,
-        ),
-      );
+      console.log(chalk.yellow(`  ⚠️ Removed ${removed} unresolvable path(s) from filesContext`));
     }
 
     plan.filesAffected = cleanedAffected;
     plan.filesContext = cleanedContext;
 
     if (plan.verification?.targeted?.length) {
-      plan.verification.targeted = plan.verification.targeted.map((check) => ({
+      plan.verification.targeted = plan.verification.targeted.map(check => ({
         ...check,
-        run:
-          typeof check.run === 'string'
-            ? normalizeVerificationRunCommand(check.run, selectedRepoDir)
-            : check.run,
+        run: typeof check.run === 'string' ? normalizeVerificationRunCommand(check.run, selectedRepoDir) : check.run,
       }));
     }
 
-    const invalidVerificationCommand = plan.verification?.targeted?.find(
-      (check) => {
-        const reasonText = [check.reason, check.id].filter(Boolean).join(' ');
-        return (
-          describesExpectedFailure(reasonText) &&
-          !usesAssertionWrapper(check.run)
-        );
-      },
-    );
+    const invalidVerificationCommand = plan.verification?.targeted?.find(check => {
+      const reasonText = [check.reason, check.id].filter(Boolean).join(' ');
+      return describesExpectedFailure(reasonText) && !usesAssertionWrapper(check.run);
+    });
     if (invalidVerificationCommand) {
       throw createPlanValidationError(
-        `verification command "${invalidVerificationCommand.run}" must assert expected failure inside the command so it exits 0 on success.`,
+        `verification command "${invalidVerificationCommand.run}" must assert expected failure inside the command so it exits 0 on success.`
       );
     }
 
     const escapedRepoVerificationCommand = plan.verification?.targeted?.find(
-      (check) =>
-        typeof check.run === 'string' &&
-        escapesSelectedRepo(check.run, selectedRepoDir),
+      check => typeof check.run === 'string' && escapesSelectedRepo(check.run, selectedRepoDir)
     );
     if (escapedRepoVerificationCommand) {
       throw createPlanValidationError(
-        `verification command "${escapedRepoVerificationCommand.run}" must not change directories outside the selected repository; commands run from the repo root already.`,
+        `verification command "${escapedRepoVerificationCommand.run}" must not change directories outside the selected repository; commands run from the repo root already.`
       );
     }
   }
 }
 
-const artifactBasePathForSourceFallback = (repos?: string[]): string =>
-  resolveRepoBasePath(repos?.[0]);
+const artifactBasePathForSourceFallback = (repos?: string[]): string => resolveRepoBasePath(repos?.[0]);

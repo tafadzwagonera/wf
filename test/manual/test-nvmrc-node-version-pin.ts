@@ -55,9 +55,7 @@ async function main() {
     failed += 1;
   }
 
-  const nvmrcContent = fs.existsSync(nvmrcPath)
-    ? fs.readFileSync(nvmrcPath, 'utf8').trim()
-    : '';
+  const nvmrcContent = fs.existsSync(nvmrcPath) ? fs.readFileSync(nvmrcPath, 'utf8').trim() : '';
   const semverPattern = /^\d+\.\d+\.\d+$/;
 
   console.log(chalk.bold('Test 2: .nvmrc contains a valid semver version'));
@@ -69,9 +67,7 @@ async function main() {
     failed += 1;
   }
 
-  console.log(
-    chalk.bold('Test 3: Pinned major version matches running Node.js'),
-  );
+  console.log(chalk.bold('Test 3: Pinned major version matches running Node.js'));
   const pinnedMajor = nvmrcContent.split('.')[0];
   const runningMajor = process.version.replace(/^v/, '').split('.')[0];
   if (pinnedMajor === runningMajor) {
@@ -82,9 +78,7 @@ async function main() {
     failed += 1;
   }
 
-  console.log(
-    chalk.bold('Test 4: package.json engines.node is consistent with .nvmrc'),
-  );
+  console.log(chalk.bold('Test 4: package.json engines.node is consistent with .nvmrc'));
   try {
     const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
     const enginesNode: string | undefined = pkg.engines?.node;
@@ -99,14 +93,10 @@ async function main() {
       if (lowerBoundMatch) {
         const enginesMajorMinor = `${lowerBoundMatch[1]}.${lowerBoundMatch[2]}`;
         if (enginesMajorMinor === nvmrcMajorMinor) {
-          pass(
-            `engines.node "${enginesNode}" aligns with .nvmrc ${nvmrcContent}`,
-          );
+          pass(`engines.node "${enginesNode}" aligns with .nvmrc ${nvmrcContent}`);
           passed += 1;
         } else {
-          fail(
-            `engines.node lower bound ${enginesMajorMinor} does not match .nvmrc ${nvmrcMajorMinor}`,
-          );
+          fail(`engines.node lower bound ${enginesMajorMinor} does not match .nvmrc ${nvmrcMajorMinor}`);
           failed += 1;
         }
       } else {
@@ -119,15 +109,11 @@ async function main() {
     failed += 1;
   }
 
-  console.log(
-    chalk.bold('Test 5: README.md mentions .nvmrc and prerequisites'),
-  );
+  console.log(chalk.bold('Test 5: README.md mentions .nvmrc and prerequisites'));
   try {
     const readme = fs.readFileSync(readmePath, 'utf8');
     const mentionsNvmrc = readme.includes('.nvmrc');
-    const mentionsPrerequisites =
-      readme.includes('## Prerequisites') ||
-      readme.includes('### Prerequisites');
+    const mentionsPrerequisites = readme.includes('## Prerequisites') || readme.includes('### Prerequisites');
 
     if (mentionsNvmrc && mentionsPrerequisites) {
       pass('README mentions .nvmrc and has Prerequisites section');

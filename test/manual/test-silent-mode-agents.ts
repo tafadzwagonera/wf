@@ -111,10 +111,7 @@ async function testSilentModeAgents() {
     if (output.trim() === '') {
       pass('FetcherAgent.execute() produces no output when silent');
     } else {
-      fail(
-        'FetcherAgent.execute() leaked output in silent mode',
-        output.slice(0, 200),
-      );
+      fail('FetcherAgent.execute() leaked output in silent mode', output.slice(0, 200));
     }
 
     FetchStageService.prototype.fetchArtifact = origFetch;
@@ -134,10 +131,7 @@ async function testSilentModeAgents() {
     if (output.trim() === '') {
       pass('FetcherAgent.loadFromDisk() produces no output when silent');
     } else {
-      fail(
-        'FetcherAgent.loadFromDisk() leaked output in silent mode',
-        output.slice(0, 200),
-      );
+      fail('FetcherAgent.loadFromDisk() leaked output in silent mode', output.slice(0, 200));
     }
   }
 
@@ -160,7 +154,7 @@ async function testSilentModeAgents() {
           content: MOCK_TICKET_CONTENT,
           path: ticketPath,
         },
-        { action: 'fix', silent: true },
+        { action: 'fix', silent: true }
       );
     } finally {
       cap.restore();
@@ -170,10 +164,7 @@ async function testSilentModeAgents() {
     if (output.trim() === '') {
       pass('PlannerAgent.execute() produces no output when silent');
     } else {
-      fail(
-        'PlannerAgent.execute() leaked output in silent mode',
-        output.slice(0, 200),
-      );
+      fail('PlannerAgent.execute() leaked output in silent mode', output.slice(0, 200));
     }
 
     PlanStageService.prototype.createPlanArtifact = origCreate;
@@ -201,10 +192,7 @@ async function testSilentModeAgents() {
     if (output.trim() === '') {
       pass('PlannerAgent.loadFromDisk() produces no output when silent');
     } else {
-      fail(
-        'PlannerAgent.loadFromDisk() leaked output in silent mode',
-        output.slice(0, 200),
-      );
+      fail('PlannerAgent.loadFromDisk() leaked output in silent mode', output.slice(0, 200));
     }
 
     PlanStageService.prototype.loadPlanArtifact = origLoad;
@@ -224,7 +212,7 @@ async function testSilentModeAgents() {
           content: MOCK_TICKET_CONTENT,
           path: ticketPath,
         },
-        { silent: true },
+        { silent: true }
       );
     } finally {
       cap.restore();
@@ -232,14 +220,9 @@ async function testSilentModeAgents() {
 
     const output = cap.getOutput();
     if (output.trim() === '') {
-      pass(
-        'ReviewerAgent.execute() produces no output when silent (no changes)',
-      );
+      pass('ReviewerAgent.execute() produces no output when silent (no changes)');
     } else {
-      fail(
-        'ReviewerAgent.execute() leaked output in silent mode',
-        output.slice(0, 200),
-      );
+      fail('ReviewerAgent.execute() leaked output in silent mode', output.slice(0, 200));
     }
 
     GitService.prototype.getStatus = origGetStatus;
@@ -260,14 +243,9 @@ async function testSilentModeAgents() {
 
     const output = cap.getOutput();
     if (output.trim() === '') {
-      pass(
-        'CommitterAgent.execute() produces no output when silent (no changes)',
-      );
+      pass('CommitterAgent.execute() produces no output when silent (no changes)');
     } else {
-      fail(
-        'CommitterAgent.execute() leaked output in silent mode',
-        output.slice(0, 200),
-      );
+      fail('CommitterAgent.execute() leaked output in silent mode', output.slice(0, 200));
     }
 
     GitService.prototype.getStatus = origGetStatus;
@@ -299,10 +277,7 @@ async function testSilentModeAgents() {
     if (output.includes('STAGE 1') && output.includes('Ticket fetched')) {
       pass('FetcherAgent.execute() produces output when not silent');
     } else {
-      fail(
-        'FetcherAgent.execute() missing expected output when not silent',
-        output.slice(0, 200),
-      );
+      fail('FetcherAgent.execute() missing expected output when not silent', output.slice(0, 200));
     }
 
     FetchStageService.prototype.fetchArtifact = origFetch;

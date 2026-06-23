@@ -28,17 +28,7 @@ import {
   buildPlanContext,
 } from './shared-routing';
 
-const CLAUDE_CODE_TOOLS = [
-  'Read',
-  'Write',
-  'Edit',
-  'Bash',
-  'Glob',
-  'Grep',
-  'TodoWrite',
-  'Task',
-  'Agent',
-] as const;
+const CLAUDE_CODE_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'] as const;
 const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const ANTHROPIC_AGENT_LABEL = 'claude-agent-sdk';
 const FALLBACK_VERIFICATION_LABEL = 'verification command';
@@ -47,10 +37,7 @@ type ActivityState = {
   lastVerificationCommand?: string;
 };
 
-const buildCanUseTool = (
-  allowedCommands: Set<string>,
-  activityState: ActivityState,
-): CanUseTool => {
+const buildCanUseTool = (allowedCommands: Set<string>, activityState: ActivityState): CanUseTool => {
   return async (toolName, input) => {
     if (toolName !== 'Bash') {
       return { behavior: 'allow' };
@@ -66,11 +53,7 @@ const buildCanUseTool = (
     }
 
     if (!allowedCommands.has(command)) {
-      console.log(
-        chalk.red(
-          `  [${ANTHROPIC_AGENT_LABEL}] Verification denied: ${command}`,
-        ),
-      );
+      console.log(chalk.red(`  [${ANTHROPIC_AGENT_LABEL}] Verification denied: ${command}`));
       return {
         behavior: 'deny',
         message: `Bash command "${command}" is not in the verification whitelist. Allowed commands: ${[...allowedCommands].join(', ') || '(none configured)'}.`,
@@ -79,11 +62,7 @@ const buildCanUseTool = (
     }
 
     activityState.lastVerificationCommand = command;
-    console.log(
-      chalk.cyan(
-        `  [${ANTHROPIC_AGENT_LABEL}] Verification running: ${command}`,
-      ),
-    );
+    console.log(chalk.cyan(`  [${ANTHROPIC_AGENT_LABEL}] Verification running: ${command}`));
     return { behavior: 'allow' };
   };
 };
@@ -100,9 +79,7 @@ const resolveRepoPath = (repoDir: string, rawPath: string): string =>
 export const formatProgressMessage = (message: SDKMessage): string | null => {
   if (message.type === 'system' && message.subtype === 'task_progress') {
     const summary = message.summary?.trim() || message.description.trim();
-    const lastToolLabel = message.last_tool_name
-      ? ` · last tool: ${message.last_tool_name}`
-      : '';
+    const lastToolLabel = message.last_tool_name ? ` · last tool: ${message.last_tool_name}` : '';
     return `  [${ANTHROPIC_AGENT_LABEL}] Task progress: ${summary}${lastToolLabel}`;
   }
 
@@ -113,9 +90,7 @@ export const formatProgressMessage = (message: SDKMessage): string | null => {
   }
 
   if (message.type === 'system' && message.subtype === 'api_retry') {
-    const errorLabel = message.error_status
-      ? `HTTP ${message.error_status}`
-      : 'connection error';
+    const errorLabel = message.error_status ? `HTTP ${message.error_status}` : 'connection error';
     return `  [${ANTHROPIC_AGENT_LABEL}] API retry: attempt ${message.attempt}/${message.max_retries} after ${errorLabel} (${message.retry_delay_ms}ms backoff)`;
   }
 
@@ -133,20 +108,14 @@ export const formatProgressMessage = (message: SDKMessage): string | null => {
     return `  [${ANTHROPIC_AGENT_LABEL}] Context compacted (${meta.trigger}, ${meta.pre_tokens} tokens before)`;
   }
 
-  if (
-    message.type === 'system' &&
-    message.subtype === 'session_state_changed'
-  ) {
+  if (message.type === 'system' && message.subtype === 'session_state_changed') {
     return `  [${ANTHROPIC_AGENT_LABEL}] Session state: ${message.state}`;
   }
 
   return null;
 };
 
-const extractVerificationCommand = (
-  summary: string,
-  fallbackCommand?: string,
-): string => {
+const extractVerificationCommand = (summary: string, fallbackCommand?: string): string => {
   const backtickMatch = summary.match(/`([^`]+)`/);
   if (backtickMatch?.[1]) {
     return backtickMatch[1].trim();
@@ -157,9 +126,7 @@ const extractVerificationCommand = (
     return quoteMatch[1].trim();
   }
 
-  const ranMatch = summary.match(
-    /(?:ran|run|executed)\s+([a-z0-9:_./@=-]+(?:\s+[a-z0-9:_./@=-]+)*)/i,
-  );
+  const ranMatch = summary.match(/(?:ran|run|executed)\s+([a-z0-9:_./@=-]+(?:\s+[a-z0-9:_./@=-]+)*)/i);
   if (ranMatch?.[1]) {
     return ranMatch[1].trim().replace(/[.]+$/, '');
   }
@@ -167,22 +134,12 @@ const extractVerificationCommand = (
   return fallbackCommand ?? FALLBACK_VERIFICATION_LABEL;
 };
 
-const extractVerificationOutcome = (
-  summary: string,
-): 'passed' | 'failed' | null => {
-  if (
-    /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(
-      summary,
-    )
-  ) {
+const extractVerificationOutcome = (summary: string): 'passed' | 'failed' | null => {
+  if (/(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(summary)) {
     return 'failed';
   }
 
-  if (
-    /(passed|success|succeeded|completed successfully|exit code 0)/i.test(
-      summary,
-    )
-  ) {
+  if (/(passed|success|succeeded|completed successfully|exit code 0)/i.test(summary)) {
     return 'passed';
   }
 
@@ -200,7 +157,7 @@ const extractVerificationOutcome = (
 export const formatActivityMessages = (
   message: SDKMessage,
   repoDir: string,
-  activityState: ActivityState,
+  activityState: ActivityState
 ): string[] => {
   if (message.type === 'system' && message.subtype === 'files_persisted') {
     return message.files.map(({ filename }) => {
@@ -216,10 +173,7 @@ export const formatActivityMessages = (
       return [];
     }
 
-    const command = extractVerificationCommand(
-      message.summary,
-      activityState.lastVerificationCommand,
-    );
+    const command = extractVerificationCommand(message.summary, activityState.lastVerificationCommand);
     activityState.lastVerificationCommand = command;
     return [`  [${ANTHROPIC_AGENT_LABEL}] Verification ${outcome}: ${command}`];
   }
@@ -243,9 +197,7 @@ const logProgressMessage = (message: SDKMessage): boolean => {
     (message.type === 'system' && message.subtype === 'api_retry') ||
     (message.type === 'system' && message.subtype === 'status');
 
-  console.log(
-    isWarning ? chalk.yellow(formattedMessage) : chalk.cyan(formattedMessage),
-  );
+  console.log(isWarning ? chalk.yellow(formattedMessage) : chalk.cyan(formattedMessage));
   return true;
 };
 
@@ -358,8 +310,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     repoName: string;
     trackedFilePaths: string[];
   }): Promise<void> {
-    const { options, verificationScripts, ticketContext, repoFiles, repoName } =
-      params;
+    const { options, verificationScripts, ticketContext, repoFiles, repoName } = params;
 
     const repoDir = options.repoDir ?? process.cwd();
     const additionalRepoDirs = options.additionalRepoDirs ?? [];
@@ -369,13 +320,10 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     const claudeContext = await loadClaudeContext(repoDir);
 
     if (!apiKey) {
-      throw new Error(
-        'Anthropic Agent SDK backend requires `ai.anthropicApiKey` to be configured.',
-      );
+      throw new Error('Anthropic Agent SDK backend requires `ai.anthropicApiKey` to be configured.');
     }
 
-    const fallbackDefaultModel =
-      this.configService.get<string>('ai.model') || 'claude-sonnet-4-6';
+    const fallbackDefaultModel = this.configService.get<string>('ai.model') || 'claude-sonnet-4-6';
     const routing = options.modelRouting ?? 'auto';
     const modelRoutingResult = resolveModelRouting({
       routing,
@@ -399,10 +347,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
       agentProgressSummaries: true,
       settingSources: ['project'] as SettingSource[],
       settings: {
-        claudeMdExcludes: [
-          path.join(repoDir, 'CLAUDE.md'),
-          path.join(repoDir, '.claude', 'CLAUDE.md'),
-        ],
+        claudeMdExcludes: [path.join(repoDir, 'CLAUDE.md'), path.join(repoDir, '.claude', 'CLAUDE.md')],
         autoCompactWindow: 20000,
       } satisfies Settings,
       systemPrompt: {
@@ -437,10 +382,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
         allowUnsandboxedCommands: false,
         autoAllowBashIfSandboxed: true,
         filesystem: {
-          allowRead: [
-            resolveRepoPath(repoDir, '.'),
-            ...additionalRepoDirs.map((dir) => resolveRepoPath(repoDir, dir)),
-          ],
+          allowRead: [resolveRepoPath(repoDir, '.'), ...additionalRepoDirs.map(dir => resolveRepoPath(repoDir, dir))],
           allowWrite: [resolveRepoPath(repoDir, '.')],
         },
       },
@@ -456,11 +398,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     let finalResult: SDKResultMessage | undefined;
     const touchedFiles = new Set<string>();
 
-    console.log(
-      chalk.bold.cyan(
-        `\n  [claude-agent-sdk] Running agent loop in ${repoDir}...`,
-      ),
-    );
+    console.log(chalk.bold.cyan(`\n  [claude-agent-sdk] Running agent loop in ${repoDir}...`));
 
     try {
       for await (const message of session) {
@@ -468,24 +406,15 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
           continue;
         }
 
-        if (
-          message.type === 'system' &&
-          message.subtype === 'files_persisted'
-        ) {
+        if (message.type === 'system' && message.subtype === 'files_persisted') {
           for (const { filename } of message.files) {
             const absolutePath = resolveRepoPath(repoDir, filename);
             touchedFiles.add(path.relative(repoDir, absolutePath));
           }
         }
 
-        const activityMessages = formatActivityMessages(
-          message,
-          repoDir,
-          activityState,
-        );
-        activityMessages.forEach((activityMessage) =>
-          console.log(chalk.cyan(activityMessage)),
-        );
+        const activityMessages = formatActivityMessages(message, repoDir, activityState);
+        activityMessages.forEach(activityMessage => console.log(chalk.cyan(activityMessage)));
 
         if (message.type !== 'result') {
           continue;
@@ -508,44 +437,29 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
 
     if (finalResult.subtype !== 'success' || finalResult.is_error) {
       const errorSummary =
-        'errors' in finalResult && finalResult.errors.length > 0
-          ? finalResult.errors.join('; ')
-          : 'unknown error';
-      throw new Error(
-        `Claude Agent SDK failed (${finalResult.subtype}): ${errorSummary}`,
-      );
+        'errors' in finalResult && finalResult.errors.length > 0 ? finalResult.errors.join('; ') : 'unknown error';
+      throw new Error(`Claude Agent SDK failed (${finalResult.subtype}): ${errorSummary}`);
     }
 
-    console.log(
-      chalk.green(
-        `  [claude-agent-sdk] Agent completed in ${finalResult.num_turns} turn(s).`,
-      ),
-    );
+    console.log(chalk.green(`  [claude-agent-sdk] Agent completed in ${finalResult.num_turns} turn(s).`));
 
     const usage = finalResult.usage;
     if (usage) {
-      const cachedLabel =
-        usage.cache_read_input_tokens != null
-          ? ` (${usage.cache_read_input_tokens} cached)`
-          : '';
+      const cachedLabel = usage.cache_read_input_tokens != null ? ` (${usage.cache_read_input_tokens} cached)` : '';
       console.log(
         chalk.cyan(
-          `  [${ANTHROPIC_AGENT_LABEL}] Usage: ${usage.input_tokens} input${cachedLabel} / ${usage.output_tokens} output tokens`,
-        ),
+          `  [${ANTHROPIC_AGENT_LABEL}] Usage: ${usage.input_tokens} input${cachedLabel} / ${usage.output_tokens} output tokens`
+        )
       );
     }
     if (finalResult.total_cost_usd > 0) {
-      console.log(
-        chalk.cyan(
-          `  [${ANTHROPIC_AGENT_LABEL}] Cost: $${finalResult.total_cost_usd.toFixed(4)} USD`,
-        ),
-      );
+      console.log(chalk.cyan(`  [${ANTHROPIC_AGENT_LABEL}] Cost: $${finalResult.total_cost_usd.toFixed(4)} USD`));
     }
 
     const summary = finalResult.result.trim();
     if (summary) {
       console.log(chalk.bold('\n  Summary:'));
-      summary.split('\n').forEach((line) => {
+      summary.split('\n').forEach(line => {
         if (line.trim()) {
           console.log(chalk.cyan(`    ${line}`));
         }
@@ -554,9 +468,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
 
     if (touchedFiles.size > 0) {
       console.log(chalk.bold('\n  File summary:'));
-      [...touchedFiles]
-        .sort()
-        .forEach((f) => console.log(chalk.cyan(`    - updated: ${f}`)));
+      [...touchedFiles].sort().forEach(f => console.log(chalk.cyan(`    - updated: ${f}`)));
     } else {
       console.log(chalk.gray('\n  File summary: no file changes were made.'));
     }
@@ -571,8 +483,8 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
 
     while (true) {
       const currentUnvisited = repoFiles
-        .map((f) => stripRepoPrefix(f, repoName))
-        .filter((f) => !touchedFiles.has(f) && !isGlobPattern(f));
+        .map(f => stripRepoPrefix(f, repoName))
+        .filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
       const currentWorkload = currentUnvisited.length;
 
       if (currentWorkload === 0) {
@@ -587,15 +499,11 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
       previousWorkload = currentWorkload;
 
       if (stalledPasses >= 2) {
+        console.log(chalk.yellow(`\n  [${ANTHROPIC_AGENT_LABEL}] Workload not decreasing after 2 passes — stopping`));
         console.log(
           chalk.yellow(
-            `\n  [${ANTHROPIC_AGENT_LABEL}] Workload not decreasing after 2 passes — stopping`,
-          ),
-        );
-        console.log(
-          chalk.yellow(
-            `  [${ANTHROPIC_AGENT_LABEL}] Remaining: ${currentUnvisited.length} planned file(s) not touched: ${currentUnvisited.join(', ')}`,
-          ),
+            `  [${ANTHROPIC_AGENT_LABEL}] Remaining: ${currentUnvisited.length} planned file(s) not touched: ${currentUnvisited.join(', ')}`
+          )
         );
         break;
       }
@@ -605,11 +513,11 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
 
       console.log(
         chalk.yellow(
-          `\n  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`,
-        ),
+          `\n  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`
+        )
       );
 
-      const unvisitedLines = currentUnvisited.map((f) => `- ${f}`).join('\n');
+      const unvisitedLines = currentUnvisited.map(f => `- ${f}`).join('\n');
       const continuationPrompt = `Continue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}\n\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. After addressing all listed files, use Grep to search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before making your first tool call.`;
 
       // Resume the same session so the agent retains conversation context.
@@ -630,24 +538,15 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
             continue;
           }
 
-          if (
-            message.type === 'system' &&
-            message.subtype === 'files_persisted'
-          ) {
+          if (message.type === 'system' && message.subtype === 'files_persisted') {
             for (const { filename } of message.files) {
               const absolutePath = resolveRepoPath(repoDir, filename);
               touchedFiles.add(path.relative(repoDir, absolutePath));
             }
           }
 
-          const activityMessages = formatActivityMessages(
-            message,
-            repoDir,
-            activityState,
-          );
-          activityMessages.forEach((activityMessage) =>
-            console.log(chalk.cyan(activityMessage)),
-          );
+          const activityMessages = formatActivityMessages(message, repoDir, activityState);
+          activityMessages.forEach(activityMessage => console.log(chalk.cyan(activityMessage)));
 
           if (message.type !== 'result') {
             continue;
@@ -663,9 +562,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
       await discoverChangedFiles(repoDir, touchedFiles);
 
       if (!iterationResult) {
-        throw new Error(
-          `Claude Agent SDK pass ${passNumber + 1} finished without returning a result.`,
-        );
+        throw new Error(`Claude Agent SDK pass ${passNumber + 1} finished without returning a result.`);
       }
 
       if (iterationResult.subtype !== 'success') {
@@ -673,28 +570,26 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
           'errors' in iterationResult && iterationResult.errors.length > 0
             ? iterationResult.errors.join('; ')
             : 'unknown error';
-        throw new Error(
-          `Claude Agent SDK pass ${passNumber + 1} failed (${iterationResult.subtype}): ${errorSummary}`,
-        );
+        throw new Error(`Claude Agent SDK pass ${passNumber + 1} failed (${iterationResult.subtype}): ${errorSummary}`);
       }
       if (iterationResult.is_error) {
         console.log(
           chalk.yellow(
-            `  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber + 1} completed with errors — continuing to next pass`,
-          ),
+            `  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber + 1} completed with errors — continuing to next pass`
+          )
         );
       }
 
       console.log(
         chalk.green(
-          `  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber + 1} completed in ${iterationResult.num_turns} turn(s).`,
-        ),
+          `  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber + 1} completed in ${iterationResult.num_turns} turn(s).`
+        )
       );
       if (iterationResult.total_cost_usd > 0) {
         console.log(
           chalk.cyan(
-            `  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber + 1} cost: $${iterationResult.total_cost_usd.toFixed(4)} USD`,
-          ),
+            `  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber + 1} cost: $${iterationResult.total_cost_usd.toFixed(4)} USD`
+          )
         );
       }
 

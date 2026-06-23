@@ -53,16 +53,10 @@ async function run(): Promise<void> {
   const createComment = async (ref: string, body: string): Promise<void> => {
     createdComments.push({ ref, body });
   };
-  const createInlineComment = async (
-    ref: string,
-    file: string,
-    line: number,
-    body: string,
-  ): Promise<void> => {
+  const createInlineComment = async (ref: string, file: string, line: number, body: string): Promise<void> => {
     createdInlineComments.push({ ref, file, line, body });
   };
-  const getPullRequestDiff = async (): Promise<string> =>
-    'diff --git a/src/example.ts b/src/example.ts';
+  const getPullRequestDiff = async (): Promise<string> => 'diff --git a/src/example.ts b/src/example.ts';
   const getAdapter = (trackerName: string) => {
     if (trackerName !== 'bitbucket') {
       throw new Error(`Unknown platform: ${trackerName}`);
@@ -145,10 +139,7 @@ async function run(): Promise<void> {
     capturedLogs += `${args.map(String).join(' ')}\n`;
   };
 
-  await command.run(
-    ['https://bitbucket.org/workspace/repo/pull-requests/160'],
-    { comment: true },
-  );
+  await command.run(['https://bitbucket.org/workspace/repo/pull-requests/160'], { comment: true });
 
   console.log = originalConsoleLog;
 
@@ -156,68 +147,50 @@ async function run(): Promise<void> {
     !capturedLogs.includes('[WARNING] Use a narrower guard') ||
     !capturedLogs.includes('Suggestion: Add a focused regression test')
   ) {
-    throw new Error(
-      'Expected issue-local suggestion output in the terminal renderer.',
-    );
+    throw new Error('Expected issue-local suggestion output in the terminal renderer.');
   }
 
   if (!capturedLogs.includes('💡 Consider documenting the fallback behavior')) {
-    throw new Error(
-      'Expected unmatched trailing suggestions in the terminal renderer.',
-    );
+    throw new Error('Expected unmatched trailing suggestions in the terminal renderer.');
   }
 
   if (
     !capturedLogs.includes('[INFO] Rename the helper') ||
     !capturedLogs.includes('Suggestion: Use a domain-specific helper name')
   ) {
-    throw new Error(
-      'Expected later issue rows to preserve suggestion adjacency.',
-    );
+    throw new Error('Expected later issue rows to preserve suggestion adjacency.');
   }
 
   const summaryComment = createdComments.find(
-    (comment) =>
-      comment.ref === 'https://bitbucket.org/workspace/repo/pull-requests/160',
+    comment => comment.ref === 'https://bitbucket.org/workspace/repo/pull-requests/160'
   );
   if (
     !summaryComment?.body.includes(
-      '- [warning] Use a narrower guard (src/example.ts:24)\n  Suggestion: Add a focused regression test',
+      '- [warning] Use a narrower guard (src/example.ts:24)\n  Suggestion: Add a focused regression test'
     )
   ) {
-    throw new Error(
-      'Expected PR summary comment to keep paired suggestions beside their issues.',
-    );
+    throw new Error('Expected PR summary comment to keep paired suggestions beside their issues.');
   }
 
-  if (
-    !summaryComment.body.includes(
-      '### Suggestions\n- Consider documenting the fallback behavior',
-    )
-  ) {
-    throw new Error(
-      'Expected PR summary comment to keep unmatched suggestions in a trailing section.',
-    );
+  if (!summaryComment.body.includes('### Suggestions\n- Consider documenting the fallback behavior')) {
+    throw new Error('Expected PR summary comment to keep unmatched suggestions in a trailing section.');
   }
 
   const inlineComment = createdInlineComments.find(
-    (comment) =>
-      comment.ref ===
-        'https://bitbucket.org/workspace/repo/pull-requests/160' &&
+    comment =>
+      comment.ref === 'https://bitbucket.org/workspace/repo/pull-requests/160' &&
       comment.file === 'src/example.ts' &&
       comment.line === 24 &&
-      comment.body === 'Use a narrower guard',
+      comment.body === 'Use a narrower guard'
   );
   if (!inlineComment) {
-    throw new Error(
-      'Expected an inline comment to be posted with the normalized destination-side line.',
-    );
+    throw new Error('Expected an inline comment to be posted with the normalized destination-side line.');
   }
 
   console.log('✅ Manual smoke test passed: issue:review presentation');
 }
 
-run().catch((error) => {
+run().catch(error => {
   console.error(`❌ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

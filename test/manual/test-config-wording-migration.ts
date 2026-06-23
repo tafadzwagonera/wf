@@ -49,9 +49,7 @@ async function main() {
   let passed = 0;
   let failed = 0;
 
-  console.log(
-    chalk.bold('Test 1: issue:generate help says "default from config"'),
-  );
+  console.log(chalk.bold('Test 1: issue:generate help says "default from config"'));
   try {
     const helpOutput = run('yarn start issue:generate -h');
     const normalized = collapseWhitespace(helpOutput);
@@ -75,9 +73,7 @@ async function main() {
     failed += 2;
   }
 
-  console.log(
-    chalk.bold('Test 2: issue:create help says "default from config"'),
-  );
+  console.log(chalk.bold('Test 2: issue:create help says "default from config"'));
   try {
     const helpOutput = run('yarn start issue:create -h');
     const normalized = collapseWhitespace(helpOutput);
@@ -101,9 +97,7 @@ async function main() {
     failed += 2;
   }
 
-  console.log(
-    chalk.bold('Test 3: help catalog JSON has no "from env" references'),
-  );
+  console.log(chalk.bold('Test 3: help catalog JSON has no "from env" references'));
   try {
     const catalog = fs.readFileSync(catalogPath, 'utf8');
     if (catalog.includes('from env')) {
@@ -118,15 +112,11 @@ async function main() {
     failed += 1;
   }
 
-  console.log(
-    chalk.bold(
-      'Test 4: README option tables have no "from env"/"from environment"',
-    ),
-  );
+  console.log(chalk.bold('Test 4: README option tables have no "from env"/"from environment"'));
   try {
     const readme = fs.readFileSync(readmePath, 'utf8');
     const stalePatterns = ['default from env', 'from environment'];
-    const found = stalePatterns.filter((pattern) => readme.includes(pattern));
+    const found = stalePatterns.filter(pattern => readme.includes(pattern));
 
     if (found.length === 0) {
       pass('README is free of stale env-var wording');
@@ -140,9 +130,7 @@ async function main() {
     failed += 1;
   }
 
-  console.log(
-    chalk.bold('Test 5: source error messages reference wf.config.*'),
-  );
+  console.log(chalk.bold('Test 5: source error messages reference wf.config.*'));
   try {
     const files = [
       'src/commands/issue-generate.command.ts',

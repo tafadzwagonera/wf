@@ -15,17 +15,8 @@ import {
   loadClaudeContext,
   discoverChangedFiles,
 } from './shared-routing';
-import {
-  buildSystemPrompt,
-  formatProgressMessage,
-  formatActivityMessages,
-} from './anthropic-agent.adapter';
-import {
-  assertClaudeCliAvailable,
-  buildCliArgs,
-  spawnCli,
-  type ClaudeCliMessage,
-} from './claude-cli-runner';
+import { buildSystemPrompt, formatProgressMessage, formatActivityMessages } from './anthropic-agent.adapter';
+import { assertClaudeCliAvailable, buildCliArgs, spawnCli, type ClaudeCliMessage } from './claude-cli-runner';
 
 const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const CLI_ADAPTER_LABEL = 'claude-cli';
@@ -54,16 +45,14 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     repoName: string;
     trackedFilePaths: string[];
   }): Promise<void> {
-    const { options, verificationScripts, ticketContext, repoFiles, repoName } =
-      params;
+    const { options, verificationScripts, ticketContext, repoFiles, repoName } = params;
 
     const repoDir = options.repoDir ?? process.cwd();
     const additionalRepoDirs = options.additionalRepoDirs ?? [];
 
     assertClaudeCliAvailable();
 
-    const fallbackDefaultModel =
-      this.configService.get<string>('ai.model') || 'claude-sonnet-4-6';
+    const fallbackDefaultModel = this.configService.get<string>('ai.model') || 'claude-sonnet-4-6';
     const routing = options.modelRouting ?? 'auto';
     const modelRoutingResult = resolveModelRouting({
       routing,
@@ -92,10 +81,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       planAction: params.planArtifact.plan.action,
     });
 
-    const appendSystemPrompt = [
-      claudeContext ? `Repo AI context:\n${claudeContext}` : '',
-      systemPrompt,
-    ]
+    const appendSystemPrompt = [claudeContext ? `Repo AI context:\n${claudeContext}` : '', systemPrompt]
       .filter(Boolean)
       .join('\n\n');
 
@@ -111,11 +97,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       addDirs: additionalRepoDirs.length > 0 ? additionalRepoDirs : undefined,
     });
 
-    console.log(
-      chalk.bold.cyan(
-        `\n  [${CLI_ADAPTER_LABEL}] Running CLI agent in ${repoDir}...`,
-      ),
-    );
+    console.log(chalk.bold.cyan(`\n  [${CLI_ADAPTER_LABEL}] Running CLI agent in ${repoDir}...`));
 
     const touchedFiles = new Set<string>();
     const activityState: ActivityState = {};
@@ -130,24 +112,20 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
       if (message.files) {
         for (const { filename } of message.files) {
-          const absolutePath = path.isAbsolute(filename)
-            ? filename
-            : path.resolve(repoDir, filename);
+          const absolutePath = path.isAbsolute(filename) ? filename : path.resolve(repoDir, filename);
           touchedFiles.add(path.relative(repoDir, absolutePath));
         }
       }
 
       if (message.type === 'result') {
         if (message.is_error) {
-          throw new Error(
-            `Claude CLI failed: ${message.result ?? 'unknown error'}`,
-          );
+          throw new Error(`Claude CLI failed: ${message.result ?? 'unknown error'}`);
         }
 
         const summary = message.result?.trim();
         if (summary) {
           console.log(chalk.bold('\n  Summary:'));
-          summary.split('\n').forEach((line) => {
+          summary.split('\n').forEach(line => {
             if (line.trim()) {
               console.log(chalk.cyan(`    ${line}`));
             }
@@ -155,23 +133,13 @@ export class ClaudeCliAdapter implements ImplementerBackend {
         }
 
         if (message.num_turns) {
-          console.log(
-            chalk.green(
-              `  [${CLI_ADAPTER_LABEL}] Completed in ${message.num_turns} turn(s).`,
-            ),
-          );
+          console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Completed in ${message.num_turns} turn(s).`));
         }
         if (message.total_cost_usd && message.total_cost_usd > 0) {
-          console.log(
-            chalk.cyan(
-              `  [${CLI_ADAPTER_LABEL}] Cost: $${message.total_cost_usd.toFixed(4)} USD`,
-            ),
-          );
+          console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Cost: $${message.total_cost_usd.toFixed(4)} USD`));
         }
         if (sessionId) {
-          console.log(
-            chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Session: ${sessionId}`),
-          );
+          console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Session: ${sessionId}`));
         }
       }
     }
@@ -185,8 +153,8 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
     while (sessionId) {
       const currentUnvisited = repoFiles
-        .map((f) => stripRepoPrefix(f, repoName))
-        .filter((f) => !touchedFiles.has(f) && !isGlobPattern(f));
+        .map(f => stripRepoPrefix(f, repoName))
+        .filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
       const currentWorkload = currentUnvisited.length;
 
       if (currentWorkload === 0) break;
@@ -199,15 +167,11 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       previousWorkload = currentWorkload;
 
       if (stalledPasses >= 2) {
+        console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Workload not decreasing after 2 passes — stopping`));
         console.log(
           chalk.yellow(
-            `\n  [${CLI_ADAPTER_LABEL}] Workload not decreasing after 2 passes — stopping`,
-          ),
-        );
-        console.log(
-          chalk.yellow(
-            `  [${CLI_ADAPTER_LABEL}] Remaining: ${currentUnvisited.length} planned file(s) not touched: ${currentUnvisited.join(', ')}`,
-          ),
+            `  [${CLI_ADAPTER_LABEL}] Remaining: ${currentUnvisited.length} planned file(s) not touched: ${currentUnvisited.join(', ')}`
+          )
         );
         break;
       }
@@ -215,11 +179,11 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       passNumber++;
       console.log(
         chalk.yellow(
-          `\n  [${CLI_ADAPTER_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`,
-        ),
+          `\n  [${CLI_ADAPTER_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`
+        )
       );
 
-      const unvisitedLines = currentUnvisited.map((f) => `- ${f}`).join('\n');
+      const unvisitedLines = currentUnvisited.map(f => `- ${f}`).join('\n');
       const continuationPrompt = `Continue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}\n\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. After addressing all listed files, use Grep to search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before making your first tool call.`;
 
       const continueArgs = buildCliArgs({
@@ -233,11 +197,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
         addDirs: additionalRepoDirs.length > 0 ? additionalRepoDirs : undefined,
       });
 
-      for await (const message of spawnCli(
-        continueArgs,
-        repoDir,
-        continuationPrompt,
-      )) {
+      for await (const message of spawnCli(continueArgs, repoDir, continuationPrompt)) {
         this.logCliMessage(message, repoDir, activityState);
 
         if (message.session_id) {
@@ -246,32 +206,24 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
         if (message.files) {
           for (const { filename } of message.files) {
-            const absolutePath = path.isAbsolute(filename)
-              ? filename
-              : path.resolve(repoDir, filename);
+            const absolutePath = path.isAbsolute(filename) ? filename : path.resolve(repoDir, filename);
             touchedFiles.add(path.relative(repoDir, absolutePath));
           }
         }
 
         if (message.type === 'result') {
           if (message.is_error) {
-            console.log(
-              chalk.yellow(
-                `  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} completed with errors — continuing`,
-              ),
-            );
+            console.log(chalk.yellow(`  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} completed with errors — continuing`));
           } else {
             console.log(
               chalk.green(
-                `  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} completed in ${message.num_turns ?? '?'} turn(s).`,
-              ),
+                `  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} completed in ${message.num_turns ?? '?'} turn(s).`
+              )
             );
           }
           if (message.total_cost_usd && message.total_cost_usd > 0) {
             console.log(
-              chalk.cyan(
-                `  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} cost: $${message.total_cost_usd.toFixed(4)} USD`,
-              ),
+              chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} cost: $${message.total_cost_usd.toFixed(4)} USD`)
             );
           }
         }
@@ -282,26 +234,17 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
     if (touchedFiles.size > 0) {
       console.log(chalk.bold('\n  File summary:'));
-      [...touchedFiles]
-        .sort()
-        .forEach((f) => console.log(chalk.cyan(`    - updated: ${f}`)));
+      [...touchedFiles].sort().forEach(f => console.log(chalk.cyan(`    - updated: ${f}`)));
     } else {
       console.log(chalk.gray('\n  File summary: no file changes were made.'));
     }
   }
 
-  private logCliMessage(
-    message: ClaudeCliMessage,
-    repoDir: string,
-    activityState: ActivityState,
-  ): void {
+  private logCliMessage(message: ClaudeCliMessage, repoDir: string, activityState: ActivityState): void {
     // SDK-compatible progress events (rate_limit_event, system:status, etc.)
     const progressLine = formatProgressMessage(message as never);
     if (progressLine) {
-      const label = progressLine.replace(
-        /\[claude-agent-sdk\]/,
-        `[${CLI_ADAPTER_LABEL}]`,
-      );
+      const label = progressLine.replace(/\[claude-agent-sdk\]/, `[${CLI_ADAPTER_LABEL}]`);
       const isWarning =
         (message.type === 'system' && message.subtype === 'api_retry') ||
         (message.type === 'system' && message.subtype === 'status');
@@ -310,17 +253,10 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     }
 
     // SDK-compatible activity events (files_persisted, tool_use_summary)
-    const activityLines = formatActivityMessages(
-      message as never,
-      repoDir,
-      activityState,
-    );
+    const activityLines = formatActivityMessages(message as never, repoDir, activityState);
     if (activityLines.length > 0) {
       for (const line of activityLines) {
-        const label = line.replace(
-          /\[claude-agent-sdk\]/,
-          `[${CLI_ADAPTER_LABEL}]`,
-        );
+        const label = line.replace(/\[claude-agent-sdk\]/, `[${CLI_ADAPTER_LABEL}]`);
         console.log(chalk.cyan(label));
       }
       return;
@@ -338,11 +274,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     }
   }
 
-  private logCliAssistantMessage(
-    message: ClaudeCliMessage,
-    repoDir: string,
-    activityState: ActivityState,
-  ): void {
+  private logCliAssistantMessage(message: ClaudeCliMessage, repoDir: string, activityState: ActivityState): void {
     const innerMessage = message.message as
       | {
           content?: Array<{
@@ -362,31 +294,21 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       const input = block.input ?? {};
 
       if (toolName === 'Write' || toolName === 'Edit') {
-        const filePath =
-          typeof input['file_path'] === 'string' ? input['file_path'] : '';
+        const filePath = typeof input['file_path'] === 'string' ? input['file_path'] : '';
         if (filePath) {
-          const relativePath = path.isAbsolute(filePath)
-            ? path.relative(repoDir, filePath)
-            : filePath;
+          const relativePath = path.isAbsolute(filePath) ? path.relative(repoDir, filePath) : filePath;
           console.log(
-            chalk.cyan(
-              `  [${CLI_ADAPTER_LABEL}] File ${toolName === 'Write' ? 'created' : 'updated'}: ${relativePath}`,
-            ),
+            chalk.cyan(`  [${CLI_ADAPTER_LABEL}] File ${toolName === 'Write' ? 'created' : 'updated'}: ${relativePath}`)
           );
         }
         continue;
       }
 
       if (toolName === 'Bash') {
-        const command =
-          typeof input['command'] === 'string' ? input['command'].trim() : '';
+        const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
         if (command) {
           activityState.lastVerificationCommand = command;
-          console.log(
-            chalk.cyan(
-              `  [${CLI_ADAPTER_LABEL}] Verification running: ${command}`,
-            ),
-          );
+          console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Verification running: ${command}`));
         }
         continue;
       }
@@ -399,20 +321,14 @@ export class ClaudeCliAdapter implements ImplementerBackend {
               ? input['pattern']
               : '';
         if (target) {
-          const shortTarget =
-            target.length > 60 ? `${target.slice(0, 57)}...` : target;
-          console.log(
-            chalk.gray(`  [${CLI_ADAPTER_LABEL}] ${toolName}: ${shortTarget}`),
-          );
+          const shortTarget = target.length > 60 ? `${target.slice(0, 57)}...` : target;
+          console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] ${toolName}: ${shortTarget}`));
         }
       }
     }
   }
 
-  private logCliToolResult(
-    message: ClaudeCliMessage,
-    activityState: ActivityState,
-  ): void {
+  private logCliToolResult(message: ClaudeCliMessage, activityState: ActivityState): void {
     const innerMessage = message.message as
       | {
           content?: Array<{
@@ -432,20 +348,12 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       const content = typeof block.content === 'string' ? block.content : '';
       if (!content || !activityState.lastVerificationCommand) continue;
 
-      const hasFailure =
-        /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(
-          content,
-        );
-      const hasSuccess =
-        /(passed|success|succeeded|completed successfully|exit code 0)/i.test(
-          content,
-        );
+      const hasFailure = /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(content);
+      const hasSuccess = /(passed|success|succeeded|completed successfully|exit code 0)/i.test(content);
 
       if (block.is_error || hasFailure) {
         console.log(
-          chalk.red(
-            `  [${CLI_ADAPTER_LABEL}] Verification failed: ${activityState.lastVerificationCommand}`,
-          ),
+          chalk.red(`  [${CLI_ADAPTER_LABEL}] Verification failed: ${activityState.lastVerificationCommand}`)
         );
         activityState.lastVerificationCommand = undefined;
         continue;
@@ -453,9 +361,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
       if (hasSuccess) {
         console.log(
-          chalk.green(
-            `  [${CLI_ADAPTER_LABEL}] Verification passed: ${activityState.lastVerificationCommand}`,
-          ),
+          chalk.green(`  [${CLI_ADAPTER_LABEL}] Verification passed: ${activityState.lastVerificationCommand}`)
         );
         activityState.lastVerificationCommand = undefined;
       }

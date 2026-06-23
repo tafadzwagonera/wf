@@ -28,24 +28,16 @@ describe('run-manual-test bootstrap', () => {
 
   it('preloads wf config before requiring the manual test module', async () => {
     const initializeWfConfig = jest.fn().mockResolvedValue(undefined);
-    const resolveConfigCwd = jest
-      .fn()
-      .mockReturnValue('/Users/tafadzwagonera/Projects/wf');
+    const resolveConfigCwd = jest.fn().mockReturnValue('/Users/tafadzwagonera/Projects/wf');
     const path = require('path');
-    const manualTestModulePath = path.join(
-      process.cwd(),
-      'test',
-      'manual',
-      'test-issue-review.ts',
-    );
+    const manualTestModulePath = path.join(process.cwd(), 'test', 'manual', 'test-issue-review.ts');
 
     jest.doMock('fs', () => ({
       existsSync: jest
         .fn()
         .mockImplementation(
           (candidatePath: string) =>
-            candidatePath.endsWith('/test/manual/test-issue-review.ts') &&
-            !candidatePath.includes('/src/test/manual/'),
+            candidatePath.endsWith('/test/manual/test-issue-review.ts') && !candidatePath.includes('/src/test/manual/')
         ),
     }));
     jest.doMock('../src/config/wf-config-loader', () => ({
@@ -61,12 +53,10 @@ describe('run-manual-test bootstrap', () => {
       manualTestModulePath,
       () => {
         process.env.WF_MANUAL_TEST_MODULE_LOADED =
-          process.env.WF_MANUAL_TEST_CONFIG_LOADED === 'true'
-            ? 'after-config'
-            : 'before-config';
+          process.env.WF_MANUAL_TEST_CONFIG_LOADED === 'true' ? 'after-config' : 'before-config';
         return {};
       },
-      { virtual: true },
+      { virtual: true }
     );
 
     await jest.isolateModulesAsync(async () => {
@@ -75,9 +65,7 @@ describe('run-manual-test bootstrap', () => {
     });
 
     expect(resolveConfigCwd).toHaveBeenCalledWith(['test-issue-review']);
-    expect(initializeWfConfig).toHaveBeenCalledWith(
-      '/Users/tafadzwagonera/Projects/wf',
-    );
+    expect(initializeWfConfig).toHaveBeenCalledWith('/Users/tafadzwagonera/Projects/wf');
     expect(process.env.WF_MANUAL_TEST_MODULE_LOADED).toBe('after-config');
   });
 });

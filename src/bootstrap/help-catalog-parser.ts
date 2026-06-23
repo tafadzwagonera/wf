@@ -18,8 +18,7 @@ export interface CommandHelpExample {
   command: string;
 }
 
-const STRING_LITERAL_PATTERN =
-  /'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)"|`((?:\\.|[^`])*)`/g;
+const STRING_LITERAL_PATTERN = /'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)"|`((?:\\.|[^`])*)`/g;
 
 const unquoteStringLiteral = (value: string): string =>
   value
@@ -32,9 +31,7 @@ const unquoteStringLiteral = (value: string): string =>
 const evaluateStringExpression = (expression?: string): string | undefined => {
   if (!expression) return undefined;
 
-  const parts = Array.from(expression.matchAll(STRING_LITERAL_PATTERN)).map(
-    (match) => unquoteStringLiteral(match[0]),
-  );
+  const parts = Array.from(expression.matchAll(STRING_LITERAL_PATTERN)).map(match => unquoteStringLiteral(match[0]));
 
   return parts.length > 0 ? parts.join('') : undefined;
 };
@@ -85,10 +82,7 @@ const findMatchingBrace = (source: string, startIndex: number): number => {
   return -1;
 };
 
-const extractDecoratorBlocks = (
-  source: string,
-  decoratorName: 'Command' | 'Option' | 'SubCommand',
-): string[] => {
+const extractDecoratorBlocks = (source: string, decoratorName: 'Command' | 'Option' | 'SubCommand'): string[] => {
   const blocks: string[] = [];
   const marker = `@${decoratorName}({`;
   let searchIndex = 0;
@@ -197,31 +191,27 @@ const parseObjectProperties = (block: string): Map<string, string> => {
 };
 
 const extractExamples = (source: string): CommandHelpExample[] => {
-  const examplesArrayMatch = source.match(
-    /const\s+\w+_EXAMPLES\s*:\s*CliExample\[\]\s*=\s*\[(.*?)\];/s,
-  );
+  const examplesArrayMatch = source.match(/const\s+\w+_EXAMPLES\s*:\s*CliExample\[\]\s*=\s*\[(.*?)\];/s);
   if (!examplesArrayMatch) {
     return [];
   }
 
   return Array.from(examplesArrayMatch[1].matchAll(/\{([\s\S]*?)\}/g))
-    .map((match) => parseObjectProperties(match[1]))
-    .map((properties) => ({
+    .map(match => parseObjectProperties(match[1]))
+    .map(properties => ({
       comment: evaluateStringExpression(properties.get('comment')),
       command: evaluateStringExpression(properties.get('command')),
     }))
     .filter(
       (
-        example,
+        example
       ): example is {
         comment: string | undefined;
         command: string;
-      } => Boolean(example.command),
+      } => Boolean(example.command)
     )
-    .map((example) =>
-      example.comment
-        ? { comment: example.comment, command: example.command }
-        : { command: example.command },
+    .map(example =>
+      example.comment ? { comment: example.comment, command: example.command } : { command: example.command }
     );
 };
 
@@ -259,15 +249,11 @@ const buildUsage = ({
  * @param commandsDir - Absolute path to the directory containing command `.ts` source files
  * @returns A map of command name to its help entry
  */
-export const getCommandHelpCatalog = (
-  commandsDir: string,
-): Record<string, CommandHelpEntry> => {
+export const getCommandHelpCatalog = (commandsDir: string): Record<string, CommandHelpEntry> => {
   const catalog: Record<string, CommandHelpEntry> = {};
   const commandFiles = fs
     .readdirSync(commandsDir)
-    .filter(
-      (fileName) => fileName.endsWith('.ts') && !fileName.endsWith('.spec.ts'),
-    )
+    .filter(fileName => fileName.endsWith('.ts') && !fileName.endsWith('.spec.ts'))
     .sort();
 
   for (const fileName of commandFiles) {
@@ -280,28 +266,24 @@ export const getCommandHelpCatalog = (
 
     const commandProperties = parseObjectProperties(commandBlock);
     const commandName = evaluateStringExpression(commandProperties.get('name'));
-    const description = evaluateStringExpression(
-      commandProperties.get('description'),
-    );
+    const description = evaluateStringExpression(commandProperties.get('description'));
 
     if (!commandName || !description) {
       continue;
     }
 
     const subcommandNames = extractDecoratorBlocks(source, 'SubCommand')
-      .map((block) => parseObjectProperties(block))
-      .map((properties) => evaluateStringExpression(properties.get('name')))
+      .map(block => parseObjectProperties(block))
+      .map(properties => evaluateStringExpression(properties.get('name')))
       .filter((name): name is string => Boolean(name));
 
     const options = extractDecoratorBlocks(source, 'Option')
-      .map((block) => parseObjectProperties(block))
-      .map((properties) => ({
+      .map(block => parseObjectProperties(block))
+      .map(properties => ({
         flags: formatFlagForHelp(properties.get('flags')),
         description: evaluateStringExpression(properties.get('description')),
       }))
-      .filter((option): option is CommandHelpOption =>
-        Boolean(option.flags && option.description),
-      );
+      .filter((option): option is CommandHelpOption => Boolean(option.flags && option.description));
 
     const examples = extractExamples(source);
 
@@ -309,9 +291,7 @@ export const getCommandHelpCatalog = (
       description,
       usage: buildUsage({
         commandName,
-        argumentsValue: evaluateStringExpression(
-          commandProperties.get('arguments'),
-        ),
+        argumentsValue: evaluateStringExpression(commandProperties.get('arguments')),
         hasOptions: options.length > 0,
         subcommandNames,
       }),

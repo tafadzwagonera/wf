@@ -4,6 +4,5 @@
  *
  * @returns The loaded Anthropic Agent SDK module
  */
-export const loadAnthropicAgentSdk = async (): Promise<
-  typeof import('@anthropic-ai/claude-agent-sdk')
-> => import('@anthropic-ai/claude-agent-sdk');
+export const loadAnthropicAgentSdk = async (): Promise<typeof import('@anthropic-ai/claude-agent-sdk')> =>
+  import('@anthropic-ai/claude-agent-sdk');

@@ -2,10 +2,7 @@ import { Test } from '@nestjs/testing';
 import { AiService } from '../../integrations/ai/ai.service';
 import { PlanStageService } from './plan-stage.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
-import {
-  buildPlanArtifactManifestPath,
-  hashPlanArtifactSources,
-} from '../../shared/utils/plan-artifact';
+import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../../shared/utils/plan-artifact';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -64,24 +61,17 @@ describe('PlanStageService', () => {
   it('generates a plan using extracted ticket summary and affected repositories', async () => {
     const { service, aiService } = await buildService();
 
-    await service.generatePlan(
-      '# WBP-123: Fix auth redirect\n\n## Description\n\nRestore callback flow\n',
-      {
-        action: 'fix',
-        ticketKey: 'WBP-123',
-        affectedRepositories: ['repo-a', 'repo-b'],
-      },
-    );
+    await service.generatePlan('# WBP-123: Fix auth redirect\n\n## Description\n\nRestore callback flow\n', {
+      action: 'fix',
+      ticketKey: 'WBP-123',
+      affectedRepositories: ['repo-a', 'repo-b'],
+    });
 
-    expect(aiService.generatePlan).toHaveBeenCalledWith(
-      'fix',
-      expect.stringContaining('Restore callback flow'),
-      {
-        ticketKey: 'WBP-123',
-        summary: 'Fix auth redirect',
-        affectedRepositories: ['repo-a', 'repo-b'],
-      },
-    );
+    expect(aiService.generatePlan).toHaveBeenCalledWith('fix', expect.stringContaining('Restore callback flow'), {
+      ticketKey: 'WBP-123',
+      summary: 'Fix auth redirect',
+      affectedRepositories: ['repo-a', 'repo-b'],
+    });
   });
 
   it('uses the stage agent service when plan agent mode is enabled', async () => {
@@ -106,10 +96,7 @@ describe('PlanStageService', () => {
     const { service } = await buildService();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-'));
     const ticketPath = path.join(tempDir, 'WBP-123.md');
-    const planPath = path.join(
-      tempDir,
-      `2026-04-16-${hashPlanArtifactSources(['WBP-123'])}-fix-plan.json`,
-    );
+    const planPath = path.join(tempDir, `2026-04-16-${hashPlanArtifactSources(['WBP-123'])}-fix-plan.json`);
     fs.writeFileSync(ticketPath, '# WBP-123: Fix auth redirect');
     jest.useFakeTimers().setSystemTime(new Date('2026-04-16T00:00:00.000Z'));
 
@@ -122,13 +109,11 @@ describe('PlanStageService', () => {
       {
         action: 'fix',
         affectedRepositories: ['repo-a'],
-      },
+      }
     );
     jest.useRealTimers();
 
-    expect(fs.readFileSync(planPath, 'utf-8')).toBe(
-      JSON.stringify(mockPlan, null, 2),
-    );
+    expect(fs.readFileSync(planPath, 'utf-8')).toBe(JSON.stringify(mockPlan, null, 2));
     expect(fs.existsSync(buildPlanArtifactManifestPath(planPath))).toBe(true);
     expect(artifact).toEqual({
       plan: mockPlan,

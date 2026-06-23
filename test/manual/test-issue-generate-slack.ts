@@ -20,8 +20,7 @@ import { IssueGenerateCommand } from '../../src/commands/issue-generate.command'
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { SlackService } from '../../src/integrations/slack/slack.service';
 
-const SLACK_PERMALINK =
-  'https://myworkspace.slack.com/archives/C01ABC123/p1711234567890000';
+const SLACK_PERMALINK = 'https://myworkspace.slack.com/archives/C01ABC123/p1711234567890000';
 const EXPECTED_CHANNEL_ID = 'C01ABC123';
 const EXPECTED_THREAD_TS = '1711234567.890000';
 
@@ -81,10 +80,7 @@ async function testIssueGenerateSlack() {
   // Mock SlackService.fetchThread
   let slackFetchCallArgs: [string, string] | null = null;
   const originalFetchThread = SlackService.prototype.fetchThread;
-  (SlackService.prototype as any).fetchThread = async (
-    channelId: string,
-    threadTs: string,
-  ) => {
+  (SlackService.prototype as any).fetchThread = async (channelId: string, threadTs: string) => {
     slackFetchCallArgs = [channelId, threadTs];
     return {
       channelId,
@@ -112,10 +108,7 @@ async function testIssueGenerateSlack() {
   // Derive expected artifact path
   const threadId = EXPECTED_THREAD_TS.replace('.', '-');
   const artifactDir = path.join(process.cwd(), '.wf', 'slack');
-  const artifactPath = path.join(
-    artifactDir,
-    `slack-thread-${EXPECTED_CHANNEL_ID}-${threadId}.md`,
-  );
+  const artifactPath = path.join(artifactDir, `slack-thread-${EXPECTED_CHANNEL_ID}-${threadId}.md`);
 
   const command = app.get(IssueGenerateCommand);
 
@@ -134,13 +127,11 @@ async function testIssueGenerateSlack() {
     const channelId = (slackFetchCallArgs as string[])[0];
     const threadTs = (slackFetchCallArgs as string[])[1];
     if (channelId === EXPECTED_CHANNEL_ID && threadTs === EXPECTED_THREAD_TS) {
-      pass(
-        `SlackService.fetchThread called with ('${channelId}', '${threadTs}')`,
-      );
+      pass(`SlackService.fetchThread called with ('${channelId}', '${threadTs}')`);
     } else {
       fail(
         'SlackService.fetchThread called with wrong args',
-        `Expected ('${EXPECTED_CHANNEL_ID}', '${EXPECTED_THREAD_TS}') but got ('${channelId}', '${threadTs}')`,
+        `Expected ('${EXPECTED_CHANNEL_ID}', '${EXPECTED_THREAD_TS}') but got ('${channelId}', '${threadTs}')`
       );
     }
   } else {
@@ -153,16 +144,10 @@ async function testIssueGenerateSlack() {
     artifactContent = fs.readFileSync(artifactPath, 'utf-8');
     const expectedLine0 = `[${MOCK_SLACK_MESSAGES[0].ts}] ${MOCK_SLACK_MESSAGES[0].user}: ${MOCK_SLACK_MESSAGES[0].text}`;
     const expectedLine1 = `[${MOCK_SLACK_MESSAGES[1].ts}] ${MOCK_SLACK_MESSAGES[1].user}: ${MOCK_SLACK_MESSAGES[1].text}`;
-    if (
-      artifactContent.includes(expectedLine0) &&
-      artifactContent.includes(expectedLine1)
-    ) {
+    if (artifactContent.includes(expectedLine0) && artifactContent.includes(expectedLine1)) {
       pass(`Artifact file written at ${artifactPath} with formatted messages`);
     } else {
-      fail(
-        'Artifact file missing expected formatted messages',
-        `Content:\n    ${artifactContent}`,
-      );
+      fail('Artifact file missing expected formatted messages', `Content:\n    ${artifactContent}`);
     }
   } catch {
     fail(`Artifact file not written at ${artifactPath}`);
@@ -181,7 +166,7 @@ async function testIssueGenerateSlack() {
   } else {
     fail(
       'Output missing "### Summary" section',
-      `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`,
+      `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`
     );
   }
 

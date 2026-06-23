@@ -68,7 +68,7 @@ describe('JiraAdapter', () => {
         'WBP-3092',
         new UniversalTicket({
           description: '### Summary\nAdapter update path',
-        }),
+        })
       );
 
       expect(mockJiraService.updateTicket).toHaveBeenCalledWith('WBP-3092', {

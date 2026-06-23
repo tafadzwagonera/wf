@@ -20,11 +20,7 @@ interface VerificationSignal {
   confidence: 'high' | 'medium' | 'low';
 }
 
-export type ImplementProgressVerdict =
-  | 'complete'
-  | 'continue'
-  | 'revisit'
-  | 'regress';
+export type ImplementProgressVerdict = 'complete' | 'continue' | 'revisit' | 'regress';
 
 export interface ImplementProgressSignal {
   score: number;
@@ -63,13 +59,7 @@ const SYNTAX_ERROR_PATTERNS: Array<RegExp> = [
   /unexpected token/i,
 ];
 
-const LINT_ERROR_PATTERNS: Array<RegExp> = [
-  /eslint/i,
-  /no-unused-vars/i,
-  /prettier/i,
-  /code style/i,
-  /lint/i,
-];
+const LINT_ERROR_PATTERNS: Array<RegExp> = [/eslint/i, /no-unused-vars/i, /prettier/i, /code style/i, /lint/i];
 
 const TYPECHECK_ERROR_PATTERNS: Array<RegExp> = [
   /\bTS\d{4}\b/i,
@@ -130,9 +120,7 @@ export const classifyVerificationFailure = (params: {
  * @param selection - Backend selection state
  * @returns Human-readable backend selection summary
  */
-export const formatBackendSelection = (
-  selection: ImplementBackendSelection,
-): string =>
+export const formatBackendSelection = (selection: ImplementBackendSelection): string =>
   `Implement backend: ${selection.selected} (provider: ${selection.provider})`;
 
 /**
@@ -144,7 +132,7 @@ export const formatBackendSelection = (
  */
 export const appendImplementVerificationAttempt = (
   filePath: string,
-  attempt: VerificationAttemptArtifact,
+  attempt: VerificationAttemptArtifact
 ): ImplementVerificationRunFile => {
   const existing = readImplementVerificationRunFile(filePath);
   const updated: ImplementVerificationRunFile = {
@@ -165,7 +153,7 @@ export const appendImplementVerificationAttempt = (
  */
 export const writeImplementVerificationRunFile = (
   filePath: string,
-  run: ImplementRunArtifact,
+  run: ImplementRunArtifact
 ): ImplementVerificationRunFile => {
   const payload: ImplementVerificationRunFile = {
     run,
@@ -182,16 +170,12 @@ export const writeImplementVerificationRunFile = (
  * @param filePath - Absolute path of the persisted run file
  * @returns The existing or default run file contents
  */
-export const readImplementVerificationRunFile = (
-  filePath: string,
-): ImplementVerificationRunFile => {
+export const readImplementVerificationRunFile = (filePath: string): ImplementVerificationRunFile => {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Verification run file not found: ${filePath}`);
   }
 
-  const parsed = JSON.parse(
-    fs.readFileSync(filePath, 'utf-8'),
-  ) as Partial<ImplementVerificationRunFile>;
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Partial<ImplementVerificationRunFile>;
   if (!parsed.run || !Array.isArray(parsed.attempts)) {
     throw new Error(`Verification run file is invalid: ${filePath}`);
   }
@@ -208,12 +192,8 @@ export const readImplementVerificationRunFile = (
  * @param verificationScripts - Ordered verification scripts from the plan
  * @returns Map from exact command string to its verification index
  */
-export const buildVerificationCommandOrder = (
-  verificationScripts: Array<{ command: string }>,
-): Map<string, number> =>
-  new Map(
-    verificationScripts.map((script, index) => [script.command.trim(), index]),
-  );
+export const buildVerificationCommandOrder = (verificationScripts: Array<{ command: string }>): Map<string, number> =>
+  new Map(verificationScripts.map((script, index) => [script.command.trim(), index]));
 
 /**
  * Build a progress signal for file mutations before the next verification run.
@@ -221,9 +201,7 @@ export const buildVerificationCommandOrder = (
  * @param mutation - The file mutation details since the last verification
  * @returns A heuristic progress signal that favors continuing the current pass
  */
-export const buildMutationProgressSignal = (
-  mutation: ImplementProgressMutation,
-): ImplementProgressSignal => {
+export const buildMutationProgressSignal = (mutation: ImplementProgressMutation): ImplementProgressSignal => {
   const changedFileCount = mutation.changedFilesSinceLastVerification.length;
 
   return {
@@ -262,9 +240,7 @@ export const buildVerificationProgressSignal = (params: {
 
   if (params.changedFilesSinceLastVerification.length > 0) {
     score += Math.min(5, 3 + params.changedFilesSinceLastVerification.length);
-    reasons.push(
-      `recent file changes: ${params.changedFilesSinceLastVerification.join(', ')}`,
-    );
+    reasons.push(`recent file changes: ${params.changedFilesSinceLastVerification.join(', ')}`);
   }
 
   const previousSnapshot = params.previousSnapshot;
@@ -272,24 +248,14 @@ export const buildVerificationProgressSignal = (params: {
     score += 1;
     reasons.push('first failed verification snapshot');
   } else {
-    const stageAdvanced =
-      params.currentSnapshot.commandIndex > previousSnapshot.commandIndex;
-    const stageRegressed =
-      params.currentSnapshot.commandIndex < previousSnapshot.commandIndex;
-    const diagnosticLinesReduced =
-      params.currentSnapshot.diagnosticLineCount <
-      previousSnapshot.diagnosticLineCount;
-    const diagnosticLinesIncreased =
-      params.currentSnapshot.diagnosticLineCount >
-      previousSnapshot.diagnosticLineCount;
+    const stageAdvanced = params.currentSnapshot.commandIndex > previousSnapshot.commandIndex;
+    const stageRegressed = params.currentSnapshot.commandIndex < previousSnapshot.commandIndex;
+    const diagnosticLinesReduced = params.currentSnapshot.diagnosticLineCount < previousSnapshot.diagnosticLineCount;
+    const diagnosticLinesIncreased = params.currentSnapshot.diagnosticLineCount > previousSnapshot.diagnosticLineCount;
     const previousErrorClasses = previousSnapshot.errorClasses;
     const currentErrorClasses = params.currentSnapshot.errorClasses;
-    const resolvedErrorClasses = [...previousErrorClasses].filter(
-      (errorClass) => !currentErrorClasses.has(errorClass),
-    );
-    const introducedErrorClasses = [...currentErrorClasses].filter(
-      (errorClass) => !previousErrorClasses.has(errorClass),
-    );
+    const resolvedErrorClasses = [...previousErrorClasses].filter(errorClass => !currentErrorClasses.has(errorClass));
+    const introducedErrorClasses = [...currentErrorClasses].filter(errorClass => !previousErrorClasses.has(errorClass));
     const previousSeverity = getHighestErrorSeverity(previousErrorClasses);
     const currentSeverity = getHighestErrorSeverity(currentErrorClasses);
     const severityImproved = currentSeverity < previousSeverity;
@@ -297,8 +263,7 @@ export const buildVerificationProgressSignal = (params: {
       params.changedFilesSinceLastVerification.length === 0 &&
       params.currentSnapshot.commandIndex === previousSnapshot.commandIndex &&
       currentSeverity >= previousSeverity &&
-      params.currentSnapshot.diagnosticLineCount >=
-        previousSnapshot.diagnosticLineCount;
+      params.currentSnapshot.diagnosticLineCount >= previousSnapshot.diagnosticLineCount;
 
     if (stageAdvanced) {
       score += 3;
@@ -322,16 +287,12 @@ export const buildVerificationProgressSignal = (params: {
 
     if (resolvedErrorClasses.length > 0) {
       score += 2;
-      reasons.push(
-        `resolved error classes: ${resolvedErrorClasses.join(', ')}`,
-      );
+      reasons.push(`resolved error classes: ${resolvedErrorClasses.join(', ')}`);
     }
 
     if (introducedErrorClasses.length > resolvedErrorClasses.length) {
       score -= 1;
-      reasons.push(
-        `introduced error classes: ${introducedErrorClasses.join(', ')}`,
-      );
+      reasons.push(`introduced error classes: ${introducedErrorClasses.join(', ')}`);
     }
 
     if (severityImproved) {
@@ -347,14 +308,12 @@ export const buildVerificationProgressSignal = (params: {
 
   score = Math.max(0, Math.min(10, score));
 
-  const verdict: ImplementProgressVerdict =
-    score >= 5 ? 'continue' : score >= 2 ? 'revisit' : 'regress';
+  const verdict: ImplementProgressVerdict = score >= 5 ? 'continue' : score >= 2 ? 'revisit' : 'regress';
 
   return {
     score,
     verdict,
-    reasons:
-      reasons.length > 0 ? reasons : ['no meaningful convergence signal'],
+    reasons: reasons.length > 0 ? reasons : ['no meaningful convergence signal'],
     nextAction:
       verdict === 'continue'
         ? 'Keep editing the most recently changed files and rerun verification.'
@@ -371,10 +330,7 @@ export const buildVerificationProgressSignal = (params: {
  * @param stderr - Verification stderr
  * @returns Count of non-empty diagnostic lines
  */
-export const countDiagnosticLines = (
-  stdout?: string,
-  stderr?: string,
-): number => {
+export const countDiagnosticLines = (stdout?: string, stderr?: string): number => {
   const diagnosticText = [stdout, stderr].filter(Boolean).join('\n');
   if (!diagnosticText.trim()) {
     return 0;
@@ -382,7 +338,7 @@ export const countDiagnosticLines = (
 
   return diagnosticText
     .split('\n')
-    .map((line) => line.trim())
+    .map(line => line.trim())
     .filter(Boolean).length;
 };
 
@@ -393,15 +349,9 @@ export const countDiagnosticLines = (
  * @param stderr - Verification stderr
  * @returns Set of detected error classes
  */
-export const extractVerificationErrorClasses = (
-  stdout?: string,
-  stderr?: string,
-): Set<string> => {
+export const extractVerificationErrorClasses = (stdout?: string, stderr?: string): Set<string> => {
   const errorClasses = new Set<string>();
-  const diagnosticText = [stdout, stderr]
-    .filter(Boolean)
-    .join('\n')
-    .toLowerCase();
+  const diagnosticText = [stdout, stderr].filter(Boolean).join('\n').toLowerCase();
 
   if (/prettier|format|code style/.test(diagnosticText)) {
     errorClasses.add('format');
@@ -409,21 +359,13 @@ export const extractVerificationErrorClasses = (
   if (/eslint|lint|no-[a-z-]+/.test(diagnosticText)) {
     errorClasses.add('lint');
   }
-  if (
-    /syntaxerror|parsing error|unexpected token|ts1005/.test(diagnosticText)
-  ) {
+  if (/syntaxerror|parsing error|unexpected token|ts1005/.test(diagnosticText)) {
     errorClasses.add('syntax');
   }
-  if (
-    /typeerror|type .* assignable|ts2322|ts2345|ts2741|ts2769/.test(
-      diagnosticText,
-    )
-  ) {
+  if (/typeerror|type .* assignable|ts2322|ts2345|ts2741|ts2769/.test(diagnosticText)) {
     errorClasses.add('type');
   }
-  if (
-    /referenceerror|cannot find name|not defined|ts2304/.test(diagnosticText)
-  ) {
+  if (/referenceerror|cannot find name|not defined|ts2304/.test(diagnosticText)) {
     errorClasses.add('reference');
   }
   if (/cannot find module|module not found|ts2307/.test(diagnosticText)) {
@@ -446,9 +388,7 @@ export const extractVerificationErrorClasses = (
  * @param event - A task or tool progress event from an agent SDK
  * @returns A heuristic signal for terminal output and prompt feedback
  */
-export const buildStreamProgressSignal = (
-  event: ImplementProgressStreamEvent,
-): ImplementProgressSignal => {
+export const buildStreamProgressSignal = (event: ImplementProgressStreamEvent): ImplementProgressSignal => {
   if (event.kind === 'task_progress') {
     const reasons = [event.summary?.trim() || 'task progress reported'];
     if (event.lastToolName) {
@@ -463,9 +403,7 @@ export const buildStreamProgressSignal = (
     };
   }
 
-  const reasons = [
-    event.toolName ? `tool progress: ${event.toolName}` : 'tool progress',
-  ];
+  const reasons = [event.toolName ? `tool progress: ${event.toolName}` : 'tool progress'];
   if (typeof event.elapsedTimeSeconds === 'number') {
     reasons.push(`elapsed: ${event.elapsedTimeSeconds.toFixed(1)}s`);
   }
@@ -487,19 +425,12 @@ export const buildStreamProgressSignal = (
  * @param signal - The progress signal to render
  * @returns A short human-readable summary line
  */
-export const formatImplementProgressSignal = (
-  signal: ImplementProgressSignal,
-): string => {
+export const formatImplementProgressSignal = (signal: ImplementProgressSignal): string => {
   const reasons = signal.reasons.join('; ');
-  return `progress: ${signal.verdict} (score ${signal.score})${
-    reasons ? ` · ${reasons}` : ''
-  }`;
+  return `progress: ${signal.verdict} (score ${signal.score})${reasons ? ` · ${reasons}` : ''}`;
 };
 
-const detectVerificationSignal = (
-  command: string,
-  output: string,
-): VerificationSignal => {
+const detectVerificationSignal = (command: string, output: string): VerificationSignal => {
   const lowerCommand = command.toLowerCase();
   if (matchesAny(output, SYNTAX_ERROR_PATTERNS)) {
     return {
@@ -510,10 +441,7 @@ const detectVerificationSignal = (
     };
   }
 
-  if (
-    matchesAny(output, LINT_ERROR_PATTERNS) ||
-    lowerCommand.includes('lint')
-  ) {
+  if (matchesAny(output, LINT_ERROR_PATTERNS) || lowerCommand.includes('lint')) {
     return {
       category: 'lint',
       rootSignal: 'lint-diagnostic',
@@ -522,10 +450,7 @@ const detectVerificationSignal = (
     };
   }
 
-  if (
-    matchesAny(output, TYPECHECK_ERROR_PATTERNS) ||
-    lowerCommand.includes('typecheck')
-  ) {
+  if (matchesAny(output, TYPECHECK_ERROR_PATTERNS) || lowerCommand.includes('typecheck')) {
     return {
       category: 'typecheck',
       rootSignal: 'type-diagnostic',
@@ -543,10 +468,7 @@ const detectVerificationSignal = (
     };
   }
 
-  if (
-    matchesAny(output, TEST_RUNTIME_PATTERNS) ||
-    lowerCommand.includes('test')
-  ) {
+  if (matchesAny(output, TEST_RUNTIME_PATTERNS) || lowerCommand.includes('test')) {
     return {
       category: 'test-runtime',
       rootSignal: 'test-diagnostic',
@@ -569,15 +491,13 @@ const extractDiagnosticFiles = (output: string): string[] => {
     return [];
   }
 
-  return [...new Set(matches.map((match) => match.replace(/:\d+$/, '')))];
+  return [...new Set(matches.map(match => match.replace(/:\d+$/, '')))];
 };
 
-const matchesAny = (value: string, patterns: RegExp[]): boolean =>
-  patterns.some((pattern) => pattern.test(value));
+const matchesAny = (value: string, patterns: RegExp[]): boolean => patterns.some(pattern => pattern.test(value));
 
 const getHighestErrorSeverity = (errorClasses: Set<string>): number =>
   [...errorClasses].reduce(
-    (highestSeverity, errorClass) =>
-      Math.max(highestSeverity, ERROR_CLASS_SEVERITY[errorClass] ?? 0),
-    0,
+    (highestSeverity, errorClass) => Math.max(highestSeverity, ERROR_CLASS_SEVERITY[errorClass] ?? 0),
+    0
   );

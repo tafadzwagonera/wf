@@ -34,7 +34,7 @@ describe('parsePlanArtifact', () => {
           ],
         },
       }),
-      '/tmp/plan.json',
+      '/tmp/plan.json'
     ) as any;
 
     expect(plan.verification).toEqual({
@@ -64,19 +64,17 @@ describe('plan artifact helpers', () => {
         hash: '1a2b3c4d',
         action: 'fix',
         format: 'json',
-      }),
+      })
     ).toBe('2026-04-16-1a2b3c4d-fix-plan.json');
   });
 
   it('builds a manifest filename alongside the plan artifact', () => {
-    expect(
-      buildPlanArtifactManifestFilename('2026-04-16-1a2b3c4d-fix-plan.json'),
-    ).toBe('2026-04-16-1a2b3c4d-fix-plan.sources.json');
-    expect(
-      buildPlanArtifactManifestPath(
-        '/tmp/consumer/.wf/jira/2026-04-16-1a2b3c4d-fix-plan.json',
-      ),
-    ).toBe('/tmp/consumer/.wf/jira/2026-04-16-1a2b3c4d-fix-plan.sources.json');
+    expect(buildPlanArtifactManifestFilename('2026-04-16-1a2b3c4d-fix-plan.json')).toBe(
+      '2026-04-16-1a2b3c4d-fix-plan.sources.json'
+    );
+    expect(buildPlanArtifactManifestPath('/tmp/consumer/.wf/jira/2026-04-16-1a2b3c4d-fix-plan.json')).toBe(
+      '/tmp/consumer/.wf/jira/2026-04-16-1a2b3c4d-fix-plan.sources.json'
+    );
   });
 
   it('resolves plan metadata from a hashed manifest', () => {
@@ -91,7 +89,7 @@ describe('plan artifact helpers', () => {
         summary: 'Repair the cached issue plan',
         estimatedComplexity: 'medium',
         steps: ['Apply the fix'],
-      }),
+      })
     );
     fs.writeFileSync(
       manifestPath,
@@ -104,13 +102,13 @@ describe('plan artifact helpers', () => {
         sourceKind: 'ticket',
         ticketKey: 'WBP-123',
         sourceName: 'WBP-123',
-      }),
+      })
     );
 
     expect(
       resolvePlanArtifactReference('WBP-123', {
         artifactDir: tempDir,
-      }),
+      })
     ).toMatchObject({
       action: 'fix',
       artifactPath: planPath,
@@ -126,7 +124,7 @@ describe('plan artifact helpers', () => {
     expect(() =>
       resolvePlanArtifactReference('1a2b3c4d-fix-plan.json', {
         artifactDir: '/tmp',
-      }),
+      })
     ).toThrow('Non-canonical plan identifier');
   });
 });

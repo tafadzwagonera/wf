@@ -20,7 +20,7 @@ jest.mock('chalk', () => {
       'white',
       'gray',
       'grey',
-    ].forEach((name) => {
+    ].forEach(name => {
       chain[name] = identity;
     });
     return chain;
@@ -39,7 +39,7 @@ jest.mock('../agents/utils', () => {
   return {
     ...actual,
     resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
     ),
   };
 });
@@ -150,9 +150,7 @@ describe('IssuePlanCommand', () => {
     it('returns trimmed repo values from variadic option input', async () => {
       const { command } = await buildCommand();
 
-      expect(
-        command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any),
-      ).toEqual(['repo-a', 'workspace/repo-b']);
+      expect(command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any)).toEqual(['repo-a', 'workspace/repo-b']);
     });
   });
 
@@ -182,8 +180,7 @@ describe('IssuePlanCommand', () => {
 
   it('stores custom-mode plans under the cwd custom namespace when --repos is absent', async () => {
     const { command } = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run([], {
       action: 'fix',
@@ -194,18 +191,13 @@ describe('IssuePlanCommand', () => {
     const readPreview = dryRunPreview.previewFileRead.mock.calls[0][0];
     const writePreview = dryRunPreview.previewFileWrite.mock.calls[0][0];
 
-    expect(readPreview.filePath).toBe(
-      path.join(os.homedir(), '.wf', 'consumer-app', 'bar.md'),
-    );
-    expect(path.dirname(writePreview.filePath)).toBe(
-      path.join(os.homedir(), '.wf', 'consumer-app'),
-    );
+    expect(readPreview.filePath).toBe(path.join(os.homedir(), '.wf', 'consumer-app', 'bar.md'));
+    expect(path.dirname(writePreview.filePath)).toBe(path.join(os.homedir(), '.wf', 'consumer-app'));
   });
 
   it('stores custom-mode plans under the targeted repo custom namespace when --repos is provided', async () => {
     const { command } = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run([], {
       action: 'fix',
@@ -217,12 +209,8 @@ describe('IssuePlanCommand', () => {
     const readPreview = dryRunPreview.previewFileRead.mock.calls[0][0];
     const writePreview = dryRunPreview.previewFileWrite.mock.calls[0][0];
 
-    expect(readPreview.filePath).toBe(
-      path.join(os.homedir(), '.wf', 'repo-a', 'bar.md'),
-    );
-    expect(path.dirname(writePreview.filePath)).toBe(
-      path.join(os.homedir(), '.wf', 'repo-a'),
-    );
+    expect(readPreview.filePath).toBe(path.join(os.homedir(), '.wf', 'repo-a', 'bar.md'));
+    expect(path.dirname(writePreview.filePath)).toBe(path.join(os.homedir(), '.wf', 'repo-a'));
   });
 
   it('prefers the targeted repo custom namespace over cwd when --repos is provided', async () => {
@@ -231,18 +219,12 @@ describe('IssuePlanCommand', () => {
     const sourceName = 'bar.md';
     const cwdCandidate = path.join('/tmp/consumer-app', sourceName);
     const repoCandidate = path.join(os.homedir(), '.wf', repoName, sourceName);
-    const existsSyncSpy = jest
-      .spyOn(require('fs'), 'existsSync')
-      .mockImplementation((input: string) => {
-        const filePath = String(input);
-        return filePath === cwdCandidate || filePath === repoCandidate;
-      });
+    const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
+      const filePath = String(input);
+      return filePath === cwdCandidate || filePath === repoCandidate;
+    });
 
-    const resolvedPath = (command as any).resolveCustomSourcePath(
-      sourceName,
-      '/tmp/consumer-app',
-      [repoName],
-    );
+    const resolvedPath = (command as any).resolveCustomSourcePath(sourceName, '/tmp/consumer-app', [repoName]);
 
     expect(resolvedPath).toBe(repoCandidate);
 
@@ -251,12 +233,8 @@ describe('IssuePlanCommand', () => {
 
   it('rejects ticket-key + --custom together', async () => {
     const { command } = await buildCommand();
-    const exitSpy = jest
-      .spyOn(process, 'exit')
-      .mockImplementation((() => {}) as any);
-    const consoleErrorSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     await command.run(['WBP-1'], {
       action: 'feature',
@@ -264,9 +242,7 @@ describe('IssuePlanCommand', () => {
     } as any);
 
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(
-      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
-    ).toContain('--custom');
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--custom');
 
     exitSpy.mockRestore();
     consoleErrorSpy.mockRestore();
@@ -274,12 +250,8 @@ describe('IssuePlanCommand', () => {
 
   it('rejects non-markdown custom sources', async () => {
     const { command } = await buildCommand();
-    const exitSpy = jest
-      .spyOn(process, 'exit')
-      .mockImplementation((() => {}) as any);
-    const consoleErrorSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     await command.run([], {
       action: 'feature',
@@ -287,9 +259,7 @@ describe('IssuePlanCommand', () => {
     } as any);
 
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(
-      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
-    ).toContain('Markdown');
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('Markdown');
 
     exitSpy.mockRestore();
     consoleErrorSpy.mockRestore();
@@ -297,8 +267,7 @@ describe('IssuePlanCommand', () => {
 
   it('stores ticket-mode plans under the targeted repo namespace when --repos is provided', async () => {
     const { command } = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run(['WBP-1'], {
       action: 'fix',
@@ -316,8 +285,7 @@ describe('IssuePlanCommand', () => {
 
   it('writes hashed ticket-mode plan filenames in dry-run mode', async () => {
     const { command } = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run(['WBP-1'], {
       action: 'fix',
@@ -327,16 +295,13 @@ describe('IssuePlanCommand', () => {
 
     const planPreview = dryRunPreview.previewFileWrite.mock.calls[1][0];
     expect(path.basename(planPreview.filePath)).toMatch(
-      new RegExp(
-        `^\\d{4}-\\d{2}-\\d{2}-${hashPlanArtifactSources(['WBP-1'])}-fix-plan\\.json$`,
-      ),
+      new RegExp(`^\\d{4}-\\d{2}-\\d{2}-${hashPlanArtifactSources(['WBP-1'])}-fix-plan\\.json$`)
     );
   });
 
   it('stores ticket-mode plans under the repo-name namespace for long-format repos', async () => {
     const { command } = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run(['WBP-1'], {
       action: 'fix',
@@ -353,8 +318,7 @@ describe('IssuePlanCommand', () => {
   });
 
   it('delegates ticket retrieval and plan generation to stage services in live ticket mode', async () => {
-    const { command, fetchStageService, planStageService } =
-      await buildCommand();
+    const { command, fetchStageService, planStageService } = await buildCommand();
     fetchStageService.fetchArtifact.mockResolvedValue({
       ticketKey: 'WBP-1',
       content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
@@ -388,9 +352,7 @@ describe('IssuePlanCommand', () => {
       },
     } as any);
 
-    const writeFileSpy = jest
-      .spyOn(require('fs').promises, 'writeFile')
-      .mockResolvedValue(undefined);
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
@@ -405,21 +367,16 @@ describe('IssuePlanCommand', () => {
         action: 'fix',
         ticketKey: 'WBP-1',
         affectedRepositories: ['repo-a'],
-      },
+      }
     );
     expect(writeFileSpy).toHaveBeenCalled();
     expect(String(writeFileSpy.mock.calls[0][1])).toContain('"verification"');
   });
 
   it('rejects a generated ticket-mode plan with placeholder repository metadata', async () => {
-    const { command, fetchStageService, planStageService } =
-      await buildCommand();
-    const consoleErrorSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
-    const exitSpy = jest
-      .spyOn(process, 'exit')
-      .mockImplementation((() => {}) as any);
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
     fetchStageService.fetchArtifact.mockResolvedValue({
       ticketKey: 'WBP-1',
@@ -435,31 +392,24 @@ describe('IssuePlanCommand', () => {
       repositoriesAffected: ['repo-name'],
     } as any);
 
-    const writeFileSpy = jest
-      .spyOn(require('fs').promises, 'writeFile')
-      .mockResolvedValue(undefined);
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(
-      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
-    ).toContain('placeholder repository metadata');
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
+      'placeholder repository metadata'
+    );
 
     consoleErrorSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
   it('rejects filesContext with placeholder prefix', async () => {
-    const { command, fetchStageService, planStageService } =
-      await buildCommand();
-    const consoleErrorSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
-    const exitSpy = jest
-      .spyOn(process, 'exit')
-      .mockImplementation((() => {}) as any);
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
     fetchStageService.fetchArtifact.mockResolvedValue({
       ticketKey: 'WBP-1',
@@ -476,31 +426,24 @@ describe('IssuePlanCommand', () => {
       repositoriesAffected: ['repo-a'],
     } as any);
 
-    const writeFileSpy = jest
-      .spyOn(require('fs').promises, 'writeFile')
-      .mockResolvedValue(undefined);
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(
-      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
-    ).toContain('placeholder repository metadata found in filesContext');
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
+      'placeholder repository metadata found in filesContext'
+    );
 
     consoleErrorSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
   it('rejects filesContext with invalid repo prefix', async () => {
-    const { command, fetchStageService, planStageService } =
-      await buildCommand();
-    const consoleErrorSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
-    const exitSpy = jest
-      .spyOn(process, 'exit')
-      .mockImplementation((() => {}) as any);
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
     fetchStageService.fetchArtifact.mockResolvedValue({
       ticketKey: 'WBP-1',
@@ -517,31 +460,24 @@ describe('IssuePlanCommand', () => {
       repositoriesAffected: ['repo-a'],
     } as any);
 
-    const writeFileSpy = jest
-      .spyOn(require('fs').promises, 'writeFile')
-      .mockResolvedValue(undefined);
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(
-      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
-    ).toContain('filesContext must use explicit repository prefixes');
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
+      'filesContext must use explicit repository prefixes'
+    );
 
     consoleErrorSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
   it('rejects filesContext entries with to-create status', async () => {
-    const { command, fetchStageService, planStageService } =
-      await buildCommand();
-    const consoleErrorSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
-    const exitSpy = jest
-      .spyOn(process, 'exit')
-      .mockImplementation((() => {}) as any);
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
     fetchStageService.fetchArtifact.mockResolvedValue({
       ticketKey: 'WBP-1',
@@ -558,31 +494,24 @@ describe('IssuePlanCommand', () => {
       repositoriesAffected: ['repo-a'],
     } as any);
 
-    const writeFileSpy = jest
-      .spyOn(require('fs').promises, 'writeFile')
-      .mockResolvedValue(undefined);
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(
-      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
-    ).toContain('cannot have status "to-create"');
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
+      'cannot have status "to-create"'
+    );
 
     consoleErrorSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
   it('rejects a generated ticket-mode plan with a non-asserted failing verification command', async () => {
-    const { command, fetchStageService, planStageService } =
-      await buildCommand();
-    const consoleErrorSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
-    const exitSpy = jest
-      .spyOn(process, 'exit')
-      .mockImplementation((() => {}) as any);
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
     fetchStageService.fetchArtifact.mockResolvedValue({
       ticketKey: 'WBP-1',
@@ -608,25 +537,22 @@ describe('IssuePlanCommand', () => {
       },
     } as any);
 
-    const writeFileSpy = jest
-      .spyOn(require('fs').promises, 'writeFile')
-      .mockResolvedValue(undefined);
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(
-      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
-    ).toContain('must assert expected failure inside the command');
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
+      'must assert expected failure inside the command'
+    );
 
     consoleErrorSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
   it('normalizes targeted verification commands that redundantly cd into the selected repo', async () => {
-    const { command, fetchStageService, planStageService } =
-      await buildCommand();
+    const { command, fetchStageService, planStageService } = await buildCommand();
     fetchStageService.fetchArtifact.mockResolvedValue({
       ticketKey: 'WBP-1',
       content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
@@ -660,9 +586,7 @@ describe('IssuePlanCommand', () => {
       },
     } as any);
 
-    const writeFileSpy = jest
-      .spyOn(require('fs').promises, 'writeFile')
-      .mockResolvedValue(undefined);
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
@@ -680,14 +604,9 @@ describe('IssuePlanCommand', () => {
   });
 
   it('rejects targeted verification commands that cd outside the selected repo', async () => {
-    const { command, fetchStageService, planStageService } =
-      await buildCommand();
-    const consoleErrorSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
-    const exitSpy = jest
-      .spyOn(process, 'exit')
-      .mockImplementation((() => {}) as any);
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
     fetchStageService.fetchArtifact.mockResolvedValue({
       ticketKey: 'WBP-1',
@@ -712,25 +631,22 @@ describe('IssuePlanCommand', () => {
       },
     } as any);
 
-    const writeFileSpy = jest
-      .spyOn(require('fs').promises, 'writeFile')
-      .mockResolvedValue(undefined);
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(
-      consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n'),
-    ).toContain('must not change directories outside the selected repository');
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
+      'must not change directories outside the selected repository'
+    );
 
     consoleErrorSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
   it('deletes sibling standard plans before writing a new ticket plan', async () => {
-    const { command, fetchStageService, planStageService } =
-      await buildCommand();
+    const { command, fetchStageService, planStageService } = await buildCommand();
     fetchStageService.fetchArtifact.mockResolvedValue({
       ticketKey: 'WBP-1',
       content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
@@ -750,42 +666,24 @@ describe('IssuePlanCommand', () => {
       repositoriesAffected: ['repo-a'],
     } as any);
 
-    jest
-      .spyOn(require('fs'), 'existsSync')
-      .mockImplementation((input: string) => {
-        const filePath = String(input);
-        return (
-          filePath.endsWith('WBP-1.md') ||
-          filePath.endsWith('WBP-1-plan-feature.json') ||
-          filePath.endsWith('WBP-1-plan-investigate.md')
-        );
-      });
-    const unlinkSyncSpy = jest
-      .spyOn(require('fs'), 'unlinkSync')
-      .mockImplementation(() => {});
-    jest
-      .spyOn(require('fs').promises, 'writeFile')
-      .mockResolvedValue(undefined);
+    jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
+      const filePath = String(input);
+      return (
+        filePath.endsWith('WBP-1.md') ||
+        filePath.endsWith('WBP-1-plan-feature.json') ||
+        filePath.endsWith('WBP-1-plan-investigate.md')
+      );
+    });
+    const unlinkSyncSpy = jest.spyOn(require('fs'), 'unlinkSync').mockImplementation(() => {});
+    jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
     await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
 
     expect(unlinkSyncSpy).toHaveBeenCalledWith(
-      path.join(
-        os.homedir(),
-        '.wf',
-        'repo-a',
-        'jira',
-        'WBP-1-plan-feature.json',
-      ),
+      path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-1-plan-feature.json')
     );
     expect(unlinkSyncSpy).toHaveBeenCalledWith(
-      path.join(
-        os.homedir(),
-        '.wf',
-        'repo-a',
-        'jira',
-        'WBP-1-plan-investigate.md',
-      ),
+      path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-1-plan-investigate.md')
     );
   });
 });

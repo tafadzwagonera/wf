@@ -175,16 +175,13 @@ async function run(): Promise<void> {
 
     if (conversationService.startChatSession.mock.calls.length !== 1) {
       throw new Error(
-        `Expected startChatSession to be called once, got ${conversationService.startChatSession.mock.calls.length}`,
+        `Expected startChatSession to be called once, got ${conversationService.startChatSession.mock.calls.length}`
       );
     }
 
-    const [convId, options] =
-      conversationService.startChatSession.mock.calls[0];
+    const [convId, options] = conversationService.startChatSession.mock.calls[0];
     if (convId !== 'smoke-conv-id') {
-      throw new Error(
-        `Expected conversationId 'smoke-conv-id', got '${convId}'`,
-      );
+      throw new Error(`Expected conversationId 'smoke-conv-id', got '${convId}'`);
     }
     if (options.maxTurns !== 20) {
       throw new Error(`Expected maxTurns 20, got ${options.maxTurns}`);
@@ -195,9 +192,7 @@ async function run(): Promise<void> {
 
     const [, context] = conversationService.createConversation.mock.calls[0];
     if (context.ticketKey !== 'review') {
-      throw new Error(
-        `Expected ticketKey 'review', got '${context.ticketKey}'`,
-      );
+      throw new Error(`Expected ticketKey 'review', got '${context.ticketKey}'`);
     }
     if (context.stage !== 'review') {
       throw new Error(`Expected stage 'review', got '${context.stage}'`);
@@ -222,9 +217,7 @@ async function run(): Promise<void> {
     }
 
     if (conversationService.startChatSession.mock.calls.length !== 0) {
-      throw new Error(
-        'Expected startChatSession NOT to be called in silent mode',
-      );
+      throw new Error('Expected startChatSession NOT to be called in silent mode');
     }
 
     console.log('  ✅ Test 2 passed: chat prompt skipped in silent mode');
@@ -245,14 +238,10 @@ async function run(): Promise<void> {
     }
 
     if (conversationService.startChatSession.mock.calls.length !== 0) {
-      throw new Error(
-        'Expected startChatSession NOT to be called in non-TTY mode',
-      );
+      throw new Error('Expected startChatSession NOT to be called in non-TTY mode');
     }
 
-    console.log(
-      '  ✅ Test 3 passed: chat prompt skipped in non-interactive session',
-    );
+    console.log('  ✅ Test 3 passed: chat prompt skipped in non-interactive session');
   }
 
   // --- Test 4: System prompt includes review context ---
@@ -296,7 +285,7 @@ async function run(): Promise<void> {
   console.log('\n✅ All interactive chat smoke tests passed');
 }
 
-run().catch((error) => {
+run().catch(error => {
   console.error(`\n❌ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

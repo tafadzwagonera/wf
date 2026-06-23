@@ -37,9 +37,7 @@ const run = async (): Promise<void> => {
     repoName: 'repo',
     repoFiles: [],
     trackedFilePaths: [],
-    verificationScripts: [
-      { id: 'build', command: 'yarn build', policy: 'enforced' },
-    ] as VerificationScript[],
+    verificationScripts: [{ id: 'build', command: 'yarn build', policy: 'enforced' }] as VerificationScript[],
     planSteps: ['Step 1'],
     planSummary: 'Summary',
     planAction: 'fix' as const,
@@ -47,12 +45,12 @@ const run = async (): Promise<void> => {
 
   assert(
     'buildPlanContext shows "(none listed)" for empty repoFiles',
-    ctx.includes('Files to implement:\n  (none listed)'),
+    ctx.includes('Files to implement:\n  (none listed)')
   );
 
   assert(
     'buildPlanContext shows "(same as files to implement)" for empty trackedFilePaths',
-    ctx.includes('Tracked files:\n  (same as files to implement)'),
+    ctx.includes('Tracked files:\n  (same as files to implement)')
   );
 
   // 2. Icon standardization: scan source files for bare ⚠ (U+26A0 without U+FE0F)
@@ -75,20 +73,14 @@ const run = async (): Promise<void> => {
       const line = lines[i];
       // Match ⚠ (U+26A0) NOT immediately followed by U+FE0F
       for (let j = 0; j < line.length; j++) {
-        if (
-          line.charCodeAt(j) === 0x26a0 &&
-          (j + 1 >= line.length || line.charCodeAt(j + 1) !== 0xfe0f)
-        ) {
+        if (line.charCodeAt(j) === 0x26a0 && (j + 1 >= line.length || line.charCodeAt(j + 1) !== 0xfe0f)) {
           bareWarnings.push(`${path.relative(srcDir, file)}:${i + 1}`);
         }
       }
     }
   }
 
-  assert(
-    'No bare ⚠ (U+26A0 without U+FE0F) in src/',
-    bareWarnings.length === 0,
-  );
+  assert('No bare ⚠ (U+26A0 without U+FE0F) in src/', bareWarnings.length === 0);
   if (bareWarnings.length > 0) {
     for (const loc of bareWarnings) {
       console.log(chalk.red(`    bare ⚠ at ${loc}`));

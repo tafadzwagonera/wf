@@ -29,10 +29,7 @@ describe('JiraService', () => {
     }
 
     const objectNode = node as Record<string, any>;
-    return [
-      objectNode,
-      ...Object.values(objectNode).flatMap((value) => collectAdfNodes(value)),
-    ];
+    return [objectNode, ...Object.values(objectNode).flatMap(value => collectAdfNodes(value))];
   };
 
   const mockConfigService = {
@@ -156,8 +153,7 @@ describe('JiraService', () => {
     });
 
     it('should preserve inline code marks inside bullet list items', () => {
-      const markdown =
-        '- `service-document-task-role` has access to `/service-document/dev/config`';
+      const markdown = '- `service-document-task-role` has access to `/service-document/dev/config`';
       const adf = service.markdownToADF(markdown);
 
       expect(adf.content[0]).toEqual({
@@ -213,18 +209,11 @@ describe('JiraService', () => {
 
       expect(adf.content[0].type).toBe('bulletList');
       expect(adf.content[0].content).toHaveLength(2);
-      expect(adf.content[0].content[0].content[0].content).toEqual([
-        { type: 'text', text: 'Item 1' },
-      ]);
+      expect(adf.content[0].content[0].content[0].content).toEqual([{ type: 'text', text: 'Item 1' }]);
     });
 
     it('should convert nested bullet lists to nested ADF bullet lists', () => {
-      const markdown = [
-        '- Parent item',
-        '  - Child item 1',
-        '  - Child item 2',
-        '- Sibling item',
-      ].join('\n');
+      const markdown = ['- Parent item', '  - Child item 1', '  - Child item 2', '- Sibling item'].join('\n');
       const adf = service.markdownToADF(markdown);
 
       expect(adf.content[0]).toEqual({
@@ -390,11 +379,7 @@ describe('JiraService', () => {
         content: [
           {
             type: 'paragraph',
-            content: [
-              { type: 'text', text: 'Line one' },
-              { type: 'hardBreak' },
-              { type: 'text', text: 'Line two' },
-            ],
+            content: [{ type: 'text', text: 'Line one' }, { type: 'hardBreak' }, { type: 'text', text: 'Line two' }],
           },
         ],
       };
@@ -781,9 +766,7 @@ describe('JiraService', () => {
 
       const markdown = service.adfToMarkdown(adf);
       expect(markdown).toContain('- Introduce a normalization utility.');
-      expect(markdown).toContain(
-        '- The normalizer must operate on the lowest-common-denominator principle.',
-      );
+      expect(markdown).toContain('- The normalizer must operate on the lowest-common-denominator principle.');
       expect(markdown).not.toMatch(/^\* /m);
     });
 
@@ -920,14 +903,12 @@ describe('JiraService', () => {
             issuetype: { name: 'Bug' },
           }),
         }),
-        expect.any(Object),
+        expect.any(Object)
       );
     });
 
     it('should post generated service-document markdown as Jira ADF', async () => {
-      jest
-        .spyOn(service, 'resolveValidPriorityName')
-        .mockResolvedValue('Medium');
+      jest.spyOn(service, 'resolveValidPriorityName').mockResolvedValue('Medium');
       mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-123' } }));
 
       await service.createTicket({
@@ -964,14 +945,10 @@ describe('JiraService', () => {
       const adfNodes = collectAdfNodes(description);
       const serializedPayload = JSON.stringify(payload);
       const leakedBulletText = adfNodes.some(
-        (node) =>
-          node.type === 'text' &&
-          typeof node.text === 'string' &&
-          node.text.startsWith('- **Storage selection:**'),
+        node =>
+          node.type === 'text' && typeof node.text === 'string' && node.text.startsWith('- **Storage selection:**')
       );
-      const storageSelectionText = adfNodes.find(
-        (node) => node.type === 'text' && node.text === 'Storage selection:',
-      );
+      const storageSelectionText = adfNodes.find(node => node.type === 'text' && node.text === 'Storage selection:');
 
       expect(description.type).toBe('doc');
       expect(adfNodes).toEqual(
@@ -979,7 +956,7 @@ describe('JiraService', () => {
           expect.objectContaining({ type: 'heading' }),
           expect.objectContaining({ type: 'codeBlock' }),
           expect.objectContaining({ type: 'bulletList' }),
-        ]),
+        ])
       );
       expect(serializedPayload).not.toContain('{noformat}');
       expect(serializedPayload).not.toContain('{code}');
@@ -987,7 +964,7 @@ describe('JiraService', () => {
       expect(storageSelectionText).toEqual(
         expect.objectContaining({
           marks: [{ type: 'strong' }],
-        }),
+        })
       );
     });
 
@@ -997,8 +974,7 @@ describe('JiraService', () => {
 
       await service.createTicket({
         project: 'WBP',
-        summary:
-          'Fix `service-document` startup failures: health-check grace period too short',
+        summary: 'Fix `service-document` startup failures: health-check grace period too short',
         description: [
           '### Summary',
           '',
@@ -1021,32 +997,24 @@ describe('JiraService', () => {
       const payload = mockHttpService.post.mock.calls[0][1];
       const adfNodes = collectAdfNodes(payload.fields.description);
       const rawBulletParagraph = adfNodes.some(
-        (node) =>
-          node.type === 'text' &&
-          typeof node.text === 'string' &&
-          /^[*-]\s/.test(node.text),
+        node => node.type === 'text' && typeof node.text === 'string' && /^[*-]\s/.test(node.text)
       );
       const wikiInlineCodeText = adfNodes.some(
-        (node) =>
+        node =>
           node.type === 'text' &&
           typeof node.text === 'string' &&
-          (node.text.includes('{{') || node.text.includes('}}')),
+          (node.text.includes('{{') || node.text.includes('}}'))
       );
       const inlineCodeMark = adfNodes.some(
-        (node) =>
-          node.type === 'text' &&
-          Array.isArray(node.marks) &&
-          node.marks.some((mark) => mark.type === 'code'),
+        node => node.type === 'text' && Array.isArray(node.marks) && node.marks.some(mark => mark.type === 'code')
       );
 
-      expect(payload.fields.summary).toBe(
-        'Fix service-document startup failures: health-check grace period too short',
-      );
+      expect(payload.fields.summary).toBe('Fix service-document startup failures: health-check grace period too short');
       expect(adfNodes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ type: 'heading' }),
           expect.objectContaining({ type: 'bulletList' }),
-        ]),
+        ])
       );
       expect(wikiInlineCodeText).toBe(false);
       expect(rawBulletParagraph).toBe(false);
@@ -1060,7 +1028,7 @@ describe('JiraService', () => {
         } as any,
         httpService,
         mockLoggerService as any,
-        mockIssueTrackerConfigService as any,
+        mockIssueTrackerConfigService as any
       );
 
       await expect(
@@ -1069,7 +1037,7 @@ describe('JiraService', () => {
           summary: 'Test',
           description: 'Test',
           issueType: 'Bug',
-        }),
+        })
       ).rejects.toThrow(JiraApiError);
     });
 
@@ -1080,7 +1048,7 @@ describe('JiraService', () => {
             status: 401,
             data: { errorMessages: ['Invalid credentials'] },
           },
-        })),
+        }))
       );
 
       await expect(
@@ -1089,7 +1057,7 @@ describe('JiraService', () => {
           summary: 'Test',
           description: 'Test',
           issueType: 'Bug',
-        }),
+        })
       ).rejects.toThrow('Authentication failed');
     });
   });
@@ -1128,7 +1096,7 @@ describe('JiraService', () => {
           expect.objectContaining({ type: 'codeBlock' }),
           expect.objectContaining({ type: 'bulletList' }),
           expect.objectContaining({ type: 'orderedList' }),
-        ]),
+        ])
       );
     });
 
@@ -1148,7 +1116,7 @@ describe('JiraService', () => {
             }),
           },
         },
-        expect.any(Object),
+        expect.any(Object)
       );
     });
   });
@@ -1204,7 +1172,7 @@ describe('JiraService', () => {
             data: {
               issueTypes: [{ id: '10001', name: 'Task' }],
             },
-          }),
+          })
         )
         .mockReturnValueOnce(
           of({
@@ -1219,7 +1187,7 @@ describe('JiraService', () => {
                 },
               },
             },
-          }),
+          })
         );
       mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-102' } }));
 
@@ -1243,7 +1211,7 @@ describe('JiraService', () => {
             data: {
               issueTypes: [{ id: '10001', name: 'Task' }],
             },
-          }),
+          })
         )
         .mockReturnValueOnce(
           of({
@@ -1257,7 +1225,7 @@ describe('JiraService', () => {
                 },
               },
             },
-          }),
+          })
         );
       mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-103' } }));
 
@@ -1281,14 +1249,14 @@ describe('JiraService', () => {
             data: {
               issueTypes: [{ id: '10001', name: 'Task' }],
             },
-          }),
+          })
         )
         .mockReturnValueOnce(
           of({
             data: {
               fields: {},
             },
-          }),
+          })
         );
       mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-104' } }));
 
@@ -1313,7 +1281,7 @@ describe('JiraService', () => {
             { id: '1', name: 'P1' },
             { id: '2', name: 'P2' },
           ],
-        }),
+        })
       );
       // Create ticket succeeds
       mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-100' } }));
@@ -1339,7 +1307,7 @@ describe('JiraService', () => {
             { id: '2', name: 'High' },
             { id: '3', name: 'Medium' },
           ],
-        }),
+        })
       );
       mockHttpService.post.mockReturnValue(of({ data: { key: 'WBP-101' } }));
 
@@ -1363,7 +1331,7 @@ describe('JiraService', () => {
             data: {
               issueTypes: [{ id: '10001', name: 'Task' }],
             },
-          }),
+          })
         )
         .mockReturnValueOnce(
           of({
@@ -1374,7 +1342,7 @@ describe('JiraService', () => {
                 },
               },
             },
-          }),
+          })
         );
 
       mockHttpService.post
@@ -1384,7 +1352,7 @@ describe('JiraService', () => {
               status: 400,
               data: { errors: { priority: 'Priority is not valid' } },
             },
-          })),
+          }))
         )
         .mockImplementationOnce((_url: string, payload: any) => {
           expect(payload.fields.priority).toBeUndefined();
@@ -1415,7 +1383,7 @@ describe('JiraService', () => {
             { id: '4', name: 'Low' },
             { id: '5', name: 'Lowest' },
           ],
-        }),
+        })
       );
 
       const result = await service.resolveValidPriorityName('high');
@@ -1430,7 +1398,7 @@ describe('JiraService', () => {
             { id: '2', name: 'P2' },
             { id: '3', name: 'P3' },
           ],
-        }),
+        })
       );
 
       const result = await service.resolveValidPriorityName('High');
@@ -1438,9 +1406,7 @@ describe('JiraService', () => {
     });
 
     it('should return undefined when the priority fetch fails', async () => {
-      mockHttpService.get.mockReturnValue(
-        throwError(() => new Error('Network error')),
-      );
+      mockHttpService.get.mockReturnValue(throwError(() => new Error('Network error')));
 
       const result = await service.resolveValidPriorityName('High');
       expect(result).toBeUndefined();

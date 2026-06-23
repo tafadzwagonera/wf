@@ -3,15 +3,9 @@ import * as cliRunner from './claude-cli-runner';
 
 jest.mock('./claude-cli-runner');
 
-const mockAssert = cliRunner.assertClaudeCliAvailable as jest.MockedFunction<
-  typeof cliRunner.assertClaudeCliAvailable
->;
-const mockBuildCliArgs = cliRunner.buildCliArgs as jest.MockedFunction<
-  typeof cliRunner.buildCliArgs
->;
-const mockSpawnCli = cliRunner.spawnCli as jest.MockedFunction<
-  typeof cliRunner.spawnCli
->;
+const mockAssert = cliRunner.assertClaudeCliAvailable as jest.MockedFunction<typeof cliRunner.assertClaudeCliAvailable>;
+const mockBuildCliArgs = cliRunner.buildCliArgs as jest.MockedFunction<typeof cliRunner.buildCliArgs>;
+const mockSpawnCli = cliRunner.spawnCli as jest.MockedFunction<typeof cliRunner.spawnCli>;
 
 const createMockConfigService = (overrides: Record<string, unknown> = {}) => ({
   get: jest.fn((key: string, fallback?: unknown) => {
@@ -38,7 +32,7 @@ describe('ClaudeCliAdapter', () => {
           num_turns: 1,
           total_cost_usd: 0.01,
         };
-      })(),
+      })()
     );
 
     const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
@@ -116,7 +110,7 @@ describe('ClaudeCliAdapter', () => {
           num_turns: 3,
           total_cost_usd: 0.05,
         };
-      })(),
+      })()
     );
 
     const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
@@ -143,16 +137,10 @@ describe('ClaudeCliAdapter', () => {
       trackedFilePaths: [],
     });
 
-    const logCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
-    expect(logCalls.some((l) => /File updated.*src\/app\.ts/.test(l))).toBe(
-      true,
-    );
-    expect(logCalls.some((l) => /Verification running.*npm test/.test(l))).toBe(
-      true,
-    );
-    expect(logCalls.some((l) => /Verification passed.*npm test/.test(l))).toBe(
-      true,
-    );
+    const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+    expect(logCalls.some(l => /File updated.*src\/app\.ts/.test(l))).toBe(true);
+    expect(logCalls.some(l => /Verification running.*npm test/.test(l))).toBe(true);
+    expect(logCalls.some(l => /Verification passed.*npm test/.test(l))).toBe(true);
 
     consoleSpy.mockRestore();
   });
@@ -169,7 +157,7 @@ describe('ClaudeCliAdapter', () => {
           num_turns: 1,
           total_cost_usd: 0.01,
         };
-      })(),
+      })()
     );
 
     const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
@@ -196,10 +184,8 @@ describe('ClaudeCliAdapter', () => {
       trackedFilePaths: [],
     });
 
-    const logCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
-    expect(logCalls.some((l) => /Session:.*abc-123-session/.test(l))).toBe(
-      true,
-    );
+    const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+    expect(logCalls.some(l => /Session:.*abc-123-session/.test(l))).toBe(true);
 
     consoleSpy.mockRestore();
   });
@@ -215,7 +201,7 @@ describe('ClaudeCliAdapter', () => {
           num_turns: 1,
           total_cost_usd: 0.01,
         };
-      })(),
+      })()
     );
 
     const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
@@ -242,8 +228,8 @@ describe('ClaudeCliAdapter', () => {
       trackedFilePaths: [],
     });
 
-    const logCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
-    expect(logCalls.some((l) => /Session:/.test(l))).toBe(false);
+    const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+    expect(logCalls.some(l => /Session:/.test(l))).toBe(false);
 
     consoleSpy.mockRestore();
   });
@@ -256,7 +242,7 @@ describe('ClaudeCliAdapter', () => {
           result: 'something failed',
           is_error: true,
         };
-      })(),
+      })()
     );
 
     const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
@@ -282,7 +268,7 @@ describe('ClaudeCliAdapter', () => {
         repoFiles: [],
         repoName: 'repo',
         trackedFilePaths: [],
-      }),
+      })
     ).rejects.toThrow(/Claude CLI failed/);
   });
 });

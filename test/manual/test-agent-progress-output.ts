@@ -28,9 +28,7 @@ const pass = (message: string): void => {
 };
 
 const fail = (message: string, detail?: string): void => {
-  console.error(
-    chalk.red(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`),
-  );
+  console.error(chalk.red(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`));
   failed += 1;
 };
 
@@ -44,9 +42,7 @@ const assert = (message: string, condition: boolean, detail?: string): void => {
 };
 
 async function main(): Promise<void> {
-  console.log(
-    chalk.bold.cyan('\n🧪 Shared agent progress output smoke test\n'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Shared agent progress output smoke test\n'));
 
   console.log(chalk.bold('Test 1: OpenAI streamed progress stays concise'));
   const openAiResult = formatOpenAiProgressMessage({
@@ -59,19 +55,16 @@ async function main(): Promise<void> {
   const openAiMessage = openAiResult?.message ?? null;
   assert(
     'OpenAI reasoning log stays human-readable',
-    openAiMessage ===
-      '  [openai-agent] Reasoning: Inspecting the failing verification output',
-    openAiMessage ?? 'received null',
+    openAiMessage === '  [openai-agent] Reasoning: Inspecting the failing verification output',
+    openAiMessage ?? 'received null'
   );
   assert(
     'OpenAI reasoning log omits heuristic progress suffixes',
     !openAiMessage?.includes('progress:'),
-    openAiMessage ?? 'received null',
+    openAiMessage ?? 'received null'
   );
 
-  console.log(
-    chalk.bold('\nTest 2: Anthropic streamed progress stays concise'),
-  );
+  console.log(chalk.bold('\nTest 2: Anthropic streamed progress stays concise'));
   const anthropicMessage = formatAnthropicProgressMessage({
     type: 'tool_progress',
     tool_name: 'Write',
@@ -80,16 +73,15 @@ async function main(): Promise<void> {
   } as SDKMessage);
   assert(
     'Anthropic tool progress log stays human-readable',
-    anthropicMessage ===
-      '  [claude-agent-sdk] Tool progress: Write (1.6s) · task: task-42',
-    anthropicMessage ?? 'received null',
+    anthropicMessage === '  [claude-agent-sdk] Tool progress: Write (1.6s) · task: task-42',
+    anthropicMessage ?? 'received null'
   );
   assert(
     'Anthropic tool progress log omits heuristic progress suffixes',
     !anthropicMessage?.includes('continue') &&
       !anthropicMessage?.includes('revisit') &&
       !anthropicMessage?.includes('complete'),
-    anthropicMessage ?? 'received null',
+    anthropicMessage ?? 'received null'
   );
 
   console.log(chalk.bold('\nTest 3: explicit file logs remain stable'));
@@ -105,12 +97,12 @@ async function main(): Promise<void> {
       session_id: 'session-15',
     } as SDKMessage,
     '/repo/primary',
-    activityState,
+    activityState
   );
   assert(
     'Anthropic file persistence maps to an explicit file update log',
     activityMessages[0] === '  [claude-agent-sdk] File updated: src/foo.ts',
-    activityMessages.join(' | '),
+    activityMessages.join(' | ')
   );
 
   console.log(chalk.bold('\nTest 4: verification labels remain explicit'));
@@ -123,13 +115,12 @@ async function main(): Promise<void> {
       session_id: 'session-16',
     } as SDKMessage,
     '/repo/primary',
-    activityState,
+    activityState
   );
   assert(
     'Anthropic verification summary maps to an explicit pass log',
-    verificationMessages[0] ===
-      '  [claude-agent-sdk] Verification passed: npm test',
-    verificationMessages.join(' | '),
+    verificationMessages[0] === '  [claude-agent-sdk] Verification passed: npm test',
+    verificationMessages.join(' | ')
   );
 
   console.log(chalk.bold('\nSummary'));

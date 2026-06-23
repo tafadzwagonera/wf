@@ -34,7 +34,7 @@ type MockPostCall = {
  */
 const createJiraService = (
   getResponses: MockHttpGetResponse[],
-  postResponses: unknown[],
+  postResponses: unknown[]
 ): {
   service: JiraService;
   postCalls: MockPostCall[];
@@ -70,7 +70,7 @@ const createJiraService = (
     } as any,
     {
       isPlatformEnabled: () => true,
-    } as any,
+    } as any
   );
 
   return { service, postCalls };
@@ -111,9 +111,7 @@ const createPriorityRejection = (): Error => {
  * @param allowedPriorityNames - Priority names exposed by Jira create metadata
  * @returns Ordered issue-type and field metadata GET responses
  */
-const createMetadataResponses = (
-  allowedPriorityNames?: string[],
-): MockHttpGetResponse[] => [
+const createMetadataResponses = (allowedPriorityNames?: string[]): MockHttpGetResponse[] => [
   {
     data: {
       issueTypes: [{ id: '10001', name: 'Task' }],
@@ -159,10 +157,9 @@ const main = async (): Promise<void> => {
   console.log('\nManual Test: issue:create Jira priority metadata\n');
 
   {
-    const { service, postCalls } = createJiraService(
-      createMetadataResponses(['Major', 'Minor', 'Trivial']),
-      [{ data: { key: 'WBP-101' } }],
-    );
+    const { service, postCalls } = createJiraService(createMetadataResponses(['Major', 'Minor', 'Trivial']), [
+      { data: { key: 'WBP-101' } },
+    ]);
 
     const key = await createTicket(service);
 
@@ -173,10 +170,9 @@ const main = async (): Promise<void> => {
   }
 
   {
-    const { service, postCalls } = createJiraService(
-      createMetadataResponses(['Medium', 'Minor']),
-      [{ data: { key: 'WBP-102' } }],
-    );
+    const { service, postCalls } = createJiraService(createMetadataResponses(['Medium', 'Minor']), [
+      { data: { key: 'WBP-102' } },
+    ]);
 
     const key = await createTicket(service);
 
@@ -187,10 +183,7 @@ const main = async (): Promise<void> => {
   }
 
   {
-    const { service, postCalls } = createJiraService(
-      createMetadataResponses(),
-      [{ data: { key: 'WBP-103' } }],
-    );
+    const { service, postCalls } = createJiraService(createMetadataResponses(), [{ data: { key: 'WBP-103' } }]);
 
     const key = await createTicket(service);
 
@@ -199,10 +192,10 @@ const main = async (): Promise<void> => {
   }
 
   {
-    const { service, postCalls } = createJiraService(
-      createMetadataResponses(['Medium']),
-      [createPriorityRejection(), { data: { key: 'WBP-104' } }],
-    );
+    const { service, postCalls } = createJiraService(createMetadataResponses(['Medium']), [
+      createPriorityRejection(),
+      { data: { key: 'WBP-104' } },
+    ]);
 
     const key = await createTicket(service);
 
@@ -213,12 +206,10 @@ const main = async (): Promise<void> => {
     assert.strictEqual(postCalls[1].payload.fields.priority, undefined);
   }
 
-  console.log(
-    'PASS: Jira create priority metadata resolution behaves as expected.',
-  );
+  console.log('PASS: Jira create priority metadata resolution behaves as expected.');
 };
 
-void main().catch((error) => {
+void main().catch(error => {
   console.error(error);
   process.exit(1);
 });

@@ -14,9 +14,7 @@ describe('CommitStageService', () => {
             execute: jest.fn().mockResolvedValue({
               content: 'fix(auth): restore login redirect',
             }),
-            generateCommitMessage: jest
-              .fn()
-              .mockResolvedValue('fix: restore login redirect'),
+            generateCommitMessage: jest.fn().mockResolvedValue('fix: restore login redirect'),
           },
         },
       ],
@@ -44,7 +42,7 @@ describe('CommitStageService', () => {
     expect(aiService.execute).toHaveBeenCalledWith(
       expect.objectContaining({
         stage: 'commit',
-      }),
+      })
     );
     expect(message).toBe('WBP-123: fix(auth): restore login redirect');
   });
@@ -63,7 +61,7 @@ describe('CommitStageService', () => {
       'diff --git a/file b/file',
       ['WBP-100: previous change'],
       'auto',
-      'Fix login callback handling',
+      'Fix login callback handling'
     );
     expect(message).toBe('WBP-123: restore login redirect');
   });
@@ -81,7 +79,7 @@ describe('CommitStageService', () => {
         diff: 'diff --git a/file b/file',
         ticketKey: 'WBP-123',
         conventional: true,
-      }),
+      })
     ).rejects.toMatchObject({
       message: 'AI provider returned an empty commit message response',
       details: expect.objectContaining({

@@ -40,11 +40,9 @@ const run = (command: string): string =>
  */
 const getDescriptionColumns = (helpOutput: string): number[] => {
   const lines = helpOutput.split('\n');
-  const optionLines = lines.filter(
-    (line) => line.startsWith('  --') || line.startsWith('  -'),
-  );
+  const optionLines = lines.filter(line => line.startsWith('  --') || line.startsWith('  -'));
 
-  return optionLines.map((line) => {
+  return optionLines.map(line => {
     const flagSection = line.match(/^ {2}.+?(?= {2,}\S)/);
     if (!flagSection) {
       return -1;
@@ -85,9 +83,7 @@ async function main() {
   let passed = 0;
   let failed = 0;
 
-  console.log(
-    chalk.bold('Test 1: issue:generate help includes short and long flags'),
-  );
+  console.log(chalk.bold('Test 1: issue:generate help includes short and long flags'));
   try {
     const helpOutput = run('yarn start issue:generate -h');
     if (
@@ -106,19 +102,13 @@ async function main() {
     failed += 1;
   }
 
-  console.log(
-    chalk.bold('Test 2: help option descriptions are column-aligned'),
-  );
+  console.log(chalk.bold('Test 2: help option descriptions are column-aligned'));
   try {
     const helpOutput = run('yarn start issue:generate -h');
     const columns = getDescriptionColumns(helpOutput);
     const uniqueColumns = new Set(columns);
 
-    if (
-      columns.length > 0 &&
-      !columns.includes(-1) &&
-      uniqueColumns.size === 1
-    ) {
+    if (columns.length > 0 && !columns.includes(-1) && uniqueColumns.size === 1) {
       pass(`All option descriptions begin at column ${columns[0]}`);
       passed += 1;
     } else {
@@ -143,9 +133,7 @@ async function main() {
       passed += 1;
     } else {
       fail(
-        `Found overlong help lines: ${overlongLines
-          .map(({ index, line }) => `${index}:${line.length}`)
-          .join(', ')}`,
+        `Found overlong help lines: ${overlongLines.map(({ index, line }) => `${index}:${line.length}`).join(', ')}`
       );
       failed += 1;
     }
@@ -154,9 +142,7 @@ async function main() {
     failed += 1;
   }
 
-  console.log(
-    chalk.bold('Test 4: README contains generated issue command doc blocks'),
-  );
+  console.log(chalk.bold('Test 4: README contains generated issue command doc blocks'));
   try {
     const readme = fs.readFileSync(readmePath, 'utf8');
     const requiredBlocks = [
@@ -170,20 +156,16 @@ async function main() {
       'issue:implement',
     ];
     const missingBlocks = requiredBlocks.filter(
-      (commandName) =>
-        !readme.includes(
-          `<!-- BEGIN GENERATED COMMAND DOCS: ${commandName} -->`,
-        ) ||
-        !readme.includes(`<!-- END GENERATED COMMAND DOCS: ${commandName} -->`),
+      commandName =>
+        !readme.includes(`<!-- BEGIN GENERATED COMMAND DOCS: ${commandName} -->`) ||
+        !readme.includes(`<!-- END GENERATED COMMAND DOCS: ${commandName} -->`)
     );
 
     if (missingBlocks.length === 0) {
       pass('README contains all generated issue command doc markers');
       passed += 1;
     } else {
-      fail(
-        `README is missing generated markers for: ${missingBlocks.join(', ')}`,
-      );
+      fail(`README is missing generated markers for: ${missingBlocks.join(', ')}`);
       failed += 1;
     }
   } catch (error: any) {
@@ -196,10 +178,7 @@ async function main() {
     const firstSync = run('yarn generated-docs:sync');
     const secondSync = run('yarn generated-docs:sync');
 
-    if (
-      firstSync.includes('help:catalog') &&
-      secondSync.includes('README command docs already up to date.')
-    ) {
+    if (firstSync.includes('help:catalog') && secondSync.includes('README command docs already up to date.')) {
       pass('generated-docs:sync runs and becomes stable on the second pass');
       passed += 1;
     } else {
@@ -207,11 +186,7 @@ async function main() {
       failed += 1;
     }
   } catch (error: any) {
-    fail(
-      `generated-docs:sync failed: ${
-        error.stdout?.toString() || error.stderr?.toString() || error.message
-      }`,
-    );
+    fail(`generated-docs:sync failed: ${error.stdout?.toString() || error.stderr?.toString() || error.message}`);
     failed += 1;
   }
 

@@ -25,15 +25,12 @@ export class FormatConverterService {
    * @throws BadRequestException if format is not supported
    */
   getConverter(format: string): FormatConverter {
-    const targetFormat =
-      format.trim().toLowerCase() === 'yml'
-        ? 'yaml'
-        : format.trim().toLowerCase();
+    const targetFormat = format.trim().toLowerCase() === 'yml' ? 'yaml' : format.trim().toLowerCase();
 
     const converter = this.converters.get(targetFormat);
     if (!converter) {
       throw new BadRequestException(
-        `Format converter not found for: ${targetFormat}. Supported formats: ${this.getSupportedFormats().join(', ')}`,
+        `Format converter not found for: ${targetFormat}. Supported formats: ${this.getSupportedFormats().join(', ')}`
       );
     }
 

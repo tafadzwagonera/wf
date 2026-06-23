@@ -20,7 +20,7 @@ jest.mock('chalk', () => {
       'white',
       'gray',
       'grey',
-    ].forEach((name) => {
+    ].forEach(name => {
       chain[name] = identity;
     });
     return chain;
@@ -61,7 +61,7 @@ jest.mock('../agents/utils', () => {
   return {
     ...actual,
     resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
     ),
   };
 });
@@ -85,9 +85,7 @@ import * as fs from 'fs';
 
 const mockCwd = '/tmp/consumer-app';
 
-async function buildCommand(options?: {
-  generateAgentEnabled?: boolean;
-}): Promise<{
+async function buildCommand(options?: { generateAgentEnabled?: boolean }): Promise<{
   command: IssueGenerateCommand;
   mockAiService: Record<string, jest.Mock>;
   mockStageAgentService: Record<string, jest.Mock>;
@@ -126,7 +124,7 @@ async function buildCommand(options?: {
   };
   const mockStageAgentService = {
     isEnabledForStage: jest.fn((stage: string) =>
-      stage === 'generate' ? options?.generateAgentEnabled === true : false,
+      stage === 'generate' ? options?.generateAgentEnabled === true : false
     ),
     generateFromPrompt: jest
       .fn()
@@ -153,7 +151,7 @@ async function buildCommand(options?: {
           '',
           '#### Out of Scope',
           '- None',
-        ].join('\n'),
+        ].join('\n')
       ),
   };
   const module = await Test.createTestingModule({
@@ -163,16 +161,10 @@ async function buildCommand(options?: {
       {
         provide: FormatConverterService,
         useValue: {
-          detectFormat: jest.fn((filePath: string) =>
-            path.extname(filePath).slice(1),
-          ),
+          detectFormat: jest.fn((filePath: string) => path.extname(filePath).slice(1)),
           getConverter: jest.fn(() => ({
-            serialize: jest.fn((ticket) =>
-              [
-                `# ${ticket.title ?? 'Generated Title'}`,
-                '',
-                ticket.description ?? 'Generated summary',
-              ].join('\n'),
+            serialize: jest.fn(ticket =>
+              [`# ${ticket.title ?? 'Generated Title'}`, '', ticket.description ?? 'Generated summary'].join('\n')
             ),
             parse: jest.fn(() => ({
               title: 'Generated Title',
@@ -242,26 +234,20 @@ describe('IssueGenerateCommand', () => {
   beforeEach(() => {
     cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(mockCwd);
     mkdirSpy = jest.spyOn(fs.promises, 'mkdir').mockResolvedValue(undefined);
-    writeFileSpy = jest
-      .spyOn(fs.promises, 'writeFile')
-      .mockResolvedValue(undefined);
+    writeFileSpy = jest.spyOn(fs.promises, 'writeFile').mockResolvedValue(undefined);
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     originalStdinIsTTY = process.stdin.isTTY;
     originalStdoutIsTTY = process.stdout.isTTY;
     (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReset();
     (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockReset();
-    (
-      fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>
-    ).mockReset();
-    (
-      fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-    ).mockImplementation(jest.requireActual('fs').existsSync);
-    (
-      fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>
-    ).mockImplementation(() => []);
-    (
-      fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>
-    ).mockImplementation(jest.requireActual('fs').writeFileSync);
+    (fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>).mockReset();
+    (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(
+      jest.requireActual('fs').existsSync
+    );
+    (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockImplementation(() => []);
+    (fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>).mockImplementation(
+      jest.requireActual('fs').writeFileSync
+    );
   });
 
   afterEach(() => {
@@ -314,15 +300,14 @@ describe('IssueGenerateCommand', () => {
         expect.objectContaining({
           stage: 'generate',
           maxTokens: 4096,
-        }),
+        })
       );
     });
 
     it('uses the stage agent service when generate agent mode is enabled', async () => {
-      const { command, mockAiService, mockStageAgentService } =
-        await buildCommand({
-          generateAgentEnabled: true,
-        });
+      const { command, mockAiService, mockStageAgentService } = await buildCommand({
+        generateAgentEnabled: true,
+      });
 
       await (command as any).synthesizeWithAI([
         {
@@ -342,8 +327,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('synthesizes and parses a generated ticket for short inputs that require AI collation', async () => {
-      const { command, mockAiService, mockStageAgentService } =
-        await buildCommand();
+      const { command, mockAiService, mockStageAgentService } = await buildCommand();
 
       const ticket = await (command as any).synthesizeWithAI([
         {
@@ -363,7 +347,7 @@ describe('IssueGenerateCommand', () => {
         expect.objectContaining({
           stage: 'generate',
           maxTokens: 4096,
-        }),
+        })
       );
       expect(ticket).toEqual(
         expect.objectContaining({
@@ -371,7 +355,7 @@ describe('IssueGenerateCommand', () => {
           description: 'Generated summary',
           type: 'task',
           priority: 'medium',
-        }),
+        })
       );
     });
 
@@ -387,11 +371,9 @@ describe('IssueGenerateCommand', () => {
       ]);
 
       expect(prompt).toContain(
-        'Use fenced Markdown code blocks (```lang) for code samples; never use Jira wiki {code} syntax.',
+        'Use fenced Markdown code blocks (```lang) for code samples; never use Jira wiki {code} syntax.'
       );
-      expect(prompt).toContain(
-        'Use `- ` for every unordered bullet item; never use `* ` bullets.',
-      );
+      expect(prompt).toContain('Use `- ` for every unordered bullet item; never use `* ` bullets.');
     });
 
     it('instructs the model to follow formal writing conventions in the prompt', async () => {
@@ -407,22 +389,20 @@ describe('IssueGenerateCommand', () => {
 
       expect(prompt).toContain('Write in formal British English throughout.');
       expect(prompt).toContain(
-        'Do not use contractions (e.g., write "do not" instead of "don\'t", "cannot" instead of "can\'t").',
+        'Do not use contractions (e.g., write "do not" instead of "don\'t", "cannot" instead of "can\'t").'
       );
       expect(prompt).toContain(
-        'Use the active voice (e.g., "The system validates input" instead of "Input is validated by the system").',
+        'Use the active voice (e.g., "The system validates input" instead of "Input is validated by the system").'
       );
       expect(prompt).toContain(
-        'Do not use informal or colloquial language (e.g., avoid "basically", "just", "a lot of", "pretty much").',
+        'Do not use informal or colloquial language (e.g., avoid "basically", "just", "a lot of", "pretty much").'
+      );
+      expect(prompt).toContain('Use third-person perspective only (e.g., do not use "you", "we", "our").');
+      expect(prompt).toContain(
+        'Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").'
       );
       expect(prompt).toContain(
-        'Use third-person perspective only (e.g., do not use "you", "we", "our").',
-      );
-      expect(prompt).toContain(
-        'Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").',
-      );
-      expect(prompt).toContain(
-        'Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.',
+        'Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.'
       );
     });
   });
@@ -431,17 +411,14 @@ describe('IssueGenerateCommand', () => {
     it('returns trimmed repo values from variadic option input', async () => {
       const { command } = await buildCommand();
 
-      expect(
-        command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any),
-      ).toEqual(['repo-a', 'workspace/repo-b']);
+      expect(command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any)).toEqual(['repo-a', 'workspace/repo-b']);
     });
   });
 
   describe('local structured file fallback', () => {
     it('returns a ticket source when a local structured file parses as a ticket', async () => {
       const { command } = await buildCommand();
-      const formatConverterService = (command as any)
-        .formatConverterService as FormatConverterService;
+      const formatConverterService = (command as any).formatConverterService as FormatConverterService;
       const tempSourcePath = path.join(os.tmpdir(), 'wf-ticket-source.md');
       const ticket = {
         title: 'Imported ticket',
@@ -451,24 +428,20 @@ describe('IssueGenerateCommand', () => {
       };
 
       fs.writeFileSync(tempSourcePath, '# Imported ticket', 'utf-8');
-      jest
-        .spyOn(formatConverterService, 'detectFormat')
-        .mockReturnValueOnce('md');
+      jest.spyOn(formatConverterService, 'detectFormat').mockReturnValueOnce('md');
       jest.spyOn(formatConverterService, 'getConverter').mockReturnValueOnce({
         parse: jest.fn(() => ticket),
         serialize: jest.fn(),
       } as any);
 
       try {
-        await expect(
-          (command as any).fetchFromFile(tempSourcePath),
-        ).resolves.toEqual(
+        await expect((command as any).fetchFromFile(tempSourcePath)).resolves.toEqual(
           expect.objectContaining({
             type: 'ticket',
             source: tempSourcePath,
             content: '# Imported ticket',
             ticket,
-          }),
+          })
         );
       } finally {
         fs.unlinkSync(tempSourcePath);
@@ -477,19 +450,13 @@ describe('IssueGenerateCommand', () => {
 
     it.each(['.md', '.json', '.yaml', '.yml'])(
       'returns a file source when a local %s file is not recognized as ticket-formatted content',
-      async (extension) => {
+      async extension => {
         const { command } = await buildCommand();
-        const formatConverterService = (command as any)
-          .formatConverterService as FormatConverterService;
-        const tempSourcePath = path.join(
-          os.tmpdir(),
-          `wf-non-ticket-source${extension}`,
-        );
+        const formatConverterService = (command as any).formatConverterService as FormatConverterService;
+        const tempSourcePath = path.join(os.tmpdir(), `wf-non-ticket-source${extension}`);
 
         fs.writeFileSync(tempSourcePath, 'plain project notes', 'utf-8');
-        jest
-          .spyOn(formatConverterService, 'detectFormat')
-          .mockReturnValueOnce(extension.slice(1) as any);
+        jest.spyOn(formatConverterService, 'detectFormat').mockReturnValueOnce(extension.slice(1) as any);
         jest.spyOn(formatConverterService, 'getConverter').mockReturnValueOnce({
           parse: jest.fn(() => {
             throw new Error('not ticket-formatted');
@@ -498,32 +465,27 @@ describe('IssueGenerateCommand', () => {
         } as any);
 
         try {
-          await expect(
-            (command as any).fetchFromFile(tempSourcePath),
-          ).resolves.toEqual(
+          await expect((command as any).fetchFromFile(tempSourcePath)).resolves.toEqual(
             expect.objectContaining({
               type: 'file',
               source: tempSourcePath,
               content: 'plain project notes',
-            }),
+            })
           );
         } finally {
           fs.unlinkSync(tempSourcePath);
         }
-      },
+      }
     );
 
     it('still processes local file sources in dry-run mode', async () => {
       const { command } = await buildCommand();
-      const dryRunPreview = (command as any)
-        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+      const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
       const tempSourcePath = path.join(os.tmpdir(), 'wf-dry-run-source.md');
 
       fs.writeFileSync(tempSourcePath, 'plain project notes', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) =>
-        jest.requireActual('fs').existsSync(String(input)),
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
+        jest.requireActual('fs').existsSync(String(input))
       );
 
       try {
@@ -538,37 +500,31 @@ describe('IssueGenerateCommand', () => {
         expect.objectContaining({
           filePath: tempSourcePath,
           exists: true,
-        }),
+        })
       );
       expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'POST',
           endpoint: '/v1/messages',
-        }),
+        })
       );
     });
   });
 
   it('stores saved generated artifacts under the cwd namespace by default', async () => {
     const { command } = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run(['ABC-123'], { save: true, dryRun: true });
 
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
-    expect(path.dirname(preview.filePath)).toBe(
-      path.join(os.homedir(), '.wf', 'consumer-app', 'jira'),
-    );
-    expect(path.basename(preview.filePath)).toMatch(
-      /^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}-ticket-description\.md$/,
-    );
+    expect(path.dirname(preview.filePath)).toBe(path.join(os.homedir(), '.wf', 'consumer-app', 'jira'));
+    expect(path.basename(preview.filePath)).toMatch(/^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}-ticket-description\.md$/);
   });
 
   it('stores saved generated artifacts under the targeted repo namespace when --repos is provided', async () => {
     const { command } = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run(['ABC-123'], {
       save: true,
@@ -577,9 +533,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
-    expect(path.dirname(preview.filePath)).toBe(
-      path.join(os.homedir(), '.wf', 'repo-a', 'jira'),
-    );
+    expect(path.dirname(preview.filePath)).toBe(path.join(os.homedir(), '.wf', 'repo-a', 'jira'));
   });
 
   describe('repo-aware local source resolution', () => {
@@ -588,16 +542,9 @@ describe('IssueGenerateCommand', () => {
       const repoName = 'service-tourv3';
       const repoBasePath = path.join('/tmp/consumer-app', repoName);
       const sourceName = 'itinerary-pdf-generation.md';
-      const expectedSourcePath = path.join(
-        os.homedir(),
-        '.wf',
-        repoName,
-        sourceName,
-      );
+      const expectedSourcePath = path.join(os.homedir(), '.wf', repoName, sourceName);
 
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) => {
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
           filePath === repoBasePath ||
@@ -606,20 +553,14 @@ describe('IssueGenerateCommand', () => {
         );
       });
 
-      const resolvedSources = await (command as any).resolveSourceInputs(
-        sourceName,
-        [repoName],
-        false,
-      );
+      const resolvedSources = await (command as any).resolveSourceInputs(sourceName, [repoName], false);
 
       expect(resolvedSources).toEqual([expectedSourcePath]);
     });
 
     it('prefers repo matches over cwd when --repos is provided', async () => {
       const { command } = await buildCommand();
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) => {
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
           filePath === path.join('/tmp/consumer-app', 'repo-a') ||
@@ -628,25 +569,15 @@ describe('IssueGenerateCommand', () => {
         );
       });
 
-      const resolvedSources = await (command as any).resolveSourceInputs(
-        'src/spec.md',
-        ['repo-a'],
-        false,
-      );
+      const resolvedSources = await (command as any).resolveSourceInputs('src/spec.md', ['repo-a'], false);
 
-      expect(resolvedSources).toEqual([
-        path.join('/tmp/consumer-app/repo-a', 'src/spec.md'),
-      ]);
+      expect(resolvedSources).toEqual([path.join('/tmp/consumer-app/repo-a', 'src/spec.md')]);
     });
 
     it('allows selecting multiple repo matches for synthesis in interactive mode', async () => {
       const { command } = await buildCommand();
-      const promptMock = inquirer.prompt as jest.MockedFunction<
-        typeof inquirer.prompt
-      >;
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) => {
+      const promptMock = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
           filePath === path.join('/tmp/consumer-app', 'repo-a') ||
@@ -671,11 +602,7 @@ describe('IssueGenerateCommand', () => {
         configurable: true,
       });
 
-      const resolvedSources = await (command as any).resolveSourceInputs(
-        'src/spec.md',
-        ['repo-a', 'repo-b'],
-        false,
-      );
+      const resolvedSources = await (command as any).resolveSourceInputs('src/spec.md', ['repo-a', 'repo-b'], false);
 
       expect(resolvedSources).toEqual([
         path.join('/tmp/consumer-app/repo-a', 'src/spec.md'),
@@ -686,9 +613,7 @@ describe('IssueGenerateCommand', () => {
 
     it('fails in silent mode when a relative source matches multiple repos', async () => {
       const { command } = await buildCommand();
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) => {
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
           filePath === path.join('/tmp/consumer-app', 'repo-a') ||
@@ -698,34 +623,24 @@ describe('IssueGenerateCommand', () => {
         );
       });
 
-      await expect(
-        (command as any).resolveSourceInputs(
-          'src/spec.md',
-          ['repo-a', 'repo-b'],
-          true,
-        ),
-      ).rejects.toThrow('matches multiple repositories');
+      await expect((command as any).resolveSourceInputs('src/spec.md', ['repo-a', 'repo-b'], true)).rejects.toThrow(
+        'matches multiple repositories'
+      );
     });
 
     it('does not treat ~/.wf artifacts as local source files', async () => {
       const { command } = await buildCommand();
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) => {
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return filePath === path.join(os.homedir(), '.wf', 'src/spec.md');
       });
 
-      await expect((command as any).fetchSource('src/spec.md')).rejects.toThrow(
-        'Unknown source type',
-      );
+      await expect((command as any).fetchSource('src/spec.md')).rejects.toThrow('Unknown source type');
     });
 
     it('warns when a repo identifier cannot be resolved', async () => {
       const { command } = await buildCommand();
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) => {
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
           filePath === path.join('/tmp/consumer-app', 'repo-a') ||
@@ -736,46 +651,34 @@ describe('IssueGenerateCommand', () => {
       const resolvedSources = await (command as any).resolveSourceInputs(
         'src/spec.md',
         ['missing-repo', 'repo-a'],
-        false,
+        false
       );
 
-      expect(resolvedSources).toEqual([
-        path.join('/tmp/consumer-app/repo-a', 'src/spec.md'),
-      ]);
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Repository 'missing-repo'"),
-      );
+      expect(resolvedSources).toEqual([path.join('/tmp/consumer-app/repo-a', 'src/spec.md')]);
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("Repository 'missing-repo'"));
     });
   });
 
   describe('unresolved local source diagnostics', () => {
     it('explains that unresolved artifact filenames require --repos', async () => {
       const { command } = await buildCommand();
-      const errorHandlerSpy = jest
-        .spyOn(ErrorHandler, 'handle')
-        .mockImplementation((() => {
-          throw new Error('handled');
-        }) as any);
+      const errorHandlerSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation((() => {
+        throw new Error('handled');
+      }) as any);
 
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockReturnValue(false);
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReturnValue(false);
 
-      await expect(
-        command.run(['2026-04-05-broadened-ai-config-docs-cleanup-plan.md']),
-      ).rejects.toThrow('handled');
+      await expect(command.run(['2026-04-05-broadened-ai-config-docs-cleanup-plan.md'])).rejects.toThrow('handled');
 
       expect(errorHandlerSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: expect.stringContaining(
-            '2026-04-05-broadened-ai-config-docs-cleanup-plan.md',
-          ),
-        }),
+          message: expect.stringContaining('2026-04-05-broadened-ai-config-docs-cleanup-plan.md'),
+        })
       );
       expect(errorHandlerSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('--repos'),
-        }),
+        })
       );
 
       errorHandlerSpy.mockRestore();
@@ -783,34 +686,29 @@ describe('IssueGenerateCommand', () => {
 
     it('does not preview AI synthesis in dry-run mode when no source resolves', async () => {
       const { command } = await buildCommand();
-      const dryRunPreview = (command as any)
-        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
-      const errorHandlerSpy = jest
-        .spyOn(ErrorHandler, 'handle')
-        .mockImplementation((() => {
-          throw new Error('handled');
-        }) as any);
+      const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
+      const errorHandlerSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation((() => {
+        throw new Error('handled');
+      }) as any);
 
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockReturnValue(false);
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReturnValue(false);
 
       await expect(
         command.run(['2026-04-05-broadened-ai-config-docs-cleanup-plan.md'], {
           dryRun: true,
-        }),
+        })
       ).rejects.toThrow('handled');
 
       expect(dryRunPreview.previewApiCall).not.toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'POST',
           endpoint: '/v1/messages',
-        }),
+        })
       );
       expect(errorHandlerSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('--repos'),
-        }),
+        })
       );
 
       errorHandlerSpy.mockRestore();
@@ -824,18 +722,11 @@ describe('IssueGenerateCommand', () => {
       const saveTicketLocallySpy = jest
         .spyOn(command as any, 'saveTicketLocally')
         .mockResolvedValue('/tmp/generated.md');
-      const promptMock = inquirer.prompt as jest.MockedFunction<
-        typeof inquirer.prompt
-      >;
-      const tempSourcePath = path.join(
-        os.tmpdir(),
-        'wf-issue-generate-save.md',
-      );
+      const promptMock = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-issue-generate-save.md');
 
       fs.writeFileSync(tempSourcePath, 'Short source content', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) => {
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
           jest.requireActual('fs').existsSync(filePath) ||
@@ -866,31 +757,18 @@ describe('IssueGenerateCommand', () => {
       expect(aiService.execute).toHaveBeenCalled();
       expect(promptMock).toHaveBeenCalled();
       expect(saveTicketLocallySpy).toHaveBeenCalledTimes(1);
-      expect(saveTicketLocallySpy).toHaveBeenCalledWith(
-        expect.anything(),
-        'jira',
-        'md',
-        [tempSourcePath],
-        'repo-a',
-      );
+      expect(saveTicketLocallySpy).toHaveBeenCalledWith(expect.anything(), 'jira', 'md', [tempSourcePath], 'repo-a');
     });
 
     it('fails in silent mode when --save targets multiple repos', async () => {
       const { command } = await buildCommand();
-      const errorHandlerSpy = jest
-        .spyOn(ErrorHandler, 'handle')
-        .mockImplementation((() => {
-          throw new Error('handled');
-        }) as any);
-      const tempSourcePath = path.join(
-        os.tmpdir(),
-        'wf-issue-generate-silent-save.md',
-      );
+      const errorHandlerSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation((() => {
+        throw new Error('handled');
+      }) as any);
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-issue-generate-silent-save.md');
 
       fs.writeFileSync(tempSourcePath, 'Short source content', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) => {
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
           jest.requireActual('fs').existsSync(filePath) ||
@@ -905,7 +783,7 @@ describe('IssueGenerateCommand', () => {
             save: true,
             repos: ['repo-a', 'repo-b'],
             silent: true,
-          } as any),
+          } as any)
         ).rejects.toThrow('handled');
       } finally {
         fs.unlinkSync(tempSourcePath);
@@ -914,7 +792,7 @@ describe('IssueGenerateCommand', () => {
       expect(errorHandlerSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('multiple repositories'),
-        }),
+        })
       );
 
       errorHandlerSpy.mockRestore();
@@ -930,55 +808,34 @@ describe('IssueGenerateCommand', () => {
       priority: 'medium',
     } as any;
 
-    (
-      fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>
-    ).mockReturnValue([]);
+    (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockReturnValue([]);
 
-    const savedPath = await (command as any).saveTicketLocally(
-      ticket,
-      'jira',
-      'md',
-      ['https://example.com/spec', './notes.md'],
-    );
+    const savedPath = await (command as any).saveTicketLocally(ticket, 'jira', 'md', [
+      'https://example.com/spec',
+      './notes.md',
+    ]);
 
-    expect(path.basename(savedPath)).toMatch(
-      /^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}-ticket-description\.md$/,
-    );
+    expect(path.basename(savedPath)).toMatch(/^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}-ticket-description\.md$/);
 
     const artifactWrite = writeFileSpy.mock.calls.find(
-      ([filePath]) =>
-        String(filePath).endsWith('ticket-description.md') &&
-        !String(filePath).endsWith('.sources.json'),
+      ([filePath]) => String(filePath).endsWith('ticket-description.md') && !String(filePath).endsWith('.sources.json')
     );
-    const manifestWrite = writeFileSpy.mock.calls.find(([filePath]) =>
-      String(filePath).endsWith('.sources.json'),
-    );
+    const manifestWrite = writeFileSpy.mock.calls.find(([filePath]) => String(filePath).endsWith('.sources.json'));
 
     expect(artifactWrite).toBeDefined();
     expect(manifestWrite).toBeDefined();
 
     const manifest = JSON.parse(String(manifestWrite?.[1]));
-    expect(manifest.sources).toEqual([
-      'https://example.com/spec',
-      './notes.md',
-    ]);
-    expect(manifest.hash).toBe(
-      hashGeneratedTicketSources(['https://example.com/spec', './notes.md']),
-    );
+    expect(manifest.sources).toEqual(['https://example.com/spec', './notes.md']);
+    expect(manifest.hash).toBe(hashGeneratedTicketSources(['https://example.com/spec', './notes.md']));
   });
 
   describe('formal writing conventions enforcement', () => {
     it('expands contractions in synthesised AI output before writing generated stdout content', async () => {
       const { command, mockAiService } = await buildCommand();
-      const formatConverterService = (command as any)
-        .formatConverterService as jest.Mocked<FormatConverterService>;
-      const outputLogSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
-      const tempSourcePath = path.join(
-        os.tmpdir(),
-        'wf-issue-generate-contraction-source.md',
-      );
+      const formatConverterService = (command as any).formatConverterService as jest.Mocked<FormatConverterService>;
+      const outputLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-issue-generate-contraction-source.md');
 
       mockAiService.execute.mockResolvedValueOnce({
         content: [
@@ -993,21 +850,16 @@ describe('IssueGenerateCommand', () => {
           "It's a summary that can't be used as-is",
         ].join('\n'),
       });
-      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((
-        format: string,
-      ) => {
+      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((format: string) => {
         if (format === 'md') {
           return {
             parse: jest.fn(() => ({
               title: "Generated Title That Don't Work",
-              description:
-                "It's a summary that can't be used as-is and shouldn't stay.",
+              description: "It's a summary that can't be used as-is and shouldn't stay.",
               type: 'task',
               priority: 'medium',
             })),
-            serialize: jest.fn((ticket) =>
-              [`# ${ticket.title}`, '', ticket.description].join('\n'),
-            ),
+            serialize: jest.fn(ticket => [`# ${ticket.title}`, '', ticket.description].join('\n')),
           } as any;
         }
 
@@ -1027,8 +879,8 @@ describe('IssueGenerateCommand', () => {
 
       const serializedOutput = outputLogSpy.mock.calls
         .flat()
-        .map((value) => String(value))
-        .find((value) => value.includes('# Generated Title'));
+        .map(value => String(value))
+        .find(value => value.includes('# Generated Title'));
 
       expect(serializedOutput).toBeDefined();
       expect(serializedOutput).toContain('Generated Title That Do not Work');
@@ -1038,33 +890,22 @@ describe('IssueGenerateCommand', () => {
 
     it('expands contractions in single-source imported tickets before writing --output files', async () => {
       const { command } = await buildCommand();
-      const formatConverterService = (command as any)
-        .formatConverterService as jest.Mocked<FormatConverterService>;
+      const formatConverterService = (command as any).formatConverterService as jest.Mocked<FormatConverterService>;
       const outputPath = path.join(os.tmpdir(), 'wf-generated-output.md');
-      const tempSourcePath = path.join(
-        os.tmpdir(),
-        'wf-imported-ticket-source.md',
-      );
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-imported-ticket-source.md');
       const importedTicket = {
         title: "Imported ticket that don't comply",
-        description:
-          "Imported description that can't be used and it's long enough to bypass synthesis. ".repeat(
-            3,
-          ),
+        description: "Imported description that can't be used and it's long enough to bypass synthesis. ".repeat(3),
         type: 'task',
         priority: 'medium',
       };
 
       jest.spyOn(formatConverterService, 'detectFormat').mockReturnValue('md');
-      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((
-        format: string,
-      ) => {
+      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((format: string) => {
         if (format === 'md') {
           return {
             parse: jest.fn(() => importedTicket),
-            serialize: jest.fn((ticket) =>
-              [`# ${ticket.title}`, '', ticket.description].join('\n'),
-            ),
+            serialize: jest.fn(ticket => [`# ${ticket.title}`, '', ticket.description].join('\n')),
           } as any;
         }
 
@@ -1085,24 +926,19 @@ describe('IssueGenerateCommand', () => {
         fs.unlinkSync(tempSourcePath);
       }
 
-      const outputWrite = (
-        fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>
-      ).mock.calls.find(([filePath]) => String(filePath) === outputPath);
+      const outputWrite = (fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>).mock.calls.find(
+        ([filePath]) => String(filePath) === outputPath
+      );
 
       expect(outputWrite).toBeDefined();
-      expect(String(outputWrite?.[1])).toContain(
-        'Imported ticket that do not comply',
-      );
-      expect(String(outputWrite?.[1])).toContain(
-        'Imported description that cannot be used',
-      );
+      expect(String(outputWrite?.[1])).toContain('Imported ticket that do not comply');
+      expect(String(outputWrite?.[1])).toContain('Imported description that cannot be used');
       expect(String(outputWrite?.[1])).not.toMatch(/don't|can't|it's/i);
     });
 
     it('expands contractions in saved generated artifacts before persisting them', async () => {
       const { command } = await buildCommand();
-      const formatConverterService = (command as any)
-        .formatConverterService as jest.Mocked<FormatConverterService>;
+      const formatConverterService = (command as any).formatConverterService as jest.Mocked<FormatConverterService>;
       const ticket = {
         title: "Generated Title That Don't Comply",
         description: "It's a summary that can't stay informal",
@@ -1110,20 +946,12 @@ describe('IssueGenerateCommand', () => {
         priority: 'medium',
       } as any;
 
-      (
-        fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>
-      ).mockReturnValue([]);
-      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((
-        format: string,
-      ) => {
+      (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockReturnValue([]);
+      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((format: string) => {
         if (format === 'md') {
           return {
             parse: jest.fn(),
-            serialize: jest.fn((currentTicket) =>
-              [`# ${currentTicket.title}`, '', currentTicket.description].join(
-                '\n',
-              ),
-            ),
+            serialize: jest.fn(currentTicket => [`# ${currentTicket.title}`, '', currentTicket.description].join('\n')),
           } as any;
         }
 
@@ -1133,23 +961,16 @@ describe('IssueGenerateCommand', () => {
         } as any;
       }) as any);
 
-      await (command as any).saveTicketLocally(ticket, 'jira', 'md', [
-        'https://example.com/spec',
-      ]);
+      await (command as any).saveTicketLocally(ticket, 'jira', 'md', ['https://example.com/spec']);
 
       const artifactWrite = writeFileSpy.mock.calls.find(
         ([filePath]) =>
-          String(filePath).endsWith('ticket-description.md') &&
-          !String(filePath).endsWith('.sources.json'),
+          String(filePath).endsWith('ticket-description.md') && !String(filePath).endsWith('.sources.json')
       );
 
       expect(artifactWrite).toBeDefined();
-      expect(String(artifactWrite?.[1])).toContain(
-        'Generated Title That Do not Comply',
-      );
-      expect(String(artifactWrite?.[1])).toContain(
-        'It is a summary that cannot stay informal',
-      );
+      expect(String(artifactWrite?.[1])).toContain('Generated Title That Do not Comply');
+      expect(String(artifactWrite?.[1])).toContain('It is a summary that cannot stay informal');
       expect(String(artifactWrite?.[1])).not.toMatch(/don't|can't|it's/i);
     });
   });
@@ -1157,8 +978,7 @@ describe('IssueGenerateCommand', () => {
   describe('Slack source handling', () => {
     it('formats bare Slack archive URLs as chronological conversation artifacts with thread-style filenames', async () => {
       const { command } = await buildCommand();
-      const slackService = (command as any)
-        .slackService as jest.Mocked<SlackService>;
+      const slackService = (command as any).slackService as jest.Mocked<SlackService>;
 
       slackService.fetchChannelHistory.mockResolvedValue({
         channelId: 'C0AP5MMCP53',
@@ -1176,14 +996,9 @@ describe('IssueGenerateCommand', () => {
         ],
       } as any);
 
-      const result = await (command as any).fetchSource(
-        'https://touraxis.slack.com/archives/C0AP5MMCP53',
-      );
+      const result = await (command as any).fetchSource('https://touraxis.slack.com/archives/C0AP5MMCP53');
 
-      expect(slackService.fetchChannelHistory).toHaveBeenCalledWith(
-        'C0AP5MMCP53',
-        50,
-      );
+      expect(slackService.fetchChannelHistory).toHaveBeenCalledWith('C0AP5MMCP53', 50);
       expect(result).toEqual(
         expect.objectContaining({
           type: 'slack',
@@ -1192,28 +1007,18 @@ describe('IssueGenerateCommand', () => {
             '[1712345600.000001] U123: Initial MPDM context',
             '[1712345678.123456] U456: Latest follow-up',
           ].join('\n'),
-        }),
+        })
       );
       expect(writeFileSpy).toHaveBeenCalledWith(
-        path.join(
-          os.homedir(),
-          '.wf',
-          'consumer-app',
-          'slack',
-          'slack-thread-C0AP5MMCP53-1712345600-000001.md',
-        ),
-        [
-          '[1712345600.000001] U123: Initial MPDM context',
-          '[1712345678.123456] U456: Latest follow-up',
-        ].join('\n'),
-        'utf-8',
+        path.join(os.homedir(), '.wf', 'consumer-app', 'slack', 'slack-thread-C0AP5MMCP53-1712345600-000001.md'),
+        ['[1712345600.000001] U123: Initial MPDM context', '[1712345678.123456] U456: Latest follow-up'].join('\n'),
+        'utf-8'
       );
     });
 
     it('keeps Slack thread permalinks on the existing thread fetch path', async () => {
       const { command } = await buildCommand();
-      const slackService = (command as any)
-        .slackService as jest.Mocked<SlackService>;
+      const slackService = (command as any).slackService as jest.Mocked<SlackService>;
 
       slackService.fetchThread.mockResolvedValue({
         channelId: 'C0AP5MMCP53',
@@ -1227,21 +1032,15 @@ describe('IssueGenerateCommand', () => {
         ],
       });
 
-      await (command as any).fetchSource(
-        'https://touraxis.slack.com/archives/C0AP5MMCP53/p1712345678123456',
-      );
+      await (command as any).fetchSource('https://touraxis.slack.com/archives/C0AP5MMCP53/p1712345678123456');
 
-      expect(slackService.fetchThread).toHaveBeenCalledWith(
-        'C0AP5MMCP53',
-        '1712345678.123456',
-      );
+      expect(slackService.fetchThread).toHaveBeenCalledWith('C0AP5MMCP53', '1712345678.123456');
       expect(slackService.fetchChannelHistory).not.toHaveBeenCalled();
     });
 
     it('routes Slack thread permalinks with query params to the existing thread fetch path', async () => {
       const { command } = await buildCommand();
-      const slackService = (command as any)
-        .slackService as jest.Mocked<SlackService>;
+      const slackService = (command as any).slackService as jest.Mocked<SlackService>;
 
       slackService.fetchThread.mockResolvedValue({
         channelId: 'C0AP5MMCP53',
@@ -1256,20 +1055,16 @@ describe('IssueGenerateCommand', () => {
       });
 
       await (command as any).fetchSource(
-        'https://touraxis.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53',
+        'https://touraxis.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53'
       );
 
-      expect(slackService.fetchThread).toHaveBeenCalledWith(
-        'C0AP5MMCP53',
-        '1775650646.860809',
-      );
+      expect(slackService.fetchThread).toHaveBeenCalledWith('C0AP5MMCP53', '1775650646.860809');
       expect(slackService.fetchChannelHistory).not.toHaveBeenCalled();
     });
 
     it('shows Slack history API preview for bare Slack channel archive URLs in dry-run mode', async () => {
       const { command } = await buildCommand();
-      const dryRunPreview = (command as any)
-        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+      const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
       await command.run(['https://touraxis.slack.com/archives/C0AP5MMCP53'], {
         dryRun: true,
@@ -1279,7 +1074,7 @@ describe('IssueGenerateCommand', () => {
         expect.objectContaining({
           endpoint: 'https://slack.com/api/conversations.history',
           platform: 'Slack',
-        }),
+        })
       );
       expect(dryRunPreview.previewFileWrite).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1288,17 +1083,16 @@ describe('IssueGenerateCommand', () => {
             '.wf',
             'consumer-app',
             'slack',
-            'slack-thread-C0AP5MMCP53-<oldest-message-ts>.md',
+            'slack-thread-C0AP5MMCP53-<oldest-message-ts>.md'
           ),
           format: 'md',
-        }),
+        })
       );
     });
 
     it('shows Slack thread API preview for Slack thread permalinks with query params in dry-run mode', async () => {
       const { command } = await buildCommand();
-      const dryRunPreview = (command as any)
-        .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+      const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
       await command.run(
         [
@@ -1306,21 +1100,21 @@ describe('IssueGenerateCommand', () => {
         ],
         {
           dryRun: true,
-        },
+        }
       );
 
       expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
         expect.objectContaining({
           endpoint: 'https://slack.com/api/conversations.replies',
           platform: 'Slack',
-        }),
+        })
       );
       expect(dryRunPreview.previewApiCall).not.toHaveBeenCalledWith(
         expect.objectContaining({
           endpoint:
             'https://touraxis.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53',
           platform: 'Web',
-        }),
+        })
       );
       expect(dryRunPreview.previewFileWrite).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1329,31 +1123,24 @@ describe('IssueGenerateCommand', () => {
             '.wf',
             'consumer-app',
             'slack',
-            'slack-thread-C0AP5MMCP53-1775650646-860809.md',
+            'slack-thread-C0AP5MMCP53-1775650646-860809.md'
           ),
           format: 'md',
-        }),
+        })
       );
     });
 
     it('stops instead of synthesizing an empty ticket when all Slack sources fail', async () => {
       const { command } = await buildCommand();
-      const slackService = (command as any)
-        .slackService as jest.Mocked<SlackService>;
+      const slackService = (command as any).slackService as jest.Mocked<SlackService>;
       const aiService = (command as any).aiService as jest.Mocked<AiService>;
-      const errorHandlerSpy = jest
-        .spyOn(ErrorHandler, 'handle')
-        .mockImplementation((() => {
-          throw new Error('handled');
-        }) as any);
+      const errorHandlerSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation((() => {
+        throw new Error('handled');
+      }) as any);
 
-      slackService.fetchChannelHistory.mockRejectedValue(
-        new Error('Slack channel C0AP5MMCP53 not found'),
-      );
+      slackService.fetchChannelHistory.mockRejectedValue(new Error('Slack channel C0AP5MMCP53 not found'));
 
-      await expect(
-        command.run(['https://touraxis.slack.com/archives/C0AP5MMCP53']),
-      ).rejects.toThrow('handled');
+      await expect(command.run(['https://touraxis.slack.com/archives/C0AP5MMCP53'])).rejects.toThrow('handled');
 
       expect(aiService.execute).not.toHaveBeenCalled();
 
@@ -1363,9 +1150,7 @@ describe('IssueGenerateCommand', () => {
 
   describe('disambiguation prompt separation', () => {
     const setupMultiRepoMatch = () => {
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) => {
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
           filePath === path.join('/tmp/consumer-app', 'repo-a') ||
@@ -1378,9 +1163,7 @@ describe('IssueGenerateCommand', () => {
 
     it('prompts interactively for multi-repo disambiguation when TTY and not silent', async () => {
       const { command } = await buildCommand();
-      const promptMock = inquirer.prompt as jest.MockedFunction<
-        typeof inquirer.prompt
-      >;
+      const promptMock = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
       setupMultiRepoMatch();
       promptMock.mockResolvedValueOnce({
         selectedSources: [path.join('/tmp/consumer-app/repo-a', 'src/spec.md')],
@@ -1394,11 +1177,7 @@ describe('IssueGenerateCommand', () => {
         configurable: true,
       });
 
-      await (command as any).resolveRepoRelativeSources(
-        'src/spec.md',
-        ['repo-a', 'repo-b'],
-        false,
-      );
+      await (command as any).resolveRepoRelativeSources('src/spec.md', ['repo-a', 'repo-b'], false);
 
       expect(promptMock).toHaveBeenCalled();
     });
@@ -1416,11 +1195,7 @@ describe('IssueGenerateCommand', () => {
       });
 
       await expect(
-        (command as any).resolveRepoRelativeSources(
-          'src/spec.md',
-          ['repo-a', 'repo-b'],
-          false,
-        ),
+        (command as any).resolveRepoRelativeSources('src/spec.md', ['repo-a', 'repo-b'], false)
       ).rejects.toThrow('interactive terminal');
     });
 
@@ -1437,11 +1212,7 @@ describe('IssueGenerateCommand', () => {
       });
 
       await expect(
-        (command as any).resolveRepoRelativeSources(
-          'src/spec.md',
-          ['repo-a', 'repo-b'],
-          true,
-        ),
+        (command as any).resolveRepoRelativeSources('src/spec.md', ['repo-a', 'repo-b'], true)
       ).rejects.toThrow('silent mode');
     });
   });
@@ -1450,9 +1221,7 @@ describe('IssueGenerateCommand', () => {
     let promptMock: jest.MockedFunction<typeof inquirer.prompt>;
 
     beforeEach(() => {
-      promptMock = inquirer.prompt as jest.MockedFunction<
-        typeof inquirer.prompt
-      >;
+      promptMock = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
       promptMock.mockReset();
     });
 
@@ -1467,10 +1236,7 @@ describe('IssueGenerateCommand', () => {
         configurable: true,
       });
 
-      const mockQuestions = [
-        'What is the target platform?',
-        'Is SSO required?',
-      ];
+      const mockQuestions = ['What is the target platform?', 'Is SSO required?'];
 
       // First AI call: clarification
       mockAiService.execute.mockResolvedValueOnce({
@@ -1503,16 +1269,12 @@ describe('IssueGenerateCommand', () => {
         ].join('\n'),
       });
 
-      promptMock
-        .mockResolvedValueOnce({ answer: 'Web only' })
-        .mockResolvedValueOnce({ answer: 'No' });
+      promptMock.mockResolvedValueOnce({ answer: 'Web only' }).mockResolvedValueOnce({ answer: 'No' });
 
       const tempSourcePath = path.join(os.tmpdir(), 'wf-clarify-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) =>
-        jest.requireActual('fs').existsSync(String(input)),
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
+        jest.requireActual('fs').existsSync(String(input))
       );
 
       try {
@@ -1523,15 +1285,11 @@ describe('IssueGenerateCommand', () => {
 
       expect(promptMock).toHaveBeenCalledTimes(2);
       expect(promptMock).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({ message: 'What is the target platform?' }),
-        ]),
+        expect.arrayContaining([expect.objectContaining({ message: 'What is the target platform?' })])
       );
       // Clarification prompt should instruct AI to skip already-acknowledged issues
       const clarificationCall = mockAiService.execute.mock.calls[0];
-      expect(clarificationCall[0].prompt).toContain(
-        'Do NOT raise issues that the sources already acknowledge',
-      );
+      expect(clarificationCall[0].prompt).toContain('Do NOT raise issues that the sources already acknowledge');
       // Synthesis call should include user clarifications in its prompt
       const synthesisCall = mockAiService.execute.mock.calls[1];
       expect(synthesisCall[0].prompt).toContain('user-clarifications');
@@ -1581,10 +1339,8 @@ describe('IssueGenerateCommand', () => {
 
       const tempSourcePath = path.join(os.tmpdir(), 'wf-no-clarify-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) =>
-        jest.requireActual('fs').existsSync(String(input)),
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
+        jest.requireActual('fs').existsSync(String(input))
       );
 
       try {
@@ -1609,10 +1365,8 @@ describe('IssueGenerateCommand', () => {
 
       const tempSourcePath = path.join(os.tmpdir(), 'wf-silent-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) =>
-        jest.requireActual('fs').existsSync(String(input)),
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
+        jest.requireActual('fs').existsSync(String(input))
       );
 
       try {
@@ -1639,10 +1393,8 @@ describe('IssueGenerateCommand', () => {
 
       const tempSourcePath = path.join(os.tmpdir(), 'wf-notty-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) =>
-        jest.requireActual('fs').existsSync(String(input)),
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
+        jest.requireActual('fs').existsSync(String(input))
       );
 
       try {
@@ -1658,11 +1410,9 @@ describe('IssueGenerateCommand', () => {
 
     it('propagates empty clarification responses instead of silently treating them as []', async () => {
       const { command, mockAiService } = await buildCommand();
-      const errorHandlerSpy = jest
-        .spyOn(ErrorHandler, 'handle')
-        .mockImplementation((() => {
-          throw new Error('handled');
-        }) as any);
+      const errorHandlerSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation((() => {
+        throw new Error('handled');
+      }) as any);
       Object.defineProperty(process.stdin, 'isTTY', {
         value: true,
         configurable: true,
@@ -1680,10 +1430,8 @@ describe('IssueGenerateCommand', () => {
 
       const tempSourcePath = path.join(os.tmpdir(), 'wf-empty-clarify-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) =>
-        jest.requireActual('fs').existsSync(String(input)),
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
+        jest.requireActual('fs').existsSync(String(input))
       );
 
       try {
@@ -1699,7 +1447,7 @@ describe('IssueGenerateCommand', () => {
             provider: 'openai',
             model: 'gpt-5.4',
           }),
-        }),
+        })
       );
 
       errorHandlerSpy.mockRestore();
@@ -1716,10 +1464,8 @@ describe('IssueGenerateCommand', () => {
 
       const tempSourcePath = path.join(os.tmpdir(), 'wf-save-silent-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) =>
-        jest.requireActual('fs').existsSync(String(input)),
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
+        jest.requireActual('fs').existsSync(String(input))
       );
 
       try {
@@ -1728,9 +1474,7 @@ describe('IssueGenerateCommand', () => {
         fs.unlinkSync(tempSourcePath);
       }
 
-      const logCalls = consoleLogSpy.mock.calls.map(
-        (args: unknown[]) => args[0],
-      );
+      const logCalls = consoleLogSpy.mock.calls.map((args: unknown[]) => args[0]);
       expect(logCalls).toHaveLength(1);
       expect(logCalls[0]).toMatch(/\.wf.*jira.*ticket-description\.md$/);
     });
@@ -1741,14 +1485,10 @@ describe('IssueGenerateCommand', () => {
       const tempSourcePath = path.join(os.tmpdir(), 'wf-output-silent-test.md');
       const outputPath = path.join(os.tmpdir(), 'wf-output-silent-out.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) =>
-        jest.requireActual('fs').existsSync(String(input)),
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
+        jest.requireActual('fs').existsSync(String(input))
       );
-      (
-        fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>
-      ).mockImplementation(() => {});
+      (fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>).mockImplementation(() => {});
 
       try {
         await command.run([tempSourcePath], {
@@ -1759,9 +1499,7 @@ describe('IssueGenerateCommand', () => {
         fs.unlinkSync(tempSourcePath);
       }
 
-      const logCalls = consoleLogSpy.mock.calls.map(
-        (args: unknown[]) => args[0],
-      );
+      const logCalls = consoleLogSpy.mock.calls.map((args: unknown[]) => args[0]);
       expect(logCalls).toHaveLength(1);
       expect(logCalls[0]).toBe(outputPath);
     });
@@ -1771,10 +1509,8 @@ describe('IssueGenerateCommand', () => {
 
       const tempSourcePath = path.join(os.tmpdir(), 'wf-raw-silent-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) =>
-        jest.requireActual('fs').existsSync(String(input)),
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
+        jest.requireActual('fs').existsSync(String(input))
       );
 
       try {
@@ -1783,9 +1519,7 @@ describe('IssueGenerateCommand', () => {
         fs.unlinkSync(tempSourcePath);
       }
 
-      const logCalls = consoleLogSpy.mock.calls.map(
-        (args: unknown[]) => args[0],
-      );
+      const logCalls = consoleLogSpy.mock.calls.map((args: unknown[]) => args[0]);
       expect(logCalls).toHaveLength(1);
       expect(logCalls[0]).toContain('Generated Title');
     });
@@ -1793,15 +1527,10 @@ describe('IssueGenerateCommand', () => {
     it('suppresses progress and tip messages in silent mode', async () => {
       const { command } = await buildCommand();
 
-      const tempSourcePath = path.join(
-        os.tmpdir(),
-        'wf-suppress-silent-test.md',
-      );
+      const tempSourcePath = path.join(os.tmpdir(), 'wf-suppress-silent-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
-      (
-        fs.existsSync as jest.MockedFunction<typeof fs.existsSync>
-      ).mockImplementation((input) =>
-        jest.requireActual('fs').existsSync(String(input)),
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
+        jest.requireActual('fs').existsSync(String(input))
       );
 
       try {
@@ -1810,9 +1539,7 @@ describe('IssueGenerateCommand', () => {
         fs.unlinkSync(tempSourcePath);
       }
 
-      const allOutput = consoleLogSpy.mock.calls
-        .map((args: unknown[]) => String(args[0]))
-        .join('\n');
+      const allOutput = consoleLogSpy.mock.calls.map((args: unknown[]) => String(args[0])).join('\n');
       expect(allOutput).not.toContain('Fetching:');
       expect(allOutput).not.toContain('Using AI to synthesize');
       expect(allOutput).not.toContain('Tip:');

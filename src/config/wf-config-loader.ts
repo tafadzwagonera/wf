@@ -37,14 +37,8 @@ const CONFIG_FILE_NAMES = [
 ] as const;
 
 type SupportedStageName = StageBackendDefaultStageName;
-type SupportedModelStageName = Exclude<
-  SupportedStageName,
-  'implement' | 'create'
->;
-const AGENT_SUPPORTED_PROVIDERS = new Set<WfAiProviderName>([
-  'anthropic',
-  'openai',
-]);
+type SupportedModelStageName = Exclude<SupportedStageName, 'implement' | 'create'>;
+const AGENT_SUPPORTED_PROVIDERS = new Set<WfAiProviderName>(['anthropic', 'openai']);
 
 export interface NormalizedAiStageTargetConfig {
   provider: WfAiProviderName;
@@ -91,9 +85,7 @@ export interface NormalizedWfConfig {
     deepseekApiKey?: string;
     model: string;
     maxTokens?: number;
-    stages: Partial<
-      Record<SupportedModelStageName, NormalizedAiStageTargetConfig>
-    >;
+    stages: Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>;
   };
   stages: {
     plan?: NormalizedAiStageTargetConfig;
@@ -156,47 +148,34 @@ interface WfConfigLoadOptions extends TypeScriptConfigLoadOptions {
 let loadedConfig: NormalizedWfConfig | null = null;
 
 const providerSchema = Joi.object<WfAiProviderConfig>({
-  provider: Joi.string()
-    .valid('anthropic', 'openai', 'google', 'deepseek')
-    .required(),
+  provider: Joi.string().valid('anthropic', 'openai', 'google', 'deepseek').required(),
   apiKey: Joi.string().allow('').optional(),
   model: Joi.string().allow('').optional(),
   maxTokens: Joi.number().integer().min(1).optional(),
   default: Joi.boolean().optional(),
 });
 
-const verificationConditionsSchema = Joi.object<WfVerificationConditionsConfig>(
-  {
-    policyFile: Joi.string().min(1).optional(),
-    scripts: Joi.object()
-      .pattern(Joi.string().min(1), Joi.string().min(1).required())
-      .min(1)
-      .optional(),
-  },
-).or('policyFile', 'scripts');
+const verificationConditionsSchema = Joi.object<WfVerificationConditionsConfig>({
+  policyFile: Joi.string().min(1).optional(),
+  scripts: Joi.object().pattern(Joi.string().min(1), Joi.string().min(1).required()).min(1).optional(),
+}).or('policyFile', 'scripts');
 
 const aiStageTargetSchema = Joi.object<WfAiStageTargetConfig>({
-  provider: Joi.string()
-    .valid('anthropic', 'openai', 'google', 'deepseek')
-    .required(),
+  provider: Joi.string().valid('anthropic', 'openai', 'google', 'deepseek').required(),
   model: Joi.string().min(1).optional(),
   backend: Joi.string().valid('agent', 'cli', 'standard').optional(),
   outputFormat: Joi.string().valid('json', 'md', 'yaml', 'yml').optional(),
 });
 
 const createStageSchema = Joi.object<WfCreateStageConfig>({
-  provider: Joi.string()
-    .valid('anthropic', 'openai', 'google', 'deepseek')
-    .optional(),
+  provider: Joi.string().valid('anthropic', 'openai', 'google', 'deepseek').optional(),
   model: Joi.string().min(1).optional(),
   backend: Joi.string().valid('agent', 'cli', 'standard').optional(),
   verificationConditions: verificationConditionsSchema.optional(),
 });
 
 const implementStageSchema = Joi.object<WfImplementStageConfig>({
-  provider: Joi.string()
-    .valid('anthropic', 'openai', 'google', 'deepseek')
-    .required(),
+  provider: Joi.string().valid('anthropic', 'openai', 'google', 'deepseek').required(),
   model: Joi.string().min(1).optional(),
   models: Joi.object({
     default: Joi.string().min(1).optional(),
@@ -227,9 +206,7 @@ const configSchema = Joi.object<WfConfig>({
     defaultRepo: Joi.string().allow('').optional(),
   }).optional(),
   git: Joi.object({
-    commitFormat: Joi.string()
-      .valid('conventional', 'freeform', 'auto')
-      .optional(),
+    commitFormat: Joi.string().valid('conventional', 'freeform', 'auto').optional(),
     branchNamePattern: Joi.string().optional(),
     branchPrefixMapping: Joi.object({
       feature: Joi.string().optional(),
@@ -270,53 +247,31 @@ const getDefaultModelForProvider = (provider: WfAiProviderName): string => {
   return DEFAULT_ANTHROPIC_MODEL;
 };
 
-const isGeminiConfig = ({
-  provider,
-  model,
-}: {
-  provider: WfAiProviderName;
-  model: string;
-}): boolean => provider === 'google' && model.startsWith('gemini');
+const isGeminiConfig = ({ provider, model }: { provider: WfAiProviderName; model: string }): boolean =>
+  provider === 'google' && model.startsWith('gemini');
 
 const parseNodeVersion = (nodeVersion: string): [number, number, number] =>
   nodeVersion
     .split('.')
     .slice(0, 3)
-    .map((segment) => Number.parseInt(segment, 10) || 0) as [
-    number,
-    number,
-    number,
-  ];
+    .map(segment => Number.parseInt(segment, 10) || 0) as [number, number, number];
 
-const isVersionGte = (
-  version: string,
-  major: number,
-  minor: number,
-  patch: number,
-): boolean => {
+const isVersionGte = (version: string, major: number, minor: number, patch: number): boolean => {
   const [versionMajor, versionMinor, versionPatch] = parseNodeVersion(version);
   if (versionMajor !== major) return versionMajor > major;
   if (versionMinor !== minor) return versionMinor > minor;
   return versionPatch >= patch;
 };
 
-const hasNativeNodeTypeStripping = (
-  nodeVersion: string,
-  execArgv: string[],
-): boolean =>
-  isVersionGte(nodeVersion, 22, 13, 0) &&
-  execArgv.some((arg) => arg.includes('--experimental-strip-types'));
+const hasNativeNodeTypeStripping = (nodeVersion: string, execArgv: string[]): boolean =>
+  isVersionGte(nodeVersion, 22, 13, 0) && execArgv.some(arg => arg.includes('--experimental-strip-types'));
 
 const unwrapModuleExport = (loaded: unknown): WfConfig => {
   const candidate =
-    loaded && typeof loaded === 'object' && 'default' in loaded
-      ? (loaded as { default: unknown }).default
-      : loaded;
+    loaded && typeof loaded === 'object' && 'default' in loaded ? (loaded as { default: unknown }).default : loaded;
 
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
-    throw new ValidationError(
-      'wf config files must export an object as the default export.',
-    );
+    throw new ValidationError('wf config files must export an object as the default export.');
   }
 
   return candidate as WfConfig;
@@ -327,9 +282,7 @@ const isEmptyModuleNamespace = (loaded: unknown): boolean => {
     return false;
   }
 
-  const moduleTag = (loaded as { [Symbol.toStringTag]?: unknown })[
-    Symbol.toStringTag
-  ];
+  const moduleTag = (loaded as { [Symbol.toStringTag]?: unknown })[Symbol.toStringTag];
   return moduleTag === 'Module' && Reflect.ownKeys(loaded).length === 0;
 };
 
@@ -337,16 +290,14 @@ const readConfigModule = async (filePath: string): Promise<WfConfig> => {
   const loaded = await import(pathToFileURL(filePath).href);
   if (isEmptyModuleNamespace(loaded)) {
     throw new ValidationError(
-      'wf config file exists but did not export a config object. Use export default { ... } for ESM configs or module.exports = { ... } for CommonJS configs.',
+      'wf config file exists but did not export a config object. Use export default { ... } for ESM configs or module.exports = { ... } for CommonJS configs.'
     );
   }
 
   return unwrapModuleExport(loaded);
 };
 
-const detectNearestPackageType = (
-  filePath: string,
-): 'module' | 'commonjs' | null => {
+const detectNearestPackageType = (filePath: string): 'module' | 'commonjs' | null => {
   let currentDir = path.dirname(filePath);
   const { root } = path.parse(currentDir);
 
@@ -354,9 +305,7 @@ const detectNearestPackageType = (
     const packageJsonPath = path.join(currentDir, 'package.json');
     if (fs.existsSync(packageJsonPath)) {
       try {
-        const packageJson = JSON.parse(
-          fs.readFileSync(packageJsonPath, 'utf-8'),
-        ) as { type?: unknown };
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as { type?: unknown };
         if (packageJson.type === 'module' || packageJson.type === 'commonjs') {
           return packageJson.type;
         }
@@ -373,13 +322,9 @@ const detectNearestPackageType = (
   }
 };
 
-const hasCommonJsExportSyntax = (sourceText: string): boolean =>
-  /\bmodule\.exports\b|\bexports\./.test(sourceText);
+const hasCommonJsExportSyntax = (sourceText: string): boolean => /\bmodule\.exports\b|\bexports\./.test(sourceText);
 
-const evaluateConfigScript = (
-  filePath: string,
-  sourceText: string,
-): unknown => {
+const evaluateConfigScript = (filePath: string, sourceText: string): unknown => {
   const requireFromConfig = createRequire(filePath);
   const module = { exports: {} as unknown };
   const context = vm.createContext({
@@ -395,35 +340,22 @@ const evaluateConfigScript = (
   return module.exports;
 };
 
-const evaluateCommonJsConfigSource = (
-  filePath: string,
-  sourceText: string,
-): WfConfig => unwrapModuleExport(evaluateConfigScript(filePath, sourceText));
+const evaluateCommonJsConfigSource = (filePath: string, sourceText: string): WfConfig =>
+  unwrapModuleExport(evaluateConfigScript(filePath, sourceText));
 
-const hasImportSyntax = (sourceText: string): boolean =>
-  /^\s*import\s/m.test(sourceText);
+const hasImportSyntax = (sourceText: string): boolean => /^\s*import\s/m.test(sourceText);
 
-const hasEsmDefaultExportSyntax = (sourceText: string): boolean =>
-  /^\s*export\s+default\b/m.test(sourceText);
+const hasEsmDefaultExportSyntax = (sourceText: string): boolean => /^\s*export\s+default\b/m.test(sourceText);
 
-const isEmptyEsmExportSource = (sourceText: string): boolean =>
-  /^\s*export\s*\{\s*\}\s*;?\s*$/.test(sourceText);
+const isEmptyEsmExportSource = (sourceText: string): boolean => /^\s*export\s*\{\s*\}\s*;?\s*$/.test(sourceText);
 
-const evaluateEsmDefaultConfigSource = (
-  filePath: string,
-  sourceText: string,
-): WfConfig => {
-  const executableSource = sourceText.replace(
-    /^\s*export\s+default\b/m,
-    'module.exports = ',
-  );
+const evaluateEsmDefaultConfigSource = (filePath: string, sourceText: string): WfConfig => {
+  const executableSource = sourceText.replace(/^\s*export\s+default\b/m, 'module.exports = ');
 
   return unwrapModuleExport(evaluateConfigScript(filePath, executableSource));
 };
 
-const readJavaScriptConfigModule = async (
-  filePath: string,
-): Promise<WfConfig> => {
+const readJavaScriptConfigModule = async (filePath: string): Promise<WfConfig> => {
   const sourceText = fs.readFileSync(filePath, 'utf-8');
   const nearestPackageType = detectNearestPackageType(filePath);
 
@@ -439,13 +371,12 @@ const readJavaScriptConfigModule = async (
 
       if (isEmptyEsmExportSource(sourceText)) {
         throw new ValidationError(
-          'wf config file exists but did not export a config object. Use export default { ... } for ESM configs or module.exports = { ... } for CommonJS configs.',
+          'wf config file exists but did not export a config object. Use export default { ... } for ESM configs or module.exports = { ... } for CommonJS configs.'
         );
       }
 
       if (
-        (message.includes('--experimental-vm-modules') ||
-          message.includes("Unexpected token 'export'")) &&
+        (message.includes('--experimental-vm-modules') || message.includes("Unexpected token 'export'")) &&
         !hasImportSyntax(sourceText) &&
         hasEsmDefaultExportSyntax(sourceText)
       ) {
@@ -470,15 +401,10 @@ const readJavaScriptConfigModule = async (
   }
 };
 
-const readTypeScriptConfigFromRegisteredExtension = (
-  filePath: string,
-  cwd: string,
-): WfConfig | null => {
+const readTypeScriptConfigFromRegisteredExtension = (filePath: string, cwd: string): WfConfig | null => {
   try {
     const requireFromProject = createRequire(path.join(cwd, 'package.json'));
-    const extensions = requireFromProject.extensions as
-      | Record<string, unknown>
-      | undefined;
+    const extensions = requireFromProject.extensions as Record<string, unknown> | undefined;
 
     if (!extensions?.['.ts']) {
       return null;
@@ -490,9 +416,7 @@ const readTypeScriptConfigFromRegisteredExtension = (
   }
 };
 
-const loadJitiFromProject = (
-  cwd: string,
-): ((filePath: string) => unknown) | null => {
+const loadJitiFromProject = (cwd: string): ((filePath: string) => unknown) | null => {
   try {
     const requireFromProject = createRequire(path.join(cwd, 'package.json'));
     const packageJsonPath = requireFromProject.resolve('jiti/package.json');
@@ -503,13 +427,11 @@ const loadJitiFromProject = (
 
     if (!isVersionGte(version, 2, 2, 0)) {
       throw new ValidationError(
-        `Installed jiti version ${version} is unsupported. Install jiti@2.2.0 or newer to load wf.config.ts files in Node.js.`,
+        `Installed jiti version ${version} is unsupported. Install jiti@2.2.0 or newer to load wf.config.ts files in Node.js.`
       );
     }
 
-    const createJiti = requireFromProject('jiti') as (
-      filename: string,
-    ) => (targetPath: string) => unknown;
+    const createJiti = requireFromProject('jiti') as (filename: string) => (targetPath: string) => unknown;
     const jiti = createJiti(cwd);
 
     return (filePath: string) => jiti(filePath);
@@ -547,14 +469,10 @@ export const discoverWfConfigPath = (cwd: string): string | null => {
  */
 export const loadTypeScriptConfig = async (
   filePath: string,
-  options: TypeScriptConfigLoadOptions = {},
+  options: TypeScriptConfigLoadOptions = {}
 ): Promise<WfConfig> => {
   const cwd = options.cwd ?? process.cwd();
-  const runtime =
-    options.runtime ??
-    ((globalThis as typeof globalThis & { Bun?: unknown }).Bun
-      ? 'bun'
-      : 'node');
+  const runtime = options.runtime ?? ((globalThis as typeof globalThis & { Bun?: unknown }).Bun ? 'bun' : 'node');
   const nodeVersion = options.nodeVersion ?? process.versions.node;
   const execArgv = options.execArgv ?? process.execArgv;
 
@@ -566,10 +484,7 @@ export const loadTypeScriptConfig = async (
     return readConfigModule(filePath);
   }
 
-  const registeredExtensionConfig = readTypeScriptConfigFromRegisteredExtension(
-    filePath,
-    cwd,
-  );
+  const registeredExtensionConfig = readTypeScriptConfigFromRegisteredExtension(filePath, cwd);
   if (registeredExtensionConfig) {
     return registeredExtensionConfig;
   }
@@ -578,7 +493,7 @@ export const loadTypeScriptConfig = async (
 
   if (!jitiLoader) {
     throw new ValidationError(
-      'Node.js cannot load wf TypeScript config files in this process. Install jiti@2.2.0 or newer as a dev dependency, or run Node.js >= 22.13.0 with --experimental-strip-types.',
+      'Node.js cannot load wf TypeScript config files in this process. Install jiti@2.2.0 or newer as a dev dependency, or run Node.js >= 22.13.0 with --experimental-strip-types.'
     );
   }
 
@@ -586,15 +501,12 @@ export const loadTypeScriptConfig = async (
     return unwrapModuleExport(jitiLoader(filePath));
   } catch {
     throw new ValidationError(
-      'Node.js cannot load wf TypeScript config files in this process. Install jiti@2.2.0 or newer as a dev dependency, or run Node.js >= 22.13.0 with --experimental-strip-types.',
+      'Node.js cannot load wf TypeScript config files in this process. Install jiti@2.2.0 or newer as a dev dependency, or run Node.js >= 22.13.0 with --experimental-strip-types.'
     );
   }
 };
 
-const loadConfigFile = async (
-  filePath: string,
-  options: TypeScriptConfigLoadOptions = {},
-): Promise<WfConfig> => {
+const loadConfigFile = async (filePath: string, options: TypeScriptConfigLoadOptions = {}): Promise<WfConfig> => {
   const extension = path.extname(filePath);
 
   if (extension === '.yaml' || extension === '.yml') {
@@ -615,7 +527,7 @@ const loadConfigFile = async (
 };
 
 const normalizeProvider = (
-  provider: WfAiProviderConfig,
+  provider: WfAiProviderConfig
 ): WfAiProviderConfig & {
   default: boolean;
   model: string;
@@ -627,14 +539,12 @@ const normalizeProvider = (
     ...provider,
     default: provider.default ?? false,
     model,
-    maxTokens: isGeminiConfig({ provider: provider.provider, model })
-      ? (provider.maxTokens ?? 4096)
-      : undefined,
+    maxTokens: isGeminiConfig({ provider: provider.provider, model }) ? (provider.maxTokens ?? 4096) : undefined,
   };
 };
 
 const normalizeVerificationConditionsConfig = (
-  config?: WfVerificationConditionsConfig,
+  config?: WfVerificationConditionsConfig
 ): NormalizedVerificationConditionsConfig | undefined => {
   if (!config) {
     return undefined;
@@ -671,7 +581,7 @@ const normalizeStageTarget = ({
 
   if (!configuredProviderNames.has(stageTarget.provider)) {
     throw new ValidationError(
-      `Invalid wf config: ${stageName} stage references provider "${stageTarget.provider}" which is not configured in ai[].`,
+      `Invalid wf config: ${stageName} stage references provider "${stageTarget.provider}" which is not configured in ai[].`
     );
   }
 
@@ -679,28 +589,22 @@ const normalizeStageTarget = ({
   const model = stageTarget.model ?? providerConfig?.model;
   if (!model) {
     throw new ValidationError(
-      `Invalid wf config: ${stageName} stage must define model or configure a default model for provider "${stageTarget.provider}" in ai[].`,
+      `Invalid wf config: ${stageName} stage must define model or configure a default model for provider "${stageTarget.provider}" in ai[].`
     );
   }
 
-  const backend: WfBackendMode =
-    stageTarget.backend ?? resolveDefaultStageBackend(stageName);
+  const backend: WfBackendMode = stageTarget.backend ?? resolveDefaultStageBackend(stageName);
   if (backend !== 'standard' && !isAgentSupportedStage(stageName)) {
-    throw new ValidationError(
-      `Invalid wf config: ${stageName} stage does not support backend "${backend}".`,
-    );
+    throw new ValidationError(`Invalid wf config: ${stageName} stage does not support backend "${backend}".`);
   }
-  if (
-    backend === 'agent' &&
-    !AGENT_SUPPORTED_PROVIDERS.has(stageTarget.provider)
-  ) {
+  if (backend === 'agent' && !AGENT_SUPPORTED_PROVIDERS.has(stageTarget.provider)) {
     throw new ValidationError(
-      `Invalid wf config: ${stageName} stage with backend: 'agent' is unsupported for provider "${stageTarget.provider}".`,
+      `Invalid wf config: ${stageName} stage with backend: 'agent' is unsupported for provider "${stageTarget.provider}".`
     );
   }
   if (backend === 'cli' && stageTarget.provider !== 'anthropic') {
     throw new ValidationError(
-      `Invalid wf config: ${stageName} stage with backend: 'cli' is only supported for provider "anthropic". Got "${stageTarget.provider}".`,
+      `Invalid wf config: ${stageName} stage with backend: 'cli' is only supported for provider "anthropic". Got "${stageTarget.provider}".`
     );
   }
 
@@ -718,17 +622,13 @@ const normalizeStageTarget = ({
  * @param rawConfig - Consumer-authored config object
  * @returns Normalized config with defaults applied
  */
-export const normalizeWfConfig = (
-  rawConfig: WfConfig = {},
-): NormalizedWfConfig => {
+export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig => {
   const { error, value } = configSchema.validate(rawConfig, {
     abortEarly: false,
   });
 
   if (error) {
-    throw new ValidationError(
-      `Invalid wf config: ${error.details.map((detail) => detail.message).join('; ')}`,
-    );
+    throw new ValidationError(`Invalid wf config: ${error.details.map(detail => detail.message).join('; ')}`);
   }
 
   const validatedConfig = value as WfConfig;
@@ -742,17 +642,15 @@ export const normalizeWfConfig = (
         },
       ];
   const providers = inputProviders.map(normalizeProvider);
-  const defaultProviders = providers.filter((provider) => provider.default);
+  const defaultProviders = providers.filter(provider => provider.default);
 
   if (defaultProviders.length > 1) {
-    throw new ValidationError(
-      'Invalid wf config: at most one AI provider may set default: true.',
-    );
+    throw new ValidationError('Invalid wf config: at most one AI provider may set default: true.');
   }
 
   if (providers.length > 1 && defaultProviders.length === 0) {
     throw new ValidationError(
-      'Invalid wf config: a default AI provider is required when multiple AI providers are configured.',
+      'Invalid wf config: a default AI provider is required when multiple AI providers are configured.'
     );
   }
 
@@ -765,17 +663,11 @@ export const normalizeWfConfig = (
   const loggingSource = validatedConfig.logging ?? validatedConfig.log ?? {};
 
   if ((validatedConfig.stages as { fetch?: string } | undefined)?.fetch) {
-    throw new ValidationError(
-      'Invalid wf config: fetch stage cannot be overridden in stages.',
-    );
+    throw new ValidationError('Invalid wf config: fetch stage cannot be overridden in stages.');
   }
 
-  const configuredProviderNames = new Set(
-    providers.map((provider) => provider.provider),
-  );
-  const configuredProvidersByName = new Map(
-    providers.map((provider) => [provider.provider, { model: provider.model }]),
-  );
+  const configuredProviderNames = new Set(providers.map(provider => provider.provider));
+  const configuredProvidersByName = new Map(providers.map(provider => [provider.provider, { model: provider.model }]));
 
   const aiStages = (['plan', 'review', 'generate', 'commit'] as const).reduce(
     (result, stageName) => {
@@ -790,9 +682,7 @@ export const normalizeWfConfig = (
       }
       return result;
     },
-    {} as Partial<
-      Record<SupportedModelStageName, NormalizedAiStageTargetConfig>
-    >,
+    {} as Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>
   );
 
   const normalizedImplementStage = (() => {
@@ -817,9 +707,7 @@ export const normalizeWfConfig = (
       ...(implementStageConfig.models && {
         models: implementStageConfig.models,
       }),
-      verificationConditions: normalizeVerificationConditionsConfig(
-        implementStageConfig.verificationConditions,
-      ),
+      verificationConditions: normalizeVerificationConditionsConfig(implementStageConfig.verificationConditions),
     };
   })();
 
@@ -846,29 +734,21 @@ export const normalizeWfConfig = (
 
       return {
         ...createTarget,
-        verificationConditions: normalizeVerificationConditionsConfig(
-          createStageConfig.verificationConditions,
-        ),
+        verificationConditions: normalizeVerificationConditionsConfig(createStageConfig.verificationConditions),
       };
     }
 
     return {
-      verificationConditions: normalizeVerificationConditionsConfig(
-        createStageConfig.verificationConditions,
-      ),
+      verificationConditions: normalizeVerificationConditionsConfig(createStageConfig.verificationConditions),
     };
   })();
 
-  const providerMap = new Map(
-    providers.map((provider) => [provider.provider, provider]),
-  );
+  const providerMap = new Map(providers.map(provider => [provider.provider, provider]));
   const anthropicProvider = providerMap.get('anthropic');
   const openaiProvider = providerMap.get('openai');
   const geminiProvider = providerMap.get('google');
   const deepseekProvider = providerMap.get('deepseek');
-  const jiraApiToken =
-    validatedConfig.atlassian?.jira?.apiToken ??
-    validatedConfig.atlassian?.apiToken;
+  const jiraApiToken = validatedConfig.atlassian?.jira?.apiToken ?? validatedConfig.atlassian?.apiToken;
 
   return {
     tracker: validatedConfig.tracker ?? 'jira',
@@ -917,8 +797,7 @@ export const normalizeWfConfig = (
       branchPrefixMapping: {
         feature: validatedConfig.git?.branchPrefixMapping?.feature ?? 'feature',
         fix: validatedConfig.git?.branchPrefixMapping?.fix ?? 'bugfix',
-        investigate:
-          validatedConfig.git?.branchPrefixMapping?.investigate ?? 'chore',
+        investigate: validatedConfig.git?.branchPrefixMapping?.investigate ?? 'chore',
       },
     },
     logging: {
@@ -940,9 +819,7 @@ export const normalizeWfConfig = (
  * @param options - Optional project root and runtime overrides
  * @returns Normalized config object
  */
-export const loadWfConfig = async (
-  options: WfConfigLoadOptions = {},
-): Promise<NormalizedWfConfig> => {
+export const loadWfConfig = async (options: WfConfigLoadOptions = {}): Promise<NormalizedWfConfig> => {
   const cwd = options.cwd ?? process.cwd();
   const configPath = discoverWfConfigPath(cwd);
 
@@ -960,9 +837,7 @@ export const loadWfConfig = async (
  * @param cwd - Optional project root override
  * @returns Loaded normalized config
  */
-export const initializeWfConfig = async (
-  cwd: string = process.cwd(),
-): Promise<NormalizedWfConfig> => {
+export const initializeWfConfig = async (cwd: string = process.cwd()): Promise<NormalizedWfConfig> => {
   loadedConfig = await loadWfConfig({ cwd });
   return loadedConfig;
 };

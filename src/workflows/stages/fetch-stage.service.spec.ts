@@ -35,11 +35,7 @@ describe('FetchStageService', () => {
           useValue: {
             get: jest
               .fn()
-              .mockImplementation((key: string) =>
-                key === 'atlassian.bitbucket.workspace'
-                  ? 'workspace'
-                  : undefined,
-              ),
+              .mockImplementation((key: string) => (key === 'atlassian.bitbucket.workspace' ? 'workspace' : undefined)),
           },
         },
       ],
@@ -76,12 +72,8 @@ describe('FetchStageService', () => {
       baseDir: path.join(tempBaseDir, 'consumer-app'),
     });
 
-    expect(artifact.path).toBe(
-      path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-123.md'),
-    );
-    expect(fs.readFileSync(artifact.path, 'utf-8')).toContain(
-      '# WBP-123: Fix broken auth flow',
-    );
+    expect(artifact.path).toBe(path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-123.md'));
+    expect(fs.readFileSync(artifact.path, 'utf-8')).toContain('# WBP-123: Fix broken auth flow');
   });
 
   it('reuses the existing artifact when skipExisting is true', async () => {

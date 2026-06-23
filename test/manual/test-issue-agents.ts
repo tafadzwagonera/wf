@@ -35,80 +35,37 @@ async function main() {
 
     const orchestrator = app.get(AgentOrchestrator);
     assert('AgentOrchestrator resolves', !!orchestrator);
-    assert(
-      'orchestrator.fetcher is FetcherAgent',
-      orchestrator.fetcher instanceof FetcherAgent,
-    );
-    assert(
-      'orchestrator.planner is PlannerAgent',
-      orchestrator.planner instanceof PlannerAgent,
-    );
-    assert(
-      'orchestrator.implementer is ImplementerAgent',
-      orchestrator.implementer instanceof ImplementerAgent,
-    );
-    assert(
-      'orchestrator.reviewer is ReviewerAgent',
-      orchestrator.reviewer instanceof ReviewerAgent,
-    );
-    assert(
-      'orchestrator.committer is CommitterAgent',
-      orchestrator.committer instanceof CommitterAgent,
-    );
+    assert('orchestrator.fetcher is FetcherAgent', orchestrator.fetcher instanceof FetcherAgent);
+    assert('orchestrator.planner is PlannerAgent', orchestrator.planner instanceof PlannerAgent);
+    assert('orchestrator.implementer is ImplementerAgent', orchestrator.implementer instanceof ImplementerAgent);
+    assert('orchestrator.reviewer is ReviewerAgent', orchestrator.reviewer instanceof ReviewerAgent);
+    assert('orchestrator.committer is CommitterAgent', orchestrator.committer instanceof CommitterAgent);
 
     // ── Test 2: Agent method contracts ────────────────────────────────────
     console.log(chalk.bold.cyan('\n🧪 Part 2: Agent Method Contracts'));
     console.log(chalk.gray('─'.repeat(60)));
 
-    assert(
-      'FetcherAgent.execute is function',
-      typeof orchestrator.fetcher.execute === 'function',
-    );
-    assert(
-      'FetcherAgent.loadFromDisk is function',
-      typeof orchestrator.fetcher.loadFromDisk === 'function',
-    );
-    assert(
-      'PlannerAgent.execute is function',
-      typeof orchestrator.planner.execute === 'function',
-    );
-    assert(
-      'PlannerAgent.loadFromDisk is function',
-      typeof orchestrator.planner.loadFromDisk === 'function',
-    );
-    assert(
-      'ImplementerAgent.execute is function',
-      typeof orchestrator.implementer.execute === 'function',
-    );
-    assert(
-      'ReviewerAgent.execute is function',
-      typeof orchestrator.reviewer.execute === 'function',
-    );
-    assert(
-      'CommitterAgent.execute is function',
-      typeof orchestrator.committer.execute === 'function',
-    );
+    assert('FetcherAgent.execute is function', typeof orchestrator.fetcher.execute === 'function');
+    assert('FetcherAgent.loadFromDisk is function', typeof orchestrator.fetcher.loadFromDisk === 'function');
+    assert('PlannerAgent.execute is function', typeof orchestrator.planner.execute === 'function');
+    assert('PlannerAgent.loadFromDisk is function', typeof orchestrator.planner.loadFromDisk === 'function');
+    assert('ImplementerAgent.execute is function', typeof orchestrator.implementer.execute === 'function');
+    assert('ReviewerAgent.execute is function', typeof orchestrator.reviewer.execute === 'function');
+    assert('CommitterAgent.execute is function', typeof orchestrator.committer.execute === 'function');
 
     // ── Test 3: FetcherAgent error on missing ticket ──────────────────────
-    console.log(
-      chalk.bold.cyan('\n🧪 Part 3: FetcherAgent error on missing ticket'),
-    );
+    console.log(chalk.bold.cyan('\n🧪 Part 3: FetcherAgent error on missing ticket'));
     console.log(chalk.gray('─'.repeat(60)));
     try {
       orchestrator.fetcher.loadFromDisk('FAKE-9999', 'jira');
       assert('throws for missing ticket', false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
-      assert(
-        'throws descriptive error for missing ticket',
-        msg.includes('Ticket file not found'),
-      );
+      assert('throws descriptive error for missing ticket', msg.includes('Ticket file not found'));
     }
 
     // ── Test 4: PlannerAgent error on missing plan ────────────────────────
-    console.log(
-      chalk.bold.cyan('\n🧪 Part 4: PlannerAgent error on missing plan'),
-    );
+    console.log(chalk.bold.cyan('\n🧪 Part 4: PlannerAgent error on missing plan'));
     console.log(chalk.gray('─'.repeat(60)));
     try {
       orchestrator.planner.loadFromDisk('/nonexistent/FAKE-9999.md', 'feature');
@@ -117,8 +74,7 @@ async function main() {
       const msg = err instanceof Error ? err.message : '';
       assert(
         'throws descriptive error for missing plan',
-        msg.includes('Plan file not found') ||
-          msg.includes('No plan file found'),
+        msg.includes('Plan file not found') || msg.includes('No plan file found')
       );
     }
 
@@ -133,7 +89,7 @@ async function main() {
     try {
       dryRunOutput = execSync(
         `npx ts-node -r tsconfig-paths/register src/main.ts issue ${ticketKey} --from fetch --to commit --action feature --repos test-repo --dry-run`,
-        { encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 },
+        { encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 }
       );
     } catch (err: unknown) {
       const spawnErr = err as {
@@ -146,22 +102,10 @@ async function main() {
     }
 
     assert('dry-run exits 0', dryRunExitCode === 0);
-    assert(
-      'dry-run output contains FETCH stage',
-      dryRunOutput.includes('fetch') || dryRunOutput.includes('FETCH'),
-    );
-    assert(
-      'dry-run output contains PLAN stage',
-      dryRunOutput.includes('plan') || dryRunOutput.includes('PLAN'),
-    );
-    assert(
-      'dry-run output contains REVIEW stage',
-      dryRunOutput.includes('review') || dryRunOutput.includes('REVIEW'),
-    );
-    assert(
-      'dry-run output contains COMMIT stage',
-      dryRunOutput.includes('commit') || dryRunOutput.includes('COMMIT'),
-    );
+    assert('dry-run output contains FETCH stage', dryRunOutput.includes('fetch') || dryRunOutput.includes('FETCH'));
+    assert('dry-run output contains PLAN stage', dryRunOutput.includes('plan') || dryRunOutput.includes('PLAN'));
+    assert('dry-run output contains REVIEW stage', dryRunOutput.includes('review') || dryRunOutput.includes('REVIEW'));
+    assert('dry-run output contains COMMIT stage', dryRunOutput.includes('commit') || dryRunOutput.includes('COMMIT'));
 
     // ── Test 6: --action guard (plan stage without action = error) ────────
     console.log(chalk.bold.cyan('\n🧪 Part 6: --action guard'));
@@ -174,7 +118,7 @@ async function main() {
       // so the test is reliable regardless of whether the ticket file exists.
       guardOutput = execSync(
         `npx ts-node -r tsconfig-paths/register src/main.ts issue ${ticketKey} --from plan --to plan --repos test-repo --dry-run`,
-        { encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 },
+        { encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 }
       );
     } catch (err: unknown) {
       const spawnErr = err as {
@@ -186,14 +130,8 @@ async function main() {
       guardExitCode = spawnErr.status ?? 1;
     }
 
-    assert(
-      'exits non-zero when --action missing for plan stage',
-      guardExitCode !== 0,
-    );
-    assert(
-      'error mentions --action',
-      guardOutput.includes('--action') || guardOutput.includes('action'),
-    );
+    assert('exits non-zero when --action missing for plan stage', guardExitCode !== 0);
+    assert('error mentions --action', guardOutput.includes('--action') || guardOutput.includes('action'));
   } finally {
     await app.close();
   }
@@ -203,9 +141,7 @@ async function main() {
   if (failed === 0) {
     console.log(chalk.bold.green(`\n✅ All ${passed} tests passed\n`));
   } else {
-    console.log(
-      chalk.bold.red(`\n✗ ${failed} of ${passed + failed} tests failed\n`),
-    );
+    console.log(chalk.bold.red(`\n✗ ${failed} of ${passed + failed} tests failed\n`));
     process.exit(1);
   }
 }

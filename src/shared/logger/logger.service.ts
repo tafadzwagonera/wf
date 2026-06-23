@@ -23,10 +23,7 @@ export class LoggerService implements NestLoggerService {
     this.logLevel = this.parseLogLevel(levelStr);
     this.logDirectory = getWfLogDir();
     this.ensureLogDirectory();
-    this.logFile = path.join(
-      this.logDirectory,
-      `agent-${new Date().toISOString().split('T')[0]}.log`,
-    );
+    this.logFile = path.join(this.logDirectory, `agent-${new Date().toISOString().split('T')[0]}.log`);
   }
 
   private parseLogLevel(level: string): LogLevel {
@@ -70,11 +67,7 @@ export class LoggerService implements NestLoggerService {
       if (trace) {
         console.error(chalk.gray(trace));
       }
-      this.writeToFile(
-        'ERROR',
-        `${String(message)}${trace ? `\n${trace}` : ''}`,
-        context,
-      );
+      this.writeToFile('ERROR', `${String(message)}${trace ? `\n${trace}` : ''}`, context);
     }
   }
 

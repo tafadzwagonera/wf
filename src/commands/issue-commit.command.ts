@@ -26,8 +26,7 @@ const ISSUE_COMMIT_EXAMPLES: CliExample[] = [
     command: 'wf issue:commit WBP-2971',
   },
   {
-    comment:
-      'Run the commit stage from source with conventional commits enabled',
+    comment: 'Run the commit stage from source with conventional commits enabled',
     command: 'yarn start issue:commit -c',
   },
   {
@@ -40,8 +39,8 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
       chalk.yellow(
-        `⚠️ Only the first repository will be used for issue:commit. Ignoring: ${repos!.slice(1).join(', ')}`,
-      ),
+        `⚠️ Only the first repository will be used for issue:commit. Ignoring: ${repos!.slice(1).join(', ')}`
+      )
     );
   }
 };
@@ -64,15 +63,12 @@ export class IssueCommitCommand extends CommandRunner {
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
-    private readonly commitStageService: CommitStageService,
+    private readonly commitStageService: CommitStageService
   ) {
     super();
   }
 
-  async run(
-    passedParams: string[],
-    options?: IssueCommitOptions,
-  ): Promise<void> {
+  async run(passedParams: string[], options?: IssueCommitOptions): Promise<void> {
     printExamples(ISSUE_COMMIT_EXAMPLES);
 
     try {
@@ -97,8 +93,7 @@ export class IssueCommitCommand extends CommandRunner {
             method: 'POST',
             endpoint: '/v1/messages',
             platform: this.aiService.getProviderDisplayName(),
-            description:
-              'Generate conventional commit message from staged diff',
+            description: 'Generate conventional commit message from staged diff',
             estimatedResponse: [
               '{',
               `  "content": "${ticketKey ? ticketKey + ': ' : ''}feat(scope): <generated message>"`,
@@ -107,9 +102,7 @@ export class IssueCommitCommand extends CommandRunner {
           });
         }
 
-        const msgPreview = options?.message
-          ? options.message
-          : '[AI-generated commit message]';
+        const msgPreview = options?.message ? options.message : '[AI-generated commit message]';
         const fullMsg = ticketKey ? `${ticketKey}: ${msgPreview}` : msgPreview;
 
         this.dryRunPreview.previewGitOperation({
@@ -140,9 +133,7 @@ export class IssueCommitCommand extends CommandRunner {
       // Check if we're in a git repository
       const isRepo = await this.gitService.isGitRepository(repoBaseDir);
       if (!isRepo) {
-        throw new Error(
-          `Not a git repository. Run this command from a git repository: ${repoBaseDir}`,
-        );
+        throw new Error(`Not a git repository. Run this command from a git repository: ${repoBaseDir}`);
       }
 
       console.log(chalk.bold.cyan('\n📝 Creating Git Commit\n'));
@@ -158,9 +149,7 @@ export class IssueCommitCommand extends CommandRunner {
       // Get git diff to understand changes
       const diff = await this.gitService.getDiff(true, repoBaseDir); // Get staged changes
       if (!diff || diff.trim().length === 0) {
-        throw new Error(
-          'No staged changes to commit. Use "git add" to stage changes first.',
-        );
+        throw new Error('No staged changes to commit. Use "git add" to stage changes first.');
       }
 
       const fileCount = this.countChangedFiles(diff);
@@ -176,7 +165,7 @@ export class IssueCommitCommand extends CommandRunner {
       } else if (options?.noAi) {
         // User wants to provide manual message
         throw new Error(
-          'Manual commit message required. Use --message "your message" or omit --no-ai for AI generation.',
+          'Manual commit message required. Use --message "your message" or omit --no-ai for AI generation.'
         );
       } else {
         // Generate with AI (default behavior)
@@ -205,13 +194,8 @@ export class IssueCommitCommand extends CommandRunner {
 
       console.log(chalk.green('✅ Commit created successfully!\n'));
       console.log(chalk.bold('Commit hash:'), chalk.cyan(commitHash));
-      console.log(
-        chalk.bold('Message:'),
-        chalk.bold.cyan(commitMessage.split('\n')[0]),
-      );
-      console.log(
-        chalk.gray('\n💡 Tip: Use "git push" to push your commit to remote\n'),
-      );
+      console.log(chalk.bold('Message:'), chalk.bold.cyan(commitMessage.split('\n')[0]));
+      console.log(chalk.gray('\n💡 Tip: Use "git push" to push your commit to remote\n'));
     } catch (error) {
       ErrorHandler.handle(error as Error);
     }
@@ -270,9 +254,7 @@ export class IssueCommitCommand extends CommandRunner {
    * Detect ticket key from current branch name
    * Supports formats like: feature/WBP-2971-description, WBP-2971, etc.
    */
-  private async detectTicketFromBranch(
-    repoBaseDir?: string,
-  ): Promise<string | null> {
+  private async detectTicketFromBranch(repoBaseDir?: string): Promise<string | null> {
     try {
       const branchInfo = await this.gitService.getBranchInfo(repoBaseDir);
       const branchName = branchInfo.current;
@@ -294,7 +276,7 @@ export class IssueCommitCommand extends CommandRunner {
    */
   private countChangedFiles(diff: string): number {
     const lines = diff.split('\n');
-    const fileLines = lines.filter((line) => line.startsWith('diff --git'));
+    const fileLines = lines.filter(line => line.startsWith('diff --git'));
     return fileLines.length;
   }
 
@@ -304,7 +286,7 @@ export class IssueCommitCommand extends CommandRunner {
   private indentMessage(message: string): string {
     return message
       .split('\n')
-      .map((line) => `  ${line}`)
+      .map(line => `  ${line}`)
       .join('\n');
   }
 }

@@ -8,17 +8,7 @@ import { CommitStageService } from './commit-stage.service';
 
 @Module({
   imports: [AIModule, IssueTrackerModule],
-  providers: [
-    FetchStageService,
-    PlanStageService,
-    ReviewStageService,
-    CommitStageService,
-  ],
-  exports: [
-    FetchStageService,
-    PlanStageService,
-    ReviewStageService,
-    CommitStageService,
-  ],
+  providers: [FetchStageService, PlanStageService, ReviewStageService, CommitStageService],
+  exports: [FetchStageService, PlanStageService, ReviewStageService, CommitStageService],
 })
 export class WorkflowStagesModule {}

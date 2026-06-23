@@ -17,24 +17,18 @@ export const loadAiContextConfig = async (
   globalPath: string | null,
   projectFileName: string,
   providerName: string,
-  shouldWarnWhenMissing: boolean,
+  shouldWarnWhenMissing: boolean
 ): Promise<string> => {
   const projectPath = path.join(process.cwd(), projectFileName);
 
   const [globalContent, projectContent] = await Promise.all([
-    globalPath
-      ? fs.readFile(globalPath, 'utf-8').catch(() => null)
-      : Promise.resolve(null),
+    globalPath ? fs.readFile(globalPath, 'utf-8').catch(() => null) : Promise.resolve(null),
     fs.readFile(projectPath, 'utf-8').catch(() => null),
   ]);
 
   if (globalContent === null && projectContent === null) {
     if (shouldWarnWhenMissing) {
-      console.warn(
-        chalk.yellow(
-          `⚠️ No global or project-level configuration found for ${providerName}`,
-        ),
-      );
+      console.warn(chalk.yellow(`⚠️ No global or project-level configuration found for ${providerName}`));
     }
 
     return '';

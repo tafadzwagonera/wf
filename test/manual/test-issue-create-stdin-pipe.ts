@@ -111,20 +111,14 @@ async function testStdinPipe() {
     if (capturedTicket?.title?.includes('OAuth2')) {
       pass('Ticket title parsed correctly from stdin markdown');
     } else {
-      fail(
-        'Ticket title not parsed from stdin',
-        `Got: ${capturedTicket?.title}`,
-      );
+      fail('Ticket title not parsed from stdin', `Got: ${capturedTicket?.title}`);
     }
 
     const lastLine = capturedOutput.trim().split('\n').pop()?.trim();
     if (lastLine === 'MOCK-1') {
       pass('Silent mode emits ticket key as last stdout line from stdin pipe');
     } else {
-      fail(
-        'Silent output mismatch',
-        `Expected last line "MOCK-1", got: "${lastLine}"`,
-      );
+      fail('Silent output mismatch', `Expected last line "MOCK-1", got: "${lastLine}"`);
     }
   }
 
@@ -180,10 +174,7 @@ async function testStdinPipe() {
     if (capturedTicket?.title === 'JSON stdin test') {
       pass('JSON stdin parsed correctly with --format json');
     } else {
-      fail(
-        'JSON stdin not parsed correctly',
-        `Got title: ${capturedTicket?.title}`,
-      );
+      fail('JSON stdin not parsed correctly', `Got title: ${capturedTicket?.title}`);
     }
   }
 

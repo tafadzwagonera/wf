@@ -31,29 +31,17 @@ async function fetchTicket() {
     console.log(chalk.bold('Type:'), chalk.white(ticket.issueType));
     console.log(chalk.bold('Status:'), chalk.yellow(ticket.status));
     console.log(chalk.bold('Priority:'), chalk.white(ticket.priority));
-    console.log(
-      chalk.bold('Assignee:'),
-      chalk.white(ticket.assignee || 'Unassigned'),
-    );
+    console.log(chalk.bold('Assignee:'), chalk.white(ticket.assignee || 'Unassigned'));
     console.log(chalk.bold('Reporter:'), chalk.white(ticket.reporter));
-    console.log(
-      chalk.bold('Created:'),
-      chalk.gray(ticket.created.toLocaleString()),
-    );
-    console.log(
-      chalk.bold('Updated:'),
-      chalk.gray(ticket.updated.toLocaleString()),
-    );
+    console.log(chalk.bold('Created:'), chalk.gray(ticket.created.toLocaleString()));
+    console.log(chalk.bold('Updated:'), chalk.gray(ticket.updated.toLocaleString()));
 
     if (ticket.labels.length > 0) {
       console.log(chalk.bold('Labels:'), chalk.blue(ticket.labels.join(', ')));
     }
 
     if (ticket.components.length > 0) {
-      console.log(
-        chalk.bold('Components:'),
-        chalk.white(ticket.components.join(', ')),
-      );
+      console.log(chalk.bold('Components:'), chalk.white(ticket.components.join(', ')));
     }
 
     console.log(chalk.bold('\nDescription:'));

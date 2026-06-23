@@ -17,7 +17,7 @@ export class AgentError extends Error {
     public code: ErrorCode,
     message: string,
     public details?: any,
-    public recoverable: boolean = false,
+    public recoverable: boolean = false
   ) {
     super(message);
     this.name = 'AgentError';
@@ -83,9 +83,7 @@ export const isAIErrorLike = (error: unknown): error is AIError => {
   }
 
   const maybeError = error as { code?: unknown; name?: unknown };
-  return (
-    maybeError.code === ErrorCode.AI_ERROR || maybeError.name === 'AIError'
-  );
+  return maybeError.code === ErrorCode.AI_ERROR || maybeError.name === 'AIError';
 };
 
 export class StateError extends AgentError {

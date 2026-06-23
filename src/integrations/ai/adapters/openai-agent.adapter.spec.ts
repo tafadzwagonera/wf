@@ -55,13 +55,7 @@ jest.mock('@openai/agents', () => ({
   ToolTimeoutError: class ToolTimeoutError extends Error {
     toolName: string;
     timeoutMs: number;
-    constructor({
-      toolName,
-      timeoutMs,
-    }: {
-      toolName: string;
-      timeoutMs: number;
-    }) {
+    constructor({ toolName, timeoutMs }: { toolName: string; timeoutMs: number }) {
       super(`Tool ${toolName} timed out after ${timeoutMs}ms`);
       this.name = 'ToolTimeoutError';
       this.toolName = toolName;
@@ -115,24 +109,19 @@ jest.mock('os', () => ({
   homedir: jest.fn(),
 }));
 
-const mockLoadAiContextConfig = loadAiContextConfig as jest.MockedFunction<
-  typeof loadAiContextConfig
->;
+const mockLoadAiContextConfig = loadAiContextConfig as jest.MockedFunction<typeof loadAiContextConfig>;
 const {
   Agent: mockAgent,
   OpenAIProvider: mockOpenAIProvider,
   Runner: mockRunner,
   tool: mockTool,
 } = jest.requireMock('@openai/agents');
-const { OpenAIResponsesCompactionSession: mockCompactionSession } =
-  jest.requireMock('@openai/agents-openai');
+const { OpenAIResponsesCompactionSession: mockCompactionSession } = jest.requireMock('@openai/agents-openai');
 const mockOpenAIClient = jest.requireMock('openai');
 const { exec: mockExec } = jest.requireMock('child_process');
 const mockHomedir = os.homedir as jest.MockedFunction<typeof os.homedir>;
 
-const makeConfigService = (
-  overrides: Record<string, unknown> = {},
-): ConfigService => {
+const makeConfigService = (overrides: Record<string, unknown> = {}): ConfigService => {
   const values: Record<string, unknown> = {
     'ai.openaiApiKey': 'test-openai-key',
     'stages.implement.model': 'gpt-5.4-mini',
@@ -140,9 +129,7 @@ const makeConfigService = (
   };
 
   return {
-    get: jest.fn((key: string, fallback?: unknown) =>
-      key in values ? values[key] : fallback,
-    ),
+    get: jest.fn((key: string, fallback?: unknown) => (key in values ? values[key] : fallback)),
   } as unknown as ConfigService;
 };
 
@@ -150,7 +137,7 @@ const makeStreamedRun = (
   events: Array<Record<string, unknown>>,
   finalOutput: string,
   error?: unknown,
-  currentTurn = 1,
+  currentTurn = 1
 ) => ({
   error,
   finalOutput,
@@ -179,10 +166,7 @@ const makeRunItemEvent = (name: string, item: Record<string, unknown>) => ({
   item,
 });
 
-const makeParams = (
-  repoDir: string,
-  verificationScripts: VerificationScript[] = [],
-) => ({
+const makeParams = (repoDir: string, verificationScripts: VerificationScript[] = []) => ({
   ticket: {
     ticketKey: 'T-1',
     content: 'ticket',
@@ -213,13 +197,10 @@ const makeParams = (
 const getTool = (agent: Record<string, unknown>, name: string) => {
   const tools = agent.tools as Array<{
     name: string;
-    execute: (
-      input: Record<string, unknown>,
-      runContext: { context: Record<string, unknown> },
-    ) => Promise<string>;
+    execute: (input: Record<string, unknown>, runContext: { context: Record<string, unknown> }) => Promise<string>;
   }>;
 
-  const tool = tools.find((entry) => entry.name === name);
+  const tool = tools.find(entry => entry.name === name);
   if (!tool) {
     throw new Error(`Tool not found: ${name}`);
   }
@@ -232,32 +213,20 @@ describe('OpenAIAgentAdapter', () => {
     mockHomedir.mockReturnValue(path.join(os.tmpdir(), 'wf-home-default'));
     mockLoadAiContextConfig.mockResolvedValue('');
     mockAgent.mockImplementation((config: Record<string, unknown>) => config);
-    mockOpenAIProvider.mockImplementation(
-      (config: Record<string, unknown>) => config,
-    );
+    mockOpenAIProvider.mockImplementation((config: Record<string, unknown>) => config);
     mockTool.mockImplementation((config: Record<string, unknown>) => config);
-    mockCompactionSession.mockImplementation(
-      (config: Record<string, unknown>) => config,
-    );
-    mockOpenAIClient.mockImplementation(
-      (config: Record<string, unknown>) => config,
-    );
+    mockCompactionSession.mockImplementation((config: Record<string, unknown>) => config);
+    mockOpenAIClient.mockImplementation((config: Record<string, unknown>) => config);
     mockExec.mockImplementation(
       (
         command: string,
         optionsOrCallback: unknown,
-        callbackMaybe?: (
-          error: Error | null,
-          result?: { stdout: string; stderr: string },
-        ) => void,
+        callbackMaybe?: (error: Error | null, result?: { stdout: string; stderr: string }) => void
       ) => {
-        const callback =
-          typeof optionsOrCallback === 'function'
-            ? optionsOrCallback
-            : callbackMaybe;
+        const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : callbackMaybe;
         callback?.(null, { stdout: 'ok', stderr: '' });
         return {} as never;
-      },
+      }
     );
   });
 
@@ -281,7 +250,7 @@ describe('OpenAIAgentAdapter', () => {
           type: 'run_item_stream_event',
           name: 'tool_called',
           item: { type: 'function_call', name: 'write_file' },
-        }),
+        })
       ).toEqual({
         message: '  [openai-agent] Tool requested: write_file',
       });
@@ -291,7 +260,7 @@ describe('OpenAIAgentAdapter', () => {
           type: 'run_item_stream_event',
           name: 'tool_output',
           item: { type: 'function_call_result', name: 'write_file' },
-        }),
+        })
       ).toEqual({
         message: '  [openai-agent] Tool completed: write_file',
       });
@@ -305,10 +274,9 @@ describe('OpenAIAgentAdapter', () => {
             type: 'reasoning',
             content: [{ text: 'Investigating verification output' }],
           },
-        }),
+        })
       ).toEqual({
-        message:
-          '  [openai-agent] Reasoning: Investigating verification output',
+        message: '  [openai-agent] Reasoning: Investigating verification output',
       });
     });
 
@@ -348,39 +316,33 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('formats agent_updated_stream_event', () => {
-      expect(
-        formatProgressMessage(makeAgentUpdatedEvent('test-agent')),
-      ).toEqual({
+      expect(formatProgressMessage(makeAgentUpdatedEvent('test-agent'))).toEqual({
         message: '  [openai-agent] Agent updated: test-agent',
       });
     });
 
     it('formats message_output_created event', () => {
-      expect(
-        formatProgressMessage(makeRunItemEvent('message_output_created', {})),
-      ).toEqual({
+      expect(formatProgressMessage(makeRunItemEvent('message_output_created', {}))).toEqual({
         message: '  [openai-agent] Message output started',
       });
     });
 
     it('formats handoff events', () => {
-      expect(
-        formatProgressMessage(makeRunItemEvent('handoff_requested', {})),
-      ).toEqual({ message: '  [openai-agent] Handoff requested' });
-      expect(
-        formatProgressMessage(makeRunItemEvent('handoff_occurred', {})),
-      ).toEqual({ message: '  [openai-agent] Handoff occurred' });
+      expect(formatProgressMessage(makeRunItemEvent('handoff_requested', {}))).toEqual({
+        message: '  [openai-agent] Handoff requested',
+      });
+      expect(formatProgressMessage(makeRunItemEvent('handoff_occurred', {}))).toEqual({
+        message: '  [openai-agent] Handoff occurred',
+      });
     });
 
     it('formats tool search events', () => {
-      expect(
-        formatProgressMessage(makeRunItemEvent('tool_search_called', {})),
-      ).toEqual({ message: '  [openai-agent] Tool search called' });
-      expect(
-        formatProgressMessage(
-          makeRunItemEvent('tool_search_output_created', {}),
-        ),
-      ).toEqual({ message: '  [openai-agent] Tool search completed' });
+      expect(formatProgressMessage(makeRunItemEvent('tool_search_called', {}))).toEqual({
+        message: '  [openai-agent] Tool search called',
+      });
+      expect(formatProgressMessage(makeRunItemEvent('tool_search_output_created', {}))).toEqual({
+        message: '  [openai-agent] Tool search completed',
+      });
     });
 
     it('formats tool_approval_requested event', () => {
@@ -388,19 +350,15 @@ describe('OpenAIAgentAdapter', () => {
         formatProgressMessage(
           makeRunItemEvent('tool_approval_requested', {
             name: 'dangerous_tool',
-          }),
-        ),
+          })
+        )
       ).toEqual({
         message: '  [openai-agent] Tool approval requested: dangerous_tool',
       });
     });
 
     it('returns null for output_text_delta', () => {
-      expect(
-        formatProgressMessage(
-          makeRawModelEvent({ type: 'output_text_delta', delta: 'hello' }),
-        ),
-      ).toBeNull();
+      expect(formatProgressMessage(makeRawModelEvent({ type: 'output_text_delta', delta: 'hello' }))).toBeNull();
     });
   });
 
@@ -468,24 +426,14 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('returns null for non-usage events', () => {
-      expect(
-        extractUsageFromEvent({ type: 'run_item_stream_event' }),
-      ).toBeNull();
-      expect(
-        extractUsageFromEvent(makeRawModelEvent({ type: 'output_text_delta' })),
-      ).toBeNull();
+      expect(extractUsageFromEvent({ type: 'run_item_stream_event' })).toBeNull();
+      expect(extractUsageFromEvent(makeRawModelEvent({ type: 'output_text_delta' }))).toBeNull();
     });
   });
 
   describe('classifyAgentError', () => {
-    const {
-      MaxTurnsExceededError,
-      ToolTimeoutError,
-      ToolCallError,
-      ModelBehaviorError,
-      UserError,
-      SystemError,
-    } = jest.requireMock('@openai/agents');
+    const { MaxTurnsExceededError, ToolTimeoutError, ToolCallError, ModelBehaviorError, UserError, SystemError } =
+      jest.requireMock('@openai/agents');
 
     it('classifies MaxTurnsExceededError', () => {
       const error = new MaxTurnsExceededError('exceeded 20 turns');
@@ -557,12 +505,7 @@ describe('OpenAIAgentAdapter', () => {
     it('discounts cached input tokens', () => {
       // 100K input total, 60K cached, 40K uncached, 10K output
       // uncached: 40K/1M * $0.40 = $0.016, cached: 60K/1M * $0.10 = $0.006, output: $0.016
-      const cost = estimateOpenAiCostUsd(
-        'gpt-4.1-mini',
-        100_000,
-        10_000,
-        60_000,
-      );
+      const cost = estimateOpenAiCostUsd('gpt-4.1-mini', 100_000, 10_000, 60_000);
       expect(cost).toBeCloseTo(0.038, 4);
     });
 
@@ -629,9 +572,7 @@ describe('OpenAIAgentAdapter', () => {
 
   describe('model routing in generateAndVerify', () => {
     it('uses mechanical model when --model-routing=mechanical', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-routing-mech-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-routing-mech-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -642,9 +583,7 @@ describe('OpenAIAgentAdapter', () => {
       }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       const params = {
         ...makeParams(repoDir),
@@ -658,21 +597,17 @@ describe('OpenAIAgentAdapter', () => {
       const agentConfig = mockAgent.mock.calls[0]?.[0] as { model: string };
       expect(agentConfig.model).toBe('gpt-5.1-codex-mini');
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
       expect(
         logCalls.some(
-          (message) =>
-            message.includes('Model routing:') &&
-            message.includes('mechanical') &&
-            message.includes('user override'),
-        ),
+          message =>
+            message.includes('Model routing:') && message.includes('mechanical') && message.includes('user override')
+        )
       ).toBe(true);
     });
 
     it('uses default model when --model-routing=default', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-routing-default-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-routing-default-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -699,9 +634,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('auto-detects mechanical task and selects cheaper model', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-routing-auto-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-routing-auto-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -712,9 +645,7 @@ describe('OpenAIAgentAdapter', () => {
       }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       const params = {
         ...makeParams(repoDir),
@@ -738,21 +669,16 @@ describe('OpenAIAgentAdapter', () => {
       const agentConfig = mockAgent.mock.calls[0]?.[0] as { model: string };
       expect(agentConfig.model).toBe('gpt-5.1-codex-mini');
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
       expect(
         logCalls.some(
-          (message) =>
-            message.includes('Model routing:') &&
-            message.includes('auto') &&
-            message.includes('mechanical'),
-        ),
+          message => message.includes('Model routing:') && message.includes('auto') && message.includes('mechanical')
+        )
       ).toBe(true);
     });
 
     it('reads mechanical model from stages.implement.models.mechanical config', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-routing-config-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-routing-config-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -766,7 +692,7 @@ describe('OpenAIAgentAdapter', () => {
         makeConfigService({
           'stages.implement.model': undefined,
           'stages.implement.models': { mechanical: 'gpt-4.1-nano' },
-        }),
+        })
       );
       jest.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -784,9 +710,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('throws when both model and models are configured', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-routing-warn-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-routing-warn-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -794,22 +718,18 @@ describe('OpenAIAgentAdapter', () => {
         makeConfigService({
           'stages.implement.model': 'gpt-5.4-mini',
           'stages.implement.models': { mechanical: 'gpt-4.1-nano' },
-        }),
+        })
       );
 
-      await expect(
-        adapter.generateAndVerify(makeParams(repoDir)),
-      ).rejects.toThrow(
-        'stages.implement.model and stages.implement.models are mutually exclusive.',
+      await expect(adapter.generateAndVerify(makeParams(repoDir))).rejects.toThrow(
+        'stages.implement.model and stages.implement.models are mutually exclusive.'
       );
     });
   });
 
   describe('generateAndVerify', () => {
     it('allows only whitelisted verification commands and prints a file summary', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-agent-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-agent-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -826,7 +746,7 @@ describe('OpenAIAgentAdapter', () => {
             item: { type: 'function_call_result', name: 'write_file' },
           },
         ],
-        'Implemented the change and verified it.',
+        'Implemented the change and verified it.'
       );
 
       mockRunner.mockImplementation((config: Record<string, unknown>) => ({
@@ -840,7 +760,7 @@ describe('OpenAIAgentAdapter', () => {
 
           const writeResult = await writeTool.execute(
             { path: 'src/foo.ts', content: 'updated\n' },
-            { context: workspaceContext },
+            { context: workspaceContext }
           );
           const writeParsed = JSON.parse(writeResult) as {
             path: string;
@@ -855,7 +775,7 @@ describe('OpenAIAgentAdapter', () => {
                 repoDir,
                 allowedVerificationCommands: new Set(['npm test']),
               },
-            },
+            }
           );
           const verificationParsed = JSON.parse(verificationResult) as {
             exitCode: number;
@@ -870,9 +790,7 @@ describe('OpenAIAgentAdapter', () => {
       }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await adapter.generateAndVerify(
         makeParams(repoDir, [
@@ -883,14 +801,14 @@ describe('OpenAIAgentAdapter', () => {
             policy: 'enforced',
             aliases: [],
           },
-        ]),
+        ])
       );
 
       expect(mockLoadAiContextConfig).toHaveBeenCalledWith(
         path.join(os.homedir(), '.openai', 'OPENAI.md'),
         '.openai/OPENAI.md',
         'openai',
-        true,
+        true
       );
       expect(mockAgent).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -905,7 +823,7 @@ describe('OpenAIAgentAdapter', () => {
             expect.objectContaining({ name: 'find_files' }),
             expect.objectContaining({ name: 'verify_command' }),
           ]),
-        }),
+        })
       );
       expect(mockOpenAIProvider).toHaveBeenCalledWith({
         openAIClient: expect.objectContaining({
@@ -919,12 +837,9 @@ describe('OpenAIAgentAdapter', () => {
               apiKey: 'test-openai-key',
             }),
           }),
-        }),
+        })
       );
-      const mockRunnerInstance = mockRunner.mock.results[0]?.value as Record<
-        string,
-        unknown
-      > & { run?: jest.Mock };
+      const mockRunnerInstance = mockRunner.mock.results[0]?.value as Record<string, unknown> & { run?: jest.Mock };
       expect(mockRunnerInstance.run).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
@@ -932,47 +847,23 @@ describe('OpenAIAgentAdapter', () => {
           stream: true,
           maxTurns: 500,
           session: expect.anything(),
-        }),
+        })
       );
       expect(mockExec).toHaveBeenCalledTimes(1);
       expect(mockExec.mock.calls[0][0]).toBe('npm test');
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
-      expect(
-        logCalls.some((message) =>
-          message.includes('[openai-agent] File updated: src/foo.ts'),
-        ),
-      ).toBe(true);
-      expect(
-        logCalls.some((message) =>
-          message.includes('[openai-agent] Verification running: npm test'),
-        ),
-      ).toBe(true);
-      expect(
-        logCalls.some((message) =>
-          message.includes('[openai-agent] Verification passed: npm test'),
-        ),
-      ).toBe(true);
-      expect(logCalls.every((message) => !message.includes('progress:'))).toBe(
-        true,
-      );
-      expect(
-        logCalls.some((message) =>
-          message.includes('OpenAI agent implementation complete'),
-        ),
-      ).toBe(true);
-      expect(
-        logCalls.some((message) => message.includes('Updated files:')),
-      ).toBe(true);
-      expect(
-        logCalls.some((message) => message.includes('updated: src/foo.ts')),
-      ).toBe(true);
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(logCalls.some(message => message.includes('[openai-agent] File updated: src/foo.ts'))).toBe(true);
+      expect(logCalls.some(message => message.includes('[openai-agent] Verification running: npm test'))).toBe(true);
+      expect(logCalls.some(message => message.includes('[openai-agent] Verification passed: npm test'))).toBe(true);
+      expect(logCalls.every(message => !message.includes('progress:'))).toBe(true);
+      expect(logCalls.some(message => message.includes('OpenAI agent implementation complete'))).toBe(true);
+      expect(logCalls.some(message => message.includes('Updated files:'))).toBe(true);
+      expect(logCalls.some(message => message.includes('updated: src/foo.ts'))).toBe(true);
     });
 
     it('rejects a verification command that is not on the whitelist before execution', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-agent-denied-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-agent-denied-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -988,7 +879,7 @@ describe('OpenAIAgentAdapter', () => {
                 repoDir,
                 allowedVerificationCommands: new Set(['npm test']),
               },
-            },
+            }
           );
 
           expect(result).toContain('is not in the verification whitelist');
@@ -998,9 +889,7 @@ describe('OpenAIAgentAdapter', () => {
       }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await adapter.generateAndVerify(
         makeParams(repoDir, [
@@ -1011,22 +900,16 @@ describe('OpenAIAgentAdapter', () => {
             policy: 'enforced',
             aliases: [],
           },
-        ]),
+        ])
       );
 
       expect(mockExec).not.toHaveBeenCalled();
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
-      expect(
-        logCalls.some((message) =>
-          message.includes('[openai-agent] Verification denied: yarn lint'),
-        ),
-      ).toBe(true);
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(logCalls.some(message => message.includes('[openai-agent] Verification denied: yarn lint'))).toBe(true);
     });
 
     it('prints an explicit failed verification log when a command exits non-zero', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-agent-failed-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-agent-failed-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1034,15 +917,9 @@ describe('OpenAIAgentAdapter', () => {
         (
           command: string,
           optionsOrCallback: unknown,
-          callbackMaybe?: (
-            error: Error | null,
-            result?: { stdout: string; stderr: string },
-          ) => void,
+          callbackMaybe?: (error: Error | null, result?: { stdout: string; stderr: string }) => void
         ) => {
-          const callback =
-            typeof optionsOrCallback === 'function'
-              ? optionsOrCallback
-              : callbackMaybe;
+          const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : callbackMaybe;
           const error = Object.assign(new Error('tests failed'), {
             code: 1,
             stdout: 'stdout',
@@ -1050,7 +927,7 @@ describe('OpenAIAgentAdapter', () => {
           });
           callback?.(error, { stdout: 'stdout', stderr: 'stderr' });
           return {} as never;
-        },
+        }
       );
 
       mockRunner.mockImplementation(() => ({
@@ -1064,7 +941,7 @@ describe('OpenAIAgentAdapter', () => {
                 repoDir,
                 allowedVerificationCommands: new Set(['npm test']),
               },
-            },
+            }
           );
 
           return makeStreamedRun([], 'Done.');
@@ -1073,9 +950,7 @@ describe('OpenAIAgentAdapter', () => {
       }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await adapter.generateAndVerify(
         makeParams(repoDir, [
@@ -1086,27 +961,18 @@ describe('OpenAIAgentAdapter', () => {
             policy: 'enforced',
             aliases: [],
           },
-        ]),
+        ])
       );
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
-      expect(
-        logCalls.some((message) =>
-          message.includes('[openai-agent] Verification failed: npm test'),
-        ),
-      ).toBe(true);
-      expect(logCalls.every((message) => !message.includes('progress:'))).toBe(
-        true,
-      );
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(logCalls.some(message => message.includes('[openai-agent] Verification failed: npm test'))).toBe(true);
+      expect(logCalls.every(message => !message.includes('progress:'))).toBe(true);
     });
 
     it('edit_file performs surgical replacement', async () => {
       const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-edit-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
-      fs.writeFileSync(
-        path.join(repoDir, 'src', 'foo.ts'),
-        'const x = 1;\nconst y = 2;\n',
-      );
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'const x = 1;\nconst y = 2;\n');
 
       const mockRunResult = makeStreamedRun([], 'Done.');
       mockRunner.mockImplementation(() => ({
@@ -1123,7 +989,7 @@ describe('OpenAIAgentAdapter', () => {
                 repoDir,
                 readRoots: [{ name: path.basename(repoDir), root: repoDir }],
               },
-            },
+            }
           );
           const parsed = JSON.parse(result) as { status: string };
           expect(parsed.status).toBe('updated');
@@ -1136,17 +1002,12 @@ describe('OpenAIAgentAdapter', () => {
       jest.spyOn(console, 'log').mockImplementation(() => {});
       await adapter.generateAndVerify(makeParams(repoDir));
 
-      const content = fs.readFileSync(
-        path.join(repoDir, 'src', 'foo.ts'),
-        'utf-8',
-      );
+      const content = fs.readFileSync(path.join(repoDir, 'src', 'foo.ts'), 'utf-8');
       expect(content).toBe('const x = 42;\nconst y = 2;\n');
     });
 
     it('edit_file rejects ambiguous matches (2+ occurrences)', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-edit-ambig-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-edit-ambig-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'hello\nhello\n');
 
@@ -1165,7 +1026,7 @@ describe('OpenAIAgentAdapter', () => {
                 repoDir,
                 readRoots: [{ name: path.basename(repoDir), root: repoDir }],
               },
-            },
+            }
           );
           const parsed = JSON.parse(result) as { error: string };
           expect(parsed.error).toContain('ambiguous');
@@ -1180,9 +1041,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('edit_file rejects missing old_string', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-edit-missing-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-edit-missing-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1201,7 +1060,7 @@ describe('OpenAIAgentAdapter', () => {
                 repoDir,
                 readRoots: [{ name: path.basename(repoDir), root: repoDir }],
               },
-            },
+            }
           );
           const parsed = JSON.parse(result) as { error: string };
           expect(parsed.error).toContain('not found');
@@ -1216,28 +1075,17 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('search_files returns matches within workspace', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-search-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-search-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
-      fs.writeFileSync(
-        path.join(repoDir, 'src', 'foo.ts'),
-        'const logger = new Logger();\n',
-      );
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'const logger = new Logger();\n');
 
       mockExec.mockImplementation(
         (
           command: string,
           optionsOrCallback: unknown,
-          callbackMaybe?: (
-            error: Error | null,
-            result?: { stdout: string; stderr: string },
-          ) => void,
+          callbackMaybe?: (error: Error | null, result?: { stdout: string; stderr: string }) => void
         ) => {
-          const callback =
-            typeof optionsOrCallback === 'function'
-              ? optionsOrCallback
-              : callbackMaybe;
+          const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : callbackMaybe;
           if (typeof command === 'string' && command.includes('grep')) {
             callback?.(null, {
               stdout: `${path.join(repoDir, 'src', 'foo.ts')}:1:const logger = new Logger();\n`,
@@ -1247,7 +1095,7 @@ describe('OpenAIAgentAdapter', () => {
             callback?.(null, { stdout: 'ok', stderr: '' });
           }
           return {} as never;
-        },
+        }
       );
 
       const mockRunResult = makeStreamedRun([], 'Done.');
@@ -1261,7 +1109,7 @@ describe('OpenAIAgentAdapter', () => {
                 repoDir,
                 readRoots: [{ name: path.basename(repoDir), root: repoDir }],
               },
-            },
+            }
           );
           const parsed = JSON.parse(result) as {
             matches: Array<{ file: string; line: number }>;
@@ -1279,9 +1127,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('search_files rejects paths outside readable roots', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-search-denied-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-search-denied-'));
 
       const mockRunResult = makeStreamedRun([], 'Done.');
       mockRunner.mockImplementation(() => ({
@@ -1295,8 +1141,8 @@ describe('OpenAIAgentAdapter', () => {
                   repoDir,
                   readRoots: [{ name: path.basename(repoDir), root: repoDir }],
                 },
-              },
-            ),
+              }
+            )
           ).rejects.toThrow('outside the allowed workspace roots');
           return mockRunResult;
         }),
@@ -1324,7 +1170,7 @@ describe('OpenAIAgentAdapter', () => {
                 repoDir,
                 readRoots: [{ name: path.basename(repoDir), root: repoDir }],
               },
-            },
+            }
           );
           const parsed = JSON.parse(result) as { files: string[] };
           expect(parsed.files).toContain('src/bar.ts');
@@ -1339,9 +1185,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('logs turn count and usage after successful run', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-completion-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-completion-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1360,7 +1204,7 @@ describe('OpenAIAgentAdapter', () => {
         ],
         'Done.',
         undefined,
-        3,
+        3
       );
 
       mockRunner.mockImplementation(() => ({
@@ -1369,29 +1213,17 @@ describe('OpenAIAgentAdapter', () => {
       }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await adapter.generateAndVerify(makeParams(repoDir));
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
-      expect(
-        logCalls.some((message) =>
-          message.includes('Agent completed in 3 turn(s)'),
-        ),
-      ).toBe(true);
-      expect(
-        logCalls.some((message) =>
-          message.includes('Usage: 1000 input / 500 output tokens'),
-        ),
-      ).toBe(true);
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(logCalls.some(message => message.includes('Agent completed in 3 turn(s)'))).toBe(true);
+      expect(logCalls.some(message => message.includes('Usage: 1000 input / 500 output tokens'))).toBe(true);
     });
 
     it('passes a compaction session to Runner.run()', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-compaction-session-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-compaction-session-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1413,12 +1245,9 @@ describe('OpenAIAgentAdapter', () => {
         expect.objectContaining({
           compactionMode: 'auto',
           shouldTriggerCompaction: expect.any(Function),
-        }),
+        })
       );
-      const mockRunnerInstance = mockRunner.mock.results[0]?.value as Record<
-        string,
-        unknown
-      > & { run?: jest.Mock };
+      const mockRunnerInstance = mockRunner.mock.results[0]?.value as Record<string, unknown> & { run?: jest.Mock };
       const runOptions = mockRunnerInstance.run?.mock.calls[0]?.[2] as {
         session: unknown;
       };
@@ -1426,9 +1255,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('shouldTriggerCompaction fires on item count or observed input tokens', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-compaction-hook-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-compaction-hook-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1442,10 +1269,7 @@ describe('OpenAIAgentAdapter', () => {
       jest.spyOn(console, 'log').mockImplementation(() => {});
       await adapter.generateAndVerify(makeParams(repoDir));
 
-      const hookArg = mockCompactionSession.mock.calls[0]?.[0] as Record<
-        string,
-        unknown
-      >;
+      const hookArg = mockCompactionSession.mock.calls[0]?.[0] as Record<string, unknown>;
       const shouldTrigger = hookArg.shouldTriggerCompaction as (arg: {
         compactionCandidateItems: unknown[];
       }) => boolean;
@@ -1454,21 +1278,19 @@ describe('OpenAIAgentAdapter', () => {
       expect(
         shouldTrigger({
           compactionCandidateItems: Array.from({ length: 10 }),
-        }),
+        })
       ).toBe(true);
 
       // Few candidates and no observed tokens yet → false
       expect(
         shouldTrigger({
           compactionCandidateItems: Array.from({ length: 3 }),
-        }),
+        })
       ).toBe(false);
     });
 
     it('logs cached token count when present', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-cached-log-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-cached-log-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1488,7 +1310,7 @@ describe('OpenAIAgentAdapter', () => {
         ],
         'Done.',
         undefined,
-        5,
+        5
       );
 
       mockRunner.mockImplementation(() => ({
@@ -1497,27 +1319,23 @@ describe('OpenAIAgentAdapter', () => {
       }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await adapter.generateAndVerify(makeParams(repoDir));
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
       expect(
         logCalls.some(
-          (message) =>
+          message =>
             message.includes('Usage: 31376 input') &&
             message.includes('(12000 cached)') &&
-            message.includes('1063 output tokens'),
-        ),
+            message.includes('1063 output tokens')
+        )
       ).toBe(true);
     });
 
     it('logs compaction triggered message when compaction occurred', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-compaction-log-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-compaction-log-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1535,7 +1353,7 @@ describe('OpenAIAgentAdapter', () => {
             },
           }),
         ],
-        'Done.',
+        'Done.'
       );
 
       mockRunner.mockImplementation(() => ({
@@ -1544,24 +1362,16 @@ describe('OpenAIAgentAdapter', () => {
       }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await adapter.generateAndVerify(makeParams(repoDir));
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
-      expect(
-        logCalls.some((message) =>
-          message.includes('Context compaction triggered during run'),
-        ),
-      ).toBe(true);
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(logCalls.some(message => message.includes('Context compaction triggered during run'))).toBe(true);
     });
 
     it('uses a fixed maxTurns ceiling with progress-based stall detection', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-maxturns-ceiling-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-maxturns-ceiling-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1589,19 +1399,14 @@ describe('OpenAIAgentAdapter', () => {
       };
       await adapter.generateAndVerify(largeParams);
 
-      const mockRunnerInstance = mockRunner.mock.results[0]?.value as Record<
-        string,
-        unknown
-      > & { run?: jest.Mock };
+      const mockRunnerInstance = mockRunner.mock.results[0]?.value as Record<string, unknown> & { run?: jest.Mock };
       const runCall = mockRunnerInstance.run?.mock.calls[0];
       const runOptions = runCall?.[2] as { maxTurns: number } | undefined;
       expect(runOptions?.maxTurns).toBe(500);
     });
 
     it('includes plan steps in system prompt', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-prompt-steps-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-steps-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1633,19 +1438,13 @@ describe('OpenAIAgentAdapter', () => {
         instructions: string;
       };
       expect(agentConfig.instructions).toContain('Plan steps:');
-      expect(agentConfig.instructions).toContain(
-        '1. Migrate Logger to PinoLogger',
-      );
+      expect(agentConfig.instructions).toContain('1. Migrate Logger to PinoLogger');
       expect(agentConfig.instructions).toContain('2. Update unit tests');
-      expect(agentConfig.instructions).toContain(
-        'You MUST implement ALL plan steps',
-      );
+      expect(agentConfig.instructions).toContain('You MUST implement ALL plan steps');
     });
 
     it('edit_file rejects edits that create duplicate constructors', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-edit-dup-ctor-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-edit-dup-ctor-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       const originalContent = [
         'class Foo {',
@@ -1663,15 +1462,14 @@ describe('OpenAIAgentAdapter', () => {
             {
               path: 'src/foo.ts',
               old_string: 'class Foo {',
-              new_string:
-                'class Foo {\n  constructor(private pino: PinoLogger) {}',
+              new_string: 'class Foo {\n  constructor(private pino: PinoLogger) {}',
             },
             {
               context: {
                 repoDir,
                 readRoots: [{ name: path.basename(repoDir), root: repoDir }],
               },
-            },
+            }
           );
           const parsed = JSON.parse(result) as { error: string };
           expect(parsed.error).toContain('Foo');
@@ -1686,17 +1484,12 @@ describe('OpenAIAgentAdapter', () => {
       await adapter.generateAndVerify(makeParams(repoDir));
 
       // File on disk must be unchanged (rollback)
-      const diskContent = fs.readFileSync(
-        path.join(repoDir, 'src', 'foo.ts'),
-        'utf-8',
-      );
+      const diskContent = fs.readFileSync(path.join(repoDir, 'src', 'foo.ts'), 'utf-8');
       expect(diskContent).toBe(originalContent);
     });
 
     it('classifies MaxTurnsExceededError in catch block', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-maxturns-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-maxturns-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1718,31 +1511,20 @@ describe('OpenAIAgentAdapter', () => {
       }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      await expect(
-        adapter.generateAndVerify(makeParams(repoDir)),
-      ).rejects.toThrow('Max turns exceeded');
+      await expect(adapter.generateAndVerify(makeParams(repoDir))).rejects.toThrow('Max turns exceeded');
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
-      expect(
-        logCalls.some((message) => message.includes('Max turns exceeded')),
-      ).toBe(true);
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(logCalls.some(message => message.includes('Max turns exceeded'))).toBe(true);
     });
 
     it('resets rate-limit retry counter when progress is made between errors', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-rate-reset-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-rate-reset-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
-      const rateLimitError = Object.assign(
-        new Error('Rate limit reached. Please try again in 1ms.'),
-        { status: 429 },
-      );
+      const rateLimitError = Object.assign(new Error('Rate limit reached. Please try again in 1ms.'), { status: 429 });
 
       // Simulate: rate limit → progress → rate limit → progress → ... (>5 total rate limits)
       // Should survive because the counter resets after each progress segment.
@@ -1783,16 +1565,11 @@ describe('OpenAIAgentAdapter', () => {
     }, 15_000);
 
     it('fails after consecutive rate limits without progress', async () => {
-      const repoDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), 'wf-openai-rate-fail-'),
-      );
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-rate-fail-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
-      const rateLimitError = Object.assign(
-        new Error('Rate limit reached. Please try again in 1ms.'),
-        { status: 429 },
-      );
+      const rateLimitError = Object.assign(new Error('Rate limit reached. Please try again in 1ms.'), { status: 429 });
 
       const mockRun = jest.fn(async () => ({
         error: undefined,
@@ -1809,18 +1586,14 @@ describe('OpenAIAgentAdapter', () => {
       const adapter = new OpenAIAgentAdapter(makeConfigService());
       jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      await expect(
-        adapter.generateAndVerify(makeParams(repoDir)),
-      ).rejects.toThrow('Rate limited');
+      await expect(adapter.generateAndVerify(makeParams(repoDir))).rejects.toThrow('Rate limited');
       // Initial call + 5 retries = 6 total
       expect(mockRun).toHaveBeenCalledTimes(6);
     }, 15_000);
 
     describe('adaptive compaction thresholds', () => {
       it('uses 20 items for plans with 8 steps', async () => {
-        const repoDir = fs.mkdtempSync(
-          path.join(os.tmpdir(), 'wf-openai-compact-mid-'),
-        );
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-compact-mid-'));
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1848,10 +1621,7 @@ describe('OpenAIAgentAdapter', () => {
         };
         await adapter.generateAndVerify(params);
 
-        const hookArg = mockCompactionSession.mock.calls[0]?.[0] as Record<
-          string,
-          unknown
-        >;
+        const hookArg = mockCompactionSession.mock.calls[0]?.[0] as Record<string, unknown>;
         const shouldTrigger = hookArg.shouldTriggerCompaction as (arg: {
           compactionCandidateItems: unknown[];
         }) => boolean;
@@ -1860,21 +1630,19 @@ describe('OpenAIAgentAdapter', () => {
         expect(
           shouldTrigger({
             compactionCandidateItems: Array.from({ length: 20 }),
-          }),
+          })
         ).toBe(true);
 
         // 19 candidates, no observed tokens → false
         expect(
           shouldTrigger({
             compactionCandidateItems: Array.from({ length: 19 }),
-          }),
+          })
         ).toBe(false);
       });
 
       it('uses 30 items for plans with 15 steps', async () => {
-        const repoDir = fs.mkdtempSync(
-          path.join(os.tmpdir(), 'wf-openai-compact-large-'),
-        );
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-compact-large-'));
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1902,10 +1670,7 @@ describe('OpenAIAgentAdapter', () => {
         };
         await adapter.generateAndVerify(params);
 
-        const hookArg = mockCompactionSession.mock.calls[0]?.[0] as Record<
-          string,
-          unknown
-        >;
+        const hookArg = mockCompactionSession.mock.calls[0]?.[0] as Record<string, unknown>;
         const shouldTrigger = hookArg.shouldTriggerCompaction as (arg: {
           compactionCandidateItems: unknown[];
         }) => boolean;
@@ -1914,23 +1679,21 @@ describe('OpenAIAgentAdapter', () => {
         expect(
           shouldTrigger({
             compactionCandidateItems: Array.from({ length: 30 }),
-          }),
+          })
         ).toBe(true);
 
         // 29 candidates, no observed tokens → false
         expect(
           shouldTrigger({
             compactionCandidateItems: Array.from({ length: 29 }),
-          }),
+          })
         ).toBe(false);
       });
     });
 
     describe('incomplete-work loop stall detection', () => {
       it('skips loop when all planned files touched in initial run', async () => {
-        const repoDir = fs.mkdtempSync(
-          path.join(os.tmpdir(), 'wf-openai-stall-skip-'),
-        );
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-stall-skip-'));
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
         fs.writeFileSync(path.join(repoDir, 'src', 'bar.ts'), 'original\n');
@@ -1942,14 +1705,8 @@ describe('OpenAIAgentAdapter', () => {
             readRoots: [{ name: path.basename(repoDir), root: repoDir }],
           };
 
-          await writeTool.execute(
-            { path: 'src/foo.ts', content: 'updated foo\n' },
-            { context: workspaceContext },
-          );
-          await writeTool.execute(
-            { path: 'src/bar.ts', content: 'updated bar\n' },
-            { context: workspaceContext },
-          );
+          await writeTool.execute({ path: 'src/foo.ts', content: 'updated foo\n' }, { context: workspaceContext });
+          await writeTool.execute({ path: 'src/bar.ts', content: 'updated bar\n' }, { context: workspaceContext });
 
           return makeStreamedRun([], 'Done.');
         });
@@ -1973,9 +1730,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('breaks after 2 non-improving passes', async () => {
-        const repoDir = fs.mkdtempSync(
-          path.join(os.tmpdir(), 'wf-openai-stall-break-'),
-        );
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-stall-break-'));
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1987,9 +1742,7 @@ describe('OpenAIAgentAdapter', () => {
         }));
 
         const adapter = new OpenAIAgentAdapter(makeConfigService());
-        const consoleSpy = jest
-          .spyOn(console, 'log')
-          .mockImplementation(() => {});
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
         const params = {
           ...makeParams(repoDir),
@@ -2000,16 +1753,12 @@ describe('OpenAIAgentAdapter', () => {
         // 1 initial + 2 continuation passes (stall detected at stalledPasses=2)
         expect(mockRun).toHaveBeenCalledTimes(3);
 
-        const logMessages = consoleSpy.mock.calls
-          .map((call) => String(call[0]))
-          .join('\n');
+        const logMessages = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
         expect(logMessages).toContain('Workload not decreasing');
       });
 
       it('continues when workload decreases and completes', async () => {
-        const repoDir = fs.mkdtempSync(
-          path.join(os.tmpdir(), 'wf-openai-stall-progress-'),
-        );
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-stall-progress-'));
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
         fs.writeFileSync(path.join(repoDir, 'src', 'bar.ts'), 'original\n');
@@ -2024,17 +1773,11 @@ describe('OpenAIAgentAdapter', () => {
 
           if (callIndex === 1) {
             // First call: write only foo.ts
-            await writeTool.execute(
-              { path: 'src/foo.ts', content: 'updated foo\n' },
-              { context: workspaceContext },
-            );
+            await writeTool.execute({ path: 'src/foo.ts', content: 'updated foo\n' }, { context: workspaceContext });
           }
           if (callIndex === 2) {
             // Second call (continuation): write bar.ts
-            await writeTool.execute(
-              { path: 'src/bar.ts', content: 'updated bar\n' },
-              { context: workspaceContext },
-            );
+            await writeTool.execute({ path: 'src/bar.ts', content: 'updated bar\n' }, { context: workspaceContext });
           }
 
           return makeStreamedRun([], 'Done.');
@@ -2059,9 +1802,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('counts validation failures in workload', async () => {
-        const repoDir = fs.mkdtempSync(
-          path.join(os.tmpdir(), 'wf-openai-stall-validation-'),
-        );
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-stall-validation-'));
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(
           path.join(repoDir, 'src', 'foo.ts'),
@@ -2071,7 +1812,7 @@ describe('OpenAIAgentAdapter', () => {
             '  run() { this.logger.log("hi"); }',
             '}',
             '',
-          ].join('\n'),
+          ].join('\n')
         );
 
         const mockRun = jest.fn(async (agent: Record<string, unknown>) => {
@@ -2095,7 +1836,7 @@ describe('OpenAIAgentAdapter', () => {
                   '',
                 ].join('\n'),
               },
-              { context: workspaceContext },
+              { context: workspaceContext }
             );
 
             // Now apply a bad edit that creates a duplicate constructor
@@ -2104,10 +1845,9 @@ describe('OpenAIAgentAdapter', () => {
               {
                 path: 'src/foo.ts',
                 old_string: 'class Foo {',
-                new_string:
-                  'class Foo {\n  constructor(private pino: PinoLogger) {}',
+                new_string: 'class Foo {\n  constructor(private pino: PinoLogger) {}',
               },
-              { context: workspaceContext },
+              { context: workspaceContext }
             );
           }
           // Calls 2 and 3: do nothing — workload stays at 1 (uniqueFailureCount)
@@ -2121,9 +1861,7 @@ describe('OpenAIAgentAdapter', () => {
         }));
 
         const adapter = new OpenAIAgentAdapter(makeConfigService());
-        const consoleSpy = jest
-          .spyOn(console, 'log')
-          .mockImplementation(() => {});
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
         const params = {
           ...makeParams(repoDir),
@@ -2134,16 +1872,12 @@ describe('OpenAIAgentAdapter', () => {
         // 1 initial + 2 continuations (stalls on uniqueFailureCount not decreasing)
         expect(mockRun).toHaveBeenCalledTimes(3);
 
-        const logMessages = consoleSpy.mock.calls
-          .map((call) => String(call[0]))
-          .join('\n');
+        const logMessages = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
         expect(logMessages).toContain('Workload not decreasing');
       });
 
       it('clears validation failures when a corrective edit lands', async () => {
-        const repoDir = fs.mkdtempSync(
-          path.join(os.tmpdir(), 'wf-openai-stall-clear-'),
-        );
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-stall-clear-'));
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(
           path.join(repoDir, 'src', 'foo.ts'),
@@ -2153,7 +1887,7 @@ describe('OpenAIAgentAdapter', () => {
             '  run() { this.logger.log("hi"); }',
             '}',
             '',
-          ].join('\n'),
+          ].join('\n')
         );
 
         const mockRun = jest.fn(async (agent: Record<string, unknown>) => {
@@ -2171,10 +1905,9 @@ describe('OpenAIAgentAdapter', () => {
               {
                 path: 'src/foo.ts',
                 old_string: 'class Foo {',
-                new_string:
-                  'class Foo {\n  constructor(private pino: PinoLogger) {}',
+                new_string: 'class Foo {\n  constructor(private pino: PinoLogger) {}',
               },
-              { context: workspaceContext },
+              { context: workspaceContext }
             );
 
             // Corrective edit: merge into single constructor
@@ -2184,7 +1917,7 @@ describe('OpenAIAgentAdapter', () => {
                 old_string: '  constructor(private logger: Logger) {}',
                 new_string: '  constructor(private logger: PinoLogger) {}',
               },
-              { context: workspaceContext },
+              { context: workspaceContext }
             );
           }
 
@@ -2262,15 +1995,8 @@ class Foo {}
     });
 
     it('returns null for non-TS files (.js, .json)', () => {
-      expect(
-        validateTypeScriptEdit(
-          'src/foo.js',
-          'class Foo { constructor() {} constructor() {} }',
-        ),
-      ).toBeNull();
-      expect(
-        validateTypeScriptEdit('data.json', '{ "key": "value" }'),
-      ).toBeNull();
+      expect(validateTypeScriptEdit('src/foo.js', 'class Foo { constructor() {} constructor() {} }')).toBeNull();
+      expect(validateTypeScriptEdit('data.json', '{ "key": "value" }')).toBeNull();
     });
   });
 });

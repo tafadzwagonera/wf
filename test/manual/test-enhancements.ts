@@ -45,13 +45,8 @@ async function main() {
   console.log(chalk.bold.cyan('\n🧪 E2: Artifact Path (.wf/)'));
   console.log(chalk.gray('─'.repeat(60)));
 
-  const { output: planDryRun } = run(
-    `${CLI} issue:plan WBP-0001 --action feature --repos test-repo --dry-run`,
-  );
-  assert(
-    'issue:plan dry-run output mentions .wf/ path',
-    planDryRun.includes('.wf/'),
-  );
+  const { output: planDryRun } = run(`${CLI} issue:plan WBP-0001 --action feature --repos test-repo --dry-run`);
+  assert('issue:plan dry-run output mentions .wf/ path', planDryRun.includes('.wf/'));
 
   // ── E4: --custom for issue:plan ────────────────────────────────────────
   console.log(chalk.bold.cyan('\n🧪 E4: issue:plan --custom'));
@@ -59,28 +54,23 @@ async function main() {
 
   // Happy path: --custom dry-run exits 0 and output contains a mnemonic filename
   const { output: promptOut, exitCode: promptCode } = run(
-    `${CLI} issue:plan --action feature --custom README.md --repos test-repo --dry-run`,
+    `${CLI} issue:plan --action feature --custom README.md --repos test-repo --dry-run`
   );
   assert('--custom dry-run exits 0', promptCode === 0);
   assert(
     '--custom dry-run output contains mnemonic-feature.json pattern',
-    /[a-z]+-[a-z]+-[a-z]+-feature\.json/.test(promptOut),
+    /[a-z]+-[a-z]+-[a-z]+-feature\.json/.test(promptOut)
   );
 
   // Mutual exclusion: ticket-key + --custom → non-zero exit
   const { exitCode: mutualCode, output: mutualOut } = run(
-    `${CLI} issue:plan WBP-0001 --action feature --custom README.md --repos test-repo --dry-run`,
+    `${CLI} issue:plan WBP-0001 --action feature --custom README.md --repos test-repo --dry-run`
   );
   assert('ticket-key + --custom exits non-zero', mutualCode !== 0);
-  assert(
-    'mutual-exclusion error message mentions --custom',
-    mutualOut.includes('--custom'),
-  );
+  assert('mutual-exclusion error message mentions --custom', mutualOut.includes('--custom'));
 
   // Missing --action → non-zero
-  const { exitCode: noActionCode } = run(
-    `${CLI} issue:plan --custom README.md --repos test-repo --dry-run`,
-  );
+  const { exitCode: noActionCode } = run(`${CLI} issue:plan --custom README.md --repos test-repo --dry-run`);
   assert('--custom without --action exits non-zero', noActionCode !== 0);
 
   // ── E5: custom artifact execution for issue:implement ──────────────────
@@ -89,16 +79,10 @@ async function main() {
 
   // Missing extension → validation error
   const { exitCode: missingPlanCode, output: missingPlanOut } = run(
-    `${CLI} issue:implement merry-tinkering-pine-feature`,
+    `${CLI} issue:implement merry-tinkering-pine-feature`
   );
-  assert(
-    'custom artifact without extension exits non-zero',
-    missingPlanCode !== 0,
-  );
-  assert(
-    'error mentions extension requirement',
-    missingPlanOut.includes('extension'),
-  );
+  assert('custom artifact without extension exits non-zero', missingPlanCode !== 0);
+  assert('error mentions extension requirement', missingPlanOut.includes('extension'));
 
   // No ticketKey, no custom artifact → non-zero
   const { exitCode: noArgsCode } = run(`${CLI} issue:implement --dry-run`);
@@ -106,12 +90,7 @@ async function main() {
 
   // Custom artifact dry-run: exits 0, no "git checkout -b"
   // Create a minimal valid plan JSON for the test
-  const tmpPlan = path.join(
-    process.cwd(),
-    '.wf',
-    'jira',
-    'test-plan-feature.json',
-  );
+  const tmpPlan = path.join(process.cwd(), '.wf', 'jira', 'test-plan-feature.json');
   fs.mkdirSync(path.dirname(tmpPlan), { recursive: true });
   fs.writeFileSync(
     tmpPlan,
@@ -122,17 +101,12 @@ async function main() {
       steps: ['Step one', 'Step two'],
       filesAffected: ['src/foo.ts'],
       repositoriesAffected: ['test-repo'],
-    }),
+    })
   );
 
-  const { exitCode: planKeylessCode, output: planKeylessOut } = run(
-    `${CLI} issue:implement ${tmpPlan} --dry-run`,
-  );
+  const { exitCode: planKeylessCode, output: planKeylessOut } = run(`${CLI} issue:implement ${tmpPlan} --dry-run`);
   assert('custom artifact dry-run exits 0', planKeylessCode === 0);
-  assert(
-    'custom artifact output does NOT contain "git checkout -b"',
-    !planKeylessOut.includes('git checkout -b'),
-  );
+  assert('custom artifact output does NOT contain "git checkout -b"', !planKeylessOut.includes('git checkout -b'));
 
   // Cleanup
   try {
@@ -147,25 +121,16 @@ async function main() {
   // E6-1: issue dry-run with --action investigate shows findings preview, not branch
   {
     const { output: e6Out, exitCode: e6Code } = run(
-      `${CLI} issue WBP-0001 --from plan --action investigate --repos test-repo --dry-run`,
+      `${CLI} issue WBP-0001 --from plan --action investigate --repos test-repo --dry-run`
     );
     assert('E6-1: exit 0', e6Code === 0);
-    assert(
-      'E6-1: dry-run mentions findings artifact',
-      e6Out.includes('findings-and-recommendations'),
-    );
-    assert(
-      'E6-1: dry-run does not mention branch checkout',
-      !e6Out.includes('git checkout -b'),
-    );
+    assert('E6-1: dry-run mentions findings artifact', e6Out.includes('findings-and-recommendations'));
+    assert('E6-1: dry-run does not mention branch checkout', !e6Out.includes('git checkout -b'));
   }
 
   // E6-2: issue:implement <investigate-plan> --dry-run exits 0 without branch
   {
-    const investigatePlan = path.join(
-      require('os').tmpdir(),
-      'test-investigate-plan.json',
-    );
+    const investigatePlan = path.join(require('os').tmpdir(), 'test-investigate-plan.json');
     fs.writeFileSync(
       investigatePlan,
       JSON.stringify({
@@ -176,16 +141,11 @@ async function main() {
         filesAffected: [],
         repositoriesAffected: [],
         risks: [],
-      }),
+      })
     );
-    const { output: e6PlanOut, exitCode: e6PlanCode } = run(
-      `${CLI} issue:implement ${investigatePlan} --dry-run`,
-    );
+    const { output: e6PlanOut, exitCode: e6PlanCode } = run(`${CLI} issue:implement ${investigatePlan} --dry-run`);
     assert('E6-2: exit 0', e6PlanCode === 0);
-    assert(
-      'E6-2: no branch checkout for investigate plan',
-      !e6PlanOut.includes('git checkout -b'),
-    );
+    assert('E6-2: no branch checkout for investigate plan', !e6PlanOut.includes('git checkout -b'));
     try {
       fs.unlinkSync(investigatePlan);
     } catch {
@@ -198,9 +158,7 @@ async function main() {
   if (failed === 0) {
     console.log(chalk.bold.green(`\n✅ All ${passed} tests passed\n`));
   } else {
-    console.log(
-      chalk.bold.red(`\n✗ ${failed} of ${passed + failed} tests failed\n`),
-    );
+    console.log(chalk.bold.red(`\n✗ ${failed} of ${passed + failed} tests failed\n`));
     process.exit(1);
   }
 }

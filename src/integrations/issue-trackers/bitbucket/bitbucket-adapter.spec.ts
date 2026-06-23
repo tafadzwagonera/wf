@@ -20,8 +20,7 @@ describe('BitBucketAdapter', () => {
             get: (key: string) => {
               if (key === 'atlassian.email') return 'test@example.com';
               if (key === 'atlassian.bitbucket.apiToken') return 'token';
-              if (key === 'atlassian.bitbucket.workspace')
-                return 'testworkspace';
+              if (key === 'atlassian.bitbucket.workspace') return 'testworkspace';
               return undefined;
             },
           },
@@ -47,8 +46,7 @@ describe('BitBucketAdapter', () => {
 
   describe('createComment', () => {
     it('posts a PR comment with content.raw but without the type discriminator', async () => {
-      const prUrl =
-        'https://bitbucket.org/testworkspace/testrepo/pull-requests/42';
+      const prUrl = 'https://bitbucket.org/testworkspace/testrepo/pull-requests/42';
       const body = '## AI Code Review\n\n**Summary:** Looks good.';
 
       await adapter.createComment(prUrl, body);
@@ -62,8 +60,7 @@ describe('BitBucketAdapter', () => {
     });
 
     it('does not include the type discriminator in PR comment _body', async () => {
-      const prUrl =
-        'https://bitbucket.org/testworkspace/testrepo/pull-requests/7';
+      const prUrl = 'https://bitbucket.org/testworkspace/testrepo/pull-requests/7';
 
       await adapter.createComment(prUrl, 'test comment');
 
@@ -74,8 +71,7 @@ describe('BitBucketAdapter', () => {
 
   describe('createInlineComment', () => {
     it('posts an inline PR comment without the type discriminator in _body', async () => {
-      const prUrl =
-        'https://bitbucket.org/testworkspace/testrepo/pull-requests/42';
+      const prUrl = 'https://bitbucket.org/testworkspace/testrepo/pull-requests/42';
 
       await adapter.createInlineComment(prUrl, 'src/foo.ts', 10, 'inline note');
 
@@ -96,7 +92,7 @@ describe('BitBucketAdapter', () => {
 
     it('rejects a missing repository even when defaultWorkspace is configured', () => {
       expect(() => (adapter as any).parseProjectOrDefault()).toThrow(
-        'No BitBucket repository specified. Provide the repository as "workspace/repo" or pass --repos <repo> so the configured workspace can be used.',
+        'No BitBucket repository specified. Provide the repository as "workspace/repo" or pass --repos <repo> so the configured workspace can be used.'
       );
     });
   });

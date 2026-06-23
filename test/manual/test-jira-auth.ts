@@ -48,7 +48,7 @@ async function testAuth() {
           Accept: 'application/json',
           'Content-Type': 'application/json',
         },
-      },
+      }
     );
 
     console.log(`✓ Found ${searchResponse.data.total} issues`);

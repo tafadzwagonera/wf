@@ -11,13 +11,10 @@ export const ISSUE_COMMAND_DOC_NAMES = [
   'issue:implement',
 ] as const;
 
-const GENERATED_BLOCK_START = (commandName: string): string =>
-  `<!-- BEGIN GENERATED COMMAND DOCS: ${commandName} -->`;
-const GENERATED_BLOCK_END = (commandName: string): string =>
-  `<!-- END GENERATED COMMAND DOCS: ${commandName} -->`;
+const GENERATED_BLOCK_START = (commandName: string): string => `<!-- BEGIN GENERATED COMMAND DOCS: ${commandName} -->`;
+const GENERATED_BLOCK_END = (commandName: string): string => `<!-- END GENERATED COMMAND DOCS: ${commandName} -->`;
 
-const escapeRegExp = (value: string): string =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const renderExamples = (entry: CommandHelpEntry): string => {
   if (!entry.examples?.length) {
@@ -46,47 +43,28 @@ const renderOptions = (entry: CommandHelpEntry): string => {
     return '';
   }
 
-  const lines = [
-    '**Options:**',
-    '',
-    '| Flag | Description |',
-    '| ---- | ----------- |',
-  ];
+  const lines = ['**Options:**', '', '| Flag | Description |', '| ---- | ----------- |'];
 
   for (const option of entry.options) {
-    lines.push(
-      `| \`${option.flags}\` | ${option.description.replace(/\|/g, '\\|')} |`,
-    );
+    lines.push(`| \`${option.flags}\` | ${option.description.replace(/\|/g, '\\|')} |`);
   }
 
   return lines.join('\n');
 };
 
-export const renderGeneratedCommandDocs = (
-  commandName: string,
-  entry: CommandHelpEntry,
-): string => {
-  const sections = [
-    entry.description,
-    renderExamples(entry),
-    renderOptions(entry),
-  ]
-    .filter((section) => section.length > 0)
+export const renderGeneratedCommandDocs = (commandName: string, entry: CommandHelpEntry): string => {
+  const sections = [entry.description, renderExamples(entry), renderOptions(entry)]
+    .filter(section => section.length > 0)
     .join('\n\n');
 
-  return [
-    GENERATED_BLOCK_START(commandName),
-    sections,
-    GENERATED_BLOCK_END(commandName),
-  ].join('\n');
+  return [GENERATED_BLOCK_START(commandName), sections, GENERATED_BLOCK_END(commandName)].join('\n');
 };
 
-const getHeadingLine = (entry: CommandHelpEntry): string =>
-  `#### \`${entry.usage.replace(/ \[options\]$/, '')}\``;
+const getHeadingLine = (entry: CommandHelpEntry): string => `#### \`${entry.usage.replace(/ \[options\]$/, '')}\``;
 
 export const synchronizeReadmeCommandDocs = (
   readmeContent: string,
-  catalog: Record<string, CommandHelpEntry>,
+  catalog: Record<string, CommandHelpEntry>
 ): string => {
   let updatedReadme = readmeContent;
 
@@ -98,7 +76,7 @@ export const synchronizeReadmeCommandDocs = (
 
     const generatedBlock = renderGeneratedCommandDocs(commandName, entry);
     const blockPattern = new RegExp(
-      `${escapeRegExp(GENERATED_BLOCK_START(commandName))}[\\s\\S]*?${escapeRegExp(GENERATED_BLOCK_END(commandName))}`,
+      `${escapeRegExp(GENERATED_BLOCK_START(commandName))}[\\s\\S]*?${escapeRegExp(GENERATED_BLOCK_END(commandName))}`
     );
 
     if (blockPattern.test(updatedReadme)) {
@@ -119,8 +97,5 @@ export const synchronizeReadmeCommandDocs = (
   return updatedReadme;
 };
 
-export const hasReadmeCommandDocDrift = (
-  readmeContent: string,
-  catalog: Record<string, CommandHelpEntry>,
-): boolean =>
+export const hasReadmeCommandDocDrift = (readmeContent: string, catalog: Record<string, CommandHelpEntry>): boolean =>
   synchronizeReadmeCommandDocs(readmeContent, catalog) !== readmeContent;

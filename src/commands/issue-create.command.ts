@@ -45,7 +45,7 @@ const buildDescriptionFormattingStats = (
     bulletListCount: 0,
     orderedListCount: 0,
     suspiciousMarkers: [],
-  },
+  }
 ): DescriptionFormattingStats => {
   if (!node || typeof node !== 'object') {
     return stats;
@@ -79,43 +79,28 @@ const buildDescriptionFormattingStats = (
           stats.suspiciousMarkers.push('raw {code} marker found in text node');
         }
         if (adfNode.text.includes('{noformat}')) {
-          stats.suspiciousMarkers.push(
-            'raw {noformat} marker found in text node',
-          );
+          stats.suspiciousMarkers.push('raw {noformat} marker found in text node');
         }
         if (adfNode.text.includes('{{') || adfNode.text.includes('}}')) {
-          stats.suspiciousMarkers.push(
-            'raw "{{...}}" inline code marker found in text node',
-          );
+          stats.suspiciousMarkers.push('raw "{{...}}" inline code marker found in text node');
         }
         if (/^\*\s+/m.test(adfNode.text)) {
-          stats.suspiciousMarkers.push(
-            'raw "*" bullet marker found in paragraph text',
-          );
+          stats.suspiciousMarkers.push('raw "*" bullet marker found in paragraph text');
         }
       }
       break;
   }
 
-  adfNode.content?.forEach((child) =>
-    buildDescriptionFormattingStats(child, stats),
-  );
+  adfNode.content?.forEach(child => buildDescriptionFormattingStats(child, stats));
   return stats;
 };
 
-const buildJiraPayloadPreviewLines = (
-  payload: Record<string, unknown>,
-): string[] => {
-  const description = (payload.fields as { description?: unknown } | undefined)
-    ?.description;
+const buildJiraPayloadPreviewLines = (payload: Record<string, unknown>): string[] => {
+  const description = (payload.fields as { description?: unknown } | undefined)?.description;
   const stats = buildDescriptionFormattingStats(description);
-  const suspiciousMarkers =
-    stats.suspiciousMarkers.length > 0
-      ? stats.suspiciousMarkers.join('; ')
-      : 'none';
+  const suspiciousMarkers = stats.suspiciousMarkers.length > 0 ? stats.suspiciousMarkers.join('; ') : 'none';
   const looksJiraSafe =
-    stats.suspiciousMarkers.length === 0 &&
-    stats.headingCount + stats.codeBlockCount + stats.bulletListCount > 0;
+    stats.suspiciousMarkers.length === 0 && stats.headingCount + stats.codeBlockCount + stats.bulletListCount > 0;
 
   return [
     'Formatting Summary',
@@ -135,7 +120,7 @@ const buildTicketPreviewLines = (description: string): string[] => {
     return ['Ticket Preview', '  No description content found'];
   }
 
-  const lines = trimmedDescription.split('\n').map((line) => line.trimEnd());
+  const lines = trimmedDescription.split('\n').map(line => line.trimEnd());
   const blocks: string[][] = [];
   let currentBlock: string[] = [];
 
@@ -143,7 +128,7 @@ const buildTicketPreviewLines = (description: string): string[] => {
     const startsNewSection =
       currentBlock.length > 0 &&
       /^#{3,4}\s+/.test(line) &&
-      currentBlock.some((existingLine) => existingLine.trim().length > 0);
+      currentBlock.some(existingLine => existingLine.trim().length > 0);
 
     if (startsNewSection) {
       blocks.push(currentBlock);
@@ -174,7 +159,7 @@ const buildTicketPreviewLines = (description: string): string[] => {
     previewLines.push('...');
   }
 
-  return ['Ticket Preview', ...previewLines.map((line) => `  ${line}`)];
+  return ['Ticket Preview', ...previewLines.map(line => `  ${line}`)];
 };
 
 const STDIN_TIMEOUT_IN_MS = 30_000;
@@ -193,12 +178,12 @@ const readStdin = (): Promise<string> =>
       process.stdin.removeAllListeners('end');
       reject(new Error('Timed out waiting for stdin input'));
     }, STDIN_TIMEOUT_IN_MS);
-    process.stdin.on('data', (chunk) => chunks.push(chunk));
+    process.stdin.on('data', chunk => chunks.push(chunk));
     process.stdin.on('end', () => {
       clearTimeout(timer);
       resolve(Buffer.concat(chunks).toString('utf-8'));
     });
-    process.stdin.on('error', (err) => {
+    process.stdin.on('error', err => {
       clearTimeout(timer);
       reject(err);
     });
@@ -208,8 +193,8 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
       chalk.yellow(
-        `⚠️ Only the first repository will be used for issue:create artifact lookup. Ignoring: ${repos!.slice(1).join(', ')}`,
-      ),
+        `⚠️ Only the first repository will be used for issue:create artifact lookup. Ignoring: ${repos!.slice(1).join(', ')}`
+      )
     );
   }
 };
@@ -221,13 +206,11 @@ const ISSUE_CREATE_EXAMPLES: CliExample[] = [
   },
   {
     comment: 'Create on a specific tracker and override the Jira project',
-    command:
-      'wf issue:create ticket.md --tracker jira --ticket-project WBP --type story',
+    command: 'wf issue:create ticket.md --tracker jira --ticket-project WBP --type story',
   },
   {
     comment: 'Create Jira ticket with project-specific priority resolution',
-    command:
-      'wf issue:create ticket.md --tracker jira --ticket-project WBP --priority medium',
+    command: 'wf issue:create ticket.md --tracker jira --ticket-project WBP --priority medium',
   },
   {
     comment: 'Dry-run a repo-scoped generated Jira artifact before creation',
@@ -249,8 +232,7 @@ const ISSUE_CREATE_EXAMPLES: CliExample[] = [
 @Injectable()
 @Command({
   name: 'issue:create',
-  description:
-    'Create tickets on various trackers from standardized input (file or stdin)',
+  description: 'Create tickets on various trackers from standardized input (file or stdin)',
   arguments: '[input]',
   options: { isDefault: false },
 })
@@ -261,15 +243,12 @@ export class IssueCreateCommand extends CommandRunner {
     private readonly formatConverterService: FormatConverterService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
-    private readonly dryRunPreview: DryRunPreviewService,
+    private readonly dryRunPreview: DryRunPreviewService
   ) {
     super();
   }
 
-  async run(
-    passedParams: string[],
-    options?: IssueCreateOptions,
-  ): Promise<void> {
+  async run(passedParams: string[], options?: IssueCreateOptions): Promise<void> {
     if (!options?.silent) {
       printExamples(ISSUE_CREATE_EXAMPLES);
     }
@@ -279,25 +258,14 @@ export class IssueCreateCommand extends CommandRunner {
 
     if (!inputPath && !stdinAvailable) {
       console.error(chalk.red('Error: Input file path is required'));
-      console.log(
-        chalk.gray(
-          'Usage: wf issue:create [input] [options]  (or pipe content to stdin)',
-        ),
-      );
-      console.log(
-        chalk.gray(
-          'Example: wf issue:create ticket.json --tracker github --type bug',
-        ),
-      );
-      console.log(
-        chalk.gray('         wf issue:generate ./spec.md -s | wf issue:create'),
-      );
+      console.log(chalk.gray('Usage: wf issue:create [input] [options]  (or pipe content to stdin)'));
+      console.log(chalk.gray('Example: wf issue:create ticket.json --tracker github --type bug'));
+      console.log(chalk.gray('         wf issue:generate ./spec.md -s | wf issue:create'));
       process.exit(1);
     }
 
     try {
-      const trackerName =
-        options?.tracker || this.configService.get<string>('tracker', 'jira');
+      const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
       if (!options?.silent) {
         warnOnIgnoredRepos(options?.repos);
       }
@@ -318,10 +286,7 @@ export class IssueCreateCommand extends CommandRunner {
       } else {
         const resolved = path.resolve(inputPath);
         const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-        const artifactPath = path.join(
-          resolveArtifactDir(repoBaseDir, trackerName),
-          path.basename(inputPath),
-        );
+        const artifactPath = path.join(resolveArtifactDir(repoBaseDir, trackerName), path.basename(inputPath));
         const inputFilePath = fs.existsSync(resolved)
           ? resolved
           : fs.existsSync(artifactPath)
@@ -338,14 +303,10 @@ export class IssueCreateCommand extends CommandRunner {
         }
 
         content = fs.readFileSync(inputFilePath, 'utf-8');
-        const detected =
-          options?.format ??
-          this.formatConverterService.detectFormat(inputFilePath);
+        const detected = options?.format ?? this.formatConverterService.detectFormat(inputFilePath);
 
         if (!detected) {
-          throw new Error(
-            `Unable to detect format from file: ${inputFilePath}. Supported: .json, .yaml, .md, .xml`,
-          );
+          throw new Error(`Unable to detect format from file: ${inputFilePath}. Supported: .json, .yaml, .md, .xml`);
         }
         format = detected;
 
@@ -377,10 +338,7 @@ export class IssueCreateCommand extends CommandRunner {
 
       // Dry run mode - just validate
       if (options?.dryRun) {
-        this.dryRunPreview.showHeader(
-          'issue:create',
-          ticket.title?.substring(0, 40),
-        );
+        this.dryRunPreview.showHeader('issue:create', ticket.title?.substring(0, 40));
 
         const payload =
           trackerName === 'jira'
@@ -400,11 +358,7 @@ export class IssueCreateCommand extends CommandRunner {
           estimatedResponse: '201 Created — ticket key and URL returned',
           payloadPreviewLines:
             trackerName === 'jira'
-              ? [
-                  ...buildJiraPayloadPreviewLines(payload),
-                  '',
-                  ...buildTicketPreviewLines(ticket.description),
-                ]
+              ? [...buildJiraPayloadPreviewLines(payload), '', ...buildTicketPreviewLines(ticket.description)]
               : [],
         });
 
@@ -467,9 +421,7 @@ export class IssueCreateCommand extends CommandRunner {
   parseFormat(val: string): string {
     const validFormats = ['json', 'md', 'yaml', 'yml'];
     if (!validFormats.includes(val)) {
-      throw new Error(
-        `Invalid format: ${val}. Valid formats: ${validFormats.join(', ')}`,
-      );
+      throw new Error(`Invalid format: ${val}. Valid formats: ${validFormats.join(', ')}`);
     }
     return val;
   }
@@ -494,8 +446,7 @@ export class IssueCreateCommand extends CommandRunner {
 
   @Option({
     flags: '-s, --silent',
-    description:
-      'Suppress decorative output and interactive prompts. Emits only the ticket key for piping',
+    description: 'Suppress decorative output and interactive prompts. Emits only the ticket key for piping',
   })
   parseSilent(): boolean {
     return true;
@@ -503,8 +454,7 @@ export class IssueCreateCommand extends CommandRunner {
 
   @Option({
     flags: '--ticket-project <project>',
-    description:
-      'Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file',
+    description: 'Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file',
   })
   parseTicketProject(val: string): string {
     return val;

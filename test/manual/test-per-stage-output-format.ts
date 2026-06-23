@@ -59,7 +59,7 @@ console.log(chalk.gray('  Test 1: Stage override propagation'));
   assert(
     normalized.stages.generate?.outputFormat === 'json',
     'stages.generate.outputFormat propagates as json',
-    `got: ${normalized.stages.generate?.outputFormat}`,
+    `got: ${normalized.stages.generate?.outputFormat}`
   );
 }
 
@@ -78,17 +78,17 @@ console.log(chalk.gray('  Test 2: Hardcoded defaults (no outputFormat set)'));
   assert(
     normalized.stages.plan?.outputFormat === undefined,
     'plan stage has no outputFormat (default json is hardcoded in command)',
-    `got: ${normalized.stages.plan?.outputFormat}`,
+    `got: ${normalized.stages.plan?.outputFormat}`
   );
   assert(
     normalized.stages.generate?.outputFormat === undefined,
     'generate stage has no outputFormat (default md is hardcoded in command)',
-    `got: ${normalized.stages.generate?.outputFormat}`,
+    `got: ${normalized.stages.generate?.outputFormat}`
   );
   assert(
     normalized.stages.review?.outputFormat === undefined,
     'review stage has no outputFormat (default md is hardcoded in command)',
-    `got: ${normalized.stages.review?.outputFormat}`,
+    `got: ${normalized.stages.review?.outputFormat}`
   );
 }
 
@@ -107,7 +107,7 @@ console.log(chalk.gray('  Test 3: All valid outputFormat values'));
     assert(
       normalized.stages.generate?.outputFormat === fmt,
       `outputFormat '${fmt}' accepted and propagated`,
-      `got: ${normalized.stages.generate?.outputFormat}`,
+      `got: ${normalized.stages.generate?.outputFormat}`
     );
   }
 }
@@ -125,7 +125,7 @@ console.log(chalk.gray('  Test 4: Redundant outputFormat is harmless'));
   assert(
     normalized.stages.review?.outputFormat === 'md',
     'review.outputFormat: md stored without error',
-    `got: ${normalized.stages.review?.outputFormat}`,
+    `got: ${normalized.stages.review?.outputFormat}`
   );
 }
 
@@ -147,7 +147,7 @@ console.log(chalk.gray('  Test 5: Legacy config rejection'));
   assert(
     threw,
     'Config with legacy output block is rejected by Joi',
-    !threw ? 'normalizeWfConfig did not throw' : undefined,
+    !threw ? 'normalizeWfConfig did not throw' : undefined
   );
 }
 
@@ -158,14 +158,14 @@ console.log(chalk.gray('  Test 6: No output block in normalized config'));
   assert(
     !('output' in normalized),
     'Normalized config does not contain output property',
-    `keys: ${Object.keys(normalized).join(', ')}`,
+    `keys: ${Object.keys(normalized).join(', ')}`
   );
 }
 
 console.log(
   chalk.bold(
-    `\n  ${passed + failed} tests: ${chalk.green(`${passed} passed`)}${failed > 0 ? `, ${chalk.red(`${failed} failed`)}` : ''}\n`,
-  ),
+    `\n  ${passed + failed} tests: ${chalk.green(`${passed} passed`)}${failed > 0 ? `, ${chalk.red(`${failed} failed`)}` : ''}\n`
+  )
 );
 
 if (failed > 0) {

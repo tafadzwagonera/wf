@@ -32,33 +32,27 @@ const RULES: Array<{
 }> = [
   {
     pattern: /\{code(?::[^}]*)?\}/,
-    error: (p) => `raw \`{code}\` marker in text node at \`${p}\``,
-    suggestion:
-      'Replace `{code:lang}...{code}` with markdown code fences: ```lang\\n...\\n```',
+    error: p => `raw \`{code}\` marker in text node at \`${p}\``,
+    suggestion: 'Replace `{code:lang}...{code}` with markdown code fences: ```lang\\n...\\n```',
   },
   {
     pattern: /\{noformat\}/,
-    error: (p) => `raw \`{noformat}\` marker in text node at \`${p}\``,
-    suggestion:
-      'Replace `{noformat}...{noformat}` with markdown code fences: ```\\n...\\n```',
+    error: p => `raw \`{noformat}\` marker in text node at \`${p}\``,
+    suggestion: 'Replace `{noformat}...{noformat}` with markdown code fences: ```\\n...\\n```',
   },
   {
     pattern: /\{\{[^}]+\}\}/,
-    error: (p) => `raw \`{{...}}\` marker in text node at \`${p}\``,
+    error: p => `raw \`{{...}}\` marker in text node at \`${p}\``,
     suggestion: 'Replace `{{text}}` with markdown inline code: `text`',
   },
   {
     pattern: /^\*\s+/m,
-    error: (p) => `raw \`* \` bullet marker in text node at \`${p}\``,
+    error: p => `raw \`* \` bullet marker in text node at \`${p}\``,
     suggestion: 'Replace wiki `* item` with markdown `- item` at line start',
   },
 ];
 
-const walkNodes = (
-  node: AdfNode,
-  path: string,
-  issues: ValidationIssue[],
-): void => {
+const walkNodes = (node: AdfNode, path: string, issues: ValidationIssue[]): void => {
   if (node.type === 'text' && typeof node.text === 'string') {
     for (const rule of RULES) {
       if (rule.pattern.test(node.text)) {
@@ -100,8 +94,7 @@ const validate = (input: unknown): ValidationResult => {
   if (!Array.isArray(doc.content) || doc.content.length === 0) {
     issues.push({
       error: 'ADF document has no block nodes in `content`',
-      suggestion:
-        'Description must contain at least one block node (paragraph, heading, etc.)',
+      suggestion: 'Description must contain at least one block node (paragraph, heading, etc.)',
     });
     return { passed: false, issues };
   }

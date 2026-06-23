@@ -53,9 +53,7 @@ const MOCK_SUMMARY_BULLETS = [
 ].join('\n');
 
 async function testOversizedSourceSummarisation() {
-  console.log(
-    '\n\u{1F9EA} Manual Test: issue:generate oversized source summarisation\n',
-  );
+  console.log('\n\u{1F9EA} Manual Test: issue:generate oversized source summarisation\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
@@ -76,8 +74,7 @@ async function testOversizedSourceSummarisation() {
 
   app.get(AiService);
   const originalProtoExecute = AiService.prototype.execute;
-  const originalGenerateFromPrompt =
-    StageAgentService.prototype.generateFromPrompt;
+  const originalGenerateFromPrompt = StageAgentService.prototype.generateFromPrompt;
 
   const command = app.get(IssueGenerateCommand);
 
@@ -96,9 +93,7 @@ async function testOversizedSourceSummarisation() {
       }
       return { content: MOCK_TICKET_RESPONSE };
     };
-    (StageAgentService.prototype as any).generateFromPrompt = async (
-      prompt: string,
-    ) => {
+    (StageAgentService.prototype as any).generateFromPrompt = async (prompt: string) => {
       aiCallCount++;
       if (prompt.includes('Summarise the following source')) {
         summarisationCalled = true;
@@ -137,10 +132,7 @@ async function testOversizedSourceSummarisation() {
 
   // --- Test 2: Oversized source triggers summarisation in silent mode ---
   {
-    const tmpFile = path.join(
-      os.tmpdir(),
-      `wf-oversized-source-${Date.now()}.txt`,
-    );
+    const tmpFile = path.join(os.tmpdir(), `wf-oversized-source-${Date.now()}.txt`);
     // Create content exceeding 30,000 characters
     const oversizedContent = 'x'.repeat(31_000);
     fs.writeFileSync(tmpFile, oversizedContent, 'utf-8');
@@ -156,9 +148,7 @@ async function testOversizedSourceSummarisation() {
       }
       return { content: MOCK_TICKET_RESPONSE };
     };
-    (StageAgentService.prototype as any).generateFromPrompt = async (
-      prompt: string,
-    ) => {
+    (StageAgentService.prototype as any).generateFromPrompt = async (prompt: string) => {
       aiCallCount++;
       if (prompt.includes('Summarise the following source')) {
         summarisationCalled = true;
@@ -199,10 +189,7 @@ async function testOversizedSourceSummarisation() {
 
   // --- Test 3: Non-silent mode shows summarisation warning ---
   {
-    const tmpFile = path.join(
-      os.tmpdir(),
-      `wf-oversized-warn-${Date.now()}.txt`,
-    );
+    const tmpFile = path.join(os.tmpdir(), `wf-oversized-warn-${Date.now()}.txt`);
     const oversizedContent = 'y'.repeat(31_000);
     fs.writeFileSync(tmpFile, oversizedContent, 'utf-8');
 
@@ -218,9 +205,7 @@ async function testOversizedSourceSummarisation() {
       }
       return { content: MOCK_TICKET_RESPONSE };
     };
-    (StageAgentService.prototype as any).generateFromPrompt = async (
-      prompt: string,
-    ) => {
+    (StageAgentService.prototype as any).generateFromPrompt = async (prompt: string) => {
       if (prompt.includes('Summarise the following source')) {
         summarisationCalled = true;
         return MOCK_SUMMARY_BULLETS;
@@ -289,26 +274,18 @@ async function testOversizedSourceSummarisation() {
     if (capturedOutput.includes('exceeds 30000 characters')) {
       pass('Warning message shows character count');
     } else {
-      fail(
-        'Missing summarisation warning',
-        `Output: ${capturedOutput.slice(0, 500)}`,
-      );
+      fail('Missing summarisation warning', `Output: ${capturedOutput.slice(0, 500)}`);
     }
 
     if (capturedOutput.includes('Review the summarised key points')) {
       pass('Interactive review prompt is shown');
     } else {
-      fail(
-        'Interactive review prompt missing',
-        `Output: ${capturedOutput.slice(0, 500)}`,
-      );
+      fail('Interactive review prompt missing', `Output: ${capturedOutput.slice(0, 500)}`);
     }
 
     // Bullets should be presented (4 confirm prompts + 1 "done" input)
     if (promptCallCount >= 5) {
-      pass(
-        `Inquirer prompted ${promptCallCount} times (4 bullets + done input)`,
-      );
+      pass(`Inquirer prompted ${promptCallCount} times (4 bullets + done input)`);
     } else {
       fail(`Expected at least 5 inquirer prompts, got ${promptCallCount}`);
     }
@@ -318,10 +295,7 @@ async function testOversizedSourceSummarisation() {
 
   // --- Test 4: Synthesis prompt uses MAX_SOURCE_CONTENT_LENGTH, not 2000 ---
   {
-    const tmpFile = path.join(
-      os.tmpdir(),
-      `wf-truncation-check-${Date.now()}.txt`,
-    );
+    const tmpFile = path.join(os.tmpdir(), `wf-truncation-check-${Date.now()}.txt`);
     // Content between 2000 and 30000 chars — should NOT be truncated
     const midContent = 'z'.repeat(5_000);
     fs.writeFileSync(tmpFile, midContent, 'utf-8');
@@ -334,9 +308,7 @@ async function testOversizedSourceSummarisation() {
       }
       return { content: MOCK_TICKET_RESPONSE };
     };
-    (StageAgentService.prototype as any).generateFromPrompt = async (
-      prompt: string,
-    ) => {
+    (StageAgentService.prototype as any).generateFromPrompt = async (prompt: string) => {
       if (prompt.includes('Sources to synthesize')) {
         synthesisPrompt = prompt;
       }
@@ -359,16 +331,10 @@ async function testOversizedSourceSummarisation() {
 
     if (synthesisPrompt.includes('z'.repeat(5_000))) {
       pass('5,000-char source is NOT truncated in synthesis prompt');
-    } else if (
-      synthesisPrompt.includes('z'.repeat(2_000)) &&
-      !synthesisPrompt.includes('z'.repeat(2_001))
-    ) {
+    } else if (synthesisPrompt.includes('z'.repeat(2_000)) && !synthesisPrompt.includes('z'.repeat(2_001))) {
       fail('Source was truncated at 2,000 chars (old limit still active)');
     } else {
-      fail(
-        'Unexpected truncation behaviour',
-        `Prompt length: ${synthesisPrompt.length}`,
-      );
+      fail('Unexpected truncation behaviour', `Prompt length: ${synthesisPrompt.length}`);
     }
 
     fs.unlinkSync(tmpFile);

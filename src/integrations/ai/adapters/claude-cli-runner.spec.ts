@@ -1,9 +1,4 @@
-import {
-  assertClaudeCliAvailable,
-  buildCliArgs,
-  parseNdjsonLine,
-  spawnCli,
-} from './claude-cli-runner';
+import { assertClaudeCliAvailable, buildCliArgs, parseNdjsonLine, spawnCli } from './claude-cli-runner';
 import { execSync, spawn } from 'child_process';
 import { EventEmitter, Readable, Writable } from 'stream';
 
@@ -49,9 +44,7 @@ describe('claude-cli-runner', () => {
       mockExecSync.mockImplementation(() => {
         throw new Error('not found');
       });
-      expect(() => assertClaudeCliAvailable()).toThrow(
-        /Claude CLI is not installed/,
-      );
+      expect(() => assertClaudeCliAvailable()).toThrow(/Claude CLI is not installed/);
       expect(() => assertClaudeCliAvailable()).toThrow(/docs\.anthropic\.com/);
     });
   });
@@ -152,9 +145,7 @@ describe('claude-cli-runner', () => {
 
   describe('parseNdjsonLine', () => {
     it('parses a valid JSON line', () => {
-      const result = parseNdjsonLine(
-        '{"type":"result","result":"hello","session_id":"s1"}',
-      );
+      const result = parseNdjsonLine('{"type":"result","result":"hello","session_id":"s1"}');
       expect(result).toEqual({
         type: 'result',
         result: 'hello',
@@ -197,9 +188,7 @@ describe('claude-cli-runner', () => {
         messages.push(msg);
       }
 
-      const timeoutMsg = messages.find(
-        (m) => m.type === 'error' && m.subtype === 'timeout',
-      );
+      const timeoutMsg = messages.find(m => m.type === 'error' && m.subtype === 'timeout');
       expect(timeoutMsg).toBeDefined();
       expect(timeoutMsg!.is_error).toBe(true);
       expect(timeoutMsg!.result).toMatch(/timed out/i);

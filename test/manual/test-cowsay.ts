@@ -51,9 +51,8 @@ async function testCowsay() {
 
   console.log('Test 2: output contains package version');
 
-  const pkgVersion = (require('../../package.json') as { version: string })
-    .version;
-  const hasVersion = lines.some((l) => l.includes(pkgVersion));
+  const pkgVersion = (require('../../package.json') as { version: string }).version;
+  const hasVersion = lines.some(l => l.includes(pkgVersion));
   if (hasVersion) {
     pass(`Output contains version ${pkgVersion}`);
   } else {
@@ -63,7 +62,7 @@ async function testCowsay() {
   // ── Test 3: output includes cow ASCII art ─────────────────────────────────
 
   console.log('Test 3: output contains cow ASCII art');
-  const hasCow = lines.some((l) => l.includes('(oo)'));
+  const hasCow = lines.some(l => l.includes('(oo)'));
   if (hasCow) {
     pass('Output contains cow ASCII art');
   } else {

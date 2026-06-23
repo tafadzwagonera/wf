@@ -29,9 +29,7 @@ const fail = (message: string): void => {
 };
 
 async function main() {
-  console.log(
-    chalk.bold.cyan('\n🧪 non-configurable log/state directories smoke test\n'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 non-configurable log/state directories smoke test\n'));
 
   let passed = 0;
   let failed = 0;
@@ -134,17 +132,12 @@ async function main() {
   // Test 6: getWfStateDir and getWfLogDir return expected paths
   console.log(chalk.bold('Test 6: wf-paths helpers return correct paths'));
   try {
-    const {
-      getWfStateDir,
-      getWfLogDir,
-    } = require('../../src/shared/utils/wf-paths');
+    const { getWfStateDir, getWfLogDir } = require('../../src/shared/utils/wf-paths');
     const expectedState = path.join(os.homedir(), '.wf', 'state');
     const expectedLog = path.join(os.homedir(), '.wf', 'logs');
 
     if (getWfStateDir() !== expectedState) {
-      fail(
-        `getWfStateDir returned ${getWfStateDir()}, expected ${expectedState}`,
-      );
+      fail(`getWfStateDir returned ${getWfStateDir()}, expected ${expectedState}`);
       failed += 1;
     } else if (getWfLogDir() !== expectedLog) {
       fail(`getWfLogDir returned ${getWfLogDir()}, expected ${expectedLog}`);
@@ -159,16 +152,14 @@ async function main() {
   }
 
   // Summary
-  console.log(
-    chalk.bold.cyan(`\nResults: ${passed} passed, ${failed} failed\n`),
-  );
+  console.log(chalk.bold.cyan(`\nResults: ${passed} passed, ${failed} failed\n`));
 
   if (failed > 0) {
     process.exit(1);
   }
 }
 
-main().catch((err) => {
+main().catch(err => {
   console.error(chalk.red(err));
   process.exit(1);
 });

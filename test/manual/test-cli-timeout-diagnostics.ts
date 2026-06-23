@@ -40,15 +40,9 @@ const assert = (label: string, condition: boolean, detail?: string): void => {
 
 // Mirror the extractCliDiagnostic logic from stage-agent.service.ts
 // to validate the diagnostic extraction contract independently.
-const extractCliDiagnostic = (
-  message: Record<string, unknown>,
-): string | undefined => {
+const extractCliDiagnostic = (message: Record<string, unknown>): string | undefined => {
   if (message.is_error) {
-    return (
-      (message.result as string) ??
-      (message.summary as string) ??
-      JSON.stringify(message)
-    );
+    return (message.result as string) ?? (message.summary as string) ?? JSON.stringify(message);
   }
   if (message.type === 'rate_limit_event') {
     const info = message.rate_limit_info as { status?: string } | undefined;
@@ -60,9 +54,7 @@ const extractCliDiagnostic = (
 };
 
 async function main(): Promise<void> {
-  console.log(
-    chalk.bold('\nCLI timeout & rate-limit diagnostics smoke test\n'),
-  );
+  console.log(chalk.bold('\nCLI timeout & rate-limit diagnostics smoke test\n'));
 
   // --- Test 1 & 2: spawnCli yields timeout error with type "error" ---
   // Use a real subprocess (sleep) that exceeds a very short timeout.
@@ -75,11 +67,8 @@ async function main(): Promise<void> {
     // Spawn a node subprocess that prints one NDJSON line then sleeps
     const child = spawn(
       'node',
-      [
-        '-e',
-        'process.stdout.write(JSON.stringify({type:"system",subtype:"init"})+"\\n"); setTimeout(()=>{}, 60000)',
-      ],
-      { stdio: ['pipe', 'pipe', 'pipe'] },
+      ['-e', 'process.stdout.write(JSON.stringify({type:"system",subtype:"init"})+"\\n"); setTimeout(()=>{}, 60000)'],
+      { stdio: ['pipe', 'pipe', 'pipe'] }
     );
 
     const rl = createInterface({ input: child.stdout });
@@ -125,19 +114,13 @@ async function main(): Promise<void> {
       });
     }
 
-    assert(
-      'Timeout fires and produces a synthetic error message',
-      state.timedOut === true,
-      'Timeout did not fire',
-    );
+    assert('Timeout fires and produces a synthetic error message', state.timedOut === true, 'Timeout did not fire');
 
-    const timeoutMsg = messages.find(
-      (m) => m.type === 'error' && m.subtype === 'timeout',
-    );
+    const timeoutMsg = messages.find(m => m.type === 'error' && m.subtype === 'timeout');
     assert(
       'Timeout message exists with type "error"',
       timeoutMsg !== undefined,
-      `Got messages: ${JSON.stringify(messages.map((m) => m.type))}`,
+      `Got messages: ${JSON.stringify(messages.map(m => m.type))}`
     );
 
     assert('Timeout message has is_error: true', timeoutMsg?.is_error === true);
@@ -145,14 +128,13 @@ async function main(): Promise<void> {
     assert(
       'Timeout message type is "error" (not "result") to avoid masking valid results',
       timeoutMsg?.type === 'error',
-      `Got type: ${String(timeoutMsg?.type)}`,
+      `Got type: ${String(timeoutMsg?.type)}`
     );
 
     assert(
       'Timeout message result text mentions timeout',
-      typeof timeoutMsg?.result === 'string' &&
-        /timed out/i.test(timeoutMsg.result),
-      `Got result: ${String(timeoutMsg?.result)}`,
+      typeof timeoutMsg?.result === 'string' && /timed out/i.test(timeoutMsg.result),
+      `Got result: ${String(timeoutMsg?.result)}`
     );
   }
 
@@ -163,11 +145,7 @@ async function main(): Promise<void> {
       is_error: true,
       result: 'Something went wrong',
     });
-    assert(
-      'extractCliDiagnostic captures is_error messages',
-      result === 'Something went wrong',
-      `Got: ${result}`,
-    );
+    assert('extractCliDiagnostic captures is_error messages', result === 'Something went wrong', `Got: ${result}`);
   }
 
   // --- Test 4: extractCliDiagnostic captures rate-limit with non-allowed status ---
@@ -179,7 +157,7 @@ async function main(): Promise<void> {
     assert(
       'extractCliDiagnostic captures rate-limit with status "limited"',
       result === 'Rate limited (status: limited)',
-      `Got: ${result}`,
+      `Got: ${result}`
     );
   }
 
@@ -189,11 +167,7 @@ async function main(): Promise<void> {
       type: 'rate_limit_event',
       rate_limit_info: { status: 'allowed' },
     });
-    assert(
-      'extractCliDiagnostic ignores rate-limit with status "allowed"',
-      result === undefined,
-      `Got: ${result}`,
-    );
+    assert('extractCliDiagnostic ignores rate-limit with status "allowed"', result === undefined, `Got: ${result}`);
   }
 
   // --- Test 6: extractCliDiagnostic returns undefined for normal messages ---
@@ -202,11 +176,7 @@ async function main(): Promise<void> {
       type: 'assistant',
       message: { content: [{ type: 'text', text: 'hello' }] },
     });
-    assert(
-      'extractCliDiagnostic returns undefined for normal messages',
-      result === undefined,
-      `Got: ${result}`,
-    );
+    assert('extractCliDiagnostic returns undefined for normal messages', result === undefined, `Got: ${result}`);
   }
 
   // --- Test 7: extractCliDiagnostic falls back to summary when result is missing ---
@@ -216,11 +186,7 @@ async function main(): Promise<void> {
       is_error: true,
       summary: 'fallback summary',
     });
-    assert(
-      'extractCliDiagnostic falls back to summary field',
-      result === 'fallback summary',
-      `Got: ${result}`,
-    );
+    assert('extractCliDiagnostic falls back to summary field', result === 'fallback summary', `Got: ${result}`);
   }
 
   // --- Test 8: extractCliDiagnostic falls back to JSON when both missing ---
@@ -232,15 +198,15 @@ async function main(): Promise<void> {
     assert(
       'extractCliDiagnostic falls back to JSON.stringify',
       typeof result === 'string' && result.includes('"is_error":true'),
-      `Got: ${result}`,
+      `Got: ${result}`
     );
   }
 
   // Summary
   console.log(
     chalk.bold(
-      `\n${passed + failed} assertions: ${chalk.green(`${passed} passed`)}${failed > 0 ? `, ${chalk.red(`${failed} failed`)}` : ''}`,
-    ),
+      `\n${passed + failed} assertions: ${chalk.green(`${passed} passed`)}${failed > 0 ? `, ${chalk.red(`${failed} failed`)}` : ''}`
+    )
   );
 
   if (failed > 0) {

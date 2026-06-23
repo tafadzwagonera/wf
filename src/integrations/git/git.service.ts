@@ -32,7 +32,7 @@ export class GitService {
 
   constructor(
     private configService: ConfigService,
-    private logger: LoggerService,
+    private logger: LoggerService
   ) {
     this.git = simpleGit();
   }
@@ -69,7 +69,7 @@ export class GitService {
   }
 
   detectDevelopmentBranches(branches: string[]): string[] {
-    return branches.filter((b) => {
+    return branches.filter(b => {
       const name = b.includes('/') ? b.split('/').pop()! : b;
       return name.includes('dev');
     });
@@ -79,9 +79,7 @@ export class GitService {
     const mainPatterns = ['main', 'master'];
 
     for (const pattern of mainPatterns) {
-      const found = branches.find(
-        (b) => b === pattern || b.endsWith(`/${pattern}`),
-      );
+      const found = branches.find(b => b === pattern || b.endsWith(`/${pattern}`));
       if (found) return found;
     }
 
@@ -98,17 +96,13 @@ export class GitService {
     }
   }
 
-  async createBranch(
-    branchName: string,
-    baseBranch?: string,
-    cwd?: string,
-  ): Promise<void> {
+  async createBranch(branchName: string, baseBranch?: string, cwd?: string): Promise<void> {
     const git = cwd ? simpleGit(cwd) : this.git;
     try {
       // Validate branch name
       if (!this.isValidBranchName(branchName)) {
         throw new GitError(
-          `Invalid branch name: ${branchName}. Branch names should follow pattern: feature/name or WBP-1234__feature-name`,
+          `Invalid branch name: ${branchName}. Branch names should follow pattern: feature/name or WBP-1234__feature-name`
         );
       }
 
@@ -117,9 +111,7 @@ export class GitService {
 
       // Check if branch already exists
       if (branches.all.includes(branchName)) {
-        this.logger.warn(
-          `Branch ${branchName} already exists, checking out...`,
-        );
+        this.logger.warn(`Branch ${branchName} already exists, checking out...`);
         await git.checkout(branchName);
         return;
       }
@@ -131,9 +123,7 @@ export class GitService {
       // Create and checkout new branch from the specified base
       await git.checkout(['-b', branchName, base]);
 
-      this.logger.success(
-        `Created and checked out branch: ${branchName} from ${base}`,
-      );
+      this.logger.success(`Created and checked out branch: ${branchName} from ${base}`);
     } catch (error) {
       if (error instanceof GitError) {
         throw error;
@@ -150,7 +140,7 @@ export class GitService {
       /^[\w-]+$/, // simple-name
     ];
 
-    return validPatterns.some((pattern) => pattern.test(name));
+    return validPatterns.some(pattern => pattern.test(name));
   }
 
   async commit(options: CommitOptions): Promise<string> {
@@ -176,9 +166,7 @@ export class GitService {
         // artifacts and wf config files that wf writes into the consuming app's
         // directory. See src/config/wf-config-loader.ts for the full list of
         // recognized config file names.
-        const filesToAdd = this.filterStageable(
-          status.files.map((f) => f.path),
-        );
+        const filesToAdd = this.filterStageable(status.files.map(f => f.path));
         if (filesToAdd.length > 0) {
           await git.add(filesToAdd);
         }
@@ -206,15 +194,12 @@ export class GitService {
     }
   }
 
-  async getRecentCommits(
-    count: number = 10,
-    cwd?: string,
-  ): Promise<CommitInfo[]> {
+  async getRecentCommits(count: number = 10, cwd?: string): Promise<CommitInfo[]> {
     try {
       const git = cwd ? simpleGit(cwd) : this.git;
       const log = await git.log({ maxCount: count });
 
-      return log.all.map((commit) => ({
+      return log.all.map(commit => ({
         hash: commit.hash,
         message: commit.message,
         author: commit.author_name,
@@ -262,7 +247,7 @@ export class GitService {
     try {
       const git = cwd ? simpleGit(cwd) : this.git;
       const status = await git.status();
-      const filesToAdd = this.filterStageable(status.files.map((f) => f.path));
+      const filesToAdd = this.filterStageable(status.files.map(f => f.path));
       if (filesToAdd.length > 0) {
         await git.add(filesToAdd);
       }
@@ -296,7 +281,7 @@ export class GitService {
    * @returns Paths that are safe to pass to `git.add()`
    */
   private filterStageable(paths: string[]): string[] {
-    return paths.filter((p) => !GitService.EXCLUDED_PATHS.test(p));
+    return paths.filter(p => !GitService.EXCLUDED_PATHS.test(p));
   }
 
   private ensureGitignoreIsNotStaged(paths: string[]): void {
@@ -304,12 +289,9 @@ export class GitService {
       return;
     }
 
-    throw new GitError(
-      '⚠️ Refusing to create commit because .gitignore is staged',
-      {
-        stagedPaths: paths,
-      },
-    );
+    throw new GitError('⚠️ Refusing to create commit because .gitignore is staged', {
+      stagedPaths: paths,
+    });
   }
 
   async stashChanges(message?: string): Promise<void> {
@@ -358,36 +340,24 @@ export class GitService {
     }
   }
 
-  async pull(
-    remote: string = 'origin',
-    branch?: string,
-    cwd?: string,
-  ): Promise<void> {
+  async pull(remote: string = 'origin', branch?: string, cwd?: string): Promise<void> {
     const git = cwd ? simpleGit(cwd) : this.git;
     try {
       const currentBranch = branch || (await this.getCurrentBranch(cwd));
       await git.pull(remote, currentBranch);
-      this.logger.success(
-        `Pulled latest changes from ${remote}/${currentBranch}`,
-      );
+      this.logger.success(`Pulled latest changes from ${remote}/${currentBranch}`);
     } catch (error) {
       throw new GitError('Failed to pull changes', error);
     }
   }
 
-  async push(
-    remote: string = 'origin',
-    branch?: string,
-    setUpstream: boolean = false,
-  ): Promise<void> {
+  async push(remote: string = 'origin', branch?: string, setUpstream: boolean = false): Promise<void> {
     try {
       const currentBranch = branch || (await this.getCurrentBranch());
 
       if (setUpstream) {
         await this.git.push(['-u', remote, currentBranch]);
-        this.logger.success(
-          `Pushed and set upstream: ${remote}/${currentBranch}`,
-        );
+        this.logger.success(`Pushed and set upstream: ${remote}/${currentBranch}`);
       } else {
         await this.git.push(remote, currentBranch);
         this.logger.success(`Pushed to ${remote}/${currentBranch}`);
@@ -422,8 +392,8 @@ export class GitService {
         ignored.push(
           ...result
             .split('\n')
-            .map((line) => line.trim())
-            .filter(Boolean),
+            .map(line => line.trim())
+            .filter(Boolean)
         );
       } catch {
         // exit code 1 means "none of the paths are ignored" — not an error

@@ -1,10 +1,5 @@
 import { Module } from '@nestjs/common';
-import {
-  ConfigCommand,
-  ConfigGetCommand,
-  ConfigSetCommand,
-  ConfigListCommand,
-} from './config.command';
+import { ConfigCommand, ConfigGetCommand, ConfigSetCommand, ConfigListCommand } from './config.command';
 import { IssueCreateCommand } from './issue-create.command';
 import { IssueFetchCommand } from './issue-fetch.command';
 import { IssuePlanCommand } from './issue-plan.command';
@@ -28,15 +23,7 @@ import { SlackService } from '../integrations/slack/slack.service';
 import { WorkflowStagesModule } from '../workflows/stages/workflow-stages.module';
 
 @Module({
-  imports: [
-    AgentsModule,
-    JiraModule,
-    GitModule,
-    AIModule,
-    IssueTrackerModule,
-    ConvertersModule,
-    WorkflowStagesModule,
-  ],
+  imports: [AgentsModule, JiraModule, GitModule, AIModule, IssueTrackerModule, ConvertersModule, WorkflowStagesModule],
   providers: [
     ConfigCommand,
     ConfigGetCommand,

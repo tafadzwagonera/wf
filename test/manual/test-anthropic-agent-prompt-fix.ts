@@ -38,14 +38,11 @@ function buildExpectedSystemPrompt(args: {
   verificationScripts: VerificationScript[];
   ticketContext: string;
 }): string {
-  const fileList =
-    args.repoFiles.length === 0
-      ? '  (none listed)'
-      : args.repoFiles.map((f) => `  - ${f}`).join('\n');
+  const fileList = args.repoFiles.length === 0 ? '  (none listed)' : args.repoFiles.map(f => `  - ${f}`).join('\n');
 
   const verificationList =
     args.verificationScripts.length > 0
-      ? args.verificationScripts.map((s) => `  - ${s.command}`).join('\n')
+      ? args.verificationScripts.map(s => `  - ${s.command}`).join('\n')
       : '  (none configured)';
 
   return `You are an expert software engineer implementing code changes inside a repository.
@@ -96,9 +93,7 @@ async function main() {
   const REPO_DIR = '/repos/terraform-aws';
 
   // ── Test 1: system prompt contains structured summary headings ──────────
-  console.log(
-    chalk.bold.cyan('\n🧪 Part 1: System prompt — structured summary format'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Part 1: System prompt — structured summary format'));
   console.log(chalk.gray('─'.repeat(60)));
 
   const systemPrompt = buildExpectedSystemPrompt({
@@ -110,78 +105,57 @@ async function main() {
     ticketContext: SCENE,
   });
 
-  assert(
-    'system prompt contains "### What I changed" heading',
-    systemPrompt.includes('### What I changed'),
-  );
-  assert(
-    'system prompt contains "### Verification run" heading',
-    systemPrompt.includes('### Verification run'),
-  );
-  assert(
-    'system prompt contains "### Files" heading',
-    systemPrompt.includes('### Files'),
-  );
+  assert('system prompt contains "### What I changed" heading', systemPrompt.includes('### What I changed'));
+  assert('system prompt contains "### Verification run" heading', systemPrompt.includes('### Verification run'));
+  assert('system prompt contains "### Files" heading', systemPrompt.includes('### Files'));
   assert(
     'system prompt contains "### Assumptions / risk note" heading',
-    systemPrompt.includes('### Assumptions / risk note'),
+    systemPrompt.includes('### Assumptions / risk note')
   );
   assert(
     'system prompt contains "no file changes are required" clause',
-    systemPrompt.includes('no file changes are required'),
+    systemPrompt.includes('no file changes are required')
   );
   assert(
     'system prompt contains "Do not add preamble or planning text"',
-    systemPrompt.includes('Do not add preamble or planning text'),
+    systemPrompt.includes('Do not add preamble or planning text')
   );
   assert(
     'system prompt still carries ticketContext under Ticket context:',
-    systemPrompt.includes('Ticket context:') && systemPrompt.includes(SCENE),
+    systemPrompt.includes('Ticket context:') && systemPrompt.includes(SCENE)
   );
 
   // ── Test 2: SDK prompt is the action directive, not ticketContext ─────────
-  console.log(
-    chalk.bold.cyan(
-      '\n🧪 Part 2: SDK prompt — action directive, not ticketContext',
-    ),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Part 2: SDK prompt — action directive, not ticketContext'));
   console.log(chalk.gray('─'.repeat(60)));
 
   assert(
     'action directive contains Read/Write/Edit instruction',
-    ACTION_DIRECTIVE.includes('Use Read to inspect existing files'),
+    ACTION_DIRECTIVE.includes('Use Read to inspect existing files')
   );
-  assert(
-    'action directive contains Bash step',
-    ACTION_DIRECTIVE.includes('Bash for each verification step'),
-  );
+  assert('action directive contains Bash step', ACTION_DIRECTIVE.includes('Bash for each verification step'));
   assert(
     'action directive forbids text before first tool call',
-    ACTION_DIRECTIVE.includes(
-      'Do not output any text or plan before making your first tool call',
-    ),
+    ACTION_DIRECTIVE.includes('Do not output any text or plan before making your first tool call')
   );
   assert(
     'action directive does NOT contain ticketContext',
     !ACTION_DIRECTIVE.includes(SCENE),
-    'ticketContext must not be duplicated in the SDK prompt',
+    'ticketContext must not be duplicated in the SDK prompt'
   );
 
   // ── Test 3: post-run summary printed with header when non-empty ─────────
-  console.log(
-    chalk.bold.cyan('\n🧪 Part 3: Post-run output — non-empty summary'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Part 3: Post-run output — non-empty summary'));
   console.log(chalk.gray('─'.repeat(60)));
 
   const capturedWithResult: string[] = [];
   const mockLogResult = (line: string) => capturedWithResult.push(line);
 
-  const mockResult =
-    '### What I changed\n- Added variable `env` to variables.tf';
+  const mockResult = '### What I changed\n- Added variable `env` to variables.tf';
   const summary = mockResult.trim();
   if (summary) {
     mockLogResult('  Summary:');
-    summary.split('\n').forEach((line) => {
+    summary.split('\n').forEach(line => {
       if (line.trim()) {
         mockLogResult(`    ${line}`);
       }
@@ -190,23 +164,18 @@ async function main() {
     mockLogResult('\n  File summary: no file changes were made.');
   }
 
-  assert(
-    '"Summary:" header is printed when result is non-empty',
-    capturedWithResult.includes('  Summary:'),
-  );
+  assert('"Summary:" header is printed when result is non-empty', capturedWithResult.includes('  Summary:'));
   assert(
     'result content is printed line-by-line',
-    capturedWithResult.some((l) => l.includes('### What I changed')),
+    capturedWithResult.some(l => l.includes('### What I changed'))
   );
   assert(
     'no-changes fallback is NOT printed when result is non-empty',
-    !capturedWithResult.some((l) => l.includes('no file changes were made')),
+    !capturedWithResult.some(l => l.includes('no file changes were made'))
   );
 
   // ── Test 4: post-run fallback printed when result is empty ─────────────
-  console.log(
-    chalk.bold.cyan('\n🧪 Part 4: Post-run output — empty result fallback'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 Part 4: Post-run output — empty result fallback'));
   console.log(chalk.gray('─'.repeat(60)));
 
   const capturedEmpty: string[] = [];
@@ -215,7 +184,7 @@ async function main() {
   const emptySummary = ''.trim();
   if (emptySummary) {
     mockLogEmpty('  Summary:');
-    emptySummary.split('\n').forEach((line) => {
+    emptySummary.split('\n').forEach(line => {
       if (line.trim()) {
         mockLogEmpty(`    ${line}`);
       }
@@ -226,21 +195,16 @@ async function main() {
 
   assert(
     'fallback message is emitted when result is empty',
-    capturedEmpty.some((l) => l.includes('no file changes were made')),
+    capturedEmpty.some(l => l.includes('no file changes were made'))
   );
-  assert(
-    '"Summary:" header is NOT emitted when result is empty',
-    !capturedEmpty.includes('  Summary:'),
-  );
+  assert('"Summary:" header is NOT emitted when result is empty', !capturedEmpty.includes('  Summary:'));
 
   // ── Summary ──────────────────────────────────────────────────────────────
   console.log(chalk.gray('\n' + '─'.repeat(60)));
   if (failed === 0) {
     console.log(chalk.bold.green(`\n✅ All ${passed} tests passed\n`));
   } else {
-    console.log(
-      chalk.bold.red(`\n✗ ${failed} of ${passed + failed} tests failed\n`),
-    );
+    console.log(chalk.bold.red(`\n✗ ${failed} of ${passed + failed} tests failed\n`));
     process.exit(1);
   }
 }

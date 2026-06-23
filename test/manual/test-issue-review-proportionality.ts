@@ -31,8 +31,7 @@ const mockReview = {
       message: 'Over-engineered: new abstraction wraps a single call',
       file: 'src/utils/wrap.ts',
       line: 5,
-      suggestion:
-        'Inline the call at the usage site instead of adding a wrapper',
+      suggestion: 'Inline the call at the usage site instead of adding a wrapper',
     },
   ],
   suggestions: ['Remove the unused helper and call the function directly'],
@@ -43,9 +42,7 @@ const mockReview = {
 };
 
 async function run(): Promise<void> {
-  console.log(
-    '🧪 Manual smoke: issue:review scope + human-friendly suggestions\n',
-  );
+  console.log('🧪 Manual smoke: issue:review scope + human-friendly suggestions\n');
 
   // ── Part 1: ReviewStageService passes "Scope" guideline ──
 
@@ -83,20 +80,14 @@ async function run(): Promise<void> {
     context: 'ticket TEST-1: Proportionality check',
   });
 
-  const hasScope = capturedGuidelines.some((g) => g.includes('Scope'));
+  const hasScope = capturedGuidelines.some(g => g.includes('Scope'));
   if (!hasScope) {
-    throw new Error(
-      'Expected "Scope" to appear in the default review guidelines passed to the AI.',
-    );
+    throw new Error('Expected "Scope" to appear in the default review guidelines passed to the AI.');
   }
 
-  const hasRejectUnrelated = capturedGuidelines.some((g) =>
-    g.includes('unrelated refactors'),
-  );
+  const hasRejectUnrelated = capturedGuidelines.some(g => g.includes('unrelated refactors'));
   if (!hasRejectUnrelated) {
-    throw new Error(
-      'Expected "unrelated refactors" phrasing in the Scope guideline.',
-    );
+    throw new Error('Expected "unrelated refactors" phrasing in the Scope guideline.');
   }
 
   console.log('  ✅ Part 1: Scope guideline is present in defaults');
@@ -104,8 +95,7 @@ async function run(): Promise<void> {
   // ── Part 2: Terminal output renders suggestion text ──
 
   const createdComments: Array<{ ref: string; body: string }> = [];
-  const getPullRequestDiff = async (): Promise<string> =>
-    'diff --git a/src/utils/wrap.ts b/src/utils/wrap.ts';
+  const getPullRequestDiff = async (): Promise<string> => 'diff --git a/src/utils/wrap.ts b/src/utils/wrap.ts';
   const getAdapter = (trackerName: string) => {
     if (trackerName !== 'bitbucket') {
       throw new Error(`Unknown platform: ${trackerName}`);
@@ -185,80 +175,45 @@ async function run(): Promise<void> {
     capturedLogs += `${args.map(String).join(' ')}\n`;
   };
 
-  await command.run(
-    ['https://bitbucket.org/workspace/repo/pull-requests/200'],
-    { comment: true },
-  );
+  await command.run(['https://bitbucket.org/workspace/repo/pull-requests/200'], { comment: true });
 
   console.log = originalConsoleLog;
 
-  if (
-    !capturedLogs.includes(
-      'Over-engineered: new abstraction wraps a single call',
-    )
-  ) {
-    throw new Error(
-      'Expected proportionality issue message in terminal output.',
-    );
+  if (!capturedLogs.includes('Over-engineered: new abstraction wraps a single call')) {
+    throw new Error('Expected proportionality issue message in terminal output.');
   }
 
-  if (
-    !capturedLogs.includes(
-      'Suggestion: Inline the call at the usage site instead of adding a wrapper',
-    )
-  ) {
-    throw new Error(
-      'Expected human-friendly suggestion text in terminal output.',
-    );
+  if (!capturedLogs.includes('Suggestion: Inline the call at the usage site instead of adding a wrapper')) {
+    throw new Error('Expected human-friendly suggestion text in terminal output.');
   }
 
-  if (
-    !capturedLogs.includes(
-      'Remove the unused helper and call the function directly',
-    )
-  ) {
-    throw new Error(
-      'Expected trailing suggestion about smallest effective fix in terminal output.',
-    );
+  if (!capturedLogs.includes('Remove the unused helper and call the function directly')) {
+    throw new Error('Expected trailing suggestion about smallest effective fix in terminal output.');
   }
 
   console.log('  ✅ Part 2: Terminal output renders scope feedback');
 
   // ── Part 3: PR comment includes suggestion text ──
 
-  const summaryComment = createdComments.find((c) =>
-    c.ref.includes('pull-requests/200'),
-  );
+  const summaryComment = createdComments.find(c => c.ref.includes('pull-requests/200'));
   if (!summaryComment) {
     throw new Error('Expected a PR summary comment to be posted.');
   }
 
-  if (
-    !summaryComment.body.includes(
-      'Suggestion: Inline the call at the usage site instead of adding a wrapper',
-    )
-  ) {
-    throw new Error(
-      'Expected human-friendly issue-local suggestion in the PR comment body.',
-    );
+  if (!summaryComment.body.includes('Suggestion: Inline the call at the usage site instead of adding a wrapper')) {
+    throw new Error('Expected human-friendly issue-local suggestion in the PR comment body.');
   }
 
-  if (
-    !summaryComment.body.includes(
-      'Remove the unused helper and call the function directly',
-    )
-  ) {
+  if (!summaryComment.body.includes('Remove the unused helper and call the function directly')) {
     throw new Error('Expected trailing suggestion in the PR comment body.');
   }
 
   console.log('  ✅ Part 3: PR comment includes human-friendly suggestions');
 
-  console.log(
-    '\n✅ Manual smoke test passed: issue:review scope + suggestions',
-  );
+  console.log('\n✅ Manual smoke test passed: issue:review scope + suggestions');
 }
 
-run().catch((error) => {
+run().catch(error => {
   console.error(`❌ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

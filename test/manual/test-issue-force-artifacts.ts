@@ -18,10 +18,7 @@ const run = (): void => {
 
   const ticketPath = path.join(artifactDir, 'WBP-999.md');
   const planPath = path.join(artifactDir, '2026-05-04-deadbeef-fix-plan.json');
-  const planManifestPath = path.join(
-    artifactDir,
-    '2026-05-04-deadbeef-fix-plan.sources.json',
-  );
+  const planManifestPath = path.join(artifactDir, '2026-05-04-deadbeef-fix-plan.sources.json');
   const reviewPath = path.join(artifactDir, 'WBP-999-review.md');
 
   fs.writeFileSync(ticketPath, '# WBP-999: test ticket');
@@ -35,8 +32,8 @@ const run = (): void => {
         steps: ['test'],
       },
       null,
-      2,
-    ),
+      2
+    )
   );
   fs.writeFileSync(
     planManifestPath,
@@ -52,19 +49,14 @@ const run = (): void => {
         ticketKey: 'WBP-999',
       },
       null,
-      2,
-    ),
+      2
+    )
   );
-  fs.writeFileSync(
-    reviewPath,
-    '# Code Review: WBP-999\n\n## Approval Status\n✓ Approved\n',
-  );
+  fs.writeFileSync(reviewPath, '# Code Review: WBP-999\n\n## Approval Status\n✓ Approved\n');
 
-  const withoutForce = runCommand(
-    'yarn -s start -- issue WBP-999 --from fetch --to review --action fix --dry-run',
-  );
+  const withoutForce = runCommand('yarn -s start -- issue WBP-999 --from fetch --to review --action fix --dry-run');
   const withForce = runCommand(
-    'yarn -s start -- issue WBP-999 --from fetch --to review --action fix --dry-run --force',
+    'yarn -s start -- issue WBP-999 --from fetch --to review --action fix --dry-run --force'
   );
 
   if (!withoutForce.includes('artifact exists')) {

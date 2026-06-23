@@ -45,7 +45,7 @@ export const assertClaudeCliAvailable = (): void => {
     execSync('command -v claude', { stdio: 'pipe' });
   } catch {
     throw new Error(
-      'Claude CLI is not installed. Install it by following: https://docs.anthropic.com/en/docs/claude-code',
+      'Claude CLI is not installed. Install it by following: https://docs.anthropic.com/en/docs/claude-code'
     );
   }
 };
@@ -120,7 +120,7 @@ export async function* spawnCli(
   cwd: string,
   prompt?: string,
   env?: Record<string, string>,
-  timeoutMs: number = CLI_TIMEOUT_MS,
+  timeoutMs: number = CLI_TIMEOUT_MS
 ): AsyncGenerator<ClaudeCliMessage, void, undefined> {
   const child = spawn('claude', args, {
     cwd,

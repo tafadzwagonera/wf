@@ -40,8 +40,7 @@ async function main() {
     // ── Set up temporary git repo ──────────────────────────────────────────
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-committer-test-'));
 
-    const git = (cmd: string) =>
-      execSync(`git ${cmd}`, { cwd: tmpDir, stdio: 'pipe' });
+    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: tmpDir, stdio: 'pipe' });
 
     git('init');
     git('config user.email "test@example.com"');
@@ -49,10 +48,7 @@ async function main() {
 
     // Create an initial commit so HEAD exists
     const initialFile = path.join(tmpDir, 'passenger.service.ts');
-    fs.writeFileSync(
-      initialFile,
-      'export const updatePax = (pax: any) => pax;\n',
-    );
+    fs.writeFileSync(initialFile, 'export const updatePax = (pax: any) => pax;\n');
     git('add .');
     git('commit -m "init"');
 
@@ -69,7 +65,7 @@ async function main() {
         '',
         'const hasMultipleTravelers = (pax: any) => pax.travelers > 1;',
         'export { hasMultipleTravelers };',
-      ].join('\n'),
+      ].join('\n')
     );
 
     // ── Capture stdout from CommitterAgent ────────────────────────────────
@@ -83,9 +79,7 @@ async function main() {
       return originalWrite(chunk);
     };
 
-    console.log(
-      '\n🧪 CommitterAgent: ticket context → accurate commit message + real commit\n',
-    );
+    console.log('\n🧪 CommitterAgent: ticket context → accurate commit message + real commit\n');
     console.log('─'.repeat(60));
 
     const ticketContext =
@@ -101,46 +95,26 @@ async function main() {
     const lowerOutput = output.toLowerCase();
 
     // 1. No empty-diff error
-    if (
-      !lowerOutput.includes('git diff is empty') &&
-      !lowerOutput.includes('no changes to analyze')
-    ) {
+    if (!lowerOutput.includes('git diff is empty') && !lowerOutput.includes('no changes to analyze')) {
       pass('Commit message does not contain empty-diff error text');
     } else {
-      fail(
-        'Commit message contains empty-diff error text',
-        output.slice(0, 200),
-      );
+      fail('Commit message contains empty-diff error text', output.slice(0, 200));
     }
 
     // 2. Ticket key prefix
     if (output.includes('TEST-001:')) {
       pass('Commit message is prefixed with ticket key TEST-001:');
     } else {
-      fail(
-        'Commit message is not prefixed with TEST-001:',
-        output.slice(0, 200),
-      );
+      fail('Commit message is not prefixed with TEST-001:', output.slice(0, 200));
     }
 
     // 3. Message reflects ticket intent (not just implementation detail)
-    const intentKeywords = [
-      'solo',
-      'traveler',
-      'room',
-      'double',
-      'prevent',
-      'validat',
-      'single',
-    ];
-    const hasIntentWord = intentKeywords.some((kw) => lowerOutput.includes(kw));
+    const intentKeywords = ['solo', 'traveler', 'room', 'double', 'prevent', 'validat', 'single'];
+    const hasIntentWord = intentKeywords.some(kw => lowerOutput.includes(kw));
     if (hasIntentWord) {
       pass('Commit message reflects ticket intent (contains domain keyword)');
     } else {
-      fail(
-        'Commit message does not reflect ticket intent',
-        output.slice(0, 300),
-      );
+      fail('Commit message does not reflect ticket intent', output.slice(0, 300));
     }
 
     // 4. Commit was actually created
@@ -156,22 +130,14 @@ async function main() {
     if (gitLog.includes('TEST-001:')) {
       pass('Git commit was created in the repo (git log shows TEST-001:)');
     } else {
-      fail(
-        'No git commit was created',
-        gitLog ? `git log: ${gitLog.trim()}` : 'git log failed',
-      );
+      fail('No git commit was created', gitLog ? `git log: ${gitLog.trim()}` : 'git log failed');
     }
 
     // 5. Next step shows git push (not git add/commit)
     if (output.includes('git push') && !output.includes('git add .')) {
-      pass(
-        'Output shows only git push as next step (add/commit already executed)',
-      );
+      pass('Output shows only git push as next step (add/commit already executed)');
     } else {
-      fail(
-        'Output should show git push and NOT git add .',
-        output.slice(0, 300),
-      );
+      fail('Output should show git push and NOT git add .', output.slice(0, 300));
     }
 
     // ── Test 6: .wf/** files are never staged/committed ───────────────────
@@ -181,10 +147,7 @@ async function main() {
     // Create a .wf/jira/ artifact file that must never be committed
     const wfDir = path.join(tmpDir, '.wf', 'jira');
     fs.mkdirSync(wfDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(wfDir, 'ticket.json'),
-      JSON.stringify({ key: 'TEST-001' }),
-    );
+    fs.writeFileSync(path.join(wfDir, 'ticket.json'), JSON.stringify({ key: 'TEST-001' }));
 
     // Make another source change so there is something real to commit
     fs.writeFileSync(
@@ -200,7 +163,7 @@ async function main() {
         '',
         'const hasMultipleTravelers = (pax: any) => pax.travelers > 1;',
         'export { hasMultipleTravelers };',
-      ].join('\n'),
+      ].join('\n')
     );
 
     output = '';
@@ -230,19 +193,13 @@ async function main() {
     if (!committedFiles.includes('.wf/')) {
       pass('.wf/** artifact files were NOT committed');
     } else {
-      fail(
-        '.wf/** files appeared in the commit — exclusion not working',
-        committedFiles,
-      );
+      fail('.wf/** files appeared in the commit — exclusion not working', committedFiles);
     }
 
     if (committedFiles.includes('passenger.service.ts')) {
       pass('Source file passenger.service.ts WAS committed');
     } else {
-      fail(
-        'Source file was not committed — pathspec exclusion too broad',
-        committedFiles,
-      );
+      fail('Source file was not committed — pathspec exclusion too broad', committedFiles);
     }
 
     // ── Test 7: wf.config.* files are never staged/committed ──────────────
@@ -261,7 +218,7 @@ async function main() {
     for (const cfgFile of wfConfigFiles) {
       fs.writeFileSync(
         path.join(tmpDir, cfgFile),
-        `// wf tooling config — should never be committed\nmodule.exports = {};\n`,
+        `// wf tooling config — should never be committed\nmodule.exports = {};\n`
       );
     }
 
@@ -276,7 +233,7 @@ async function main() {
         '  }',
         '  return pax;',
         '};',
-      ].join('\n'),
+      ].join('\n')
     );
 
     output = '';
@@ -302,25 +259,17 @@ async function main() {
       committedFiles3 = '';
     }
 
-    const leakedConfig = wfConfigFiles.find((f) => committedFiles3.includes(f));
+    const leakedConfig = wfConfigFiles.find(f => committedFiles3.includes(f));
     if (!leakedConfig) {
       pass('wf.config.* files were NOT committed');
     } else {
-      fail(
-        `wf config file leaked into commit: ${leakedConfig}`,
-        committedFiles3,
-      );
+      fail(`wf config file leaked into commit: ${leakedConfig}`, committedFiles3);
     }
 
     if (committedFiles3.includes('passenger.service.ts')) {
-      pass(
-        'Source file passenger.service.ts WAS committed alongside wf config files',
-      );
+      pass('Source file passenger.service.ts WAS committed alongside wf config files');
     } else {
-      fail(
-        'Source file was not committed — wf.config.* exclusion too broad',
-        committedFiles3,
-      );
+      fail('Source file was not committed — wf.config.* exclusion too broad', committedFiles3);
     }
   } finally {
     await app.close();
@@ -339,7 +288,7 @@ async function main() {
   if (failed > 0) process.exit(1);
 }
 
-main().catch((err) => {
+main().catch(err => {
   console.error(err);
   process.exit(1);
 });

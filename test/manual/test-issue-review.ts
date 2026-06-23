@@ -31,10 +31,7 @@ async function testIssueReview() {
   let _criteriaSeq = 0;
   /** Write a temporary criteria markdown file and return its absolute path. */
   const writeTempCriteria = (lines: string[]): string => {
-    const filePath = path.join(
-      os.tmpdir(),
-      `criteria-${Date.now()}-${++_criteriaSeq}.md`,
-    );
+    const filePath = path.join(os.tmpdir(), `criteria-${Date.now()}-${++_criteriaSeq}.md`);
     fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
     return filePath;
   };
@@ -45,12 +42,12 @@ async function testIssueReview() {
     fs.writeFileSync(
       path.join(dirPath, 'index.ts'),
       'export const greet = (name: string) => `Hello, ${name}!`;\n',
-      'utf-8',
+      'utf-8'
     );
     fs.writeFileSync(
       path.join(dirPath, 'package.json'),
       JSON.stringify({ name: 'sample', version: '0.0.1' }, null, 2) + '\n',
-      'utf-8',
+      'utf-8'
     );
     return dirPath;
   };
@@ -60,10 +57,7 @@ async function testIssueReview() {
    * Temporarily overrides process.exit so the test suite can continue running.
    * @returns true if process.exit was called (expected), false otherwise
    */
-  const expectProcessExit = async (
-    label: string,
-    fn: () => Promise<void>,
-  ): Promise<boolean> => {
+  const expectProcessExit = async (label: string, fn: () => Promise<void>): Promise<boolean> => {
     const originalExit = process.exit.bind(process);
     let exited = false;
     process.exit = (code?: number | string) => {
@@ -89,9 +83,7 @@ async function testIssueReview() {
   // ── Shared state ─────────────────────────────────────────────────────────
 
   const nonGitDir = makeNonGitDir();
-  const gitDir = fs.existsSync(path.join(process.cwd(), '.git'))
-    ? process.cwd()
-    : null;
+  const gitDir = fs.existsSync(path.join(process.cwd(), '.git')) ? process.cwd() : null;
 
   let passed = 0;
   let failed = 0;
@@ -127,10 +119,7 @@ async function testIssueReview() {
     // Test 3: --dry-run with a PR URL argument
     console.log('Test 3: --dry-run with PR URL');
     try {
-      await command.run(
-        ['https://bitbucket.org/workspace/repo/pull-requests/1'],
-        { dryRun: true },
-      );
+      await command.run(['https://bitbucket.org/workspace/repo/pull-requests/1'], { dryRun: true });
       pass('Dry-run with PR URL completed without error');
     } catch (err: any) {
       fail(`Test 3: ${err.message}`);
@@ -138,18 +127,14 @@ async function testIssueReview() {
 
     // Test 4: --dry-run rejects a non-git directory path as an invalid source
     console.log('Test 4: --dry-run rejects non-git directory path');
-    const invalidNonGitDirHandled = await expectProcessExit('Test 4', () =>
-      command.run([nonGitDir], { dryRun: true }),
-    );
+    const invalidNonGitDirHandled = await expectProcessExit('Test 4', () => command.run([nonGitDir], { dryRun: true }));
     if (invalidNonGitDirHandled) passed++;
     if (!invalidNonGitDirHandled) failed++;
 
     // Test 5: --dry-run rejects a git directory path as an invalid source
     console.log('Test 5: --dry-run rejects git directory path');
     if (gitDir) {
-      const invalidGitDirHandled = await expectProcessExit('Test 5', () =>
-        command.run([gitDir], { dryRun: true }),
-      );
+      const invalidGitDirHandled = await expectProcessExit('Test 5', () => command.run([gitDir], { dryRun: true }));
       if (invalidGitDirHandled) passed++;
       if (!invalidGitDirHandled) failed++;
     } else {
@@ -173,9 +158,7 @@ async function testIssueReview() {
 
     // Test 7: --replace-criteria with a valid temp file (replace mode)
     console.log('Test 7: --replace-criteria with valid temp file (replace)');
-    const replaceCriteriaPath = writeTempCriteria([
-      '- Correctness: Does it do what the ticket says?',
-    ]);
+    const replaceCriteriaPath = writeTempCriteria(['- Correctness: Does it do what the ticket says?']);
     try {
       await command.run([], {
         dryRun: true,
@@ -189,9 +172,7 @@ async function testIssueReview() {
     }
 
     // Test 8: --criteria and --replace-criteria together (expect ErrorHandler exit)
-    console.log(
-      'Test 8: --criteria and --replace-criteria together (expect error)',
-    );
+    console.log('Test 8: --criteria and --replace-criteria together (expect error)');
     const criteriaA = writeTempCriteria(['- A: criterion A']);
     const criteriaB = writeTempCriteria(['- B: criterion B']);
     try {
@@ -199,7 +180,7 @@ async function testIssueReview() {
         command.run([], {
           criteria: criteriaA,
           replaceCriteria: criteriaB,
-        }),
+        })
       );
       if (test8Passed) passed++;
       if (!test8Passed) failed++;
@@ -213,7 +194,7 @@ async function testIssueReview() {
     const test9Passed = await expectProcessExit('Test 9', () =>
       command.run([], {
         criteria: '/tmp/does-not-exist-criteria-xyzzy.md',
-      }),
+      })
     );
     if (test9Passed) passed++;
     if (!test9Passed) failed++;
@@ -221,12 +202,9 @@ async function testIssueReview() {
     // Test 10: Invalid source string (expect ErrorHandler → process.exit(1))
     // The "Invalid source" error is thrown inside run()'s try-catch and handled
     // by ErrorHandler.handle(), which calls process.exit(1).
-    console.log(
-      'Test 10: Invalid source string (expect process.exit via ErrorHandler)',
-    );
-    const t10Passed = await expectProcessExit(
-      'Correctly exited on invalid source string',
-      () => command.run(['not-a-ticket-not-a-url-not-a-path'], {}),
+    console.log('Test 10: Invalid source string (expect process.exit via ErrorHandler)');
+    const t10Passed = await expectProcessExit('Correctly exited on invalid source string', () =>
+      command.run(['not-a-ticket-not-a-url-not-a-path'], {})
     );
     if (t10Passed) passed++;
     else failed++;
@@ -234,16 +212,12 @@ async function testIssueReview() {
     // Test 11: retired legacy scenario.
     // Directory paths are no longer accepted as explicit review sources, so this
     // historical live-AI case is now intentionally skipped.
-    console.log(
-      'Test 11: legacy non-git directory live review scenario (skipped)',
-    );
+    console.log('Test 11: legacy non-git directory live review scenario (skipped)');
     console.log('  ↷ Skipped — directory sources are no longer supported\n');
 
     // Test 13: invalid --repos path emits a warning and falls back to cwd
     // Verifies that resolveRepoBasePath is called and its warning surfaces.
-    console.log(
-      'Test 13: --dry-run with invalid --repos path (expect warning, no crash)',
-    );
+    console.log('Test 13: --dry-run with invalid --repos path (expect warning, no crash)');
     {
       const warnMessages: string[] = [];
       const origWarn = console.log.bind(console);
@@ -272,9 +246,7 @@ async function testIssueReview() {
     // Test 12: --repos is optional — dry-run with ticket key, no repos provided
     // Verifies: (a) TypeScript no longer requires repos in IssueReviewOptions,
     //           (b) runtime path reaches the dry-run preview without error.
-    console.log(
-      'Test 12: --dry-run with ticket key, no --repos (repos optional)',
-    );
+    console.log('Test 12: --dry-run with ticket key, no --repos (repos optional)');
     try {
       await command.run(['ABC-123'], { dryRun: true });
       pass('Dry-run with ticket key and no repos completed without error');

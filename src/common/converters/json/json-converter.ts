@@ -21,7 +21,7 @@ export class JsonConverter implements FormatConverter {
       // Validate the ticket
       const errors = validateSync(ticket);
       if (errors.length > 0) {
-        const messages = errors.map((e) => Object.values(e.constraints || {}));
+        const messages = errors.map(e => Object.values(e.constraints || {}));
         throw new Error(`Validation failed: ${messages.join(', ')}`);
       }
 
@@ -79,7 +79,7 @@ export class JsonConverter implements FormatConverter {
   private toPlainObject(ticket: UniversalTicket): Record<string, any> {
     const plain: Record<string, any> = {};
 
-    Object.keys(ticket).forEach((key) => {
+    Object.keys(ticket).forEach(key => {
       const value = ticket[key as keyof UniversalTicket];
       if (value !== undefined) {
         plain[key] = value;

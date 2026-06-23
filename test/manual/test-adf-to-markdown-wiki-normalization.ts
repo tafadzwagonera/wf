@@ -25,7 +25,7 @@ const createJiraService = (): JiraService =>
     } as any,
     { post: () => undefined } as any,
     { warn: () => undefined, success: () => undefined } as any,
-    { isPlatformEnabled: () => true } as any,
+    { isPlatformEnabled: () => true } as any
   );
 
 function main() {
@@ -50,18 +50,9 @@ function main() {
         },
       ],
     });
-    assert(
-      md.includes('```css'),
-      `{code:css} not converted: ${JSON.stringify(md)}`,
-    );
-    assert(
-      !md.includes('{code:css}'),
-      `{code:css} still present: ${JSON.stringify(md)}`,
-    );
-    assert(
-      !md.includes('{code}'),
-      `{code} still present: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('```css'), `{code:css} not converted: ${JSON.stringify(md)}`);
+    assert(!md.includes('{code:css}'), `{code:css} still present: ${JSON.stringify(md)}`);
+    assert(!md.includes('{code}'), `{code} still present: ${JSON.stringify(md)}`);
     console.log('  PASS: {code:lang} blocks converted to code fences');
   }
 
@@ -73,20 +64,12 @@ function main() {
       content: [
         {
           type: 'paragraph',
-          content: [
-            { type: 'text', text: '{noformat}raw output here{noformat}' },
-          ],
+          content: [{ type: 'text', text: '{noformat}raw output here{noformat}' }],
         },
       ],
     });
-    assert(
-      md.includes('```\nraw output here\n```'),
-      `{noformat} not converted: ${JSON.stringify(md)}`,
-    );
-    assert(
-      !md.includes('{noformat}'),
-      `{noformat} still present: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('```\nraw output here\n```'), `{noformat} not converted: ${JSON.stringify(md)}`);
+    assert(!md.includes('{noformat}'), `{noformat} still present: ${JSON.stringify(md)}`);
     console.log('  PASS: {noformat} blocks converted to code fences');
   }
 
@@ -107,14 +90,8 @@ function main() {
         },
       ],
     });
-    assert(
-      md.includes('`bufferPx`'),
-      `{{bufferPx}} not converted: ${JSON.stringify(md)}`,
-    );
-    assert(
-      md.includes('`break-inside`'),
-      `{{break-inside}} not converted: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('`bufferPx`'), `{{bufferPx}} not converted: ${JSON.stringify(md)}`);
+    assert(md.includes('`break-inside`'), `{{break-inside}} not converted: ${JSON.stringify(md)}`);
     assert(!md.includes('{{'), `{{ still present: ${JSON.stringify(md)}`);
     console.log('  PASS: {{monospace}} converted to inline code');
   }
@@ -161,14 +138,8 @@ function main() {
         },
       ],
     });
-    assert(
-      md.includes('Technical Details'),
-      `expand title lost: ${JSON.stringify(md)}`,
-    );
-    assert(
-      md.includes('Detailed info here.'),
-      `expand body lost: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('Technical Details'), `expand title lost: ${JSON.stringify(md)}`);
+    assert(md.includes('Detailed info here.'), `expand body lost: ${JSON.stringify(md)}`);
     console.log('  PASS: expand node preserves title and content');
   }
 
@@ -190,10 +161,7 @@ function main() {
         },
       ],
     });
-    assert(
-      md.includes('Info panel content.'),
-      `panel content lost: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('Info panel content.'), `panel content lost: ${JSON.stringify(md)}`);
     console.log('  PASS: panel node preserves content');
   }
 
@@ -224,16 +192,11 @@ function main() {
       content: [
         {
           type: 'paragraph',
-          content: [
-            { type: 'text', text: 'removed', marks: [{ type: 'strike' }] },
-          ],
+          content: [{ type: 'text', text: 'removed', marks: [{ type: 'strike' }] }],
         },
       ],
     });
-    assert(
-      md.includes('~~removed~~'),
-      `strikethrough lost: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('~~removed~~'), `strikethrough lost: ${JSON.stringify(md)}`);
     console.log('  PASS: strikethrough mark preserved');
   }
 
@@ -293,19 +256,10 @@ function main() {
     });
     assert(md.includes('### Summary'), `heading lost: ${JSON.stringify(md)}`);
     assert(md.includes('1. '), `ordered list lost: ${JSON.stringify(md)}`);
-    assert(
-      md.includes('`bufferPx`'),
-      `inline code lost: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('`bufferPx`'), `inline code lost: ${JSON.stringify(md)}`);
     assert(md.includes('```css'), `code fence lost: ${JSON.stringify(md)}`);
-    assert(
-      !md.includes('{code:css}'),
-      `wiki code block leaked: ${JSON.stringify(md)}`,
-    );
-    assert(
-      !md.includes('{{bufferPx}}'),
-      `wiki monospace leaked: ${JSON.stringify(md)}`,
-    );
+    assert(!md.includes('{code:css}'), `wiki code block leaked: ${JSON.stringify(md)}`);
+    assert(!md.includes('{{bufferPx}}'), `wiki monospace leaked: ${JSON.stringify(md)}`);
     console.log('  PASS: WBP-3144-like combined document (integration)');
   }
 
@@ -326,10 +280,7 @@ function main() {
         },
       ],
     });
-    assert(
-      md.includes('- Introduce'),
-      `wiki * bullet not converted: ${JSON.stringify(md)}`,
-    );
+    assert(md.includes('- Introduce'), `wiki * bullet not converted: ${JSON.stringify(md)}`);
     assert(!/^\* /m.test(md), `wiki * still present: ${JSON.stringify(md)}`);
     console.log('  PASS: * bullet items converted to - bullet list');
   }
@@ -360,10 +311,7 @@ function main() {
         },
       ],
     });
-    assert(
-      !md.includes('{noformat}'),
-      `{noformat} still present: ${JSON.stringify(md)}`,
-    );
+    assert(!md.includes('{noformat}'), `{noformat} still present: ${JSON.stringify(md)}`);
     assert(md.includes('```'), `code fence missing: ${JSON.stringify(md)}`);
     assert(md.includes('italic text'), `content lost: ${JSON.stringify(md)}`);
     console.log('  PASS: {noformat} across paragraphs converted');
@@ -415,10 +363,7 @@ function main() {
       ],
     });
     assert(md.includes('### Summary'), `heading lost: ${JSON.stringify(md)}`);
-    assert(
-      !md.includes('{noformat}'),
-      `wiki noformat leaked: ${JSON.stringify(md)}`,
-    );
+    assert(!md.includes('{noformat}'), `wiki noformat leaked: ${JSON.stringify(md)}`);
     assert(md.includes('- Introduce'), `bullet lost: ${JSON.stringify(md)}`);
     assert(!/^\* /m.test(md), `wiki * bullet leaked: ${JSON.stringify(md)}`);
     console.log('  PASS: WBP-3145-like combined document (integration)');

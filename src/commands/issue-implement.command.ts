@@ -20,18 +20,9 @@ import {
   resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
   SUPPORTED_PLAN_EXTENSIONS,
 } from '../shared/utils/plan-artifact';
-import {
-  resolveArtifactDir,
-  resolveCustomArtifactDir,
-  resolveRepoBasePath,
-} from '../agents/utils';
+import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
-import type {
-  ResolutionAction,
-  TicketArtifact,
-  PlanArtifact,
-  ModelRouting,
-} from '../agents/interfaces';
+import type { ResolutionAction, TicketArtifact, PlanArtifact, ModelRouting } from '../agents/interfaces';
 
 const VALID_MODEL_ROUTINGS: ModelRouting[] = ['auto', 'default', 'mechanical'];
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
@@ -47,11 +38,7 @@ const loadPlanFile = (filePath: string): ResolutionPlan => {
   try {
     return parsePlanArtifact(fs.readFileSync(filePath, 'utf-8'), filePath);
   } catch (error) {
-    throw new Error(
-      error instanceof Error
-        ? error.message
-        : `Plan file is not valid: ${filePath}`,
-    );
+    throw new Error(error instanceof Error ? error.message : `Plan file is not valid: ${filePath}`);
   }
 };
 
@@ -74,8 +61,8 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
       chalk.yellow(
-        `⚠️ issue:implement verifies only the first repository. Remaining repos are context only: ${repos!.slice(1).join(', ')}. Use wf issue or run wf issue:implement separately per repository for multi-repo plans.`,
-      ),
+        `⚠️ issue:implement verifies only the first repository. Remaining repos are context only: ${repos!.slice(1).join(', ')}. Use wf issue or run wf issue:implement separately per repository for multi-repo plans.`
+      )
     );
   }
 };
@@ -108,15 +95,14 @@ export class IssueImplementCommand extends CommandRunner {
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
-    private readonly orchestrator: AgentOrchestrator,
+    private readonly orchestrator: AgentOrchestrator
   ) {
     super();
   }
 
   @Option({
     flags: '--branch-name-pattern <pattern>',
-    description:
-      'Override branch name validation pattern from git.branchNamePattern config',
+    description: 'Override branch name validation pattern from git.branchNamePattern config',
   })
   parseBranchNamePattern(val: string): string {
     return val;
@@ -124,8 +110,7 @@ export class IssueImplementCommand extends CommandRunner {
 
   @Option({
     flags: '--dry-run',
-    description:
-      'Preview branch, file, and investigation work without making changes',
+    description: 'Preview branch, file, and investigation work without making changes',
   })
   parseDryRun(): boolean {
     return true;
@@ -138,9 +123,7 @@ export class IssueImplementCommand extends CommandRunner {
   })
   parseModelRouting(val: string): string {
     if (!VALID_MODEL_ROUTINGS.includes(val as ModelRouting)) {
-      throw new Error(
-        `Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTINGS.join(', ')}`,
-      );
+      throw new Error(`Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTINGS.join(', ')}`);
     }
     return val;
   }
@@ -165,8 +148,7 @@ export class IssueImplementCommand extends CommandRunner {
 
   @Option({
     flags: '-s, --silent',
-    description:
-      'Suppress interactive prompts; auto-select defaults while preserving decorative output',
+    description: 'Suppress interactive prompts; auto-select defaults while preserving decorative output',
   })
   parseSilent(): boolean {
     return true;
@@ -179,17 +161,12 @@ export class IssueImplementCommand extends CommandRunner {
   parseTracker(tracker: string): string {
     const validTrackers = ['jira', 'github', 'bitbucket'];
     if (!validTrackers.includes(tracker)) {
-      throw new Error(
-        `Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`,
-      );
+      throw new Error(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
     }
     return tracker;
   }
 
-  async run(
-    [identifier]: string[],
-    options?: IssueImplementOptions,
-  ): Promise<void> {
+  async run([identifier]: string[], options?: IssueImplementOptions): Promise<void> {
     try {
       await ensureWfHome();
 
@@ -199,34 +176,22 @@ export class IssueImplementCommand extends CommandRunner {
           chalk.red(
             'Error: --no-branch and --branch-name-pattern are mutually exclusive.\n' +
               '  Use --no-branch to stay on the source branch, or\n' +
-              '  Use --branch-name-pattern <pattern> to validate a generated branch name.',
-          ),
+              '  Use --branch-name-pattern <pattern> to validate a generated branch name.'
+          )
         );
         process.exit(1);
       }
 
       // Guard: ticketKey + Bitbucket requires --repos
-      const trackerName =
-        options?.tracker || this.configService.get<string>('tracker', 'jira');
+      const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
 
-      if (
-        identifier &&
-        isTicketKey(identifier) &&
-        trackerName === 'bitbucket' &&
-        !options?.repos?.length
-      ) {
-        console.error(
-          chalk.red('Error: --repos is required for Bitbucket ticket fetching'),
-        );
+      if (identifier && isTicketKey(identifier) && trackerName === 'bitbucket' && !options?.repos?.length) {
+        console.error(chalk.red('Error: --repos is required for Bitbucket ticket fetching'));
         process.exit(1);
       }
 
       if (!identifier) {
-        console.error(
-          chalk.red(
-            'Error: Provide a <ticket-key> or a custom plan artifact filename',
-          ),
-        );
+        console.error(chalk.red('Error: Provide a <ticket-key> or a custom plan artifact filename'));
         process.exit(1);
         return;
       }
@@ -244,12 +209,12 @@ export class IssueImplementCommand extends CommandRunner {
           identifier,
           trackerDir,
           customArtifactDir,
-          baseDir,
+          baseDir
         );
 
         if (!resolvedPlanReference) {
           throw new Error(
-            `Plan artifact not found for ${identifier}. Run wf issue:plan first or provide a supported plan filename.`,
+            `Plan artifact not found for ${identifier}. Run wf issue:plan first or provide a supported plan filename.`
           );
         }
 
@@ -270,11 +235,10 @@ export class IssueImplementCommand extends CommandRunner {
 
       if (resolvedPlanReference?.sourceKind === 'custom' && plan) {
         const repoDir = resolveRepoBasePath(options?.repos?.[0]);
-        const customExecutionContext =
-          this.buildSyntheticCustomExecutionContext(
-            resolvedPlanReference.artifactPath,
-            plan,
-          );
+        const customExecutionContext = this.buildSyntheticCustomExecutionContext(
+          resolvedPlanReference.artifactPath,
+          plan
+        );
 
         if (options?.dryRun) {
           this.dryRunPreview.showHeader('issue:implement', identifier);
@@ -283,11 +247,7 @@ export class IssueImplementCommand extends CommandRunner {
           this.dryRunPreview.previewFileRead({
             filePath: resolvedPlanReference.artifactPath,
             exists: planExists,
-            sizeInKb: planExists
-              ? (
-                  fs.statSync(resolvedPlanReference.artifactPath).size / 1024
-                ).toFixed(2)
-              : '0',
+            sizeInKb: planExists ? (fs.statSync(resolvedPlanReference.artifactPath).size / 1024).toFixed(2) : '0',
           });
 
           // Detect investigate plan if file exists, otherwise use action heuristic
@@ -297,14 +257,13 @@ export class IssueImplementCommand extends CommandRunner {
           if (isInvestigateDryRun) {
             const findingsPath = resolvedPlanReference.artifactPath.replace(
               '.json',
-              '-findings-and-recommendations.json',
+              '-findings-and-recommendations.json'
             );
             this.dryRunPreview.previewApiCall({
               method: 'POST',
               endpoint: '/v1/messages',
               platform: this.aiService.getProviderDisplayName(),
-              description:
-                'Generate investigation findings and recommendations',
+              description: 'Generate investigation findings and recommendations',
               estimatedResponse: [
                 '{',
                 '  "action": "investigate",',
@@ -335,22 +294,18 @@ export class IssueImplementCommand extends CommandRunner {
               fileCreatedCount: 1,
               fileModifiedCount: 0,
               gitOperationCount: 0,
-              terminalOutputLines: [
-                `✓ Investigation findings saved to: ${findingsPath}`,
-              ],
+              terminalOutputLines: [`✓ Investigation findings saved to: ${findingsPath}`],
             });
           } else {
             const trackedFiles = this.resolveDryRunTrackedFiles(plan, repoDir);
-            const modifiedFileCount = trackedFiles.filter((file) =>
-              fs.existsSync(file),
-            ).length;
+            const modifiedFileCount = trackedFiles.filter(file => fs.existsSync(file)).length;
             const createdFileCount = trackedFiles.length - modifiedFileCount;
 
             this.dryRunPreview.previewGitOperation({
               operation: 'branch',
               description: `create or switch to feature branch ${this.formatCustomBranchName(plan.action, customExecutionContext.customBranchSlug)}`,
             });
-            trackedFiles.forEach((filePath) => {
+            trackedFiles.forEach(filePath => {
               this.dryRunPreview.previewFileWrite({
                 filePath,
                 operation: fs.existsSync(filePath) ? 'overwrite' : 'create',
@@ -393,7 +348,7 @@ export class IssueImplementCommand extends CommandRunner {
         if (plan.action === 'investigate') {
           const findingsPath = resolvedPlanReference.artifactPath.replace(
             '.json',
-            '-findings-and-recommendations.json',
+            '-findings-and-recommendations.json'
           );
 
           this.logger.info('Generating investigation findings...');
@@ -423,14 +378,13 @@ Return ONLY a valid JSON object:
           });
           const findingsContent = requireAiResponseContent(
             response,
-            'AI provider returned an empty investigation findings response',
+            'AI provider returned an empty investigation findings response'
           );
 
           let findings: any;
           try {
             const jsonMatch =
-              findingsContent.match(/```json\s*([\s\S]*?)\s*```/) ||
-              findingsContent.match(/\{[\s\S]*\}/);
+              findingsContent.match(/```json\s*([\s\S]*?)\s*```/) || findingsContent.match(/\{[\s\S]*\}/);
             if (!jsonMatch) throw new Error('No JSON found in response');
             findings = JSON.parse(jsonMatch[1] ?? jsonMatch[0]);
           } catch (error) {
@@ -438,31 +392,21 @@ Return ONLY a valid JSON object:
               throw error;
             }
 
-            throw new Error(
-              'Failed to parse investigation findings from AI response',
-            );
+            throw new Error('Failed to parse investigation findings from AI response');
           }
 
-          await fs.promises.writeFile(
-            findingsPath,
-            JSON.stringify(findings, null, 2),
-            'utf-8',
-          );
+          await fs.promises.writeFile(findingsPath, JSON.stringify(findings, null, 2), 'utf-8');
 
           console.log('\n🔍 Investigation Findings');
           console.log('─'.repeat(70));
           console.log(`  Summary: ${findings.summary ?? ''}`);
           if ((findings.findings ?? []).length > 0) {
             console.log('\n  Findings:');
-            (findings.findings as string[]).forEach((f: string, i: number) =>
-              console.log(`    ${i + 1}. ${f}`),
-            );
+            (findings.findings as string[]).forEach((f: string, i: number) => console.log(`    ${i + 1}. ${f}`));
           }
           if ((findings.recommendations ?? []).length > 0) {
             console.log('\n  Recommendations:');
-            (findings.recommendations as string[]).forEach(
-              (r: string, i: number) => console.log(`    ${i + 1}. ${r}`),
-            );
+            (findings.recommendations as string[]).forEach((r: string, i: number) => console.log(`    ${i + 1}. ${r}`));
           }
           console.log(`\n  Conclusion: ${findings.conclusion ?? ''}`);
           this.logger.success(`✓ Findings saved to: ${findingsPath}`);
@@ -471,8 +415,8 @@ Return ONLY a valid JSON object:
 
         console.log(
           chalk.yellow(
-            `⚠️ Created synthetic execution context for custom plan ${path.basename(resolvedPlanReference.artifactPath)}. Branch naming will use artifact stem "${customExecutionContext.customBranchSlug}".`,
-          ),
+            `⚠️ Created synthetic execution context for custom plan ${path.basename(resolvedPlanReference.artifactPath)}. Branch naming will use artifact stem "${customExecutionContext.customBranchSlug}".`
+          )
         );
 
         const planArtifact: PlanArtifact = {
@@ -480,39 +424,30 @@ Return ONLY a valid JSON object:
           action: plan.action,
           path: resolvedPlanReference.artifactPath,
         };
-        await this.orchestrator.implementer.execute(
-          customExecutionContext.ticketArtifact,
-          planArtifact,
-          {
-            trackerName,
-            repoDir,
-            additionalRepoDirs: (options?.repos ?? [])
-              .slice(1)
-              .map((r) => resolveRepoBasePath(r)),
-            customBranchSlug: customExecutionContext.customBranchSlug,
-            modelRouting: options?.modelRouting as ModelRouting,
-            silent: options?.silent,
-            noBranch: options?.noBranch,
-            branchNamePattern: options?.branchNamePattern,
-          },
-        );
+        await this.orchestrator.implementer.execute(customExecutionContext.ticketArtifact, planArtifact, {
+          trackerName,
+          repoDir,
+          additionalRepoDirs: (options?.repos ?? []).slice(1).map(r => resolveRepoBasePath(r)),
+          customBranchSlug: customExecutionContext.customBranchSlug,
+          modelRouting: options?.modelRouting as ModelRouting,
+          silent: options?.silent,
+          noBranch: options?.noBranch,
+          branchNamePattern: options?.branchNamePattern,
+        });
         return;
       }
 
       // ── MODE B & C: ticketKey present ──────────────────────────────────
       warnOnVerificationRepoBoundary(options?.repos);
-      const resolvedTicketKey =
-        ticketKey ?? resolvedPlanReference?.ticketKey ?? identifier;
+      const resolvedTicketKey = ticketKey ?? resolvedPlanReference?.ticketKey ?? identifier;
       const ticketPath = path.join(trackerDir, `${resolvedTicketKey}.md`);
       // Preflight Check 1: ticket artifact must exist (gates both live + dry-run)
       if (!fs.existsSync(ticketPath)) {
-        console.error(
-          chalk.red(`Error: Ticket artifact not found: ${ticketPath}`),
-        );
+        console.error(chalk.red(`Error: Ticket artifact not found: ${ticketPath}`));
         console.error(
           chalk.yellow(
-            `Run:   wf issue:fetch ${ticketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`,
-          ),
+            `Run:   wf issue:fetch ${ticketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`
+          )
         );
         process.exit(1);
         return;
@@ -520,26 +455,19 @@ Return ONLY a valid JSON object:
 
       resolvedPlanReference =
         resolvedPlanReference ??
-        this.resolvePlanArtifactReferenceAcrossDirs(
-          resolvedTicketKey,
-          trackerDir,
-          customArtifactDir,
-          baseDir,
-        );
+        this.resolvePlanArtifactReferenceAcrossDirs(resolvedTicketKey, trackerDir, customArtifactDir, baseDir);
 
       if (!resolvedPlanReference) {
+        console.error(chalk.red(`Error: No plan artifact found for ${resolvedTicketKey}.`));
         console.error(
-          chalk.red(`Error: No plan artifact found for ${resolvedTicketKey}.`),
+          chalk.yellow(
+            `Run:   wf issue:plan ${resolvedTicketKey} --action <feature|fix|investigate>${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`
+          )
         );
         console.error(
           chalk.yellow(
-            `Run:   wf issue:plan ${resolvedTicketKey} --action <feature|fix|investigate>${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`,
-          ),
-        );
-        console.error(
-          chalk.yellow(
-            `Then:  wf issue:implement ${resolvedTicketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`,
-          ),
+            `Then:  wf issue:implement ${resolvedTicketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`
+          )
         );
         process.exit(1);
         return;
@@ -577,9 +505,7 @@ Return ONLY a valid JSON object:
           this.dryRunPreview.previewFileRead({
             filePath: planPath,
             exists: planExists,
-            sizeInKb: planExists
-              ? (fs.statSync(planPath).size / 1024).toFixed(2)
-              : '0',
+            sizeInKb: planExists ? (fs.statSync(planPath).size / 1024).toFixed(2) : '0',
           });
         } else {
           // Mode C: plan discovered from disk — file-read only, no AI call
@@ -592,10 +518,7 @@ Return ONLY a valid JSON object:
 
         // For investigate: also preview findings API call and file write
         if (action === 'investigate') {
-          const findingsPath = planPath.replace(
-            '.json',
-            '-findings-and-recommendations.json',
-          );
+          const findingsPath = planPath.replace('.json', '-findings-and-recommendations.json');
           this.dryRunPreview.previewApiCall({
             method: 'POST',
             endpoint: '/v1/messages',
@@ -672,21 +595,15 @@ Return ONLY a valid JSON object:
         path: planPath,
       };
 
-      await this.orchestrator.implementer.execute(
-        ticketArtifact,
-        planArtifact,
-        {
-          trackerName,
-          repoDir,
-          additionalRepoDirs: (options?.repos ?? [])
-            .slice(1)
-            .map((r) => resolveRepoBasePath(r)),
-          modelRouting: options?.modelRouting as ModelRouting,
-          silent: options?.silent,
-          noBranch: options?.noBranch,
-          branchNamePattern: options?.branchNamePattern,
-        },
-      );
+      await this.orchestrator.implementer.execute(ticketArtifact, planArtifact, {
+        trackerName,
+        repoDir,
+        additionalRepoDirs: (options?.repos ?? []).slice(1).map(r => resolveRepoBasePath(r)),
+        modelRouting: options?.modelRouting as ModelRouting,
+        silent: options?.silent,
+        noBranch: options?.noBranch,
+        branchNamePattern: options?.branchNamePattern,
+      });
     } catch (error) {
       ErrorHandler.handle(error as Error);
     }
@@ -708,20 +625,15 @@ Return ONLY a valid JSON object:
    * @param configService NestJS ConfigService instance
    * @returns Formatted workspace/repo string
    */
-  private formatBitbucketRepo(
-    repo: string,
-    configService: ConfigService,
-  ): string {
+  private formatBitbucketRepo(repo: string, configService: ConfigService): string {
     if (repo.includes('/')) {
       return repo;
     }
 
-    const workspace = configService.get<string>(
-      'atlassian.bitbucket.workspace',
-    );
+    const workspace = configService.get<string>('atlassian.bitbucket.workspace');
     if (!workspace) {
       throw new Error(
-        'Workspace required. Provide as workspace/repo or set atlassian.bitbucket.workspace in wf.config.*',
+        'Workspace required. Provide as workspace/repo or set atlassian.bitbucket.workspace in wf.config.*'
       );
     }
 
@@ -735,11 +647,7 @@ Return ONLY a valid JSON object:
    * @param configService NestJS ConfigService instance
    * @returns Formatted reference (workspace/repo#123)
    */
-  private formatBitbucketReference(
-    issueId: string,
-    repo: string,
-    configService: ConfigService,
-  ): string {
+  private formatBitbucketReference(issueId: string, repo: string, configService: ConfigService): string {
     const formattedRepo = this.formatBitbucketRepo(repo, configService);
     return `${formattedRepo}#${issueId}`;
   }
@@ -753,12 +661,9 @@ Return ONLY a valid JSON object:
    */
   private resolveCustomPlanPath(identifier: string, baseDir: string): string {
     const extension = path.extname(identifier).slice(1).toLowerCase();
-    const supportedExtension =
-      extension as (typeof SUPPORTED_PLAN_EXTENSIONS)[number];
+    const supportedExtension = extension as (typeof SUPPORTED_PLAN_EXTENSIONS)[number];
     if (extension && !SUPPORTED_PLAN_EXTENSIONS.includes(supportedExtension)) {
-      throw new Error(
-        'Custom plan artifacts must include a supported file extension: .json, .md, .yaml, or .yml',
-      );
+      throw new Error('Custom plan artifacts must include a supported file extension: .json, .md, .yaml, or .yml');
     }
 
     if (!extension) {
@@ -788,11 +693,9 @@ Return ONLY a valid JSON object:
     identifier: string,
     trackerDir: string,
     customArtifactDir: string,
-    baseDir: string,
+    baseDir: string
   ): PlanArtifactReference | null {
-    const candidateDirs = isTicketKey(identifier)
-      ? [trackerDir]
-      : [trackerDir, customArtifactDir];
+    const candidateDirs = isTicketKey(identifier) ? [trackerDir] : [trackerDir, customArtifactDir];
 
     for (const artifactDir of candidateDirs) {
       try {
@@ -805,19 +708,12 @@ Return ONLY a valid JSON object:
     if (!isTicketKey(identifier)) {
       const directPlanPath = this.resolveCustomPlanPath(identifier, baseDir);
       if (fs.existsSync(directPlanPath)) {
-        const artifactStem = path.basename(
-          directPlanPath,
-          path.extname(directPlanPath),
-        );
+        const artifactStem = path.basename(directPlanPath, path.extname(directPlanPath));
         const actionMatch = artifactStem.match(/-(feature|fix|investigate)$/i);
         return {
           action: (actionMatch?.[1] as ResolutionAction) || 'fix',
           artifactPath: directPlanPath,
-          format: path.extname(directPlanPath).slice(1).toLowerCase() as
-            | 'json'
-            | 'md'
-            | 'yaml'
-            | 'yml',
+          format: path.extname(directPlanPath).slice(1).toLowerCase() as 'json' | 'md' | 'yaml' | 'yml',
           hash: path.basename(directPlanPath, path.extname(directPlanPath)),
           sourceKind: 'custom',
           sourceName: artifactStem.replace(/-(feature|fix|investigate)$/i, ''),
@@ -842,12 +738,8 @@ Return ONLY a valid JSON object:
       : path.dirname(identifier) === '.'
         ? path.join(resolveCustomArtifactDir(baseDir), identifier)
         : path.resolve(baseDir, identifier);
-    const candidatePaths = SUPPORTED_PLAN_EXTENSIONS.map(
-      (candidateExtension) => `${basePath}.${candidateExtension}`,
-    );
-    const matches = candidatePaths.filter((candidatePath) =>
-      fs.existsSync(candidatePath),
-    );
+    const candidatePaths = SUPPORTED_PLAN_EXTENSIONS.map(candidateExtension => `${basePath}.${candidateExtension}`);
+    const matches = candidatePaths.filter(candidatePath => fs.existsSync(candidatePath));
 
     if (matches.length === 1) {
       return matches[0];
@@ -856,14 +748,12 @@ Return ONLY a valid JSON object:
     if (matches.length > 1) {
       throw new Error(
         `Multiple custom plan artifacts found for ${identifier}: ${matches
-          .map((candidatePath) => path.basename(candidatePath))
-          .join(', ')}. Use the explicit filename including extension.`,
+          .map(candidatePath => path.basename(candidatePath))
+          .join(', ')}. Use the explicit filename including extension.`
       );
     }
 
-    throw new Error(
-      `Custom plan artifact not found for ${identifier}. Checked: ${candidatePaths.join(', ')}`,
-    );
+    throw new Error(`Custom plan artifact not found for ${identifier}. Checked: ${candidatePaths.join(', ')}`);
   }
 
   /**
@@ -876,13 +766,10 @@ Return ONLY a valid JSON object:
    */
   private buildSyntheticCustomExecutionContext(
     planPath: string,
-    plan: ResolutionPlan,
+    plan: ResolutionPlan
   ): SyntheticCustomExecutionContext {
     const artifactName = path.basename(planPath, path.extname(planPath));
-    const customBranchSlug = artifactName.replace(
-      new RegExp(`-${plan.action}$`),
-      '',
-    );
+    const customBranchSlug = artifactName.replace(new RegExp(`-${plan.action}$`), '');
     const ticketKey = customBranchSlug || artifactName;
     const ticketContent = [
       `# ${ticketKey}: ${plan.summary || 'Custom implementation'}`,
@@ -892,8 +779,7 @@ Return ONLY a valid JSON object:
       '',
       '## Summary',
       '',
-      plan.summary ||
-        'Custom plan execution context synthesized from artifact.',
+      plan.summary || 'Custom plan execution context synthesized from artifact.',
       '',
       '## Steps',
       '',
@@ -905,25 +791,18 @@ Return ONLY a valid JSON object:
       '',
       ...(() => {
         const affected = normalizeFileEntries(plan.filesAffected ?? []);
-        return affected.length > 0
-          ? affected.map((e) => `- ${e.filePath} (${e.status})`)
-          : ['- (none listed)'];
+        return affected.length > 0 ? affected.map(e => `- ${e.filePath} (${e.status})`) : ['- (none listed)'];
       })(),
       '',
       ...(() => {
         const context = normalizeFileEntries(plan.filesContext ?? []);
         if (context.length === 0) return [];
-        return [
-          '## Files for Context (Read-Only)',
-          '',
-          ...context.map((e) => `- ${e.filePath} (${e.status})`),
-          '',
-        ];
+        return ['## Files for Context (Read-Only)', '', ...context.map(e => `- ${e.filePath} (${e.status})`), ''];
       })(),
       '## Risks',
       '',
       ...((plan.risks ?? []).length > 0
-        ? (plan.risks ?? []).map((risk) => `- ${risk}`)
+        ? (plan.risks ?? []).map(risk => `- ${risk}`)
         : ['- Synthetic execution context derived from custom plan artifact']),
     ].join('\n');
 
@@ -944,16 +823,13 @@ Return ONLY a valid JSON object:
    * @param repoDir - Repository directory selected for execution
    * @returns Absolute file paths the implementer would target
    */
-  private resolveDryRunTrackedFiles(
-    plan: ResolutionPlan,
-    repoDir: string,
-  ): string[] {
+  private resolveDryRunTrackedFiles(plan: ResolutionPlan, repoDir: string): string[] {
     const repoName = path.basename(repoDir);
     const entries = normalizeFileEntries(plan.filesAffected ?? []);
 
     return entries
-      .filter((entry) => entry.status !== 'not-found')
-      .map((entry) => {
+      .filter(entry => entry.status !== 'not-found')
+      .map(entry => {
         const relativePath = entry.filePath.startsWith(`${repoName}/`)
           ? entry.filePath.slice(repoName.length + 1)
           : entry.filePath;
@@ -968,17 +844,12 @@ Return ONLY a valid JSON object:
    * @param customBranchSlug - Artifact-derived branch slug
    * @returns Branch name shown to the user
    */
-  private formatCustomBranchName(
-    action: ResolutionAction,
-    customBranchSlug: string,
-  ): string {
-    const configuredPrefixMapping = this.configService.get<
-      Record<string, string> | undefined
-    >('git.branchPrefixMapping');
+  private formatCustomBranchName(action: ResolutionAction, customBranchSlug: string): string {
+    const configuredPrefixMapping = this.configService.get<Record<string, string> | undefined>(
+      'git.branchPrefixMapping'
+    );
     const prefixMapping =
-      configuredPrefixMapping &&
-      typeof configuredPrefixMapping === 'object' &&
-      !Array.isArray(configuredPrefixMapping)
+      configuredPrefixMapping && typeof configuredPrefixMapping === 'object' && !Array.isArray(configuredPrefixMapping)
         ? configuredPrefixMapping
         : {
             feature: 'feature',

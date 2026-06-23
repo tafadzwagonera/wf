@@ -5,12 +5,7 @@ import { GitService } from '../integrations/git/git.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
-import type {
-  ImplementBackendSelection,
-  ImplementRunArtifact,
-  PlanArtifact,
-  TicketArtifact,
-} from './interfaces';
+import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, TicketArtifact } from './interfaces';
 
 describe('ImplementerAgent', () => {
   let agent: ImplementerAgent;
@@ -23,9 +18,7 @@ describe('ImplementerAgent', () => {
     path: '/tmp/.wf/repo-a/jira/WBP-1000.md',
   };
 
-  const buildPlan = (
-    overrides?: Partial<PlanArtifact['plan']>,
-  ): PlanArtifact => ({
+  const buildPlan = (overrides?: Partial<PlanArtifact['plan']>): PlanArtifact => ({
     action: 'feature',
     path: '/tmp/.wf/repo-a/jira/WBP-1000-plan-feature.json',
     plan: {
@@ -46,30 +39,28 @@ describe('ImplementerAgent', () => {
         {
           provide: ConfigService,
           useValue: {
-            get: jest
-              .fn()
-              .mockImplementation((key: string, fallback?: unknown) => {
-                const values: Record<string, unknown> = {
-                  'git.branchPrefixMapping': {
-                    feature: 'feature',
-                    fix: 'bugfix',
-                    investigate: 'chore',
+            get: jest.fn().mockImplementation((key: string, fallback?: unknown) => {
+              const values: Record<string, unknown> = {
+                'git.branchPrefixMapping': {
+                  feature: 'feature',
+                  fix: 'bugfix',
+                  investigate: 'chore',
+                },
+                'stages.implement.verificationConditions': {
+                  policyFile: undefined,
+                  scripts: {
+                    formatWrite: 'yarn format:write',
+                    formatCheck: 'yarn format:check',
+                    lintFix: 'yarn lint:fix',
+                    lint: 'yarn lint',
+                    build: 'yarn build',
                   },
-                  'stages.implement.verificationConditions': {
-                    policyFile: undefined,
-                    scripts: {
-                      formatWrite: 'yarn format:write',
-                      formatCheck: 'yarn format:check',
-                      lintFix: 'yarn lint:fix',
-                      lint: 'yarn lint',
-                      build: 'yarn build',
-                    },
-                  },
-                  'stages.implement.provider': 'anthropic',
-                };
+                },
+                'stages.implement.provider': 'anthropic',
+              };
 
-                return key in values ? values[key] : fallback;
-              }),
+              return key in values ? values[key] : fallback;
+            }),
           },
         },
         {
@@ -108,30 +99,20 @@ describe('ImplementerAgent', () => {
     gitService = module.get(GitService);
     aiService = module.get(AiService);
 
-    jest
-      .spyOn(require('fs'), 'mkdirSync')
-      .mockImplementation(() => undefined as any);
+    jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined as any);
     jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => {
       const s = String(p);
       // Allow planned file paths to pass the existence check while keeping
       // infrastructure files (verification manifests, .wf/, etc.) as non-existent.
-      return (
-        s.startsWith('/tmp/repo-a/src/') ||
-        s.startsWith('/tmp/repo-a/docs/') ||
-        s.endsWith('/package.json')
-      );
+      return s.startsWith('/tmp/repo-a/src/') || s.startsWith('/tmp/repo-a/docs/') || s.endsWith('/package.json');
     });
-    jest
-      .spyOn(require('fs'), 'readFileSync')
-      .mockImplementation((filePath: string) => {
-        if (String(filePath).includes('package.json')) {
-          return JSON.stringify({ scripts: {} });
-        }
-        throw new Error(`Unexpected read: ${filePath}`);
-      });
-    jest
-      .spyOn(require('fs'), 'writeFileSync')
-      .mockImplementation(() => undefined);
+    jest.spyOn(require('fs'), 'readFileSync').mockImplementation((filePath: string) => {
+      if (String(filePath).includes('package.json')) {
+        return JSON.stringify({ scripts: {} });
+      }
+      throw new Error(`Unexpected read: ${filePath}`);
+    });
+    jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -172,10 +153,10 @@ describe('ImplementerAgent', () => {
           {
             trackerName: 'jira',
             repoDir: '/tmp/repo-a',
-          },
-        ),
+          }
+        )
       ).rejects.toThrow(
-        'issue:implement only verifies a single repository. This plan affects multiple repositories: repo-a, repo-b. Use wf issue or run wf issue:implement separately per repository.',
+        'issue:implement only verifies a single repository. This plan affects multiple repositories: repo-a, repo-b. Use wf issue or run wf issue:implement separately per repository.'
       );
     });
 
@@ -190,17 +171,15 @@ describe('ImplementerAgent', () => {
           {
             trackerName: 'jira',
             repoDir: '/tmp/repo-a',
-          },
-        ),
+          }
+        )
       ).rejects.toThrow(
-        'issue:implement can only modify and verify files for repo-a. Found paths for other repositories: repo-b/src/example.ts. Use wf issue or run wf issue:implement separately per repository.',
+        'issue:implement can only modify and verify files for repo-a. Found paths for other repositories: repo-b/src/example.ts. Use wf issue or run wf issue:implement separately per repository.'
       );
     });
 
     it('allowMultiRepoScope bypasses the multi-repo count guard', async () => {
-      jest
-        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
 
       await expect(
         agent.execute(
@@ -213,15 +192,13 @@ describe('ImplementerAgent', () => {
             trackerName: 'jira',
             repoDir: '/tmp/repo-a',
             allowMultiRepoScope: true,
-          },
-        ),
+          }
+        )
       ).resolves.not.toThrow();
     });
 
     it('allowMultiRepoScope bypasses the offending-paths guard', async () => {
-      jest
-        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
 
       await expect(
         agent.execute(
@@ -234,17 +211,15 @@ describe('ImplementerAgent', () => {
             trackerName: 'jira',
             repoDir: '/tmp/repo-a',
             allowMultiRepoScope: true,
-          },
-        ),
+          }
+        )
       ).resolves.not.toThrow();
     });
   });
 
   describe('custom branch slug', () => {
     it('uses the custom branch slug when provided for non-ticket execution contexts', async () => {
-      jest
-        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
 
       await agent.execute(ticketArtifact, buildPlan({ filesAffected: [] }), {
         trackerName: 'jira',
@@ -252,50 +227,34 @@ describe('ImplementerAgent', () => {
         customBranchSlug: 'dark-building-creek',
       });
 
-      expect(gitService.createBranch).toHaveBeenCalledWith(
-        'feature/dark-building-creek',
-        'develop',
-        '/tmp/repo-a',
-      );
+      expect(gitService.createBranch).toHaveBeenCalledWith('feature/dark-building-creek', 'develop', '/tmp/repo-a');
     });
   });
 
   describe('agent backend delegation', () => {
     it('delegates to AnthropicAgentAdapter when provider is anthropic', async () => {
-      const adapterSpy = jest
-        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue(undefined);
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
 
-      await agent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a' },
-      );
+      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+      });
 
       expect(adapterSpy).toHaveBeenCalledTimes(1);
     });
 
     it('logs the selected anthropic-agent backend', async () => {
-      jest
-        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
 
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      await agent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a' },
-      );
+      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+      });
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
-      expect(
-        logCalls.some((message) =>
-          message.includes('Implement backend: anthropic-agent'),
-        ),
-      ).toBe(true);
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(logCalls.some(message => message.includes('Implement backend: anthropic-agent'))).toBe(true);
     });
 
     it('fails fast when provider is unsupported', async () => {
@@ -305,21 +264,18 @@ describe('ImplementerAgent', () => {
           {
             provide: ConfigService,
             useValue: {
-              get: jest
-                .fn()
-                .mockImplementation((key: string, fallback?: unknown) => {
-                  if (key === 'stages.implement.provider') return 'google';
-                  if (key === 'ai.provider') return 'google';
-                  if (key === 'git.branchPrefixMapping')
-                    return {
-                      feature: 'feature',
-                      fix: 'bugfix',
-                      investigate: 'chore',
-                    };
-                  if (key === 'stages.implement.verificationConditions')
-                    return undefined;
-                  return fallback;
-                }),
+              get: jest.fn().mockImplementation((key: string, fallback?: unknown) => {
+                if (key === 'stages.implement.provider') return 'google';
+                if (key === 'ai.provider') return 'google';
+                if (key === 'git.branchPrefixMapping')
+                  return {
+                    feature: 'feature',
+                    fix: 'bugfix',
+                    investigate: 'chore',
+                  };
+                if (key === 'stages.implement.verificationConditions') return undefined;
+                return fallback;
+              }),
             },
           },
           {
@@ -357,14 +313,11 @@ describe('ImplementerAgent', () => {
       const googleAgent = module.get(ImplementerAgent);
 
       await expect(
-        googleAgent.execute(
-          ticketArtifact,
-          buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-          { trackerName: 'jira', repoDir: '/tmp/repo-a' },
-        ),
-      ).rejects.toThrow(
-        'Implement stage requires provider "anthropic" or "openai". Got "google".',
-      );
+        googleAgent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+          trackerName: 'jira',
+          repoDir: '/tmp/repo-a',
+        })
+      ).rejects.toThrow('Implement stage requires provider "anthropic" or "openai". Got "google".');
     });
 
     it('delegates to OpenAIAgentAdapter when provider is openai', async () => {
@@ -374,21 +327,18 @@ describe('ImplementerAgent', () => {
           {
             provide: ConfigService,
             useValue: {
-              get: jest
-                .fn()
-                .mockImplementation((key: string, fallback?: unknown) => {
-                  if (key === 'stages.implement.provider') return 'openai';
-                  if (key === 'ai.provider') return 'anthropic';
-                  if (key === 'git.branchPrefixMapping')
-                    return {
-                      feature: 'feature',
-                      fix: 'bugfix',
-                      investigate: 'chore',
-                    };
-                  if (key === 'stages.implement.verificationConditions')
-                    return undefined;
-                  return fallback;
-                }),
+              get: jest.fn().mockImplementation((key: string, fallback?: unknown) => {
+                if (key === 'stages.implement.provider') return 'openai';
+                if (key === 'ai.provider') return 'anthropic';
+                if (key === 'git.branchPrefixMapping')
+                  return {
+                    feature: 'feature',
+                    fix: 'bugfix',
+                    investigate: 'chore',
+                  };
+                if (key === 'stages.implement.verificationConditions') return undefined;
+                return fallback;
+              }),
             },
           },
           {
@@ -429,50 +379,30 @@ describe('ImplementerAgent', () => {
         .mockResolvedValue(undefined);
       jest
         .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((p: string) =>
-          ['/tmp/repo-a/package.json', '/tmp/repo-a/src/example.ts'].includes(
-            p,
-          ),
-        );
-      jest
-        .spyOn(require('fs'), 'readFileSync')
-        .mockImplementation((p: string) => {
-          if (p === '/tmp/repo-a/package.json')
-            return JSON.stringify({ scripts: {} });
-          return 'export const x = 0;\n';
-        });
-      jest
-        .spyOn(require('fs'), 'mkdirSync')
-        .mockImplementation(() => undefined as any);
-      jest
-        .spyOn(require('fs'), 'writeFileSync')
-        .mockImplementation(() => undefined);
+        .mockImplementation((p: string) => ['/tmp/repo-a/package.json', '/tmp/repo-a/src/example.ts'].includes(p));
+      jest.spyOn(require('fs'), 'readFileSync').mockImplementation((p: string) => {
+        if (p === '/tmp/repo-a/package.json') return JSON.stringify({ scripts: {} });
+        return 'export const x = 0;\n';
+      });
+      jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined as any);
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
 
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      await openaiAgent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a' },
-      );
+      await openaiAgent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+      });
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
-      expect(
-        logCalls.some((message) =>
-          message.includes('Implement backend: openai-agent'),
-        ),
-      ).toBe(true);
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(logCalls.some(message => message.includes('Implement backend: openai-agent'))).toBe(true);
       expect(openaiAdapterSpy).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('branch workflow', () => {
     beforeEach(() => {
-      jest
-        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
@@ -481,22 +411,22 @@ describe('ImplementerAgent', () => {
         isClean: () => false,
       } as any);
 
-      await agent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
-      );
+      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
 
       expect(gitService.stashChanges).toHaveBeenCalled();
       expect(gitService.stashPop).toHaveBeenCalled();
     });
 
     it('skips stash when working tree is clean', async () => {
-      await agent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
-      );
+      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
 
       expect(gitService.stashChanges).not.toHaveBeenCalled();
       expect(gitService.stashPop).not.toHaveBeenCalled();
@@ -505,18 +435,14 @@ describe('ImplementerAgent', () => {
     it('auto-selects dev branch in silent mode', async () => {
       gitService.detectDevelopmentBranches.mockReturnValue(['develop']);
 
-      await agent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
-      );
+      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
 
       expect(gitService.checkoutBranch).toHaveBeenCalledWith('develop');
-      expect(gitService.pull).toHaveBeenCalledWith(
-        'origin',
-        'develop',
-        '/tmp/repo-a',
-      );
+      expect(gitService.pull).toHaveBeenCalledWith('origin', 'develop', '/tmp/repo-a');
     });
 
     it('falls back to main when no dev branch exists', async () => {
@@ -530,23 +456,17 @@ describe('ImplementerAgent', () => {
         hasUncommittedChanges: false,
       });
 
-      await agent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
-      );
+      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
 
-      expect(gitService.pull).toHaveBeenCalledWith(
-        'origin',
-        'main',
-        '/tmp/repo-a',
-      );
+      expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
     });
 
     it('skips pull when source branch is a remote ref', async () => {
-      gitService.detectDevelopmentBranches.mockReturnValue([
-        'remotes/origin/develop',
-      ]);
+      gitService.detectDevelopmentBranches.mockReturnValue(['remotes/origin/develop']);
       gitService.getBranchInfo.mockResolvedValue({
         current: 'main',
         all: ['main', 'remotes/origin/develop'],
@@ -555,32 +475,24 @@ describe('ImplementerAgent', () => {
         hasUncommittedChanges: false,
       });
 
-      await agent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
-      );
+      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
 
       expect(gitService.pull).not.toHaveBeenCalled();
       expect(gitService.checkoutBranch).not.toHaveBeenCalled();
-      expect(gitService.createBranch).toHaveBeenCalledWith(
-        expect.any(String),
-        'remotes/origin/develop',
-        '/tmp/repo-a',
-      );
+      expect(gitService.createBranch).toHaveBeenCalledWith(expect.any(String), 'remotes/origin/develop', '/tmp/repo-a');
     });
 
     it('does not create branch when --no-branch is set', async () => {
-      const result = await agent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        {
-          trackerName: 'jira',
-          repoDir: '/tmp/repo-a',
-          silent: true,
-          noBranch: true,
-        },
-      );
+      const result = await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        noBranch: true,
+      });
 
       expect(gitService.createBranch).not.toHaveBeenCalled();
       expect(result).toEqual({ type: 'implementation', branchName: null });
@@ -589,11 +501,11 @@ describe('ImplementerAgent', () => {
     it('warns and continues when pull fails (no upstream)', async () => {
       gitService.pull.mockRejectedValue(new Error('no upstream'));
 
-      await agent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
-      );
+      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
 
       // Should not throw — pull failure is non-fatal
       expect(gitService.createBranch).toHaveBeenCalled();
@@ -602,104 +514,74 @@ describe('ImplementerAgent', () => {
 
   describe('tracked file validation', () => {
     beforeEach(() => {
-      jest
-        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
     it('drops gitignored paths from trackedFilePaths and repoFiles', async () => {
-      gitService.checkIgnored.mockResolvedValue([
-        '/tmp/repo-a/docs/incidents/report.md',
-      ]);
+      gitService.checkIgnored.mockResolvedValue(['/tmp/repo-a/docs/incidents/report.md']);
 
-      const adapterSpy = jest.spyOn(
-        AnthropicAgentAdapter.prototype,
-        'generateAndVerify',
-      );
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
 
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: [
-            'repo-a/src/example.ts',
-            'repo-a/docs/incidents/report.md',
-          ],
+          filesAffected: ['repo-a/src/example.ts', 'repo-a/docs/incidents/report.md'],
         }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
 
       const call = adapterSpy.mock.calls[0][0];
       expect(call.trackedFilePaths).toEqual(['/tmp/repo-a/src/example.ts']);
-      expect(call.trackedFilePaths).not.toContainEqual(
-        expect.stringContaining('docs/incidents'),
-      );
+      expect(call.trackedFilePaths).not.toContainEqual(expect.stringContaining('docs/incidents'));
       // repoFiles should also be filtered so the continuation loop
       // does not chase gitignored paths
       expect(call.repoFiles).toEqual(['repo-a/src/example.ts']);
     });
 
     it('warns when gitignored paths are dropped', async () => {
-      gitService.checkIgnored.mockResolvedValue([
-        '/tmp/repo-a/docs/incidents/report.md',
-      ]);
+      gitService.checkIgnored.mockResolvedValue(['/tmp/repo-a/docs/incidents/report.md']);
 
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: [
-            'repo-a/src/example.ts',
-            'repo-a/docs/incidents/report.md',
-          ],
+          filesAffected: ['repo-a/src/example.ts', 'repo-a/docs/incidents/report.md'],
         }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
-      expect(logCalls.some((msg) => msg.includes('gitignored'))).toBe(true);
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(logCalls.some(msg => msg.includes('gitignored'))).toBe(true);
     });
 
     it('passes all paths through when none are gitignored', async () => {
       gitService.checkIgnored.mockResolvedValue([]);
 
-      const adapterSpy = jest.spyOn(
-        AnthropicAgentAdapter.prototype,
-        'generateAndVerify',
-      );
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
 
       await agent.execute(
         ticketArtifact,
         buildPlan({
           filesAffected: ['repo-a/src/a.ts', 'repo-a/src/b.ts'],
         }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
 
       const call = adapterSpy.mock.calls[0][0];
-      expect(call.trackedFilePaths).toEqual([
-        '/tmp/repo-a/src/a.ts',
-        '/tmp/repo-a/src/b.ts',
-      ]);
+      expect(call.trackedFilePaths).toEqual(['/tmp/repo-a/src/a.ts', '/tmp/repo-a/src/b.ts']);
     });
   });
 
   describe('filesContext / contextFiles', () => {
     beforeEach(() => {
-      jest
-        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
     it('passes contextFiles to adapter when filesContext is present', async () => {
-      const adapterSpy = jest.spyOn(
-        AnthropicAgentAdapter.prototype,
-        'generateAndVerify',
-      );
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
 
       await agent.execute(
         ticketArtifact,
@@ -707,7 +589,7 @@ describe('ImplementerAgent', () => {
           filesAffected: ['repo-a/src/example.ts'],
           filesContext: [{ filePath: 'repo-a/package.json', status: 'found' }],
         }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
 
       const call = adapterSpy.mock.calls[0][0];
@@ -715,26 +597,20 @@ describe('ImplementerAgent', () => {
     });
 
     it('passes empty contextFiles when filesContext is absent', async () => {
-      const adapterSpy = jest.spyOn(
-        AnthropicAgentAdapter.prototype,
-        'generateAndVerify',
-      );
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
 
-      await agent.execute(
-        ticketArtifact,
-        buildPlan({ filesAffected: ['repo-a/src/example.ts'] }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
-      );
+      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
 
       const call = adapterSpy.mock.calls[0][0];
       expect(call.contextFiles).toEqual([]);
     });
 
     it('deduplicates contextFiles that overlap with repoFiles', async () => {
-      const adapterSpy = jest.spyOn(
-        AnthropicAgentAdapter.prototype,
-        'generateAndVerify',
-      );
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
 
       await agent.execute(
         ticketArtifact,
@@ -745,7 +621,7 @@ describe('ImplementerAgent', () => {
             { filePath: 'repo-a/package.json', status: 'found' },
           ],
         }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
 
       const call = adapterSpy.mock.calls[0][0];
@@ -753,10 +629,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('filters out not-found entries from contextFiles', async () => {
-      const adapterSpy = jest.spyOn(
-        AnthropicAgentAdapter.prototype,
-        'generateAndVerify',
-      );
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
 
       await agent.execute(
         ticketArtifact,
@@ -767,7 +640,7 @@ describe('ImplementerAgent', () => {
             { filePath: 'repo-a/missing.ts', status: 'not-found' },
           ],
         }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
 
       const call = adapterSpy.mock.calls[0][0];
@@ -775,10 +648,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('normalizes legacy string[] filesAffected to FileEntry[]', async () => {
-      const adapterSpy = jest.spyOn(
-        AnthropicAgentAdapter.prototype,
-        'generateAndVerify',
-      );
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
 
       await agent.execute(
         ticketArtifact,
@@ -786,7 +656,7 @@ describe('ImplementerAgent', () => {
           filesAffected: ['repo-a/src/example.ts'],
           filesContext: ['repo-a/package.json'],
         }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
 
       const call = adapterSpy.mock.calls[0][0];
@@ -795,17 +665,10 @@ describe('ImplementerAgent', () => {
     });
 
     it('removes nonexistent repoFiles and warns about hallucinated paths', async () => {
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((p: string) => String(p).includes('real-file.ts'));
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => String(p).includes('real-file.ts'));
 
-      const adapterSpy = jest.spyOn(
-        AnthropicAgentAdapter.prototype,
-        'generateAndVerify',
-      );
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await agent.execute(
         ticketArtifact,
@@ -815,34 +678,27 @@ describe('ImplementerAgent', () => {
             { filePath: 'repo-a/src/phantom.ts', status: 'found' },
           ],
         }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
 
       const call = adapterSpy.mock.calls[0][0];
       expect(call.repoFiles).toEqual(['repo-a/src/real-file.ts']);
-      const logCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
-      expect(logCalls.some((msg) => msg.includes('nonexistent path'))).toBe(
-        true,
-      );
-      expect(logCalls.some((msg) => msg.includes('phantom.ts'))).toBe(true);
+      const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+      expect(logCalls.some(msg => msg.includes('nonexistent path'))).toBe(true);
+      expect(logCalls.some(msg => msg.includes('phantom.ts'))).toBe(true);
     });
 
     it('keeps to-create entries even when file does not exist', async () => {
       jest.spyOn(require('fs'), 'existsSync').mockImplementation(() => false);
 
-      const adapterSpy = jest.spyOn(
-        AnthropicAgentAdapter.prototype,
-        'generateAndVerify',
-      );
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
 
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: [
-            { filePath: 'repo-a/src/new-file.ts', status: 'to-create' },
-          ],
+          filesAffected: [{ filePath: 'repo-a/src/new-file.ts', status: 'to-create' }],
         }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
 
       const call = adapterSpy.mock.calls[0][0];
@@ -850,53 +706,34 @@ describe('ImplementerAgent', () => {
     });
 
     it('removes nonexistent context files and warns', async () => {
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((p: string) =>
-          String(p).includes('real-config.json'),
-        );
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => String(p).includes('real-config.json'));
 
-      const adapterSpy = jest.spyOn(
-        AnthropicAgentAdapter.prototype,
-        'generateAndVerify',
-      );
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: [
-            { filePath: 'repo-a/src/real-config.json', status: 'found' },
-          ],
+          filesAffected: [{ filePath: 'repo-a/src/real-config.json', status: 'found' }],
           filesContext: [
             { filePath: 'repo-a/real-config.json', status: 'found' },
             { filePath: 'repo-a/phantom-ctx.ts', status: 'found' },
           ],
         }),
-        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
 
       const call = adapterSpy.mock.calls[0][0];
-      expect(call.contextFiles).not.toContainEqual(
-        expect.stringContaining('phantom-ctx'),
-      );
-      const logCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
-      expect(
-        logCalls.some((msg) => msg.includes('nonexistent context file')),
-      ).toBe(true);
+      expect(call.contextFiles).not.toContainEqual(expect.stringContaining('phantom-ctx'));
+      const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+      expect(logCalls.some(msg => msg.includes('nonexistent context file'))).toBe(true);
     });
 
     it('warns when repoFiles is empty after filtering', async () => {
       jest.spyOn(require('fs'), 'existsSync').mockImplementation(() => false);
 
-      jest
-        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue(undefined);
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await agent.execute(ticketArtifact, buildPlan({ filesAffected: [] }), {
         trackerName: 'jira',
@@ -904,10 +741,8 @@ describe('ImplementerAgent', () => {
         silent: true,
       });
 
-      const logCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
-      expect(
-        logCalls.some((msg) => msg.includes('No planned files to implement')),
-      ).toBe(true);
+      const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+      expect(logCalls.some(msg => msg.includes('No planned files to implement'))).toBe(true);
     });
   });
 });

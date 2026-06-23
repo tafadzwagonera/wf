@@ -60,9 +60,7 @@ Add per-client rate limiting using a token-bucket algorithm.
 `;
 
 async function testIssueGenerateSlackQuery() {
-  console.log(
-    '\n🧪 Manual Test: issue:generate with Slack thread permalink query params\n',
-  );
+  console.log('\n🧪 Manual Test: issue:generate with Slack thread permalink query params\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
@@ -83,13 +81,8 @@ async function testIssueGenerateSlackQuery() {
 
   const slackServicePrototype = SlackService.prototype;
   let slackFetchCallArgs: [string, string] | null = null;
-  const originalFetchThread = slackServicePrototype.fetchThread.bind(
-    slackServicePrototype,
-  );
-  (slackServicePrototype as any).fetchThread = async (
-    channelId: string,
-    threadTs: string,
-  ) => {
+  const originalFetchThread = slackServicePrototype.fetchThread.bind(slackServicePrototype);
+  (slackServicePrototype as any).fetchThread = async (channelId: string, threadTs: string) => {
     slackFetchCallArgs = [channelId, threadTs];
     return {
       channelId,
@@ -114,15 +107,8 @@ async function testIssueGenerateSlackQuery() {
   };
 
   const threadId = EXPECTED_THREAD_TS.replace('.', '-');
-  const artifactDir = path.join(
-    getWfHomeDir(),
-    path.basename(process.cwd()),
-    'slack',
-  );
-  const artifactPath = path.join(
-    artifactDir,
-    `slack-thread-${EXPECTED_CHANNEL_ID}-${threadId}.md`,
-  );
+  const artifactDir = path.join(getWfHomeDir(), path.basename(process.cwd()), 'slack');
+  const artifactPath = path.join(artifactDir, `slack-thread-${EXPECTED_CHANNEL_ID}-${threadId}.md`);
 
   const command = app.get(IssueGenerateCommand);
 
@@ -140,13 +126,11 @@ async function testIssueGenerateSlackQuery() {
     const channelId = slackFetchCallArgs[0];
     const threadTs = slackFetchCallArgs[1];
     if (channelId === EXPECTED_CHANNEL_ID && threadTs === EXPECTED_THREAD_TS) {
-      pass(
-        `SlackService.fetchThread called with ('${channelId}', '${threadTs}')`,
-      );
+      pass(`SlackService.fetchThread called with ('${channelId}', '${threadTs}')`);
     } else {
       fail(
         'SlackService.fetchThread called with wrong args',
-        `Expected ('${EXPECTED_CHANNEL_ID}', '${EXPECTED_THREAD_TS}') but got ('${channelId}', '${threadTs}')`,
+        `Expected ('${EXPECTED_CHANNEL_ID}', '${EXPECTED_THREAD_TS}') but got ('${channelId}', '${threadTs}')`
       );
     }
   } else {
@@ -158,16 +142,10 @@ async function testIssueGenerateSlackQuery() {
     artifactContent = fs.readFileSync(artifactPath, 'utf-8');
     const expectedLine0 = `[${MOCK_SLACK_MESSAGES[0].ts}] ${MOCK_SLACK_MESSAGES[0].user}: ${MOCK_SLACK_MESSAGES[0].text}`;
     const expectedLine1 = `[${MOCK_SLACK_MESSAGES[1].ts}] ${MOCK_SLACK_MESSAGES[1].user}: ${MOCK_SLACK_MESSAGES[1].text}`;
-    if (
-      artifactContent.includes(expectedLine0) &&
-      artifactContent.includes(expectedLine1)
-    ) {
+    if (artifactContent.includes(expectedLine0) && artifactContent.includes(expectedLine1)) {
       pass(`Artifact file written at ${artifactPath} with formatted messages`);
     } else {
-      fail(
-        'Artifact file missing expected formatted messages',
-        `Content:\n    ${artifactContent}`,
-      );
+      fail('Artifact file missing expected formatted messages', `Content:\n    ${artifactContent}`);
     }
   } catch {
     fail(`Artifact file not written at ${artifactPath}`);
@@ -184,7 +162,7 @@ async function testIssueGenerateSlackQuery() {
   } else {
     fail(
       'Output missing "### Summary" section',
-      `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`,
+      `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`
     );
   }
 

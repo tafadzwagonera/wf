@@ -19,9 +19,7 @@ describe('jira-update-smoke', () => {
     jiraService: JiraService;
     putCalls: Array<[string, Record<string, unknown>, Record<string, unknown>]>;
   } => {
-    const putCalls: Array<
-      [string, Record<string, unknown>, Record<string, unknown>]
-    > = [];
+    const putCalls: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [];
     const jiraService = new JiraService(
       {
         get: (key: string) =>
@@ -33,11 +31,7 @@ describe('jira-update-smoke', () => {
           })[key],
       } as any,
       {
-        put: (
-          url: string,
-          payload: Record<string, unknown>,
-          config: Record<string, unknown>,
-        ) => {
+        put: (url: string, payload: Record<string, unknown>, config: Record<string, unknown>) => {
           putCalls.push([url, payload, config]);
           return of({ data: {} });
         },
@@ -48,7 +42,7 @@ describe('jira-update-smoke', () => {
       } as any,
       {
         isTrackerEnabled: () => true,
-      } as any,
+      } as any
     );
     const adapter = new JiraAdapter(jiraService, {
       get: jest.fn(),
@@ -59,19 +53,14 @@ describe('jira-update-smoke', () => {
 
   it('parses preview mode args and resolves the description file path', () => {
     const args = parseJiraUpdateSmokeArgs(
-      [
-        'WBP-3092',
-        '--description-file',
-        '.wf/terraform-aws/jira/example-description.md',
-      ],
+      ['WBP-3092', '--description-file', '.wf/terraform-aws/jira/example-description.md'],
       '/tmp/wf',
-      {},
+      {}
     );
 
     expect(args).toEqual({
       ticketKey: 'WBP-3092',
-      descriptionFilePath:
-        '/tmp/wf/.wf/terraform-aws/jira/example-description.md',
+      descriptionFilePath: '/tmp/wf/.wf/terraform-aws/jira/example-description.md',
       executeLiveUpdate: false,
       confirmLiveUpdate: false,
     });
@@ -122,21 +111,15 @@ describe('jira-update-smoke', () => {
 
   it('fails early when live mode is requested without explicit confirmation', () => {
     expect(() =>
-      parseJiraUpdateSmokeArgs(
-        ['WBP-3092', '--description-file', 'ticket.md', '--live'],
-        '/tmp/wf',
-        {},
-      ),
-    ).toThrow(
-      'Live Jira updates require explicit confirmation via --confirm-live-update.',
-    );
+      parseJiraUpdateSmokeArgs(['WBP-3092', '--description-file', 'ticket.md', '--live'], '/tmp/wf', {})
+    ).toThrow('Live Jira updates require explicit confirmation via --confirm-live-update.');
   });
 
   it('accepts live mode from the environment when confirmation is present', () => {
     const args = parseJiraUpdateSmokeArgs(
       ['WBP-3092', '--description-file', 'ticket.md', '--confirm-live-update'],
       '/tmp/wf',
-      { JIRA_UPDATE_LIVE: 'true' },
+      { JIRA_UPDATE_LIVE: 'true' }
     );
 
     expect(args.executeLiveUpdate).toBe(true);
@@ -173,24 +156,15 @@ describe('jira-update-smoke', () => {
       jiraService,
     });
 
-    expect(updateTicketSpy).toHaveBeenCalledWith(
-      'WBP-3092',
-      expect.any(UniversalTicket),
-    );
+    expect(updateTicketSpy).toHaveBeenCalledWith('WBP-3092', expect.any(UniversalTicket));
   });
 
   it('loads the description file and returns preview diagnostics', async () => {
     const { adapter, jiraService } = createHarness();
-    const temporaryDirectory = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'jira-update-smoke-'),
-    );
+    const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'jira-update-smoke-'));
     const descriptionFilePath = path.join(temporaryDirectory, 'ticket.md');
 
-    fs.writeFileSync(
-      descriptionFilePath,
-      '### Summary\nLoad the ticket description from disk.\n',
-      'utf8',
-    );
+    fs.writeFileSync(descriptionFilePath, '### Summary\nLoad the ticket description from disk.\n', 'utf8');
 
     const result = await runJiraUpdateSmokeTest({
       ticketKey: 'WBP-3092',
@@ -200,14 +174,12 @@ describe('jira-update-smoke', () => {
       jiraService,
     });
 
-    expect(loadDescriptionFile(descriptionFilePath)).toBe(
-      '### Summary\nLoad the ticket description from disk.',
-    );
+    expect(loadDescriptionFile(descriptionFilePath)).toBe('### Summary\nLoad the ticket description from disk.');
     expect(result.descriptionFilePath).toBe(descriptionFilePath);
     expect(result.payload.fields.description).toEqual(
       expect.objectContaining({
         type: 'doc',
-      }),
+      })
     );
   });
 
@@ -228,7 +200,7 @@ describe('jira-update-smoke', () => {
         '### Acceptance Criteria',
         '',
         '- First acceptance criterion',
-      ].join('\n'),
+      ].join('\n')
     );
 
     expect(normalizedDescription).toBe(
@@ -240,13 +212,11 @@ describe('jira-update-smoke', () => {
         '### Acceptance Criteria',
         '',
         '- First acceptance criterion',
-      ].join('\n'),
+      ].join('\n')
     );
   });
 
   it('fails early when the description file is missing', () => {
-    expect(() => loadDescriptionFile('/tmp/does-not-exist.md')).toThrow(
-      'Description file not found:',
-    );
+    expect(() => loadDescriptionFile('/tmp/does-not-exist.md')).toThrow('Description file not found:');
   });
 });

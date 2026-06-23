@@ -84,10 +84,7 @@ describe('ConversationService Integration Tests', () => {
         workflowState: { ticketContent: 'Test ticket' },
       };
 
-      const conversation = await service.createConversation(
-        testTicketKey,
-        context,
-      );
+      const conversation = await service.createConversation(testTicketKey, context);
       await service.addUserMessage(conversation.conversationId, 'Hello');
 
       await service.saveConversation(conversation);
@@ -152,9 +149,7 @@ describe('ConversationService Integration Tests', () => {
       const loaded = await service.loadConversation(testTicketKey);
 
       expect(loaded).toBeNull();
-      expect(loggerService.error).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to load conversation'),
-      );
+      expect(loggerService.error).toHaveBeenCalledWith(expect.stringContaining('Failed to load conversation'));
     });
 
     it('should use atomic write operation (temp file + rename)', async () => {
@@ -164,10 +159,7 @@ describe('ConversationService Integration Tests', () => {
         workflowState: { ticketContent: 'Test ticket' },
       };
 
-      const conversation = await service.createConversation(
-        testTicketKey,
-        context,
-      );
+      const conversation = await service.createConversation(testTicketKey, context);
 
       // Monitor file system operations
       const writeFileSpy = jest.spyOn(fs.promises, 'writeFile');
@@ -175,15 +167,8 @@ describe('ConversationService Integration Tests', () => {
 
       await service.saveConversation(conversation);
 
-      expect(writeFileSpy).toHaveBeenCalledWith(
-        expect.stringContaining('.tmp'),
-        expect.any(String),
-        'utf-8',
-      );
-      expect(renameSpy).toHaveBeenCalledWith(
-        expect.stringContaining('.tmp'),
-        testFilePath,
-      );
+      expect(writeFileSpy).toHaveBeenCalledWith(expect.stringContaining('.tmp'), expect.any(String), 'utf-8');
+      expect(renameSpy).toHaveBeenCalledWith(expect.stringContaining('.tmp'), testFilePath);
 
       writeFileSpy.mockRestore();
       renameSpy.mockRestore();
@@ -313,10 +298,7 @@ describe('ConversationService Integration Tests', () => {
         workflowState: { ticketContent: 'Test ticket' },
       };
 
-      const conversation = await service.createConversation(
-        testTicketKey,
-        context,
-      );
+      const conversation = await service.createConversation(testTicketKey, context);
 
       // Remove directory
       if (fs.existsSync(testDir)) {
@@ -324,9 +306,7 @@ describe('ConversationService Integration Tests', () => {
       }
 
       // Save should create directory and succeed
-      await expect(
-        service.saveConversation(conversation),
-      ).resolves.not.toThrow();
+      await expect(service.saveConversation(conversation)).resolves.not.toThrow();
 
       expect(fs.existsSync(testFilePath)).toBe(true);
     });
@@ -338,23 +318,14 @@ describe('ConversationService Integration Tests', () => {
         workflowState: { ticketContent: 'Test ticket' },
       };
 
-      const conversation = await service.createConversation(
-        testTicketKey,
-        context,
-      );
+      const conversation = await service.createConversation(testTicketKey, context);
 
       // Mock writeFile to fail
-      const writeFileSpy = jest
-        .spyOn(fs.promises, 'writeFile')
-        .mockRejectedValue(new Error('Disk full'));
+      const writeFileSpy = jest.spyOn(fs.promises, 'writeFile').mockRejectedValue(new Error('Disk full'));
 
-      await expect(service.saveConversation(conversation)).rejects.toThrow(
-        'Disk full',
-      );
+      await expect(service.saveConversation(conversation)).rejects.toThrow('Disk full');
 
-      expect(loggerService.error).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to save conversation'),
-      );
+      expect(loggerService.error).toHaveBeenCalledWith(expect.stringContaining('Failed to save conversation'));
 
       writeFileSpy.mockRestore();
     });

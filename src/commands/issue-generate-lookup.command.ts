@@ -30,8 +30,7 @@ const ISSUE_GENERATE_LOOKUP_EXAMPLES: CliExample[] = [
  */
 @Command({
   name: 'issue:generate:lookup',
-  description:
-    'Lookup the original source list for a generated ticket artifact hash',
+  description: 'Lookup the original source list for a generated ticket artifact hash',
   arguments: '<token>',
   options: { isDefault: false },
 })
@@ -39,35 +38,27 @@ export class IssueGenerateLookupCommand extends CommandRunner {
   constructor(
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
-    private readonly dryRunPreview: DryRunPreviewService,
+    private readonly dryRunPreview: DryRunPreviewService
   ) {
     super();
   }
 
-  async run(
-    passedParams: string[],
-    options?: IssueGenerateLookupOptions,
-  ): Promise<void> {
+  async run(passedParams: string[], options?: IssueGenerateLookupOptions): Promise<void> {
     printExamples(ISSUE_GENERATE_LOOKUP_EXAMPLES);
 
     const token = passedParams[0]?.trim();
     if (!token) {
       console.error(chalk.red('Error: A token or hash is required'));
-      console.log(
-        chalk.gray('Usage: wf issue:generate:lookup <token> [--repos <repo>]'),
-      );
+      console.log(chalk.gray('Usage: wf issue:generate:lookup <token> [--repos <repo>]'));
       process.exit(1);
     }
 
-    const trackerName =
-      options?.tracker || this.configService.get<string>('tracker', 'jira');
+    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
     const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
     const artifactDir = resolveArtifactDir(artifactBaseDir, trackerName);
 
     if (!fs.existsSync(artifactDir)) {
-      console.error(
-        chalk.red(`Error: No generated artifacts found under ${artifactDir}.`),
-      );
+      console.error(chalk.red(`Error: No generated artifacts found under ${artifactDir}.`));
       process.exit(1);
     }
 
@@ -75,9 +66,7 @@ export class IssueGenerateLookupCommand extends CommandRunner {
 
     if (manifests.length === 0) {
       console.error(
-        chalk.red(
-          `Error: No generated ticket source manifest found for token '${token}' under ${artifactDir}.`,
-        ),
+        chalk.red(`Error: No generated ticket source manifest found for token '${token}' under ${artifactDir}.`)
       );
       process.exit(1);
     }
@@ -87,8 +76,7 @@ export class IssueGenerateLookupCommand extends CommandRunner {
 
   @Option({
     flags: '-r, --repos <repos...>',
-    description:
-      'Space-separated repositories; only the first repo is used for lookup scope',
+    description: 'Space-separated repositories; only the first repo is used for lookup scope',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
@@ -102,27 +90,19 @@ export class IssueGenerateLookupCommand extends CommandRunner {
     return val;
   }
 
-  private findMatchingManifests(
-    artifactDir: string,
-    token: string,
-  ): GeneratedTicketSourceManifest[] {
+  private findMatchingManifests(artifactDir: string, token: string): GeneratedTicketSourceManifest[] {
     return fs
       .readdirSync(artifactDir)
-      .filter((name) => name.endsWith('.sources.json'))
-      .map((name) => path.join(artifactDir, name))
-      .flatMap((manifestPath) => {
+      .filter(name => name.endsWith('.sources.json'))
+      .map(name => path.join(artifactDir, name))
+      .flatMap(manifestPath => {
         try {
-          const manifest = JSON.parse(
-            fs.readFileSync(manifestPath, 'utf-8'),
-          ) as GeneratedTicketSourceManifest;
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as GeneratedTicketSourceManifest;
           if (matchesGeneratedTicketToken(token, manifest.hash)) {
             return [manifest];
           }
 
-          const artifactStem = path.basename(
-            manifest.artifactPath,
-            path.extname(manifest.artifactPath),
-          );
+          const artifactStem = path.basename(manifest.artifactPath, path.extname(manifest.artifactPath));
           if (artifactStem.includes(token.trim().toLowerCase())) {
             return [manifest];
           }
@@ -134,11 +114,7 @@ export class IssueGenerateLookupCommand extends CommandRunner {
       });
   }
 
-  private renderLookupResults(
-    token: string,
-    artifactDir: string,
-    manifests: GeneratedTicketSourceManifest[],
-  ): void {
+  private renderLookupResults(token: string, artifactDir: string, manifests: GeneratedTicketSourceManifest[]): void {
     this.dryRunPreview.showHeader('issue:generate:lookup', token);
     console.log(chalk.gray(`  Scope   : ${artifactDir}`));
     console.log(chalk.gray(`  Matches : ${manifests.length}`));

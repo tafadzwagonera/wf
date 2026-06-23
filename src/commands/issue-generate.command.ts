@@ -1,10 +1,7 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { FormatConverterService } from '../common/converters/format-converter.service';
-import {
-  AiService,
-  requireAiResponseContent,
-} from '../integrations/ai/ai.service';
+import { AiService, requireAiResponseContent } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -12,11 +9,7 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import { isAIErrorLike } from '../shared/utils/errors';
 import { SlackService } from '../integrations/slack/slack.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
-import {
-  resolveArtifactDir,
-  resolveCustomArtifactDir,
-  resolveRepoBasePath,
-} from '../agents/utils';
+import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import {
@@ -26,10 +19,7 @@ import {
   buildGeneratedTicketSourceManifest,
   hashGeneratedTicketSources,
 } from '../shared/utils/generated-ticket-artifact';
-import {
-  UniversalTicket,
-  TicketType,
-} from '../common/dto/universal-ticket.dto';
+import { UniversalTicket, TicketType } from '../common/dto/universal-ticket.dto';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import * as fs from 'fs';
@@ -81,9 +71,9 @@ const CONTRACTION_MAP: ReadonlyMap<string, string> = new Map([
 
 const CONTRACTION_PATTERN = new RegExp(
   Array.from(CONTRACTION_MAP.keys())
-    .map((k) => k.replace(/'/g, "['\u2019]"))
+    .map(k => k.replace(/'/g, "['\u2019]"))
     .join('|'),
-  'gi',
+  'gi'
 );
 
 const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
@@ -110,8 +100,7 @@ const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
   },
   {
     comment: 'Silent mode: pipe saved artifact path to issue:create',
-    command:
-      'wf issue:generate ./spec.md --save --silent | xargs wf issue:create',
+    command: 'wf issue:generate ./spec.md --save --silent | xargs wf issue:create',
   },
 ];
 
@@ -180,15 +169,12 @@ export class IssueGenerateCommand extends CommandRunner {
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
     private readonly slackService: SlackService,
-    private readonly stageAgentService: StageAgentService,
+    private readonly stageAgentService: StageAgentService
   ) {
     super();
   }
 
-  async run(
-    passedParams: string[],
-    options?: IssueGenerateOptions,
-  ): Promise<void> {
+  async run(passedParams: string[], options?: IssueGenerateOptions): Promise<void> {
     if (!options?.silent) {
       printExamples(ISSUE_GENERATE_EXAMPLES);
     }
@@ -197,45 +183,24 @@ export class IssueGenerateCommand extends CommandRunner {
 
     if (!passedParams || passedParams.length === 0) {
       console.error(chalk.red('Error: At least one source is required'));
-      console.log(
-        chalk.gray('Usage: wf issue:generate <sources...> [options]'),
-      );
-      console.log(
-        chalk.gray(
-          'Example: wf issue:generate https://example.com/spec ./notes.md WBP-2971',
-        ),
-      );
+      console.log(chalk.gray('Usage: wf issue:generate <sources...> [options]'));
+      console.log(chalk.gray('Example: wf issue:generate https://example.com/spec ./notes.md WBP-2971'));
       process.exit(1);
     }
 
     try {
       if (options?.dryRun) {
-        const format =
-          options?.format ||
-          this.configService.get<string>('stages.generate.outputFormat') ||
-          'md';
-        const trackerName =
-          options?.tracker || this.configService.get<string>('tracker', 'jira');
+        const format = options?.format || this.configService.get<string>('stages.generate.outputFormat') || 'md';
+        const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
         const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
 
-        this.dryRunPreview.showHeader(
-          'issue:generate',
-          `${passedParams.length} source(s)`,
-        );
+        this.dryRunPreview.showHeader('issue:generate', `${passedParams.length} source(s)`);
 
         let apiCallCount = 0;
 
         for (const source of passedParams) {
-          const resolvedSources = await this.resolveSourceInputs(
-            source,
-            options?.repos,
-            options?.silent ?? false,
-          );
-          this.assertResolvableSourceSelection(
-            source,
-            resolvedSources,
-            options?.repos,
-          );
+          const resolvedSources = await this.resolveSourceInputs(source, options?.repos, options?.silent ?? false);
+          this.assertResolvableSourceSelection(source, resolvedSources, options?.repos);
 
           for (const resolvedSource of resolvedSources) {
             const slackSourceMatch = this.parseSlackSource(resolvedSource);
@@ -252,13 +217,12 @@ export class IssueGenerateCommand extends CommandRunner {
               this.dryRunPreview.previewFileWrite({
                 filePath: path.join(
                   resolveArtifactDir(artifactBaseDir, 'slack'),
-                  `slack-thread-${slackSourceMatch.channelId}-${seconds}-${micros}.md`,
+                  `slack-thread-${slackSourceMatch.channelId}-${seconds}-${micros}.md`
                 ),
                 operation: 'create',
                 sizeEstimate: '1–20 KB',
                 format: 'md',
-                contentPreview:
-                  '[<ts>] <user>: <message>\n[<ts>] <user>: <reply>',
+                contentPreview: '[<ts>] <user>: <message>\n[<ts>] <user>: <reply>',
               });
               apiCallCount++;
             } else if (slackSourceMatch?.kind === 'channel') {
@@ -272,19 +236,15 @@ export class IssueGenerateCommand extends CommandRunner {
               this.dryRunPreview.previewFileWrite({
                 filePath: path.join(
                   resolveArtifactDir(artifactBaseDir, 'slack'),
-                  `slack-thread-${slackSourceMatch.channelId}-<oldest-message-ts>.md`,
+                  `slack-thread-${slackSourceMatch.channelId}-<oldest-message-ts>.md`
                 ),
                 operation: 'create',
                 sizeEstimate: '1–20 KB',
                 format: 'md',
-                contentPreview:
-                  '[<ts>] <user>: <message>\n[<ts>] <user>: <message>',
+                contentPreview: '[<ts>] <user>: <message>\n[<ts>] <user>: <message>',
               });
               apiCallCount++;
-            } else if (
-              resolvedSource.startsWith('http://') ||
-              resolvedSource.startsWith('https://')
-            ) {
+            } else if (resolvedSource.startsWith('http://') || resolvedSource.startsWith('https://')) {
               this.dryRunPreview.previewApiCall({
                 method: 'GET',
                 endpoint: resolvedSource,
@@ -343,17 +303,9 @@ export class IssueGenerateCommand extends CommandRunner {
 
         if (options?.save) {
           const timestamp = new Date();
-          const artifactFilename = buildGeneratedTicketArtifactFilename(
-            timestamp,
-            passedParams,
-            format,
-          );
-          const manifestFilename =
-            buildGeneratedTicketManifestFilename(artifactFilename);
-          const filePath = path.join(
-            resolveArtifactDir(artifactBaseDir, trackerName),
-            artifactFilename,
-          );
+          const artifactFilename = buildGeneratedTicketArtifactFilename(timestamp, passedParams, format);
+          const manifestFilename = buildGeneratedTicketManifestFilename(artifactFilename);
+          const filePath = path.join(resolveArtifactDir(artifactBaseDir, trackerName), artifactFilename);
           this.dryRunPreview.previewFileWrite({
             filePath,
             operation: 'create',
@@ -362,23 +314,14 @@ export class IssueGenerateCommand extends CommandRunner {
             contentPreview: generatedPreview,
           });
           this.dryRunPreview.previewFileWrite({
-            filePath: path.join(
-              resolveArtifactDir(artifactBaseDir, trackerName),
-              manifestFilename,
-            ),
+            filePath: path.join(resolveArtifactDir(artifactBaseDir, trackerName), manifestFilename),
             operation: 'create',
             sizeEstimate: '1–2 KB',
             format: 'json',
             contentPreview: JSON.stringify(
-              buildGeneratedTicketSourceManifest(
-                filePath,
-                trackerName,
-                format,
-                passedParams,
-                timestamp,
-              ),
+              buildGeneratedTicketSourceManifest(filePath, trackerName, format, passedParams, timestamp),
               null,
-              2,
+              2
             ),
           });
           fileCreatedCount++;
@@ -403,19 +346,11 @@ export class IssueGenerateCommand extends CommandRunner {
           gitOperationCount: 0,
           terminalOutputLines: [
             ...(options?.save
-              ? [
-                  '✓ Ticket saved to: <tracker-dir>/YYYY-MM-DD-<hash>-ticket-description.<format>',
-                ]
+              ? ['✓ Ticket saved to: <tracker-dir>/YYYY-MM-DD-<hash>-ticket-description.<format>']
               : []),
-            ...(options?.output
-              ? [`✓ Ticket also saved to: ${path.resolve(options.output)}`]
-              : []),
+            ...(options?.output ? [`✓ Ticket also saved to: ${path.resolve(options.output)}`] : []),
             ...(!options?.save && !options?.output
-              ? [
-                  '✓ Generated Ticket:',
-                  '',
-                  '  <ticket content printed to stdout>',
-                ]
+              ? ['✓ Generated Ticket:', '', '  <ticket content printed to stdout>']
               : []),
           ],
         });
@@ -427,20 +362,11 @@ export class IssueGenerateCommand extends CommandRunner {
       const silent = options?.silent ?? false;
 
       if (!silent) {
-        console.log(
-          chalk.bold.cyan(
-            `\n📝 Generating Ticket from ${passedParams.length} source(s)\n`,
-          ),
-        );
+        console.log(chalk.bold.cyan(`\n📝 Generating Ticket from ${passedParams.length} source(s)\n`));
       }
 
       // Fetch content from all sources
-      const sourceContents = await this.fetchAllSources(
-        passedParams,
-        options?.tracker,
-        options?.repos,
-        silent,
-      );
+      const sourceContents = await this.fetchAllSources(passedParams, options?.tracker, options?.repos, silent);
       this.assertSourcesAvailable(sourceContents, passedParams);
 
       // Summarise oversized sources (interactive review in TTY mode)
@@ -448,8 +374,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
       // Interactive clarification pass (non-silent, TTY only)
       if (!silent && this.isInteractiveSession()) {
-        const clarifications =
-          await this.identifyClarifications(sourceContents);
+        const clarifications = await this.identifyClarifications(sourceContents);
         if (clarifications.length > 0) {
           const userResponses = await this.promptClarifications(clarifications);
           sourceContents.push({
@@ -461,10 +386,7 @@ export class IssueGenerateCommand extends CommandRunner {
       }
 
       // Use AI to synthesize and collate data
-      const synthesizedTicket = await this.synthesizeWithAI(
-        sourceContents,
-        silent,
-      );
+      const synthesizedTicket = await this.synthesizeWithAI(sourceContents, silent);
 
       // Apply metadata overrides if provided
       if (options?.title) {
@@ -480,26 +402,15 @@ export class IssueGenerateCommand extends CommandRunner {
 
       // Get output format
       // Output format: CLI flag > per-stage config > hardcoded default
-      const format =
-        options?.format ||
-        this.configService.get<string>('stages.generate.outputFormat') ||
-        'md';
+      const format = options?.format || this.configService.get<string>('stages.generate.outputFormat') || 'md';
 
       // Serialize ticket to desired format
-      const output = this.serializeTicketOutput(
-        synthesizedTicket,
-        format,
-        'stdout/file output',
-      );
+      const output = this.serializeTicketOutput(synthesizedTicket, format, 'stdout/file output');
 
       // Save to tracker directory if --save option is provided
       if (options?.save) {
-        const trackerName =
-          options?.tracker || this.configService.get<string>('tracker', 'jira');
-        const saveTargets = await this.resolveSaveTargets(
-          options?.repos,
-          silent,
-        );
+        const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+        const saveTargets = await this.resolveSaveTargets(options?.repos, silent);
         const targetRepos = saveTargets.length > 0 ? saveTargets : [undefined];
 
         for (const targetRepo of targetRepos) {
@@ -508,15 +419,12 @@ export class IssueGenerateCommand extends CommandRunner {
             trackerName,
             format,
             passedParams,
-            targetRepo,
+            targetRepo
           );
           if (silent) {
             console.log(savedPath);
           } else {
-            console.log(
-              chalk.green('\n✓ Ticket saved to:'),
-              chalk.cyan(savedPath),
-            );
+            console.log(chalk.green('\n✓ Ticket saved to:'), chalk.cyan(savedPath));
           }
         }
       }
@@ -528,10 +436,7 @@ export class IssueGenerateCommand extends CommandRunner {
         if (silent) {
           console.log(outputPath);
         } else {
-          console.log(
-            chalk.green('\n✓ Ticket also saved to:'),
-            chalk.cyan(outputPath),
-          );
+          console.log(chalk.green('\n✓ Ticket also saved to:'), chalk.cyan(outputPath));
         }
       } else if (!options?.save) {
         // Output to stdout
@@ -544,8 +449,8 @@ export class IssueGenerateCommand extends CommandRunner {
       if (!silent) {
         console.log(
           chalk.gray(
-            `\n💡 Tip: Use --save to save to tracker directory, --output to save to file, or --format to change output format\n`,
-          ),
+            `\n💡 Tip: Use --save to save to tracker directory, --output to save to file, or --format to change output format\n`
+          )
         );
       }
     } catch (error) {
@@ -568,9 +473,7 @@ export class IssueGenerateCommand extends CommandRunner {
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
     if (!validFormats.includes(format as OutputFormat)) {
-      throw new Error(
-        `Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`,
-      );
+      throw new Error(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
     }
     return format as OutputFormat;
   }
@@ -593,8 +496,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
   @Option({
     flags: '-r, --repos <repos...>',
-    description:
-      'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+    description: 'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
@@ -648,7 +550,7 @@ export class IssueGenerateCommand extends CommandRunner {
     sources: string[],
     tracker?: string,
     repos?: string[],
-    silent = false,
+    silent = false
   ): Promise<SourceContent[]> {
     const contents: SourceContent[] = [];
 
@@ -658,11 +560,7 @@ export class IssueGenerateCommand extends CommandRunner {
       }
 
       try {
-        const resolvedSources = await this.resolveSourceInputs(
-          source,
-          repos,
-          silent,
-        );
+        const resolvedSources = await this.resolveSourceInputs(source, repos, silent);
         this.assertResolvableSourceSelection(source, resolvedSources, repos);
 
         if (resolvedSources.length === 0) {
@@ -673,11 +571,7 @@ export class IssueGenerateCommand extends CommandRunner {
         }
 
         for (const resolvedSource of resolvedSources) {
-          const content = await this.fetchSource(
-            resolvedSource,
-            tracker,
-            repos?.[0],
-          );
+          const content = await this.fetchSource(resolvedSource, tracker, repos?.[0]);
           contents.push(content);
           if (!silent) {
             console.log(chalk.green(`    ✓ Fetched (${content.type})`));
@@ -704,45 +598,28 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param sources - Raw source arguments for error reporting
    * @returns Nothing; throws when all source fetches failed
    */
-  private assertSourcesAvailable(
-    contents: SourceContent[],
-    sources: string[],
-  ): void {
+  private assertSourcesAvailable(contents: SourceContent[], sources: string[]): void {
     if (contents.length > 0) {
       return;
     }
 
     throw new Error(
-      `Failed to fetch usable content from ${sources.length} source(s). ` +
-        'Resolve the source access issue and retry.',
+      `Failed to fetch usable content from ${sources.length} source(s). ` + 'Resolve the source access issue and retry.'
     );
   }
 
   /**
    * Fetch content from a single source
    */
-  private async fetchSource(
-    source: string,
-    tracker?: string,
-    repo?: string,
-  ): Promise<SourceContent> {
+  private async fetchSource(source: string, tracker?: string, repo?: string): Promise<SourceContent> {
     // Check if it's a Slack thread permalink (must come before generic URL check)
     const slackSourceMatch = this.parseSlackSource(source);
     if (slackSourceMatch?.kind === 'thread') {
-      return await this.fetchFromSlack(
-        source,
-        slackSourceMatch.channelId,
-        slackSourceMatch.threadTs,
-        repo,
-      );
+      return await this.fetchFromSlack(source, slackSourceMatch.channelId, slackSourceMatch.threadTs, repo);
     }
 
     if (slackSourceMatch?.kind === 'channel') {
-      return await this.fetchFromSlackChannel(
-        source,
-        slackSourceMatch.channelId,
-        repo,
-      );
+      return await this.fetchFromSlackChannel(source, slackSourceMatch.channelId, repo);
     }
 
     // Check if it's a URL
@@ -761,7 +638,7 @@ export class IssueGenerateCommand extends CommandRunner {
     }
 
     throw new Error(
-      `Unknown source type: ${source}. Supported: URL, local file path, ticket key (ABC-123), Slack thread URL`,
+      `Unknown source type: ${source}. Supported: URL, local file path, ticket key (ABC-123), Slack thread URL`
     );
   }
 
@@ -772,38 +649,23 @@ export class IssueGenerateCommand extends CommandRunner {
     source: string,
     channelId: string,
     threadTs: string,
-    repo?: string,
+    repo?: string
   ): Promise<SourceContent> {
     const result = await this.slackService.fetchThread(channelId, threadTs);
     const threadId = this.normalizeSlackTimestamp(threadTs);
     const formattedText = this.formatSlackMessages(result.messages);
-    await this.writeSlackArtifact(
-      repo,
-      `slack-thread-${channelId}-${threadId}.md`,
-      formattedText,
-    );
+    await this.writeSlackArtifact(repo, `slack-thread-${channelId}-${threadId}.md`, formattedText);
     return { type: 'slack', source, content: formattedText };
   }
 
   /**
    * Fetch content from a Slack channel archive URL.
    */
-  private async fetchFromSlackChannel(
-    source: string,
-    channelId: string,
-    repo?: string,
-  ): Promise<SourceContent> {
-    const result = await this.slackService.fetchChannelHistory(
-      channelId,
-      SLACK_CHANNEL_HISTORY_LIMIT,
-    );
+  private async fetchFromSlackChannel(source: string, channelId: string, repo?: string): Promise<SourceContent> {
+    const result = await this.slackService.fetchChannelHistory(channelId, SLACK_CHANNEL_HISTORY_LIMIT);
     const formattedText = this.formatSlackMessages(result.messages);
     const conversationTs = this.getSlackConversationArtifactTs(result.messages);
-    await this.writeSlackArtifact(
-      repo,
-      `slack-thread-${channelId}-${conversationTs}.md`,
-      formattedText,
-    );
+    await this.writeSlackArtifact(repo, `slack-thread-${channelId}-${conversationTs}.md`, formattedText);
     return { type: 'slack', source, content: formattedText };
   }
 
@@ -860,11 +722,7 @@ export class IssueGenerateCommand extends CommandRunner {
   /**
    * Fetch ticket from tracker (Jira, GitHub, BitBucket)
    */
-  private async fetchFromTracker(
-    ticketKey: string,
-    tracker?: string,
-    repo?: string,
-  ): Promise<SourceContent> {
+  private async fetchFromTracker(ticketKey: string, tracker?: string, repo?: string): Promise<SourceContent> {
     try {
       const adapter = tracker
         ? this.issueTrackerService.getAdapter(tracker)
@@ -872,9 +730,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
       // Format reference for Bitbucket
       const ticketReference =
-        tracker === 'bitbucket'
-          ? this.formatBitbucketReference(ticketKey, repo!, this.configService)
-          : ticketKey;
+        tracker === 'bitbucket' ? this.formatBitbucketReference(ticketKey, repo!, this.configService) : ticketKey;
 
       const ticket = await adapter.getTicket(ticketReference);
 
@@ -885,9 +741,7 @@ export class IssueGenerateCommand extends CommandRunner {
         ticket: ticket,
       };
     } catch (error) {
-      throw new Error(
-        `Failed to fetch ticket ${ticketKey} from platform: ${error.message}`,
-      );
+      throw new Error(`Failed to fetch ticket ${ticketKey} from platform: ${error.message}`);
     }
   }
 
@@ -897,12 +751,10 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param messages - Slack messages to serialize
    * @returns Readable plain-text conversation content
    */
-  private formatSlackMessages(
-    messages: Array<{ user: string; ts: string; text: string }>,
-  ): string {
+  private formatSlackMessages(messages: Array<{ user: string; ts: string; text: string }>): string {
     return [...messages]
       .sort((left, right) => this.compareSlackTimestamps(left.ts, right.ts))
-      .map((message) => `[${message.ts}] ${message.user}: ${message.text}`)
+      .map(message => `[${message.ts}] ${message.user}: ${message.text}`)
       .join('\n');
   }
 
@@ -915,16 +767,12 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param messages - Slack messages returned for the conversation
    * @returns Normalized Slack timestamp for the artifact filename
    */
-  private getSlackConversationArtifactTs(
-    messages: Array<{ ts: string }>,
-  ): string {
+  private getSlackConversationArtifactTs(messages: Array<{ ts: string }>): string {
     if (messages.length === 0) {
       return 'no-messages';
     }
 
-    const earliestMessage = [...messages].sort((left, right) =>
-      this.compareSlackTimestamps(left.ts, right.ts),
-    )[0];
+    const earliestMessage = [...messages].sort((left, right) => this.compareSlackTimestamps(left.ts, right.ts))[0];
 
     return this.normalizeSlackTimestamp(earliestMessage.ts);
   }
@@ -961,11 +809,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param content - Slack content to save
    * @returns Nothing
    */
-  private async writeSlackArtifact(
-    repo: string | undefined,
-    fileName: string,
-    content: string,
-  ): Promise<void> {
+  private async writeSlackArtifact(repo: string | undefined, fileName: string, content: string): Promise<void> {
     const artifactDir = resolveArtifactDir(resolveRepoBasePath(repo), 'slack');
     await fs.promises.mkdir(artifactDir, { recursive: true });
     const artifactPath = path.join(artifactDir, fileName);
@@ -981,12 +825,9 @@ export class IssueGenerateCommand extends CommandRunner {
     trackerName: string,
     format: string,
     sources: string[],
-    repo?: string,
+    repo?: string
   ): Promise<string> {
-    const trackerDir = resolveArtifactDir(
-      resolveRepoBasePath(repo),
-      trackerName,
-    );
+    const trackerDir = resolveArtifactDir(resolveRepoBasePath(repo), trackerName);
     await fs.promises.mkdir(trackerDir, { recursive: true });
 
     const hash8 = hashGeneratedTicketSources(sources);
@@ -997,42 +838,21 @@ export class IssueGenerateCommand extends CommandRunner {
     // avoiding duplicate files when the command is retried with identical inputs.
     const existingFilename = fs
       .readdirSync(trackerDir)
-      .find((name) =>
-        new RegExp(
-          `^\\d{4}-\\d{2}-\\d{2}-${hash8}-ticket-description\\.${extension}$`,
-        ).test(name),
-      );
+      .find(name => new RegExp(`^\\d{4}-\\d{2}-\\d{2}-${hash8}-ticket-description\\.${extension}$`).test(name));
 
     let artifactPath: string;
     if (existingFilename) {
       artifactPath = path.join(trackerDir, existingFilename);
     } else {
-      artifactPath = path.join(
-        trackerDir,
-        buildGeneratedTicketArtifactFilename(timestamp, sources, format),
-      );
+      artifactPath = path.join(trackerDir, buildGeneratedTicketArtifactFilename(timestamp, sources, format));
     }
 
     this.normalizeTicketTextFields(ticket);
-    const content = this.serializeTicketOutput(
-      ticket,
-      format,
-      `saved artifact for ${trackerName}`,
-    );
+    const content = this.serializeTicketOutput(ticket, format, `saved artifact for ${trackerName}`);
     await fs.promises.writeFile(artifactPath, content, 'utf-8');
     const manifestPath = buildGeneratedTicketManifestPath(artifactPath);
-    const manifest = buildGeneratedTicketSourceManifest(
-      artifactPath,
-      trackerName,
-      format,
-      sources,
-      timestamp,
-    );
-    await fs.promises.writeFile(
-      manifestPath,
-      JSON.stringify(manifest, null, 2),
-      'utf-8',
-    );
+    const manifest = buildGeneratedTicketSourceManifest(artifactPath, trackerName, format, sources, timestamp);
+    await fs.promises.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
 
     return artifactPath;
   }
@@ -1049,11 +869,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param silent - When true, fail instead of prompting on ambiguity
    * @returns Resolved source paths or original non-file source
    */
-  private async resolveSourceInputs(
-    source: string,
-    repos?: string[],
-    silent = false,
-  ): Promise<string[]> {
+  private async resolveSourceInputs(source: string, repos?: string[], silent = false): Promise<string[]> {
     if (
       this.parseSlackSource(source) !== null ||
       source.startsWith('http://') ||
@@ -1067,11 +883,7 @@ export class IssueGenerateCommand extends CommandRunner {
       return [source];
     }
 
-    const resolvedRepoSources = await this.resolveRepoRelativeSources(
-      source,
-      repos,
-      silent,
-    );
+    const resolvedRepoSources = await this.resolveRepoRelativeSources(source, repos, silent);
     if (resolvedRepoSources.concreteSources.length > 0) {
       return resolvedRepoSources.concreteSources;
     }
@@ -1091,11 +903,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param repos - Optional repos supplied via `--repos`
    * @returns Nothing; throws when the source should surface actionable guidance
    */
-  private assertResolvableSourceSelection(
-    source: string,
-    resolvedSources: string[],
-    repos?: string[],
-  ): void {
+  private assertResolvableSourceSelection(source: string, resolvedSources: string[], repos?: string[]): void {
     if (resolvedSources.length > 0) {
       return;
     }
@@ -1104,9 +912,7 @@ export class IssueGenerateCommand extends CommandRunner {
       return;
     }
 
-    throw new UnresolvedSourceError(
-      this.buildUnresolvedSourceMessage(source, repos),
-    );
+    throw new UnresolvedSourceError(this.buildUnresolvedSourceMessage(source, repos));
   }
 
   /**
@@ -1116,10 +922,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param repos - Optional repos supplied via `--repos`
    * @returns True when the unresolved source looks like a local artifact/file
    */
-  private isUnresolvedLocalSourceCandidate(
-    source: string,
-    repos?: string[],
-  ): boolean {
+  private isUnresolvedLocalSourceCandidate(source: string, repos?: string[]): boolean {
     if (repos?.length) {
       return false;
     }
@@ -1144,12 +947,8 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param repos - Optional repos supplied via `--repos`
    * @returns User-facing error message
    */
-  private buildUnresolvedSourceMessage(
-    source: string,
-    repos?: string[],
-  ): string {
-    const suggestedRepo =
-      repos?.[0] ?? path.basename(resolveRepoBasePath(repos?.[0]));
+  private buildUnresolvedSourceMessage(source: string, repos?: string[]): string {
+    const suggestedRepo = repos?.[0] ?? path.basename(resolveRepoBasePath(repos?.[0]));
 
     return (
       `Source "${source}" could not be resolved from the current directory. ` +
@@ -1169,7 +968,7 @@ export class IssueGenerateCommand extends CommandRunner {
   private async resolveRepoRelativeSources(
     source: string,
     repos?: string[],
-    silent = false,
+    silent = false
   ): Promise<LocalSourceResolution> {
     if (!repos?.length || path.isAbsolute(source)) {
       return { concreteSources: [], matchedRepoInputs: [] };
@@ -1177,11 +976,8 @@ export class IssueGenerateCommand extends CommandRunner {
 
     const resolvedRepos = this.resolveRepos(repos);
     const matches = resolvedRepos
-      .map((repo) => {
-        const artifactCandidate = path.join(
-          resolveCustomArtifactDir(repo.basePath),
-          source,
-        );
+      .map(repo => {
+        const artifactCandidate = path.join(resolveCustomArtifactDir(repo.basePath), source);
         if (fs.existsSync(artifactCandidate)) {
           return {
             repoInput: repo.input,
@@ -1201,11 +997,11 @@ export class IssueGenerateCommand extends CommandRunner {
       })
       .filter(
         (
-          match,
+          match
         ): match is {
           repoInput: string;
           filePath: string;
-        } => match !== null,
+        } => match !== null
       );
 
     if (matches.length === 0) {
@@ -1223,9 +1019,7 @@ export class IssueGenerateCommand extends CommandRunner {
       throw new Error(
         `Source "${source}" matches multiple repositories: ${matches
           .map(({ repoInput }) => repoInput)
-          .join(
-            ', ',
-          )}. Re-run in an interactive terminal or pass a single unambiguous --repos value.`,
+          .join(', ')}. Re-run in an interactive terminal or pass a single unambiguous --repos value.`
       );
     }
 
@@ -1233,9 +1027,7 @@ export class IssueGenerateCommand extends CommandRunner {
       throw new Error(
         `Source "${source}" matches multiple repositories: ${matches
           .map(({ repoInput }) => repoInput)
-          .join(
-            ', ',
-          )}. Pass a single unambiguous --repos value in silent mode.`,
+          .join(', ')}. Pass a single unambiguous --repos value in silent mode.`
       );
     }
 
@@ -1311,10 +1103,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param silent - When true, fail instead of prompting on ambiguity
    * @returns Repo identifiers to use as artifact namespaces
    */
-  private async resolveSaveTargets(
-    repos?: string[],
-    silent = false,
-  ): Promise<string[]> {
+  private async resolveSaveTargets(repos?: string[], silent = false): Promise<string[]> {
     if (!repos?.length) {
       return [];
     }
@@ -1328,7 +1117,7 @@ export class IssueGenerateCommand extends CommandRunner {
       throw new Error(
         `Cannot save to multiple repositories in a non-interactive session. Matching repositories: ${resolvedRepos
           .map(({ input }) => input)
-          .join(', ')}.`,
+          .join(', ')}.`
       );
     }
 
@@ -1336,7 +1125,7 @@ export class IssueGenerateCommand extends CommandRunner {
       throw new Error(
         `Cannot save to multiple repositories in silent mode. Matching repositories: ${resolvedRepos
           .map(({ input }) => input)
-          .join(', ')}.`,
+          .join(', ')}.`
       );
     }
 
@@ -1351,8 +1140,7 @@ export class IssueGenerateCommand extends CommandRunner {
           value: input,
         })),
         validate: (selectedRepos: string[]) =>
-          selectedRepos.length > 0 ||
-          'Select at least one repository to save the generated artifact.',
+          selectedRepos.length > 0 || 'Select at least one repository to save the generated artifact.',
       },
     ]);
 
@@ -1366,14 +1154,10 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Resolved repo directories in input order
    */
   private resolveRepos(repos: string[]): ResolvedRepo[] {
-    return repos.flatMap((repo) => {
+    return repos.flatMap(repo => {
       const resolvedRepo = this.resolveRepoDirectory(repo);
       if (!resolvedRepo) {
-        console.log(
-          chalk.yellow(
-            `⚠️ Repository '${repo}' not found as a path or sibling directory.`,
-          ),
-        );
+        console.log(chalk.yellow(`⚠️ Repository '${repo}' not found as a path or sibling directory.`));
         return [];
       }
 
@@ -1422,16 +1206,10 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param sources - Fetched source contents (mutated in place)
    * @param silent - Whether to suppress interactive output
    */
-  private async summariseOversizedSources(
-    sources: SourceContent[],
-    silent: boolean,
-  ): Promise<void> {
+  private async summariseOversizedSources(sources: SourceContent[], silent: boolean): Promise<void> {
     for (let i = 0; i < sources.length; i++) {
       const source = sources[i];
-      const raw =
-        typeof source.content === 'string'
-          ? source.content
-          : JSON.stringify(source.content);
+      const raw = typeof source.content === 'string' ? source.content : JSON.stringify(source.content);
 
       if (raw.length <= MAX_SOURCE_CONTENT_LENGTH) {
         continue;
@@ -1440,8 +1218,8 @@ export class IssueGenerateCommand extends CommandRunner {
       if (!silent) {
         console.log(
           chalk.yellow(
-            `\n    Warning: Source ${i + 1} (${source.source}) exceeds ${MAX_SOURCE_CONTENT_LENGTH} characters (${raw.length}). Summarising...\n`,
-          ),
+            `\n    Warning: Source ${i + 1} (${source.source}) exceeds ${MAX_SOURCE_CONTENT_LENGTH} characters (${raw.length}). Summarising...\n`
+          )
         );
       }
 
@@ -1462,13 +1240,8 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param source - The oversized source
    * @returns Bullet-point summary string
    */
-  private async summariseOversizedSource(
-    source: SourceContent,
-  ): Promise<string> {
-    const raw =
-      typeof source.content === 'string'
-        ? source.content
-        : JSON.stringify(source.content);
+  private async summariseOversizedSource(source: SourceContent): Promise<string> {
+    const raw = typeof source.content === 'string' ? source.content : JSON.stringify(source.content);
 
     const prompt =
       `Summarise the following source into concise bullet points that capture every key fact, ` +
@@ -1490,10 +1263,7 @@ export class IssueGenerateCommand extends CommandRunner {
       return responseContent.trim();
     }
 
-    return requireAiResponseContent(
-      responseContent,
-      'AI provider returned an empty summary response',
-    );
+    return requireAiResponseContent(responseContent, 'AI provider returned an empty summary response');
   }
 
   /**
@@ -1505,20 +1275,14 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param source - Original source (for re-summarisation context)
    * @returns Approved summary string
    */
-  private async reviewSummaryBullets(
-    summary: string,
-    source: SourceContent,
-  ): Promise<string> {
+  private async reviewSummaryBullets(summary: string, source: SourceContent): Promise<string> {
     const bullets = summary
       .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith('- '));
+      .map(line => line.trim())
+      .filter(line => line.startsWith('- '));
 
     const approved: string[] = [];
-    const raw =
-      typeof source.content === 'string'
-        ? source.content
-        : JSON.stringify(source.content);
+    const raw = typeof source.content === 'string' ? source.content : JSON.stringify(source.content);
 
     console.log(chalk.cyan('\n  Review the summarised key points:\n'));
 
@@ -1539,9 +1303,7 @@ export class IssueGenerateCommand extends CommandRunner {
     }
 
     console.log(
-      chalk.yellow(
-        '\n  Type a message to ask the AI to summarise specific content, or "done" to continue.\n',
-      ),
+      chalk.yellow('\n  Type a message to ask the AI to summarise specific content, or "done" to continue.\n')
     );
 
     while (true) {
@@ -1577,16 +1339,13 @@ export class IssueGenerateCommand extends CommandRunner {
       const extraContent =
         typeof extra === 'string'
           ? extra
-          : requireAiResponseContent(
-              extra,
-              'AI provider returned an empty summary response',
-            );
+          : requireAiResponseContent(extra, 'AI provider returned an empty summary response');
 
       const extraBullets = extraContent
         .trim()
         .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.startsWith('- '));
+        .map(line => line.trim())
+        .filter(line => line.startsWith('- '));
 
       for (const bullet of extraBullets) {
         console.log(chalk.cyan(`  ${bullet}`));
@@ -1604,15 +1363,11 @@ export class IssueGenerateCommand extends CommandRunner {
         }
       }
 
-      console.log(
-        chalk.yellow('  💬 Type another message or "done" to continue.\n'),
-      );
+      console.log(chalk.yellow('  💬 Type another message or "done" to continue.\n'));
     }
 
     if (approved.length === 0) {
-      console.log(
-        chalk.yellow('  No bullets approved — using the full AI summary.\n'),
-      );
+      console.log(chalk.yellow('  No bullets approved — using the full AI summary.\n'));
       return summary;
     }
 
@@ -1626,15 +1381,11 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param sources - Fetched source contents
    * @returns Clarification questions as plain strings
    */
-  private async identifyClarifications(
-    sources: SourceContent[],
-  ): Promise<string[]> {
+  private async identifyClarifications(sources: SourceContent[]): Promise<string[]> {
     const prompt = this.buildClarificationPrompt(sources);
 
     try {
-      const responseContent = this.stageAgentService.isEnabledForStage(
-        'generate',
-      )
+      const responseContent = this.stageAgentService.isEnabledForStage('generate')
         ? await this.stageAgentService.generateFromPrompt(prompt)
         : await this.aiService.execute({
             prompt,
@@ -1645,18 +1396,13 @@ export class IssueGenerateCommand extends CommandRunner {
       const clarificationContent =
         typeof responseContent === 'string'
           ? responseContent
-          : requireAiResponseContent(
-              responseContent,
-              'AI provider returned an empty clarification response',
-            );
+          : requireAiResponseContent(responseContent, 'AI provider returned an empty clarification response');
 
       const parsed = JSON.parse(clarificationContent.trim());
       if (!Array.isArray(parsed)) {
         return [];
       }
-      return parsed.filter(
-        (item: unknown) => typeof item === 'string' && item.trim().length > 0,
-      );
+      return parsed.filter((item: unknown) => typeof item === 'string' && item.trim().length > 0);
     } catch (error) {
       if (isAIErrorLike(error)) {
         throw error;
@@ -1716,20 +1462,13 @@ export class IssueGenerateCommand extends CommandRunner {
   /**
    * Use AI to synthesize and collate data from multiple sources
    */
-  private async synthesizeWithAI(
-    sources: SourceContent[],
-    silent = false,
-  ): Promise<UniversalTicket> {
+  private async synthesizeWithAI(sources: SourceContent[], silent = false): Promise<UniversalTicket> {
     if (!silent) {
       console.log(chalk.cyan('\n🤖 Using AI to synthesize content...\n'));
     }
 
     // If only one source and its description is long enough, skip AI synthesis
-    if (
-      sources.length === 1 &&
-      (sources[0].ticket?.description?.trim().length ?? 0) >=
-        MIN_DESCRIPTION_LENGTH
-    ) {
+    if (sources.length === 1 && (sources[0].ticket?.description?.trim().length ?? 0) >= MIN_DESCRIPTION_LENGTH) {
       this.normalizeTicketTextFields(sources[0].ticket!);
       return sources[0].ticket!;
     }
@@ -1749,10 +1488,7 @@ export class IssueGenerateCommand extends CommandRunner {
     const synthesisContent =
       typeof responseContent === 'string'
         ? responseContent
-        : requireAiResponseContent(
-            responseContent,
-            'AI provider returned an empty ticket synthesis response',
-          );
+        : requireAiResponseContent(responseContent, 'AI provider returned an empty ticket synthesis response');
 
     // Parse AI response as markdown (default) and convert to UniversalTicket
     const mdConverter = this.formatConverterService.getConverter('md');
@@ -1829,7 +1565,7 @@ export class IssueGenerateCommand extends CommandRunner {
     }
 
     if (Array.isArray(value)) {
-      return value.map((item) => this.normalizeNestedValue(item)) as T;
+      return value.map(item => this.normalizeNestedValue(item)) as T;
     }
 
     if (value instanceof Date) {
@@ -1838,8 +1574,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
     if (value && typeof value === 'object') {
       Object.entries(value).forEach(([key, nestedValue]) => {
-        (value as Record<string, unknown>)[key] =
-          this.normalizeNestedValue(nestedValue);
+        (value as Record<string, unknown>)[key] = this.normalizeNestedValue(nestedValue);
       });
     }
 
@@ -1854,7 +1589,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Text with contractions expanded
    */
   private expandContractions(text: string): string {
-    return text.replace(CONTRACTION_PATTERN, (match) => {
+    return text.replace(CONTRACTION_PATTERN, match => {
       const key = match.replace(/\u2019/g, "'").toLowerCase();
       const expansion = CONTRACTION_MAP.get(key) ?? match;
       if (match[0] === match[0].toUpperCase()) {
@@ -1873,11 +1608,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param targetDescription - Human-readable serialization target for errors
    * @returns Serialized ticket content
    */
-  private serializeTicketOutput(
-    ticket: UniversalTicket,
-    format: string,
-    targetDescription: string,
-  ): string {
+  private serializeTicketOutput(ticket: UniversalTicket, format: string, targetDescription: string): string {
     const converter = this.formatConverterService.getConverter(format);
     const output = converter.serialize(ticket);
     this.assertNoContractionsInSerializedOutput(output, targetDescription);
@@ -1892,10 +1623,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param targetDescription - Human-readable serialization target for errors
    * @returns Nothing
    */
-  private assertNoContractionsInSerializedOutput(
-    output: string,
-    targetDescription: string,
-  ): void {
+  private assertNoContractionsInSerializedOutput(output: string, targetDescription: string): void {
     const matches = output.match(CONTRACTION_PATTERN);
     if (!matches) {
       return;
@@ -1903,7 +1631,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
     const examples = matches.slice(0, 3).join(', ');
     throw new Error(
-      `issue:generate produced contractions in ${targetDescription}: ${examples}. Use formal equivalents instead.`,
+      `issue:generate produced contractions in ${targetDescription}: ${examples}. Use formal equivalents instead.`
     );
   }
 
@@ -1913,22 +1641,17 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param configService NestJS ConfigService instance
    * @returns Formatted workspace/repo string
    */
-  private formatBitbucketRepo(
-    repo: string,
-    configService: ConfigService,
-  ): string {
+  private formatBitbucketRepo(repo: string, configService: ConfigService): string {
     // Already in workspace/repo format
     if (repo.includes('/')) {
       return repo;
     }
 
     // Get workspace from config and combine
-    const workspace = configService.get<string>(
-      'atlassian.bitbucket.workspace',
-    );
+    const workspace = configService.get<string>('atlassian.bitbucket.workspace');
     if (!workspace) {
       throw new Error(
-        'Workspace required. Provide as workspace/repo or set atlassian.bitbucket.workspace in wf.config.*',
+        'Workspace required. Provide as workspace/repo or set atlassian.bitbucket.workspace in wf.config.*'
       );
     }
 
@@ -1942,11 +1665,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param configService NestJS ConfigService instance
    * @returns Formatted reference (workspace/repo#123)
    */
-  private formatBitbucketReference(
-    issueId: string,
-    repo: string,
-    configService: ConfigService,
-  ): string {
+  private formatBitbucketReference(issueId: string, repo: string, configService: ConfigService): string {
     const formattedRepo = this.formatBitbucketRepo(repo, configService);
     return `${formattedRepo}#${issueId}`;
   }

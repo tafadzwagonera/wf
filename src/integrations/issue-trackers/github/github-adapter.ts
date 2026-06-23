@@ -1,11 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Octokit } from '@octokit/rest';
-import {
-  IssueTrackerAdapter,
-  IssueTrackerFeature,
-  CreatePullRequestOptions,
-} from '../issue-tracker-adapter.interface';
+import { IssueTrackerAdapter, IssueTrackerFeature, CreatePullRequestOptions } from '../issue-tracker-adapter.interface';
 import {
   UniversalTicket,
   IssueTrackerTicketReference,
@@ -28,7 +24,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
   constructor(
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
-    private readonly issueTrackerConfig: IssueTrackerConfigService,
+    private readonly issueTrackerConfig: IssueTrackerConfigService
   ) {
     const token = this.configService.get<string>('github.token');
     const defaultRepo = this.configService.get<string>('github.defaultRepo');
@@ -38,12 +34,8 @@ export class GitHubAdapter implements IssueTrackerAdapter {
 
     if (!token) {
       // Only warn if tracker is enabled
-      if (
-        this.issueTrackerConfig.isTrackerEnabled('github', hasPartialConfig)
-      ) {
-        this.logger.warn(
-          'GitHub token not configured. Set github.token in wf.config.*.',
-        );
+      if (this.issueTrackerConfig.isTrackerEnabled('github', hasPartialConfig)) {
+        this.logger.warn('GitHub token not configured. Set github.token in wf.config.*.');
       }
       this.octokit = new Octokit();
     } else {
@@ -61,9 +53,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
   /**
    * Create an issue on GitHub
    */
-  async createTicket(
-    ticket: UniversalTicket,
-  ): Promise<IssueTrackerTicketReference> {
+  async createTicket(ticket: UniversalTicket): Promise<IssueTrackerTicketReference> {
     const { owner, repo } = this.parseProjectOrDefault(ticket.project);
 
     const labels = this.buildLabels(ticket);
@@ -110,9 +100,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
       reporter: issue.user?.login,
       created: new Date(issue.created_at),
       updated: new Date(issue.updated_at),
-      labels: issue.labels.map((l: any) =>
-        typeof l === 'string' ? l : l.name,
-      ),
+      labels: issue.labels.map((l: any) => (typeof l === 'string' ? l : l.name)),
       project: `${owner}/${repo}`,
       trackerData: {
         githubNumber: issue.number,
@@ -124,10 +112,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
   /**
    * Update an issue on GitHub
    */
-  async updateTicket(
-    reference: string,
-    updates: Partial<UniversalTicket>,
-  ): Promise<void> {
+  async updateTicket(reference: string, updates: Partial<UniversalTicket>): Promise<void> {
     const { owner, repo, issueNumber } = this.parseReference(reference);
 
     const updateData: any = {};
@@ -189,10 +174,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
    * @returns URL of the created pull request
    */
   async createPullRequest(options: CreatePullRequestOptions): Promise<string> {
-    const repoString =
-      options.repo ||
-      this.configService.get<string>('github.defaultRepo') ||
-      '';
+    const repoString = options.repo || this.configService.get<string>('github.defaultRepo') || '';
 
     const { owner, repo } = this.parseProjectOrDefault(repoString || undefined);
 
@@ -258,10 +240,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
    * @param repoOverride Optional repo in "owner/repo" format; falls back to default
    * @returns Matching PR URLs sorted by pull request number
    */
-  async findPullRequestsByTicketKey(
-    ticketKey: string,
-    repoOverride?: string,
-  ): Promise<string[]> {
+  async findPullRequestsByTicketKey(ticketKey: string, repoOverride?: string): Promise<string[]> {
     const { owner, repo } = this.parseProjectOrDefault(repoOverride);
     const query = `repo:${owner}/${repo} is:pr is:open "${ticketKey}"`;
     const response = await this.octokit.search.issuesAndPullRequests({
@@ -270,7 +249,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     });
 
     const pullRequestUrls = new Set<string>();
-    response.data.items.forEach((item) => {
+    response.data.items.forEach(item => {
       if (!item.html_url?.includes('/pull/')) {
         return;
       }
@@ -295,7 +274,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     });
 
     return response.data.items.map(
-      (issue) =>
+      issue =>
         new UniversalTicket({
           key: `${issue.repository_url.split('/').slice(-2).join('/')}#${issue.number}`,
           title: issue.title,
@@ -307,14 +286,12 @@ export class GitHubAdapter implements IssueTrackerAdapter {
           reporter: issue.user?.login,
           created: new Date(issue.created_at),
           updated: new Date(issue.updated_at),
-          labels: issue.labels.map((l: any) =>
-            typeof l === 'string' ? l : l.name,
-          ),
+          labels: issue.labels.map((l: any) => (typeof l === 'string' ? l : l.name)),
           trackerData: {
             githubNumber: issue.number,
             githubUrl: issue.html_url,
           },
-        }),
+        })
     );
   }
 
@@ -336,7 +313,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
 
     throw new Error(
       'No GitHub repository specified and no default repository configured. ' +
-        'Provide project as "owner/repo" or set github.defaultRepo in wf.config.*.',
+        'Provide project as "owner/repo" or set github.defaultRepo in wf.config.*.'
     );
   }
 
@@ -358,9 +335,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     // Format: 123 (use default repo)
     if (/^\d+$/.test(reference)) {
       if (!this.defaultOwner || !this.defaultRepo) {
-        throw new Error(
-          'Cannot use issue number without default repository configured',
-        );
+        throw new Error('Cannot use issue number without default repository configured');
       }
       return {
         owner: this.defaultOwner,
@@ -418,7 +393,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
    * Extract ticket type from GitHub labels
    */
   private extractTypeFromLabels(labels: any[]): TicketType {
-    const typeLabel = labels.find((l) => {
+    const typeLabel = labels.find(l => {
       const name = typeof l === 'string' ? l : l.name;
       return name.startsWith('type:');
     });
@@ -431,7 +406,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
 
     // Check for standard GitHub labels
     const hasLabel = (name: string) =>
-      labels.some((l) => {
+      labels.some(l => {
         const labelName = typeof l === 'string' ? l : l.name;
         return labelName.toLowerCase() === name.toLowerCase();
       });
@@ -449,14 +424,13 @@ export class GitHubAdapter implements IssueTrackerAdapter {
    * encodes and decodes priority through labels.
    */
   private extractPriorityFromLabels(labels: any[]): TicketPriority {
-    const priorityLabel = labels.find((l) => {
+    const priorityLabel = labels.find(l => {
       const name = typeof l === 'string' ? l : l.name;
       return name.startsWith('priority:');
     });
 
     if (priorityLabel) {
-      const name =
-        typeof priorityLabel === 'string' ? priorityLabel : priorityLabel.name;
+      const name = typeof priorityLabel === 'string' ? priorityLabel : priorityLabel.name;
       const priority = name.replace('priority:', '');
       return (priority as TicketPriority) || TicketPriority.MEDIUM;
     }

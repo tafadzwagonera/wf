@@ -1,7 +1,4 @@
-import type {
-  WfAiProviderConfig,
-  WfAiProviderName,
-} from '../../../config/public-config';
+import type { WfAiProviderConfig, WfAiProviderName } from '../../../config/public-config';
 
 /**
  * Returns whether a provider entry in normalized wf config clearly indicates
@@ -14,11 +11,9 @@ import type {
  */
 export const hasProviderUsageIntent = (
   providers: WfAiProviderConfig[] | undefined,
-  providerName: WfAiProviderName,
+  providerName: WfAiProviderName
 ): boolean => {
-  const matchingProvider = providers?.find(
-    (provider) => provider.provider === providerName,
-  );
+  const matchingProvider = providers?.find(provider => provider.provider === providerName);
 
   return Boolean(matchingProvider?.apiKey && matchingProvider?.model);
 };

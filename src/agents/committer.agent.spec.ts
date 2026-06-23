@@ -13,18 +13,14 @@ describe('CommitterAgent', () => {
           useValue: {
             getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
             getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
-            getRecentCommits: jest
-              .fn()
-              .mockResolvedValue([{ message: 'WBP-100: prior change' }]),
+            getRecentCommits: jest.fn().mockResolvedValue([{ message: 'WBP-100: prior change' }]),
             commit: jest.fn().mockResolvedValue('abc123'),
           },
         },
         {
           provide: CommitStageService,
           useValue: {
-            generateCommitMessage: jest
-              .fn()
-              .mockResolvedValue('WBP-123: restore login redirect'),
+            generateCommitMessage: jest.fn().mockResolvedValue('WBP-123: restore login redirect'),
           },
         },
       ],

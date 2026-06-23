@@ -1,12 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  Agent,
-  OpenAIProvider,
-  Runner,
-  setTracingExportApiKey,
-  tool,
-} from '@openai/agents';
+import { Agent, OpenAIProvider, Runner, setTracingExportApiKey, tool } from '@openai/agents';
 import type { StreamedRunResult } from '@openai/agents';
 import { z } from 'zod';
 import * as fs from 'fs/promises';
@@ -17,12 +11,7 @@ import { promisify } from 'util';
 import dayjs from 'dayjs';
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
-import {
-  assertClaudeCliAvailable,
-  buildCliArgs,
-  spawnCli,
-  type ClaudeCliMessage,
-} from './adapters/claude-cli-runner';
+import { assertClaudeCliAvailable, buildCliArgs, spawnCli, type ClaudeCliMessage } from './adapters/claude-cli-runner';
 import type { WfBackendMode } from '../../config/public-config';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import {
@@ -57,9 +46,7 @@ const ALLOWED_READ_ONLY_COMMAND_PREFIXES = [
 
 const CLI_STAGE_MAX_RETRIES = 1;
 
-const extractCliDiagnostic = (
-  message: ClaudeCliMessage,
-): string | undefined => {
+const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => {
   if (message.is_error) {
     return message.result ?? message.summary ?? JSON.stringify(message);
   }
@@ -88,16 +75,12 @@ type OpenAiStageContext = {
 };
 
 const resolveStagePromptRepoExample = (repositories?: string[]): string => {
-  const firstRepository = repositories?.find(
-    (repository) => typeof repository === 'string' && repository.trim(),
-  );
+  const firstRepository = repositories?.find(repository => typeof repository === 'string' && repository.trim());
   return firstRepository?.trim() || 'current-repo';
 };
 
 const isReadOnlyCommand = (command: string): boolean =>
-  ALLOWED_READ_ONLY_COMMAND_PREFIXES.some(
-    (prefix) => command === prefix || command.startsWith(prefix),
-  );
+  ALLOWED_READ_ONLY_COMMAND_PREFIXES.some(prefix => command === prefix || command.startsWith(prefix));
 
 @Injectable()
 export class StageAgentService {
@@ -114,9 +97,7 @@ export class StageAgentService {
     ticketKey?: string;
     affectedRepositories?: string[];
   }): Promise<ResolutionPlan> {
-    const repoExample = resolveStagePromptRepoExample(
-      params.affectedRepositories,
-    );
+    const repoExample = resolveStagePromptRepoExample(params.affectedRepositories);
     const prompt = `
 Action: ${params.action}
 Issue Content:
@@ -130,7 +111,7 @@ ${JSON.stringify(
     affectedRepositories: params.affectedRepositories,
   },
   null,
-  2,
+  2
 )}
 
 Create a detailed resolution plan with:
@@ -197,8 +178,8 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
             provider: this.resolveStageProvider('plan'),
             model: this.resolveStageModel('plan'),
           },
-          'AI provider returned an empty plan response',
-        ),
+          'AI provider returned an empty plan response'
+        )
       );
       const provider = this.resolveStageProvider('plan');
       const model = this.resolveStageModel('plan');
@@ -209,9 +190,7 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
         openai: 'gpt-',
       };
       const prefix = prefixMap[provider] ?? '';
-      const source = model.startsWith(prefix)
-        ? model.slice(prefix.length)
-        : model;
+      const source = model.startsWith(prefix) ? model.slice(prefix.length) : model;
 
       plan.provider = provider;
       plan.source = source;
@@ -229,11 +208,7 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     }
   }
 
-  async reviewCode(
-    diff: string,
-    guidelines: string[],
-    repoDir?: string,
-  ): Promise<CodeReview> {
+  async reviewCode(diff: string, guidelines: string[], repoDir?: string): Promise<CodeReview> {
     const prompt = `
 Code Changes:
 \`\`\`
@@ -317,12 +292,9 @@ Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
           content: response,
           provider: this.resolveStageProvider('review'),
           model: this.resolveStageModel('review'),
-        }),
+        })
       );
-      const processedReview = postProcessCodeReview(
-        sanitizeCodeReviewTrace(parsed, diff),
-        diff,
-      );
+      const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
       return {
         ...processedReview.review,
         executionMode: 'agent',
@@ -356,15 +328,12 @@ Return only the requested ticket markdown and preserve the required heading stru
         provider: this.resolveStageProvider('generate'),
         model: this.resolveStageModel('generate'),
       },
-      'AI provider returned an empty generated content response',
+      'AI provider returned an empty generated content response'
     );
   }
 
   private resolveStageBackend(stage: AgentStageName): WfBackendMode {
-    return this.configService.get<WfBackendMode>(
-      `stages.${stage}.backend`,
-      resolveDefaultStageBackend(stage),
-    );
+    return this.configService.get<WfBackendMode>(`stages.${stage}.backend`, resolveDefaultStageBackend(stage));
   }
 
   private resolveStageProvider(stage: AgentStageName): 'anthropic' | 'openai' {
@@ -373,7 +342,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       this.configService.get<string>('ai.provider', 'anthropic');
     if (provider !== 'anthropic' && provider !== 'openai') {
       throw new Error(
-        `${stage} stage agent backend is unsupported for provider "${provider}". Configure ${stage}.provider as anthropic or openai, or set stages.${stage}.backend to "standard".`,
+        `${stage} stage agent backend is unsupported for provider "${provider}". Configure ${stage}.provider as anthropic or openai, or set stages.${stage}.backend to "standard".`
       );
     }
     return provider;
@@ -383,9 +352,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     return (
       this.configService.get<string>(`stages.${stage}.model`) ??
       this.configService.get<string>('ai.model') ??
-      (this.resolveStageProvider(stage) === 'openai'
-        ? READ_ONLY_OPENAI_MODEL
-        : READ_ONLY_ANTHROPIC_MODEL)
+      (this.resolveStageProvider(stage) === 'openai' ? READ_ONLY_OPENAI_MODEL : READ_ONLY_ANTHROPIC_MODEL)
     );
   }
 
@@ -416,9 +383,7 @@ Return only the requested ticket markdown and preserve the required heading stru
   }): Promise<string> {
     const apiKey = this.configService.get<string>('ai.anthropicApiKey');
     if (!apiKey) {
-      throw new Error(
-        'Anthropic agent backend requires `ai.anthropicApiKey` to be configured.',
-      );
+      throw new Error('Anthropic agent backend requires `ai.anthropicApiKey` to be configured.');
     }
 
     const model = this.resolveStageModel(params.stage);
@@ -426,7 +391,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       path.join(os.homedir(), '.claude', 'CLAUDE.md'),
       'CLAUDE.md',
       'anthropic',
-      true,
+      true
     );
     const resolvedRepoDir = params.repoDir ?? process.cwd();
     const allowInspection = Boolean(params.repoDir);
@@ -446,22 +411,18 @@ Return only the requested ticket markdown and preserve the required heading stru
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: [anthropicContext, anthropicSystemPrompt]
-            .filter(Boolean)
-            .join('\n\n'),
+          append: [anthropicContext, anthropicSystemPrompt].filter(Boolean).join('\n\n'),
         },
         canUseTool: async (toolName, input) => {
           if (toolName !== 'Bash') {
             return { behavior: 'allow' };
           }
 
-          const command =
-            typeof input['command'] === 'string' ? input['command'].trim() : '';
+          const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
           if (!command || !isReadOnlyCommand(command)) {
             return {
               behavior: 'deny',
-              message:
-                'Only read-only repository inspection commands are allowed in this agent path.',
+              message: 'Only read-only repository inspection commands are allowed in this agent path.',
               interrupt: true,
             };
           }
@@ -493,12 +454,8 @@ Return only the requested ticket markdown and preserve the required heading stru
 
         if (message.subtype !== 'success' || message.is_error) {
           const errorSummary =
-            'errors' in message && message.errors.length > 0
-              ? message.errors.join('; ')
-              : 'unknown error';
-          throw new Error(
-            `Claude Agent SDK failed (${message.subtype}): ${errorSummary}`,
-          );
+            'errors' in message && message.errors.length > 0 ? message.errors.join('; ') : 'unknown error';
+          throw new Error(`Claude Agent SDK failed (${message.subtype}): ${errorSummary}`);
         }
 
         return message.result.trim();
@@ -518,9 +475,7 @@ Return only the requested ticket markdown and preserve the required heading stru
   }): Promise<string> {
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
     if (!apiKey) {
-      throw new Error(
-        'OpenAI agent backend requires `ai.openaiApiKey` to be configured.',
-      );
+      throw new Error('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
     }
 
     setTracingExportApiKey(apiKey);
@@ -530,7 +485,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       path.join(os.homedir(), '.openai', 'OPENAI.md'),
       '.openai/OPENAI.md',
       'openai',
-      true,
+      true
     );
     const resolvedRepoDir = params.repoDir ?? process.cwd();
     const allowInspection = Boolean(params.repoDir);
@@ -557,7 +512,7 @@ Return only the requested ticket markdown and preserve the required heading stru
             content,
           },
           null,
-          2,
+          2
         );
       },
     });
@@ -566,18 +521,12 @@ Return only the requested ticket markdown and preserve the required heading stru
       name: 'list_files',
       description: 'List files in the current repository workspace.',
       parameters: z.object({
-        root: z
-          .string()
-          .min(1)
-          .describe(
-            'Repository subdirectory to list; use "." for the repo root.',
-          ),
+        root: z.string().min(1).describe('Repository subdirectory to list; use "." for the repo root.'),
       }),
       async execute(input, runContext) {
         const toolContext = runContext?.context as OpenAiStageContext;
         const relativeRoot = input.root.trim() || '.';
-        const command =
-          `rg --files ${relativeRoot === '.' ? '' : relativeRoot}`.trim();
+        const command = `rg --files ${relativeRoot === '.' ? '' : relativeRoot}`.trim();
         const { stdout } = await execAsync(command, {
           cwd: toolContext.repoDir,
           maxBuffer: MAX_BUFFER_IN_BYTES,
@@ -591,12 +540,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       description: 'Search repository files with ripgrep.',
       parameters: z.object({
         pattern: z.string().min(1),
-        root: z
-          .string()
-          .min(1)
-          .describe(
-            'Repository subdirectory to search; use "." for the repo root.',
-          ),
+        root: z.string().min(1).describe('Repository subdirectory to search; use "." for the repo root.'),
       }),
       async execute(input, runContext) {
         const toolContext = runContext?.context as OpenAiStageContext;
@@ -612,8 +556,7 @@ Return only the requested ticket markdown and preserve the required heading stru
 
     const runCommandTool = tool({
       name: 'run_readonly_command',
-      description:
-        'Run a read-only repository inspection command such as pwd, ls, rg, git diff, or git status.',
+      description: 'Run a read-only repository inspection command such as pwd, ls, rg, git diff, or git status.',
       parameters: z.object({
         command: z.string().min(1),
       }),
@@ -624,11 +567,10 @@ Return only the requested ticket markdown and preserve the required heading stru
           return JSON.stringify(
             {
               allowed: false,
-              message:
-                'Only read-only repository inspection commands are allowed in this agent path.',
+              message: 'Only read-only repository inspection commands are allowed in this agent path.',
             },
             null,
-            2,
+            2
           );
         }
 
@@ -643,22 +585,17 @@ Return only the requested ticket markdown and preserve the required heading stru
             stderr: stderr.trim(),
           },
           null,
-          2,
+          2
         );
       },
     });
 
     const agent = new Agent<OpenAiStageContext>({
       name: `wf ${params.stage} openai agent backend`,
-      handoffDescription:
-        'Uses read-only tools to inspect the repository and answer the current stage prompt.',
-      instructions: [openAiContext, openAiSystemPrompt]
-        .filter(Boolean)
-        .join('\n\n'),
+      handoffDescription: 'Uses read-only tools to inspect the repository and answer the current stage prompt.',
+      instructions: [openAiContext, openAiSystemPrompt].filter(Boolean).join('\n\n'),
       model,
-      tools: allowInspection
-        ? [readFileTool, listFilesTool, searchFilesTool, runCommandTool]
-        : [],
+      tools: allowInspection ? [readFileTool, listFilesTool, searchFilesTool, runCommandTool] : [],
       toolUseBehavior: 'run_llm_again',
       resetToolChoice: true,
     });
@@ -666,12 +603,11 @@ Return only the requested ticket markdown and preserve the required heading stru
     const runner = new Runner({
       modelProvider,
     });
-    const streamedRun: StreamedRunResult<OpenAiStageContext, typeof agent> =
-      await runner.run(agent, params.prompt, {
-        stream: true,
-        context,
-        maxTurns: 16,
-      });
+    const streamedRun: StreamedRunResult<OpenAiStageContext, typeof agent> = await runner.run(agent, params.prompt, {
+      stream: true,
+      context,
+      maxTurns: 16,
+    });
 
     for await (const event of streamedRun) {
       void event;
@@ -694,9 +630,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       throw new Error(`OpenAI agent run failed: ${streamError}`);
     }
 
-    return typeof streamedRun.finalOutput === 'string'
-      ? streamedRun.finalOutput.trim()
-      : '';
+    return typeof streamedRun.finalOutput === 'string' ? streamedRun.finalOutput.trim() : '';
   }
 
   async chatTurn(params: {
@@ -721,7 +655,7 @@ Return only the requested ticket markdown and preserve the required heading stru
         provider: 'openai',
         model: this.resolveStageModel(params.stage),
       },
-      'AI provider returned an empty chat response',
+      'AI provider returned an empty chat response'
     );
     return result;
   }
@@ -735,9 +669,7 @@ Return only the requested ticket markdown and preserve the required heading stru
   }): Promise<{ content: string; session: AgentChatSession }> {
     const apiKey = this.configService.get<string>('ai.anthropicApiKey');
     if (!apiKey) {
-      throw new Error(
-        'Anthropic agent backend requires `ai.anthropicApiKey` to be configured.',
-      );
+      throw new Error('Anthropic agent backend requires `ai.anthropicApiKey` to be configured.');
     }
 
     const model = this.resolveStageModel(params.stage);
@@ -745,7 +677,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       path.join(os.homedir(), '.claude', 'CLAUDE.md'),
       'CLAUDE.md',
       'anthropic',
-      true,
+      true
     );
     const resolvedRepoDir = params.repoDir ?? process.cwd();
     const allowInspection = Boolean(params.repoDir);
@@ -756,9 +688,7 @@ Return only the requested ticket markdown and preserve the required heading stru
 
     const { query } = await loadAnthropicAgentSdk();
 
-    const resumeOption = params.session?.sessionId
-      ? { resume: params.session.sessionId }
-      : {};
+    const resumeOption = params.session?.sessionId ? { resume: params.session.sessionId } : {};
 
     const session = query({
       prompt: params.userMessage,
@@ -771,24 +701,17 @@ Return only the requested ticket markdown and preserve the required heading stru
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: [anthropicContext, anthropicSystemPrompt]
-            .filter(Boolean)
-            .join('\n\n'),
+          append: [anthropicContext, anthropicSystemPrompt].filter(Boolean).join('\n\n'),
         },
-        canUseTool: async (
-          toolName: string,
-          input: Record<string, unknown>,
-        ) => {
+        canUseTool: async (toolName: string, input: Record<string, unknown>) => {
           if (toolName !== 'Bash') {
             return { behavior: 'allow' as const };
           }
-          const command =
-            typeof input['command'] === 'string' ? input['command'].trim() : '';
+          const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
           if (!command || !isReadOnlyCommand(command)) {
             return {
               behavior: 'deny' as const,
-              message:
-                'Only read-only repository inspection commands are allowed in this agent path.',
+              message: 'Only read-only repository inspection commands are allowed in this agent path.',
               interrupt: true,
             };
           }
@@ -825,12 +748,8 @@ Return only the requested ticket markdown and preserve the required heading stru
 
         if (message.subtype !== 'success' || message.is_error) {
           const errorSummary =
-            'errors' in message && message.errors.length > 0
-              ? message.errors.join('; ')
-              : 'unknown error';
-          throw new Error(
-            `Claude Agent SDK failed (${message.subtype}): ${errorSummary}`,
-          );
+            'errors' in message && message.errors.length > 0 ? message.errors.join('; ') : 'unknown error';
+          throw new Error(`Claude Agent SDK failed (${message.subtype}): ${errorSummary}`);
         }
 
         return {
@@ -854,9 +773,7 @@ Return only the requested ticket markdown and preserve the required heading stru
   }): Promise<{ content: string; session: AgentChatSession }> {
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
     if (!apiKey) {
-      throw new Error(
-        'OpenAI agent backend requires `ai.openaiApiKey` to be configured.',
-      );
+      throw new Error('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
     }
 
     setTracingExportApiKey(apiKey);
@@ -866,7 +783,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       path.join(os.homedir(), '.openai', 'OPENAI.md'),
       '.openai/OPENAI.md',
       'openai',
-      true,
+      true
     );
     const resolvedRepoDir = params.repoDir ?? process.cwd();
     const allowInspection = Boolean(params.repoDir);
@@ -883,11 +800,7 @@ Return only the requested ticket markdown and preserve the required heading stru
         const toolContext = runContext?.context as OpenAiStageContext;
         const absolutePath = path.resolve(toolContext.repoDir, input.path);
         const content = await fs.readFile(absolutePath, 'utf-8');
-        return JSON.stringify(
-          { path: path.relative(toolContext.repoDir, absolutePath), content },
-          null,
-          2,
-        );
+        return JSON.stringify({ path: path.relative(toolContext.repoDir, absolutePath), content }, null, 2);
       },
     });
 
@@ -895,18 +808,12 @@ Return only the requested ticket markdown and preserve the required heading stru
       name: 'list_files',
       description: 'List files in the current repository workspace.',
       parameters: z.object({
-        root: z
-          .string()
-          .min(1)
-          .describe(
-            'Repository subdirectory to list; use "." for the repo root.',
-          ),
+        root: z.string().min(1).describe('Repository subdirectory to list; use "." for the repo root.'),
       }),
       async execute(input, runContext) {
         const toolContext = runContext?.context as OpenAiStageContext;
         const relativeRoot = input.root.trim() || '.';
-        const command =
-          `rg --files ${relativeRoot === '.' ? '' : relativeRoot}`.trim();
+        const command = `rg --files ${relativeRoot === '.' ? '' : relativeRoot}`.trim();
         const { stdout } = await execAsync(command, {
           cwd: toolContext.repoDir,
           maxBuffer: MAX_BUFFER_IN_BYTES,
@@ -920,12 +827,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       description: 'Search repository files with ripgrep.',
       parameters: z.object({
         pattern: z.string().min(1),
-        root: z
-          .string()
-          .min(1)
-          .describe(
-            'Repository subdirectory to search; use "." for the repo root.',
-          ),
+        root: z.string().min(1).describe('Repository subdirectory to search; use "." for the repo root.'),
       }),
       async execute(input, runContext) {
         const toolContext = runContext?.context as OpenAiStageContext;
@@ -941,8 +843,7 @@ Return only the requested ticket markdown and preserve the required heading stru
 
     const runCommandTool = tool({
       name: 'run_readonly_command',
-      description:
-        'Run a read-only repository inspection command such as pwd, ls, rg, git diff, or git status.',
+      description: 'Run a read-only repository inspection command such as pwd, ls, rg, git diff, or git status.',
       parameters: z.object({ command: z.string().min(1) }),
       async execute(input, runContext) {
         const toolContext = runContext?.context as OpenAiStageContext;
@@ -951,43 +852,31 @@ Return only the requested ticket markdown and preserve the required heading stru
           return JSON.stringify(
             {
               allowed: false,
-              message:
-                'Only read-only repository inspection commands are allowed in this agent path.',
+              message: 'Only read-only repository inspection commands are allowed in this agent path.',
             },
             null,
-            2,
+            2
           );
         }
         const { stdout, stderr } = await execAsync(command, {
           cwd: toolContext.repoDir,
           maxBuffer: MAX_BUFFER_IN_BYTES,
         });
-        return JSON.stringify(
-          { allowed: true, stdout: stdout.trim(), stderr: stderr.trim() },
-          null,
-          2,
-        );
+        return JSON.stringify({ allowed: true, stdout: stdout.trim(), stderr: stderr.trim() }, null, 2);
       },
     });
 
-    const reusableAgent = params.session?.agent as
-      | Agent<OpenAiStageContext>
-      | undefined;
+    const reusableAgent = params.session?.agent as Agent<OpenAiStageContext> | undefined;
     const reusableRunner = params.session?.runner as Runner | undefined;
 
     const agent =
       reusableAgent ??
       new Agent<OpenAiStageContext>({
         name: `wf ${params.stage} openai agent backend`,
-        handoffDescription:
-          'Uses read-only tools to inspect the repository and answer the current stage prompt.',
-        instructions: [openAiContext, openAiSystemPrompt]
-          .filter(Boolean)
-          .join('\n\n'),
+        handoffDescription: 'Uses read-only tools to inspect the repository and answer the current stage prompt.',
+        instructions: [openAiContext, openAiSystemPrompt].filter(Boolean).join('\n\n'),
         model,
-        tools: allowInspection
-          ? [readFileTool, listFilesTool, searchFilesTool, runCommandTool]
-          : [],
+        tools: allowInspection ? [readFileTool, listFilesTool, searchFilesTool, runCommandTool] : [],
         toolUseBehavior: 'run_llm_again',
         resetToolChoice: true,
       });
@@ -995,12 +884,11 @@ Return only the requested ticket markdown and preserve the required heading stru
     const runner = reusableRunner ?? new Runner({ modelProvider });
 
     const runInput = params.session?.runState ?? params.userMessage;
-    const streamedRun: StreamedRunResult<OpenAiStageContext, typeof agent> =
-      await runner.run(agent, runInput as any, {
-        stream: true,
-        context,
-        maxTurns: 8,
-      });
+    const streamedRun: StreamedRunResult<OpenAiStageContext, typeof agent> = await runner.run(agent, runInput as any, {
+      stream: true,
+      context,
+      maxTurns: 8,
+    });
 
     for await (const event of streamedRun) {
       void event;
@@ -1022,10 +910,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       throw new Error(`OpenAI agent run failed: ${streamError}`);
     }
 
-    const content =
-      typeof streamedRun.finalOutput === 'string'
-        ? streamedRun.finalOutput.trim()
-        : '';
+    const content = typeof streamedRun.finalOutput === 'string' ? streamedRun.finalOutput.trim() : '';
 
     return {
       content,
@@ -1063,11 +948,7 @@ Return only the requested ticket markdown and preserve the required heading stru
 
       let result = '';
       const cliDiagnostics: string[] = [];
-      for await (const message of spawnCli(
-        args,
-        resolvedRepoDir,
-        params.prompt,
-      )) {
+      for await (const message of spawnCli(args, resolvedRepoDir, params.prompt)) {
         if (message.type === 'result' && message.result && !message.is_error) {
           result = message.result;
         }
@@ -1080,11 +961,9 @@ Return only the requested ticket markdown and preserve the required heading stru
       lastDiagnostics = cliDiagnostics;
     }
 
-    const detail = lastDiagnostics.length
-      ? ` Diagnostics:\n${lastDiagnostics.join('\n')}`
-      : '';
+    const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
     throw new Error(
-      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`,
+      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`
     );
   }
 
@@ -1118,11 +997,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       let result = '';
       const cliDiagnostics: string[] = [];
 
-      for await (const message of spawnCli(
-        args,
-        resolvedRepoDir,
-        params.userMessage,
-      )) {
+      for await (const message of spawnCli(args, resolvedRepoDir, params.userMessage)) {
         if (message.session_id) {
           sessionId = message.session_id;
         }
@@ -1147,11 +1022,9 @@ Return only the requested ticket markdown and preserve the required heading stru
       lastDiagnostics = cliDiagnostics;
     }
 
-    const detail = lastDiagnostics.length
-      ? ` Diagnostics:\n${lastDiagnostics.join('\n')}`
-      : '';
+    const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
     throw new Error(
-      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`,
+      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`
     );
   }
 }

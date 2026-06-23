@@ -41,10 +41,7 @@ export const hashGeneratedTicketSources = (sources: string[]): string => {
  * @param sources - Ordered raw CLI source arguments
  * @returns Filename stem without extension
  */
-export const buildGeneratedTicketArtifactStem = (
-  createdAt: Date,
-  sources: string[],
-): string =>
+export const buildGeneratedTicketArtifactStem = (createdAt: Date, sources: string[]): string =>
   `${toDateStamp(createdAt)}-${hashGeneratedTicketSources(sources)}-${GENERATED_TICKET_ARTIFACT_SUFFIX}`;
 
 /**
@@ -55,11 +52,7 @@ export const buildGeneratedTicketArtifactStem = (
  * @param format - Requested output format
  * @returns Filename including extension
  */
-export const buildGeneratedTicketArtifactFilename = (
-  createdAt: Date,
-  sources: string[],
-  format: string,
-): string =>
+export const buildGeneratedTicketArtifactFilename = (createdAt: Date, sources: string[], format: string): string =>
   `${buildGeneratedTicketArtifactStem(createdAt, sources)}.${normalizeFormat(format)}`;
 
 /**
@@ -68,9 +61,7 @@ export const buildGeneratedTicketArtifactFilename = (
  * @param artifactFilename - Generated ticket artifact filename
  * @returns Manifest filename alongside the artifact
  */
-export const buildGeneratedTicketManifestFilename = (
-  artifactFilename: string,
-): string => {
+export const buildGeneratedTicketManifestFilename = (artifactFilename: string): string => {
   const extensionlessArtifact = artifactFilename.replace(/\.[^.]+$/, '');
   return `${extensionlessArtifact}${GENERATED_TICKET_MANIFEST_EXTENSION}`;
 };
@@ -90,7 +81,7 @@ export const buildGeneratedTicketSourceManifest = (
   trackerName: string,
   format: string,
   sources: string[],
-  createdAt: Date,
+  createdAt: Date
 ): GeneratedTicketSourceManifest => ({
   artifactPath,
   createdAt: createdAt.toISOString(),
@@ -107,17 +98,11 @@ export const buildGeneratedTicketSourceManifest = (
  * @param hash - Stored hash from a manifest
  * @returns True when the token identifies the hash
  */
-export const matchesGeneratedTicketToken = (
-  token: string,
-  hash: string,
-): boolean => {
+export const matchesGeneratedTicketToken = (token: string, hash: string): boolean => {
   const normalizedToken = token.trim().toLowerCase();
   const normalizedHash = hash.trim().toLowerCase();
 
-  return (
-    normalizedHash === normalizedToken ||
-    normalizedHash.startsWith(normalizedToken)
-  );
+  return normalizedHash === normalizedToken || normalizedHash.startsWith(normalizedToken);
 };
 
 /**
@@ -126,10 +111,5 @@ export const matchesGeneratedTicketToken = (
  * @param artifactPath - Absolute artifact path
  * @returns Sidecar manifest path with the `.sources.json` extension
  */
-export const buildGeneratedTicketManifestPath = (
-  artifactPath: string,
-): string =>
-  path.join(
-    path.dirname(artifactPath),
-    buildGeneratedTicketManifestFilename(path.basename(artifactPath)),
-  );
+export const buildGeneratedTicketManifestPath = (artifactPath: string): string =>
+  path.join(path.dirname(artifactPath), buildGeneratedTicketManifestFilename(path.basename(artifactPath)));

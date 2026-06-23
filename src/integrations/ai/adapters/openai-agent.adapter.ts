@@ -60,8 +60,7 @@ const COMPACTION_INPUT_TOKEN_CEILING = 80_000;
 const STATE_PRUNING_TOKEN_CEILING = 120_000;
 const STATE_PRUNING_KEEP_TAIL_ITEMS = 20;
 
-const shellEscape = (value: string): string =>
-  `'${value.replace(/'/g, "'\\''")}'`;
+const shellEscape = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
 
 /**
  * Prunes the Runner's in-memory `_generatedItems` to keep context within bounds.
@@ -80,7 +79,7 @@ const shellEscape = (value: string): string =>
 const pruneStateIfNeeded = (
   state: unknown,
   lastObservedInputTokens: number,
-  fileChangeStatus: Map<string, string>,
+  fileChangeStatus: Map<string, string>
 ): number => {
   if (lastObservedInputTokens < STATE_PRUNING_TOKEN_CEILING) return 0;
   const stateRecord = state as Record<string, unknown> | undefined;
@@ -117,9 +116,7 @@ const pruneStateIfNeeded = (
 
   if (cutIndex <= 0) return 0;
 
-  const changedFiles = [...fileChangeStatus.entries()]
-    .map(([p, s]) => `${p} (${s})`)
-    .join(', ');
+  const changedFiles = [...fileChangeStatus.entries()].map(([p, s]) => `${p} (${s})`).join(', ');
   const summary = [
     `[Context pruned: ${cutIndex} earlier items removed to stay within context limits.]`,
     changedFiles ? `Files changed so far: ${changedFiles}` : '',
@@ -163,13 +160,10 @@ type OpenAiImplementerContext = {
   allowedVerificationCommands: Set<string>;
 };
 
-const toWorkspaceRoots = (
-  repoDir: string,
-  additionalRepoDirs: string[],
-): WorkspaceRoot[] => {
+const toWorkspaceRoots = (repoDir: string, additionalRepoDirs: string[]): WorkspaceRoot[] => {
   const roots = [
     { name: path.basename(path.resolve(repoDir)), root: path.resolve(repoDir) },
-    ...additionalRepoDirs.map((root) => ({
+    ...additionalRepoDirs.map(root => ({
       name: path.basename(path.resolve(root)),
       root: path.resolve(root),
     })),
@@ -194,11 +188,7 @@ const isWithinRoot = (absolutePath: string, root: string): boolean => {
   return relativePath.length > 0 && !relativePath.startsWith('..');
 };
 
-const resolveRepoPrefixedPath = (
-  requestedPath: string,
-  roots: WorkspaceRoot[],
-  defaultRoot: string,
-): string => {
+const resolveRepoPrefixedPath = (requestedPath: string, roots: WorkspaceRoot[], defaultRoot: string): string => {
   const trimmedPath = requestedPath.trim();
   if (!trimmedPath) {
     throw new Error('File path is required.');
@@ -210,7 +200,7 @@ const resolveRepoPrefixedPath = (
 
   const normalizedSegments = trimmedPath.split(/[\\/]/).filter(Boolean);
   const [prefix, ...rest] = normalizedSegments;
-  const matchedRoot = roots.find((root) => root.name === prefix);
+  const matchedRoot = roots.find(root => root.name === prefix);
   if (matchedRoot && rest.length > 0) {
     return path.resolve(matchedRoot.root, rest.join(path.sep));
   }
@@ -218,56 +208,29 @@ const resolveRepoPrefixedPath = (
   return path.resolve(defaultRoot, trimmedPath);
 };
 
-const resolveReadablePath = (
-  requestedPath: string,
-  context: OpenAiImplementerContext,
-): string => {
-  const absolutePath = resolveRepoPrefixedPath(
-    requestedPath,
-    context.readRoots,
-    context.repoDir,
-  );
-  const isAllowed = context.readRoots.some((root) =>
-    isWithinRoot(absolutePath, root.root),
-  );
+const resolveReadablePath = (requestedPath: string, context: OpenAiImplementerContext): string => {
+  const absolutePath = resolveRepoPrefixedPath(requestedPath, context.readRoots, context.repoDir);
+  const isAllowed = context.readRoots.some(root => isWithinRoot(absolutePath, root.root));
 
   if (!isAllowed) {
-    throw new Error(
-      `Read path is outside the allowed workspace roots: ${requestedPath}`,
-    );
+    throw new Error(`Read path is outside the allowed workspace roots: ${requestedPath}`);
   }
 
   return absolutePath;
 };
 
-const resolveWritablePath = (
-  requestedPath: string,
-  context: OpenAiImplementerContext,
-): string => {
-  const absolutePath = resolveRepoPrefixedPath(
-    requestedPath,
-    context.readRoots,
-    context.repoDir,
-  );
+const resolveWritablePath = (requestedPath: string, context: OpenAiImplementerContext): string => {
+  const absolutePath = resolveRepoPrefixedPath(requestedPath, context.readRoots, context.repoDir);
   const primaryRoot = context.readRoots[0]?.root ?? context.repoDir;
-  if (
-    !isWithinRoot(absolutePath, primaryRoot) &&
-    absolutePath !== primaryRoot
-  ) {
-    throw new Error(
-      `Write path is outside the primary repository: ${requestedPath}`,
-    );
+  if (!isWithinRoot(absolutePath, primaryRoot) && absolutePath !== primaryRoot) {
+    throw new Error(`Write path is outside the primary repository: ${requestedPath}`);
   }
 
   return absolutePath;
 };
 
-const getToolContext = (
-  runContext: { context?: unknown } | undefined,
-): OpenAiImplementerContext => {
-  const toolContext = runContext?.context as
-    | OpenAiImplementerContext
-    | undefined;
+const getToolContext = (runContext: { context?: unknown } | undefined): OpenAiImplementerContext => {
+  const toolContext = runContext?.context as OpenAiImplementerContext | undefined;
   if (!toolContext) {
     throw new Error('OpenAI agent tool context is missing.');
   }
@@ -289,9 +252,7 @@ export type OpenAiUsageSummary = {
  * @param event - A stream event from the OpenAI agent SDK
  * @returns Usage summary or null if the event is not a response_done event
  */
-export const extractUsageFromEvent = (
-  event: unknown,
-): OpenAiUsageSummary | null => {
+export const extractUsageFromEvent = (event: unknown): OpenAiUsageSummary | null => {
   if (
     !event ||
     typeof event !== 'object' ||
@@ -324,14 +285,8 @@ export const extractUsageFromEvent = (
     return null;
   }
 
-  const cachedInputTokens =
-    usage.inputTokensDetails?.cachedTokens ??
-    usage.inputTokensDetails?.cached_tokens ??
-    0;
-  const compacted =
-    usage.requestUsageEntries?.some(
-      (entry) => entry.endpoint === 'responses.compact',
-    ) ?? false;
+  const cachedInputTokens = usage.inputTokensDetails?.cachedTokens ?? usage.inputTokensDetails?.cached_tokens ?? 0;
+  const compacted = usage.requestUsageEntries?.some(entry => entry.endpoint === 'responses.compact') ?? false;
 
   return {
     inputTokens: usage.inputTokens ?? 0,
@@ -348,9 +303,7 @@ export const extractUsageFromEvent = (
  * @param error - The error thrown during an agent run
  * @returns Structured classification with label, detail, and recoverability
  */
-export const classifyAgentError = (
-  error: unknown,
-): { label: string; detail: string; recoverable: boolean } => {
+export const classifyAgentError = (error: unknown): { label: string; detail: string; recoverable: boolean } => {
   if (error instanceof MaxTurnsExceededError) {
     return {
       label: 'Max turns exceeded',
@@ -400,18 +353,14 @@ export const classifyAgentError = (
     if (status === 429) {
       return {
         label: 'Rate limited',
-        detail:
-          error instanceof Error ? error.message : 'Too many requests (429)',
+        detail: error instanceof Error ? error.message : 'Too many requests (429)',
         recoverable: true,
       };
     }
     if (status === 401 || status === 403) {
       return {
         label: 'Authentication error',
-        detail:
-          error instanceof Error
-            ? error.message
-            : `Authentication failed (${status})`,
+        detail: error instanceof Error ? error.message : `Authentication failed (${status})`,
         recoverable: false,
       };
     }
@@ -440,9 +389,7 @@ export const classifyAgentError = (
 export const parseRetryDelayMs = (error: unknown): number => {
   const DEFAULT_DELAY_MS = 30_000;
   if (!(error instanceof Error)) return DEFAULT_DELAY_MS;
-  const match = error.message.match(
-    /try again in (\d+(?:\.\d+)?)\s*(ms|s|seconds?)?/i,
-  );
+  const match = error.message.match(/try again in (\d+(?:\.\d+)?)\s*(ms|s|seconds?)?/i);
   if (!match) return DEFAULT_DELAY_MS;
   const value = parseFloat(match[1]);
   if (Number.isNaN(value) || value <= 0) return DEFAULT_DELAY_MS;
@@ -513,15 +460,14 @@ export const estimateOpenAiCostUsd = (
   model: string,
   inputTokens: number,
   outputTokens: number,
-  cachedInputTokens: number,
+  cachedInputTokens: number
 ): number | null => {
   const pricing = OPENAI_PRICING[model];
   if (!pricing) return null;
 
   const uncachedInputTokens = inputTokens - cachedInputTokens;
   const inputCost = (uncachedInputTokens / 1_000_000) * pricing.inputPerMToken;
-  const cachedCost =
-    (cachedInputTokens / 1_000_000) * pricing.cachedInputPerMToken;
+  const cachedCost = (cachedInputTokens / 1_000_000) * pricing.cachedInputPerMToken;
   const outputCost = (outputTokens / 1_000_000) * pricing.outputPerMToken;
 
   return inputCost + cachedCost + outputCost;
@@ -535,10 +481,7 @@ export const estimateOpenAiCostUsd = (
  * @param content - The full file content after the proposed edit
  * @returns An error message string if invalid, or null if valid
  */
-export const validateTypeScriptEdit = (
-  filePath: string,
-  content: string,
-): string | null => {
+export const validateTypeScriptEdit = (filePath: string, content: string): string | null => {
   if (!/\.tsx?$/.test(filePath)) {
     return null;
   }
@@ -546,16 +489,9 @@ export const validateTypeScriptEdit = (
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const ts = require('typescript') as typeof import('typescript');
 
-  const sourceFile = ts.createSourceFile(
-    filePath,
-    content,
-    ts.ScriptTarget.Latest,
-    true,
-  );
+  const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true);
 
-  const parseDiagnostics = (
-    sourceFile as unknown as { parseDiagnostics?: unknown[] }
-  ).parseDiagnostics;
+  const parseDiagnostics = (sourceFile as unknown as { parseDiagnostics?: unknown[] }).parseDiagnostics;
   if (parseDiagnostics && parseDiagnostics.length > 0) {
     return `syntax error in ${filePath}: ${(parseDiagnostics[0] as { messageText?: string }).messageText ?? 'parse error'}`;
   }
@@ -564,8 +500,7 @@ export const validateTypeScriptEdit = (
     if (ts.isClassDeclaration(node)) {
       const className = node.name?.text ?? '<anonymous>';
       const constructorsWithBody = node.members.filter(
-        (member) =>
-          ts.isConstructorDeclaration(member) && member.body !== undefined,
+        member => ts.isConstructorDeclaration(member) && member.body !== undefined
       );
       if (constructorsWithBody.length > 1) {
         return `Class "${className}" has ${constructorsWithBody.length} constructor declarations with bodies — merge parameters into a single constructor`;
@@ -575,8 +510,7 @@ export const validateTypeScriptEdit = (
     if (ts.isImportDeclaration(node) && node.importClause?.namedBindings) {
       if (ts.isNamedImports(node.importClause.namedBindings)) {
         const seen = new Map<string, string>();
-        const moduleSpecifier =
-          (node.moduleSpecifier as { text?: string }).text ?? '';
+        const moduleSpecifier = (node.moduleSpecifier as { text?: string }).text ?? '';
         for (const element of node.importClause.namedBindings.elements) {
           const name = element.name.text;
           const key = `${name}::${moduleSpecifier}`;
@@ -685,9 +619,7 @@ Ticket context:
 ${ticketContext}`;
 };
 
-export const formatProgressMessage = (
-  event: unknown,
-): { message: string; isWarning?: boolean } | null => {
+export const formatProgressMessage = (event: unknown): { message: string; isWarning?: boolean } | null => {
   if (!event || typeof event !== 'object' || !('type' in event)) {
     return null;
   }
@@ -782,37 +714,28 @@ export const formatProgressMessage = (
   if (item.type === 'reasoning') {
     const text =
       item.content
-        ?.map((part) => part.text)
+        ?.map(part => part.text)
         .filter(Boolean)
         .join(' ') ||
       item.rawItem?.content
-        ?.map((part) => part.text)
+        ?.map(part => part.text)
         .filter(Boolean)
         .join(' ') ||
       '';
     return {
-      message: text
-        ? `  [openai-agent] Reasoning: ${text.trim().slice(0, 160)}`
-        : '  [openai-agent] Reasoning updated',
+      message: text ? `  [openai-agent] Reasoning: ${text.trim().slice(0, 160)}` : '  [openai-agent] Reasoning updated',
     };
   }
 
   return null;
 };
 
-const formatSummarySection = (
-  title: string,
-  filePaths: string[],
-  label: string,
-): string[] => {
+const formatSummarySection = (title: string, filePaths: string[], label: string): string[] => {
   if (filePaths.length === 0) {
     return [];
   }
 
-  return [
-    `  ${title}:`,
-    ...filePaths.map((filePath) => `    - ${label}: ${filePath}`),
-  ];
+  return [`  ${title}:`, ...filePaths.map(filePath => `    - ${label}: ${filePath}`)];
 };
 
 /**
@@ -840,35 +763,23 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     repoName: string;
     trackedFilePaths: string[];
   }): Promise<void> {
-    const { options, verificationScripts, ticketContext, repoFiles, repoName } =
-      params;
+    const { options, verificationScripts, ticketContext, repoFiles, repoName } = params;
     const repoDir = options.repoDir ?? process.cwd();
-    const readRoots = toWorkspaceRoots(
-      repoDir,
-      options.additionalRepoDirs ?? [],
-    );
+    const readRoots = toWorkspaceRoots(repoDir, options.additionalRepoDirs ?? []);
     const allowedCommands = buildAllowedCommands(verificationScripts);
-    const verificationCommandOrder =
-      buildVerificationCommandOrder(verificationScripts);
-    const fileChangeStatus = new Map<
-      string,
-      'created' | 'updated' | 'deleted'
-    >();
+    const verificationCommandOrder = buildVerificationCommandOrder(verificationScripts);
+    const fileChangeStatus = new Map<string, 'created' | 'updated' | 'deleted'>();
     const changedFilesSinceLastVerification = new Set<string>();
     const validationFailures: Array<{
       path: string;
       error: string;
       line?: number;
     }> = [];
-    let previousVerificationSnapshot:
-      | ImplementProgressVerificationSnapshot
-      | undefined;
+    let previousVerificationSnapshot: ImplementProgressVerificationSnapshot | undefined;
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
 
     if (!apiKey) {
-      throw new Error(
-        'OpenAI agent backend requires `ai.openaiApiKey` to be configured.',
-      );
+      throw new Error('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
     }
 
     setTracingExportApiKey(apiKey);
@@ -879,8 +790,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const planStepCount = params.planArtifact.plan.steps.length;
     const maxTurns = 500;
 
-    const fallbackDefaultModel =
-      this.configService.get<string>('ai.model') || DEFAULT_MODEL;
+    const fallbackDefaultModel = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
     const routing = options.modelRouting ?? 'auto';
     const modelRoutingResult = resolveModelRouting({
       routing,
@@ -897,7 +807,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
       path.join(os.homedir(), '.openai', 'OPENAI.md'),
       '.openai/OPENAI.md',
       'openai',
-      true,
+      true
     );
     const context: OpenAiImplementerContext = {
       repoDir,
@@ -923,14 +833,9 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         const totalLines = allLines.length;
         const requestedOffset = input.offset > 0 ? input.offset : 0;
         const requestedLimit = input.limit > 0 ? input.limit : MAX_READ_LINES;
-        const selectedLines = allLines.slice(
-          requestedOffset,
-          requestedOffset + requestedLimit,
-        );
+        const selectedLines = allLines.slice(requestedOffset, requestedOffset + requestedLimit);
         const truncated = totalLines > requestedOffset + requestedLimit;
-        const numberedContent = selectedLines
-          .map((line, i) => `${requestedOffset + i + 1}: ${line}`)
-          .join('\n');
+        const numberedContent = selectedLines.map((line, i) => `${requestedOffset + i + 1}: ${line}`).join('\n');
         return JSON.stringify({
           path: relativePath,
           totalLines,
@@ -965,9 +870,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         const status = existedBefore ? 'updated' : 'created';
         fileChangeStatus.set(relativePath, status);
         changedFilesSinceLastVerification.add(relativePath);
-        console.log(
-          chalk.cyan(`  [openai-agent] File ${status}: ${relativePath}`),
-        );
+        console.log(chalk.cyan(`  [openai-agent] File ${status}: ${relativePath}`));
         return JSON.stringify({ path: relativePath, status });
       },
     });
@@ -993,7 +896,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
               message: 'File does not exist.',
             },
             null,
-            2,
+            2
           );
         }
 
@@ -1001,26 +904,21 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         const relativePath = path.relative(toolContext.repoDir, absolutePath);
         fileChangeStatus.set(relativePath, 'deleted');
         changedFilesSinceLastVerification.add(relativePath);
-        console.log(
-          chalk.cyan(`  [openai-agent] File deleted: ${relativePath}`),
-        );
+        console.log(chalk.cyan(`  [openai-agent] File deleted: ${relativePath}`));
         return JSON.stringify({ path: relativePath, status: 'deleted' });
       },
     });
 
     const verifyCommandTool = tool({
       name: 'verify_command',
-      description:
-        'Run an exact verification command only when it appears in the whitelist.',
+      description: 'Run an exact verification command only when it appears in the whitelist.',
       parameters: z.object({
         command: z.string().min(1),
       }),
       async execute(input, runContext) {
         const toolContext = getToolContext(runContext);
         const command = normalizeCommand(input.command);
-        const allowedCommandsList = [
-          ...toolContext.allowedVerificationCommands,
-        ];
+        const allowedCommandsList = [...toolContext.allowedVerificationCommands];
 
         if (!command) {
           return JSON.stringify(
@@ -1031,15 +929,13 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
               allowedCommands: allowedCommandsList,
             },
             null,
-            2,
+            2
           );
         }
 
         if (!toolContext.allowedVerificationCommands.has(command)) {
           const message = `Command "${command}" is not in the verification whitelist. Allowed commands: ${allowedCommandsList.join(', ') || '(none configured)'}.`;
-          console.log(
-            chalk.red(`  [openai-agent] Verification denied: ${command}`),
-          );
+          console.log(chalk.red(`  [openai-agent] Verification denied: ${command}`));
           return JSON.stringify(
             {
               command,
@@ -1048,13 +944,11 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
               allowedCommands: allowedCommandsList,
             },
             null,
-            2,
+            2
           );
         }
 
-        console.log(
-          chalk.cyan(`  [openai-agent] Verification running: ${command}`),
-        );
+        console.log(chalk.cyan(`  [openai-agent] Verification running: ${command}`));
         const commandIndex = verificationCommandOrder.get(command) ?? -1;
         try {
           const { stdout, stderr } = await execAsync(command, {
@@ -1071,15 +965,11 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
           const progress = buildVerificationProgressSignal({
             currentSnapshot,
             previousSnapshot: previousVerificationSnapshot,
-            changedFilesSinceLastVerification: [
-              ...changedFilesSinceLastVerification,
-            ],
+            changedFilesSinceLastVerification: [...changedFilesSinceLastVerification],
           });
           previousVerificationSnapshot = currentSnapshot;
           changedFilesSinceLastVerification.clear();
-          console.log(
-            chalk.cyan(`  [openai-agent] Verification passed: ${command}`),
-          );
+          console.log(chalk.cyan(`  [openai-agent] Verification passed: ${command}`));
           return JSON.stringify({
             command,
             allowed: true,
@@ -1099,15 +989,11 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
           const progress = buildVerificationProgressSignal({
             currentSnapshot,
             previousSnapshot: previousVerificationSnapshot,
-            changedFilesSinceLastVerification: [
-              ...changedFilesSinceLastVerification,
-            ],
+            changedFilesSinceLastVerification: [...changedFilesSinceLastVerification],
           });
           previousVerificationSnapshot = currentSnapshot;
           changedFilesSinceLastVerification.clear();
-          console.log(
-            chalk.red(`  [openai-agent] Verification failed: ${command}`),
-          );
+          console.log(chalk.red(`  [openai-agent] Verification failed: ${command}`));
           return JSON.stringify({
             command,
             allowed: true,
@@ -1122,8 +1008,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
 
     const searchFilesTool = tool({
       name: 'search_files',
-      description:
-        'Search file contents by regex pattern across the workspace.',
+      description: 'Search file contents by regex pattern across the workspace.',
       parameters: z.object({
         pattern: z.string().min(1),
         path: z.string().default(''),
@@ -1132,45 +1017,29 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
       }),
       async execute(input, runContext) {
         const toolContext = getToolContext(runContext);
-        const searchRoot = input.path
-          ? resolveReadablePath(input.path, toolContext)
-          : toolContext.repoDir;
-        const globArg = input.file_glob
-          ? `--include=${shellEscape(input.file_glob)}`
-          : '';
+        const searchRoot = input.path ? resolveReadablePath(input.path, toolContext) : toolContext.repoDir;
+        const globArg = input.file_glob ? `--include=${shellEscape(input.file_glob)}` : '';
         try {
           const { stdout } = await execAsync(
             `grep -rn ${globArg} -m ${input.max_results} -E ${shellEscape(input.pattern)} ${shellEscape(searchRoot)}`,
-            { maxBuffer: MAX_BUFFER_IN_BYTES },
+            { maxBuffer: MAX_BUFFER_IN_BYTES }
           );
           const matches = stdout
             .split('\n')
             .filter(Boolean)
             .slice(0, input.max_results)
-            .map((line) => {
+            .map(line => {
               const firstColon = line.indexOf(':');
               const secondColon = line.indexOf(':', firstColon + 1);
               if (firstColon === -1 || secondColon === -1) {
                 return { file: line, line: 0, content: '' };
               }
-              const file = path.relative(
-                toolContext.repoDir,
-                line.slice(0, firstColon),
-              );
-              const lineNum = parseInt(
-                line.slice(firstColon + 1, secondColon),
-                10,
-              );
-              const content = line
-                .slice(secondColon + 1)
-                .slice(0, MAX_GREP_LINE_LENGTH);
+              const file = path.relative(toolContext.repoDir, line.slice(0, firstColon));
+              const lineNum = parseInt(line.slice(firstColon + 1, secondColon), 10);
+              const content = line.slice(secondColon + 1).slice(0, MAX_GREP_LINE_LENGTH);
               return { file, line: lineNum, content };
             });
-          console.log(
-            chalk.cyan(
-              `  [openai-agent] Search: ${matches.length} match(es) for "${input.pattern}"`,
-            ),
-          );
+          console.log(chalk.cyan(`  [openai-agent] Search: ${matches.length} match(es) for "${input.pattern}"`));
           return JSON.stringify({
             pattern: input.pattern,
             matches,
@@ -1205,28 +1074,21 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
       }),
       async execute(input, runContext) {
         const toolContext = getToolContext(runContext);
-        const searchRoot = input.path
-          ? resolveReadablePath(input.path, toolContext)
-          : toolContext.repoDir;
+        const searchRoot = input.path ? resolveReadablePath(input.path, toolContext) : toolContext.repoDir;
         const matches = await glob(input.pattern, {
           cwd: searchRoot,
           nodir: true,
         });
         const truncated = matches.length > input.max_results;
         const files = matches.slice(0, input.max_results);
-        console.log(
-          chalk.cyan(
-            `  [openai-agent] Find: ${files.length} file(s) for "${input.pattern}"`,
-          ),
-        );
+        console.log(chalk.cyan(`  [openai-agent] Find: ${files.length} file(s) for "${input.pattern}"`));
         return JSON.stringify({ pattern: input.pattern, files, truncated });
       },
     });
 
     const editFileTool = tool({
       name: 'edit_file',
-      description:
-        'Replace a unique string in a file. old_string must appear exactly once.',
+      description: 'Replace a unique string in a file. old_string must appear exactly once.',
       parameters: z.object({
         path: z.string().min(1),
         old_string: z.string().min(1),
@@ -1249,21 +1111,14 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         const validationError = validateTypeScriptEdit(absolutePath, updated);
         if (validationError) {
           const matchIndex = content.indexOf(input.old_string);
-          const line =
-            matchIndex >= 0
-              ? content.substring(0, matchIndex).split('\n').length
-              : undefined;
+          const line = matchIndex >= 0 ? content.substring(0, matchIndex).split('\n').length : undefined;
           const relativePath = path.relative(toolContext.repoDir, absolutePath);
           validationFailures.push({
             path: relativePath,
             error: validationError,
             line,
           });
-          console.log(
-            chalk.yellow(
-              `  [openai-agent] Edit validation failed: ${input.path}${line ? `:${line}` : ''}`,
-            ),
-          );
+          console.log(chalk.yellow(`  [openai-agent] Edit validation failed: ${input.path}${line ? `:${line}` : ''}`));
           // Return the existing code around the edit site so the model can
           // self-correct without a separate read_file round-trip.
           if (line) {
@@ -1294,9 +1149,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
             validationFailures.splice(i, 1);
           }
         }
-        console.log(
-          chalk.cyan(`  [openai-agent] File edited: ${relativePath}`),
-        );
+        console.log(chalk.cyan(`  [openai-agent] File edited: ${relativePath}`));
         return JSON.stringify({ path: relativePath, status: 'updated' });
       },
     });
@@ -1344,8 +1197,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
       modelProvider,
     });
 
-    const compactionItemThreshold =
-      planStepCount <= 5 ? 10 : planStepCount <= 10 ? 20 : 30;
+    const compactionItemThreshold = planStepCount <= 5 ? 10 : planStepCount <= 10 ? 20 : 30;
 
     // Track the last response_done input token count for the compaction
     // trigger. Updated on every response_done event; reset to 0 after
@@ -1373,13 +1225,12 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     };
 
     const MAX_CONSECUTIVE_RATE_LIMIT_RETRIES = 5;
-    let streamedRun: StreamedRunResult<OpenAiImplementerContext, typeof agent> =
-      await runner.run(agent, prompt, {
-        stream: true,
-        context,
-        maxTurns,
-        session: compactionSession,
-      });
+    let streamedRun: StreamedRunResult<OpenAiImplementerContext, typeof agent> = await runner.run(agent, prompt, {
+      stream: true,
+      context,
+      maxTurns,
+      session: compactionSession,
+    });
 
     let consecutiveRateLimitAttempts = 0;
     let eventsProcessedInSegment = 0;
@@ -1400,63 +1251,43 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
               usageSummary.compacted = true;
               lastObservedInputTokens = 0;
             }
-            const pruned = pruneStateIfNeeded(
-              streamedRun.state,
-              lastObservedInputTokens,
-              fileChangeStatus,
-            );
+            const pruned = pruneStateIfNeeded(streamedRun.state, lastObservedInputTokens, fileChangeStatus);
             if (pruned > 0) {
               console.log(
                 chalk.yellow(
-                  `  [openai-agent] State pruned: removed ${pruned} items (input was ${lastObservedInputTokens} tokens)`,
-                ),
+                  `  [openai-agent] State pruned: removed ${pruned} items (input was ${lastObservedInputTokens} tokens)`
+                )
               );
               lastObservedInputTokens = 0;
             }
           }
           const formatted = formatProgressMessage(event);
           if (formatted) {
-            console.log(
-              formatted.isWarning
-                ? chalk.yellow(formatted.message)
-                : chalk.cyan(formatted.message),
-            );
+            console.log(formatted.isWarning ? chalk.yellow(formatted.message) : chalk.cyan(formatted.message));
           }
         }
         break;
       } catch (error) {
         const classified = classifyAgentError(error);
         if (!classified.recoverable || classified.label !== 'Rate limited') {
-          console.log(
-            chalk.red(
-              `  [openai-agent] ${classified.label}: ${classified.detail}`,
-            ),
-          );
-          throw new Error(
-            `OpenAI agent run failed (${classified.label}): ${classified.detail}`,
-          );
+          console.log(chalk.red(`  [openai-agent] ${classified.label}: ${classified.detail}`));
+          throw new Error(`OpenAI agent run failed (${classified.label}): ${classified.detail}`);
         }
         if (eventsProcessedInSegment > 0) {
           consecutiveRateLimitAttempts = 0;
         }
         consecutiveRateLimitAttempts++;
         if (consecutiveRateLimitAttempts > MAX_CONSECUTIVE_RATE_LIMIT_RETRIES) {
-          console.log(
-            chalk.red(
-              `  [openai-agent] ${classified.label}: ${classified.detail}`,
-            ),
-          );
-          throw new Error(
-            `OpenAI agent run failed (${classified.label}): ${classified.detail}`,
-          );
+          console.log(chalk.red(`  [openai-agent] ${classified.label}: ${classified.detail}`));
+          throw new Error(`OpenAI agent run failed (${classified.label}): ${classified.detail}`);
         }
         const delayMs = parseRetryDelayMs(error);
         console.log(
           chalk.yellow(
-            `  [openai-agent] Rate limited — retrying in ${Math.ceil(delayMs / 1000)}s (attempt ${consecutiveRateLimitAttempts}/${MAX_CONSECUTIVE_RATE_LIMIT_RETRIES})`,
-          ),
+            `  [openai-agent] Rate limited — retrying in ${Math.ceil(delayMs / 1000)}s (attempt ${consecutiveRateLimitAttempts}/${MAX_CONSECUTIVE_RATE_LIMIT_RETRIES})`
+          )
         );
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await new Promise(resolve => setTimeout(resolve, delayMs));
         streamedRun = await runner.run(agent, streamedRun.state, {
           stream: true,
           context,
@@ -1468,55 +1299,37 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
 
     if (streamedRun.error) {
       const classified = classifyAgentError(streamedRun.error);
-      console.log(
-        chalk.red(`  [openai-agent] ${classified.label}: ${classified.detail}`),
-      );
-      throw new Error(
-        `OpenAI agent run failed (${classified.label}): ${classified.detail}`,
-      );
+      console.log(chalk.red(`  [openai-agent] ${classified.label}: ${classified.detail}`));
+      throw new Error(`OpenAI agent run failed (${classified.label}): ${classified.detail}`);
     }
 
-    const finalOutput =
-      typeof streamedRun.finalOutput === 'string'
-        ? streamedRun.finalOutput.trim()
-        : '';
+    const finalOutput = typeof streamedRun.finalOutput === 'string' ? streamedRun.finalOutput.trim() : '';
 
-    console.log(
-      chalk.green(
-        `  [openai-agent] Agent completed in ${streamedRun.currentTurn} turn(s).`,
-      ),
-    );
+    console.log(chalk.green(`  [openai-agent] Agent completed in ${streamedRun.currentTurn} turn(s).`));
     if (usageSummary.totalTokens > 0) {
-      const cachedLabel =
-        usageSummary.cachedInputTokens > 0
-          ? ` (${usageSummary.cachedInputTokens} cached)`
-          : '';
+      const cachedLabel = usageSummary.cachedInputTokens > 0 ? ` (${usageSummary.cachedInputTokens} cached)` : '';
       console.log(
         chalk.cyan(
-          `  [openai-agent] Usage: ${usageSummary.inputTokens} input${cachedLabel} / ${usageSummary.outputTokens} output tokens`,
-        ),
+          `  [openai-agent] Usage: ${usageSummary.inputTokens} input${cachedLabel} / ${usageSummary.outputTokens} output tokens`
+        )
       );
       const costUsd = estimateOpenAiCostUsd(
         model,
         usageSummary.inputTokens,
         usageSummary.outputTokens,
-        usageSummary.cachedInputTokens,
+        usageSummary.cachedInputTokens
       );
       if (costUsd !== null) {
-        console.log(
-          chalk.cyan(`  [openai-agent] Cost: ~$${costUsd.toFixed(4)} USD`),
-        );
+        console.log(chalk.cyan(`  [openai-agent] Cost: ~$${costUsd.toFixed(4)} USD`));
       }
     }
     if (usageSummary.compacted) {
-      console.log(
-        chalk.cyan('  [openai-agent] Context compaction triggered during run'),
-      );
+      console.log(chalk.cyan('  [openai-agent] Context compaction triggered during run'));
     }
     console.log(chalk.green('\n✓ OpenAI agent implementation complete'));
     if (finalOutput) {
       console.log(chalk.bold('\n  Summary:'));
-      finalOutput.split('\n').forEach((line) => {
+      finalOutput.split('\n').forEach(line => {
         if (line.trim()) {
           console.log(chalk.cyan(`    ${line}`));
         }
@@ -1533,11 +1346,9 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     while (true) {
       const touchedFiles = new Set(fileChangeStatus.keys());
       const currentUnvisited = repoFiles
-        .map((f) => stripRepoPrefix(f, repoName))
-        .filter((f) => !touchedFiles.has(f) && !isGlobPattern(f));
-      const uniqueFailureCount = new Set(
-        validationFailures.map((f) => `${f.path}:${f.error}`),
-      ).size;
+        .map(f => stripRepoPrefix(f, repoName))
+        .filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
+      const uniqueFailureCount = new Set(validationFailures.map(f => `${f.path}:${f.error}`)).size;
       const currentWorkload = currentUnvisited.length + uniqueFailureCount;
 
       if (currentWorkload === 0) {
@@ -1554,23 +1365,13 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
       if (stalledPasses >= 2) {
         const remaining: string[] = [];
         if (uniqueFailureCount > 0) {
-          remaining.push(
-            `${uniqueFailureCount} unresolved edit validation failure(s)`,
-          );
+          remaining.push(`${uniqueFailureCount} unresolved edit validation failure(s)`);
         }
         if (currentUnvisited.length > 0) {
-          remaining.push(
-            `${currentUnvisited.length} planned file(s) not touched: ${currentUnvisited.join(', ')}`,
-          );
+          remaining.push(`${currentUnvisited.length} planned file(s) not touched: ${currentUnvisited.join(', ')}`);
         }
-        console.log(
-          chalk.yellow(
-            `\n  [openai-agent] Workload not decreasing after 2 passes — stopping`,
-          ),
-        );
-        console.log(
-          chalk.yellow(`  [openai-agent] Remaining: ${remaining.join('; ')}`),
-        );
+        console.log(chalk.yellow(`\n  [openai-agent] Workload not decreasing after 2 passes — stopping`));
+        console.log(chalk.yellow(`  [openai-agent] Remaining: ${remaining.join('; ')}`));
         break;
       }
 
@@ -1584,19 +1385,12 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         reasons.push(`${currentUnvisited.length} planned file(s) not touched`);
       }
 
-      console.log(
-        chalk.yellow(
-          `\n  [openai-agent] Pass ${passNumber}: ${reasons.join(', ')} — continuing`,
-        ),
-      );
+      console.log(chalk.yellow(`\n  [openai-agent] Pass ${passNumber}: ${reasons.join(', ')} — continuing`));
 
       const incompleteWorkSections: string[] = [];
 
       if (uniqueFailureCount > 0) {
-        const uniqueFailures = new Map<
-          string,
-          (typeof validationFailures)[0]
-        >();
+        const uniqueFailures = new Map<string, (typeof validationFailures)[0]>();
         for (const failure of validationFailures) {
           const key = `${failure.path}:${failure.error}`;
           if (!uniqueFailures.has(key)) {
@@ -1604,18 +1398,16 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
           }
         }
         const failureLines = [...uniqueFailures.values()]
-          .map((f) => `- ${f.path}${f.line ? `:${f.line}` : ''} — ${f.error}`)
+          .map(f => `- ${f.path}${f.line ? `:${f.line}` : ''} — ${f.error}`)
           .join('\n');
         incompleteWorkSections.push(
-          `Structural edit failures (read each file, then merge changes correctly):\n${failureLines}`,
+          `Structural edit failures (read each file, then merge changes correctly):\n${failureLines}`
         );
       }
 
       if (currentUnvisited.length > 0) {
-        const unvisitedLines = currentUnvisited.map((f) => `- ${f}`).join('\n');
-        incompleteWorkSections.push(
-          `Planned files not yet modified:\n${unvisitedLines}`,
-        );
+        const unvisitedLines = currentUnvisited.map(f => `- ${f}`).join('\n');
+        incompleteWorkSections.push(`Planned files not yet modified:\n${unvisitedLines}`);
       }
 
       const continuationPrompt = `Continue implementing the remaining plan steps. The following work is still incomplete:\n\n${incompleteWorkSections.join('\n\n')}\n\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`;
@@ -1656,65 +1448,43 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
                 usageSummary.compacted = true;
                 lastObservedInputTokens = 0;
               }
-              const pruned = pruneStateIfNeeded(
-                streamedRun.state,
-                lastObservedInputTokens,
-                fileChangeStatus,
-              );
+              const pruned = pruneStateIfNeeded(streamedRun.state, lastObservedInputTokens, fileChangeStatus);
               if (pruned > 0) {
                 console.log(
                   chalk.yellow(
-                    `  [openai-agent] State pruned: removed ${pruned} items (input was ${lastObservedInputTokens} tokens)`,
-                  ),
+                    `  [openai-agent] State pruned: removed ${pruned} items (input was ${lastObservedInputTokens} tokens)`
+                  )
                 );
                 lastObservedInputTokens = 0;
               }
             }
             const formatted = formatProgressMessage(event);
             if (formatted) {
-              console.log(
-                formatted.isWarning
-                  ? chalk.yellow(formatted.message)
-                  : chalk.cyan(formatted.message),
-              );
+              console.log(formatted.isWarning ? chalk.yellow(formatted.message) : chalk.cyan(formatted.message));
             }
           }
           break;
         } catch (error) {
           const classified = classifyAgentError(error);
           if (!classified.recoverable || classified.label !== 'Rate limited') {
-            console.log(
-              chalk.red(
-                `  [openai-agent] Pass ${passNumber} ${classified.label}: ${classified.detail}`,
-              ),
-            );
-            throw new Error(
-              `OpenAI agent pass ${passNumber + 1} failed (${classified.label}): ${classified.detail}`,
-            );
+            console.log(chalk.red(`  [openai-agent] Pass ${passNumber} ${classified.label}: ${classified.detail}`));
+            throw new Error(`OpenAI agent pass ${passNumber + 1} failed (${classified.label}): ${classified.detail}`);
           }
           if (eventsProcessedInSegment > 0) {
             consecutiveRateLimitAttempts = 0;
           }
           consecutiveRateLimitAttempts++;
-          if (
-            consecutiveRateLimitAttempts > MAX_CONSECUTIVE_RATE_LIMIT_RETRIES
-          ) {
-            console.log(
-              chalk.red(
-                `  [openai-agent] Pass ${passNumber} ${classified.label}: ${classified.detail}`,
-              ),
-            );
-            throw new Error(
-              `OpenAI agent pass ${passNumber + 1} failed (${classified.label}): ${classified.detail}`,
-            );
+          if (consecutiveRateLimitAttempts > MAX_CONSECUTIVE_RATE_LIMIT_RETRIES) {
+            console.log(chalk.red(`  [openai-agent] Pass ${passNumber} ${classified.label}: ${classified.detail}`));
+            throw new Error(`OpenAI agent pass ${passNumber + 1} failed (${classified.label}): ${classified.detail}`);
           }
           const delayMs = parseRetryDelayMs(error);
           console.log(
             chalk.yellow(
-              `  [openai-agent] Pass ${passNumber} rate limited — retrying in ${Math.ceil(delayMs / 1000)}s (attempt ${consecutiveRateLimitAttempts}/${MAX_CONSECUTIVE_RATE_LIMIT_RETRIES})`,
-            ),
+              `  [openai-agent] Pass ${passNumber} rate limited — retrying in ${Math.ceil(delayMs / 1000)}s (attempt ${consecutiveRateLimitAttempts}/${MAX_CONSECUTIVE_RATE_LIMIT_RETRIES})`
+            )
           );
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          await new Promise(resolve => setTimeout(resolve, delayMs));
           streamedRun = await runner.run(agent, streamedRun.state, {
             stream: true,
             context,
@@ -1726,53 +1496,29 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
 
       if (streamedRun.error) {
         const classified = classifyAgentError(streamedRun.error);
-        console.log(
-          chalk.red(
-            `  [openai-agent] Pass ${passNumber} ${classified.label}: ${classified.detail}`,
-          ),
-        );
-        throw new Error(
-          `OpenAI agent pass ${passNumber + 1} failed (${classified.label}): ${classified.detail}`,
-        );
+        console.log(chalk.red(`  [openai-agent] Pass ${passNumber} ${classified.label}: ${classified.detail}`));
+        throw new Error(`OpenAI agent pass ${passNumber + 1} failed (${classified.label}): ${classified.detail}`);
       }
 
       console.log(
-        chalk.green(
-          `  [openai-agent] Pass ${passNumber + 1} completed in ${streamedRun.currentTurn} turn(s).`,
-        ),
+        chalk.green(`  [openai-agent] Pass ${passNumber + 1} completed in ${streamedRun.currentTurn} turn(s).`)
       );
     }
 
     const fileSummaryLines = [
-      ...formatSummarySection(
-        'New files',
-        this.collectSummaryPaths(fileChangeStatus, 'created'),
-        'created',
-      ),
-      ...formatSummarySection(
-        'Updated files',
-        this.collectSummaryPaths(fileChangeStatus, 'updated'),
-        'updated',
-      ),
-      ...formatSummarySection(
-        'Deleted files',
-        this.collectSummaryPaths(fileChangeStatus, 'deleted'),
-        'deleted',
-      ),
+      ...formatSummarySection('New files', this.collectSummaryPaths(fileChangeStatus, 'created'), 'created'),
+      ...formatSummarySection('Updated files', this.collectSummaryPaths(fileChangeStatus, 'updated'), 'updated'),
+      ...formatSummarySection('Deleted files', this.collectSummaryPaths(fileChangeStatus, 'deleted'), 'deleted'),
     ];
     if (fileSummaryLines.length > 0) {
       console.log(chalk.bold('\n  File summary:'));
-      fileSummaryLines.forEach((line) => console.log(chalk.cyan(line)));
+      fileSummaryLines.forEach(line => console.log(chalk.cyan(line)));
     } else {
       console.log(chalk.gray('\n  File summary: no file changes were made.'));
     }
 
     if (verificationScripts.length > 0) {
-      console.log(
-        chalk.gray(
-          `  Verification whitelist respected: ${[...allowedCommands].join(', ') || '(none)'}`,
-        ),
-      );
+      console.log(chalk.gray(`  Verification whitelist respected: ${[...allowedCommands].join(', ') || '(none)'}`));
     }
   }
 
@@ -1785,7 +1531,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
    */
   private collectSummaryPaths(
     fileChangeStatus: Map<string, 'created' | 'updated' | 'deleted'>,
-    desiredStatus: 'created' | 'updated' | 'deleted',
+    desiredStatus: 'created' | 'updated' | 'deleted'
   ): string[] {
     return [...fileChangeStatus.entries()]
       .filter(([, status]) => status === desiredStatus)

@@ -72,17 +72,10 @@ const makeParams = () => ({
   trackedFilePaths: [],
 });
 
-async function runWithMessages(
-  messages: Record<string, unknown>[],
-): Promise<string[]> {
+async function runWithMessages(messages: Record<string, unknown>[]): Promise<string[]> {
   // Monkey-patch the runner exports for this run
-  (cliRunner as Record<string, unknown>).assertClaudeCliAvailable = () =>
-    undefined;
-  (cliRunner as Record<string, unknown>).buildCliArgs = () => [
-    '-p',
-    '--output-format',
-    'stream-json',
-  ];
+  (cliRunner as Record<string, unknown>).assertClaudeCliAvailable = () => undefined;
+  (cliRunner as Record<string, unknown>).buildCliArgs = () => ['-p', '--output-format', 'stream-json'];
   (cliRunner as Record<string, unknown>).spawnCli = async function* () {
     for (const msg of messages) {
       yield msg;
@@ -104,8 +97,7 @@ async function runWithMessages(
   } finally {
     console.log = originalLog;
     // Restore originals
-    (cliRunner as Record<string, unknown>).assertClaudeCliAvailable =
-      originalAssert;
+    (cliRunner as Record<string, unknown>).assertClaudeCliAvailable = originalAssert;
     (cliRunner as Record<string, unknown>).buildCliArgs = originalBuild;
     (cliRunner as Record<string, unknown>).spawnCli = originalSpawn;
   }
@@ -224,69 +216,69 @@ async function main(): Promise<void> {
   // 1. Write → File created
   assert(
     'Write tool_use logs File created',
-    lines.some((l) => /File created.*new-file\.ts/.test(l)),
-    `no match in: ${lines.filter((l) => /File/.test(l)).join(' | ') || '(none)'}`,
+    lines.some(l => /File created.*new-file\.ts/.test(l)),
+    `no match in: ${lines.filter(l => /File/.test(l)).join(' | ') || '(none)'}`
   );
 
   // 2. Edit → File updated
   assert(
     'Edit tool_use logs File updated',
-    lines.some((l) => /File updated.*existing\.ts/.test(l)),
-    `no match in: ${lines.filter((l) => /File/.test(l)).join(' | ') || '(none)'}`,
+    lines.some(l => /File updated.*existing\.ts/.test(l)),
+    `no match in: ${lines.filter(l => /File/.test(l)).join(' | ') || '(none)'}`
   );
 
   // 3. Bash → Verification running
   assert(
     'Bash tool_use logs Verification running',
-    lines.some((l) => /Verification running.*npm test/.test(l)),
-    `no match in: ${lines.filter((l) => /Verification/.test(l)).join(' | ') || '(none)'}`,
+    lines.some(l => /Verification running.*npm test/.test(l)),
+    `no match in: ${lines.filter(l => /Verification/.test(l)).join(' | ') || '(none)'}`
   );
 
   // 4. Successful result → Verification passed
   assert(
     'Successful tool_result logs Verification passed',
-    lines.some((l) => /Verification passed.*npm test/.test(l)),
-    `no match in: ${lines.filter((l) => /Verification/.test(l)).join(' | ') || '(none)'}`,
+    lines.some(l => /Verification passed.*npm test/.test(l)),
+    `no match in: ${lines.filter(l => /Verification/.test(l)).join(' | ') || '(none)'}`
   );
 
   // 5. Failed result → Verification failed
   assert(
     'Failed tool_result logs Verification failed',
-    lines.some((l) => /Verification failed.*npm run lint/.test(l)),
-    `no match in: ${lines.filter((l) => /Verification/.test(l)).join(' | ') || '(none)'}`,
+    lines.some(l => /Verification failed.*npm run lint/.test(l)),
+    `no match in: ${lines.filter(l => /Verification/.test(l)).join(' | ') || '(none)'}`
   );
 
   // 6. Read → gray tool activity
   assert(
     'Read tool_use logs tool activity',
-    lines.some((l) => /Read.*package\.json/.test(l)),
-    `no match in: ${lines.filter((l) => /Read/.test(l)).join(' | ') || '(none)'}`,
+    lines.some(l => /Read.*package\.json/.test(l)),
+    `no match in: ${lines.filter(l => /Read/.test(l)).join(' | ') || '(none)'}`
   );
 
   // 7. Rate limit event
   assert(
     'rate_limit_event logs via SDK-compatible path',
-    lines.some((l) => /Rate limit/.test(l)),
-    `no match in: ${lines.filter((l) => /[Rr]ate/.test(l)).join(' | ') || '(none)'}`,
+    lines.some(l => /Rate limit/.test(l)),
+    `no match in: ${lines.filter(l => /[Rr]ate/.test(l)).join(' | ') || '(none)'}`
   );
 
   // 8. Cost and turns from result
   assert(
     'Result logs turn count',
-    lines.some((l) => /Completed in 5 turn/.test(l)),
-    `no match in: ${lines.filter((l) => /turn/.test(l)).join(' | ') || '(none)'}`,
+    lines.some(l => /Completed in 5 turn/.test(l)),
+    `no match in: ${lines.filter(l => /turn/.test(l)).join(' | ') || '(none)'}`
   );
   assert(
     'Result logs cost',
-    lines.some((l) => /Cost.*\$0\.1200/.test(l)),
-    `no match in: ${lines.filter((l) => /Cost/.test(l)).join(' | ') || '(none)'}`,
+    lines.some(l => /Cost.*\$0\.1200/.test(l)),
+    `no match in: ${lines.filter(l => /Cost/.test(l)).join(' | ') || '(none)'}`
   );
 
   // 9. Session ID from result
   assert(
     'Result logs session ID',
-    lines.some((l) => /Session:.*s1/.test(l)),
-    `no match in: ${lines.filter((l) => /Session/.test(l)).join(' | ') || '(none)'}`,
+    lines.some(l => /Session:.*s1/.test(l)),
+    `no match in: ${lines.filter(l => /Session/.test(l)).join(' | ') || '(none)'}`
   );
 
   // 10. No session ID when absent
@@ -300,15 +292,15 @@ async function main(): Promise<void> {
   ]);
   assert(
     'No Session: line when session_id is absent',
-    !noSessionLines.some((l) => /Session:/.test(l)),
-    `unexpected match in: ${noSessionLines.filter((l) => /Session/.test(l)).join(' | ')}`,
+    !noSessionLines.some(l => /Session:/.test(l)),
+    `unexpected match in: ${noSessionLines.filter(l => /Session/.test(l)).join(' | ')}`
   );
 
   // Summary
   console.log(
     chalk.bold(
-      `\n${passed + failed} assertions: ${chalk.green(`${passed} passed`)}${failed > 0 ? `, ${chalk.red(`${failed} failed`)}` : ''}`,
-    ),
+      `\n${passed + failed} assertions: ${chalk.green(`${passed} passed`)}${failed > 0 ? `, ${chalk.red(`${failed} failed`)}` : ''}`
+    )
   );
 
   if (failed > 0) {

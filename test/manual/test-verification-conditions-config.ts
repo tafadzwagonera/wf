@@ -14,10 +14,7 @@
  */
 
 import { normalizeWfConfig } from '../../src/config/wf-config-loader';
-import {
-  parseVerificationManifest,
-  loadVerificationManifest,
-} from '../../src/shared/utils/verification-manifest';
+import { parseVerificationManifest, loadVerificationManifest } from '../../src/shared/utils/verification-manifest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -52,14 +49,11 @@ const configWithVC = normalizeWfConfig({
 
 assert(
   'verificationConditions.policyFile is normalized',
-  configWithVC.stages.implement?.verificationConditions?.policyFile ===
-    '.wf/verification.json',
+  configWithVC.stages.implement?.verificationConditions?.policyFile === '.wf/verification.json'
 );
 assert(
   'verificationConditions.scripts defaults to empty object',
-  JSON.stringify(
-    configWithVC.stages.implement?.verificationConditions?.scripts,
-  ) === '{}',
+  JSON.stringify(configWithVC.stages.implement?.verificationConditions?.scripts) === '{}'
 );
 
 console.log('\n--- afterImplement is rejected ---');
@@ -88,13 +82,10 @@ const v1Result = parseVerificationManifest(
     version: 1,
     baseline: [{ id: 'lint', run: 'yarn lint', policy: 'enforced' }],
   }),
-  '/tmp/v1.json',
+  '/tmp/v1.json'
 );
 assert('v1 manifest returns baseline', v1Result.baseline.length === 1);
-assert(
-  'v1 manifest baseline step has correct id',
-  v1Result.baseline[0].id === 'lint',
-);
+assert('v1 manifest baseline step has correct id', v1Result.baseline[0].id === 'lint');
 
 console.log('\n--- v2 manifest parsing ---');
 
@@ -107,16 +98,10 @@ const v2Result = parseVerificationManifest(
     review: { baseline: [] },
   }),
   '/tmp/v2.json',
-  'implement',
+  'implement'
 );
-assert(
-  'v2 manifest returns implement baseline',
-  v2Result.baseline.length === 1,
-);
-assert(
-  'v2 manifest baseline step has correct id',
-  v2Result.baseline[0].id === 'build',
-);
+assert('v2 manifest returns implement baseline', v2Result.baseline.length === 1);
+assert('v2 manifest baseline step has correct id', v2Result.baseline[0].id === 'build');
 
 const v2MissingStage = parseVerificationManifest(
   JSON.stringify({
@@ -126,12 +111,9 @@ const v2MissingStage = parseVerificationManifest(
     },
   }),
   '/tmp/v2.json',
-  'generate',
+  'generate'
 );
-assert(
-  'v2 manifest returns empty baseline for missing stage',
-  v2MissingStage.baseline.length === 0,
-);
+assert('v2 manifest returns empty baseline for missing stage', v2MissingStage.baseline.length === 0);
 
 console.log('\n--- v2 manifest defaults to implement stage ---');
 
@@ -142,21 +124,15 @@ const v2DefaultStage = parseVerificationManifest(
       baseline: [{ id: 'lint', run: 'yarn lint', policy: 'enforced' }],
     },
   }),
-  '/tmp/v2.json',
+  '/tmp/v2.json'
 );
-assert(
-  'v2 manifest without stage param defaults to implement',
-  v2DefaultStage.baseline.length === 1,
-);
+assert('v2 manifest without stage param defaults to implement', v2DefaultStage.baseline.length === 1);
 
 console.log('\n--- unsupported version ---');
 
 let unsupportedVersionThrew = false;
 try {
-  parseVerificationManifest(
-    JSON.stringify({ version: 99, baseline: [] }),
-    '/tmp/bad.json',
-  );
+  parseVerificationManifest(JSON.stringify({ version: 99, baseline: [] }), '/tmp/bad.json');
 } catch {
   unsupportedVersionThrew = true;
 }
@@ -173,13 +149,13 @@ fs.writeFileSync(
     implement: {
       baseline: [{ id: 'format', run: 'yarn format', policy: 'best_effort' }],
     },
-  }),
+  })
 );
 
 const loaded = loadVerificationManifest(manifestPath, 'implement');
 assert(
   'loadVerificationManifest passes stage to parser',
-  loaded.baseline.length === 1 && loaded.baseline[0].id === 'format',
+  loaded.baseline.length === 1 && loaded.baseline[0].id === 'format'
 );
 
 fs.rmSync(tmpDir, { recursive: true, force: true });

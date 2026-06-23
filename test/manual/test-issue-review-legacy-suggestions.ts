@@ -31,10 +31,7 @@ const mockLegacyReview = {
       line: 114,
     },
   ],
-  suggestions: [
-    'Normalize lookup inputs before querying.',
-    'Add duplicate detection while building the maps.',
-  ],
+  suggestions: ['Normalize lookup inputs before querying.', 'Add duplicate detection while building the maps.'],
   approved: false,
   traceProvenance: 'best-effort' as const,
   callStack: [],
@@ -52,8 +49,7 @@ async function run(): Promise<void> {
       description: 'Ticket description',
     }),
     findPullRequestsByTicketKey: async () => [prUrl],
-    getPullRequestDiff: async () =>
-      'diff --git a/src/example.ts b/src/example.ts',
+    getPullRequestDiff: async () => 'diff --git a/src/example.ts b/src/example.ts',
   };
 
   const module = await Test.createTestingModule({
@@ -77,8 +73,7 @@ async function run(): Promise<void> {
         useValue: {
           getDefaultAdapter: () => bitbucketAdapter,
           getAdapter: () => bitbucketAdapter,
-          getPullRequestDiscoveryAdapters: () =>
-            new Map([['bitbucket', bitbucketAdapter]]),
+          getPullRequestDiscoveryAdapters: () => new Map([['bitbucket', bitbucketAdapter]]),
         },
       },
       {
@@ -130,44 +125,26 @@ async function run(): Promise<void> {
 
   console.log = originalConsoleLog;
 
-  if (
-    capturedLogs.includes(
-      'Suggestion: Normalize lookup inputs before querying.',
-    )
-  ) {
-    throw new Error(
-      'Expected detached legacy suggestions to stay out of issue-local renderer rows.',
-    );
+  if (capturedLogs.includes('Suggestion: Normalize lookup inputs before querying.')) {
+    throw new Error('Expected detached legacy suggestions to stay out of issue-local renderer rows.');
   }
 
-  if (
-    capturedLogs.includes(
-      'Suggestion: Add duplicate detection while building the maps.',
-    )
-  ) {
-    throw new Error(
-      'Expected detached legacy suggestions to stay out of issue-local renderer rows.',
-    );
+  if (capturedLogs.includes('Suggestion: Add duplicate detection while building the maps.')) {
+    throw new Error('Expected detached legacy suggestions to stay out of issue-local renderer rows.');
   }
 
   if (
     !capturedLogs.includes('Suggestions:') ||
     !capturedLogs.includes('💡 Normalize lookup inputs before querying.') ||
-    !capturedLogs.includes(
-      '💡 Add duplicate detection while building the maps.',
-    )
+    !capturedLogs.includes('💡 Add duplicate detection while building the maps.')
   ) {
-    throw new Error(
-      'Expected legacy detached suggestions to render only in the trailing Suggestions section.',
-    );
+    throw new Error('Expected legacy detached suggestions to render only in the trailing Suggestions section.');
   }
 
-  console.log(
-    '✅ Manual smoke test passed: issue:review legacy detached suggestions',
-  );
+  console.log('✅ Manual smoke test passed: issue:review legacy detached suggestions');
 }
 
-run().catch((error) => {
+run().catch(error => {
   console.error(`❌ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

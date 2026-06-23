@@ -20,7 +20,7 @@ jest.mock('chalk', () => {
       'white',
       'gray',
       'grey',
-    ].forEach((name) => {
+    ].forEach(name => {
       chain[name] = identity;
     });
     return chain;
@@ -34,9 +34,7 @@ jest.mock('../agents/utils', () => {
   const actual = jest.requireActual('../agents/utils');
   return {
     ...actual,
-    resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? `/tmp/repos/${repo}` : '/tmp/current-app',
-    ),
+    resolveRepoBasePath: jest.fn((repo?: string) => (repo ? `/tmp/repos/${repo}` : '/tmp/current-app')),
   };
 });
 
@@ -74,9 +72,7 @@ async function buildCommand(): Promise<{
       {
         provide: CommitStageService,
         useValue: {
-          generateCommitMessage: jest
-            .fn()
-            .mockResolvedValue('WBP-123: ship it'),
+          generateCommitMessage: jest.fn().mockResolvedValue('WBP-123: ship it'),
         },
       },
       {
@@ -126,13 +122,8 @@ describe('IssueCommitCommand', () => {
 
     await command.run(['WBP-123'], { message: 'ship it' });
 
-    expect(mockGitService.isGitRepository).toHaveBeenCalledWith(
-      '/tmp/current-app',
-    );
-    expect(mockGitService.getDiff).toHaveBeenCalledWith(
-      true,
-      '/tmp/current-app',
-    );
+    expect(mockGitService.isGitRepository).toHaveBeenCalledWith('/tmp/current-app');
+    expect(mockGitService.getDiff).toHaveBeenCalledWith(true, '/tmp/current-app');
     expect(mockGitService.commit).toHaveBeenCalledWith({
       message: 'WBP-123: ship it',
       cwd: '/tmp/current-app',
@@ -148,22 +139,13 @@ describe('IssueCommitCommand', () => {
       repos: ['repo-a', 'repo-b'],
     });
 
-    expect(mockGitService.isGitRepository).toHaveBeenCalledWith(
-      '/tmp/repos/repo-a',
-    );
-    expect(mockGitService.getDiff).toHaveBeenCalledWith(
-      true,
-      '/tmp/repos/repo-a',
-    );
+    expect(mockGitService.isGitRepository).toHaveBeenCalledWith('/tmp/repos/repo-a');
+    expect(mockGitService.getDiff).toHaveBeenCalledWith(true, '/tmp/repos/repo-a');
     expect(mockGitService.commit).toHaveBeenCalledWith({
       message: 'WBP-123: ship it',
       cwd: '/tmp/repos/repo-a',
     });
-    expect(
-      consoleSpy.mock.calls.some((call) =>
-        String(call[0]).includes('Only the first repository'),
-      ),
-    ).toBe(true);
+    expect(consoleSpy.mock.calls.some(call => String(call[0]).includes('Only the first repository'))).toBe(true);
 
     consoleSpy.mockRestore();
   });

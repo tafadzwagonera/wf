@@ -32,25 +32,16 @@ export class DryRunPreviewService {
    * @param preview API call details
    */
   previewApiCall(preview: ApiCallPreview): void {
-    console.log(
-      `  📡 ${chalk.black(preview.method)} ${preview.endpoint}` +
-        chalk.black(`  [${preview.platform}]`),
-    );
+    console.log(`  📡 ${chalk.black(preview.method)} ${preview.endpoint}` + chalk.black(`  [${preview.platform}]`));
     console.log(chalk.black(`     ↳ ${preview.description}`));
     if (preview.estimatedResponse) {
       const lines = preview.estimatedResponse.split('\n');
-      lines.forEach((line, i) =>
-        console.log(
-          chalk.black(`     ${i === 0 ? '↳ Response: ' : ''}${line}`),
-        ),
-      );
+      lines.forEach((line, i) => console.log(chalk.black(`     ${i === 0 ? '↳ Response: ' : ''}${line}`)));
     }
     if ((preview.payloadPreviewLines?.length ?? 0) > 0) {
       console.log(chalk.black('     ↳ Payload:'));
     }
-    preview.payloadPreviewLines?.forEach((line) =>
-      console.log(chalk.black(`${PAYLOAD_LINE_PREFIX}${line}`)),
-    );
+    preview.payloadPreviewLines?.forEach(line => console.log(chalk.black(`${PAYLOAD_LINE_PREFIX}${line}`)));
   }
 
   /**
@@ -58,16 +49,11 @@ export class DryRunPreviewService {
    * @param preview File write details
    */
   previewFileWrite(preview: FileWritePreview): void {
-    const opLabel =
-      preview.operation === 'overwrite'
-        ? chalk.magenta('overwrite')
-        : chalk.green('create');
+    const opLabel = preview.operation === 'overwrite' ? chalk.magenta('overwrite') : chalk.green('create');
     console.log(`  📝 ${opLabel} ${preview.filePath}`);
     if (preview.contentPreview) {
       const allLines = preview.contentPreview.split('\n');
-      allLines
-        .slice(0, 10)
-        .forEach((line) => console.log(chalk.black(`       ${line}`)));
+      allLines.slice(0, 10).forEach(line => console.log(chalk.black(`       ${line}`)));
       if (allLines.length > 10) {
         console.log(chalk.black('       ...'));
       }
@@ -79,9 +65,7 @@ export class DryRunPreviewService {
    * @param preview File read details
    */
   previewFileRead(preview: FileReadPreview): void {
-    const status = preview.exists
-      ? chalk.green('exists')
-      : chalk.red('not found — will be fetched');
+    const status = preview.exists ? chalk.green('exists') : chalk.red('not found — will be fetched');
     console.log(`  📖 ${preview.filePath}` + chalk.black(`  [${status}]`));
   }
 
@@ -96,10 +80,7 @@ export class DryRunPreviewService {
       checkout: '🔀',
       push: '🚀',
     };
-    console.log(
-      `  ${icons[preview.operation]} git ${preview.operation}` +
-        chalk.black(`  ${preview.description}`),
-    );
+    console.log(`  ${icons[preview.operation]} git ${preview.operation}` + chalk.black(`  ${preview.description}`));
   }
 
   /**
@@ -109,24 +90,16 @@ export class DryRunPreviewService {
   showSummary(summary: DryRunSummary): void {
     const parts: string[] = [];
     if (summary.apiCallCount > 0) {
-      parts.push(
-        `${summary.apiCallCount} API call${summary.apiCallCount !== 1 ? 's' : ''}`,
-      );
+      parts.push(`${summary.apiCallCount} API call${summary.apiCallCount !== 1 ? 's' : ''}`);
     }
     if (summary.fileCreatedCount > 0) {
-      parts.push(
-        `${summary.fileCreatedCount} file${summary.fileCreatedCount !== 1 ? 's' : ''} created`,
-      );
+      parts.push(`${summary.fileCreatedCount} file${summary.fileCreatedCount !== 1 ? 's' : ''} created`);
     }
     if (summary.fileModifiedCount > 0) {
-      parts.push(
-        `${summary.fileModifiedCount} file${summary.fileModifiedCount !== 1 ? 's' : ''} modified`,
-      );
+      parts.push(`${summary.fileModifiedCount} file${summary.fileModifiedCount !== 1 ? 's' : ''} modified`);
     }
     if (summary.gitOperationCount > 0) {
-      parts.push(
-        `${summary.gitOperationCount} git op${summary.gitOperationCount !== 1 ? 's' : ''}`,
-      );
+      parts.push(`${summary.gitOperationCount} git op${summary.gitOperationCount !== 1 ? 's' : ''}`);
     }
     if (parts.length > 0) {
       console.log(chalk.black(`\n  ${parts.join(' · ')}`));
@@ -174,6 +147,6 @@ export class DryRunPreviewService {
   showTerminalOutput(lines: string[]): void {
     if (lines.length === 0) return;
     console.log(chalk.black('\n  Terminal output preview:'));
-    lines.forEach((line) => console.log(chalk.black(`  │ ${line}`)));
+    lines.forEach(line => console.log(chalk.black(`  │ ${line}`)));
   }
 }

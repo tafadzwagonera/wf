@@ -1,12 +1,6 @@
 import type { WfBackendMode } from './public-config';
 
-export type StageBackendDefaultStageName =
-  | 'plan'
-  | 'implement'
-  | 'review'
-  | 'generate'
-  | 'commit'
-  | 'create';
+export type StageBackendDefaultStageName = 'plan' | 'implement' | 'review' | 'generate' | 'commit' | 'create';
 
 const AGENT_DEFAULT_BACKEND_STAGES = new Set<StageBackendDefaultStageName>([
   'plan',
@@ -22,9 +16,7 @@ const AGENT_DEFAULT_BACKEND_STAGES = new Set<StageBackendDefaultStageName>([
  * @param stageName - Workflow stage name
  * @returns Backend to use for that stage by default
  */
-export const resolveDefaultStageBackend = (
-  stageName: StageBackendDefaultStageName,
-): WfBackendMode => {
+export const resolveDefaultStageBackend = (stageName: StageBackendDefaultStageName): WfBackendMode => {
   if (AGENT_DEFAULT_BACKEND_STAGES.has(stageName)) {
     return 'agent';
   }
@@ -38,6 +30,5 @@ export const resolveDefaultStageBackend = (
  * @param stageName - Workflow stage name
  * @returns True when `agent` or `cli` are valid backend values
  */
-export const isAgentSupportedStage = (
-  stageName: StageBackendDefaultStageName,
-): boolean => AGENT_DEFAULT_BACKEND_STAGES.has(stageName);
+export const isAgentSupportedStage = (stageName: StageBackendDefaultStageName): boolean =>
+  AGENT_DEFAULT_BACKEND_STAGES.has(stageName);

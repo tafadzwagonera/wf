@@ -61,15 +61,8 @@ function main(): void {
   assert('WfBackendMode includes standard', modes.includes('standard'));
 
   // 2. ImplementBackendName includes claude-cli
-  const backendNames: ImplementBackendName[] = [
-    'anthropic-agent',
-    'openai-agent',
-    'claude-cli',
-  ];
-  assert(
-    'ImplementBackendName includes claude-cli',
-    backendNames.includes('claude-cli'),
-  );
+  const backendNames: ImplementBackendName[] = ['anthropic-agent', 'openai-agent', 'claude-cli'];
+  assert('ImplementBackendName includes claude-cli', backendNames.includes('claude-cli'));
 
   // 3. backend: cli + provider: anthropic passes
   try {
@@ -92,12 +85,12 @@ function main(): void {
     assert(
       'backend: cli + provider: anthropic passes validation',
       config.stages.plan?.backend === 'cli',
-      `got: ${config.stages.plan?.backend}`,
+      `got: ${config.stages.plan?.backend}`
     );
   } catch (error) {
     fail(
       'backend: cli + provider: anthropic passes validation',
-      `threw: ${error instanceof Error ? error.message : String(error)}`,
+      `threw: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 
@@ -124,7 +117,7 @@ function main(): void {
     assert(
       'backend: cli + provider: openai throws',
       error instanceof Error && /cli.*anthropic/i.test(error.message),
-      `got: ${error instanceof Error ? error.message : String(error)}`,
+      `got: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 
@@ -151,7 +144,7 @@ function main(): void {
     assert(
       'backend: agent + provider: google throws',
       error instanceof Error && /agent.*google/i.test(error.message),
-      `got: ${error instanceof Error ? error.message : String(error)}`,
+      `got: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 
@@ -178,7 +171,7 @@ function main(): void {
     assert(
       'backend: cli on commit stage throws',
       error instanceof Error && /commit.*cli/i.test(error.message),
-      `got: ${error instanceof Error ? error.message : String(error)}`,
+      `got: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 
@@ -203,12 +196,12 @@ function main(): void {
     assert(
       'review defaults to agent backend when omitted',
       config.stages.review?.backend === 'agent',
-      `got: ${config.stages.review?.backend}`,
+      `got: ${config.stages.review?.backend}`
     );
   } catch (error) {
     fail(
       'review defaults to agent backend when omitted',
-      `threw: ${error instanceof Error ? error.message : String(error)}`,
+      `threw: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 
@@ -232,12 +225,12 @@ function main(): void {
     assert(
       'commit defaults to standard backend when omitted',
       config.stages.commit?.backend === 'standard',
-      `got: ${config.stages.commit?.backend}`,
+      `got: ${config.stages.commit?.backend}`
     );
   } catch (error) {
     fail(
       'commit defaults to standard backend when omitted',
-      `threw: ${error instanceof Error ? error.message : String(error)}`,
+      `threw: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 
@@ -254,42 +247,25 @@ function main(): void {
   });
   assert('buildCliArgs includes -p flag', args.includes('-p'));
   assert('buildCliArgs includes --verbose flag', args.includes('--verbose'));
-  assert(
-    'buildCliArgs includes stream-json format',
-    args.includes('stream-json'),
-  );
+  assert('buildCliArgs includes stream-json format', args.includes('stream-json'));
   assert('buildCliArgs includes model', args.includes('claude-sonnet-4-6'));
   assert('buildCliArgs includes permission mode', args.includes('plan'));
-  assert(
-    'buildCliArgs includes resume session id',
-    args.includes('session-123'),
-  );
+  assert('buildCliArgs includes resume session id', args.includes('session-123'));
   assert('buildCliArgs includes allowedTools', args.includes('Read,Glob'));
   assert('buildCliArgs includes add-dir', args.includes('/sibling'));
-  assert(
-    'buildCliArgs excludes prompt from args (piped via stdin)',
-    !args.includes('test prompt'),
-  );
+  assert('buildCliArgs excludes prompt from args (piped via stdin)', !args.includes('test prompt'));
 
   // 9. parseNdjsonLine parses valid JSON
-  const parsed = parseNdjsonLine(
-    '{"type":"result","result":"hello","session_id":"s1"}',
-  );
+  const parsed = parseNdjsonLine('{"type":"result","result":"hello","session_id":"s1"}');
   assert(
     'parseNdjsonLine parses valid JSON',
     parsed !== null && parsed.type === 'result' && parsed.result === 'hello',
-    `got: ${JSON.stringify(parsed)}`,
+    `got: ${JSON.stringify(parsed)}`
   );
 
   // 10. parseNdjsonLine returns null for invalid input
-  assert(
-    'parseNdjsonLine returns null for empty string',
-    parseNdjsonLine('') === null,
-  );
-  assert(
-    'parseNdjsonLine returns null for invalid JSON',
-    parseNdjsonLine('not json') === null,
-  );
+  assert('parseNdjsonLine returns null for empty string', parseNdjsonLine('') === null);
+  assert('parseNdjsonLine returns null for invalid JSON', parseNdjsonLine('not json') === null);
 
   // 11. assertClaudeCliAvailable does not throw when CLI is present
   try {
@@ -297,16 +273,14 @@ function main(): void {
     pass('assertClaudeCliAvailable does not throw when CLI is present');
   } catch {
     // CLI may not be installed in all environments — not a test failure
-    pass(
-      'assertClaudeCliAvailable throws with install instructions (CLI not installed)',
-    );
+    pass('assertClaudeCliAvailable throws with install instructions (CLI not installed)');
   }
 
   // Summary
   console.log(
     chalk.bold(
-      `\n${passed + failed} assertions: ${chalk.green(`${passed} passed`)}${failed > 0 ? `, ${chalk.red(`${failed} failed`)}` : ''}`,
-    ),
+      `\n${passed + failed} assertions: ${chalk.green(`${passed} passed`)}${failed > 0 ? `, ${chalk.red(`${failed} failed`)}` : ''}`
+    )
   );
 
   if (failed > 0) {

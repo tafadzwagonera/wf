@@ -191,10 +191,7 @@ async function testStripSections() {
     if (capturedTicket?.description?.includes('GET /health returns 200')) {
       pass('Description without removed sections passes through unchanged');
     } else {
-      fail(
-        'Description without removed sections was altered',
-        `Got: ${capturedTicket?.description}`,
-      );
+      fail('Description without removed sections was altered', `Got: ${capturedTicket?.description}`);
     }
   }
 
@@ -206,7 +203,7 @@ async function testStripSections() {
   if (failed > 0) process.exit(1);
 }
 
-testStripSections().catch((err) => {
+testStripSections().catch(err => {
   console.error(err.stdout || err.message);
   process.exit(1);
 });

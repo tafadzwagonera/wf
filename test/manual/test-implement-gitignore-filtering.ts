@@ -86,19 +86,17 @@ async function main(): Promise<void> {
       const result = await git.raw(['check-ignore', docsPath, logPath]);
       const ignoredPaths = result
         .split('\n')
-        .map((l) => l.trim())
+        .map(l => l.trim())
         .filter(Boolean);
       assert(
         'checkIgnored returns ignored paths for docs/ and *.log',
         ignoredPaths.length === 2 &&
-          ignoredPaths.some((p) => p.includes('docs')) &&
-          ignoredPaths.some((p) => p.includes('.log')),
-        `Got: ${JSON.stringify(ignoredPaths)}`,
+          ignoredPaths.some(p => p.includes('docs')) &&
+          ignoredPaths.some(p => p.includes('.log')),
+        `Got: ${JSON.stringify(ignoredPaths)}`
       );
     } catch {
-      fail(
-        'checkIgnored should return ignored paths (git check-ignore failed)',
-      );
+      fail('checkIgnored should return ignored paths (git check-ignore failed)');
     }
 
     // 2. checkIgnored returns empty for non-ignored paths
@@ -106,37 +104,33 @@ async function main(): Promise<void> {
       const result = await git.raw(['check-ignore', srcPath]);
       const matches = result
         .split('\n')
-        .map((l) => l.trim())
+        .map(l => l.trim())
         .filter(Boolean);
       assert(
         'checkIgnored returns no matches for non-ignored path',
         matches.length === 0,
-        `Got: ${JSON.stringify(matches)}`,
+        `Got: ${JSON.stringify(matches)}`
       );
     } catch {
       // exit code 1 = no matches — also correct behavior
-      pass(
-        'checkIgnored returns no matches for non-ignored path (exit code 1)',
-      );
+      pass('checkIgnored returns no matches for non-ignored path (exit code 1)');
     }
 
     // 3. Empty input returns empty
     assert('Empty paths returns no results', true);
 
     // 4. Chunking test: create many paths and verify they're all checked
-    const manyPaths = Array.from({ length: 150 }, (_, i) =>
-      path.join(repoDir, 'docs', `file-${i}.md`),
-    );
+    const manyPaths = Array.from({ length: 150 }, (_, i) => path.join(repoDir, 'docs', `file-${i}.md`));
     try {
       const result = await git.raw(['check-ignore', ...manyPaths]);
       const ignoredPaths = result
         .split('\n')
-        .map((l) => l.trim())
+        .map(l => l.trim())
         .filter(Boolean);
       assert(
         'All 150 docs/ paths are detected as ignored',
         ignoredPaths.length === 150,
-        `Got ${ignoredPaths.length} instead of 150`,
+        `Got ${ignoredPaths.length} instead of 150`
       );
     } catch {
       fail('Large path list should be handled (chunking)');
@@ -149,18 +143,14 @@ async function main(): Promise<void> {
       path.join(repoDir, 'docs', 'incident.md'),
       path.join(repoDir, 'src', 'variables.tf'),
     ];
-    const repoFiles = [
-      'repo/src/alarm.tf',
-      'repo/docs/incident.md',
-      'repo/src/variables.tf',
-    ];
+    const repoFiles = ['repo/src/alarm.tf', 'repo/docs/incident.md', 'repo/src/variables.tf'];
 
     let ignoredResult: string[];
     try {
       const result = await git.raw(['check-ignore', ...rawTrackedPaths]);
       ignoredResult = result
         .split('\n')
-        .map((l) => l.trim())
+        .map(l => l.trim())
         .filter(Boolean);
     } catch {
       ignoredResult = [];
@@ -178,25 +168,25 @@ async function main(): Promise<void> {
 
     assert(
       'validateTrackedFilePaths filters docs/ path',
-      kept.length === 2 && !kept.some((p) => p.includes('docs')),
-      `Got kept: ${JSON.stringify(kept)}`,
+      kept.length === 2 && !kept.some(p => p.includes('docs')),
+      `Got kept: ${JSON.stringify(kept)}`
     );
 
     // 6. keptIndices aligns correctly
     assert(
       'keptIndices maps to correct original positions [0, 2]',
       keptIndices.length === 2 && keptIndices[0] === 0 && keptIndices[1] === 2,
-      `Got keptIndices: ${JSON.stringify(keptIndices)}`,
+      `Got keptIndices: ${JSON.stringify(keptIndices)}`
     );
 
     // 7. repoFiles alignment
-    const filteredRepoFiles = keptIndices.map((i) => repoFiles[i]);
+    const filteredRepoFiles = keptIndices.map(i => repoFiles[i]);
     assert(
       'repoFiles is aligned with filtered trackedFilePaths',
       filteredRepoFiles.length === 2 &&
         filteredRepoFiles[0] === 'repo/src/alarm.tf' &&
         filteredRepoFiles[1] === 'repo/src/variables.tf',
-      `Got filteredRepoFiles: ${JSON.stringify(filteredRepoFiles)}`,
+      `Got filteredRepoFiles: ${JSON.stringify(filteredRepoFiles)}`
     );
   } finally {
     cleanup();

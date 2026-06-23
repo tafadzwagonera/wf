@@ -1,8 +1,4 @@
-import type {
-  AIConversationRequest,
-  AIRequest,
-  AIResponse,
-} from './ai.service';
+import type { AIConversationRequest, AIRequest, AIResponse } from './ai.service';
 
 export const LLM_ADAPTER = 'LLM_ADAPTER';
 

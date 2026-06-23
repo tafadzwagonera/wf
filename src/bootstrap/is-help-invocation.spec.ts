@@ -10,14 +10,10 @@ describe('isHelpInvocation', () => {
   });
 
   it('returns true when help is combined with repo-scoped options', () => {
-    expect(
-      isHelpInvocation(['issue:generate', '--repos=service-tourv3', '-h']),
-    ).toBe(true);
+    expect(isHelpInvocation(['issue:generate', '--repos=service-tourv3', '-h'])).toBe(true);
   });
 
   it('returns false for normal command invocations', () => {
-    expect(isHelpInvocation(['issue:generate', './requirements.md'])).toBe(
-      false,
-    );
+    expect(isHelpInvocation(['issue:generate', './requirements.md'])).toBe(false);
   });
 });

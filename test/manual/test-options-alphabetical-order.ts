@@ -48,16 +48,12 @@ const fail = (message: string): void => {
 };
 
 async function main() {
-  console.log(
-    chalk.bold.cyan('\n🧪 CLI options alphabetical order smoke test\n'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 CLI options alphabetical order smoke test\n'));
 
   let passed = 0;
   let failed = 0;
 
-  console.log(
-    chalk.bold('Test 1: help catalog options are alphabetically ordered'),
-  );
+  console.log(chalk.bold('Test 1: help catalog options are alphabetically ordered'));
   try {
     const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
     const unsorted: string[] = [];
@@ -67,22 +63,16 @@ async function main() {
         continue;
       }
 
-      const longFlags = entry.options.map((opt: any) =>
-        extractLongFlag(opt.flags),
-      );
+      const longFlags = entry.options.map((opt: any) => extractLongFlag(opt.flags));
       const sorted = [...longFlags].sort();
 
       if (JSON.stringify(longFlags) !== JSON.stringify(sorted)) {
-        unsorted.push(
-          `${commandName}: got [${longFlags.join(', ')}], expected [${sorted.join(', ')}]`,
-        );
+        unsorted.push(`${commandName}: got [${longFlags.join(', ')}], expected [${sorted.join(', ')}]`);
       }
     }
 
     if (unsorted.length === 0) {
-      pass(
-        'All commands have options in alphabetical order in the help catalog',
-      );
+      pass('All commands have options in alphabetical order in the help catalog');
       passed += 1;
     } else {
       fail(`Commands with unsorted options:\n    ${unsorted.join('\n    ')}`);
@@ -93,47 +83,33 @@ async function main() {
     failed += 1;
   }
 
-  console.log(
-    chalk.bold(
-      'Test 2: source @Option() decorators are alphabetically ordered',
-    ),
-  );
+  console.log(chalk.bold('Test 2: source @Option() decorators are alphabetically ordered'));
   try {
-    const commandFiles = fs
-      .readdirSync(commandsDir)
-      .filter((f) => f.endsWith('.command.ts') && !f.endsWith('.spec.ts'));
+    const commandFiles = fs.readdirSync(commandsDir).filter(f => f.endsWith('.command.ts') && !f.endsWith('.spec.ts'));
 
     const unsorted: string[] = [];
 
     for (const fileName of commandFiles) {
       const source = fs.readFileSync(path.join(commandsDir, fileName), 'utf8');
-      const flagMatches = Array.from(
-        source.matchAll(/@Option\(\{\s*flags:\s*'([^']+)'/g),
-      );
+      const flagMatches = Array.from(source.matchAll(/@Option\(\{\s*flags:\s*'([^']+)'/g));
 
       if (flagMatches.length < 2) {
         continue;
       }
 
-      const longFlags = flagMatches.map((m) => extractLongFlag(m[1]));
+      const longFlags = flagMatches.map(m => extractLongFlag(m[1]));
       const sorted = [...longFlags].sort();
 
       if (JSON.stringify(longFlags) !== JSON.stringify(sorted)) {
-        unsorted.push(
-          `${fileName}: got [${longFlags.join(', ')}], expected [${sorted.join(', ')}]`,
-        );
+        unsorted.push(`${fileName}: got [${longFlags.join(', ')}], expected [${sorted.join(', ')}]`);
       }
     }
 
     if (unsorted.length === 0) {
-      pass(
-        'All command source files have @Option() decorators in alphabetical order',
-      );
+      pass('All command source files have @Option() decorators in alphabetical order');
       passed += 1;
     } else {
-      fail(
-        `Files with unsorted @Option() decorators:\n    ${unsorted.join('\n    ')}`,
-      );
+      fail(`Files with unsorted @Option() decorators:\n    ${unsorted.join('\n    ')}`);
       failed += 1;
     }
   } catch (error: any) {

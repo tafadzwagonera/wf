@@ -45,9 +45,7 @@ const pass = (message: string): void => {
  * @returns Void
  */
 const fail = (message: string, detail?: string): void => {
-  console.error(
-    chalk.red(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`),
-  );
+  console.error(chalk.red(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`));
   failed += 1;
 };
 
@@ -69,14 +67,10 @@ const assert = (message: string, condition: boolean, detail?: string): void => {
 };
 
 async function main(): Promise<void> {
-  console.log(
-    chalk.bold.cyan('\n🧪 OpenAI agent tools and observability smoke test\n'),
-  );
+  console.log(chalk.bold.cyan('\n🧪 OpenAI agent tools and observability smoke test\n'));
 
   // Test 1: response_done with usage
-  console.log(
-    chalk.bold('Test 1: formatProgressMessage — response_done with usage'),
-  );
+  console.log(chalk.bold('Test 1: formatProgressMessage — response_done with usage'));
   const usageEvent = {
     type: 'raw_model_stream_event',
     data: {
@@ -89,9 +83,8 @@ async function main(): Promise<void> {
   const usageResult = formatProgressMessage(usageEvent);
   assert(
     'response_done with usage returns token count',
-    usageResult?.message ===
-      '  [openai-agent] Response: 1000 in / 500 out tokens',
-    usageResult?.message ?? 'received null',
+    usageResult?.message === '  [openai-agent] Response: 1000 in / 500 out tokens',
+    usageResult?.message ?? 'received null'
   );
 
   // Test 2: response_done with compaction
@@ -113,9 +106,8 @@ async function main(): Promise<void> {
   const compactResult = formatProgressMessage(compactEvent);
   assert(
     'compaction renders as warning',
-    compactResult?.message === '  [openai-agent] Context compacted' &&
-      compactResult?.isWarning === true,
-    JSON.stringify(compactResult),
+    compactResult?.message === '  [openai-agent] Context compacted' && compactResult?.isWarning === true,
+    JSON.stringify(compactResult)
   );
 
   // Test 3: agent_updated_stream_event
@@ -128,15 +120,11 @@ async function main(): Promise<void> {
   assert(
     'agent_updated renders agent name',
     agentResult?.message === '  [openai-agent] Agent updated: test-agent',
-    agentResult?.message ?? 'received null',
+    agentResult?.message ?? 'received null'
   );
 
   // Test 4: all 9 RunItemStreamEventName values
-  console.log(
-    chalk.bold(
-      '\nTest 4: formatProgressMessage — RunItemStreamEventName values',
-    ),
-  );
+  console.log(chalk.bold('\nTest 4: formatProgressMessage — RunItemStreamEventName values'));
   const eventNames: Array<{
     name: string;
     item: Record<string, unknown>;
@@ -183,17 +171,11 @@ async function main(): Promise<void> {
       name,
       item,
     });
-    assert(
-      `${name} → "${expected}"`,
-      result?.message?.includes(expected) === true,
-      result?.message ?? 'received null',
-    );
+    assert(`${name} → "${expected}"`, result?.message?.includes(expected) === true, result?.message ?? 'received null');
   }
 
   // Test 5: output_text_delta returns null
-  console.log(
-    chalk.bold('\nTest 5: formatProgressMessage — output_text_delta'),
-  );
+  console.log(chalk.bold('\nTest 5: formatProgressMessage — output_text_delta'));
   const deltaEvent = {
     type: 'raw_model_stream_event',
     data: { type: 'output_text_delta', delta: 'hello' },
@@ -201,7 +183,7 @@ async function main(): Promise<void> {
   assert(
     'output_text_delta returns null',
     formatProgressMessage(deltaEvent) === null,
-    String(formatProgressMessage(deltaEvent)),
+    String(formatProgressMessage(deltaEvent))
   );
 
   // Test 6: extractUsageFromEvent
@@ -213,19 +195,13 @@ async function main(): Promise<void> {
       usage?.outputTokens === 500 &&
       usage?.totalTokens === 1500 &&
       usage?.compacted === false,
-    JSON.stringify(usage),
+    JSON.stringify(usage)
   );
 
   // Test 7: extractUsageFromEvent detects compaction
-  console.log(
-    chalk.bold('\nTest 7: extractUsageFromEvent — detects compaction'),
-  );
+  console.log(chalk.bold('\nTest 7: extractUsageFromEvent — detects compaction'));
   const compactUsage = extractUsageFromEvent(compactEvent);
-  assert(
-    'extractUsageFromEvent detects compaction',
-    compactUsage?.compacted === true,
-    JSON.stringify(compactUsage),
-  );
+  assert('extractUsageFromEvent detects compaction', compactUsage?.compacted === true, JSON.stringify(compactUsage));
 
   // Test 8: classifyAgentError labels
   console.log(chalk.bold('\nTest 8: classifyAgentError — labels'));
@@ -250,20 +226,14 @@ async function main(): Promise<void> {
 
   for (const { error, expectedLabel } of errorCases) {
     const result = classifyAgentError(error);
-    assert(
-      `classifyAgentError → "${expectedLabel}"`,
-      result.label === expectedLabel,
-      `got "${result.label}"`,
-    );
+    assert(`classifyAgentError → "${expectedLabel}"`, result.label === expectedLabel, `got "${result.label}"`);
   }
 
   // Test 9: system prompt tool descriptions
   // We can't easily test buildSystemPrompt (it's not exported), so we verify
   // the exported formatProgressMessage handles the tool-related events that
   // the new tools would generate.
-  console.log(
-    chalk.bold('\nTest 9: new tools generate expected progress messages'),
-  );
+  console.log(chalk.bold('\nTest 9: new tools generate expected progress messages'));
   const toolEvents = [
     { name: 'search_files', expected: 'Tool requested: search_files' },
     { name: 'find_files', expected: 'Tool requested: find_files' },
@@ -278,7 +248,7 @@ async function main(): Promise<void> {
     assert(
       `tool_called for ${name} renders correctly`,
       result?.message?.includes(expected) === true,
-      result?.message ?? 'received null',
+      result?.message ?? 'received null'
     );
   }
 

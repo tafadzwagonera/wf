@@ -65,11 +65,7 @@ describe('AiService', () => {
 
   describe('provider naming', () => {
     it('returns OpenAI display and short names when ai.provider is openai', () => {
-      const service = new AiService(
-        mockLogger,
-        createAdapter(),
-        createConfigService(),
-      );
+      const service = new AiService(mockLogger, createAdapter(), createConfigService());
 
       expect(service.getProviderDisplayName()).toBe('OpenAI');
       expect(service.getProviderShortName()).toBe('OpenAI');
@@ -87,7 +83,7 @@ describe('AiService', () => {
         expect.objectContaining({
           provider: 'google',
           model: 'gemini-2.5-pro',
-        }),
+        })
       );
     });
 
@@ -105,7 +101,7 @@ describe('AiService', () => {
           provider: 'google',
           model: 'gemini-2.5-pro',
           stage: 'commit',
-        }),
+        })
       );
     });
 
@@ -118,10 +114,8 @@ describe('AiService', () => {
           prompt: 'commit',
           stage: 'commit',
           model: 'gpt-5.4',
-        }),
-      ).rejects.toThrow(
-        /provider and model overrides must be supplied together/i,
-      );
+        })
+      ).rejects.toThrow(/provider and model overrides must be supplied together/i);
     });
 
     it('requests and preserves plan-level verification policies when generating plans', async () => {
@@ -157,18 +151,14 @@ describe('AiService', () => {
       } as unknown as jest.Mocked<LlmAdapter>;
       const service = new AiService(mockLogger, adapter, createConfigService());
 
-      const plan = await service.generatePlan(
-        'fix',
-        '# WBP-123: Fix criteria resolution',
-        {
-          affectedRepositories: ['repo-a'],
-        },
-      );
+      const plan = await service.generatePlan('fix', '# WBP-123: Fix criteria resolution', {
+        affectedRepositories: ['repo-a'],
+      });
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining('"verification": {'),
-        }),
+        })
       );
       expect(plan.verification).toEqual({
         targeted: [
@@ -209,16 +199,16 @@ describe('AiService', () => {
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            '"filesAffected": [{ "filePath": "repo-a/src/path/to/file.ts", "status": "found" }',
+            '"filesAffected": [{ "filePath": "repo-a/src/path/to/file.ts", "status": "found" }'
           ),
-        }),
+        })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'If you need to prove an expected failure, wrap it in a shell assertion that exits 0 when the expected failure occurs.',
+            'If you need to prove an expected failure, wrap it in a shell assertion that exits 0 when the expected failure occurs.'
           ),
-        }),
+        })
       );
     });
 
@@ -232,9 +222,7 @@ describe('AiService', () => {
       });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
-      await expect(
-        service.generatePlan('fix', '# WBP-123: Fix criteria resolution'),
-      ).rejects.toMatchObject({
+      await expect(service.generatePlan('fix', '# WBP-123: Fix criteria resolution')).rejects.toMatchObject({
         message: 'AI provider returned an empty plan response',
         details: expect.objectContaining({
           provider: 'openai',
@@ -262,10 +250,9 @@ describe('AiService', () => {
           findings: [],
           recommendations: [],
           conclusion: 'Pending',
-        } as any),
+        } as any)
       ).rejects.toMatchObject({
-        message:
-          'AI provider returned an empty investigation findings response',
+        message: 'AI provider returned an empty investigation findings response',
         details: expect.objectContaining({
           provider: 'openai',
           model: 'gpt-5.4',
@@ -283,9 +270,7 @@ describe('AiService', () => {
       });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
-      await expect(
-        service.generateCommitMessage('diff --git a/file b/file', []),
-      ).rejects.toMatchObject({
+      await expect(service.generateCommitMessage('diff --git a/file b/file', [])).rejects.toMatchObject({
         message: 'AI provider returned an empty commit message response',
         details: expect.objectContaining({
           provider: 'openai',
@@ -313,9 +298,7 @@ describe('AiService', () => {
         });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
-      await expect(
-        service.reviewCode('diff', ['guideline']),
-      ).rejects.toMatchObject({
+      await expect(service.reviewCode('diff', ['guideline'])).rejects.toMatchObject({
         message: 'AI provider returned an empty review response',
         details: expect.objectContaining({
           provider: 'openai',
@@ -369,9 +352,7 @@ describe('AiService', () => {
       });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
-      await expect(
-        service.reviewCode('diff', ['guideline']),
-      ).rejects.toMatchObject({
+      await expect(service.reviewCode('diff', ['guideline'])).rejects.toMatchObject({
         message: 'AI provider returned an empty review response',
         details: expect.objectContaining({
           provider: 'openai',
@@ -420,15 +401,12 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 +  return addPaymentToBooking();
 +}
 `,
-        ['guideline'],
+        ['guideline']
       );
 
       expect(review.summary).toBe('ok');
       expect(review.approved).toBe(true);
-      expect(review.callStack).toEqual([
-        'eventPaymentRecorded()',
-        'addPaymentToBooking()',
-      ]);
+      expect(review.callStack).toEqual(['eventPaymentRecorded()', 'addPaymentToBooking()']);
     });
 
     it('asks for code-path traces and rejects reviewer-analysis language in the prompt', async () => {
@@ -443,48 +421,44 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 +  return addPaymentToBooking();
 +}
 `,
-        ['guideline'],
+        ['guideline']
       );
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining('walks the changed code path'),
-        }),
+        })
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('Do not return review-process steps such as "diff loaded"'),
+        })
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('Evidence-based traces must mention concrete identifiers from the diff.'),
+        })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Do not return review-process steps such as "diff loaded"',
+            'Use concrete code identifiers as callStack node labels, such as Class.method(...), functionName(...), or Client.method(...).'
           ),
-        }),
+        })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Evidence-based traces must mention concrete identifiers from the diff.',
+            'Nest child callStack nodes under the parent frame that directly invokes or depends on them.'
           ),
-        }),
+        })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Use concrete code identifiers as callStack node labels, such as Class.method(...), functionName(...), or Client.method(...).',
+            'Use `captured` for the variables or objects observed at a frame, and `changes` for the values that changed between the current frame and the previous one.'
           ),
-        }),
-      );
-      expect(adapter.execute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prompt: expect.stringContaining(
-            'Nest child callStack nodes under the parent frame that directly invokes or depends on them.',
-          ),
-        }),
-      );
-      expect(adapter.execute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prompt: expect.stringContaining(
-            'Use `captured` for the variables or objects observed at a frame, and `changes` for the values that changed between the current frame and the previous one.',
-          ),
-        }),
+        })
       );
     });
 
@@ -497,8 +471,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
           traceProvenance: 'evidence-based',
           callStack: [
             {
-              frame:
-                'Analyzing payment.controller.ts for changes to event handling.',
+              frame: 'Analyzing payment.controller.ts for changes to event handling.',
               children: [
                 {
                   frame: 'Diff loaded and reviewed.',
@@ -516,8 +489,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
             to: 'reviewed',
             steps: [
               {
-                frame:
-                  'Analyzing payment.controller.ts for changes to event handling.',
+                frame: 'Analyzing payment.controller.ts for changes to event handling.',
                 captured: {
                   diffLoaded: true,
                 },
@@ -555,7 +527,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 +  return addPaymentToBooking();
 +}
 `,
-        ['guideline'],
+        ['guideline']
       );
 
       expect(review.traceProvenance).toBe('unavailable');
@@ -628,7 +600,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 +  return addPaymentToBooking();
 +}
 `,
-        ['guideline'],
+        ['guideline']
       );
 
       expect(review.traceProvenance).toBe('evidence-based');
@@ -690,29 +662,23 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 +  return addPaymentToBooking();
 +}
 `,
-        ['guideline'],
+        ['guideline']
       );
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining(
-            'A suggestion for each issue when remediation is clear',
-          ),
-        }),
+          prompt: expect.stringContaining('A suggestion for each issue when remediation is clear'),
+        })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining(
-            '"suggestion": "optional issue-specific remediation"',
-          ),
-        }),
+          prompt: expect.stringContaining('"suggestion": "optional issue-specific remediation"'),
+        })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining(
-            '"suggestions": ["general follow-up suggestion 1", ...]',
-          ),
-        }),
+          prompt: expect.stringContaining('"suggestions": ["general follow-up suggestion 1", ...]'),
+        })
       );
     });
   });

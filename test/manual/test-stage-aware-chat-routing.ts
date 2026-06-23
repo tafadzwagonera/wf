@@ -147,17 +147,11 @@ async function run(): Promise<void> {
 
       assert(
         executeWithHistory.tracked.calls.length === 1,
-        `Expected executeWithHistory called once, got ${executeWithHistory.tracked.calls.length}`,
+        `Expected executeWithHistory called once, got ${executeWithHistory.tracked.calls.length}`
       );
       const request = executeWithHistory.tracked.calls[0][0];
-      assert(
-        request.stage === 'review',
-        `Expected stage 'review', got '${request.stage}'`,
-      );
-      assert(
-        chatTurn.tracked.calls.length === 0,
-        'Expected chatTurn NOT called',
-      );
+      assert(request.stage === 'review', `Expected stage 'review', got '${request.stage}'`);
+      assert(chatTurn.tracked.calls.length === 0, 'Expected chatTurn NOT called');
 
       console.log('  ✅ Test 1 passed: standard path routes with stage');
     }
@@ -237,40 +231,22 @@ async function run(): Promise<void> {
 
       assert(
         chatTurn.tracked.calls.length === 1,
-        `Expected chatTurn called once, got ${chatTurn.tracked.calls.length}`,
+        `Expected chatTurn called once, got ${chatTurn.tracked.calls.length}`
       );
       const args = chatTurn.tracked.calls[0][0];
-      assert(
-        args.stage === 'review',
-        `Expected stage 'review', got '${args.stage}'`,
-      );
-      assert(
-        args.userMessage === 'what is the trace?',
-        `Expected user message forwarded, got '${args.userMessage}'`,
-      );
-      assert(
-        args.repoDir === '/tmp/test-repo',
-        `Expected repoDir '/tmp/test-repo', got '${args.repoDir}'`,
-      );
-      assert(
-        executeWithHistory.tracked.calls.length === 0,
-        'Expected executeWithHistory NOT called',
-      );
+      assert(args.stage === 'review', `Expected stage 'review', got '${args.stage}'`);
+      assert(args.userMessage === 'what is the trace?', `Expected user message forwarded, got '${args.userMessage}'`);
+      assert(args.repoDir === '/tmp/test-repo', `Expected repoDir '/tmp/test-repo', got '${args.repoDir}'`);
+      assert(executeWithHistory.tracked.calls.length === 0, 'Expected executeWithHistory NOT called');
 
       // Verify assistant message persisted
       const state = service.getConversation(conv.conversationId);
       const lastMsg = state!.messages[state!.messages.length - 1];
-      assert(
-        lastMsg.role === 'assistant' && lastMsg.content === 'agent response',
-        `Expected agent response persisted`,
-      );
+      assert(lastMsg.role === 'assistant' && lastMsg.content === 'agent response', `Expected agent response persisted`);
 
       // Verify displayAssistantResponse received agent message
       const displayedMsg = displayAssistantResponse.tracked.calls[0][0];
-      assert(
-        displayedMsg.content === 'agent response',
-        'Expected agent response displayed',
-      );
+      assert(displayedMsg.content === 'agent response', 'Expected agent response displayed');
 
       console.log('  ✅ Test 2 passed: agent path routes through chatTurn');
     }
@@ -356,27 +332,15 @@ async function run(): Promise<void> {
         repoDir: '/tmp/test-repo',
       });
 
-      assert(
-        chatTurn.tracked.calls.length === 2,
-        `Expected 2 chatTurn calls, got ${chatTurn.tracked.calls.length}`,
-      );
+      assert(chatTurn.tracked.calls.length === 2, `Expected 2 chatTurn calls, got ${chatTurn.tracked.calls.length}`);
 
       // First call: no prior session
-      assert(
-        chatTurn.tracked.calls[0][0].session === undefined,
-        'Expected first call has no session',
-      );
+      assert(chatTurn.tracked.calls[0][0].session === undefined, 'Expected first call has no session');
 
       // Second call: carries session from first
       const secondSession = chatTurn.tracked.calls[1][0].session;
-      assert(
-        secondSession?.provider === 'openai',
-        `Expected provider 'openai', got '${secondSession?.provider}'`,
-      );
-      assert(
-        secondSession?.runState?.id === 'rs-1',
-        'Expected runState from first turn carried',
-      );
+      assert(secondSession?.provider === 'openai', `Expected provider 'openai', got '${secondSession?.provider}'`);
+      assert(secondSession?.runState?.id === 'rs-1', 'Expected runState from first turn carried');
 
       console.log('  ✅ Test 3 passed: agent session carried across turns');
     }
@@ -447,14 +411,8 @@ async function run(): Promise<void> {
         systemPrompt: 'system',
       });
 
-      assert(
-        isEnabledForStage.tracked.calls.length === 0,
-        'Expected isEnabledForStage NOT called when stage omitted',
-      );
-      assert(
-        executeWithHistory.tracked.calls.length === 1,
-        'Expected standard path used',
-      );
+      assert(isEnabledForStage.tracked.calls.length === 0, 'Expected isEnabledForStage NOT called when stage omitted');
+      assert(executeWithHistory.tracked.calls.length === 1, 'Expected standard path used');
 
       console.log('  ✅ Test 4 passed: no stage skips agent check');
     }
@@ -529,25 +487,17 @@ async function run(): Promise<void> {
         repoDir: '/tmp/repo',
       });
 
-      assert(
-        chatTurn.tracked.calls.length === 0,
-        'Expected chatTurn NOT called',
-      );
-      assert(
-        executeWithHistory.tracked.calls.length === 1,
-        'Expected fallback to standard path',
-      );
+      assert(chatTurn.tracked.calls.length === 0, 'Expected chatTurn NOT called');
+      assert(executeWithHistory.tracked.calls.length === 1, 'Expected fallback to standard path');
 
-      console.log(
-        '  ✅ Test 5 passed: unsupported provider falls back to standard',
-      );
+      console.log('  ✅ Test 5 passed: unsupported provider falls back to standard');
     }
   }
 
   console.log('\n✅ All stage-aware chat routing smoke tests passed');
 }
 
-run().catch((error) => {
+run().catch(error => {
   console.error(`\n❌ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

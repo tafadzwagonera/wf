@@ -112,9 +112,7 @@ describe('ConversationService', () => {
 
       await service.createConversation(ticketKey, context);
 
-      expect(loggerService.debug).toHaveBeenCalledWith(
-        expect.stringContaining('Created conversation'),
-      );
+      expect(loggerService.debug).toHaveBeenCalledWith(expect.stringContaining('Created conversation'));
     });
   });
 
@@ -130,10 +128,7 @@ describe('ConversationService', () => {
       const conversation = await service.createConversation(ticketKey, context);
       const userMessage = 'Can you explain this?';
 
-      const updated = await service.addUserMessage(
-        conversation.conversationId,
-        userMessage,
-      );
+      const updated = await service.addUserMessage(conversation.conversationId, userMessage);
 
       expect(updated.messages.length).toBe(1);
       expect(updated.messages[0].role).toBe('user');
@@ -142,9 +137,7 @@ describe('ConversationService', () => {
     });
 
     it('should throw error if conversation not found', async () => {
-      await expect(
-        service.addUserMessage('invalid-id', 'test'),
-      ).rejects.toThrow('Conversation not found');
+      await expect(service.addUserMessage('invalid-id', 'test')).rejects.toThrow('Conversation not found');
     });
   });
 
@@ -168,10 +161,7 @@ describe('ConversationService', () => {
         },
       });
 
-      const response = await service.getAssistantResponse(
-        conversation.conversationId,
-        'You are helpful',
-      );
+      const response = await service.getAssistantResponse(conversation.conversationId, 'You are helpful');
 
       expect(claudeService.executeWithHistory).toHaveBeenCalledWith({
         messages: [{ role: 'user', content: 'Hello' }],
@@ -209,9 +199,7 @@ describe('ConversationService', () => {
     });
 
     it('should throw error if conversation not found', async () => {
-      await expect(service.getAssistantResponse('invalid-id')).rejects.toThrow(
-        'Conversation not found',
-      );
+      await expect(service.getAssistantResponse('invalid-id')).rejects.toThrow('Conversation not found');
     });
 
     it('raises an AIError when the standard assistant response is blank', async () => {
@@ -231,9 +219,7 @@ describe('ConversationService', () => {
         model: 'gpt-5.4',
       } as any);
 
-      await expect(
-        service.getAssistantResponse(conversation.conversationId),
-      ).rejects.toMatchObject({
+      await expect(service.getAssistantResponse(conversation.conversationId)).rejects.toMatchObject({
         message: 'AI provider returned an empty chat response',
         details: expect.objectContaining({
           provider: 'openai',
@@ -273,10 +259,7 @@ describe('ConversationService', () => {
         workflowState: { ticketContent: 'Test' },
       };
 
-      const conversation = await service.createConversation(
-        'TEST-123',
-        context,
-      );
+      const conversation = await service.createConversation('TEST-123', context);
       await service.addUserMessage(conversation.conversationId, 'Hello');
 
       claudeService.executeWithHistory.mockResolvedValue({
@@ -284,15 +267,9 @@ describe('ConversationService', () => {
         usage: { inputTokens: 10, outputTokens: 5 },
       });
 
-      await service.getAssistantResponse(
-        conversation.conversationId,
-        'system',
-        'review',
-      );
+      await service.getAssistantResponse(conversation.conversationId, 'system', 'review');
 
-      expect(claudeService.executeWithHistory).toHaveBeenCalledWith(
-        expect.objectContaining({ stage: 'review' }),
-      );
+      expect(claudeService.executeWithHistory).toHaveBeenCalledWith(expect.objectContaining({ stage: 'review' }));
     });
   });
 
@@ -305,10 +282,7 @@ describe('ConversationService', () => {
         workflowState: { ticketContent: 'Test' },
       };
 
-      const conversation = await service.createConversation(
-        'TEST-123',
-        context,
-      );
+      const conversation = await service.createConversation('TEST-123', context);
 
       stageAgentService.isEnabledForStage.mockReturnValue(false);
       claudeService.executeWithHistory.mockResolvedValue({
@@ -340,10 +314,7 @@ describe('ConversationService', () => {
         workflowState: { ticketContent: 'Test' },
       };
 
-      const conversation = await service.createConversation(
-        'TEST-123',
-        context,
-      );
+      const conversation = await service.createConversation('TEST-123', context);
 
       stageAgentService.isEnabledForStage.mockReturnValue(true);
       stageAgentService.chatTurn.mockResolvedValue({
@@ -370,14 +341,14 @@ describe('ConversationService', () => {
           userMessage: 'question',
           systemPrompt: 'system',
           repoDir: '/projects/repo',
-        }),
+        })
       );
       expect(claudeService.executeWithHistory).not.toHaveBeenCalled();
       expect(chatUIService.displayAssistantResponse).toHaveBeenCalledWith(
         expect.objectContaining({
           role: 'assistant',
           content: 'Agent response',
-        }),
+        })
       );
     });
 
@@ -388,10 +359,7 @@ describe('ConversationService', () => {
         workflowState: { ticketContent: 'Test' },
       };
 
-      const conversation = await service.createConversation(
-        'TEST-123',
-        context,
-      );
+      const conversation = await service.createConversation('TEST-123', context);
 
       claudeService.executeWithHistory.mockResolvedValue({
         content: 'Response',
@@ -428,16 +396,8 @@ describe('ConversationService', () => {
 
       await service.saveConversation(conversation);
 
-      const expectedPath = path.join(
-        os.homedir(),
-        '.wf',
-        'my-app',
-        'review-conversation.json',
-      );
-      expect(fs.promises.rename).toHaveBeenCalledWith(
-        `${expectedPath}.tmp`,
-        expectedPath,
-      );
+      const expectedPath = path.join(os.homedir(), '.wf', 'my-app', 'review-conversation.json');
+      expect(fs.promises.rename).toHaveBeenCalledWith(`${expectedPath}.tmp`, expectedPath);
     });
 
     it('resolves to ~/.wf/<repo>/<tracker>/ when both repoDir and trackerName are present', async () => {
@@ -455,17 +415,8 @@ describe('ConversationService', () => {
 
       await service.saveConversation(conversation);
 
-      const expectedPath = path.join(
-        os.homedir(),
-        '.wf',
-        'my-app',
-        'jira',
-        'TAD-575-conversation.json',
-      );
-      expect(fs.promises.rename).toHaveBeenCalledWith(
-        `${expectedPath}.tmp`,
-        expectedPath,
-      );
+      const expectedPath = path.join(os.homedir(), '.wf', 'my-app', 'jira', 'TAD-575-conversation.json');
+      expect(fs.promises.rename).toHaveBeenCalledWith(`${expectedPath}.tmp`, expectedPath);
     });
   });
 });

@@ -34,10 +34,7 @@ export class SlackService {
    * @param limit - Maximum number of messages to return
    * @returns Channel history messages for synthesis
    */
-  async fetchChannelHistory(
-    channelId: string,
-    limit: number,
-  ): Promise<SlackChannelHistoryResult> {
+  async fetchChannelHistory(channelId: string, limit: number): Promise<SlackChannelHistoryResult> {
     const response = await this.callSlackApi(
       'https://slack.com/api/conversations.history',
       {
@@ -45,7 +42,7 @@ export class SlackService {
         limit,
       },
       channelId,
-      { fallbackOnChannelNotFound: true },
+      { fallbackOnChannelNotFound: true }
     );
 
     return {
@@ -54,10 +51,7 @@ export class SlackService {
     };
   }
 
-  async fetchThread(
-    channelId: string,
-    threadTs: string,
-  ): Promise<SlackThreadResult> {
+  async fetchThread(channelId: string, threadTs: string): Promise<SlackThreadResult> {
     const response = await this.callSlackApi(
       'https://slack.com/api/conversations.replies',
       {
@@ -65,7 +59,7 @@ export class SlackService {
         ts: threadTs,
       },
       channelId,
-      { fallbackOnChannelNotFound: true },
+      { fallbackOnChannelNotFound: true }
     );
 
     return {
@@ -88,23 +82,18 @@ export class SlackService {
     endpoint: string,
     params: Record<string, string | number>,
     channelId: string,
-    options: SlackApiOptions = {},
+    options: SlackApiOptions = {}
   ): Promise<any> {
     const primaryToken = this.getSlackToken('bot');
     const userToken = this.getSlackToken('user');
     const tokens = primaryToken
-      ? [
-          primaryToken,
-          ...(userToken && userToken !== primaryToken ? [userToken] : []),
-        ]
+      ? [primaryToken, ...(userToken && userToken !== primaryToken ? [userToken] : [])]
       : userToken
         ? [userToken]
         : [];
 
     if (tokens.length === 0) {
-      throw new Error(
-        'Set slack.botToken or slack.userToken before using Slack sources',
-      );
+      throw new Error('Set slack.botToken or slack.userToken before using Slack sources');
     }
 
     let lastResponseData: any;
@@ -123,9 +112,7 @@ export class SlackService {
       }
 
       const shouldRetry =
-        options.fallbackOnChannelNotFound &&
-        response.data?.error === 'channel_not_found' &&
-        index < tokens.length - 1;
+        options.fallbackOnChannelNotFound && response.data?.error === 'channel_not_found' && index < tokens.length - 1;
 
       if (!shouldRetry) {
         this.ensureSlackResponseOk(response.data, channelId);
@@ -143,8 +130,7 @@ export class SlackService {
    * @returns Slack token when configured
    */
   private getSlackToken(tokenType: 'bot' | 'user'): string | undefined {
-    const configKey =
-      tokenType === 'bot' ? 'slack.botToken' : 'slack.userToken';
+    const configKey = tokenType === 'bot' ? 'slack.botToken' : 'slack.userToken';
     const token = this.configService.get<string>(configKey)?.trim();
 
     return token ? token : undefined;
@@ -180,13 +166,13 @@ export class SlackService {
     if (error === 'not_in_channel') {
       throw new Error(
         `Slack bot is not a member of channel ${channelId}. ` +
-          `Invite it first: open the channel in Slack and run /invite @<your-bot-name>`,
+          `Invite it first: open the channel in Slack and run /invite @<your-bot-name>`
       );
     }
     if (error === 'channel_not_found') {
       throw new Error(
         `Slack channel ${channelId} not found. ` +
-          `Check the permalink, ensure the token has access to the workspace, or configure slack.userToken for DM/MPDM conversations.`,
+          `Check the permalink, ensure the token has access to the workspace, or configure slack.userToken for DM/MPDM conversations.`
       );
     }
     throw new Error(`Slack API error: ${error}`);

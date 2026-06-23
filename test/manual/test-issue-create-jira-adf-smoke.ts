@@ -29,10 +29,7 @@ const collectAdfNodes = (node: unknown): AdfNode[] => {
   }
 
   const objectNode = node as AdfNode;
-  return [
-    objectNode,
-    ...Object.values(objectNode).flatMap((value) => collectAdfNodes(value)),
-  ];
+  return [objectNode, ...Object.values(objectNode).flatMap(value => collectAdfNodes(value))];
 };
 
 const createJiraService = (): {
@@ -62,7 +59,7 @@ const createJiraService = (): {
     } as any,
     {
       isPlatformEnabled: () => true,
-    } as any,
+    } as any
   );
 
   jestResolvePriority(service);
@@ -109,24 +106,21 @@ async function main() {
   const serializedPayload = JSON.stringify(payload);
 
   assert.strictEqual(payload.fields.description.type, 'doc');
-  assert(adfNodes.some((node) => node.type === 'heading'));
-  assert(adfNodes.some((node) => node.type === 'codeBlock'));
-  assert(adfNodes.some((node) => node.type === 'bulletList'));
+  assert(adfNodes.some(node => node.type === 'heading'));
+  assert(adfNodes.some(node => node.type === 'codeBlock'));
+  assert(adfNodes.some(node => node.type === 'bulletList'));
   assert(!serializedPayload.includes('{noformat}'));
   assert(!serializedPayload.includes('{code}'));
   assert(
     !adfNodes.some(
-      (node) =>
-        node.type === 'text' &&
-        typeof node.text === 'string' &&
-        node.text.startsWith('- **Storage selection:**'),
-    ),
+      node => node.type === 'text' && typeof node.text === 'string' && node.text.startsWith('- **Storage selection:**')
+    )
   );
 
   console.log('PASS: Jira create payload contains Jira-safe ADF formatting.');
 }
 
-main().catch((error) => {
+main().catch(error => {
   console.error(error);
   process.exit(1);
 });

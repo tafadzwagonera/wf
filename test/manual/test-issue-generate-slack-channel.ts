@@ -61,9 +61,7 @@ Issue generation now reads recent Slack channel messages for bare archive URLs.
 `;
 
 async function testIssueGenerateSlackChannel() {
-  console.log(
-    '\n🧪 Manual Test: issue:generate with Slack channel archive URL\n',
-  );
+  console.log('\n🧪 Manual Test: issue:generate with Slack channel archive URL\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
@@ -83,12 +81,8 @@ async function testIssueGenerateSlackChannel() {
   };
 
   let slackFetchCallArgs: [string, number] | null = null;
-  const originalFetchChannelHistory =
-    SlackService.prototype.fetchChannelHistory;
-  (SlackService.prototype as any).fetchChannelHistory = async (
-    channelId: string,
-    limit: number,
-  ) => {
+  const originalFetchChannelHistory = SlackService.prototype.fetchChannelHistory;
+  (SlackService.prototype as any).fetchChannelHistory = async (channelId: string, limit: number) => {
     slackFetchCallArgs = [channelId, limit];
     return {
       channelId,
@@ -115,10 +109,7 @@ async function testIssueGenerateSlackChannel() {
   const originalMkdir = fs.promises.mkdir;
   const originalWriteFile = fs.promises.writeFile;
   (fs.promises as any).mkdir = async () => undefined;
-  (fs.promises as any).writeFile = async (
-    filePath: string,
-    content: string,
-  ) => {
+  (fs.promises as any).writeFile = async (filePath: string, content: string) => {
     artifactWritePath = filePath;
     artifactWriteContent = content;
   };
@@ -141,13 +132,11 @@ async function testIssueGenerateSlackChannel() {
     const channelId = slackFetchCallArgs[0];
     const limit = slackFetchCallArgs[1];
     if (channelId === EXPECTED_CHANNEL_ID && limit === EXPECTED_LIMIT) {
-      pass(
-        `SlackService.fetchChannelHistory called with ('${channelId}', ${limit})`,
-      );
+      pass(`SlackService.fetchChannelHistory called with ('${channelId}', ${limit})`);
     } else {
       fail(
         'SlackService.fetchChannelHistory called with wrong args',
-        `Expected ('${EXPECTED_CHANNEL_ID}', ${EXPECTED_LIMIT}) but got ('${channelId}', ${limit})`,
+        `Expected ('${EXPECTED_CHANNEL_ID}', ${EXPECTED_LIMIT}) but got ('${channelId}', ${limit})`
       );
     }
   } else {
@@ -156,25 +145,18 @@ async function testIssueGenerateSlackChannel() {
 
   const expectedLine0 = `[${MOCK_SLACK_MESSAGES[0].ts}] ${MOCK_SLACK_MESSAGES[0].user}: ${MOCK_SLACK_MESSAGES[0].text}`;
   const expectedLine1 = `[${MOCK_SLACK_MESSAGES[1].ts}] ${MOCK_SLACK_MESSAGES[1].user}: ${MOCK_SLACK_MESSAGES[1].text}`;
-  const artifactWritePathString = artifactWritePath
-    ? String(artifactWritePath)
-    : '';
-  const artifactWriteContentString = artifactWriteContent
-    ? String(artifactWriteContent)
-    : '';
-  const hasExpectedArtifactPath = artifactWritePathString.endsWith(
-    `slack-channel-${EXPECTED_CHANNEL_ID}.md`,
-  );
+  const artifactWritePathString = artifactWritePath ? String(artifactWritePath) : '';
+  const artifactWriteContentString = artifactWriteContent ? String(artifactWriteContent) : '';
+  const hasExpectedArtifactPath = artifactWritePathString.endsWith(`slack-channel-${EXPECTED_CHANNEL_ID}.md`);
   const hasExpectedArtifactContent =
-    artifactWriteContentString.includes(expectedLine0) &&
-    artifactWriteContentString.includes(expectedLine1);
+    artifactWriteContentString.includes(expectedLine0) && artifactWriteContentString.includes(expectedLine1);
 
   if (hasExpectedArtifactPath && hasExpectedArtifactContent) {
     pass(`Artifact write captured at ${artifactWritePath}`);
   } else {
     fail(
       'Artifact write was not captured with the expected content',
-      `Path: ${artifactWritePathString || 'null'}\n    Content:\n    ${artifactWriteContentString || 'null'}`,
+      `Path: ${artifactWritePathString || 'null'}\n    Content:\n    ${artifactWriteContentString || 'null'}`
     );
   }
 
@@ -189,7 +171,7 @@ async function testIssueGenerateSlackChannel() {
   } else {
     fail(
       'Output missing "### Summary" section',
-      `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`,
+      `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`
     );
   }
 

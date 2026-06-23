@@ -3,11 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as os from 'os';
 import * as path from 'path';
-import type {
-  AIConversationRequest,
-  AIRequest,
-  AIResponse,
-} from '../ai.service';
+import type { AIConversationRequest, AIRequest, AIResponse } from '../ai.service';
 import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
@@ -35,18 +31,17 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
 
   constructor(
     private configService: ConfigService,
-    private logger: LoggerService,
+    private logger: LoggerService
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const providers =
-      this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
+    const providers = this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
 
     this.contextConfig = await loadAiContextConfig(
       path.join(os.homedir(), '.gemini', 'GEMINI.md'),
       'GEMINI.md',
       'gemini',
-      hasProviderUsageIntent(providers, 'google'),
+      hasProviderUsageIntent(providers, 'google')
     );
   }
 
@@ -60,7 +55,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
     if (!apiKey) {
       if (!this.didWarnMissingConfig) {
         this.logger.warn(
-          'Gemini API key not configured. Add `ai: [{ provider: "google", apiKey: "..." }]` to wf.config.*.',
+          'Gemini API key not configured. Add `ai: [{ provider: "google", apiKey: "..." }]` to wf.config.*.'
         );
         this.didWarnMissingConfig = true;
       }
@@ -93,15 +88,15 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
         promptTokenCount?: number;
         candidatesTokenCount?: number;
       };
-    },
+    }
   ): AIResponse {
-    const contentTypes = response.candidates?.flatMap((candidate) => {
+    const contentTypes = response.candidates?.flatMap(candidate => {
       const parts = candidate.content?.parts ?? [];
       if (parts.length === 0) {
         return ['text'];
       }
 
-      return parts.map((part) => ('text' in part ? 'text' : 'unknown'));
+      return parts.map(part => ('text' in part ? 'text' : 'unknown'));
     });
 
     return {
@@ -124,7 +119,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
       throw new AIError(
         'Gemini client not initialized. Configure `ai[].apiKey` for the `google` provider in wf.config.*.',
         null,
-        false,
+        false
       );
     }
 
@@ -152,30 +147,22 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
 
       return this.buildResponseMetadata(content, model, response);
     } catch (error) {
-      throw new AIError(
-        `Gemini API error: ${error instanceof Error ? error.message : String(error)}`,
-        error,
-        true,
-      );
+      throw new AIError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true);
     }
   }
 
-  async executeWithHistory(
-    request: AIConversationRequest,
-  ): Promise<AIResponse> {
+  async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
     this.initializeClient();
 
     if (!this.client) {
       throw new AIError(
         'Gemini client not initialized. Configure `ai[].apiKey` for the `google` provider in wf.config.*.',
         null,
-        false,
+        false
       );
     }
 
-    this.logger.debug(
-      `Executing conversation request with ${request.messages.length} messages via Gemini`,
-    );
+    this.logger.debug(`Executing conversation request with ${request.messages.length} messages via Gemini`);
 
     try {
       const model = request.model || this.model;
@@ -194,7 +181,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
       });
 
       // Gemini uses 'model' instead of 'assistant' and parts[] instead of content
-      const history = request.messages.slice(0, -1).map((msg) => ({
+      const history = request.messages.slice(0, -1).map(msg => ({
         role: msg.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: msg.content }],
       }));
@@ -207,11 +194,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
 
       return this.buildResponseMetadata(content, model, response);
     } catch (error) {
-      throw new AIError(
-        `Gemini API error: ${error instanceof Error ? error.message : String(error)}`,
-        error,
-        true,
-      );
+      throw new AIError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true);
     }
   }
 }

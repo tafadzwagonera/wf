@@ -16,11 +16,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import {
-  splitDiffByFile,
-  summariseDiff,
-  MAX_REVIEW_DIFF_LENGTH,
-} from '../../src/review/summarise-diff';
+import { splitDiffByFile, summariseDiff, MAX_REVIEW_DIFF_LENGTH } from '../../src/review/summarise-diff';
 
 async function testReviewDiffSummarisation() {
   console.log('\n\u{1F9EA} Manual Test: review diff summarisation\n');
@@ -70,17 +66,13 @@ async function testReviewDiffSummarisation() {
     ) {
       pass('Test 1: splitDiffByFile splits 3-file diff correctly');
     } else {
-      fail(
-        `Test 1: Expected 3 segments, got ${segments.length}: ${segments.map((s) => s.file).join(', ')}`,
-      );
+      fail(`Test 1: Expected 3 segments, got ${segments.length}: ${segments.map(s => s.file).join(', ')}`);
     }
   }
 
   // ── Test 2: summariseDiff passes through under-threshold diffs ────────
   {
-    const segments = [
-      { file: 'a.ts', patch: 'diff --git a/a.ts b/a.ts\n-old\n+new' },
-    ];
+    const segments = [{ file: 'a.ts', patch: 'diff --git a/a.ts b/a.ts\n-old\n+new' }];
     const mockSummarise = async () => '- summary';
     const result = await summariseDiff(segments, 1000, mockSummarise);
 
@@ -108,15 +100,13 @@ async function testReviewDiffSummarisation() {
         { file: 'large.ts', patch: largePatch },
       ],
       100,
-      mockSummarise,
+      mockSummarise
     );
 
     if (summarisedFile === 'large.ts' && result.includes('(summarised)')) {
       pass('Test 3: Largest segment summarised first');
     } else {
-      fail(
-        `Test 3: Expected large.ts to be summarised, got: ${summarisedFile}`,
-      );
+      fail(`Test 3: Expected large.ts to be summarised, got: ${summarisedFile}`);
     }
   }
 
@@ -130,7 +120,7 @@ async function testReviewDiffSummarisation() {
         { file: 'c.ts', patch: 'diff --git a/c.ts b/c.ts\n' + 'c'.repeat(100) },
       ],
       80,
-      mockSummarise,
+      mockSummarise
     );
 
     const aPos = result.indexOf('a.ts');
@@ -160,7 +150,7 @@ async function testReviewDiffSummarisation() {
         { file: 'ok.ts', patch: okPatch },
       ],
       100,
-      failingSummarise,
+      failingSummarise
     );
 
     if (result.includes(failingPatch)) {
@@ -172,18 +162,10 @@ async function testReviewDiffSummarisation() {
 
   // ── Test 6: ai.service.ts no longer truncates ─────────────────────────
   {
-    const aiServicePath = path.resolve(
-      __dirname,
-      '../../src/integrations/ai/ai.service.ts',
-    );
+    const aiServicePath = path.resolve(__dirname, '../../src/integrations/ai/ai.service.ts');
     const aiServiceSource = fs.readFileSync(aiServicePath, 'utf-8');
-    const reviewCodeSection = aiServiceSource.slice(
-      aiServiceSource.indexOf('async reviewCode('),
-    );
-    const reviewCodeMethod = reviewCodeSection.slice(
-      0,
-      reviewCodeSection.indexOf('\n  async '),
-    );
+    const reviewCodeSection = aiServiceSource.slice(aiServiceSource.indexOf('async reviewCode('));
+    const reviewCodeMethod = reviewCodeSection.slice(0, reviewCodeSection.indexOf('\n  async '));
 
     if (!reviewCodeMethod.includes('substring(0, 5000)')) {
       pass('Test 6: ai.service.ts reviewCode has no 5000-char truncation');
@@ -194,23 +176,13 @@ async function testReviewDiffSummarisation() {
 
   // ── Test 7: stage-agent.service.ts no longer truncates ────────────────
   {
-    const stageAgentPath = path.resolve(
-      __dirname,
-      '../../src/integrations/ai/stage-agent.service.ts',
-    );
+    const stageAgentPath = path.resolve(__dirname, '../../src/integrations/ai/stage-agent.service.ts');
     const stageAgentSource = fs.readFileSync(stageAgentPath, 'utf-8');
-    const reviewCodeSection = stageAgentSource.slice(
-      stageAgentSource.indexOf('async reviewCode('),
-    );
-    const reviewCodeMethod = reviewCodeSection.slice(
-      0,
-      reviewCodeSection.indexOf('\n  async '),
-    );
+    const reviewCodeSection = stageAgentSource.slice(stageAgentSource.indexOf('async reviewCode('));
+    const reviewCodeMethod = reviewCodeSection.slice(0, reviewCodeSection.indexOf('\n  async '));
 
     if (!reviewCodeMethod.includes('substring(0, 5000)')) {
-      pass(
-        'Test 7: stage-agent.service.ts reviewCode has no 5000-char truncation',
-      );
+      pass('Test 7: stage-agent.service.ts reviewCode has no 5000-char truncation');
     } else {
       fail('Test 7: stage-agent.service.ts still contains substring(0, 5000)');
     }
@@ -218,15 +190,10 @@ async function testReviewDiffSummarisation() {
 
   // ── Test 8: review-stage.service.ts integrates summariseDiff ──────────
   {
-    const reviewStagePath = path.resolve(
-      __dirname,
-      '../../src/workflows/stages/review-stage.service.ts',
-    );
+    const reviewStagePath = path.resolve(__dirname, '../../src/workflows/stages/review-stage.service.ts');
     const reviewStageSource = fs.readFileSync(reviewStagePath, 'utf-8');
 
-    const hasSummariseDiffImport = reviewStageSource.includes(
-      "from '../../review/summarise-diff'",
-    );
+    const hasSummariseDiffImport = reviewStageSource.includes("from '../../review/summarise-diff'");
     const hasSummariseDiffCall = reviewStageSource.includes('summariseDiff(');
     const hasSplitDiffCall = reviewStageSource.includes('splitDiffByFile(');
 
@@ -234,7 +201,7 @@ async function testReviewDiffSummarisation() {
       pass('Test 8: review-stage.service.ts imports and uses summariseDiff');
     } else {
       fail(
-        `Test 8: Missing integration — import:${hasSummariseDiffImport}, summariseDiff:${hasSummariseDiffCall}, splitDiffByFile:${hasSplitDiffCall}`,
+        `Test 8: Missing integration — import:${hasSummariseDiffImport}, summariseDiff:${hasSummariseDiffCall}, splitDiffByFile:${hasSplitDiffCall}`
       );
     }
   }
@@ -244,9 +211,7 @@ async function testReviewDiffSummarisation() {
     if (MAX_REVIEW_DIFF_LENGTH === 80_000) {
       pass('Test 9: MAX_REVIEW_DIFF_LENGTH is 80,000');
     } else {
-      fail(
-        `Test 9: MAX_REVIEW_DIFF_LENGTH is ${MAX_REVIEW_DIFF_LENGTH}, expected 80,000`,
-      );
+      fail(`Test 9: MAX_REVIEW_DIFF_LENGTH is ${MAX_REVIEW_DIFF_LENGTH}, expected 80,000`);
     }
   }
 
@@ -257,7 +222,7 @@ async function testReviewDiffSummarisation() {
   }
 }
 
-testReviewDiffSummarisation().catch((err) => {
+testReviewDiffSummarisation().catch(err => {
   console.error('Fatal:', err);
   process.exit(1);
 });

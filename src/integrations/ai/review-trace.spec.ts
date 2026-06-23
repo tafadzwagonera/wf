@@ -1,7 +1,4 @@
-import {
-  formatReviewCallStack,
-  formatReviewStateTransition,
-} from './review-trace';
+import { formatReviewCallStack, formatReviewStateTransition } from './review-trace';
 
 describe('formatReviewCallStack', () => {
   it('returns no elements with embedded newlines when nodes contain multiline frames', () => {

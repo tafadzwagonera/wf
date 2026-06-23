@@ -38,8 +38,7 @@ describe('implement verification helpers', () => {
       const result = classifyVerificationFailure({
         command: 'yarn format',
         stdout: '',
-        stderr:
-          '[error] src/example.spec.ts: SyntaxError: Unterminated template literal. (9:13)',
+        stderr: '[error] src/example.spec.ts: SyntaxError: Unterminated template literal. (9:13)',
       });
 
       expect(result.category).toBe('parse');
@@ -52,8 +51,7 @@ describe('implement verification helpers', () => {
     it('classifies lint failures as lint', () => {
       const result = classifyVerificationFailure({
         command: 'yarn lint:fix',
-        stdout:
-          '/tmp/repo/src/example.ts\n  4:7  error  x is assigned a value but never used',
+        stdout: '/tmp/repo/src/example.ts\n  4:7  error  x is assigned a value but never used',
         stderr: '',
       });
 
@@ -83,9 +81,7 @@ describe('implement verification helpers', () => {
         provider: 'anthropic',
       };
 
-      expect(formatBackendSelection(selection)).toBe(
-        'Implement backend: anthropic-agent (provider: anthropic)',
-      );
+      expect(formatBackendSelection(selection)).toBe('Implement backend: anthropic-agent (provider: anthropic)');
     });
 
     it('formats openai-agent selections', () => {
@@ -95,9 +91,7 @@ describe('implement verification helpers', () => {
         provider: 'openai',
       };
 
-      expect(formatBackendSelection(selection)).toBe(
-        'Implement backend: openai-agent (provider: openai)',
-      );
+      expect(formatBackendSelection(selection)).toBe('Implement backend: openai-agent (provider: openai)');
     });
   });
 
@@ -110,9 +104,7 @@ describe('implement verification helpers', () => {
       });
 
       expect(signal.verdict).toBe('continue');
-      expect(formatImplementProgressSignal(signal)).toContain(
-        'progress: continue',
-      );
+      expect(formatImplementProgressSignal(signal)).toContain('progress: continue');
     });
 
     it('marks a successful verification as complete', () => {
@@ -139,16 +131,11 @@ describe('implement verification helpers', () => {
       });
 
       expect(signal.verdict).toBe('continue');
-      expect(signal.reasons).toEqual(
-        expect.arrayContaining(['Checking file boundaries', 'last tool: Edit']),
-      );
+      expect(signal.reasons).toEqual(expect.arrayContaining(['Checking file boundaries', 'last tool: Edit']));
     });
 
     it('builds a verification command order map from the configured scripts', () => {
-      const order = buildVerificationCommandOrder([
-        { command: 'npm test' },
-        { command: 'yarn lint' },
-      ]);
+      const order = buildVerificationCommandOrder([{ command: 'npm test' }, { command: 'yarn lint' }]);
 
       expect(order.get('npm test')).toBe(0);
       expect(order.get('yarn lint')).toBe(1);
@@ -160,9 +147,9 @@ describe('implement verification helpers', () => {
         Array.from(
           extractVerificationErrorClasses(
             "src/example.ts:1:1 - error TS2322: Type 'string' is not assignable to type 'number'",
-            'eslint: no-unused-vars',
-          ),
-        ),
+            'eslint: no-unused-vars'
+          )
+        )
       ).toEqual(expect.arrayContaining(['type', 'lint']));
     });
   });
@@ -184,7 +171,7 @@ describe('implement verification helpers', () => {
       expect(mockFs.writeFileSync).toHaveBeenCalledWith(
         '/tmp/run.json',
         expect.stringContaining('"attempts": []'),
-        'utf-8',
+        'utf-8'
       );
     });
   });
@@ -204,7 +191,7 @@ describe('implement verification helpers', () => {
             startedAt: '2026-04-09T00:00:00.000Z',
           },
           attempts: [],
-        }),
+        })
       );
 
       const attempt: VerificationAttemptArtifact = {
@@ -237,7 +224,7 @@ describe('implement verification helpers', () => {
       expect(mockFs.writeFileSync).toHaveBeenCalledWith(
         '/tmp/run.json',
         expect.stringContaining('"attemptNumber": 1'),
-        'utf-8',
+        'utf-8'
       );
     });
   });

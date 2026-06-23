@@ -2,12 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import {
-  CreateTicketRequest,
-  JiraTicket,
-  UpdateTicketRequest,
-  JiraSearchRequest,
-} from './dto/jira.dto';
+import { CreateTicketRequest, JiraTicket, UpdateTicketRequest, JiraSearchRequest } from './dto/jira.dto';
 import { JiraApiError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { IssueTrackerConfigService } from '../issue-trackers/issue-tracker-config.service';
@@ -22,17 +17,11 @@ import { stripInlineMarkdownDelimiters } from '../../common/utils/markdown-text'
  */
 const normalizeMarkdownForADF = (markdown: string): string =>
   markdown
-    .replace(
-      /\{code(?::([^}\n]+))?\}([\s\S]*?)\{code\}/g,
-      (_match, language: string | undefined, code: string) => {
-        const lang = language?.trim() ?? '';
-        return `\`\`\`${lang}\n${code.trim()}\n\`\`\``;
-      },
-    )
-    .replace(
-      /\{noformat\}([\s\S]*?)\{noformat\}/g,
-      (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``,
-    )
+    .replace(/\{code(?::([^}\n]+))?\}([\s\S]*?)\{code\}/g, (_match, language: string | undefined, code: string) => {
+      const lang = language?.trim() ?? '';
+      return `\`\`\`${lang}\n${code.trim()}\n\`\`\``;
+    })
+    .replace(/\{noformat\}([\s\S]*?)\{noformat\}/g, (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``)
     .replace(/^[ \t]*\*\s+/gm, '- ')
     .replace(/\{\{([^}]+)\}\}/g, (_match, content: string) => `\`${content}\``);
 
@@ -45,23 +34,15 @@ const normalizeMarkdownForADF = (markdown: string): string =>
  */
 const normalizeWikiMarkupInMarkdown = (text: string): string =>
   text
-    .replace(
-      /\{code(?::([^}\n]+))?\}([\s\S]*?)\{code\}/g,
-      (_match, language: string | undefined, code: string) => {
-        const lang = language?.trim() ?? '';
-        return `\`\`\`${lang}\n${code.trim()}\n\`\`\``;
-      },
-    )
-    .replace(
-      /\{noformat\}([\s\S]*?)\{noformat\}/g,
-      (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``,
-    )
+    .replace(/\{code(?::([^}\n]+))?\}([\s\S]*?)\{code\}/g, (_match, language: string | undefined, code: string) => {
+      const lang = language?.trim() ?? '';
+      return `\`\`\`${lang}\n${code.trim()}\n\`\`\``;
+    })
+    .replace(/\{noformat\}([\s\S]*?)\{noformat\}/g, (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``)
     .replace(/\{\{([^}]+)\}\}/g, (_match, content: string) => `\`${content}\``)
-    .replace(/^(# .+(?:\n# .+)+)$/gm, (block) => {
+    .replace(/^(# .+(?:\n# .+)+)$/gm, block => {
       const items = block.split('\n');
-      return items
-        .map((line, i) => `${i + 1}. ${line.replace(/^#\s+/, '')}`)
-        .join('\n');
+      return items.map((line, i) => `${i + 1}. ${line.replace(/^#\s+/, '')}`).join('\n');
     })
     .replace(/^\*\s+/gm, '- ');
 
@@ -105,25 +86,21 @@ export class JiraService {
     private configService: ConfigService,
     private httpService: HttpService,
     private logger: LoggerService,
-    private issueTrackerConfig: IssueTrackerConfigService,
+    private issueTrackerConfig: IssueTrackerConfigService
   ) {
     this.baseUrl = this.configService.get<string>('atlassian.baseUrl');
     this.email = this.configService.get<string>('atlassian.email');
     this.apiToken = this.configService.get<string>('atlassian.apiToken');
-    this.defaultProject = this.configService.get<string>(
-      'atlassian.jira.defaultProject',
-    );
+    this.defaultProject = this.configService.get<string>('atlassian.jira.defaultProject');
 
     // Check if platform has any configuration (partial config detection)
-    const hasPartialConfig = Boolean(
-      this.baseUrl || this.email || this.apiToken || this.defaultProject,
-    );
+    const hasPartialConfig = Boolean(this.baseUrl || this.email || this.apiToken || this.defaultProject);
 
     if (!this.baseUrl || !this.email || !this.apiToken) {
       // Only warn if platform is enabled
       if (this.issueTrackerConfig.isTrackerEnabled('jira', hasPartialConfig)) {
         this.logger.warn(
-          'Jira credentials not configured. Set atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken in wf.config.*.',
+          'Jira credentials not configured. Set atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken in wf.config.*.'
         );
       }
     }
@@ -134,7 +111,7 @@ export class JiraService {
       throw new JiraApiError(
         'Jira is not configured. Set atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken in wf.config.*.',
         null,
-        false,
+        false
       );
     }
   }
@@ -144,17 +121,13 @@ export class JiraService {
    * matches the requested priority (case-insensitive). Returns undefined
    * if no match is found or the fetch fails.
    */
-  async resolveValidPriorityName(
-    requested: string,
-  ): Promise<string | undefined> {
+  async resolveValidPriorityName(requested: string): Promise<string | undefined> {
     try {
       const url = `${this.baseUrl}/rest/api/3/priority`;
-      const response = await firstValueFrom(
-        this.httpService.get(url, { headers: this.getAuthHeaders() }),
-      );
+      const response = await firstValueFrom(this.httpService.get(url, { headers: this.getAuthHeaders() }));
       const priorities: Array<{ id: string; name: string }> = response.data;
       const lower = requested.toLowerCase();
-      const match = priorities.find((p) => p.name.toLowerCase() === lower);
+      const match = priorities.find(p => p.name.toLowerCase() === lower);
       return match?.name;
     } catch {
       return undefined;
@@ -173,21 +146,15 @@ export class JiraService {
   async resolveCreatePriorityName(
     projectKey: string,
     issueTypeName: string,
-    requestedPriority: string,
+    requestedPriority: string
   ): Promise<string | undefined> {
     try {
-      const issueTypeId = await this.resolveCreateIssueTypeId(
-        projectKey,
-        issueTypeName,
-      );
+      const issueTypeId = await this.resolveCreateIssueTypeId(projectKey, issueTypeName);
       if (!issueTypeId) {
         return this.resolveValidPriorityName(requestedPriority);
       }
 
-      const allowedPriorities = await this.fetchCreateAllowedPriorities(
-        projectKey,
-        issueTypeId,
-      );
+      const allowedPriorities = await this.fetchCreateAllowedPriorities(projectKey, issueTypeId);
       if (!allowedPriorities) {
         return undefined;
       }
@@ -205,21 +172,12 @@ export class JiraService {
    * @param issueTypeName - Jira issue type name to match case-insensitively
    * @returns Jira issue type ID, or undefined when no match is available
    */
-  private async resolveCreateIssueTypeId(
-    projectKey: string,
-    issueTypeName: string,
-  ): Promise<string | undefined> {
-    const url = `${this.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(
-      projectKey,
-    )}/issuetypes`;
-    const response = await firstValueFrom(
-      this.httpService.get(url, { headers: this.getAuthHeaders() }),
-    );
+  private async resolveCreateIssueTypeId(projectKey: string, issueTypeName: string): Promise<string | undefined> {
+    const url = `${this.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(projectKey)}/issuetypes`;
+    const response = await firstValueFrom(this.httpService.get(url, { headers: this.getAuthHeaders() }));
     const issueTypes = this.extractCreateIssueTypes(response.data);
     const lowerIssueTypeName = issueTypeName.toLowerCase();
-    return issueTypes.find(
-      (issueType) => issueType.name.toLowerCase() === lowerIssueTypeName,
-    )?.id;
+    return issueTypes.find(issueType => issueType.name.toLowerCase() === lowerIssueTypeName)?.id;
   }
 
   /**
@@ -231,14 +189,12 @@ export class JiraService {
    */
   private async fetchCreateAllowedPriorities(
     projectKey: string,
-    issueTypeId: string,
+    issueTypeId: string
   ): Promise<JiraAllowedPriority[] | undefined> {
     const url = `${this.baseUrl}/rest/api/3/issue/createmeta/${encodeURIComponent(
-      projectKey,
+      projectKey
     )}/issuetypes/${encodeURIComponent(issueTypeId)}`;
-    const response = await firstValueFrom(
-      this.httpService.get(url, { headers: this.getAuthHeaders() }),
-    );
+    const response = await firstValueFrom(this.httpService.get(url, { headers: this.getAuthHeaders() }));
     const priorityField = this.extractCreatePriorityField(response.data);
     return priorityField?.allowedValues;
   }
@@ -260,8 +216,8 @@ export class JiraService {
         issueType &&
         typeof issueType === 'object' &&
         typeof (issueType as JiraCreateIssueType).id === 'string' &&
-        typeof (issueType as JiraCreateIssueType).name === 'string',
-      ),
+        typeof (issueType as JiraCreateIssueType).name === 'string'
+      )
     );
   }
 
@@ -271,21 +227,14 @@ export class JiraService {
    * @param data - Raw Jira create fields response
    * @returns Priority field metadata, or undefined when absent
    */
-  private extractCreatePriorityField(
-    data: unknown,
-  ): JiraCreateField | undefined {
+  private extractCreatePriorityField(data: unknown): JiraCreateField | undefined {
     const fields = (data as { fields?: unknown })?.fields;
     if (Array.isArray(fields)) {
-      return fields.find((field): field is JiraCreateField =>
-        this.isPriorityCreateField(field),
-      );
+      return fields.find((field): field is JiraCreateField => this.isPriorityCreateField(field));
     }
 
-    const priorityField = (fields as { priority?: unknown } | undefined)
-      ?.priority;
-    return this.isCreateFieldWithAllowedValues(priorityField)
-      ? priorityField
-      : undefined;
+    const priorityField = (fields as { priority?: unknown } | undefined)?.priority;
+    return this.isCreateFieldWithAllowedValues(priorityField) ? priorityField : undefined;
   }
 
   /**
@@ -299,8 +248,7 @@ export class JiraService {
 
     const createField = field;
     const fieldKey = createField.key ?? createField.fieldId;
-    const isPriority =
-      fieldKey === 'priority' || createField.name?.toLowerCase() === 'priority';
+    const isPriority = fieldKey === 'priority' || createField.name?.toLowerCase() === 'priority';
     return isPriority;
   }
 
@@ -310,14 +258,8 @@ export class JiraService {
    * @param field - Raw create metadata field
    * @returns True when the field has an allowed values array
    */
-  private isCreateFieldWithAllowedValues(
-    field: unknown,
-  ): field is JiraCreateField {
-    return Boolean(
-      field &&
-      typeof field === 'object' &&
-      Array.isArray((field as JiraCreateField).allowedValues),
-    );
+  private isCreateFieldWithAllowedValues(field: unknown): field is JiraCreateField {
+    return Boolean(field && typeof field === 'object' && Array.isArray((field as JiraCreateField).allowedValues));
   }
 
   /**
@@ -329,32 +271,21 @@ export class JiraService {
    */
   private matchAllowedPriority(
     requestedPriority: string,
-    allowedPriorities: JiraAllowedPriority[],
+    allowedPriorities: JiraAllowedPriority[]
   ): string | undefined {
     const lowerRequestedPriority = requestedPriority.toLowerCase();
-    const exactMatch = allowedPriorities.find(
-      (priority) => priority.name.toLowerCase() === lowerRequestedPriority,
-    );
+    const exactMatch = allowedPriorities.find(priority => priority.name.toLowerCase() === lowerRequestedPriority);
     if (exactMatch) {
       return exactMatch.name;
     }
 
-    const aliasNames =
-      PRIORITY_ALIAS_NAMES[
-        lowerRequestedPriority as keyof typeof PRIORITY_ALIAS_NAMES
-      ] ?? [];
-    const lowerAliasNames = new Set(
-      aliasNames.map((aliasName) => aliasName.toLowerCase()),
-    );
-    return allowedPriorities.find((priority) =>
-      lowerAliasNames.has(priority.name.toLowerCase()),
-    )?.name;
+    const aliasNames = PRIORITY_ALIAS_NAMES[lowerRequestedPriority as keyof typeof PRIORITY_ALIAS_NAMES] ?? [];
+    const lowerAliasNames = new Set(aliasNames.map(aliasName => aliasName.toLowerCase()));
+    return allowedPriorities.find(priority => lowerAliasNames.has(priority.name.toLowerCase()))?.name;
   }
 
   private getAuthHeaders() {
-    const auth = Buffer.from(`${this.email}:${this.apiToken}`).toString(
-      'base64',
-    );
+    const auth = Buffer.from(`${this.email}:${this.apiToken}`).toString('base64');
     return {
       Authorization: `Basic ${auth}`,
       'Content-Type': 'application/json',
@@ -367,61 +298,43 @@ export class JiraService {
 
     const project = request.project || this.defaultProject;
     if (!project) {
-      throw new JiraApiError(
-        'No project specified and no default project configured',
-      );
+      throw new JiraApiError('No project specified and no default project configured');
     }
 
     // Resolve priority against create metadata for the selected project/type.
     let resolvedPriority: string | undefined;
     if (request.priority) {
-      resolvedPriority = await this.resolveCreatePriorityName(
-        project,
-        request.issueType || 'Task',
-        request.priority,
-      );
+      resolvedPriority = await this.resolveCreatePriorityName(project, request.issueType || 'Task', request.priority);
       if (!resolvedPriority) {
         this.logger.warn(
-          `Priority "${request.priority}" is not allowed for ${project} ${request.issueType || 'Task'} creates. Creating ticket without priority.`,
+          `Priority "${request.priority}" is not allowed for ${project} ${request.issueType || 'Task'} creates. Creating ticket without priority.`
         );
       }
     }
 
     try {
-      const payload = this.buildCreatePayload(
-        { ...request, project },
-        { priorityName: resolvedPriority ?? null },
-      );
+      const payload = this.buildCreatePayload({ ...request, project }, { priorityName: resolvedPriority ?? null });
 
       const url = `${this.baseUrl}/rest/api/3/issue`;
-      const response = await firstValueFrom(
-        this.httpService.post(url, payload, { headers: this.getAuthHeaders() }),
-      );
+      const response = await firstValueFrom(this.httpService.post(url, payload, { headers: this.getAuthHeaders() }));
 
       const ticketKey = response.data.key;
       this.logger.success(`Created Jira ticket: ${ticketKey}`);
 
       return ticketKey;
     } catch (error) {
-      const isPriorityError =
-        error?.response?.status === 400 &&
-        error?.response?.data?.errors?.priority;
+      const isPriorityError = error?.response?.status === 400 && error?.response?.data?.errors?.priority;
 
       if (isPriorityError) {
-        this.logger.warn(
-          `Priority rejected by Jira (${request.priority}). Retrying without priority field.`,
-        );
+        this.logger.warn(`Priority rejected by Jira (${request.priority}). Retrying without priority field.`);
         // Some Jira schemes reject valid-looking priorities during create.
         // Retry once without priority so ticket creation can still succeed.
-        const retryPayload = this.buildCreatePayload(
-          { ...request, project },
-          { priorityName: null },
-        );
+        const retryPayload = this.buildCreatePayload({ ...request, project }, { priorityName: null });
         const url = `${this.baseUrl}/rest/api/3/issue`;
         const response = await firstValueFrom(
           this.httpService.post(url, retryPayload, {
             headers: this.getAuthHeaders(),
-          }),
+          })
         );
         const ticketKey = response.data.key;
         this.logger.success(`Created Jira ticket: ${ticketKey}`);
@@ -441,19 +354,14 @@ export class JiraService {
    */
   buildCreatePayload(
     request: CreateTicketRequest,
-    options: BuildCreatePayloadOptions = {},
+    options: BuildCreatePayloadOptions = {}
   ): { fields: Record<string, unknown> } {
     const project = request.project || this.defaultProject;
     if (!project) {
-      throw new JiraApiError(
-        'No project specified and no default project configured',
-      );
+      throw new JiraApiError('No project specified and no default project configured');
     }
 
-    const priorityName = Object.prototype.hasOwnProperty.call(
-      options,
-      'priorityName',
-    )
+    const priorityName = Object.prototype.hasOwnProperty.call(options, 'priorityName')
       ? options.priorityName
       : request.priority;
 
@@ -469,7 +377,7 @@ export class JiraService {
           assignee: { accountId: request.assignee },
         }),
         ...(request.components && {
-          components: request.components.map((name) => ({ name })),
+          components: request.components.map(name => ({ name })),
         }),
       },
     };
@@ -508,9 +416,7 @@ export class JiraService {
 
     try {
       const url = `${this.baseUrl}/rest/api/3/issue/${ticketKey}`;
-      const response = await firstValueFrom(
-        this.httpService.get(url, { headers: this.getAuthHeaders() }),
-      );
+      const response = await firstValueFrom(this.httpService.get(url, { headers: this.getAuthHeaders() }));
 
       const data = response.data;
 
@@ -541,18 +447,13 @@ export class JiraService {
     }
   }
 
-  async updateTicket(
-    ticketKey: string,
-    updates: UpdateTicketRequest,
-  ): Promise<void> {
+  async updateTicket(ticketKey: string, updates: UpdateTicketRequest): Promise<void> {
     this.ensureConfigured();
 
     try {
       const payload = this.buildUpdatePayload(updates);
       const url = `${this.baseUrl}/rest/api/3/issue/${ticketKey}`;
-      await firstValueFrom(
-        this.httpService.put(url, payload, { headers: this.getAuthHeaders() }),
-      );
+      await firstValueFrom(this.httpService.put(url, payload, { headers: this.getAuthHeaders() }));
 
       this.logger.success(`Updated Jira ticket: ${ticketKey}`);
     } catch (error) {
@@ -583,13 +484,9 @@ export class JiraService {
         ],
       };
 
-      const response = await firstValueFrom(
-        this.httpService.post(url, payload, { headers: this.getAuthHeaders() }),
-      );
+      const response = await firstValueFrom(this.httpService.post(url, payload, { headers: this.getAuthHeaders() }));
 
-      return response.data.issues.map((issue: any) =>
-        this.mapIssueToTicket(issue),
-      );
+      return response.data.issues.map((issue: any) => this.mapIssueToTicket(issue));
     } catch (error) {
       this.handleJiraError(error, 'search tickets');
     }
@@ -730,7 +627,7 @@ export class JiraService {
       indent: number;
       listType: 'bulletList' | 'orderedList';
       text: string;
-    },
+    }
   ): { node: any; nextIndex: number } {
     const listItems: any[] = [];
     let index = startIndex;
@@ -745,10 +642,7 @@ export class JiraService {
         break;
       }
 
-      if (
-        listItemMatch.indent > rootMatch.indent ||
-        listItemMatch.listType !== rootMatch.listType
-      ) {
+      if (listItemMatch.indent > rootMatch.indent || listItemMatch.listType !== rootMatch.listType) {
         break;
       }
 
@@ -874,9 +768,7 @@ export class JiraService {
   adfToMarkdown(adf: any): string {
     if (!adf || !adf.content) return '';
 
-    const raw = adf.content
-      .map((node: any) => this.processADFNode(node))
-      .join('');
+    const raw = adf.content.map((node: any) => this.processADFNode(node)).join('');
 
     return normalizeWikiMarkupInMarkdown(raw);
   }
@@ -890,20 +782,11 @@ export class JiraService {
         return `${level} ${this.processADFContent(node.content)}\n\n`;
       }
       case 'bulletList':
-        return (
-          node.content
-            .map(
-              (item: any) => `- ${this.processADFContent(item.content).trim()}`,
-            )
-            .join('\n') + '\n\n'
-        );
+        return node.content.map((item: any) => `- ${this.processADFContent(item.content).trim()}`).join('\n') + '\n\n';
       case 'orderedList':
         return (
           node.content
-            .map(
-              (item: any, i: number) =>
-                `${i + 1}. ${this.processADFContent(item.content).trim()}`,
-            )
+            .map((item: any, i: number) => `${i + 1}. ${this.processADFContent(item.content).trim()}`)
             .join('\n') + '\n\n'
         );
       case 'codeBlock': {
@@ -922,7 +805,7 @@ export class JiraService {
                 .replace(/\n+$/, '')
                 .split('\n')
                 .map((line: string) => `> ${line}`)
-                .join('\n'),
+                .join('\n')
             )
             .join('\n') + '\n\n'
         );
@@ -939,21 +822,15 @@ export class JiraService {
       case 'expand':
       case 'nestedExpand': {
         const title = node.attrs?.title;
-        const body = (node.content || [])
-          .map((child: any) => this.processADFNode(child))
-          .join('');
+        const body = (node.content || []).map((child: any) => this.processADFNode(child)).join('');
         return title ? `**${title}**\n\n${body}` : body;
       }
       case 'panel':
-        return (node.content || [])
-          .map((child: any) => this.processADFNode(child))
-          .join('');
+        return (node.content || []).map((child: any) => this.processADFNode(child)).join('');
       case 'status':
         return node.attrs?.text || '';
       case 'date':
-        return node.attrs?.timestamp
-          ? new Date(Number(node.attrs.timestamp)).toISOString().split('T')[0]
-          : '';
+        return node.attrs?.timestamp ? new Date(Number(node.attrs.timestamp)).toISOString().split('T')[0] : '';
       case 'mediaSingle':
       case 'mediaGroup':
         return '[media]\n\n';
@@ -965,9 +842,7 @@ export class JiraService {
   private processADFTable(node: any): string {
     const rows: string[] = [];
     for (const row of node.content || []) {
-      const cells = (row.content || []).map((cell: any) =>
-        this.processADFContent(cell.content).trim(),
-      );
+      const cells = (row.content || []).map((cell: any) => this.processADFContent(cell.content).trim());
       rows.push(`| ${cells.join(' | ')} |`);
       if (rows.length === 1) {
         rows.push(`| ${cells.map(() => '---').join(' | ')} |`);
@@ -1019,40 +894,24 @@ export class JiraService {
       const data = error.response.data;
 
       if (status === 401) {
-        throw new JiraApiError(
-          'Authentication failed. Check your Jira email and API token.',
-          { status, data },
-          false,
-        );
+        throw new JiraApiError('Authentication failed. Check your Jira email and API token.', { status, data }, false);
       }
 
       if (status === 403) {
-        throw new JiraApiError(
-          'Permission denied. You may not have access to this resource.',
-          { status, data },
-          false,
-        );
+        throw new JiraApiError('Permission denied. You may not have access to this resource.', { status, data }, false);
       }
 
       if (status === 404) {
-        throw new JiraApiError(
-          `Resource not found when trying to ${action}`,
-          { status, data },
-          false,
-        );
+        throw new JiraApiError(`Resource not found when trying to ${action}`, { status, data }, false);
       }
 
       throw new JiraApiError(
         `Jira API error (${status}): ${data.errorMessages?.join(', ') || data.message || 'Unknown error'}`,
         { status, data },
-        true,
+        true
       );
     }
 
-    throw new JiraApiError(
-      `Failed to ${action}: ${error.message}`,
-      error,
-      true,
-    );
+    throw new JiraApiError(`Failed to ${action}: ${error.message}`, error, true);
   }
 }

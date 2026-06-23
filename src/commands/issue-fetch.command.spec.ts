@@ -20,7 +20,7 @@ jest.mock('chalk', () => {
       'white',
       'gray',
       'grey',
-    ].forEach((name) => {
+    ].forEach(name => {
       chain[name] = identity;
     });
     return chain;
@@ -39,7 +39,7 @@ jest.mock('../agents/utils', () => {
   return {
     ...actual,
     resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
     ),
   };
 });
@@ -124,9 +124,7 @@ describe('IssueFetchCommand', () => {
     it('returns trimmed repo values from variadic option input', async () => {
       const { command } = await buildCommand();
 
-      expect(
-        command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any),
-      ).toEqual(['repo-a', 'workspace/repo-b']);
+      expect(command.parseRepos([' repo-a ', 'workspace/repo-b', ''] as any)).toEqual(['repo-a', 'workspace/repo-b']);
     });
   });
 
@@ -149,34 +147,27 @@ describe('IssueFetchCommand', () => {
 
   it('stores fetched artifacts under the cwd namespace by default', async () => {
     const { command } = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run(['WBP-1'], { dryRun: true });
 
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
-    expect(path.dirname(preview.filePath)).toBe(
-      path.join(os.homedir(), '.wf', 'consumer-app', 'jira'),
-    );
+    expect(path.dirname(preview.filePath)).toBe(path.join(os.homedir(), '.wf', 'consumer-app', 'jira'));
   });
 
   it('stores fetched artifacts under the targeted repo namespace when --repos is provided', async () => {
     const { command } = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run(['WBP-1'], { repos: ['repo-a'], dryRun: true });
 
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
-    expect(path.dirname(preview.filePath)).toBe(
-      path.join(os.homedir(), '.wf', 'repo-a', 'jira'),
-    );
+    expect(path.dirname(preview.filePath)).toBe(path.join(os.homedir(), '.wf', 'repo-a', 'jira'));
   });
 
   it('stores fetched artifacts under the repo-name namespace for long-format repos', async () => {
     const { command } = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
     await command.run(['WBP-1'], {
       repos: ['workspace/repo-a'],
@@ -184,9 +175,7 @@ describe('IssueFetchCommand', () => {
     });
 
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
-    expect(path.dirname(preview.filePath)).toBe(
-      path.join(os.homedir(), '.wf', 'repo-a', 'jira'),
-    );
+    expect(path.dirname(preview.filePath)).toBe(path.join(os.homedir(), '.wf', 'repo-a', 'jira'));
   });
 
   it('delegates live ticket retrieval to FetchStageService', async () => {
@@ -198,9 +187,7 @@ describe('IssueFetchCommand', () => {
       status: 'todo',
     } as any);
 
-    const writeFileSpy = jest
-      .spyOn(require('fs').promises, 'writeFile')
-      .mockResolvedValue(undefined);
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
     await command.run(['WBP-1'], { repos: ['repo-a'] });
 

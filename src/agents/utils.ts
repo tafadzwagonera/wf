@@ -11,10 +11,7 @@ import { getWfHomeDir } from '../shared/utils/wf-paths';
  * @param trackerName - The tracker name (e.g. 'jira', 'bitbucket')
  * @returns Absolute path to the tracker artifact directory under `~/.wf/<app>/`
  */
-export const resolveArtifactDir = (
-  baseDir: string,
-  trackerName: string,
-): string =>
+export const resolveArtifactDir = (baseDir: string, trackerName: string): string =>
   path.join(getWfHomeDir(), path.basename(path.resolve(baseDir)), trackerName);
 
 /**
@@ -94,9 +91,7 @@ export const resolveRepoBasePath = (repo?: string): string => {
   }
 
   console.log(
-    chalk.yellow(
-      `⚠️ Repository '${repo}' not found as a path or sibling directory. Using current directory.`,
-    ),
+    chalk.yellow(`⚠️ Repository '${repo}' not found as a path or sibling directory. Using current directory.`)
   );
   return process.cwd();
 };

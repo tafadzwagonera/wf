@@ -1,12 +1,7 @@
 /**
  * Workflow stages where interactive chat can be activated
  */
-export type WorkflowStage =
-  | 'fetch'
-  | 'plan'
-  | 'implement'
-  | 'review'
-  | 'commit';
+export type WorkflowStage = 'fetch' | 'plan' | 'implement' | 'review' | 'commit';
 
 /**
  * Represents a single message in a conversation

@@ -10,7 +10,7 @@ describe('parseVerificationManifest', () => {
           { id: 'smoke', run: 'yarn smoke', policy: 'best_effort' },
         ],
       }),
-      '/tmp/verification.json',
+      '/tmp/verification.json'
     );
 
     expect(manifest).toEqual({
@@ -31,12 +31,10 @@ describe('parseVerificationManifest', () => {
         },
       }),
       '/tmp/verification.json',
-      'implement',
+      'implement'
     );
 
-    expect(manifest.baseline).toEqual([
-      { id: 'build', run: 'yarn build', policy: 'enforced' },
-    ]);
+    expect(manifest.baseline).toEqual([{ id: 'build', run: 'yarn build', policy: 'enforced' }]);
   });
 
   it('returns empty baseline when v2 manifest has no block for the requested stage', () => {
@@ -48,7 +46,7 @@ describe('parseVerificationManifest', () => {
         },
       }),
       '/tmp/verification.json',
-      'review',
+      'review'
     );
 
     expect(manifest.baseline).toEqual([]);
@@ -65,12 +63,10 @@ describe('parseVerificationManifest', () => {
         review: { baseline: [] },
       }),
       '/tmp/verification.json',
-      'implement',
+      'implement'
     );
 
-    expect(manifest.baseline).toEqual([
-      { id: 'lint', run: 'yarn lint', policy: 'enforced' },
-    ]);
+    expect(manifest.baseline).toEqual([{ id: 'lint', run: 'yarn lint', policy: 'enforced' }]);
   });
 
   it('defaults to implement stage when no stage param is given for v2', () => {
@@ -81,20 +77,15 @@ describe('parseVerificationManifest', () => {
           baseline: [{ id: 'build', run: 'yarn build', policy: 'enforced' }],
         },
       }),
-      '/tmp/verification.json',
+      '/tmp/verification.json'
     );
 
-    expect(manifest.baseline).toEqual([
-      { id: 'build', run: 'yarn build', policy: 'enforced' },
-    ]);
+    expect(manifest.baseline).toEqual([{ id: 'build', run: 'yarn build', policy: 'enforced' }]);
   });
 
   it('rejects unsupported manifest versions', () => {
     expect(() =>
-      parseVerificationManifest(
-        JSON.stringify({ version: 99, baseline: [] }),
-        '/tmp/verification.json',
-      ),
+      parseVerificationManifest(JSON.stringify({ version: 99, baseline: [] }), '/tmp/verification.json')
     ).toThrow(/unsupported.*version/i);
   });
 });

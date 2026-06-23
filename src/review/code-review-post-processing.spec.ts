@@ -162,10 +162,7 @@ describe('postProcessCodeReview', () => {
         suggestion: undefined,
       },
     ]);
-    expect(processed.presentation.unmatchedSuggestions).toEqual([
-      'First suggestion',
-      'Second suggestion',
-    ]);
+    expect(processed.presentation.unmatchedSuggestions).toEqual(['First suggestion', 'Second suggestion']);
   });
 
   it('keeps unmatched extra suggestions in trailing presentation output', () => {
@@ -197,10 +194,7 @@ describe('postProcessCodeReview', () => {
         suggestion: undefined,
       },
     ]);
-    expect(processed.presentation.unmatchedSuggestions).toEqual([
-      'Paired suggestion',
-      'Trailing suggestion',
-    ]);
+    expect(processed.presentation.unmatchedSuggestions).toEqual(['Paired suggestion', 'Trailing suggestion']);
   });
 
   it('prefers explicit issue-local suggestions over detached top-level suggestions', () => {
@@ -233,9 +227,7 @@ describe('postProcessCodeReview', () => {
         suggestion: 'Uppercase the lookup key before querying.',
       },
     ]);
-    expect(processed.presentation.unmatchedSuggestions).toEqual([
-      'General follow-up recommendation',
-    ]);
+    expect(processed.presentation.unmatchedSuggestions).toEqual(['General follow-up recommendation']);
   });
 
   it('prefers a semantically matching changed line when the model picked the wrong changed line in the same hunk', () => {
@@ -274,8 +266,7 @@ describe('postProcessCodeReview', () => {
         {
           severity: 'warning',
           message: 'The variable value looks incorrect.',
-          suggestion:
-            'Change `DB_PASSWORD` to use a real secret reference instead of a placeholder.',
+          suggestion: 'Change `DB_PASSWORD` to use a real secret reference instead of a placeholder.',
           file: 'main.tf',
           line: 13,
         },
@@ -302,10 +293,8 @@ describe('postProcessCodeReview', () => {
       issues: [
         {
           severity: 'error',
-          message:
-            'This PR does not add the DNS record in Route53 or any ACM certificate attachment.',
-          suggestion:
-            'Add an `aws_route53_record` for the hostname and attach a certificate.',
+          message: 'This PR does not add the DNS record in Route53 or any ACM certificate attachment.',
+          suggestion: 'Add an `aws_route53_record` for the hostname and attach a certificate.',
           file: 'infra.tf',
           line: 80,
         },
@@ -331,8 +320,7 @@ describe('postProcessCodeReview', () => {
       issues: [
         {
           severity: 'warning',
-          message:
-            'The `aws_lb_target_group` health check path should use a deeper readiness probe.',
+          message: 'The `aws_lb_target_group` health check path should use a deeper readiness probe.',
           file: 'main.tf',
           line: 12,
         },

@@ -6,10 +6,7 @@ import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
 import type { PlanVerificationConfig } from '../../shared/utils/verification-manifest';
-import type {
-  ReviewTraceCallStackNode,
-  ReviewTraceStateTransition,
-} from './review-trace';
+import type { ReviewTraceCallStackNode, ReviewTraceStateTransition } from './review-trace';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 
 /**
@@ -120,9 +117,7 @@ export const parseJsonResponse = <T>(content: string): T => {
     }
   }
 
-  throw lastError instanceof Error
-    ? lastError
-    : new SyntaxError('No valid JSON object found in AI response');
+  throw lastError instanceof Error ? lastError : new SyntaxError('No valid JSON object found in AI response');
 };
 
 /**
@@ -132,9 +127,7 @@ export const parseJsonResponse = <T>(content: string): T => {
  * @returns First repository name or a generic fallback
  */
 const resolvePlanPromptRepoExample = (repositories?: string[]): string => {
-  const firstRepository = repositories?.find(
-    (repository) => typeof repository === 'string' && repository.trim(),
-  );
+  const firstRepository = repositories?.find(repository => typeof repository === 'string' && repository.trim());
   return firstRepository?.trim() || 'current-repo';
 };
 
@@ -224,27 +217,20 @@ const extractReviewTraceAnchors = (diff: string): string[] => {
   return [...anchors];
 };
 
-const traceContainsCodeAnchors = (
-  traceText: string,
-  anchors: string[],
-): boolean => anchors.some((anchor) => traceText.includes(anchor));
+const traceContainsCodeAnchors = (traceText: string, anchors: string[]): boolean =>
+  anchors.some(anchor => traceText.includes(anchor));
 
 const traceContainsReviewerAnalysisLanguage = (traceText: string): boolean =>
-  REVIEW_TRACE_META_PATTERNS.some((pattern) => pattern.test(traceText));
+  REVIEW_TRACE_META_PATTERNS.some(pattern => pattern.test(traceText));
 
-export const sanitizeCodeReviewTrace = (
-  review: CodeReview,
-  diff: string,
-): CodeReview => {
+export const sanitizeCodeReviewTrace = (review: CodeReview, diff: string): CodeReview => {
   const traceText = JSON.stringify({
     callStack: review.callStack ?? [],
     stateTransition: review.stateTransition ?? {},
   }).toLowerCase();
   const anchors = extractReviewTraceAnchors(diff);
-  const hasCodeAnchors =
-    anchors.length > 0 && traceContainsCodeAnchors(traceText, anchors);
-  const hasReviewerAnalysisLanguage =
-    traceContainsReviewerAnalysisLanguage(traceText);
+  const hasCodeAnchors = anchors.length > 0 && traceContainsCodeAnchors(traceText, anchors);
+  const hasReviewerAnalysisLanguage = traceContainsReviewerAnalysisLanguage(traceText);
 
   if (!hasCodeAnchors || hasReviewerAnalysisLanguage) {
     return {
@@ -285,26 +271,14 @@ export interface AIResponse {
 
 type ReviewResponseDiagnostics = Pick<
   AIResponse,
-  | 'provider'
-  | 'model'
-  | 'finishReason'
-  | 'stopReason'
-  | 'refusal'
-  | 'contentTypes'
-  | 'usage'
+  'provider' | 'model' | 'finishReason' | 'stopReason' | 'refusal' | 'contentTypes' | 'usage'
 > & {
   content: string;
 };
 
 type ResponseContentDiagnostics = Pick<
   AIResponse,
-  | 'provider'
-  | 'model'
-  | 'finishReason'
-  | 'stopReason'
-  | 'refusal'
-  | 'contentTypes'
-  | 'usage'
+  'provider' | 'model' | 'finishReason' | 'stopReason' | 'refusal' | 'contentTypes' | 'usage'
 > & {
   content: string;
 };
@@ -323,12 +297,9 @@ const BLANK_REVIEW_FINISH_REASONS = new Set([
   'tool_use',
 ]);
 
-const isBlankReviewResponse = (response: ReviewResponseDiagnostics): boolean =>
-  response.content.trim().length === 0;
+const isBlankReviewResponse = (response: ReviewResponseDiagnostics): boolean => response.content.trim().length === 0;
 
-const hasRecoverableBlankReviewMetadata = (
-  response: ReviewResponseDiagnostics,
-): boolean => {
+const hasRecoverableBlankReviewMetadata = (response: ReviewResponseDiagnostics): boolean => {
   if (response.refusal?.trim()) {
     return false;
   }
@@ -358,13 +329,8 @@ const hasRecoverableBlankReviewMetadata = (
  * @returns Trimmed response content when non-empty
  * @throws AIError when the provider returned blank or non-text review output
  */
-export const requireReviewResponseContent = (
-  response: ReviewResponseDiagnostics,
-): string => {
-  return requireAiResponseContent(
-    response,
-    'AI provider returned an empty review response',
-  );
+export const requireReviewResponseContent = (response: ReviewResponseDiagnostics): string => {
+  return requireAiResponseContent(response, 'AI provider returned an empty review response');
 };
 
 /**
@@ -375,10 +341,7 @@ export const requireReviewResponseContent = (
  * @returns Trimmed response content when non-empty
  * @throws AIError when the provider returned blank output
  */
-export const requireAiResponseContent = (
-  response: ResponseContentDiagnostics,
-  message: string,
-): string => {
+export const requireAiResponseContent = (response: ResponseContentDiagnostics, message: string): string => {
   if (!isBlankReviewResponse(response)) {
     return response.content.trim();
   }
@@ -395,7 +358,7 @@ export const requireAiResponseContent = (
       usage: response.usage,
       response: response.content,
     },
-    hasRecoverableBlankReviewMetadata(response),
+    hasRecoverableBlankReviewMetadata(response)
   );
 };
 
@@ -435,14 +398,8 @@ export interface FileEntry {
  * @param raw - Array of string paths or FileEntry objects
  * @returns Normalized FileEntry array
  */
-export const normalizeFileEntries = (
-  raw: (string | FileEntry)[],
-): FileEntry[] =>
-  raw.map((entry) =>
-    typeof entry === 'string'
-      ? { filePath: entry, status: 'found' as const }
-      : entry,
-  );
+export const normalizeFileEntries = (raw: (string | FileEntry)[]): FileEntry[] =>
+  raw.map(entry => (typeof entry === 'string' ? { filePath: entry, status: 'found' as const } : entry));
 
 export interface ResolutionPlan {
   action: 'fix' | 'feature' | 'investigate';
@@ -483,7 +440,7 @@ export class AiService {
   constructor(
     private logger: LoggerService,
     @Inject(LLM_ADAPTER) private adapter: LlmAdapter,
-    private configService: ConfigService,
+    private configService: ConfigService
   ) {}
 
   async execute(request: AIRequest): Promise<AIResponse> {
@@ -500,9 +457,7 @@ export class AiService {
    * @param request - Conversation request with message history
    * @returns AI response with content and token usage
    */
-  async executeWithHistory(
-    request: AIConversationRequest,
-  ): Promise<AIResponse> {
+  async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
     return this.adapter.executeWithHistory({
       ...request,
       ...this.resolveAiTarget(request.stage, request.provider, request.model),
@@ -512,7 +467,7 @@ export class AiService {
   async generatePlan(
     action: 'fix' | 'implement' | 'investigate',
     issueContent: string,
-    context?: Record<string, any>,
+    context?: Record<string, any>
   ): Promise<ResolutionPlan> {
     const systemPrompt = `You are an expert software engineer creating detailed resolution plans.
 Your task is to analyze the issue and create a structured plan with clear, actionable steps.
@@ -521,9 +476,7 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     const repoHint = context?.affectedRepositories?.length
       ? `Affected repositories (hint): ${(context.affectedRepositories as string[]).join(', ')}\n\n`
       : '';
-    const repoExample = resolvePlanPromptRepoExample(
-      context?.affectedRepositories as string[] | undefined,
-    );
+    const repoExample = resolvePlanPromptRepoExample(context?.affectedRepositories as string[] | undefined);
 
     const prompt = `
 Action: ${action}
@@ -596,29 +549,22 @@ Return ONLY a valid JSON object with these fields:
 
     try {
       const stripped = stripCodeFences(
-        requireAiResponseContent(
-          response,
-          'AI provider returned an empty plan response',
-        ),
+        requireAiResponseContent(response, 'AI provider returned an empty plan response')
       );
       const plan = JSON.parse(stripped) as ResolutionPlan;
 
       const rawSteps: unknown[] = Array.isArray(plan.steps) ? plan.steps : [];
-      plan.steps = rawSteps.map((step) => {
+      plan.steps = rawSteps.map(step => {
         if (typeof step === 'string') return step;
         if (step && typeof step === 'object') {
           const s = step as Record<string, unknown>;
-          const text =
-            s['description'] ?? s['text'] ?? s['title'] ?? s['content'];
+          const text = s['description'] ?? s['text'] ?? s['title'] ?? s['content'];
           if (typeof text === 'string') return text;
         }
         return String(step);
       });
 
-      const provider = this.configService.get<string>(
-        'ai.provider',
-        'anthropic',
-      );
+      const provider = this.configService.get<string>('ai.provider', 'anthropic');
       const model = this.configService.get<string>('ai.model', '');
       const prefixMap: Record<string, string> = {
         anthropic: 'claude-',
@@ -627,9 +573,7 @@ Return ONLY a valid JSON object with these fields:
         openai: 'gpt-',
       };
       const prefix = prefixMap[provider] ?? '';
-      const source = model.startsWith(prefix)
-        ? model.slice(prefix.length)
-        : model;
+      const source = model.startsWith(prefix) ? model.slice(prefix.length) : model;
 
       plan.provider = provider;
       plan.source = source;
@@ -656,10 +600,7 @@ Return ONLY a valid JSON object with these fields:
    * @param ticketContent - Optional ticket markdown for additional context
    * @returns Structured findings document with findings and recommendations
    */
-  async generateFindings(
-    plan: ResolutionPlan,
-    ticketContent?: string,
-  ): Promise<FindingsDocument> {
+  async generateFindings(plan: ResolutionPlan, ticketContent?: string): Promise<FindingsDocument> {
     const systemPrompt = `You are an expert software investigator providing structured findings and recommendations.
 Analyse the given investigation plan and any available ticket context to produce clear, actionable findings.
 Return your response as a JSON object.`;
@@ -688,10 +629,7 @@ Return ONLY a valid JSON object:
 
     try {
       const stripped = stripCodeFences(
-        requireAiResponseContent(
-          response,
-          'AI provider returned an empty investigation findings response',
-        ),
+        requireAiResponseContent(response, 'AI provider returned an empty investigation findings response')
       );
       return JSON.parse(stripped) as FindingsDocument;
     } catch (error) {
@@ -700,13 +638,10 @@ Return ONLY a valid JSON object:
       }
 
       this.logger.error('Failed to parse findings response', error);
-      throw new AIError(
-        'Failed to parse investigation findings from AI response',
-        {
-          response: response.content,
-          error,
-        },
-      );
+      throw new AIError('Failed to parse investigation findings from AI response', {
+        response: response.content,
+        error,
+      });
     }
   }
 
@@ -714,7 +649,7 @@ Return ONLY a valid JSON object:
     diff: string,
     commitHistory: string[],
     format: 'conventional' | 'freeform' | 'auto' = 'auto',
-    ticketContext?: string,
+    ticketContext?: string
   ): Promise<string> {
     const systemPrompt = `You are an expert at writing clear, concise git commit messages.
 Analyze the diff and commit history to generate an appropriate commit message.`;
@@ -732,9 +667,7 @@ Types: feat, fix, docs, style, refactor, test, chore
 Example: "feat(auth): add JWT token validation"`
         : 'Write a clear, concise commit message describing the changes';
 
-    const ticketContextSection = ticketContext
-      ? `Ticket context: ${ticketContext}\n\n`
-      : '';
+    const ticketContextSection = ticketContext ? `Ticket context: ${ticketContext}\n\n` : '';
 
     const prompt = `
 ${ticketContextSection}Git Diff:
@@ -764,10 +697,7 @@ Return ONLY the commit message description, nothing else.`;
       stage: 'commit',
     });
 
-    return requireAiResponseContent(
-      response,
-      'AI provider returned an empty commit message response',
-    );
+    return requireAiResponseContent(response, 'AI provider returned an empty commit message response');
   }
 
   async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
@@ -885,13 +815,8 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     }
 
     try {
-      const parsed = parseJsonResponse<CodeReview>(
-        requireReviewResponseContent(response),
-      );
-      const processedReview = postProcessCodeReview(
-        sanitizeCodeReviewTrace(parsed, diff),
-        diff,
-      );
+      const parsed = parseJsonResponse<CodeReview>(requireReviewResponseContent(response));
+      const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
       return {
         ...processedReview.review,
         executionMode: 'standard',
@@ -940,13 +865,11 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
   private resolveAiTarget(
     stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit' | 'create',
     providerOverride?: string,
-    modelOverride?: string,
+    modelOverride?: string
   ): { provider?: string; model?: string } {
     if (providerOverride || modelOverride) {
       if (!providerOverride || !modelOverride) {
-        throw new AIError(
-          'AI provider and model overrides must be supplied together.',
-        );
+        throw new AIError('AI provider and model overrides must be supplied together.');
       }
 
       return {
@@ -974,9 +897,7 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     }
 
     if (!stageProvider || !stageModel) {
-      throw new AIError(
-        `AI stage target for "${stage}" must define provider and model together.`,
-      );
+      throw new AIError(`AI stage target for "${stage}" must define provider and model together.`);
     }
 
     return {
@@ -985,18 +906,11 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     };
   }
 
-  private detectCommitFormat(
-    commitHistory: string[],
-  ): 'conventional' | 'freeform' {
-    const conventionalPattern =
-      /^(feat|fix|docs|style|refactor|test|chore)(\(.+\))?:/;
-    const conventionalCount = commitHistory.filter((msg) =>
-      conventionalPattern.test(msg),
-    ).length;
+  private detectCommitFormat(commitHistory: string[]): 'conventional' | 'freeform' {
+    const conventionalPattern = /^(feat|fix|docs|style|refactor|test|chore)(\(.+\))?:/;
+    const conventionalCount = commitHistory.filter(msg => conventionalPattern.test(msg)).length;
 
     // If more than 60% use conventional format, use it
-    return conventionalCount / commitHistory.length > 0.6
-      ? 'conventional'
-      : 'freeform';
+    return conventionalCount / commitHistory.length > 0.6 ? 'conventional' : 'freeform';
   }
 }

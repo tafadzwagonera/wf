@@ -43,21 +43,20 @@ export interface JiraUpdatePreviewResult {
 export const parseJiraUpdateSmokeArgs = (
   argv: string[],
   currentWorkingDirectory = process.cwd(),
-  environmentVariables: NodeJS.ProcessEnv = process.env,
+  environmentVariables: NodeJS.ProcessEnv = process.env
 ): JiraUpdateSmokeArgs => {
   const [ticketKey, ...restArgs] = argv;
 
   if (!ticketKey || ticketKey.startsWith('-')) {
     throw new Error(
-      'Missing ticket key. Usage: nr test:manual -- test-issue-update-jira-adf-smoke <ticket-key> --description-file <path> [--live --confirm-live-update]',
+      'Missing ticket key. Usage: nr test:manual -- test-issue-update-jira-adf-smoke <ticket-key> --description-file <path> [--live --confirm-live-update]'
     );
   }
 
   let descriptionFileArg: string | undefined;
   let confirmLiveUpdate = false;
   let executeLiveUpdate =
-    environmentVariables.JIRA_UPDATE_LIVE === '1' ||
-    environmentVariables.JIRA_UPDATE_LIVE === 'true';
+    environmentVariables.JIRA_UPDATE_LIVE === '1' || environmentVariables.JIRA_UPDATE_LIVE === 'true';
 
   for (let index = 0; index < restArgs.length; index += 1) {
     const arg = restArgs[index];
@@ -84,17 +83,12 @@ export const parseJiraUpdateSmokeArgs = (
   }
 
   if (executeLiveUpdate && !confirmLiveUpdate) {
-    throw new Error(
-      'Live Jira updates require explicit confirmation via --confirm-live-update.',
-    );
+    throw new Error('Live Jira updates require explicit confirmation via --confirm-live-update.');
   }
 
   return {
     ticketKey,
-    descriptionFilePath: path.resolve(
-      currentWorkingDirectory,
-      descriptionFileArg,
-    ),
+    descriptionFilePath: path.resolve(currentWorkingDirectory, descriptionFileArg),
     executeLiveUpdate,
     confirmLiveUpdate,
   };
@@ -108,9 +102,7 @@ export const parseJiraUpdateSmokeArgs = (
  */
 export const loadDescriptionFile = (descriptionFilePath: string): string => {
   if (!fs.existsSync(descriptionFilePath)) {
-    throw new Error(
-      `Description file not found: ${path.resolve(descriptionFilePath)}`,
-    );
+    throw new Error(`Description file not found: ${path.resolve(descriptionFilePath)}`);
   }
 
   const description = fs.readFileSync(descriptionFilePath, 'utf8').trim();
@@ -131,9 +123,7 @@ export const loadDescriptionFile = (descriptionFilePath: string): string => {
  */
 export const normalizeDescriptionMarkdown = (markdown: string): string => {
   const summaryHeadingMatch = markdown.match(/^### Summary\s*$/m);
-  const trimmed = summaryHeadingMatch?.index
-    ? markdown.slice(summaryHeadingMatch.index).trim()
-    : markdown.trim();
+  const trimmed = summaryHeadingMatch?.index ? markdown.slice(summaryHeadingMatch.index).trim() : markdown.trim();
 
   return stripRedundantSections(trimmed);
 };
@@ -148,24 +138,17 @@ const collectAdfNodes = (node: unknown): AdfNode[] => {
   }
 
   const objectNode = node as AdfNode;
-  return [
-    objectNode,
-    ...Object.values(objectNode).flatMap((value) => collectAdfNodes(value)),
-  ];
+  return [objectNode, ...Object.values(objectNode).flatMap(value => collectAdfNodes(value))];
 };
 
-const summarizeAdf = (
-  adfDocument: unknown,
-): JiraUpdatePreviewResult['formattingSummary'] => {
+const summarizeAdf = (adfDocument: unknown): JiraUpdatePreviewResult['formattingSummary'] => {
   const adfNodes = collectAdfNodes(adfDocument);
 
   return {
-    headingCount: adfNodes.filter((node) => node.type === 'heading').length,
-    codeBlockCount: adfNodes.filter((node) => node.type === 'codeBlock').length,
-    bulletListCount: adfNodes.filter((node) => node.type === 'bulletList')
-      .length,
-    orderedListCount: adfNodes.filter((node) => node.type === 'orderedList')
-      .length,
+    headingCount: adfNodes.filter(node => node.type === 'heading').length,
+    codeBlockCount: adfNodes.filter(node => node.type === 'codeBlock').length,
+    bulletListCount: adfNodes.filter(node => node.type === 'bulletList').length,
+    orderedListCount: adfNodes.filter(node => node.type === 'orderedList').length,
   };
 };
 
@@ -204,7 +187,7 @@ export const captureJiraDescriptionUpdatePreview = async (options: {
       ticketKey,
       new UniversalTicket({
         description,
-      }),
+      })
     );
   } finally {
     httpService.put = originalPut;
@@ -212,15 +195,10 @@ export const captureJiraDescriptionUpdatePreview = async (options: {
   }
 
   if (putCalls.length !== 1) {
-    throw new Error(
-      `Expected one Jira PUT preview call, received ${putCalls.length}.`,
-    );
+    throw new Error(`Expected one Jira PUT preview call, received ${putCalls.length}.`);
   }
 
-  const [, payload] = putCalls[0] as [
-    string,
-    { fields: Record<string, unknown> },
-  ];
+  const [, payload] = putCalls[0] as [string, { fields: Record<string, unknown> }];
   const descriptionAdf = payload.fields.description;
 
   return {
@@ -257,7 +235,7 @@ export const runJiraUpdateSmokeTest = async (options: {
       options.ticketKey,
       new UniversalTicket({
         description,
-      }),
+      })
     );
   }
 

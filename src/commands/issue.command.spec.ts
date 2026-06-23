@@ -20,7 +20,7 @@ jest.mock('chalk', () => {
       'white',
       'gray',
       'grey',
-    ].forEach((name) => {
+    ].forEach(name => {
       chain[name] = identity;
     });
     return chain;
@@ -39,7 +39,7 @@ jest.mock('../agents/utils', () => {
   return {
     ...actual,
     resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
     ),
   };
 });
@@ -53,10 +53,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import { AiService } from '../integrations/ai/ai.service';
-import {
-  buildPlanArtifactManifestPath,
-  hashPlanArtifactSources,
-} from '../shared/utils/plan-artifact';
+import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../shared/utils/plan-artifact';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -135,8 +132,7 @@ describe('IssueCommand', () => {
 
   it('stores default artifacts under the cwd namespace in dry-run mode', async () => {
     const command = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
     jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
     jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
 
@@ -157,8 +153,7 @@ describe('IssueCommand', () => {
 
   it('stores repo-scoped artifacts under the targeted repo namespace in dry-run mode', async () => {
     const command = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
     jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
     jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
 
@@ -184,8 +179,7 @@ describe('IssueCommand', () => {
     const ticketPath = path.join(artifactDir, 'WBP-1.md');
     const planPath = path.join(artifactDir, `2026-04-16-${hash}-fix-plan.json`);
     const manifestPath = buildPlanArtifactManifestPath(planPath);
-    const ticketMarkdown =
-      '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow';
+    const ticketMarkdown = '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow';
 
     const mockOrchestrator = {
       fetcher: {
@@ -268,42 +262,38 @@ describe('IssueCommand', () => {
           String(input) === ticketPath ||
           String(input) === planPath ||
           String(input) === manifestPath ||
-          String(input) === artifactDir,
+          String(input) === artifactDir
       );
-    jest
-      .spyOn(require('fs'), 'readdirSync')
-      .mockReturnValue([path.basename(manifestPath)] as any);
-    jest
-      .spyOn(require('fs'), 'readFileSync')
-      .mockImplementation((input: any) => {
-        const filePath = String(input);
-        if (filePath === ticketPath) {
-          return ticketMarkdown;
-        }
-        if (filePath === manifestPath) {
-          return JSON.stringify({
-            artifactPath: planPath,
-            action: 'fix',
-            createdAt: new Date('2026-04-16T00:00:00.000Z').toISOString(),
-            format: 'json',
-            hash,
-            sourceKind: 'ticket',
-            sourceName: 'WBP-1',
-            ticketKey: 'WBP-1',
-          });
-        }
-        if (filePath === planPath) {
-          return JSON.stringify({
-            action: 'fix',
-            summary: 'Repair the cached plan',
-            estimatedComplexity: 'medium',
-            steps: ['Patch the login flow'],
-            filesAffected: ['repo-a/src/auth.ts'],
-            repositoriesAffected: ['repo-a'],
-          });
-        }
-        return '';
-      });
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([path.basename(manifestPath)] as any);
+    jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
+      const filePath = String(input);
+      if (filePath === ticketPath) {
+        return ticketMarkdown;
+      }
+      if (filePath === manifestPath) {
+        return JSON.stringify({
+          artifactPath: planPath,
+          action: 'fix',
+          createdAt: new Date('2026-04-16T00:00:00.000Z').toISOString(),
+          format: 'json',
+          hash,
+          sourceKind: 'ticket',
+          sourceName: 'WBP-1',
+          ticketKey: 'WBP-1',
+        });
+      }
+      if (filePath === planPath) {
+        return JSON.stringify({
+          action: 'fix',
+          summary: 'Repair the cached plan',
+          estimatedComplexity: 'medium',
+          steps: ['Patch the login flow'],
+          filesAffected: ['repo-a/src/auth.ts'],
+          repositoriesAffected: ['repo-a'],
+        });
+      }
+      return '';
+    });
 
     await command.run([`2026-04-16-${hash}-fix-plan.json`], {
       from: 'implement',
@@ -315,17 +305,13 @@ describe('IssueCommand', () => {
       'WBP-1',
       'jira',
       path.join('/tmp/consumer-app', 'repo-a'),
-      undefined,
+      undefined
     );
-    expect(mockOrchestrator.planner.loadFromDisk).toHaveBeenCalledWith(
-      ticketPath,
-      undefined,
-      undefined,
-    );
+    expect(mockOrchestrator.planner.loadFromDisk).toHaveBeenCalledWith(ticketPath, undefined, undefined);
     expect(mockOrchestrator.implementer.execute).toHaveBeenCalledWith(
       expect.objectContaining({ ticketKey: 'WBP-1' }),
       expect.objectContaining({ action: 'fix', path: planPath }),
-      expect.objectContaining({ trackerName: 'jira' }),
+      expect.objectContaining({ trackerName: 'jira' })
     );
   });
 });

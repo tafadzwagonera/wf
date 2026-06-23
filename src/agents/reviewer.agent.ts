@@ -11,7 +11,7 @@ import { ReviewStageService } from '../workflows/stages/review-stage.service';
 export class ReviewerAgent {
   constructor(
     private readonly gitService: GitService,
-    private readonly reviewStageService: ReviewStageService,
+    private readonly reviewStageService: ReviewStageService
   ) {}
 
   /**
@@ -25,17 +25,12 @@ export class ReviewerAgent {
    * @param options - Optional reviewer configuration
    * @returns ReviewArtifact with review data, disk path, and approval status; or null when skipped
    */
-  async execute(
-    ticket: TicketArtifact,
-    options: ReviewerOptions = {},
-  ): Promise<ReviewArtifact | null> {
+  async execute(ticket: TicketArtifact, options: ReviewerOptions = {}): Promise<ReviewArtifact | null> {
     const reviewPath = ticket.path.replace('.md', '-review.md');
 
     if (options.skipExisting && fs.existsSync(reviewPath)) {
       if (!options.silent) {
-        console.log(
-          chalk.gray(`🔍 Skipping REVIEW - artifact exists: ${reviewPath}`),
-        );
+        console.log(chalk.gray(`🔍 Skipping REVIEW - artifact exists: ${reviewPath}`));
       }
       const content = fs.readFileSync(reviewPath, 'utf-8');
       const approved = content.includes('✓ Approved');
@@ -61,9 +56,7 @@ export class ReviewerAgent {
       if (!options.silent) {
         if (options.skipExisting === false) {
           console.log(
-            chalk.yellow(
-              '⚠️  --force requested, but no uncommitted changes are available for review regeneration',
-            ),
+            chalk.yellow('⚠️  --force requested, but no uncommitted changes are available for review regeneration')
           );
         } else {
           console.log(chalk.yellow('⚠️  No uncommitted changes to review'));
@@ -90,43 +83,28 @@ export class ReviewerAgent {
 
       if (review.issues.length > 0) {
         console.log(chalk.bold('\n  Issues found:'));
-        review.issues.forEach((issue) => {
+        review.issues.forEach(issue => {
           const color =
-            issue.severity === 'error'
-              ? chalk.red
-              : issue.severity === 'warning'
-                ? chalk.yellow
-                : chalk.blue;
+            issue.severity === 'error' ? chalk.red : issue.severity === 'warning' ? chalk.yellow : chalk.blue;
           console.log(color(`    [${issue.severity}] ${issue.message}`));
           if (issue.file) {
-            console.log(
-              chalk.gray(
-                `      ${issue.file}${issue.line ? `:${issue.line}` : ''}`,
-              ),
-            );
+            console.log(chalk.gray(`      ${issue.file}${issue.line ? `:${issue.line}` : ''}`));
           }
         });
       }
 
       if (review.suggestions.length > 0) {
         console.log(chalk.bold('\n  Suggestions:'));
-        review.suggestions.forEach((s) =>
-          console.log(chalk.cyan(`    - ${s}`)),
-        );
+        review.suggestions.forEach(s => console.log(chalk.cyan(`    - ${s}`)));
       }
 
       console.log(
         chalk.bold('\n  Status:'),
-        review.approved
-          ? chalk.green('✓ Approved')
-          : chalk.red('✗ Changes needed'),
+        review.approved ? chalk.green('✓ Approved') : chalk.red('✗ Changes needed')
       );
     }
 
-    const artifact = this.reviewStageService.createReviewArtifact(
-      ticket,
-      review,
-    );
+    const artifact = this.reviewStageService.createReviewArtifact(ticket, review);
     if (!options.silent) {
       console.log(chalk.gray(`\n  Saved to: ${artifact.path}`));
     }

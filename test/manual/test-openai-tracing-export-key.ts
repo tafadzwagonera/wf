@@ -34,16 +34,9 @@ let setTracingExportApiKey: unknown;
 try {
   const agents = require('@openai/agents');
   setTracingExportApiKey = agents.setTracingExportApiKey;
-  assert(
-    'setTracingExportApiKey is exported from @openai/agents',
-    typeof setTracingExportApiKey === 'function',
-  );
+  assert('setTracingExportApiKey is exported from @openai/agents', typeof setTracingExportApiKey === 'function');
 } catch (e) {
-  assert(
-    'setTracingExportApiKey is exported from @openai/agents',
-    false,
-    `import failed: ${e}`,
-  );
+  assert('setTracingExportApiKey is exported from @openai/agents', false, `import failed: ${e}`);
 }
 
 if (typeof setTracingExportApiKey === 'function') {
@@ -51,11 +44,7 @@ if (typeof setTracingExportApiKey === 'function') {
     (setTracingExportApiKey as (key: string) => void)('sk-test-dummy-key');
     assert('calling setTracingExportApiKey with a string does not throw', true);
   } catch (e) {
-    assert(
-      'calling setTracingExportApiKey with a string does not throw',
-      false,
-      String(e),
-    );
+    assert('calling setTracingExportApiKey with a string does not throw', false, String(e));
   }
 }
 
@@ -66,26 +55,14 @@ console.log(chalk.cyan('\n  Source file integration'));
 
 const srcRoot = path.resolve(__dirname, '../../src');
 
-const stageAgentSrc = fs.readFileSync(
-  path.join(srcRoot, 'integrations/ai/stage-agent.service.ts'),
-  'utf-8',
-);
+const stageAgentSrc = fs.readFileSync(path.join(srcRoot, 'integrations/ai/stage-agent.service.ts'), 'utf-8');
 
-const adapterSrc = fs.readFileSync(
-  path.join(srcRoot, 'integrations/ai/adapters/openai-agent.adapter.ts'),
-  'utf-8',
-);
+const adapterSrc = fs.readFileSync(path.join(srcRoot, 'integrations/ai/adapters/openai-agent.adapter.ts'), 'utf-8');
 
 // Check import presence
-assert(
-  'stage-agent.service.ts imports setTracingExportApiKey',
-  stageAgentSrc.includes('setTracingExportApiKey'),
-);
+assert('stage-agent.service.ts imports setTracingExportApiKey', stageAgentSrc.includes('setTracingExportApiKey'));
 
-assert(
-  'openai-agent.adapter.ts imports setTracingExportApiKey',
-  adapterSrc.includes('setTracingExportApiKey'),
-);
+assert('openai-agent.adapter.ts imports setTracingExportApiKey', adapterSrc.includes('setTracingExportApiKey'));
 
 // Check that setTracingExportApiKey(apiKey) appears before new OpenAIProvider
 // in each file by verifying order of first occurrence
@@ -95,9 +72,7 @@ const verifyCallOrder = (source: string, fileName: string) => {
   assert(
     `${fileName}: setTracingExportApiKey(apiKey) appears before new OpenAIProvider`,
     callIdx !== -1 && providerIdx !== -1 && callIdx < providerIdx,
-    callIdx === -1
-      ? 'setTracingExportApiKey(apiKey) not found'
-      : `call at ${callIdx}, provider at ${providerIdx}`,
+    callIdx === -1 ? 'setTracingExportApiKey(apiKey) not found' : `call at ${callIdx}, provider at ${providerIdx}`
   );
 };
 
@@ -105,30 +80,24 @@ verifyCallOrder(stageAgentSrc, 'stage-agent.service.ts');
 verifyCallOrder(adapterSrc, 'openai-agent.adapter.ts');
 
 // Check stage-agent has TWO calls (runOpenAiStagePrompt + openAiChatTurn)
-const stageAgentCallCount = (
-  stageAgentSrc.match(/setTracingExportApiKey\(apiKey\)/g) || []
-).length;
+const stageAgentCallCount = (stageAgentSrc.match(/setTracingExportApiKey\(apiKey\)/g) || []).length;
 assert(
   'stage-agent.service.ts has exactly 2 setTracingExportApiKey calls',
   stageAgentCallCount === 2,
-  `found ${stageAgentCallCount}`,
+  `found ${stageAgentCallCount}`
 );
 
 // Check adapter has ONE call
-const adapterCallCount = (
-  adapterSrc.match(/setTracingExportApiKey\(apiKey\)/g) || []
-).length;
+const adapterCallCount = (adapterSrc.match(/setTracingExportApiKey\(apiKey\)/g) || []).length;
 assert(
   'openai-agent.adapter.ts has exactly 1 setTracingExportApiKey call',
   adapterCallCount === 1,
-  `found ${adapterCallCount}`,
+  `found ${adapterCallCount}`
 );
 
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
-console.log(
-  `\n  ${chalk.bold('Results:')} ${chalk.green(`${passed} passed`)}, ${chalk.red(`${failed} failed`)}\n`,
-);
+console.log(`\n  ${chalk.bold('Results:')} ${chalk.green(`${passed} passed`)}, ${chalk.red(`${failed} failed`)}\n`);
 
 process.exit(failed > 0 ? 1 : 0);

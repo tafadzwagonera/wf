@@ -1,9 +1,4 @@
-import {
-  splitDiffByFile,
-  summariseDiff,
-  MAX_REVIEW_DIFF_LENGTH,
-  DiffSegment,
-} from './summarise-diff';
+import { splitDiffByFile, summariseDiff, MAX_REVIEW_DIFF_LENGTH, DiffSegment } from './summarise-diff';
 
 describe('splitDiffByFile', () => {
   it('should split a multi-file diff into per-file segments', () => {
@@ -36,14 +31,9 @@ describe('splitDiffByFile', () => {
   });
 
   it('should handle a single-file diff', () => {
-    const diff = [
-      'diff --git a/only.ts b/only.ts',
-      '--- a/only.ts',
-      '+++ b/only.ts',
-      '@@ -1 +1 @@',
-      '-x',
-      '+y',
-    ].join('\n');
+    const diff = ['diff --git a/only.ts b/only.ts', '--- a/only.ts', '+++ b/only.ts', '@@ -1 +1 @@', '-x', '+y'].join(
+      '\n'
+    );
 
     const segments = splitDiffByFile(diff);
     expect(segments).toHaveLength(1);
@@ -52,18 +42,14 @@ describe('splitDiffByFile', () => {
 });
 
 describe('summariseDiff', () => {
-  const mockSummarise = jest.fn(
-    async (_patch: string, file: string) => `- Changed ${file}`,
-  );
+  const mockSummarise = jest.fn(async (_patch: string, file: string) => `- Changed ${file}`);
 
   beforeEach(() => {
     mockSummarise.mockClear();
   });
 
   it('should return the original diff when total length is within threshold', async () => {
-    const segments: DiffSegment[] = [
-      { file: 'a.ts', patch: 'diff --git a/a.ts b/a.ts\n-old\n+new' },
-    ];
+    const segments: DiffSegment[] = [{ file: 'a.ts', patch: 'diff --git a/a.ts b/a.ts\n-old\n+new' }];
 
     const result = await summariseDiff(segments, 1000, mockSummarise);
 
@@ -103,11 +89,7 @@ describe('summariseDiff', () => {
       patch: 'diff --git a/c.ts b/c.ts\n' + 'c'.repeat(100),
     };
 
-    const result = await summariseDiff(
-      [segmentA, segmentB, segmentC],
-      80,
-      mockSummarise,
-    );
+    const result = await summariseDiff([segmentA, segmentB, segmentC], 80, mockSummarise);
 
     const aPos = result.indexOf('a.ts');
     const bPos = result.indexOf('b.ts');
@@ -133,10 +115,7 @@ describe('summariseDiff', () => {
     await summariseDiff(segments, 100, mockSummarise);
 
     // The largest should be summarised
-    expect(mockSummarise).toHaveBeenCalledWith(
-      expect.stringContaining('big.ts'),
-      'big.ts',
-    );
+    expect(mockSummarise).toHaveBeenCalledWith(expect.stringContaining('big.ts'), 'big.ts');
   });
 
   it('should keep the raw patch when summarisation fails for a segment', async () => {

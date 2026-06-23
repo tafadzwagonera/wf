@@ -1,10 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Bitbucket } from 'bitbucket';
-import {
-  IssueTrackerAdapter,
-  IssueTrackerFeature,
-} from '../issue-tracker-adapter.interface';
+import { IssueTrackerAdapter, IssueTrackerFeature } from '../issue-tracker-adapter.interface';
 import {
   UniversalTicket,
   IssueTrackerTicketReference,
@@ -26,26 +23,20 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
   constructor(
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
-    private readonly issueTrackerConfig: IssueTrackerConfigService,
+    private readonly issueTrackerConfig: IssueTrackerConfigService
   ) {
     const email = this.configService.get<string>('atlassian.email');
-    const apiToken = this.configService.get<string>(
-      'atlassian.bitbucket.apiToken',
-    );
-    const workspace = this.configService.get<string>(
-      'atlassian.bitbucket.workspace',
-    );
+    const apiToken = this.configService.get<string>('atlassian.bitbucket.apiToken');
+    const workspace = this.configService.get<string>('atlassian.bitbucket.workspace');
 
     // Check if tracker has any configuration (partial config detection)
     const hasPartialConfig = Boolean(apiToken || workspace);
 
     if (!email || !apiToken) {
       // Only warn if tracker is enabled
-      if (
-        this.issueTrackerConfig.isTrackerEnabled('bitbucket', hasPartialConfig)
-      ) {
+      if (this.issueTrackerConfig.isTrackerEnabled('bitbucket', hasPartialConfig)) {
         this.logger.warn(
-          'BitBucket credentials not configured. Set atlassian.email, atlassian.bitbucket.apiToken, and atlassian.bitbucket.workspace in wf.config.*.',
+          'BitBucket credentials not configured. Set atlassian.email, atlassian.bitbucket.apiToken, and atlassian.bitbucket.workspace in wf.config.*.'
         );
       }
       this.bitbucket = new Bitbucket();
@@ -63,9 +54,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
   /**
    * Create an issue on BitBucket
    */
-  async createTicket(
-    ticket: UniversalTicket,
-  ): Promise<IssueTrackerTicketReference> {
+  async createTicket(ticket: UniversalTicket): Promise<IssueTrackerTicketReference> {
     const { workspace, repo } = this.parseProjectOrDefault(ticket.project);
 
     const response = await this.bitbucket.issue.create({
@@ -127,10 +116,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
   /**
    * Update an issue on BitBucket
    */
-  async updateTicket(
-    reference: string,
-    updates: Partial<UniversalTicket>,
-  ): Promise<void> {
+  async updateTicket(reference: string, updates: Partial<UniversalTicket>): Promise<void> {
     const { workspace, repo, issueId } = this.parseReference(reference);
 
     const updateData: any = {};
@@ -189,10 +175,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
    * @param body Markdown comment body
    */
   async createComment(reference: string, body: string): Promise<void> {
-    if (
-      reference.includes('bitbucket.org') &&
-      reference.includes('pull-requests')
-    ) {
+    if (reference.includes('bitbucket.org') && reference.includes('pull-requests')) {
       const { workspace, repo, prId } = this.parsePullRequestUrl(reference);
       await this.bitbucket.pullrequests.createComment({
         workspace,
@@ -218,12 +201,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
    * @param line Destination-side line number to anchor the comment to
    * @param body Markdown comment body
    */
-  async createInlineComment(
-    prUrl: string,
-    filePath: string,
-    line: number,
-    body: string,
-  ): Promise<void> {
+  async createInlineComment(prUrl: string, filePath: string, line: number, body: string): Promise<void> {
     const { workspace, repo, prId } = this.parsePullRequestUrl(prUrl);
     await this.bitbucket.pullrequests.createComment({
       workspace,
@@ -242,14 +220,8 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
    * @param repoOverride Optional repo in "workspace/repo" format; falls back to default
    * @returns PR URL if found, null otherwise
    */
-  async findPullRequestByTicketKey(
-    ticketKey: string,
-    repoOverride?: string,
-  ): Promise<string | null> {
-    const matches = await this.findPullRequestsByTicketKey(
-      ticketKey,
-      repoOverride,
-    );
+  async findPullRequestByTicketKey(ticketKey: string, repoOverride?: string): Promise<string | null> {
+    const matches = await this.findPullRequestsByTicketKey(ticketKey, repoOverride);
 
     return matches[0] ?? null;
   }
@@ -260,10 +232,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
    * @param repoOverride Optional repo in "workspace/repo" format; falls back to default
    * @returns Matching PR URLs sorted by pull request id
    */
-  async findPullRequestsByTicketKey(
-    ticketKey: string,
-    repoOverride?: string,
-  ): Promise<string[]> {
+  async findPullRequestsByTicketKey(ticketKey: string, repoOverride?: string): Promise<string[]> {
     const { workspace, repo } = this.parseProjectOrDefault(repoOverride);
     const pullRequestUrls = new Set<string>();
 
@@ -353,7 +322,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
             bitbucketId: issue.id,
             bitbucketUrl: issue.links?.html?.href,
           },
-        }),
+        })
     );
   }
 
@@ -376,7 +345,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     }
 
     throw new Error(
-      'No BitBucket repository specified. Provide the repository as "workspace/repo" or pass --repos <repo> so the configured workspace can be used.',
+      'No BitBucket repository specified. Provide the repository as "workspace/repo" or pass --repos <repo> so the configured workspace can be used.'
     );
   }
 
@@ -395,9 +364,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
       return { workspace, repo, issueId: parseInt(id, 10) };
     }
 
-    throw new Error(
-      `Invalid BitBucket issue reference: "${reference}". Expected format: workspace/repo#123`,
-    );
+    throw new Error(`Invalid BitBucket issue reference: "${reference}". Expected format: workspace/repo#123`);
   }
 
   /**
@@ -409,9 +376,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     prId: number;
   } {
     // Format: https://bitbucket.org/workspace/repo/pull-requests/123
-    const match = url.match(
-      /bitbucket\.org\/([^/]+)\/([^/]+)\/pull-requests\/(\d+)/,
-    );
+    const match = url.match(/bitbucket\.org\/([^/]+)\/([^/]+)\/pull-requests\/(\d+)/);
     if (!match) {
       throw new Error(`Invalid BitBucket PR URL: ${url}`);
     }
@@ -476,9 +441,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
   /**
    * Map Bitbucket's priority labels back into the normalized wf vocabulary.
    */
-  private mapBitBucketPriorityToUniversal(
-    bitbucketPriority: string,
-  ): TicketPriority {
+  private mapBitBucketPriorityToUniversal(bitbucketPriority: string): TicketPriority {
     const priorityMap: Record<string, TicketPriority> = {
       critical: TicketPriority.HIGHEST,
       major: TicketPriority.HIGH,

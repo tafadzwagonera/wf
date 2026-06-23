@@ -16,26 +16,17 @@ interface FetchTicketOptions {
 export class FetchStageService {
   constructor(
     private readonly issueTrackerService: IssueTrackerService,
-    private readonly configService: ConfigService,
+    private readonly configService: ConfigService
   ) {}
 
-  async fetchTicket(
-    ticketKey: string,
-    options: FetchTicketOptions,
-  ): Promise<UniversalTicket> {
+  async fetchTicket(ticketKey: string, options: FetchTicketOptions): Promise<UniversalTicket> {
     const ticketReference = this.resolveTicketReference(ticketKey, options);
     const adapter = this.issueTrackerService.getAdapter(options.trackerName);
     return adapter.getTicket(ticketReference);
   }
 
-  async fetchArtifact(
-    ticketKey: string,
-    options: FetcherOptions,
-  ): Promise<TicketArtifact> {
-    const trackerDir = resolveArtifactDir(
-      options.baseDir ?? process.cwd(),
-      options.trackerName,
-    );
+  async fetchArtifact(ticketKey: string, options: FetcherOptions): Promise<TicketArtifact> {
+    const trackerDir = resolveArtifactDir(options.baseDir ?? process.cwd(), options.trackerName);
     const ticketPath = path.join(trackerDir, `${ticketKey}.md`);
 
     if (options.skipExisting && fs.existsSync(ticketPath)) {
@@ -64,19 +55,10 @@ export class FetchStageService {
     };
   }
 
-  loadArtifact(
-    ticketKey: string,
-    trackerName: string,
-    baseDir: string = process.cwd(),
-  ): TicketArtifact {
-    const ticketPath = path.join(
-      resolveArtifactDir(baseDir, trackerName),
-      `${ticketKey}.md`,
-    );
+  loadArtifact(ticketKey: string, trackerName: string, baseDir: string = process.cwd()): TicketArtifact {
+    const ticketPath = path.join(resolveArtifactDir(baseDir, trackerName), `${ticketKey}.md`);
     if (!fs.existsSync(ticketPath)) {
-      throw new Error(
-        `Ticket file not found: ${ticketPath}. Run with --from fetch first.`,
-      );
+      throw new Error(`Ticket file not found: ${ticketPath}. Run with --from fetch first.`);
     }
 
     return {
@@ -106,10 +88,7 @@ ${ticket.description ?? ''}
 `;
   }
 
-  private resolveTicketReference(
-    ticketKey: string,
-    options: FetchTicketOptions,
-  ): string {
+  private resolveTicketReference(ticketKey: string, options: FetchTicketOptions): string {
     if (options.trackerName !== 'bitbucket' || !options.repo) {
       return ticketKey;
     }
@@ -118,12 +97,10 @@ ${ticket.description ?? ''}
       return `${options.repo}#${ticketKey}`;
     }
 
-    const workspace = this.configService.get<string>(
-      'atlassian.bitbucket.workspace',
-    );
+    const workspace = this.configService.get<string>('atlassian.bitbucket.workspace');
     if (!workspace) {
       throw new Error(
-        'Workspace required. Provide as workspace/repo or set atlassian.bitbucket.workspace in wf.config.*',
+        'Workspace required. Provide as workspace/repo or set atlassian.bitbucket.workspace in wf.config.*'
       );
     }
 

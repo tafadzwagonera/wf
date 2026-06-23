@@ -26,14 +26,8 @@ Would you like to focus on the selection logic first?`,
   timestamp: new Date(),
 };
 
-console.log(
-  chalk.bold('\n─── Test: text block styling in Claude response ───\n'),
-);
-console.log(
-  chalk.dim(
-    'Expected: all non-empty text lines (bullets, numbered lists, plain text) appear in CYAN.\n',
-  ),
-);
+console.log(chalk.bold('\n─── Test: text block styling in Claude response ───\n'));
+console.log(chalk.dim('Expected: all non-empty text lines (bullets, numbered lists, plain text) appear in CYAN.\n'));
 
 service.displayAssistantResponse(mockMessage);
 

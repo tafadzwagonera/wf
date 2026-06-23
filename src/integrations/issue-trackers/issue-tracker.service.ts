@@ -28,13 +28,12 @@ export class IssueTrackerService {
    * @throws NotFoundException if tracker is not registered
    */
   getAdapter(trackerName?: string): IssueTrackerAdapter {
-    const tracker =
-      trackerName || this.configService.get<string>('tracker', 'jira');
+    const tracker = trackerName || this.configService.get<string>('tracker', 'jira');
 
     const adapter = this.adapters.get(tracker);
     if (!adapter) {
       throw new NotFoundException(
-        `Tracker adapter not found for: ${tracker}. Available trackers: ${this.getAvailableTrackers().join(', ')}`,
+        `Tracker adapter not found for: ${tracker}. Available trackers: ${this.getAvailableTrackers().join(', ')}`
       );
     }
 
@@ -89,8 +88,8 @@ export class IssueTrackerService {
       [...this.adapters.entries()].filter(
         ([trackerName, adapter]) =>
           typeof adapter.findPullRequestsByTicketKey === 'function' &&
-          this.hasPullRequestDiscoveryCredentials(trackerName),
-      ),
+          this.hasPullRequestDiscoveryCredentials(trackerName)
+      )
     );
   }
 
@@ -107,7 +106,7 @@ export class IssueTrackerService {
     if (trackerName === 'bitbucket') {
       return Boolean(
         this.configService.get<string>('atlassian.email')?.trim() &&
-        this.configService.get<string>('atlassian.bitbucket.apiToken')?.trim(),
+        this.configService.get<string>('atlassian.bitbucket.apiToken')?.trim()
       );
     }
 
@@ -115,7 +114,7 @@ export class IssueTrackerService {
       return Boolean(
         this.configService.get<string>('atlassian.email')?.trim() &&
         (this.configService.get<string>('atlassian.jira.apiToken')?.trim() ||
-          this.configService.get<string>('atlassian.apiToken')?.trim()),
+          this.configService.get<string>('atlassian.apiToken')?.trim())
       );
     }
 

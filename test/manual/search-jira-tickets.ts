@@ -26,25 +26,15 @@ async function searchTickets() {
     console.log(chalk.bold(`Found ${tickets.length} recent tickets:\n`));
 
     tickets.forEach((ticket, index) => {
-      console.log(
-        chalk.bold(`${index + 1}. ${ticket.key}:`),
-        chalk.white(ticket.summary),
-      );
-      console.log(
-        chalk.gray(`   Status: ${ticket.status} | Type: ${ticket.issueType}`),
-      );
-      console.log(
-        chalk.gray(`   Created: ${ticket.created.toLocaleDateString()}`),
-      );
+      console.log(chalk.bold(`${index + 1}. ${ticket.key}:`), chalk.white(ticket.summary));
+      console.log(chalk.gray(`   Status: ${ticket.status} | Type: ${ticket.issueType}`));
+      console.log(chalk.gray(`   Created: ${ticket.created.toLocaleDateString()}`));
       console.log();
     });
   } catch (error: any) {
     console.error(chalk.red('❌ Error:'), error.message);
     if (error.details) {
-      console.error(
-        chalk.gray('Details:'),
-        JSON.stringify(error.details, null, 2),
-      );
+      console.error(chalk.gray('Details:'), JSON.stringify(error.details, null, 2));
     }
   } finally {
     await app.close();

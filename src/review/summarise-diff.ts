@@ -44,19 +44,17 @@ export const splitDiffByFile = (diff: string): DiffSegment[] => {
 export const summariseDiff = async (
   segments: DiffSegment[],
   threshold: number,
-  summarise: (patch: string, file: string) => Promise<string>,
+  summarise: (patch: string, file: string) => Promise<string>
 ): Promise<string> => {
   const totalLength = segments.reduce((sum, s) => sum + s.patch.length, 0);
 
   if (totalLength <= threshold) {
-    return segments.map((s) => s.patch).join('\n');
+    return segments.map(s => s.patch).join('\n');
   }
 
   // Work on a mutable copy sorted largest-first by patch size
   const indexed = segments.map((s, i) => ({ ...s, index: i }));
-  const sortedBySize = [...indexed].sort(
-    (a, b) => b.patch.length - a.patch.length,
-  );
+  const sortedBySize = [...indexed].sort((a, b) => b.patch.length - a.patch.length);
 
   const results: string[] = new Array(segments.length);
   let currentLength = totalLength;

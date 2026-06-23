@@ -1,9 +1,6 @@
 // src/integrations/ai/adapters/anthropic-agent.adapter.spec.ts
 import { ConfigService } from '@nestjs/config';
-import {
-  type SDKMessage,
-  type SDKResultMessage,
-} from '@anthropic-ai/claude-agent-sdk';
+import { type SDKMessage, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -28,14 +25,10 @@ jest.mock('os', () => ({
   homedir: jest.fn(),
 }));
 
-const mockLoadAnthropicAgentSdk = loadAnthropicAgentSdk as jest.MockedFunction<
-  typeof loadAnthropicAgentSdk
->;
+const mockLoadAnthropicAgentSdk = loadAnthropicAgentSdk as jest.MockedFunction<typeof loadAnthropicAgentSdk>;
 const mockHomedir = os.homedir as jest.MockedFunction<typeof os.homedir>;
 
-const makeConfigService = (
-  overrides: Record<string, unknown> = {},
-): ConfigService => {
+const makeConfigService = (overrides: Record<string, unknown> = {}): ConfigService => {
   const values: Record<string, unknown> = {
     'ai.anthropicApiKey': 'test-key',
     'ai.model': 'claude-sonnet-4-6',
@@ -43,15 +36,11 @@ const makeConfigService = (
   };
 
   return {
-    get: jest.fn((key: string, fallback?: unknown) =>
-      key in values ? values[key] : fallback,
-    ),
+    get: jest.fn((key: string, fallback?: unknown) => (key in values ? values[key] : fallback)),
   } as unknown as ConfigService;
 };
 
-const makeResultSuccess = (
-  overrides: Partial<SDKResultMessage> = {},
-): SDKResultMessage =>
+const makeResultSuccess = (overrides: Partial<SDKResultMessage> = {}): SDKResultMessage =>
   ({
     type: 'result',
     subtype: 'success',
@@ -78,9 +67,7 @@ const makeResultSuccess = (
     ...overrides,
   }) as SDKResultMessage;
 
-const makeResultError = (
-  overrides: Partial<SDKResultMessage> = {},
-): SDKResultMessage =>
+const makeResultError = (overrides: Partial<SDKResultMessage> = {}): SDKResultMessage =>
   ({
     type: 'result',
     subtype: 'error_during_execution',
@@ -179,7 +166,7 @@ const makeApiRetryMessage = (
     max_retries?: number;
     error_status?: number | null;
     retry_delay_ms?: number;
-  } = {},
+  } = {}
 ): SDKMessage =>
   ({
     type: 'system',
@@ -222,9 +209,7 @@ const makeCompactBoundaryMessage = (): SDKMessage =>
     session_id: 'session-11',
   }) as SDKMessage;
 
-const makeSessionStateChangedMessage = (
-  state: 'idle' | 'running' | 'requires_action',
-): SDKMessage =>
+const makeSessionStateChangedMessage = (state: 'idle' | 'running' | 'requires_action'): SDKMessage =>
   ({
     type: 'system',
     subtype: 'session_state_changed',
@@ -246,10 +231,7 @@ const makeSdkSession = (messages: SDKMessage[]) => {
   };
 };
 
-const makeParams = (
-  repoDir = '/repo/primary',
-  verificationScripts: VerificationScript[] = [],
-) => ({
+const makeParams = (repoDir = '/repo/primary', verificationScripts: VerificationScript[] = []) => ({
   ticket: {
     ticketKey: 'T-1',
     content: 'ticket',
@@ -281,9 +263,7 @@ describe('AnthropicAgentAdapter', () => {
   beforeEach(() => {
     mockHomedir.mockReturnValue(path.join(os.tmpdir(), 'wf-home-default'));
     mockLoadAnthropicAgentSdk.mockResolvedValue({
-      query: jest
-        .fn()
-        .mockImplementation(() => makeSdkSession([makeResultSuccess()])),
+      query: jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()])),
     } as never);
   });
 
@@ -304,7 +284,7 @@ describe('AnthropicAgentAdapter', () => {
       } as SDKMessage;
 
       expect(formatProgressMessage(message)).toBe(
-        '  [claude-agent-sdk] Task progress: Inspecting verification output · last tool: Bash',
+        '  [claude-agent-sdk] Task progress: Inspecting verification output · last tool: Bash'
       );
     });
 
@@ -316,29 +296,23 @@ describe('AnthropicAgentAdapter', () => {
         task_id: 'task-1',
       } as SDKMessage;
 
-      expect(formatProgressMessage(message)).toBe(
-        '  [claude-agent-sdk] Tool progress: Write (2.4s) · task: task-1',
-      );
+      expect(formatProgressMessage(message)).toBe('  [claude-agent-sdk] Tool progress: Write (2.4s) · task: task-1');
     });
 
     it('formats api_retry with HTTP status and backoff delay', () => {
       expect(formatProgressMessage(makeApiRetryMessage())).toBe(
-        '  [claude-agent-sdk] API retry: attempt 1/3 after HTTP 529 (2000ms backoff)',
+        '  [claude-agent-sdk] API retry: attempt 1/3 after HTTP 529 (2000ms backoff)'
       );
     });
 
     it('formats api_retry with null error_status as connection error', () => {
-      expect(
-        formatProgressMessage(makeApiRetryMessage({ error_status: null })),
-      ).toBe(
-        '  [claude-agent-sdk] API retry: attempt 1/3 after connection error (2000ms backoff)',
+      expect(formatProgressMessage(makeApiRetryMessage({ error_status: null }))).toBe(
+        '  [claude-agent-sdk] API retry: attempt 1/3 after connection error (2000ms backoff)'
       );
     });
 
     it('formats status with a non-null status string', () => {
-      expect(formatProgressMessage(makeStatusMessage('compacting'))).toBe(
-        '  [claude-agent-sdk] Status: compacting',
-      );
+      expect(formatProgressMessage(makeStatusMessage('compacting'))).toBe('  [claude-agent-sdk] Status: compacting');
     });
 
     it('returns null for status with null status value', () => {
@@ -346,24 +320,22 @@ describe('AnthropicAgentAdapter', () => {
     });
 
     it('formats rate_limit_event', () => {
-      expect(formatProgressMessage(makeRateLimitEventMessage())).toBe(
-        '  [claude-agent-sdk] Rate limit: updated',
-      );
+      expect(formatProgressMessage(makeRateLimitEventMessage())).toBe('  [claude-agent-sdk] Rate limit: updated');
     });
 
     it('formats compact_boundary with trigger and token count', () => {
       expect(formatProgressMessage(makeCompactBoundaryMessage())).toBe(
-        '  [claude-agent-sdk] Context compacted (auto, 45000 tokens before)',
+        '  [claude-agent-sdk] Context compacted (auto, 45000 tokens before)'
       );
     });
 
     it('formats session_state_changed', () => {
-      expect(
-        formatProgressMessage(makeSessionStateChangedMessage('idle')),
-      ).toBe('  [claude-agent-sdk] Session state: idle');
-      expect(
-        formatProgressMessage(makeSessionStateChangedMessage('running')),
-      ).toBe('  [claude-agent-sdk] Session state: running');
+      expect(formatProgressMessage(makeSessionStateChangedMessage('idle'))).toBe(
+        '  [claude-agent-sdk] Session state: idle'
+      );
+      expect(formatProgressMessage(makeSessionStateChangedMessage('running'))).toBe(
+        '  [claude-agent-sdk] Session state: running'
+      );
     });
   });
 
@@ -371,20 +343,12 @@ describe('AnthropicAgentAdapter', () => {
     it('formats file persistence and verification events into explicit logs', () => {
       const state = {};
 
-      expect(
-        formatActivityMessages(
-          makeFilesPersistedMessage(),
-          '/repo/primary',
-          state,
-        ),
-      ).toEqual(['  [claude-agent-sdk] File updated: src/foo.ts']);
+      expect(formatActivityMessages(makeFilesPersistedMessage(), '/repo/primary', state)).toEqual([
+        '  [claude-agent-sdk] File updated: src/foo.ts',
+      ]);
 
       expect(
-        formatActivityMessages(
-          makeToolUseSummaryMessage('Ran `npm test` successfully.'),
-          '/repo/primary',
-          state,
-        ),
+        formatActivityMessages(makeToolUseSummaryMessage('Ran `npm test` successfully.'), '/repo/primary', state)
       ).toEqual(['  [claude-agent-sdk] Verification passed: npm test']);
     });
 
@@ -393,12 +357,10 @@ describe('AnthropicAgentAdapter', () => {
 
       expect(
         formatActivityMessages(
-          makeToolUseSummaryMessage(
-            'Ran `npm test` and it failed with exit code 1.',
-          ),
+          makeToolUseSummaryMessage('Ran `npm test` and it failed with exit code 1.'),
           '/repo/primary',
-          state,
-        ),
+          state
+        )
       ).toEqual(['  [claude-agent-sdk] Verification failed: npm test']);
     });
   });
@@ -442,9 +404,7 @@ describe('AnthropicAgentAdapter', () => {
 
   describe('model routing in generateAndVerify', () => {
     it('uses mechanical model when --model-routing=mechanical', async () => {
-      const mockQuery = jest
-        .fn()
-        .mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+      const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
       mockLoadAnthropicAgentSdk.mockResolvedValue({
         query: mockQuery,
       } as never);
@@ -505,33 +465,23 @@ describe('AnthropicAgentAdapter', () => {
       mockLoadAnthropicAgentSdk.mockResolvedValue({
         query: mockQuery,
       } as never);
-      const consoleSpy = jest
-        .spyOn(console, 'log')
-        .mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       await adapter.generateAndVerify(makeParams());
 
-      const logCalls = consoleSpy.mock.calls.map((call) => String(call[0]));
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
       expect(
         logCalls.some(
-          (message) =>
-            message.includes('Usage: 5000 input') &&
-            message.includes('1500 cached') &&
-            message.includes('2000 output'),
-        ),
+          message =>
+            message.includes('Usage: 5000 input') && message.includes('1500 cached') && message.includes('2000 output')
+        )
       ).toBe(true);
-      expect(
-        logCalls.some(
-          (message) => message.includes('Cost:') && message.includes('$0.0234'),
-        ),
-      ).toBe(true);
+      expect(logCalls.some(message => message.includes('Cost:') && message.includes('$0.0234'))).toBe(true);
     });
 
     it('reads mechanical model from stages.implement.models.mechanical config', async () => {
-      const mockQuery = jest
-        .fn()
-        .mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+      const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
       mockLoadAnthropicAgentSdk.mockResolvedValue({
         query: mockQuery,
       } as never);
@@ -540,7 +490,7 @@ describe('AnthropicAgentAdapter', () => {
       const adapter = new AnthropicAgentAdapter(
         makeConfigService({
           'stages.implement.models': { mechanical: 'claude-haiku-custom' },
-        }),
+        })
       );
       const params = {
         ...makeParams(),
@@ -567,20 +517,18 @@ describe('AnthropicAgentAdapter', () => {
         makeConfigService({
           'stages.implement.model': 'claude-sonnet-4-6',
           'stages.implement.models': { mechanical: 'claude-haiku-custom' },
-        }),
+        })
       );
 
       await expect(adapter.generateAndVerify(makeParams())).rejects.toThrow(
-        'stages.implement.model and stages.implement.models are mutually exclusive.',
+        'stages.implement.model and stages.implement.models are mutually exclusive.'
       );
     });
   });
 
   describe('generateAndVerify', () => {
     it('invokes the Claude Agent SDK with repo-scoped access and the verification whitelist', async () => {
-      const mockQuery = jest
-        .fn()
-        .mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+      const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
       mockLoadAnthropicAgentSdk.mockResolvedValue({
         query: mockQuery,
       } as never);
@@ -625,7 +573,7 @@ describe('AnthropicAgentAdapter', () => {
       const canUseTool = options.canUseTool as (
         toolName: string,
         input: Record<string, unknown>,
-        context: Record<string, unknown>,
+        context: Record<string, unknown>
       ) => Promise<Record<string, unknown>>;
       const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -634,73 +582,43 @@ describe('AnthropicAgentAdapter', () => {
       expect(options.permissionMode).toBe('acceptEdits');
       expect(options.agentProgressSummaries).toBe(true);
       expect(options.tools).toEqual(
-        expect.arrayContaining([
-          'Read',
-          'Write',
-          'Edit',
-          'Bash',
-          'Glob',
-          'Grep',
-          'TodoWrite',
-          'Task',
-          'Agent',
-        ]),
+        expect.arrayContaining(['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'])
       );
       expect(systemPrompt).toMatchObject({
         type: 'preset',
         preset: 'claude_code',
       });
-      expect(systemPrompt.append).toContain(
-        'Repository directory: /repo/primary',
-      );
+      expect(systemPrompt.append).toContain('Repository directory: /repo/primary');
       expect(systemPrompt.append).toContain('npm test');
       expect(systemPrompt.append).toContain('src/foo.ts');
-      expect(settings.claudeMdExcludes).toEqual([
-        '/repo/primary/CLAUDE.md',
-        '/repo/primary/.claude/CLAUDE.md',
-      ]);
+      expect(settings.claudeMdExcludes).toEqual(['/repo/primary/CLAUDE.md', '/repo/primary/.claude/CLAUDE.md']);
       expect(sandbox).toMatchObject({
         enabled: true,
         failIfUnavailable: true,
         allowUnsandboxedCommands: false,
         autoAllowBashIfSandboxed: true,
       });
-      expect(sandbox.filesystem.allowRead).toEqual([
-        '/repo/primary',
-        '/repo/shared',
-      ]);
+      expect(sandbox.filesystem.allowRead).toEqual(['/repo/primary', '/repo/shared']);
       expect(sandbox.filesystem.allowWrite).toEqual(['/repo/primary']);
 
       try {
         await expect(
-          canUseTool(
-            'Bash',
-            { command: 'npm test' },
-            { signal: new AbortController().signal, toolUseID: 'tool-1' },
-          ),
+          canUseTool('Bash', { command: 'npm test' }, { signal: new AbortController().signal, toolUseID: 'tool-1' })
         ).resolves.toMatchObject({ behavior: 'allow' });
 
         await expect(
-          canUseTool(
-            'Bash',
-            { command: 'rm -rf /' },
-            { signal: new AbortController().signal, toolUseID: 'tool-2' },
-          ),
+          canUseTool('Bash', { command: 'rm -rf /' }, { signal: new AbortController().signal, toolUseID: 'tool-2' })
         ).resolves.toMatchObject({
           behavior: 'deny',
           interrupt: true,
         });
       } finally {
-        expect(
-          mockLog.mock.calls.some(([message]) =>
-            String(message).includes('Verification running: npm test'),
-          ),
-        ).toBe(true);
-        expect(
-          mockLog.mock.calls.some(([message]) =>
-            String(message).includes('Verification denied: rm -rf /'),
-          ),
-        ).toBe(true);
+        expect(mockLog.mock.calls.some(([message]) => String(message).includes('Verification running: npm test'))).toBe(
+          true
+        );
+        expect(mockLog.mock.calls.some(([message]) => String(message).includes('Verification denied: rm -rf /'))).toBe(
+          true
+        );
         mockLog.mockRestore();
       }
 
@@ -751,27 +669,15 @@ describe('AnthropicAgentAdapter', () => {
         await adapter.generateAndVerify(makeParams());
 
         expect(
-          mockLog.mock.calls.some(([message]) =>
-            String(message).includes('Task progress: Checking file boundaries'),
-          ),
+          mockLog.mock.calls.some(([message]) => String(message).includes('Task progress: Checking file boundaries'))
         ).toBe(true);
         expect(
-          mockLog.mock.calls.some(([message]) =>
-            String(message).includes(
-              'Tool progress: Write (2.4s) · task: task-1',
-            ),
-          ),
+          mockLog.mock.calls.some(([message]) => String(message).includes('Tool progress: Write (2.4s) · task: task-1'))
         ).toBe(true);
-        expect(
-          mockLog.mock.calls.some(([message]) =>
-            String(message).includes('File updated: src/foo.ts'),
-          ),
-        ).toBe(true);
-        expect(
-          mockLog.mock.calls.some(([message]) =>
-            String(message).includes('Verification passed: npm test'),
-          ),
-        ).toBe(true);
+        expect(mockLog.mock.calls.some(([message]) => String(message).includes('File updated: src/foo.ts'))).toBe(true);
+        expect(mockLog.mock.calls.some(([message]) => String(message).includes('Verification passed: npm test'))).toBe(
+          true
+        );
       } finally {
         mockLog.mockRestore();
       }
@@ -798,32 +704,16 @@ describe('AnthropicAgentAdapter', () => {
         await adapter.generateAndVerify(makeParams());
 
         expect(
-          mockLog.mock.calls.some(([message]) =>
-            String(message).includes('API retry: attempt 1/3 after HTTP 529'),
-          ),
+          mockLog.mock.calls.some(([message]) => String(message).includes('API retry: attempt 1/3 after HTTP 529'))
         ).toBe(true);
+        expect(mockLog.mock.calls.some(([message]) => String(message).includes('Status: compacting'))).toBe(true);
+        expect(mockLog.mock.calls.some(([message]) => String(message).includes('Rate limit: updated'))).toBe(true);
         expect(
           mockLog.mock.calls.some(([message]) =>
-            String(message).includes('Status: compacting'),
-          ),
+            String(message).includes('Context compacted (auto, 45000 tokens before)')
+          )
         ).toBe(true);
-        expect(
-          mockLog.mock.calls.some(([message]) =>
-            String(message).includes('Rate limit: updated'),
-          ),
-        ).toBe(true);
-        expect(
-          mockLog.mock.calls.some(([message]) =>
-            String(message).includes(
-              'Context compacted (auto, 45000 tokens before)',
-            ),
-          ),
-        ).toBe(true);
-        expect(
-          mockLog.mock.calls.some(([message]) =>
-            String(message).includes('Session state: idle'),
-          ),
-        ).toBe(true);
+        expect(mockLog.mock.calls.some(([message]) => String(message).includes('Session state: idle'))).toBe(true);
       } finally {
         mockLog.mockRestore();
       }
@@ -838,9 +728,7 @@ describe('AnthropicAgentAdapter', () => {
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
 
-      await expect(adapter.generateAndVerify(makeParams())).rejects.toThrow(
-        'verification failed',
-      );
+      await expect(adapter.generateAndVerify(makeParams())).rejects.toThrow('verification failed');
 
       expect(mockSession.close).toHaveBeenCalledTimes(1);
     });
@@ -852,13 +740,9 @@ describe('AnthropicAgentAdapter', () => {
         query: mockQuery,
       } as never);
 
-      const adapter = new AnthropicAgentAdapter(
-        makeConfigService({ 'ai.anthropicApiKey': '' }),
-      );
+      const adapter = new AnthropicAgentAdapter(makeConfigService({ 'ai.anthropicApiKey': '' }));
 
-      await expect(adapter.generateAndVerify(makeParams())).rejects.toThrow(
-        /requires `ai\.anthropicApiKey`/,
-      );
+      await expect(adapter.generateAndVerify(makeParams())).rejects.toThrow(/requires `ai\.anthropicApiKey`/);
       expect(mockQuery).not.toHaveBeenCalled();
     });
 
@@ -866,16 +750,8 @@ describe('AnthropicAgentAdapter', () => {
       const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-claude-'));
       const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-home-'));
       fs.mkdirSync(path.join(homeDir, '.claude'), { recursive: true });
-      fs.writeFileSync(
-        path.join(homeDir, '.claude', 'CLAUDE.md'),
-        'global context line',
-        'utf-8',
-      );
-      fs.writeFileSync(
-        path.join(repoDir, 'CLAUDE.md'),
-        'repo context line',
-        'utf-8',
-      );
+      fs.writeFileSync(path.join(homeDir, '.claude', 'CLAUDE.md'), 'global context line', 'utf-8');
+      fs.writeFileSync(path.join(repoDir, 'CLAUDE.md'), 'repo context line', 'utf-8');
 
       mockHomedir.mockReturnValue(homeDir);
       const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -909,11 +785,7 @@ describe('AnthropicAgentAdapter', () => {
 
     it('warns when the global CLAUDE.md is missing', async () => {
       const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-claude-'));
-      fs.writeFileSync(
-        path.join(repoDir, 'CLAUDE.md'),
-        'repo context line',
-        'utf-8',
-      );
+      fs.writeFileSync(path.join(repoDir, 'CLAUDE.md'), 'repo context line', 'utf-8');
 
       const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-home-'));
       mockHomedir.mockReturnValue(homeDir);
@@ -928,9 +800,7 @@ describe('AnthropicAgentAdapter', () => {
         const adapter = new AnthropicAgentAdapter(makeConfigService());
         await adapter.generateAndVerify(makeParams(repoDir));
 
-        expect(mockLog).toHaveBeenCalledWith(
-          expect.stringContaining('⚠️ Missing CLAUDE.md file at'),
-        );
+        expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('⚠️ Missing CLAUDE.md file at'));
       } finally {
         mockLog.mockRestore();
         fs.rmSync(repoDir, { recursive: true, force: true });
@@ -955,10 +825,7 @@ describe('AnthropicAgentAdapter', () => {
       jest.spyOn(console, 'log').mockImplementation(() => {});
 
       const initialSession = makeSdkSession([
-        makeFilesPersistedFor([
-          '/repo/primary/src/foo.ts',
-          '/repo/primary/src/bar.ts',
-        ]),
+        makeFilesPersistedFor(['/repo/primary/src/foo.ts', '/repo/primary/src/bar.ts']),
         makeResultSuccess({ session_id: 'session-loop' }),
       ]);
       const mockQuery = jest.fn().mockReturnValueOnce(initialSession);
@@ -986,10 +853,7 @@ describe('AnthropicAgentAdapter', () => {
         makeFilesPersistedFor(['/repo/primary/src/bar.ts']),
         makeResultSuccess({ session_id: 'session-loop-2' }),
       ]);
-      const mockQuery = jest
-        .fn()
-        .mockReturnValueOnce(initialSession)
-        .mockReturnValueOnce(pass1Session);
+      const mockQuery = jest.fn().mockReturnValueOnce(initialSession).mockReturnValueOnce(pass1Session);
       mockLoadAnthropicAgentSdk.mockResolvedValue({
         query: mockQuery,
       } as never);
@@ -1006,15 +870,9 @@ describe('AnthropicAgentAdapter', () => {
     it('breaks after 2 non-improving passes', async () => {
       const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      const initialSession = makeSdkSession([
-        makeResultSuccess({ session_id: 'session-loop' }),
-      ]);
-      const pass1Session = makeSdkSession([
-        makeResultSuccess({ session_id: 'session-loop' }),
-      ]);
-      const pass2Session = makeSdkSession([
-        makeResultSuccess({ session_id: 'session-loop' }),
-      ]);
+      const initialSession = makeSdkSession([makeResultSuccess({ session_id: 'session-loop' })]);
+      const pass1Session = makeSdkSession([makeResultSuccess({ session_id: 'session-loop' })]);
+      const pass2Session = makeSdkSession([makeResultSuccess({ session_id: 'session-loop' })]);
       const mockQuery = jest
         .fn()
         .mockReturnValueOnce(initialSession)
@@ -1031,27 +889,19 @@ describe('AnthropicAgentAdapter', () => {
       await adapter.generateAndVerify(params);
 
       expect(mockQuery).toHaveBeenCalledTimes(3);
-      expect(mockLog).toHaveBeenCalledWith(
-        expect.stringContaining('Workload not decreasing'),
-      );
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('Workload not decreasing'));
     });
 
     it('resets stall counter on resumed improvement', async () => {
       jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      const initialSession = makeSdkSession([
-        makeResultSuccess({ session_id: 'session-loop' }),
-      ]);
+      const initialSession = makeSdkSession([makeResultSuccess({ session_id: 'session-loop' })]);
       const pass1Session = makeSdkSession([
         makeFilesPersistedFor(['/repo/primary/src/a.ts']),
         makeResultSuccess({ session_id: 'session-loop' }),
       ]);
-      const pass2Session = makeSdkSession([
-        makeResultSuccess({ session_id: 'session-loop' }),
-      ]);
-      const pass3Session = makeSdkSession([
-        makeResultSuccess({ session_id: 'session-loop' }),
-      ]);
+      const pass2Session = makeSdkSession([makeResultSuccess({ session_id: 'session-loop' })]);
+      const pass3Session = makeSdkSession([makeResultSuccess({ session_id: 'session-loop' })]);
       const mockQuery = jest
         .fn()
         .mockReturnValueOnce(initialSession)
@@ -1079,9 +929,7 @@ describe('AnthropicAgentAdapter', () => {
       repoName: 'repo-a',
       repoFiles: ['repo-a/src/example.ts'],
       trackedFilePaths: ['repo-a/src/example.ts'],
-      verificationScripts: [
-        { id: 'build', command: 'yarn build', policy: 'enforced' },
-      ] as VerificationScript[],
+      verificationScripts: [{ id: 'build', command: 'yarn build', policy: 'enforced' }] as VerificationScript[],
       ticketContext: '# WBP-1: Fix\n',
       planSteps: ['Update source'],
       planSummary: 'Fix the widget',
@@ -1093,9 +941,7 @@ describe('AnthropicAgentAdapter', () => {
         ...baseArgs,
         contextFiles: ['repo-a/package.json'],
       });
-      expect(result).toContain(
-        'Files for context (read-only — do NOT edit these):',
-      );
+      expect(result).toContain('Files for context (read-only — do NOT edit these):');
       expect(result).toContain('package.json');
     });
 

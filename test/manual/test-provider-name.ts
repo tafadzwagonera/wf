@@ -30,9 +30,7 @@ function testProviderName() {
   };
 
   const configPath = path.join(process.cwd(), 'wf.config.js');
-  const existingConfig = fs.existsSync(configPath)
-    ? fs.readFileSync(configPath, 'utf-8')
-    : null;
+  const existingConfig = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf-8') : null;
 
   const writeConfig = (provider: string, model: string): void => {
     fs.writeFileSync(
@@ -44,7 +42,7 @@ function testProviderName() {
         '  ],',
         '};',
         '',
-      ].join('\n'),
+      ].join('\n')
     );
   };
 
@@ -59,17 +57,11 @@ function testProviderName() {
       });
     } catch (error: unknown) {
       const stdout =
-        typeof error === 'object' &&
-        error !== null &&
-        'stdout' in error &&
-        typeof error.stdout === 'string'
+        typeof error === 'object' && error !== null && 'stdout' in error && typeof error.stdout === 'string'
           ? error.stdout
           : '';
       const stderr =
-        typeof error === 'object' &&
-        error !== null &&
-        'stderr' in error &&
-        typeof error.stderr === 'string'
+        typeof error === 'object' && error !== null && 'stderr' in error && typeof error.stderr === 'string'
           ? error.stderr
           : '';
       return stdout + stderr;
@@ -81,10 +73,7 @@ function testProviderName() {
     if (anthropicOutput.includes('Anthropic Claude')) {
       pass('Anthropic config shows "Anthropic Claude" in dry-run output');
     } else {
-      fail(
-        'Anthropic config does NOT show "Anthropic Claude"',
-        anthropicOutput.slice(0, 300),
-      );
+      fail('Anthropic config does NOT show "Anthropic Claude"', anthropicOutput.slice(0, 300));
     }
 
     const openaiOutput = runDryRun('openai', 'gpt-5.4');
@@ -98,20 +87,14 @@ function testProviderName() {
     if (geminiOutput.includes('Google Gemini')) {
       pass('Gemini config shows "Google Gemini" in dry-run output');
     } else {
-      fail(
-        'Gemini config does NOT show "Google Gemini"',
-        geminiOutput.slice(0, 300),
-      );
+      fail('Gemini config does NOT show "Google Gemini"', geminiOutput.slice(0, 300));
     }
 
     const deepseekOutput = runDryRun('deepseek', 'deepseek-reasoner');
     if (deepseekOutput.includes('DeepSeek')) {
       pass('DeepSeek config shows "DeepSeek" in dry-run output');
     } else {
-      fail(
-        'DeepSeek config does NOT show "DeepSeek"',
-        deepseekOutput.slice(0, 300),
-      );
+      fail('DeepSeek config does NOT show "DeepSeek"', deepseekOutput.slice(0, 300));
     }
   } finally {
     if (existingConfig === null) {

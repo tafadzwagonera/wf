@@ -11,12 +11,7 @@ import {
   resolvePlanArtifactReference,
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
-import {
-  PlanArtifact,
-  PlannerOptions,
-  ResolutionAction,
-  TicketArtifact,
-} from '../../agents/interfaces';
+import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
 
 interface GeneratePlanOptions {
   action: ResolutionAction;
@@ -28,13 +23,10 @@ interface GeneratePlanOptions {
 export class PlanStageService {
   constructor(
     private readonly aiService: AiService,
-    private readonly stageAgentService: StageAgentService,
+    private readonly stageAgentService: StageAgentService
   ) {}
 
-  async generatePlan(
-    ticketContent: string,
-    options: GeneratePlanOptions,
-  ): Promise<ResolutionPlan> {
+  async generatePlan(ticketContent: string, options: GeneratePlanOptions): Promise<ResolutionPlan> {
     if (this.stageAgentService.isEnabledForStage('plan')) {
       return this.stageAgentService.generatePlan({
         action: options.action,
@@ -51,10 +43,7 @@ export class PlanStageService {
     });
   }
 
-  async createPlanArtifact(
-    ticket: TicketArtifact,
-    options: PlannerOptions,
-  ): Promise<PlanArtifact> {
+  async createPlanArtifact(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {
     const artifactDir = path.dirname(ticket.path);
     const sourceName = ticket.ticketKey;
     const planHash = hashPlanArtifactSources([sourceName]);
@@ -90,34 +79,18 @@ export class PlanStageService {
         hash: planHash,
         action: options.action,
         format: 'json',
-      }),
+      })
     );
 
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
     writePlanArtifactManifest(
-      buildPlanArtifactManifest(
-        planPath,
-        options.action,
-        'json',
-        planHash,
-        sourceName,
-        'ticket',
-        createdAt,
-      ),
+      buildPlanArtifactManifest(planPath, options.action, 'json', planHash, sourceName, 'ticket', createdAt)
     );
-    this.deleteStalePlanArtifacts(
-      artifactDir,
-      planHash,
-      options.action,
-      planPath,
-    );
+    this.deleteStalePlanArtifacts(artifactDir, planHash, options.action, planPath);
     return { plan, action: options.action, path: planPath, fromCache: false };
   }
 
-  loadPlanArtifact(
-    ticketPath: string,
-    action?: ResolutionAction,
-  ): PlanArtifact {
+  loadPlanArtifact(ticketPath: string, action?: ResolutionAction): PlanArtifact {
     const artifactDir = path.dirname(ticketPath);
     const sourceName = path.basename(ticketPath, '.md');
     const resolved = resolvePlanArtifactReference(sourceName, {
@@ -128,7 +101,7 @@ export class PlanStageService {
     const plan = this.readPlan(resolved.artifactPath);
     if (action && plan.action !== action) {
       throw new Error(
-        `Plan action mismatch for ${path.basename(resolved.artifactPath)}: expected ${action}, found ${plan.action}.`,
+        `Plan action mismatch for ${path.basename(resolved.artifactPath)}: expected ${action}, found ${plan.action}.`
       );
     }
 
@@ -149,11 +122,7 @@ export class PlanStageService {
     try {
       return parsePlanArtifact(fs.readFileSync(planPath, 'utf-8'), planPath);
     } catch (error) {
-      throw new Error(
-        error instanceof Error
-          ? error.message
-          : `Plan file is not valid: ${path.basename(planPath)}`,
-      );
+      throw new Error(error instanceof Error ? error.message : `Plan file is not valid: ${path.basename(planPath)}`);
     }
   }
 
@@ -161,19 +130,14 @@ export class PlanStageService {
     artifactDir: string,
     sourceHash: string,
     action: ResolutionAction,
-    retainedPlanPath: string,
+    retainedPlanPath: string
   ): void {
     if (!fs.existsSync(artifactDir)) {
       return;
     }
 
-    const candidateFiles = fs
-      .readdirSync(artifactDir)
-      .filter((name) => name.endsWith('.json'));
-    const stalePattern = new RegExp(
-      `^(?:\\d{4}-\\d{2}-\\d{2}-)?${sourceHash}-${action}-plan\\.json$`,
-      'i',
-    );
+    const candidateFiles = fs.readdirSync(artifactDir).filter(name => name.endsWith('.json'));
+    const stalePattern = new RegExp(`^(?:\\d{4}-\\d{2}-\\d{2}-)?${sourceHash}-${action}-plan\\.json$`, 'i');
 
     for (const name of candidateFiles) {
       if (!stalePattern.test(name)) {

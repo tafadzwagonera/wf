@@ -20,7 +20,7 @@ jest.mock('chalk', () => {
       'white',
       'gray',
       'grey',
-    ].forEach((name) => {
+    ].forEach(name => {
       chain[name] = identity;
     });
     return chain;
@@ -35,7 +35,7 @@ jest.mock('../agents/utils', () => {
   return {
     ...actual,
     resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
     ),
   };
 });
@@ -100,7 +100,7 @@ async function buildCommand(): Promise<IssueCreateCommand> {
       {
         provide: JiraAdapter,
         useValue: {
-          buildCreatePayload: jest.fn((ticket) => ({
+          buildCreatePayload: jest.fn(ticket => ({
             fields: {
               project: { key: ticket.project || 'WBP' },
               summary: ticket.title,
@@ -197,20 +197,14 @@ async function buildCommand(): Promise<IssueCreateCommand> {
 describe('IssueCreateCommand', () => {
   let cwdSpy: jest.SpyInstance;
   let handleErrorSpy: jest.SpyInstance;
-  const mockExistsSync = fs.existsSync as jest.MockedFunction<
-    typeof fs.existsSync
-  >;
-  const mockReadFileSync = fs.readFileSync as jest.MockedFunction<
-    typeof fs.readFileSync
-  >;
+  const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
+  const mockReadFileSync = fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>;
 
   beforeEach(() => {
     cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(mockCwd);
-    handleErrorSpy = jest
-      .spyOn(ErrorHandler, 'handle')
-      .mockImplementation((error: Error) => {
-        throw error;
-      });
+    handleErrorSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation((error: Error) => {
+      throw error;
+    });
     mockExistsSync.mockReset();
     mockReadFileSync.mockReset();
     mockReadFileSync.mockReturnValue('# Generated ticket');
@@ -224,19 +218,10 @@ describe('IssueCreateCommand', () => {
 
   it('resolves filename-only input under the cwd artifact namespace by default', async () => {
     const command = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
-    const artifactPath = path.join(
-      os.homedir(),
-      '.wf',
-      'consumer-app',
-      'jira',
-      'GENERATED-2026-04-01-46ac9014.md',
-    );
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const artifactPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'GENERATED-2026-04-01-46ac9014.md');
 
-    mockExistsSync.mockImplementation(
-      (input) => String(input) === artifactPath,
-    );
+    mockExistsSync.mockImplementation(input => String(input) === artifactPath);
 
     await command.run(['GENERATED-2026-04-01-46ac9014.md'], {
       dryRun: true,
@@ -248,17 +233,9 @@ describe('IssueCreateCommand', () => {
 
   it('resolves filename-only input under the targeted repo namespace when --repos is provided', async () => {
     const command = await buildCommand();
-    const artifactPath = path.join(
-      os.homedir(),
-      '.wf',
-      'repo-a',
-      'jira',
-      'GENERATED-2026-04-01-46ac9014.md',
-    );
+    const artifactPath = path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'GENERATED-2026-04-01-46ac9014.md');
 
-    mockExistsSync.mockImplementation(
-      (input) => String(input) === artifactPath,
-    );
+    mockExistsSync.mockImplementation(input => String(input) === artifactPath);
 
     await command.run(['GENERATED-2026-04-01-46ac9014.md'], {
       repos: ['repo-a'],
@@ -272,9 +249,7 @@ describe('IssueCreateCommand', () => {
     const command = await buildCommand();
     const explicitPath = path.join('/tmp', 'GENERATED-2026-04-01-46ac9014.md');
 
-    mockExistsSync.mockImplementation(
-      (input) => String(input) === explicitPath,
-    );
+    mockExistsSync.mockImplementation(input => String(input) === explicitPath);
 
     await command.run([explicitPath], {
       dryRun: true,
@@ -285,21 +260,15 @@ describe('IssueCreateCommand', () => {
 
   it('does not fall back to the bare ~/.wf filename path', async () => {
     const command = await buildCommand();
-    const expectedMissingPath = path.resolve(
-      'GENERATED-2026-04-01-46ac9014.md',
-    );
-    const bareWfPath = path.join(
-      os.homedir(),
-      '.wf',
-      'GENERATED-2026-04-01-46ac9014.md',
-    );
+    const expectedMissingPath = path.resolve('GENERATED-2026-04-01-46ac9014.md');
+    const bareWfPath = path.join(os.homedir(), '.wf', 'GENERATED-2026-04-01-46ac9014.md');
 
-    mockExistsSync.mockImplementation((input) => String(input) === bareWfPath);
+    mockExistsSync.mockImplementation(input => String(input) === bareWfPath);
 
     await expect(
       command.run(['GENERATED-2026-04-01-46ac9014.md'], {
         dryRun: true,
-      }),
+      })
     ).rejects.toThrow(`Input file not found: ${expectedMissingPath}`);
     expect(mockReadFileSync).not.toHaveBeenCalled();
   });
@@ -307,17 +276,9 @@ describe('IssueCreateCommand', () => {
   it('warns and uses only the first repo namespace when multiple repos are provided', async () => {
     const command = await buildCommand();
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-    const artifactPath = path.join(
-      os.homedir(),
-      '.wf',
-      'repo-a',
-      'jira',
-      'GENERATED-2026-04-01-46ac9014.md',
-    );
+    const artifactPath = path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'GENERATED-2026-04-01-46ac9014.md');
 
-    mockExistsSync.mockImplementation(
-      (input) => String(input) === artifactPath,
-    );
+    mockExistsSync.mockImplementation(input => String(input) === artifactPath);
 
     await command.run(['GENERATED-2026-04-01-46ac9014.md'], {
       repos: ['repo-a', 'repo-b'],
@@ -325,33 +286,20 @@ describe('IssueCreateCommand', () => {
     });
 
     expect(mockReadFileSync).toHaveBeenCalledWith(artifactPath, 'utf-8');
-    expect(
-      consoleSpy.mock.calls.some((call) =>
-        String(call[0]).includes('Only the first repository'),
-      ),
-    ).toBe(true);
+    expect(consoleSpy.mock.calls.some(call => String(call[0]).includes('Only the first repository'))).toBe(true);
 
     consoleSpy.mockRestore();
   });
 
   it('previews the transformed Jira payload during dry runs', async () => {
     const command = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
     const jiraAdapter = (command as any).jiraAdapter as {
       buildCreatePayload: jest.Mock;
     };
-    const artifactPath = path.join(
-      os.homedir(),
-      '.wf',
-      'consumer-app',
-      'jira',
-      'GENERATED-2026-04-01-46ac9014.md',
-    );
+    const artifactPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'GENERATED-2026-04-01-46ac9014.md');
 
-    mockExistsSync.mockImplementation(
-      (input) => String(input) === artifactPath,
-    );
+    mockExistsSync.mockImplementation(input => String(input) === artifactPath);
 
     await command.run(['GENERATED-2026-04-01-46ac9014.md'], {
       dryRun: true,
@@ -360,7 +308,7 @@ describe('IssueCreateCommand', () => {
     expect(jiraAdapter.buildCreatePayload).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Generated ticket',
-      }),
+      })
     );
     expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -376,20 +324,19 @@ describe('IssueCreateCommand', () => {
           '  ### Acceptance Criteria',
           '  - First item',
         ]),
-      }),
+      })
     );
   });
 
   it('creates a Jira ticket from a repo-scoped generated artifact path', async () => {
     const command = await buildCommand();
-    const issueTrackerService = (command as any)
-      .issueTrackerService as jest.Mocked<IssueTrackerService>;
+    const issueTrackerService = (command as any).issueTrackerService as jest.Mocked<IssueTrackerService>;
     const artifactPath = path.join(
       os.homedir(),
       '.wf',
       'service-document-v1',
       'jira',
-      '2026-05-05-d22a1c03-ticket-description.md',
+      '2026-05-05-d22a1c03-ticket-description.md'
     );
     const artifactContent = [
       '# Create service document storage',
@@ -414,9 +361,7 @@ describe('IssueCreateCommand', () => {
       '- Documents can be created from the API.',
     ].join('\n');
 
-    mockExistsSync.mockImplementation(
-      (input) => String(input) === artifactPath,
-    );
+    mockExistsSync.mockImplementation(input => String(input) === artifactPath);
     mockReadFileSync.mockReturnValue(artifactContent);
 
     await command.run(['2026-05-05-d22a1c03-ticket-description.md'], {
@@ -426,25 +371,21 @@ describe('IssueCreateCommand', () => {
 
     expect(mockReadFileSync).toHaveBeenCalledWith(artifactPath, 'utf-8');
     expect(issueTrackerService.getAdapter).toHaveBeenCalledWith('jira');
-    const mockAdapter = (issueTrackerService.getAdapter as jest.Mock).mock
-      .results[0].value as {
+    const mockAdapter = (issueTrackerService.getAdapter as jest.Mock).mock.results[0].value as {
       createTicket: jest.Mock;
     };
     expect(mockAdapter.createTicket).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Create service document storage',
         project: 'WBP',
-        description: expect.stringContaining(
-          '- **Storage selection:** Persist documents',
-        ),
-      }),
+        description: expect.stringContaining('- **Storage selection:** Persist documents'),
+      })
     );
   });
 
   it('treats Jira markdown with headings and bullets as safe without requiring code blocks', async () => {
     const command = await buildCommand();
-    const dryRunPreview = (command as any)
-      .dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
     const jiraAdapter = (command as any).jiraAdapter as {
       buildCreatePayload: jest.Mock;
     };
@@ -453,7 +394,7 @@ describe('IssueCreateCommand', () => {
       '.wf',
       'terraform-aws',
       'jira',
-      '2026-05-12-d38b5be9-ticket-description.md',
+      '2026-05-12-d38b5be9-ticket-description.md'
     );
     const artifactContent = [
       '# Fix `service-document` startup failures',
@@ -471,9 +412,7 @@ describe('IssueCreateCommand', () => {
       '- Increase the ECS service `health_check_grace_period_seconds`.',
     ].join('\n');
 
-    mockExistsSync.mockImplementation(
-      (input) => String(input) === artifactPath,
-    );
+    mockExistsSync.mockImplementation(input => String(input) === artifactPath);
     mockReadFileSync.mockReturnValue(artifactContent);
     jiraAdapter.buildCreatePayload.mockReturnValueOnce({
       fields: {
@@ -523,21 +462,14 @@ describe('IssueCreateCommand', () => {
           '  Suspicious raw markers: none',
           '  Verdict: looks Jira-safe',
         ]),
-      }),
+      })
     );
   });
 
   it('strips removed sections from the ticket description before creating', async () => {
     const command = await buildCommand();
-    const issueTrackerService = (command as any)
-      .issueTrackerService as jest.Mocked<IssueTrackerService>;
-    const artifactPath = path.join(
-      os.homedir(),
-      '.wf',
-      'service-document-v1',
-      'jira',
-      '2026-06-19-strip-test.md',
-    );
+    const issueTrackerService = (command as any).issueTrackerService as jest.Mocked<IssueTrackerService>;
+    const artifactPath = path.join(os.homedir(), '.wf', 'service-document-v1', 'jira', '2026-06-19-strip-test.md');
     const artifactContent = [
       '# Strip sections test',
       '',
@@ -571,9 +503,7 @@ describe('IssueCreateCommand', () => {
       '- Refund handling',
     ].join('\n');
 
-    mockExistsSync.mockImplementation(
-      (input) => String(input) === artifactPath,
-    );
+    mockExistsSync.mockImplementation(input => String(input) === artifactPath);
     mockReadFileSync.mockReturnValue(artifactContent);
 
     await command.run(['2026-06-19-strip-test.md'], {
@@ -581,8 +511,7 @@ describe('IssueCreateCommand', () => {
       ticketProject: 'WBP',
     });
 
-    const mockAdapter = (issueTrackerService.getAdapter as jest.Mock).mock
-      .results[0].value as {
+    const mockAdapter = (issueTrackerService.getAdapter as jest.Mock).mock.results[0].value as {
       createTicket: jest.Mock;
     };
     const ticket = mockAdapter.createTicket.mock.calls[0][0];
@@ -598,19 +527,10 @@ describe('IssueCreateCommand', () => {
 
   it('passes normalized command priority and ticket project to the Jira adapter', async () => {
     const command = await buildCommand();
-    const issueTrackerService = (command as any)
-      .issueTrackerService as jest.Mocked<IssueTrackerService>;
-    const artifactPath = path.join(
-      os.homedir(),
-      '.wf',
-      'consumer-app',
-      'jira',
-      'GENERATED-2026-04-01-46ac9014.md',
-    );
+    const issueTrackerService = (command as any).issueTrackerService as jest.Mocked<IssueTrackerService>;
+    const artifactPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'GENERATED-2026-04-01-46ac9014.md');
 
-    mockExistsSync.mockImplementation(
-      (input) => String(input) === artifactPath,
-    );
+    mockExistsSync.mockImplementation(input => String(input) === artifactPath);
 
     await command.run(['GENERATED-2026-04-01-46ac9014.md'], {
       priority: 'medium',
@@ -618,15 +538,14 @@ describe('IssueCreateCommand', () => {
       tracker: 'jira',
     });
 
-    const mockAdapter = (issueTrackerService.getAdapter as jest.Mock).mock
-      .results[0].value as {
+    const mockAdapter = (issueTrackerService.getAdapter as jest.Mock).mock.results[0].value as {
       createTicket: jest.Mock;
     };
     expect(mockAdapter.createTicket).toHaveBeenCalledWith(
       expect.objectContaining({
         priority: 'medium',
         project: 'WBP',
-      }),
+      })
     );
   });
 });

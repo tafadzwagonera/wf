@@ -2,10 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { IssueTrackerService } from './issue-tracker.service';
 import type { IssueTrackerAdapter } from './issue-tracker-adapter.interface';
 
-const buildAdapter = (
-  name: string,
-  overrides: Partial<IssueTrackerAdapter> = {},
-): IssueTrackerAdapter =>
+const buildAdapter = (name: string, overrides: Partial<IssueTrackerAdapter> = {}): IssueTrackerAdapter =>
   ({
     createTicket: jest.fn(),
     getTicket: jest.fn(),
@@ -16,13 +13,9 @@ const buildAdapter = (
   }) as unknown as IssueTrackerAdapter;
 
 describe('IssueTrackerService', () => {
-  const createConfigService = (
-    values: Record<string, unknown>,
-  ): ConfigService =>
+  const createConfigService = (values: Record<string, unknown>): ConfigService =>
     ({
-      get: jest.fn((key: string, defaultValue?: unknown) =>
-        key in values ? values[key] : defaultValue,
-      ),
+      get: jest.fn((key: string, defaultValue?: unknown) => (key in values ? values[key] : defaultValue)),
     }) as unknown as ConfigService;
 
   it('returns only pull-request discovery adapters with configured credentials', () => {
@@ -31,7 +24,7 @@ describe('IssueTrackerService', () => {
         'github.token': 'github-token',
         'atlassian.email': 'dev@example.com',
         'atlassian.bitbucket.apiToken': '',
-      }),
+      })
     );
     const jiraAdapter = buildAdapter('jira');
     const githubAdapter = buildAdapter('github', {

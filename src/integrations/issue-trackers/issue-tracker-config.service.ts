@@ -19,10 +19,7 @@ export class IssueTrackerConfigService {
    * @param hasPartialConfig - Whether the tracker has any configuration set
    * @returns True if tracker is enabled
    */
-  isTrackerEnabled(
-    tracker: 'jira' | 'github' | 'bitbucket',
-    hasPartialConfig: boolean = false,
-  ): boolean {
+  isTrackerEnabled(tracker: 'jira' | 'github' | 'bitbucket', hasPartialConfig: boolean = false): boolean {
     return hasPartialConfig;
   }
 }

@@ -1,13 +1,8 @@
-import {
-  stripInlineMarkdownDelimiters,
-  stripRedundantSections,
-} from './markdown-text';
+import { stripInlineMarkdownDelimiters, stripRedundantSections } from './markdown-text';
 
 describe('stripInlineMarkdownDelimiters', () => {
   it('removes backtick, bold, and italic delimiters', () => {
-    expect(stripInlineMarkdownDelimiters('`code` **bold** *italic*')).toBe(
-      'code bold italic',
-    );
+    expect(stripInlineMarkdownDelimiters('`code` **bold** *italic*')).toBe('code bold italic');
   });
 });
 

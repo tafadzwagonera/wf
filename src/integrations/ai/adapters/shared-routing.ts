@@ -6,10 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
 import type { ResolutionPlan } from '../ai.service';
-import type {
-  VerificationScript,
-  ModelRouting,
-} from '../../../agents/interfaces';
+import type { VerificationScript, ModelRouting } from '../../../agents/interfaces';
 
 const execAsync = promisify(exec);
 
@@ -28,16 +25,12 @@ const MECHANICAL_STEP_PATTERNS = [
  * @param plan - The resolution plan to evaluate
  * @returns True when the plan appears mechanical, with a human-readable reason
  */
-export const detectMechanicalTask = (
-  plan: ResolutionPlan,
-): { isMechanical: boolean; reason: string } => {
+export const detectMechanicalTask = (plan: ResolutionPlan): { isMechanical: boolean; reason: string } => {
   const filesCount = plan.filesAffected?.length ?? 0;
   const stepsCount = plan.steps.length;
 
   for (const step of plan.steps) {
-    const matched = MECHANICAL_STEP_PATTERNS.find((pattern) =>
-      pattern.test(step),
-    );
+    const matched = MECHANICAL_STEP_PATTERNS.find(pattern => pattern.test(step));
     if (matched) {
       return {
         isMechanical: true,
@@ -83,30 +76,21 @@ export const resolveModelRouting = (params: {
   plan: ResolutionPlan;
   adapterLabel: string;
 }): ModelRoutingResult => {
-  const {
-    routing,
-    fallbackDefaultModel,
-    defaultMechanicalModel,
-    configService,
-    plan,
-    adapterLabel,
-  } = params;
+  const { routing, fallbackDefaultModel, defaultMechanicalModel, configService, plan, adapterLabel } = params;
 
   const singleModel = configService.get<string>('stages.implement.model');
-  const modelsConfig = configService.get<
-    import('../../../config/public-config').WfImplementStageModelsConfig
-  >('stages.implement.models');
+  const modelsConfig =
+    configService.get<import('../../../config/public-config').WfImplementStageModelsConfig>('stages.implement.models');
 
   // models is more specific than model — it takes precedence when both are set.
-  const defaultModel =
-    modelsConfig?.default || singleModel || fallbackDefaultModel;
+  const defaultModel = modelsConfig?.default || singleModel || fallbackDefaultModel;
   const mechanicalModel = modelsConfig?.mechanical || defaultMechanicalModel;
 
   if (singleModel && modelsConfig) {
     throw new Error(
       'stages.implement.model and stages.implement.models are mutually exclusive.\n' +
         '  Use stages.implement.model for a single model, or\n' +
-        '  Use stages.implement.models for routing-aware model selection (default + mechanical).',
+        '  Use stages.implement.models for routing-aware model selection (default + mechanical).'
     );
   }
 
@@ -149,8 +133,7 @@ export const resolveModelRouting = (params: {
  * @param command - The raw command value
  * @returns Trimmed command string, or empty string for non-string input
  */
-export const normalizeCommand = (command: unknown): string =>
-  typeof command === 'string' ? command.trim() : '';
+export const normalizeCommand = (command: unknown): string => (typeof command === 'string' ? command.trim() : '');
 
 /**
  * Builds a set of allowed verification commands from the scripts config.
@@ -158,14 +141,8 @@ export const normalizeCommand = (command: unknown): string =>
  * @param verificationScripts - Verification script definitions
  * @returns Set of trimmed, non-empty command strings
  */
-export const buildAllowedCommands = (
-  verificationScripts: VerificationScript[],
-): Set<string> =>
-  new Set(
-    verificationScripts
-      .map((script) => script.command.trim())
-      .filter((command) => command.length > 0),
-  );
+export const buildAllowedCommands = (verificationScripts: VerificationScript[]): Set<string> =>
+  new Set(verificationScripts.map(script => script.command.trim()).filter(command => command.length > 0));
 
 /**
  * Formats a list of repo files with repo-name prefix stripping.
@@ -174,20 +151,15 @@ export const buildAllowedCommands = (
  * @param repoName - The repo name prefix to strip
  * @returns Formatted file list string
  */
-export const formatRepoFileList = (
-  repoFiles: string[],
-  repoName: string,
-): string => {
+export const formatRepoFileList = (repoFiles: string[], repoName: string): string => {
   if (repoFiles.length === 0) {
     return '  (none listed)';
   }
 
   return repoFiles
-    .map((filePath) => {
+    .map(filePath => {
       const relativePath =
-        repoName && filePath.startsWith(`${repoName}/`)
-          ? filePath.slice(repoName.length + 1)
-          : filePath;
+        repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
       return `  - ${relativePath}`;
     })
     .join('\n');
@@ -215,8 +187,7 @@ export const stripRepoPrefix = (filePath: string, repoName: string): string => {
  * @param filePath - The planned file path to check
  * @returns True when the path contains `*` or `?` glob characters
  */
-export const isGlobPattern = (filePath: string): boolean =>
-  filePath.includes('*') || filePath.includes('?');
+export const isGlobPattern = (filePath: string): boolean => filePath.includes('*') || filePath.includes('?');
 
 /**
  * Builds the shared plan-context portion of the system prompt used by all
@@ -249,9 +220,7 @@ export const buildPlanContext = (params: {
     : formatRepoFileList(params.trackedFilePaths, params.repoName);
   const verificationList =
     params.verificationScripts.length > 0
-      ? params.verificationScripts
-          .map((script) => `  - ${script.command}`)
-          .join('\n')
+      ? params.verificationScripts.map(script => `  - ${script.command}`).join('\n')
       : '  (none configured)';
   const planStepList =
     params.planSteps.length > 0
@@ -345,14 +314,11 @@ export const loadClaudeContext = async (repoDir: string): Promise<string> => {
  * @param existing - Existing set of touched files to merge into
  * @returns Merged set of relative file paths
  */
-export const discoverChangedFiles = async (
-  repoDir: string,
-  existing: Set<string>,
-): Promise<Set<string>> => {
+export const discoverChangedFiles = async (repoDir: string, existing: Set<string>): Promise<Set<string>> => {
   try {
     const { stdout } = await execAsync(
       'git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null',
-      { cwd: repoDir },
+      { cwd: repoDir }
     );
     for (const line of stdout.split('\n')) {
       const trimmed = line.trim();
@@ -362,9 +328,7 @@ export const discoverChangedFiles = async (
     }
   } catch (error) {
     console.log(
-      chalk.gray(
-        `  git file discovery unavailable: ${error instanceof Error ? error.message : 'unknown error'}`,
-      ),
+      chalk.gray(`  git file discovery unavailable: ${error instanceof Error ? error.message : 'unknown error'}`)
     );
   }
   return existing;

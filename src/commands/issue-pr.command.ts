@@ -38,9 +38,7 @@ const ISSUE_PR_EXAMPLES: CliExample[] = [
 const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
-      chalk.yellow(
-        `⚠️ Only the first repository will be used for issue:pr. Ignoring: ${repos!.slice(1).join(', ')}`,
-      ),
+      chalk.yellow(`⚠️ Only the first repository will be used for issue:pr. Ignoring: ${repos!.slice(1).join(', ')}`)
     );
   }
 };
@@ -53,8 +51,7 @@ const VALID_ACTIONS = ['feature', 'fix', 'investigate'] as const;
  */
 @Command({
   name: 'issue:pr',
-  description:
-    'Create a pull request from a plan artifact (auto-detects ticket from branch)',
+  description: 'Create a pull request from a plan artifact (auto-detects ticket from branch)',
   arguments: '[ticket-key]',
   options: { isDefault: false },
 })
@@ -65,7 +62,7 @@ export class IssuePrCommand extends CommandRunner {
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
     private readonly gitService: GitService,
-    private readonly configService: ConfigService,
+    private readonly configService: ConfigService
   ) {
     super();
   }
@@ -91,9 +88,8 @@ export class IssuePrCommand extends CommandRunner {
         this.dryRunPreview.showHeader('issue:pr', ticketKey ?? undefined);
         console.log(
           chalk.gray(
-            `   Would create PR for ticket: ${ticketKey ?? '<unknown>'}` +
-              `  |  base: ${options?.base ?? 'main'}\n`,
-          ),
+            `   Would create PR for ticket: ${ticketKey ?? '<unknown>'}` + `  |  base: ${options?.base ?? 'main'}\n`
+          )
         );
         this.dryRunPreview.showSummary({
           apiCallCount: 1,
@@ -108,26 +104,17 @@ export class IssuePrCommand extends CommandRunner {
 
       if (!ticketKey) {
         console.error(
-          chalk.red(
-            'Error: Could not determine ticket key. Pass it as an argument or run from a ticket branch.',
-          ),
+          chalk.red('Error: Could not determine ticket key. Pass it as an argument or run from a ticket branch.')
         );
         process.exit(1);
       }
 
-      const trackerName =
-        options?.tracker ||
-        this.configService.get<string>('tracker') ||
-        'github';
+      const trackerName = options?.tracker || this.configService.get<string>('tracker') || 'github';
 
       const adapter = this.issueTrackerService.getAdapter(trackerName);
 
       if (!adapter.supports(IssueTrackerFeature.CREATE_PULL_REQUEST)) {
-        console.error(
-          chalk.red(
-            `Error: PR creation is not supported for platform '${trackerName}'.`,
-          ),
-        );
+        console.error(chalk.red(`Error: PR creation is not supported for platform '${trackerName}'.`));
         console.log(chalk.gray('Supported trackers: github'));
         process.exit(1);
       }
@@ -136,23 +123,11 @@ export class IssuePrCommand extends CommandRunner {
       const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
       const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
 
-      const planPath = this.findPlanArtifact(
-        trackerDir,
-        ticketKey,
-        options?.action,
-      );
+      const planPath = this.findPlanArtifact(trackerDir, ticketKey, options?.action);
 
       if (!planPath) {
-        console.error(
-          chalk.red(
-            `Error: No plan artifact found for ticket '${ticketKey}' under ${trackerDir}.`,
-          ),
-        );
-        console.log(
-          chalk.gray(
-            `Run 'wf issue:plan ${ticketKey} --action <feature|fix|investigate>' first.`,
-          ),
-        );
+        console.error(chalk.red(`Error: No plan artifact found for ticket '${ticketKey}' under ${trackerDir}.`));
+        console.log(chalk.gray(`Run 'wf issue:plan ${ticketKey} --action <feature|fix|investigate>' first.`));
         process.exit(1);
       }
 
@@ -175,9 +150,7 @@ export class IssuePrCommand extends CommandRunner {
 
       const base = options?.base ?? 'main';
 
-      const title = options?.title
-        ? options.title
-        : `[${ticketKey}] ${plan.summary ?? ticketKey}`;
+      const title = options?.title ? options.title : `[${ticketKey}] ${plan.summary ?? ticketKey}`;
 
       const body = this.buildPrBody(ticketKey, plan, planPath);
 
@@ -244,8 +217,7 @@ export class IssuePrCommand extends CommandRunner {
 
   @Option({
     flags: '-s, --silent',
-    description:
-      'Suppress decorative output and interactive prompts. Emits only the PR URL for piping',
+    description: 'Suppress decorative output and interactive prompts. Emits only the PR URL for piping',
   })
   parseSilent(): boolean {
     return true;
@@ -277,14 +249,8 @@ export class IssuePrCommand extends CommandRunner {
    * @param action - Optional action type to narrow the search
    * @returns Absolute path to the plan file, or null if not found
    */
-  private findPlanArtifact(
-    trackerDir: string,
-    ticketKey: string,
-    action?: string,
-  ): string | null {
-    const candidates: string[] = action
-      ? [action, ...VALID_ACTIONS.filter((a) => a !== action)]
-      : [...VALID_ACTIONS];
+  private findPlanArtifact(trackerDir: string, ticketKey: string, action?: string): string | null {
+    const candidates: string[] = action ? [action, ...VALID_ACTIONS.filter(a => a !== action)] : [...VALID_ACTIONS];
 
     for (const a of candidates) {
       const candidate = path.join(trackerDir, `${ticketKey}-plan-${a}.json`);
@@ -307,7 +273,7 @@ export class IssuePrCommand extends CommandRunner {
   private buildPrBody(
     ticketKey: string,
     plan: { summary?: string; action?: string; steps?: string[] },
-    planPath: string,
+    planPath: string
   ): string {
     const lines: string[] = [];
 
@@ -333,9 +299,7 @@ export class IssuePrCommand extends CommandRunner {
       lines.push('');
     }
 
-    lines.push(
-      `---\n*Generated from plan artifact: \`${path.basename(planPath)}\`*`,
-    );
+    lines.push(`---\n*Generated from plan artifact: \`${path.basename(planPath)}\`*`);
 
     return lines.join('\n');
   }

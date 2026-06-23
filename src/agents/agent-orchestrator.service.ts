@@ -12,6 +12,6 @@ export class AgentOrchestrator {
     readonly planner: PlannerAgent,
     readonly implementer: ImplementerAgent,
     readonly reviewer: ReviewerAgent,
-    readonly committer: CommitterAgent,
+    readonly committer: CommitterAgent
   ) {}
 }

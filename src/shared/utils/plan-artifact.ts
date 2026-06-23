@@ -1,23 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
-import type {
-  ResolutionPlan,
-  FileEntry,
-} from '../../integrations/ai/ai.service';
+import type { ResolutionPlan, FileEntry } from '../../integrations/ai/ai.service';
 import type { ResolutionAction } from '../../agents/interfaces';
-import {
-  hashGeneratedTicketSources,
-  matchesGeneratedTicketToken,
-} from './generated-ticket-artifact';
+import { hashGeneratedTicketSources, matchesGeneratedTicketToken } from './generated-ticket-artifact';
 import { normalizePlanVerification } from './verification-manifest';
 
 const VALID_ACTIONS: ResolutionAction[] = ['feature', 'fix', 'investigate'];
 const VALID_COMPLEXITIES = ['low', 'medium', 'high'] as const;
 const PLAN_ARTIFACT_MANIFEST_EXTENSION = '.sources.json';
 const PLAN_ARTIFACT_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
-const CANONICAL_PLAN_STEM =
-  /^(\d{4}-\d{2}-\d{2})-([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
+const CANONICAL_PLAN_STEM = /^(\d{4}-\d{2}-\d{2})-([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 const SHORT_HASHED_PLAN_STEM = /^([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 
 type PlanComplexity = (typeof VALID_COMPLEXITIES)[number];
@@ -79,7 +72,7 @@ export interface BuildPlanArtifactResolutionNoticeOptions {
  * @returns Human-readable notice or null for legacy artifacts
  */
 export const buildPlanArtifactResolutionNotice = (
-  reference: BuildPlanArtifactResolutionNoticeOptions,
+  reference: BuildPlanArtifactResolutionNoticeOptions
 ): string | null => {
   if (reference.isLegacy) {
     return null;
@@ -108,8 +101,7 @@ export const SUPPORTED_PLAN_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
  * @param value - Raw command argument
  * @returns True when the value matches `ABC-123`
  */
-export const isTicketKey = (value: string): boolean =>
-  /^[A-Z]+-\d+$/i.test(value);
+export const isTicketKey = (value: string): boolean => /^[A-Z]+-\d+$/i.test(value);
 
 /**
  * Build the deterministic source hash used in plan filenames.
@@ -117,8 +109,7 @@ export const isTicketKey = (value: string): boolean =>
  * @param sources - Ordered source tokens identifying the plan artifact
  * @returns Short lowercase SHA-256 token
  */
-export const hashPlanArtifactSources = (sources: string[]): string =>
-  hashGeneratedTicketSources(sources);
+export const hashPlanArtifactSources = (sources: string[]): string => hashGeneratedTicketSources(sources);
 
 /**
  * Build the filename for a hashed plan artifact.
@@ -126,9 +117,7 @@ export const hashPlanArtifactSources = (sources: string[]): string =>
  * @param options - Filename components
  * @returns Hashed plan filename including extension
  */
-export const buildPlanArtifactFilename = (
-  options: BuildPlanArtifactFilenameOptions,
-): string =>
+export const buildPlanArtifactFilename = (options: BuildPlanArtifactFilenameOptions): string =>
   `${resolveDatePrefix(options.createdAt)}-${options.hash
     .trim()
     .toLowerCase()}-${options.action}-plan.${normalizeFormat(options.format)}`;
@@ -139,9 +128,7 @@ export const buildPlanArtifactFilename = (
  * @param artifactFilename - Hashed plan artifact filename
  * @returns Manifest filename alongside the artifact
  */
-export const buildPlanArtifactManifestFilename = (
-  artifactFilename: string,
-): string => {
+export const buildPlanArtifactManifestFilename = (artifactFilename: string): string => {
   const extensionlessArtifact = artifactFilename.replace(/\.[^.]+$/, '');
   return `${extensionlessArtifact}${PLAN_ARTIFACT_MANIFEST_EXTENSION}`;
 };
@@ -153,10 +140,7 @@ export const buildPlanArtifactManifestFilename = (
  * @returns Manifest path alongside the artifact
  */
 export const buildPlanArtifactManifestPath = (artifactPath: string): string =>
-  path.join(
-    path.dirname(artifactPath),
-    buildPlanArtifactManifestFilename(path.basename(artifactPath)),
-  );
+  path.join(path.dirname(artifactPath), buildPlanArtifactManifestFilename(path.basename(artifactPath)));
 
 /**
  * Build a manifest payload for a hashed plan artifact.
@@ -179,7 +163,7 @@ export const buildPlanArtifactManifest = (
   sourceName: string,
   sourceKind: PlanArtifactSourceKind,
   createdAt: Date,
-  trackerName?: string,
+  trackerName?: string
 ): PlanArtifactManifest => ({
   artifactPath,
   action,
@@ -199,9 +183,7 @@ export const buildPlanArtifactManifest = (
  * @param manifest - Manifest payload to write
  * @returns Absolute manifest path
  */
-export const writePlanArtifactManifest = (
-  manifest: PlanArtifactManifest,
-): string => {
+export const writePlanArtifactManifest = (manifest: PlanArtifactManifest): string => {
   const manifestPath = buildPlanArtifactManifestPath(manifest.artifactPath);
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
   return manifestPath;
@@ -213,17 +195,13 @@ export const writePlanArtifactManifest = (
  * @param manifestPath - Absolute manifest path
  * @returns Parsed manifest or null when the file is missing or invalid
  */
-export const readPlanArtifactManifest = (
-  manifestPath: string,
-): PlanArtifactManifest | null => {
+export const readPlanArtifactManifest = (manifestPath: string): PlanArtifactManifest | null => {
   if (!fs.existsSync(manifestPath)) {
     return null;
   }
 
   try {
-    const value = JSON.parse(
-      fs.readFileSync(manifestPath, 'utf-8'),
-    ) as Partial<PlanArtifactManifest>;
+    const value = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as Partial<PlanArtifactManifest>;
     if (
       typeof value.artifactPath !== 'string' ||
       typeof value.action !== 'string' ||
@@ -247,12 +225,7 @@ export const readPlanArtifactManifest = (
     }
 
     const format = normalizeFormat(value.format) as PlanArtifactFormat;
-    if (
-      format !== 'json' &&
-      format !== 'md' &&
-      format !== 'yaml' &&
-      format !== 'yml'
-    ) {
+    if (format !== 'json' && format !== 'md' && format !== 'yaml' && format !== 'yml') {
       return null;
     }
 
@@ -264,14 +237,9 @@ export const readPlanArtifactManifest = (
       hash: value.hash,
       sourceKind,
       sourceName: value.sourceName,
-      ticketKey:
-        typeof value.ticketKey === 'string' ? value.ticketKey : undefined,
-      customArtifactName:
-        typeof value.customArtifactName === 'string'
-          ? value.customArtifactName
-          : undefined,
-      trackerName:
-        typeof value.trackerName === 'string' ? value.trackerName : undefined,
+      ticketKey: typeof value.ticketKey === 'string' ? value.ticketKey : undefined,
+      customArtifactName: typeof value.customArtifactName === 'string' ? value.customArtifactName : undefined,
+      trackerName: typeof value.trackerName === 'string' ? value.trackerName : undefined,
     };
   } catch {
     return null;
@@ -281,12 +249,9 @@ export const readPlanArtifactManifest = (
 const normalizeFormat = (format: string): string =>
   format.trim().toLowerCase() === 'md' ? 'md' : format.trim().toLowerCase();
 
-const stripArtifactExtension = (fileName: string): string =>
-  fileName.replace(/\.[^.]+$/, '');
+const stripArtifactExtension = (fileName: string): string => fileName.replace(/\.[^.]+$/, '');
 
-const parseCanonicalStem = (
-  stem: string,
-): { datePrefix: string; hash: string; action: ResolutionAction } | null => {
+const parseCanonicalStem = (stem: string): { datePrefix: string; hash: string; action: ResolutionAction } | null => {
   const match = stem.match(CANONICAL_PLAN_STEM);
   if (!match) {
     return null;
@@ -304,9 +269,7 @@ const parseCanonicalStem = (
   };
 };
 
-const parseShortHashedStem = (
-  stem: string,
-): { hash: string; action: ResolutionAction } | null => {
+const parseShortHashedStem = (stem: string): { hash: string; action: ResolutionAction } | null => {
   const match = stem.match(SHORT_HASHED_PLAN_STEM);
   if (!match) {
     return null;
@@ -327,13 +290,13 @@ const listManifestPaths = (artifactDir: string): string[] =>
   fs.existsSync(artifactDir)
     ? fs
         .readdirSync(artifactDir)
-        .filter((name) => name.endsWith(PLAN_ARTIFACT_MANIFEST_EXTENSION))
-        .map((name) => path.join(artifactDir, name))
+        .filter(name => name.endsWith(PLAN_ARTIFACT_MANIFEST_EXTENSION))
+        .map(name => path.join(artifactDir, name))
     : [];
 
 const resolveActionFromIdentifier = (
   identifierStem: string,
-  action?: ResolutionAction,
+  action?: ResolutionAction
 ): ResolutionAction | undefined => {
   if (action) {
     return action;
@@ -344,34 +307,30 @@ const resolveActionFromIdentifier = (
 
 const readManifestCandidates = (artifactDir: string): PlanArtifactManifest[] =>
   listManifestPaths(artifactDir)
-    .map((manifestPath) => readPlanArtifactManifest(manifestPath))
+    .map(manifestPath => readPlanArtifactManifest(manifestPath))
     .filter((manifest): manifest is PlanArtifactManifest => manifest !== null);
 
 const matchesManifestIdentifier = (
   manifest: PlanArtifactManifest,
   identifierStem: string,
   normalizedIdentifier: string,
-  requestedAction?: ResolutionAction,
+  requestedAction?: ResolutionAction
 ): boolean => {
   if (requestedAction && manifest.action !== requestedAction) {
     return false;
   }
 
-  const artifactStem = stripArtifactExtension(
-    path.basename(manifest.artifactPath),
-  );
+  const artifactStem = stripArtifactExtension(path.basename(manifest.artifactPath));
   const sourceTokens = [
     manifest.hash,
     manifest.ticketKey,
     manifest.customArtifactName,
     manifest.sourceName,
     artifactStem,
-  ].filter(
-    (token): token is string => typeof token === 'string' && token.length > 0,
-  );
+  ].filter((token): token is string => typeof token === 'string' && token.length > 0);
 
   if (
-    sourceTokens.some((token) => {
+    sourceTokens.some(token => {
       const candidate = token.trim().toLowerCase();
       return (
         candidate === normalizedIdentifier ||
@@ -394,11 +353,7 @@ const matchesManifestIdentifier = (
 
 const isCanonicalArtifactPath = (artifactPath: string): boolean => {
   const extension = path.extname(artifactPath).slice(1).toLowerCase();
-  if (
-    !PLAN_ARTIFACT_EXTENSIONS.includes(
-      extension as (typeof PLAN_ARTIFACT_EXTENSIONS)[number],
-    )
-  ) {
+  if (!PLAN_ARTIFACT_EXTENSIONS.includes(extension as (typeof PLAN_ARTIFACT_EXTENSIONS)[number])) {
     return false;
   }
 
@@ -409,18 +364,13 @@ const isCanonicalArtifactPath = (artifactPath: string): boolean => {
 const resolveManifestMatch = (
   artifactDir: string,
   identifierStem: string,
-  requestedAction?: ResolutionAction,
+  requestedAction?: ResolutionAction
 ): PlanArtifactReference | null => {
   const normalizedIdentifier = identifierStem.trim().toLowerCase();
   const candidates = readManifestCandidates(artifactDir).filter(
-    (manifest) =>
+    manifest =>
       isCanonicalArtifactPath(manifest.artifactPath) &&
-      matchesManifestIdentifier(
-        manifest,
-        identifierStem,
-        normalizedIdentifier,
-        requestedAction,
-      ),
+      matchesManifestIdentifier(manifest, identifierStem, normalizedIdentifier, requestedAction)
   );
 
   if (candidates.length === 0) {
@@ -430,10 +380,8 @@ const resolveManifestMatch = (
   if (candidates.length > 1) {
     throw new Error(
       `Multiple plan artifacts found for '${identifierStem}': ${candidates
-        .map((candidate) => path.basename(candidate.artifactPath))
-        .join(
-          ', ',
-        )}. Use the explicit hashed filename or remove stale artifacts.`,
+        .map(candidate => path.basename(candidate.artifactPath))
+        .join(', ')}. Use the explicit hashed filename or remove stale artifacts.`
     );
   }
 
@@ -461,27 +409,16 @@ const resolveManifestMatch = (
  */
 export const resolvePlanArtifactReference = (
   identifier: string,
-  options: ResolvePlanArtifactOptions,
+  options: ResolvePlanArtifactOptions
 ): PlanArtifactReference => {
   const artifactDir = options.artifactDir;
-  const identifierStem = stripArtifactExtension(
-    path.basename(identifier.trim()),
-  );
-  const requestedAction = resolveActionFromIdentifier(
-    identifierStem,
-    options.action,
-  );
+  const identifierStem = stripArtifactExtension(path.basename(identifier.trim()));
+  const requestedAction = resolveActionFromIdentifier(identifierStem, options.action);
   if (parseShortHashedStem(identifierStem)) {
-    throw new Error(
-      `Non-canonical plan identifier '${identifier}'. Use YYYY-MM-DD-<hash>-<action>-plan.<ext>.`,
-    );
+    throw new Error(`Non-canonical plan identifier '${identifier}'. Use YYYY-MM-DD-<hash>-<action>-plan.<ext>.`);
   }
 
-  const manifestMatch = resolveManifestMatch(
-    artifactDir,
-    identifierStem,
-    requestedAction,
-  );
+  const manifestMatch = resolveManifestMatch(artifactDir, identifierStem, requestedAction);
   if (manifestMatch) {
     return manifestMatch;
   }
@@ -489,22 +426,16 @@ export const resolvePlanArtifactReference = (
   const candidateList =
     requestedAction && isTicketKey(identifierStem)
       ? PLAN_ARTIFACT_EXTENSIONS.map(
-          (extension) =>
-            `YYYY-MM-DD-${hashPlanArtifactSources([identifierStem])}-${requestedAction}-plan.${extension}`,
+          extension => `YYYY-MM-DD-${hashPlanArtifactSources([identifierStem])}-${requestedAction}-plan.${extension}`
         )
       : ['YYYY-MM-DD-<hash>-<action>-plan.<ext>'];
   throw new Error(
-    `Plan artifact not found for '${identifier}' in ${artifactDir}. Checked: ${candidateList.join(', ')}`,
+    `Plan artifact not found for '${identifier}' in ${artifactDir}. Checked: ${candidateList.join(', ')}`
   );
 };
 
 const resolveDatePrefix = (createdAt?: Date | string): string => {
-  const date =
-    createdAt instanceof Date
-      ? createdAt
-      : typeof createdAt === 'string'
-        ? new Date(createdAt)
-        : new Date();
+  const date = createdAt instanceof Date ? createdAt : typeof createdAt === 'string' ? new Date(createdAt) : new Date();
   if (Number.isNaN(date.getTime())) {
     throw new Error(`Invalid createdAt value for plan artifact: ${createdAt}`);
   }
@@ -518,10 +449,7 @@ const resolveDatePrefix = (createdAt?: Date | string): string => {
  * @param filePath - Artifact path used for extension detection and errors
  * @returns Normalized resolution plan
  */
-export const parsePlanArtifact = (
-  content: string,
-  filePath: string,
-): ResolutionPlan => {
+export const parsePlanArtifact = (content: string, filePath: string): ResolutionPlan => {
   const extension = path.extname(filePath).slice(1).toLowerCase();
 
   if (extension === 'json') {
@@ -545,9 +473,7 @@ export const parsePlanArtifact = (
  * @param format - User-facing output format
  * @returns File extension without a leading dot
  */
-export const getPlanArtifactExtension = (
-  format: PlanArtifactFormat,
-): PlanArtifactFormat => format;
+export const getPlanArtifactExtension = (format: PlanArtifactFormat): PlanArtifactFormat => format;
 
 const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
   if (!value || typeof value !== 'object') {
@@ -556,10 +482,7 @@ const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
 
   const rawPlan = value as Record<string, unknown>;
   const action = normalizeAction(rawPlan.action, filePath);
-  const estimatedComplexity = normalizeComplexity(
-    rawPlan.estimatedComplexity,
-    filePath,
-  );
+  const estimatedComplexity = normalizeComplexity(rawPlan.estimatedComplexity, filePath);
 
   return {
     action,
@@ -568,23 +491,16 @@ const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
     estimatedComplexity,
     filesAffected: normalizeFileEntryList(rawPlan.filesAffected),
     filesContext: normalizeFileEntryList(rawPlan.filesContext),
-    repositoriesAffected: normalizeOptionalStringList(
-      rawPlan.repositoriesAffected,
-    ),
+    repositoriesAffected: normalizeOptionalStringList(rawPlan.repositoriesAffected),
     risks: normalizeOptionalStringList(rawPlan.risks),
     verification: normalizePlanVerification(rawPlan.verification, filePath),
-    provider:
-      typeof rawPlan.provider === 'string' ? rawPlan.provider : undefined,
+    provider: typeof rawPlan.provider === 'string' ? rawPlan.provider : undefined,
     source: typeof rawPlan.source === 'string' ? rawPlan.source : undefined,
-    timestamp:
-      typeof rawPlan.timestamp === 'string' ? rawPlan.timestamp : undefined,
+    timestamp: typeof rawPlan.timestamp === 'string' ? rawPlan.timestamp : undefined,
   };
 };
 
-const parseMarkdownPlan = (
-  content: string,
-  filePath: string,
-): ResolutionPlan => {
+const parseMarkdownPlan = (content: string, filePath: string): ResolutionPlan => {
   const sections = new Map<string, string[]>();
   let activeSection = '';
   const metadata = new Map<string, string>();
@@ -592,10 +508,7 @@ const parseMarkdownPlan = (
   for (const line of content.split('\n')) {
     const metadataMatch = line.match(/^\*\*([^:]+):\*\*\s*(.+)$/);
     if (metadataMatch) {
-      metadata.set(
-        metadataMatch[1].trim().toLowerCase(),
-        metadataMatch[2].trim(),
-      );
+      metadata.set(metadataMatch[1].trim().toLowerCase(), metadataMatch[2].trim());
       continue;
     }
 
@@ -620,54 +533,35 @@ const parseMarkdownPlan = (
       summary: collapseSection(sections.get('summary')),
       steps: extractNumberedList(sections.get('steps')),
       filesAffected: extractBulletedList(sections.get('files affected')),
-      repositoriesAffected: extractBulletedList(
-        sections.get('repositories affected'),
-      ),
+      repositoriesAffected: extractBulletedList(sections.get('repositories affected')),
       risks: extractBulletedList(sections.get('risks')),
     },
-    filePath,
+    filePath
   );
 };
 
-const collapseSection = (lines?: string[]): string =>
-  (lines ?? []).join('\n').trim();
+const collapseSection = (lines?: string[]): string => (lines ?? []).join('\n').trim();
 
 const extractNumberedList = (lines?: string[]): string[] =>
-  (lines ?? [])
-    .map((line) => line.match(/^\d+\.\s+(.+)$/)?.[1]?.trim() ?? '')
-    .filter(Boolean);
+  (lines ?? []).map(line => line.match(/^\d+\.\s+(.+)$/)?.[1]?.trim() ?? '').filter(Boolean);
 
 const extractBulletedList = (lines?: string[]): string[] =>
-  (lines ?? [])
-    .map((line) => line.match(/^-\s+(.+)$/)?.[1]?.trim() ?? '')
-    .filter(Boolean);
+  (lines ?? []).map(line => line.match(/^-\s+(.+)$/)?.[1]?.trim() ?? '').filter(Boolean);
 
-const normalizeAction = (
-  value: unknown,
-  filePath: string,
-): ResolutionAction => {
-  if (
-    typeof value === 'string' &&
-    VALID_ACTIONS.includes(value as ResolutionAction)
-  ) {
+const normalizeAction = (value: unknown, filePath: string): ResolutionAction => {
+  if (typeof value === 'string' && VALID_ACTIONS.includes(value as ResolutionAction)) {
     return value as ResolutionAction;
   }
 
   throw new Error(`Plan file has an invalid action: ${filePath}`);
 };
 
-const normalizeComplexity = (
-  value: unknown,
-  filePath: string,
-): PlanComplexity => {
+const normalizeComplexity = (value: unknown, filePath: string): PlanComplexity => {
   if (value === undefined || value === null || value === '') {
     return 'medium';
   }
 
-  if (
-    typeof value === 'string' &&
-    VALID_COMPLEXITIES.includes(value as PlanComplexity)
-  ) {
+  if (typeof value === 'string' && VALID_COMPLEXITIES.includes(value as PlanComplexity)) {
     return value as PlanComplexity;
   }
 
@@ -679,7 +573,7 @@ const normalizeStringList = (value: unknown): string[] => {
     return [];
   }
 
-  return value.map((item) => String(item));
+  return value.map(item => String(item));
 };
 
 const normalizeOptionalStringList = (value: unknown): string[] | undefined => {
@@ -687,23 +581,18 @@ const normalizeOptionalStringList = (value: unknown): string[] | undefined => {
     return undefined;
   }
 
-  return value.map((item) => String(item));
+  return value.map(item => String(item));
 };
 
 const isFileEntry = (item: unknown): item is FileEntry =>
-  typeof item === 'object' &&
-  item !== null &&
-  'filePath' in item &&
-  typeof (item as FileEntry).filePath === 'string';
+  typeof item === 'object' && item !== null && 'filePath' in item && typeof (item as FileEntry).filePath === 'string';
 
-const normalizeFileEntryList = (
-  value: unknown,
-): (string | FileEntry)[] | undefined => {
+const normalizeFileEntryList = (value: unknown): (string | FileEntry)[] | undefined => {
   if (!Array.isArray(value)) {
     return undefined;
   }
 
-  return value.map((item) => {
+  return value.map(item => {
     if (isFileEntry(item)) return item;
     return String(item);
   });

@@ -19,12 +19,7 @@ export const stripInlineMarkdownDelimiters = (text: string): string =>
  * implementation-level detail better suited to the plan artifact
  * (Unit Test Scope, Dependencies).
  */
-const STRIPPED_SECTIONS = [
-  '#### References',
-  '### Unit Test Scope',
-  '#### Dependencies',
-  '### Affected Repositories',
-];
+const STRIPPED_SECTIONS = ['#### References', '### Unit Test Scope', '#### Dependencies', '### Affected Repositories'];
 
 /**
  * Remove ticket-template sections that should not appear on the tracker.
