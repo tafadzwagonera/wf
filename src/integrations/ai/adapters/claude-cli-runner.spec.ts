@@ -2,8 +2,10 @@ import {
   assertClaudeCliAvailable,
   buildCliArgs,
   parseNdjsonLine,
+  spawnCli,
 } from './claude-cli-runner';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
+import { EventEmitter, Readable, Writable } from 'stream';
 
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
@@ -12,6 +14,29 @@ jest.mock('child_process', () => ({
 }));
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
+const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
+
+const createMockChildProcess = () => {
+  const stdout = new Readable({ read() {} });
+  const stderr = new Readable({ read() {} });
+  const stdin = new Writable({
+    write(_chunk, _enc, cb) {
+      cb();
+    },
+  });
+  const child = Object.assign(new EventEmitter(), {
+    stdout,
+    stderr,
+    stdin,
+    pid: 1234,
+    killed: false,
+    kill: jest.fn(function (this: { killed: boolean }) {
+      this.killed = true;
+      stdout.push(null);
+    }),
+  });
+  return child;
+};
 
 describe('claude-cli-runner', () => {
   describe('assertClaudeCliAvailable', () => {
@@ -149,6 +174,80 @@ describe('claude-cli-runner', () => {
     it('trims whitespace before parsing', () => {
       const result = parseNdjsonLine('  {"type":"test"}  ');
       expect(result).toEqual({ type: 'test' });
+    });
+  });
+
+  describe('spawnCli', () => {
+    it('yields a timeout error message when the subprocess exceeds the timeout', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const messages: Array<{
+        type: string;
+        is_error?: boolean;
+        result?: string;
+        subtype?: string;
+      }> = [];
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 100);
+
+      // Push an init message so yieldedAny becomes true, then let the timeout fire
+      child.stdout.push('{"type":"system","subtype":"init"}\n');
+
+      for await (const msg of gen) {
+        messages.push(msg);
+      }
+
+      const timeoutMsg = messages.find(
+        (m) => m.type === 'error' && m.subtype === 'timeout',
+      );
+      expect(timeoutMsg).toBeDefined();
+      expect(timeoutMsg!.is_error).toBe(true);
+      expect(timeoutMsg!.result).toMatch(/timed out/i);
+    });
+
+    it('yields parsed NDJSON messages from stdout', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 5000);
+
+      // Push messages then close stdout
+      child.stdout.push('{"type":"assistant","result":"hello"}\n');
+      child.stdout.push('{"type":"result","result":"done"}\n');
+      child.stdout.push(null);
+
+      const messages: Array<{ type: string; result?: string }> = [];
+      for await (const msg of gen) {
+        messages.push(msg);
+      }
+
+      expect(messages).toHaveLength(2);
+      expect(messages[0]).toEqual({ type: 'assistant', result: 'hello' });
+      expect(messages[1]).toEqual({ type: 'result', result: 'done' });
+    });
+
+    it('throws with stderr when no NDJSON was yielded', async () => {
+      const child = createMockChildProcess();
+      // Don't close stdout on kill — let it close naturally via push(null)
+      child.kill = jest.fn(function (this: { killed: boolean }) {
+        this.killed = true;
+      }) as any;
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 5000);
+
+      // Schedule events after the generator starts iterating (so listeners are attached)
+      setImmediate(() => {
+        child.stderr.emit('data', Buffer.from('fatal error'));
+        child.stdout.push(null);
+      });
+
+      const collect = async () => {
+        const msgs: unknown[] = [];
+        for await (const msg of gen) msgs.push(msg);
+      };
+
+      await expect(collect()).rejects.toThrow(/fatal error/);
     });
   });
 });

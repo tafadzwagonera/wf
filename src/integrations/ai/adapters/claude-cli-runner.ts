@@ -17,6 +17,7 @@ export interface ClaudeCliMessage {
   tool_name?: string;
   files?: Array<{ filename: string }>;
   summary?: string;
+  rate_limit_info?: { status?: string; resetsAt?: number };
   [key: string]: unknown;
 }
 
@@ -139,6 +140,7 @@ export async function* spawnCli(
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   let killed = false;
   let yieldedAny = false;
+  let timedOut = false;
 
   const killChild = () => {
     if (killed) return;
@@ -152,7 +154,10 @@ export async function* spawnCli(
   };
 
   if (timeoutMs > 0) {
-    timeoutHandle = setTimeout(killChild, timeoutMs);
+    timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      killChild();
+    }, timeoutMs);
   }
 
   try {
@@ -167,6 +172,16 @@ export async function* spawnCli(
     if (timeoutHandle) clearTimeout(timeoutHandle);
     rl.close();
     killChild();
+  }
+
+  if (timedOut) {
+    yield {
+      type: 'error',
+      subtype: 'timeout',
+      is_error: true,
+      result: `Claude CLI timed out after ${Math.round(timeoutMs / 1000)}s without returning a result.`,
+    };
+    return;
   }
 
   if (!yieldedAny && stderrChunks.length > 0) {

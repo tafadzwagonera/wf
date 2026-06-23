@@ -21,6 +21,7 @@ import {
   assertClaudeCliAvailable,
   buildCliArgs,
   spawnCli,
+  type ClaudeCliMessage,
 } from './adapters/claude-cli-runner';
 import type { WfBackendMode } from '../../config/public-config';
 import {
@@ -50,6 +51,21 @@ const ALLOWED_READ_ONLY_COMMAND_PREFIXES = [
   'git status',
   'git diff',
 ];
+
+const extractCliDiagnostic = (
+  message: ClaudeCliMessage,
+): string | undefined => {
+  if (message.is_error) {
+    return message.result ?? message.summary ?? JSON.stringify(message);
+  }
+  if (message.type === 'rate_limit_event') {
+    const info = message.rate_limit_info as { status?: string } | undefined;
+    if (info?.status && info.status !== 'allowed') {
+      return `Rate limited (status: ${info.status})`;
+    }
+  }
+  return undefined;
+};
 
 export type AgentStageName = 'plan' | 'review' | 'generate';
 
@@ -1007,11 +1023,8 @@ Return only the requested ticket markdown and preserve the required heading stru
       if (message.type === 'result' && message.result) {
         result = message.result;
       }
-      if (message.is_error) {
-        cliDiagnostics.push(
-          message.result ?? message.summary ?? JSON.stringify(message),
-        );
-      }
+      const diagnostic = extractCliDiagnostic(message);
+      if (diagnostic) cliDiagnostics.push(diagnostic);
     }
 
     if (!result) {
@@ -1064,11 +1077,8 @@ Return only the requested ticket markdown and preserve the required heading stru
       if (message.type === 'result' && message.result) {
         result = message.result;
       }
-      if (message.is_error) {
-        cliDiagnostics.push(
-          message.result ?? message.summary ?? JSON.stringify(message),
-        );
-      }
+      const diagnostic = extractCliDiagnostic(message);
+      if (diagnostic) cliDiagnostics.push(diagnostic);
     }
 
     if (!result) {
