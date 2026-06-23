@@ -19,6 +19,7 @@ import {
   summariseDiff,
   MAX_REVIEW_DIFF_LENGTH,
 } from '../../review/summarise-diff';
+import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 
 const DEFAULT_REVIEW_GUIDELINES = [
   'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
@@ -99,10 +100,16 @@ export class ReviewStageService {
           options.repoDir,
         )
       : await this.aiService.reviewCode(processedDiff, guidelines);
+
+    if (review.executionMode) {
+      return review;
+    }
+
     const backend = this.configService.get<string>(
       'stages.review.backend',
-      'standard',
+      resolveDefaultStageBackend('review'),
     );
+
     return {
       ...review,
       executionMode:

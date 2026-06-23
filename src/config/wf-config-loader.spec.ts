@@ -261,14 +261,14 @@ describe('wf-config-loader', () => {
             default: true,
           },
           {
-            provider: 'google',
-            apiKey: 'gemini-key',
-            model: 'gemini-2.5-pro',
-          },
-          {
             provider: 'anthropic',
             apiKey: 'anthropic-key',
             model: 'claude-sonnet-4-20250514',
+          },
+          {
+            provider: 'google',
+            apiKey: 'gemini-key',
+            model: 'gemini-2.5-pro',
           },
         ],
         stages: {
@@ -278,8 +278,8 @@ describe('wf-config-loader', () => {
             backend: 'standard',
           },
           review: {
-            provider: 'google',
-            model: 'gemini-2.5-pro',
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-20250514',
           },
           implement: {
             provider: 'anthropic',
@@ -293,9 +293,9 @@ describe('wf-config-loader', () => {
       });
 
       expect(config.ai.stages.review).toEqual({
-        provider: 'google',
-        model: 'gemini-2.5-pro',
-        backend: 'standard',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+        backend: 'agent',
       });
       expect(config.stages.plan).toEqual({
         provider: 'anthropic',
@@ -353,12 +353,16 @@ describe('wf-config-loader', () => {
             model: 'gpt-5.4',
             default: true,
           },
-          { provider: 'google', apiKey: 'gemini-key', model: 'gemini-2.5-pro' },
+          {
+            provider: 'openai',
+            apiKey: 'openai-key-2',
+            model: 'gpt-5.4-mini',
+          },
         ],
         stages: {
           implement: {
-            provider: 'google',
-            model: 'gemini-2.5-pro',
+            provider: 'openai',
+            model: 'gpt-5.4-mini',
             verificationConditions: {
               scripts: {
                 formatWrite: 'yarn format:write',
@@ -372,9 +376,9 @@ describe('wf-config-loader', () => {
         },
       });
 
-      expect(config.stages.implement?.provider).toBe('google');
-      expect(config.stages.implement?.model).toBe('gemini-2.5-pro');
-      expect(config.stages.implement?.backend).toBe('standard');
+      expect(config.stages.implement?.provider).toBe('openai');
+      expect(config.stages.implement?.model).toBe('gpt-5.4-mini');
+      expect(config.stages.implement?.backend).toBe('agent');
       expect(config.stages.implement?.verificationConditions).toEqual({
         policyFile: undefined,
         scripts: {
@@ -440,8 +444,8 @@ describe('wf-config-loader', () => {
         },
       });
 
-      expect(config.stages.review?.backend).toBe('standard');
-      expect(config.ai.stages.review?.backend).toBe('standard');
+      expect(config.stages.review?.backend).toBe('agent');
+      expect(config.ai.stages.review?.backend).toBe('agent');
     });
 
     it('resolves missing stage model from configured provider defaults', () => {
@@ -478,6 +482,30 @@ describe('wf-config-loader', () => {
       expect(config.stages.plan).toEqual({
         provider: 'anthropic',
         model: 'claude-sonnet-4-20250514',
+        backend: 'agent',
+      });
+    });
+
+    it('keeps commit on the standard backend when backend is omitted', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'google',
+            apiKey: 'gemini-key',
+            model: 'gemini-2.5-pro',
+            default: true,
+          },
+        ],
+        stages: {
+          commit: {
+            provider: 'google',
+          },
+        },
+      });
+
+      expect(config.stages.commit).toEqual({
+        provider: 'google',
+        model: 'gemini-2.5-pro',
         backend: 'standard',
       });
     });
@@ -769,7 +797,7 @@ describe('wf-config-loader', () => {
       expect(config.stages.generate).toEqual({
         provider: 'openai',
         model: 'gpt-5.4',
-        backend: 'standard',
+        backend: 'agent',
       });
     });
 
@@ -804,11 +832,11 @@ describe('wf-config-loader', () => {
         path.join(projectRoot, 'wf.config.js'),
         [
           'export default {',
-          '  ai: [{ provider: "google", apiKey: "gemini-key", model: "gemini-2.5-pro", default: true }],',
+          '  ai: [{ provider: "openai", apiKey: "openai-key", model: "gpt-5.4", default: true }],',
           '  stages: {',
           '    generate: {',
-          '      provider: "google",',
-          '      model: "gemini-2.5-pro",',
+          '      provider: "openai",',
+          '      model: "gpt-5.4",',
           '    },',
           '  },',
           '};',
@@ -818,12 +846,12 @@ describe('wf-config-loader', () => {
 
       const config = await loadWfConfig({ cwd: projectRoot });
 
-      expect(config.ai.provider).toBe('google');
-      expect(config.ai.geminiApiKey).toBe('gemini-key');
+      expect(config.ai.provider).toBe('openai');
+      expect(config.ai.openaiApiKey).toBe('openai-key');
       expect(config.stages.generate).toEqual({
-        provider: 'google',
-        model: 'gemini-2.5-pro',
-        backend: 'standard',
+        provider: 'openai',
+        model: 'gpt-5.4',
+        backend: 'agent',
       });
     });
 
@@ -848,26 +876,26 @@ describe('wf-config-loader', () => {
         path.join(projectRoot, 'wf.config.yaml'),
         [
           'ai:',
-          '  - provider: google',
-          '    apiKey: gemini-key',
-          '    model: gemini-2.5-pro',
+          '  - provider: openai',
+          '    apiKey: openai-key',
+          '    model: gpt-5.4',
           '    default: true',
           'stages:',
           '  review:',
-          '    provider: google',
-          '    model: gemini-2.5-pro',
+          '    provider: openai',
+          '    model: gpt-5.4',
           '',
         ].join('\n'),
       );
 
       const config = await loadWfConfig({ cwd: projectRoot });
 
-      expect(config.ai.provider).toBe('google');
-      expect(config.ai.model).toBe('gemini-2.5-pro');
+      expect(config.ai.provider).toBe('openai');
+      expect(config.ai.model).toBe('gpt-5.4');
       expect(config.ai.stages.review).toEqual({
-        provider: 'google',
-        model: 'gemini-2.5-pro',
-        backend: 'standard',
+        provider: 'openai',
+        model: 'gpt-5.4',
+        backend: 'agent',
       });
     });
 

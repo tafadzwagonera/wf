@@ -10,7 +10,8 @@
  *   4. Config normalization: `backend: 'cli'` + `provider: 'openai'` throws
  *   5. Config normalization: `backend: 'agent'` + `provider: 'google'` throws
  *   6. Config normalization: `backend: 'cli'` on commit stage throws
- *   7. Config normalization: `backend: 'standard'` defaults when omitted
+ *   7. Config normalization: agent-capable stages default to `agent` backend when omitted
+ *  7b. Config normalization: `commit` defaults to `standard` backend when omitted
  *   8. CLI runner: `buildCliArgs` builds correct args
  *   9. CLI runner: `parseNdjsonLine` parses valid JSON
  *  10. CLI runner: `parseNdjsonLine` returns null for invalid input
@@ -181,7 +182,7 @@ function main(): void {
     );
   }
 
-  // 7. backend defaults to standard when omitted
+  // 7. agent-capable stages default to agent backend when omitted
   try {
     const config = normalizeWfConfig({
       ai: [
@@ -200,13 +201,42 @@ function main(): void {
       },
     });
     assert(
-      'backend defaults to standard when omitted',
-      config.stages.review?.backend === 'standard',
+      'review defaults to agent backend when omitted',
+      config.stages.review?.backend === 'agent',
       `got: ${config.stages.review?.backend}`,
     );
   } catch (error) {
     fail(
-      'backend defaults to standard when omitted',
+      'review defaults to agent backend when omitted',
+      `threw: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  // 7b. commit stage defaults to standard backend when omitted
+  try {
+    const config = normalizeWfConfig({
+      ai: [
+        {
+          provider: 'openai',
+          apiKey: 'test-key',
+          model: 'gpt-5.4',
+          default: true,
+        },
+      ],
+      stages: {
+        commit: {
+          provider: 'openai',
+        },
+      },
+    });
+    assert(
+      'commit defaults to standard backend when omitted',
+      config.stages.commit?.backend === 'standard',
+      `got: ${config.stages.commit?.backend}`,
+    );
+  } catch (error) {
+    fail(
+      'commit defaults to standard backend when omitted',
       `threw: ${error instanceof Error ? error.message : String(error)}`,
     );
   }

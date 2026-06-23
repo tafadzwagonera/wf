@@ -24,6 +24,7 @@ import {
   type ClaudeCliMessage,
 } from './adapters/claude-cli-runner';
 import type { WfBackendMode } from '../../config/public-config';
+import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import {
   CodeReview,
   requireAiResponseContent,
@@ -362,7 +363,7 @@ Return only the requested ticket markdown and preserve the required heading stru
   private resolveStageBackend(stage: AgentStageName): WfBackendMode {
     return this.configService.get<WfBackendMode>(
       `stages.${stage}.backend`,
-      'agent',
+      resolveDefaultStageBackend(stage),
     );
   }
 

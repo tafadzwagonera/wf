@@ -144,7 +144,13 @@ describe('ReviewStageService', () => {
     approved: true,
   };
 
-  const buildService = async (agentEnabled: boolean = false) => {
+  const buildService = async ({
+    agentEnabled = false,
+    reviewBackend,
+  }: {
+    agentEnabled?: boolean;
+    reviewBackend?: 'agent' | 'cli' | 'standard';
+  } = {}) => {
     const module = await Test.createTestingModule({
       providers: [
         ReviewStageService,
@@ -153,7 +159,7 @@ describe('ReviewStageService', () => {
           useValue: {
             get: jest.fn((key: string, fallback?: unknown) => {
               if (key === 'stages.review.backend')
-                return agentEnabled ? 'agent' : 'standard';
+                return reviewBackend ?? fallback;
               return fallback;
             }),
           },
@@ -326,7 +332,10 @@ describe('ReviewStageService', () => {
   });
 
   it('marks agent-backed traces as evidence-based when trace payload exists', async () => {
-    const { service, aiService, stageAgentService } = await buildService(true);
+    const { service, aiService, stageAgentService } = await buildService({
+      agentEnabled: true,
+      reviewBackend: 'agent',
+    });
     const review = await service.reviewDiff('diff --git a/file b/file', {
       context: 'ticket WBP-124: Agent-backed review',
       repoDir: '/tmp/repo',
@@ -352,6 +361,39 @@ describe('ReviewStageService', () => {
       expect.any(Array),
       '/tmp/repo',
     );
+    expect(aiService.reviewCode).not.toHaveBeenCalled();
+    expect(review.executionMode).toBe('agent');
+    expect(reviewMarkdown).toContain('Execution mode: agent');
+    expect(reviewMarkdown).toContain('Provenance: evidence-based');
+  });
+
+  it('preserves agent execution mode when the review backend is inferred', async () => {
+    const { service, aiService, stageAgentService } = await buildService({
+      agentEnabled: true,
+    });
+
+    const review = await service.reviewDiff('diff --git a/file b/file', {
+      context: 'ticket WBP-127: Inferred agent review',
+      repoDir: '/tmp/repo',
+    });
+
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'wf-review-agent-default-'),
+    );
+    const ticketPath = path.join(tempDir, 'WBP-127.md');
+    fs.writeFileSync(ticketPath, '# WBP-127: Inferred agent review');
+
+    const artifact = service.createReviewArtifact(
+      {
+        ticketKey: 'WBP-127',
+        content: '# WBP-127: Inferred agent review',
+        path: ticketPath,
+      },
+      review,
+    );
+
+    const reviewMarkdown = fs.readFileSync(artifact.path, 'utf-8');
+    expect(stageAgentService.reviewCode).toHaveBeenCalled();
     expect(aiService.reviewCode).not.toHaveBeenCalled();
     expect(review.executionMode).toBe('agent');
     expect(reviewMarkdown).toContain('Execution mode: agent');

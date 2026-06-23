@@ -109,4 +109,23 @@ describe('StageAgentService', () => {
       }),
     });
   });
+
+  it('enables the review stage when backend is omitted from config', () => {
+    const configService = {
+      get: jest.fn((key: string, defaultValue?: unknown) => {
+        const values: Record<string, unknown> = {
+          'stages.review.provider': 'openai',
+          'stages.review.model': 'gpt-5.4',
+          'ai.provider': 'openai',
+          'ai.model': 'gpt-5.4',
+        };
+
+        return key in values ? values[key] : defaultValue;
+      }),
+    } as unknown as ConfigService;
+
+    const service = new StageAgentService(configService);
+
+    expect(service.isEnabledForStage('review')).toBe(true);
+  });
 });

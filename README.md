@@ -876,7 +876,7 @@ wf/
 
 - **File-system-only state.** No database — all artifacts, state, and logs live under `.wf/` in the target repository or `~/.wf/<repo>/` for repo-scoped artifacts. This keeps wf portable and easy to debug.
 - **Per-stage provider overrides.** Each pipeline stage can use a different AI provider and model via `stages.<command>` config, so you can use a cheaper model for planning and a more capable one for implementation.
-- **Agent vs completion mode.** Stages that need tool use (implement) run in agent mode via the Claude Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode. Stages that need structured output (plan, review) use the completion API. Controlled by `stages.<command>.backend: 'agent' | 'cli' | 'standard'`.
+- **Agent vs completion mode.** Most stages (plan, implement, review, generate, create) default to agent mode via the Claude Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode. The commit stage defaults to standard (completion API). Controlled by `stages.<command>.backend: 'agent' | 'cli' | 'standard'`.
 - **Adapter pattern.** Platform adapters (Jira, GitHub, Bitbucket) and AI adapters (Anthropic, OpenAI, Gemini, DeepSeek) share a common interface so new providers can be added without changing command or agent code.
 - **Config resolution.** `wf` resolves config from the target repository when `--repos` is supplied, not from the caller's cwd. This lets a single wf installation manage many repositories with different settings.
 

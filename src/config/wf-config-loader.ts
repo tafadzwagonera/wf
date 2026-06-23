@@ -16,6 +16,11 @@ import type {
   WfCreateStageConfig,
   WfImplementStageConfig,
 } from './public-config';
+import {
+  type StageBackendDefaultStageName,
+  isAgentSupportedStage,
+  resolveDefaultStageBackend,
+} from './stage-backend-defaults';
 
 const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
 const DEFAULT_OPENAI_MODEL = 'gpt-4.1';
@@ -31,24 +36,11 @@ const CONFIG_FILE_NAMES = [
   'wf.config.yml',
 ] as const;
 
-type SupportedStageName =
-  | 'plan'
-  | 'implement'
-  | 'review'
-  | 'generate'
-  | 'commit'
-  | 'create';
+type SupportedStageName = StageBackendDefaultStageName;
 type SupportedModelStageName = Exclude<
   SupportedStageName,
   'implement' | 'create'
 >;
-const AGENT_SUPPORTED_STAGES = new Set<SupportedStageName>([
-  'plan',
-  'implement',
-  'create',
-  'review',
-  'generate',
-]);
 const AGENT_SUPPORTED_PROVIDERS = new Set<WfAiProviderName>([
   'anthropic',
   'openai',
@@ -691,8 +683,9 @@ const normalizeStageTarget = ({
     );
   }
 
-  const backend: WfBackendMode = stageTarget.backend ?? 'standard';
-  if (backend !== 'standard' && !AGENT_SUPPORTED_STAGES.has(stageName)) {
+  const backend: WfBackendMode =
+    stageTarget.backend ?? resolveDefaultStageBackend(stageName);
+  if (backend !== 'standard' && !isAgentSupportedStage(stageName)) {
     throw new ValidationError(
       `Invalid wf config: ${stageName} stage does not support backend "${backend}".`,
     );

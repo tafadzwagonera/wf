@@ -848,6 +848,31 @@ describe('IssueReviewCommand', () => {
       );
     });
 
+    it('renders evidence-based provenance with agent execution mode for agent-backed traces', async () => {
+      const { command } = await buildCommand();
+
+      const output = (command as any).formatReviewAsText([
+        {
+          title: 'Bitbucket PR #160',
+          context:
+            'pull request: https://bitbucket.org/workspace/repo/pull-requests/160',
+          diff: 'diff --git a/src/auth.ts b/src/auth.ts',
+          review: {
+            ...mockReview,
+            executionMode: 'agent',
+          },
+        },
+      ]);
+
+      expect(output).toContain('Execution mode: agent');
+      expect(output).toContain(
+        'Provenance: evidence-based (code-path trace backed by the execution backend)',
+      );
+      expect(output).not.toContain(
+        'Execution mode: standard\n  Provenance: evidence-based',
+      );
+    });
+
     it('renders paired suggestions directly under each issue in text output and keeps extras trailing', async () => {
       const { command } = await buildCommand();
 
