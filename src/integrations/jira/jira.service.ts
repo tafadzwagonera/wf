@@ -567,6 +567,54 @@ export class JiraService {
         continue;
       }
 
+      // Markdown tables — degrade to bullet lists
+      if (line.trimStart().startsWith('|') && line.trimEnd().endsWith('|')) {
+        const tableLines: string[] = [];
+        while (i < lines.length && lines[i].trimStart().startsWith('|') && lines[i].trimEnd().endsWith('|')) {
+          tableLines.push(lines[i]);
+          i++;
+        }
+
+        const isSeparator = (l: string) => /^\|[\s:|-]+\|$/.test(l.trim());
+        const parseCells = (l: string) =>
+          l
+            .split('|')
+            .slice(1, -1)
+            .map(c => c.trim())
+            .filter(c => c.length > 0);
+
+        const headerCells = parseCells(tableLines[0]);
+        const dataRows = tableLines.slice(1).filter(l => !isSeparator(l));
+
+        const listItems: any[] = [];
+
+        if (dataRows.length > 0) {
+          for (const row of dataRows) {
+            const cells = parseCells(row);
+            const parts = headerCells
+              .map((h, idx) => (cells[idx] ? `${h}: ${cells[idx]}` : null))
+              .filter(Boolean)
+              .join(' | ');
+            listItems.push({
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: this.parseInlineMarkdown(parts) }],
+            });
+          }
+        } else {
+          for (const cell of headerCells) {
+            listItems.push({
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: this.parseInlineMarkdown(cell) }],
+            });
+          }
+        }
+
+        if (listItems.length > 0) {
+          content.push({ type: 'bulletList', content: listItems });
+        }
+        continue;
+      }
+
       // Regular paragraph
       content.push({
         type: 'paragraph',
@@ -635,6 +683,15 @@ export class JiraService {
     while (index < lines.length) {
       const listItemMatch = this.matchListItem(lines[index]);
       if (!listItemMatch) {
+        const resumed = this.skipBlankLinesIf(
+          lines,
+          index,
+          m => m.indent === rootMatch.indent && m.listType === rootMatch.listType
+        );
+        if (resumed != null) {
+          index = resumed;
+          continue;
+        }
         break;
       }
 
@@ -661,6 +718,11 @@ export class JiraService {
         const nestedListItemMatch = this.matchListItem(lines[index]);
 
         if (!nestedListItemMatch) {
+          const resumed = this.skipBlankLinesIf(lines, index, m => m.indent > rootMatch.indent);
+          if (resumed != null) {
+            index = resumed;
+            continue;
+          }
           break;
         }
 
@@ -683,6 +745,30 @@ export class JiraService {
       },
       nextIndex: index,
     };
+  }
+
+  /**
+   * Skip past consecutive blank lines and return the index of the next
+   * non-blank line if it satisfies `predicate`, otherwise return `undefined`.
+   */
+  private skipBlankLinesIf(
+    lines: string[],
+    fromIndex: number,
+    predicate: (match: { indent: number; listType: 'bulletList' | 'orderedList'; text: string }) => boolean
+  ): number | undefined {
+    if (lines[fromIndex].trim()) return undefined;
+
+    let lookAhead = fromIndex + 1;
+    while (lookAhead < lines.length && !lines[lookAhead].trim()) {
+      lookAhead++;
+    }
+
+    if (lookAhead >= lines.length) return undefined;
+
+    const nextMatch = this.matchListItem(lines[lookAhead]);
+    if (nextMatch && predicate(nextMatch)) return lookAhead;
+
+    return undefined;
   }
 
   private parseInlineMarkdown(text: string): any[] {

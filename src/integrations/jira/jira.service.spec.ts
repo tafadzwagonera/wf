@@ -272,6 +272,46 @@ describe('JiraService', () => {
       expect(adf.content[0].content).toHaveLength(3);
     });
 
+    it('should produce a single orderedList when items are separated by blank lines', () => {
+      const markdown = '1. First\n\n2. Second\n\n3. Third';
+      const adf = service.markdownToADF(markdown);
+
+      expect(adf.content).toHaveLength(1);
+      expect(adf.content[0].type).toBe('orderedList');
+      expect(adf.content[0].content).toHaveLength(3);
+    });
+
+    it('should produce a single bulletList when items are separated by blank lines', () => {
+      const markdown = '- Alpha\n\n- Beta\n\n- Gamma';
+      const adf = service.markdownToADF(markdown);
+
+      expect(adf.content).toHaveLength(1);
+      expect(adf.content[0].type).toBe('bulletList');
+      expect(adf.content[0].content).toHaveLength(3);
+    });
+
+    it('should degrade markdown tables to bullet lists', () => {
+      const markdown = '| ID | Name |\n|---|---|\n| 1 | Alice |\n| 2 | Bob |';
+      const adf = service.markdownToADF(markdown);
+
+      expect(adf.content).toHaveLength(1);
+      expect(adf.content[0].type).toBe('bulletList');
+      expect(adf.content[0].content).toHaveLength(2);
+
+      const firstItemText = adf.content[0].content[0].content[0].content[0].text;
+      expect(firstItemText).toContain('ID: 1');
+      expect(firstItemText).toContain('Name: Alice');
+    });
+
+    it('should degrade a header-only table to bullet list of cells', () => {
+      const markdown = '| Foo | Bar | Baz |';
+      const adf = service.markdownToADF(markdown);
+
+      expect(adf.content).toHaveLength(1);
+      expect(adf.content[0].type).toBe('bulletList');
+      expect(adf.content[0].content).toHaveLength(3);
+    });
+
     it('should normalize Jira wiki code fences to ADF code blocks', () => {
       const markdown = '{code:json}\n{\n  "id": "123"\n}\n{code}';
       const adf = service.markdownToADF(markdown);
