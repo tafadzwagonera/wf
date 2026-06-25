@@ -26,6 +26,28 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
+import {
+  detectRepoConventions,
+  formatRepoConventionsPromptSection,
+  type RepoConventionsContext,
+} from '../shared/utils/detect-repo-conventions';
+import {
+  detectPriorTickets,
+  formatPriorTicketsPromptSection,
+  type PriorTicketContext,
+} from '../shared/utils/detect-prior-tickets';
+import {
+  detectCrossRepoPatterns,
+  formatCrossRepoPatternsPromptSection,
+  type CrossRepoContext,
+} from '../shared/utils/detect-cross-repo-patterns';
+import {
+  filterRecurrenceCandidates,
+  enrichWithCommitHistory,
+  analyzeRecurrenceGaps,
+  formatRecurrenceGapsPromptSection,
+  type RecurrenceGapAnalysis,
+} from '../shared/utils/detect-recurrence-gaps';
 
 /** Minimum description length (chars) for a ticket to bypass AI synthesis. */
 const MIN_DESCRIPTION_LENGTH = 100;
@@ -140,6 +162,13 @@ interface SlackChannelSourceMatch {
 }
 
 type SlackSourceMatch = SlackThreadSourceMatch | SlackChannelSourceMatch;
+
+interface RepoDiscoveryContext {
+  conventions?: RepoConventionsContext;
+  priorTickets?: PriorTicketContext;
+  crossRepoPatterns?: CrossRepoContext;
+  recurrenceGaps?: RecurrenceGapAnalysis | null;
+}
 
 class UnresolvedSourceError extends Error {}
 
@@ -385,8 +414,11 @@ export class IssueGenerateCommand extends CommandRunner {
         }
       }
 
+      // Gather repo discovery context
+      const repoContext = await this.gatherRepoContext(options?.repos, sourceContents);
+
       // Use AI to synthesize and collate data
-      const synthesizedTicket = await this.synthesizeWithAI(sourceContents, silent);
+      const synthesizedTicket = await this.synthesizeWithAI(sourceContents, silent, repoContext);
 
       // Apply metadata overrides if provided
       if (options?.title) {
@@ -1462,7 +1494,11 @@ export class IssueGenerateCommand extends CommandRunner {
   /**
    * Use AI to synthesize and collate data from multiple sources
    */
-  private async synthesizeWithAI(sources: SourceContent[], silent = false): Promise<UniversalTicket> {
+  private async synthesizeWithAI(
+    sources: SourceContent[],
+    silent = false,
+    repoContext?: RepoDiscoveryContext
+  ): Promise<UniversalTicket> {
     if (!silent) {
       console.log(chalk.cyan('\n🤖 Using AI to synthesize content...\n'));
     }
@@ -1474,7 +1510,7 @@ export class IssueGenerateCommand extends CommandRunner {
     }
 
     // Build prompt for AI
-    const prompt = this.buildSynthesisPrompt(sources);
+    const prompt = this.buildSynthesisPrompt(sources, repoContext);
 
     // Call AI to synthesize
     const responseContent = this.stageAgentService.isEnabledForStage('generate')
@@ -1499,9 +1535,55 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   /**
+   * Gather repo discovery context for enriching synthesis prompts.
+   *
+   * @param repos - Optional repos from command options
+   * @param sources - The fetched source contents (used for recurrence detection)
+   * @returns Repo discovery context object
+   */
+  private async gatherRepoContext(repos?: string[], sources?: SourceContent[]): Promise<RepoDiscoveryContext> {
+    const context: RepoDiscoveryContext = {};
+
+    try {
+      const primaryRepoDir = resolveRepoBasePath(repos?.[0]);
+      const repoName = path.basename(primaryRepoDir);
+
+      // Detect conventions
+      context.conventions = detectRepoConventions(primaryRepoDir);
+
+      // Detect prior tickets
+      context.priorTickets = detectPriorTickets(repoName);
+
+      // Cross-repo patterns (only when multiple repos)
+      if (repos && repos.length > 1) {
+        const secondaryDirs = repos.slice(1).map(r => resolveRepoBasePath(r));
+        context.crossRepoPatterns = detectCrossRepoPatterns(primaryRepoDir, secondaryDirs);
+      }
+
+      // Recurrence detection: keyword pre-filter, git history, AI analysis
+      if (context.priorTickets.tickets.length > 0 && sources && sources.length > 0) {
+        const currentContent = sources
+          .map(s => (typeof s.content === 'string' ? s.content : JSON.stringify(s.content)))
+          .join('\n')
+          .substring(0, 3000);
+
+        let candidates = filterRecurrenceCandidates(currentContent, context.priorTickets);
+        if (candidates.length > 0) {
+          candidates = await enrichWithCommitHistory(candidates, primaryRepoDir);
+          context.recurrenceGaps = await analyzeRecurrenceGaps(currentContent, candidates, this.aiService);
+        }
+      }
+    } catch {
+      // Discovery is best-effort; don't block generation on failure
+    }
+
+    return context;
+  }
+
+  /**
    * Build prompt for AI synthesis
    */
-  private buildSynthesisPrompt(sources: SourceContent[]): string {
+  private buildSynthesisPrompt(sources: SourceContent[], repoContext?: RepoDiscoveryContext): string {
     let prompt = `Synthesize the following sources into a single, concise Jira ticket. Every sentence must earn its place; omit filler, redundancy, and preamble.\n\n`;
     prompt += `Output ONLY valid Markdown using this exact structure. Every heading MUST appear even when source material is sparse; use "None" for sections with no relevant information:\n\n`;
     prompt += `# Heading: <concise title>\n\n`;
@@ -1531,6 +1613,34 @@ export class IssueGenerateCommand extends CommandRunner {
     prompt += `- Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").\n`;
     prompt += `- Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.\n`;
     prompt += `- The line "## Description" MUST appear exactly once.\n\n`;
+
+    // Inject repo discovery context
+    if (repoContext) {
+      const parts: string[] = [];
+      if (repoContext.conventions) {
+        const section = formatRepoConventionsPromptSection(
+          repoContext.conventions,
+          repoContext.priorTickets?.repoName ?? 'repo'
+        );
+        if (section) parts.push(section);
+      }
+      if (repoContext.priorTickets) {
+        const section = formatPriorTicketsPromptSection(repoContext.priorTickets);
+        if (section) parts.push(section);
+      }
+      if (repoContext.crossRepoPatterns) {
+        const section = formatCrossRepoPatternsPromptSection(repoContext.crossRepoPatterns);
+        if (section) parts.push(section);
+      }
+      if (repoContext.recurrenceGaps) {
+        const section = formatRecurrenceGapsPromptSection(repoContext.recurrenceGaps);
+        if (section) parts.push(section);
+      }
+      if (parts.length > 0) {
+        prompt += parts.join('\n\n') + '\n\n';
+      }
+    }
+
     prompt += `Sources to synthesize:\n\n`;
 
     sources.forEach((source, index) => {

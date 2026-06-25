@@ -375,6 +375,51 @@ describe('IssuePlanCommand', () => {
     expect(String(writeFileSpy.mock.calls[0][1])).toContain('"verification"');
   });
 
+  it('passes repo discovery context to generatePlan', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['repo-a/src/auth.ts'],
+      repositoriesAffected: ['repo-a'],
+      verification: {
+        targeted: [
+          {
+            id: 'manual-auth-smoke',
+            run: 'node -e "require(\'node:assert\').ok(true)"',
+            policy: 'enforced',
+          },
+        ],
+      },
+    } as any);
+
+    jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(planStageService.generatePlan).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        action: 'fix',
+        ticketKey: 'WBP-1',
+        affectedRepositories: ['repo-a'],
+        repoDir: '/tmp/consumer-app/repo-a',
+      })
+    );
+  });
+
   it('rejects a generated ticket-mode plan with placeholder repository metadata', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});

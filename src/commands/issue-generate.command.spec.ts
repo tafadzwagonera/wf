@@ -405,6 +405,52 @@ describe('IssueGenerateCommand', () => {
         'Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.'
       );
     });
+
+    it('includes repo conventions section when context is provided', async () => {
+      const { command } = await buildCommand();
+      const mockContext = {
+        conventions: {
+          language: 'typescript',
+          linter: { tool: 'eslint', keyRules: { semi: true } },
+          typescript: {
+            strict: true,
+            module: 'commonjs',
+            target: 'ES2021',
+            paths: {},
+          },
+          go: null,
+          python: null,
+          terraform: null,
+          folderStructure: ['agents', 'commands'],
+          namingPattern: 'kebab-case',
+          nestjsDetected: true,
+          importStyle: 'commonjs',
+          keyDependencies: ['@nestjs/core'],
+          errorHandlingPaths: [],
+        },
+        priorTickets: { tickets: [], repoName: 'test-repo' },
+      };
+
+      const prompt = (command as any).buildSynthesisPrompt(
+        [{ type: 'file', source: './notes.md', content: 'Test content' }],
+        mockContext
+      );
+
+      expect(prompt).toContain('Repository conventions (test-repo):');
+      expect(prompt).toContain('Language: typescript');
+      expect(prompt).toContain('Linter: eslint');
+    });
+
+    it('omits repo context sections when no context provided', async () => {
+      const { command } = await buildCommand();
+
+      const prompt = (command as any).buildSynthesisPrompt([
+        { type: 'file', source: './notes.md', content: 'Test content' },
+      ]);
+
+      expect(prompt).not.toContain('Repository conventions');
+      expect(prompt).not.toContain('Related prior tickets');
+    });
   });
 
   describe('parseRepos', () => {

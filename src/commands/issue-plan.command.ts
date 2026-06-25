@@ -17,6 +17,14 @@ import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { detectTestInfra } from '../shared/utils/detect-test-infra';
 import type { TestInfraContext, NodeInfra } from '../shared/utils/detect-test-infra';
+import { detectRepoConventions } from '../shared/utils/detect-repo-conventions';
+import { detectPriorTickets } from '../shared/utils/detect-prior-tickets';
+import { detectCrossRepoPatterns } from '../shared/utils/detect-cross-repo-patterns';
+import {
+  filterRecurrenceCandidates,
+  enrichWithCommitHistory,
+  analyzeRecurrenceGaps,
+} from '../shared/utils/detect-recurrence-gaps';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
@@ -437,10 +445,33 @@ export class IssuePlanCommand extends CommandRunner {
         }
 
         const customSourceContent = fs.readFileSync(customSourcePath, 'utf-8');
+
+        // Gather repo discovery context
+        const conventions = detectRepoConventions(artifactBaseDir);
+        const priorTickets = detectPriorTickets(path.basename(artifactBaseDir));
+        const crossRepoPatterns =
+          (options?.repos?.length ?? 0) > 1
+            ? detectCrossRepoPatterns(
+                artifactBaseDir,
+                (options?.repos ?? []).slice(1).map(r => resolveRepoBasePath(r))
+              )
+            : undefined;
+
+        let candidates = filterRecurrenceCandidates(customSourceContent, priorTickets);
+        if (candidates.length > 0) {
+          candidates = await enrichWithCommitHistory(candidates, artifactBaseDir);
+        }
+        const recurrenceGaps =
+          candidates.length > 0 ? await analyzeRecurrenceGaps(customSourceContent, candidates, this.aiService) : null;
+
         const plan = await this.planStageService.generatePlan(customSourceContent, {
           action,
           affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
           repoDir: artifactBaseDir,
+          conventions,
+          priorTickets,
+          crossRepoPatterns,
+          recurrenceGaps,
         });
         this.validateGeneratedPlan(
           plan,
@@ -632,11 +663,33 @@ export class IssuePlanCommand extends CommandRunner {
         this.logger.info('Generating implementation plan...');
       }
 
+      // Gather repo discovery context
+      const conventions = detectRepoConventions(artifactBaseDir);
+      const priorTickets = detectPriorTickets(path.basename(artifactBaseDir));
+      const crossRepoPatterns =
+        (options?.repos?.length ?? 0) > 1
+          ? detectCrossRepoPatterns(
+              artifactBaseDir,
+              (options?.repos ?? []).slice(1).map(r => resolveRepoBasePath(r))
+            )
+          : undefined;
+
+      let candidates = filterRecurrenceCandidates(ticketContent, priorTickets);
+      if (candidates.length > 0) {
+        candidates = await enrichWithCommitHistory(candidates, artifactBaseDir);
+      }
+      const recurrenceGaps =
+        candidates.length > 0 ? await analyzeRecurrenceGaps(ticketContent, candidates, this.aiService) : null;
+
       const plan = await this.planStageService.generatePlan(ticketContent, {
         action,
         ticketKey,
         affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
         repoDir: artifactBaseDir,
+        conventions,
+        priorTickets,
+        crossRepoPatterns,
+        recurrenceGaps,
       });
       this.validateGeneratedPlan(
         plan,

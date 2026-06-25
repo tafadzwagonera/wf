@@ -100,6 +100,69 @@ describe('PlanStageService', () => {
     expect(aiService.generatePlan).not.toHaveBeenCalled();
   });
 
+  it('passes conventions and prior tickets through to AI service', async () => {
+    const { service, aiService } = await buildService();
+    const mockConventions = {
+      language: 'typescript',
+      linter: null,
+      typescript: null,
+      go: null,
+      python: null,
+      terraform: null,
+      folderStructure: [],
+      namingPattern: 'kebab-case',
+      nestjsDetected: false,
+      importStyle: 'commonjs',
+      keyDependencies: [],
+      errorHandlingPaths: [],
+    };
+    const mockPriorTickets = { tickets: [], repoName: 'test-repo' };
+
+    await service.generatePlan('Ticket body', {
+      action: 'fix',
+      conventions: mockConventions as any,
+      priorTickets: mockPriorTickets,
+    });
+
+    expect(aiService.generatePlan).toHaveBeenCalledWith(
+      'fix',
+      'Ticket body',
+      expect.objectContaining({
+        conventions: mockConventions,
+        priorTickets: mockPriorTickets,
+      })
+    );
+  });
+
+  it('passes conventions through to stage agent service when agent mode enabled', async () => {
+    const { service, stageAgentService } = await buildService(true);
+    const mockConventions = {
+      language: 'typescript',
+      linter: null,
+      typescript: null,
+      go: null,
+      python: null,
+      terraform: null,
+      folderStructure: [],
+      namingPattern: 'kebab-case',
+      nestjsDetected: false,
+      importStyle: 'commonjs',
+      keyDependencies: [],
+      errorHandlingPaths: [],
+    };
+
+    await service.generatePlan('Ticket body', {
+      action: 'fix',
+      conventions: mockConventions as any,
+    });
+
+    expect(stageAgentService.generatePlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conventions: mockConventions,
+      })
+    );
+  });
+
   it('persists a JSON plan artifact and returns cache metadata', async () => {
     const { service } = await buildService();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-'));
