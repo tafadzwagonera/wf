@@ -32,6 +32,22 @@ import {
 } from './ai.service';
 import { AIError } from '../../shared/utils/errors';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
+import {
+  formatRepoConventionsPromptSection,
+  type RepoConventionsContext,
+} from '../../shared/utils/detect-repo-conventions';
+import {
+  formatPriorTicketsPromptSection,
+  type PriorTicketContext,
+} from '../../shared/utils/detect-prior-tickets';
+import {
+  formatCrossRepoPatternsPromptSection,
+  type CrossRepoContext,
+} from '../../shared/utils/detect-cross-repo-patterns';
+import {
+  formatRecurrenceGapsPromptSection,
+  type RecurrenceGapAnalysis,
+} from '../../shared/utils/detect-recurrence-gaps';
 
 const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
@@ -110,10 +126,42 @@ export class StageAgentService {
     issueContent: string;
     ticketKey?: string;
     affectedRepositories?: string[];
+    conventions?: RepoConventionsContext;
+    priorTickets?: PriorTicketContext;
+    crossRepoPatterns?: CrossRepoContext;
+    recurrenceGaps?: RecurrenceGapAnalysis | null;
   }): Promise<ResolutionPlan> {
     const repoExample = resolveStagePromptRepoExample(
       params.affectedRepositories,
     );
+
+    // Build discovery context sections
+    const discoveryParts: string[] = [];
+    if (params.conventions) {
+      const repoName = params.affectedRepositories?.[0] ?? 'repo';
+      const section = formatRepoConventionsPromptSection(
+        params.conventions,
+        repoName,
+      );
+      if (section) discoveryParts.push(section);
+    }
+    if (params.priorTickets) {
+      const section = formatPriorTicketsPromptSection(params.priorTickets);
+      if (section) discoveryParts.push(section);
+    }
+    if (params.crossRepoPatterns) {
+      const section = formatCrossRepoPatternsPromptSection(
+        params.crossRepoPatterns,
+      );
+      if (section) discoveryParts.push(section);
+    }
+    if (params.recurrenceGaps) {
+      const section = formatRecurrenceGapsPromptSection(params.recurrenceGaps);
+      if (section) discoveryParts.push(section);
+    }
+    const discoveryBlock =
+      discoveryParts.length > 0 ? `\n${discoveryParts.join('\n\n')}\n` : '';
+
     const prompt = `
 Action: ${params.action}
 Issue Content:
@@ -129,7 +177,7 @@ ${JSON.stringify(
   null,
   2,
 )}
-
+${discoveryBlock}
 Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
 2. Specific, actionable steps to ${params.action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
@@ -145,6 +193,13 @@ Create a detailed resolution plan with:
    "found". Verify each path exists with tools before listing it.
 6. Potential risks or considerations
 7. Repositories that will be affected (if known)
+
+Minimal-change principles — apply to every plan:
+- Propose the smallest effective change. Do not modify files unrelated to the ticket.
+- Limit verification to files edited by this plan.
+- Each component should be designed to address a single responsibility.
+- Prefer changes that are replaceable or deletable without cascading effects on other components.
+
 8. Task-specific verification only when needed
 
 Return ONLY a valid JSON object with these fields:

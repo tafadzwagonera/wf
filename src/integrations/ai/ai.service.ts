@@ -11,6 +11,22 @@ import type {
   ReviewTraceStateTransition,
 } from './review-trace';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
+import {
+  formatRepoConventionsPromptSection,
+  type RepoConventionsContext,
+} from '../../shared/utils/detect-repo-conventions';
+import {
+  formatPriorTicketsPromptSection,
+  type PriorTicketContext,
+} from '../../shared/utils/detect-prior-tickets';
+import {
+  formatCrossRepoPatternsPromptSection,
+  type CrossRepoContext,
+} from '../../shared/utils/detect-cross-repo-patterns';
+import {
+  formatRecurrenceGapsPromptSection,
+  type RecurrenceGapAnalysis,
+} from '../../shared/utils/detect-recurrence-gaps';
 
 /**
  * Strips a single wrapping markdown code fence from LLM output.
@@ -403,6 +419,38 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
       context?.affectedRepositories as string[] | undefined,
     );
 
+    // Build discovery context sections
+    const discoveryParts: string[] = [];
+    if (context?.conventions) {
+      const repoName =
+        (context.affectedRepositories as string[] | undefined)?.[0] ?? 'repo';
+      const section = formatRepoConventionsPromptSection(
+        context.conventions as RepoConventionsContext,
+        repoName,
+      );
+      if (section) discoveryParts.push(section);
+    }
+    if (context?.priorTickets) {
+      const section = formatPriorTicketsPromptSection(
+        context.priorTickets as PriorTicketContext,
+      );
+      if (section) discoveryParts.push(section);
+    }
+    if (context?.crossRepoPatterns) {
+      const section = formatCrossRepoPatternsPromptSection(
+        context.crossRepoPatterns as CrossRepoContext,
+      );
+      if (section) discoveryParts.push(section);
+    }
+    if (context?.recurrenceGaps) {
+      const section = formatRecurrenceGapsPromptSection(
+        context.recurrenceGaps as RecurrenceGapAnalysis,
+      );
+      if (section) discoveryParts.push(section);
+    }
+    const discoveryBlock =
+      discoveryParts.length > 0 ? `\n${discoveryParts.join('\n\n')}\n` : '';
+
     const prompt = `
 Action: ${action}
 Issue Content:
@@ -410,7 +458,7 @@ ${issueContent}
 
 ${context ? `Context:\n${JSON.stringify(context, null, 2)}` : ''}
 
-${repoHint}Create a detailed resolution plan with:
+${repoHint}${discoveryBlock}Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
 2. Specific, actionable steps to ${action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
 3. Estimated complexity (low/medium/high)
@@ -428,6 +476,13 @@ ${repoHint}Create a detailed resolution plan with:
    exists before listing it.
 6. Potential risks or considerations
 7. Repositories that will be affected (if known — use provided hints or infer from ticket text)
+
+Minimal-change principles — apply to every plan:
+- Propose the smallest effective change. Do not modify files unrelated to the ticket.
+- Limit verification to files edited by this plan.
+- Each component should be designed to address a single responsibility.
+- Prefer changes that are replaceable or deletable without cascading effects on other components.
+
 8. Task-specific verification only when needed:
    - Use "verification.targeted" for focused checks required by this specific plan
    - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check

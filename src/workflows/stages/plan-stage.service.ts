@@ -17,11 +17,20 @@ import {
   ResolutionAction,
   TicketArtifact,
 } from '../../agents/interfaces';
+import type { RepoConventionsContext } from '../../shared/utils/detect-repo-conventions';
+import type { PriorTicketContext } from '../../shared/utils/detect-prior-tickets';
+import type { CrossRepoContext } from '../../shared/utils/detect-cross-repo-patterns';
+import type { RecurrenceGapAnalysis } from '../../shared/utils/detect-recurrence-gaps';
 
 interface GeneratePlanOptions {
   action: ResolutionAction;
   ticketKey?: string;
   affectedRepositories?: string[];
+  repoDir?: string;
+  conventions?: RepoConventionsContext;
+  priorTickets?: PriorTicketContext;
+  crossRepoPatterns?: CrossRepoContext;
+  recurrenceGaps?: RecurrenceGapAnalysis | null;
 }
 
 @Injectable()
@@ -41,6 +50,10 @@ export class PlanStageService {
         issueContent: ticketContent,
         ticketKey: options.ticketKey,
         affectedRepositories: options.affectedRepositories,
+        conventions: options.conventions,
+        priorTickets: options.priorTickets,
+        crossRepoPatterns: options.crossRepoPatterns,
+        recurrenceGaps: options.recurrenceGaps,
       });
     }
 
@@ -48,6 +61,10 @@ export class PlanStageService {
       ticketKey: options.ticketKey,
       summary: this.extractSummary(ticketContent),
       affectedRepositories: options.affectedRepositories,
+      conventions: options.conventions,
+      priorTickets: options.priorTickets,
+      crossRepoPatterns: options.crossRepoPatterns,
+      recurrenceGaps: options.recurrenceGaps,
     });
   }
 
