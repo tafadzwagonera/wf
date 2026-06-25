@@ -16,8 +16,7 @@ jest.mock('simple-git', () => {
 
 import simpleGit from 'simple-git';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockSimpleGit = simpleGit as jest.MockedFunction<any>;
+const mockSimpleGit = simpleGit as jest.MockedFunction<typeof simpleGit>;
 
 // --- Factories ---
 
