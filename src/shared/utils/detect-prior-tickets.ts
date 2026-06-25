@@ -14,7 +14,7 @@ export interface PriorTicketContext {
   repoName: string;
 }
 
-const FILE_PATH_REGEX = /[\w\-/]+\.\w{1,5}/g;
+const FILE_PATH_REGEX = /[\w-/]+(?:\.[\w-]+)+/g;
 const COMPONENT_NAME_REGEX =
   /\b[A-Z][a-zA-Z]+(?:Service|Controller|Module|Agent|Command|Guard|Interceptor)\b/g;
 const ERROR_PATTERN_REGEX =

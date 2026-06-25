@@ -106,6 +106,14 @@ describe('extractTicketKeywords', () => {
       expect(errorCount).toBe(1);
     });
 
+    it('extracts multi-dot file paths like pricing.service.ts', () => {
+      const result = extractTicketKeywords(
+        'Fix pricing service',
+        'Error in src/pricing/pricing.service.ts at line 42',
+      );
+      expect(result).toContain('src/pricing/pricing.service.ts');
+    });
+
     it('returns empty array for text with no matches', () => {
       const result = extractTicketKeywords(
         'update the readme',
