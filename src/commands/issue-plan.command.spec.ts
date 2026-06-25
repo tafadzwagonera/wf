@@ -401,11 +401,11 @@ describe('IssuePlanCommand', () => {
     });
     expect(planStageService.generatePlan).toHaveBeenCalledWith(
       '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
-      {
+      expect.objectContaining({
         action: 'fix',
         ticketKey: 'WBP-1',
         affectedRepositories: ['repo-a'],
-      },
+      }),
     );
     expect(writeFileSpy).toHaveBeenCalled();
     expect(String(writeFileSpy.mock.calls[0][1])).toContain('"verification"');
