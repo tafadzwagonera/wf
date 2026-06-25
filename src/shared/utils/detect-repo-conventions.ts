@@ -1,13 +1,29 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+export type RepoLanguage =
+  | 'typescript'
+  | 'javascript'
+  | 'go'
+  | 'python'
+  | 'terraform'
+  | 'unknown';
+
 export interface RepoConventionsContext {
+  language: RepoLanguage;
   linter: { tool: string; keyRules: Record<string, unknown> } | null;
   typescript: {
     strict: boolean;
     module: string;
     target: string;
     paths: Record<string, string[]>;
+  } | null;
+  go: { modulePath: string } | null;
+  python: { tool: string; keySettings: Record<string, unknown> } | null;
+  terraform: {
+    providers: string[];
+    backend: string | null;
+    modulePaths: string[];
   } | null;
   folderStructure: string[];
   namingPattern: 'camelCase' | 'kebab-case' | 'PascalCase' | 'mixed';
@@ -109,6 +125,153 @@ const walkDir = (
 export const detectRepoConventions = (
   repoDir: string,
 ): RepoConventionsContext => {
+  // --- Language detection ---
+  const hasTsConfig = fs.existsSync(path.join(repoDir, 'tsconfig.json'));
+  const hasPkgJson = fs.existsSync(path.join(repoDir, 'package.json'));
+  const hasGoMod = fs.existsSync(path.join(repoDir, 'go.mod'));
+  const hasPyProject = fs.existsSync(path.join(repoDir, 'pyproject.toml'));
+  const hasSetupPy = fs.existsSync(path.join(repoDir, 'setup.py'));
+  const hasRequirementsTxt = fs.existsSync(
+    path.join(repoDir, 'requirements.txt'),
+  );
+  const hasTfFiles = (() => {
+    try {
+      const entries = fs.readdirSync(repoDir);
+      return entries.some((e) => e.endsWith('.tf'));
+    } catch {
+      return false;
+    }
+  })();
+
+  let language: RepoLanguage = 'unknown';
+  if (hasTsConfig) language = 'typescript';
+  else if (hasPkgJson) language = 'javascript';
+  else if (hasGoMod) language = 'go';
+  else if (hasPyProject || hasSetupPy || hasRequirementsTxt)
+    language = 'python';
+  else if (hasTfFiles) language = 'terraform';
+
+  // --- Go module ---
+  let goCtx: RepoConventionsContext['go'] = null;
+  if (hasGoMod) {
+    try {
+      const raw = fs.readFileSync(path.join(repoDir, 'go.mod'), 'utf-8');
+      const moduleMatch = raw.match(/^module\s+(\S+)/m);
+      goCtx = { modulePath: moduleMatch ? moduleMatch[1] : '' };
+    } catch {
+      // leave null
+    }
+  }
+
+  // --- Python tooling ---
+  let pythonCtx: RepoConventionsContext['python'] = null;
+  if (language === 'python') {
+    const pyLinters: Array<{
+      file: string;
+      tool: string;
+      extract: (raw: string) => Record<string, unknown>;
+    }> = [
+      {
+        file: 'pyproject.toml',
+        tool: 'pyproject',
+        extract: (raw) => {
+          const settings: Record<string, unknown> = {};
+          const ruffMatch = raw.match(/\[tool\.ruff\]/);
+          if (ruffMatch) settings['ruff'] = true;
+          const blackMatch = raw.match(/\[tool\.black\]/);
+          if (blackMatch) settings['black'] = true;
+          const mypyMatch = raw.match(/\[tool\.mypy\]/);
+          if (mypyMatch) settings['mypy'] = true;
+          const pytestMatch = raw.match(/\[tool\.pytest/);
+          if (pytestMatch) settings['pytest'] = true;
+          return settings;
+        },
+      },
+      {
+        file: '.flake8',
+        tool: 'flake8',
+        extract: () => ({}),
+      },
+      {
+        file: 'setup.cfg',
+        tool: 'setup.cfg',
+        extract: () => ({}),
+      },
+    ];
+
+    for (const candidate of pyLinters) {
+      const pyPath = path.join(repoDir, candidate.file);
+      if (fs.existsSync(pyPath)) {
+        try {
+          const raw = fs.readFileSync(pyPath, 'utf-8');
+          pythonCtx = {
+            tool: candidate.tool,
+            keySettings: candidate.extract(raw),
+          };
+          break;
+        } catch {
+          // try next
+        }
+      }
+    }
+  }
+
+  // --- Terraform ---
+  let terraformCtx: RepoConventionsContext['terraform'] = null;
+  if (hasTfFiles) {
+    const providers: string[] = [];
+    let backend: string | null = null;
+    const modulePaths: string[] = [];
+
+    try {
+      const entries = fs.readdirSync(repoDir);
+      for (const entry of entries) {
+        if (!entry.endsWith('.tf')) continue;
+        try {
+          const raw = fs.readFileSync(path.join(repoDir, entry), 'utf-8');
+          const providerMatches = raw.matchAll(/provider\s+"([^"]+)"/g);
+          for (const m of providerMatches) {
+            if (!providers.includes(m[1])) providers.push(m[1]);
+          }
+          const backendMatch = raw.match(/backend\s+"([^"]+)"/);
+          if (backendMatch) backend = backendMatch[1];
+        } catch {
+          // skip unreadable .tf file
+        }
+      }
+    } catch {
+      // leave empty
+    }
+
+    // Scan for module directories (contain .tf files)
+    const scanModules = (dir: string, prefix: string): void => {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const subDir = path.join(dir, entry.name);
+          try {
+            const subEntries = fs.readdirSync(subDir);
+            if (subEntries.some((e) => e.endsWith('.tf'))) {
+              modulePaths.push(prefix ? `${prefix}/${entry.name}` : entry.name);
+            }
+          } catch {
+            // skip
+          }
+        }
+      } catch {
+        // skip
+      }
+    };
+
+    const modulesDir = path.join(repoDir, 'modules');
+    if (fs.existsSync(modulesDir)) {
+      scanModules(modulesDir, 'modules');
+    }
+
+    terraformCtx = { providers, backend, modulePaths };
+  }
+
   // --- Linter ---
   let linter: RepoConventionsContext['linter'] = null;
 
@@ -220,15 +383,79 @@ export const detectRepoConventions = (
 
   // --- Folder structure ---
   const folderStructure: string[] = [];
-  const srcDir = path.join(repoDir, 'src');
 
-  if (fs.existsSync(srcDir)) {
+  // Pick the conventional source root per language
+  const sourceRoots: string[] = [];
+  if (language === 'go') {
+    for (const d of ['cmd', 'pkg', 'internal', 'api']) {
+      if (fs.existsSync(path.join(repoDir, d)))
+        sourceRoots.push(path.join(repoDir, d));
+    }
+  } else if (language === 'terraform') {
+    for (const d of ['modules', 'environments', 'stacks']) {
+      if (fs.existsSync(path.join(repoDir, d)))
+        sourceRoots.push(path.join(repoDir, d));
+    }
+  } else if (language === 'python') {
+    const srcDir = path.join(repoDir, 'src');
+    if (fs.existsSync(srcDir)) {
+      sourceRoots.push(srcDir);
+    } else {
+      // Python repos often use the package name directly at root
+      try {
+        const rootEntries = fs.readdirSync(repoDir, { withFileTypes: true });
+        for (const entry of rootEntries) {
+          if (
+            entry.isDirectory() &&
+            !entry.name.startsWith('.') &&
+            !['node_modules', '__pycache__', '.git', 'venv', '.venv'].includes(
+              entry.name,
+            ) &&
+            fs.existsSync(path.join(repoDir, entry.name, '__init__.py'))
+          ) {
+            sourceRoots.push(path.join(repoDir, entry.name));
+            break;
+          }
+        }
+      } catch {
+        // leave empty
+      }
+    }
+  } else {
+    const srcDir = path.join(repoDir, 'src');
+    if (fs.existsSync(srcDir)) sourceRoots.push(srcDir);
+  }
+
+  for (const root of sourceRoots) {
     try {
-      const entries = fs.readdirSync(srcDir, {
-        withFileTypes: true,
-      });
+      const entries = fs.readdirSync(root, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory()) {
+          const label =
+            sourceRoots.length > 1
+              ? `${path.basename(root)}/${entry.name}`
+              : entry.name;
+          folderStructure.push(label);
+        }
+      }
+    } catch {
+      // leave empty
+    }
+  }
+
+  // For Go and Terraform at the root level, also list top-level dirs
+  if (
+    sourceRoots.length === 0 &&
+    (language === 'go' || language === 'terraform')
+  ) {
+    try {
+      const rootEntries = fs.readdirSync(repoDir, { withFileTypes: true });
+      for (const entry of rootEntries) {
+        if (
+          entry.isDirectory() &&
+          !entry.name.startsWith('.') &&
+          entry.name !== 'node_modules'
+        ) {
           folderStructure.push(entry.name);
         }
       }
@@ -240,9 +467,10 @@ export const detectRepoConventions = (
   // --- Naming pattern ---
   let namingPattern: RepoConventionsContext['namingPattern'] = 'mixed';
 
-  if (fs.existsSync(srcDir)) {
+  const namingScanDir = sourceRoots[0] ?? path.join(repoDir, 'src');
+  if (fs.existsSync(namingScanDir)) {
     try {
-      const entries = fs.readdirSync(srcDir, {
+      const entries = fs.readdirSync(namingScanDir, {
         withFileTypes: true,
       });
       const fileNames = entries
@@ -303,11 +531,47 @@ export const detectRepoConventions = (
   // --- Key dependencies ---
   const keyDependencies = KEY_DEPENDENCY_KEYWORDS.filter((kw) => kw in allDeps);
 
+  // Go dependencies (from go.mod require block)
+  if (hasGoMod) {
+    try {
+      const raw = fs.readFileSync(path.join(repoDir, 'go.mod'), 'utf-8');
+      const goKeyDeps = [
+        'github.com/gin-gonic/gin',
+        'github.com/gorilla/mux',
+        'github.com/labstack/echo',
+        'github.com/gofiber/fiber',
+        'google.golang.org/grpc',
+        'github.com/stretchr/testify',
+        'github.com/hashicorp/terraform-plugin-sdk',
+        'github.com/aws/aws-sdk-go',
+      ];
+      for (const dep of goKeyDeps) {
+        if (raw.includes(dep)) keyDependencies.push(path.basename(dep));
+      }
+    } catch {
+      // skip
+    }
+  }
+
+  // Terraform providers as dependencies
+  if (terraformCtx) {
+    for (const provider of terraformCtx.providers) {
+      keyDependencies.push(`terraform-provider-${provider}`);
+    }
+  }
+
   // --- Error handling paths ---
   const errorHandlingPaths: string[] = [];
 
-  if (fs.existsSync(srcDir)) {
-    const matches = walkDir(srcDir, (filePath) => {
+  const errorScanRoots =
+    sourceRoots.length > 0
+      ? sourceRoots
+      : fs.existsSync(path.join(repoDir, 'src'))
+        ? [path.join(repoDir, 'src')]
+        : [];
+
+  for (const root of errorScanRoots) {
+    const matches = walkDir(root, (filePath) => {
       const base = path.basename(filePath).toLowerCase();
       return base.includes('error') || base.includes('exception');
     });
@@ -315,8 +579,12 @@ export const detectRepoConventions = (
   }
 
   return {
+    language,
     linter,
     typescript,
+    go: goCtx,
+    python: pythonCtx,
+    terraform: terraformCtx,
     folderStructure,
     namingPattern,
     nestjsDetected,
@@ -340,6 +608,9 @@ export const formatRepoConventionsPromptSection = (
   const hasMeaningfulData =
     ctx.linter !== null ||
     ctx.typescript !== null ||
+    ctx.go !== null ||
+    ctx.python !== null ||
+    ctx.terraform !== null ||
     ctx.folderStructure.length > 0 ||
     ctx.nestjsDetected ||
     ctx.keyDependencies.length > 0 ||
@@ -348,6 +619,8 @@ export const formatRepoConventionsPromptSection = (
   if (!hasMeaningfulData) return '';
 
   const lines: string[] = [`Repository conventions (${repoName}):`];
+
+  lines.push(`- Language: ${ctx.language}`);
 
   if (ctx.linter) {
     const ruleStr = Object.entries(ctx.linter.keyRules)
@@ -363,6 +636,33 @@ export const formatRepoConventionsPromptSection = (
     );
   }
 
+  if (ctx.go) {
+    lines.push(`- Go module: ${ctx.go.modulePath}`);
+  }
+
+  if (ctx.python) {
+    const settingsStr = Object.keys(ctx.python.keySettings).join(', ');
+    lines.push(
+      `- Python tooling: ${ctx.python.tool}${settingsStr ? ` (${settingsStr})` : ''}`,
+    );
+  }
+
+  if (ctx.terraform) {
+    if (ctx.terraform.providers.length > 0) {
+      lines.push(
+        `- Terraform providers: ${ctx.terraform.providers.join(', ')}`,
+      );
+    }
+    if (ctx.terraform.backend) {
+      lines.push(`- Terraform backend: ${ctx.terraform.backend}`);
+    }
+    if (ctx.terraform.modulePaths.length > 0) {
+      lines.push(
+        `- Terraform modules: ${ctx.terraform.modulePaths.join(', ')}`,
+      );
+    }
+  }
+
   if (ctx.folderStructure.length > 0) {
     lines.push(`- Folder structure: ${ctx.folderStructure.join(', ')}`);
   }
@@ -373,7 +673,9 @@ export const formatRepoConventionsPromptSection = (
     lines.push('- Framework: NestJS');
   }
 
-  lines.push(`- Import style: ${ctx.importStyle}`);
+  if (ctx.language === 'typescript' || ctx.language === 'javascript') {
+    lines.push(`- Import style: ${ctx.importStyle}`);
+  }
 
   if (ctx.keyDependencies.length > 0) {
     lines.push(`- Key deps: ${ctx.keyDependencies.join(', ')}`);

@@ -54,8 +54,12 @@ const createMockEslintRc = (overrides: Record<string, unknown> = {}): string =>
   });
 
 const createMockEmptyContext = (): RepoConventionsContext => ({
+  language: 'unknown',
   linter: null,
   typescript: null,
+  go: null,
+  python: null,
+  terraform: null,
   folderStructure: [],
   namingPattern: 'mixed',
   nestjsDetected: false,
@@ -335,6 +339,134 @@ describe('detectRepoConventions', () => {
   });
 });
 
+describe('language detection', () => {
+  it('detects typescript when tsconfig.json exists', () => {
+    mockExistsSync.mockImplementation(
+      (p: fs.PathLike) => String(p) === path.join(REPO_DIR, 'tsconfig.json'),
+    );
+    const result = detectRepoConventions(REPO_DIR);
+    expect(result.language).toBe('typescript');
+  });
+
+  it('detects go when go.mod exists', () => {
+    mockExistsSync.mockImplementation(
+      (p: fs.PathLike) => String(p) === path.join(REPO_DIR, 'go.mod'),
+    );
+    mockReadFileSync.mockReturnValue(
+      'module github.com/example/myapp\n\ngo 1.21\n',
+    );
+    const result = detectRepoConventions(REPO_DIR);
+    expect(result.language).toBe('go');
+    expect(result.go).toEqual({ modulePath: 'github.com/example/myapp' });
+  });
+
+  it('detects python when pyproject.toml exists', () => {
+    mockExistsSync.mockImplementation(
+      (p: fs.PathLike) => String(p) === path.join(REPO_DIR, 'pyproject.toml'),
+    );
+    mockReadFileSync.mockReturnValue(
+      '[tool.ruff]\nline-length = 88\n[tool.mypy]\n',
+    );
+    const result = detectRepoConventions(REPO_DIR);
+    expect(result.language).toBe('python');
+    expect(result.python?.tool).toBe('pyproject');
+    expect(result.python?.keySettings).toEqual({ ruff: true, mypy: true });
+  });
+
+  it('detects terraform when .tf files exist at root', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      return (
+        (s === path.join(REPO_DIR, 'tsconfig.json')) === false &&
+        s !== path.join(REPO_DIR, 'package.json') &&
+        s !== path.join(REPO_DIR, 'go.mod') &&
+        s !== path.join(REPO_DIR, 'pyproject.toml') &&
+        s !== path.join(REPO_DIR, 'setup.py') &&
+        s !== path.join(REPO_DIR, 'requirements.txt') &&
+        s !== path.join(REPO_DIR, 'modules')
+      );
+    });
+    // readdirSync at root returns .tf files
+    mockReaddirSync.mockImplementation((dir: fs.PathLike) => {
+      const s = String(dir);
+      if (s === REPO_DIR) return ['main.tf', 'variables.tf', 'outputs.tf'];
+      return [];
+    });
+    mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+      const s = String(p);
+      if (s === path.join(REPO_DIR, 'main.tf'))
+        return 'provider "aws" {}\nterraform {\n  backend "s3" {}\n}\n';
+      if (s === path.join(REPO_DIR, 'variables.tf'))
+        return 'variable "name" {}';
+      return '';
+    });
+
+    // Need to set up existsSync carefully
+    mockExistsSync.mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      // Not a TS/JS/Go/Python repo
+      if (s.endsWith('tsconfig.json')) return false;
+      if (s.endsWith('package.json')) return false;
+      if (s.endsWith('go.mod')) return false;
+      if (s.endsWith('pyproject.toml')) return false;
+      if (s.endsWith('setup.py')) return false;
+      if (s.endsWith('requirements.txt')) return false;
+      if (s.endsWith('modules')) return false;
+      return false;
+    });
+
+    const result = detectRepoConventions(REPO_DIR);
+    expect(result.language).toBe('terraform');
+    expect(result.terraform?.providers).toContain('aws');
+    expect(result.terraform?.backend).toBe('s3');
+  });
+
+  it('returns unknown when no known project files exist', () => {
+    mockExistsSync.mockReturnValue(false);
+    mockReaddirSync.mockReturnValue([]);
+    const result = detectRepoConventions(REPO_DIR);
+    expect(result.language).toBe('unknown');
+  });
+});
+
+describe('Go folder structure detection', () => {
+  it('scans cmd, pkg, internal directories for Go repos', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      return (
+        s === path.join(REPO_DIR, 'go.mod') ||
+        s === path.join(REPO_DIR, 'cmd') ||
+        s === path.join(REPO_DIR, 'pkg') ||
+        s === path.join(REPO_DIR, 'internal')
+      );
+    });
+    mockReadFileSync.mockReturnValue(
+      'module github.com/example/app\n\ngo 1.21\n',
+    );
+
+    const makeDir = (name: string): fs.Dirent =>
+      ({ name, isDirectory: () => true }) as fs.Dirent;
+
+    mockReaddirSync.mockImplementation((dir: fs.PathLike) => {
+      const s = String(dir);
+      if (s === path.join(REPO_DIR, 'cmd'))
+        return [makeDir('server'), makeDir('cli')] as fs.Dirent[];
+      if (s === path.join(REPO_DIR, 'pkg'))
+        return [makeDir('utils')] as fs.Dirent[];
+      if (s === path.join(REPO_DIR, 'internal'))
+        return [makeDir('handler')] as fs.Dirent[];
+      return [] as fs.Dirent[];
+    });
+
+    const result = detectRepoConventions(REPO_DIR);
+    expect(result.language).toBe('go');
+    expect(result.folderStructure).toContain('cmd/server');
+    expect(result.folderStructure).toContain('cmd/cli');
+    expect(result.folderStructure).toContain('pkg/utils');
+    expect(result.folderStructure).toContain('internal/handler');
+  });
+});
+
 describe('formatRepoConventionsPromptSection', () => {
   describe('when context has no meaningful data', () => {
     it('returns empty string for default/empty context', () => {
@@ -347,6 +479,7 @@ describe('formatRepoConventionsPromptSection', () => {
   describe('when context has meaningful data', () => {
     it('produces a formatted section with all populated fields', () => {
       const ctx: RepoConventionsContext = {
+        language: 'typescript',
         linter: { tool: 'eslint', keyRules: { semi: true, singleQuote: true } },
         typescript: {
           strict: true,
@@ -354,6 +487,9 @@ describe('formatRepoConventionsPromptSection', () => {
           target: 'ES2021',
           paths: {},
         },
+        go: null,
+        python: null,
+        terraform: null,
         folderStructure: ['agents', 'commands', 'integrations', 'shared'],
         namingPattern: 'kebab-case',
         nestjsDetected: true,
@@ -365,6 +501,7 @@ describe('formatRepoConventionsPromptSection', () => {
       const result = formatRepoConventionsPromptSection(ctx, 'repoName');
 
       expect(result).toContain('Repository conventions (repoName):');
+      expect(result).toContain('Language: typescript');
       expect(result).toContain('Linter: eslint');
       expect(result).toContain('semi');
       expect(result).toContain('TypeScript: strict mode, commonjs, ES2021');
@@ -376,6 +513,58 @@ describe('formatRepoConventionsPromptSection', () => {
       expect(result).toContain('Import style: commonjs');
       expect(result).toContain('Key deps: @nestjs/core, jest');
       expect(result).toContain('Error utilities: src/shared/utils/errors.ts');
+    });
+
+    it('formats Go repo conventions', () => {
+      const ctx: RepoConventionsContext = {
+        ...createMockEmptyContext(),
+        language: 'go',
+        go: { modulePath: 'github.com/example/my-service' },
+        folderStructure: ['cmd/server', 'pkg/utils'],
+        keyDependencies: ['gin', 'testify'],
+      };
+
+      const result = formatRepoConventionsPromptSection(ctx, 'my-service');
+      expect(result).toContain('Language: go');
+      expect(result).toContain('Go module: github.com/example/my-service');
+      expect(result).toContain('Folder structure: cmd/server, pkg/utils');
+      expect(result).toContain('Key deps: gin, testify');
+      expect(result).not.toContain('Import style');
+    });
+
+    it('formats Terraform repo conventions', () => {
+      const ctx: RepoConventionsContext = {
+        ...createMockEmptyContext(),
+        language: 'terraform',
+        terraform: {
+          providers: ['aws', 'random'],
+          backend: 's3',
+          modulePaths: ['modules/vpc', 'modules/ecs'],
+        },
+        keyDependencies: [
+          'terraform-provider-aws',
+          'terraform-provider-random',
+        ],
+      };
+
+      const result = formatRepoConventionsPromptSection(ctx, 'terraform-aws');
+      expect(result).toContain('Language: terraform');
+      expect(result).toContain('Terraform providers: aws, random');
+      expect(result).toContain('Terraform backend: s3');
+      expect(result).toContain('Terraform modules: modules/vpc, modules/ecs');
+      expect(result).not.toContain('Import style');
+    });
+
+    it('formats Python repo conventions', () => {
+      const ctx: RepoConventionsContext = {
+        ...createMockEmptyContext(),
+        language: 'python',
+        python: { tool: 'pyproject', keySettings: { ruff: true, mypy: true } },
+      };
+
+      const result = formatRepoConventionsPromptSection(ctx, 'my-py-app');
+      expect(result).toContain('Language: python');
+      expect(result).toContain('Python tooling: pyproject (ruff, mypy)');
     });
 
     it('includes linter section with prettier tool', () => {
@@ -416,6 +605,7 @@ describe('formatRepoConventionsPromptSection', () => {
     it('uses non-strict label when strict is false', () => {
       const ctx: RepoConventionsContext = {
         ...createMockEmptyContext(),
+        language: 'typescript',
         typescript: {
           strict: false,
           module: 'esm',
