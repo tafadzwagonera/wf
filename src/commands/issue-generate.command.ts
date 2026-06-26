@@ -389,6 +389,7 @@ export class IssueGenerateCommand extends CommandRunner {
       }
 
       const silent = options?.silent ?? false;
+      const onProgress = silent ? undefined : (line: string) => console.log(chalk.gray(line));
 
       if (!silent) {
         console.log(chalk.bold.cyan(`\n📝 Generating Ticket from ${passedParams.length} source(s)\n`));
@@ -399,11 +400,11 @@ export class IssueGenerateCommand extends CommandRunner {
       this.assertSourcesAvailable(sourceContents, passedParams);
 
       // Summarise oversized sources (interactive review in TTY mode)
-      await this.summariseOversizedSources(sourceContents, silent);
+      await this.summariseOversizedSources(sourceContents, silent, onProgress);
 
       // Interactive clarification pass (non-silent, TTY only)
       if (!silent && this.isInteractiveSession()) {
-        const clarifications = await this.identifyClarifications(sourceContents);
+        const clarifications = await this.identifyClarifications(sourceContents, onProgress);
         if (clarifications.length > 0) {
           const userResponses = await this.promptClarifications(clarifications);
           sourceContents.push({
@@ -418,7 +419,7 @@ export class IssueGenerateCommand extends CommandRunner {
       const repoContext = await this.gatherRepoContext(options?.repos, sourceContents);
 
       // Use AI to synthesize and collate data
-      const synthesizedTicket = await this.synthesizeWithAI(sourceContents, silent, repoContext);
+      const synthesizedTicket = await this.synthesizeWithAI(sourceContents, silent, repoContext, onProgress);
 
       // Apply metadata overrides if provided
       if (options?.title) {
@@ -1237,8 +1238,13 @@ export class IssueGenerateCommand extends CommandRunner {
    *
    * @param sources - Fetched source contents (mutated in place)
    * @param silent - Whether to suppress interactive output
+   * @param onProgress - Optional callback for real-time progress lines from agent backends
    */
-  private async summariseOversizedSources(sources: SourceContent[], silent: boolean): Promise<void> {
+  private async summariseOversizedSources(
+    sources: SourceContent[],
+    silent: boolean,
+    onProgress?: (line: string) => void
+  ): Promise<void> {
     for (let i = 0; i < sources.length; i++) {
       const source = sources[i];
       const raw = typeof source.content === 'string' ? source.content : JSON.stringify(source.content);
@@ -1255,7 +1261,7 @@ export class IssueGenerateCommand extends CommandRunner {
         );
       }
 
-      const summary = await this.summariseOversizedSource(source);
+      const summary = await this.summariseOversizedSource(source, onProgress);
 
       if (!silent && this.isInteractiveSession()) {
         source.content = await this.reviewSummaryBullets(summary, source);
@@ -1270,9 +1276,10 @@ export class IssueGenerateCommand extends CommandRunner {
    * Returns a bullet-point summary produced by the AI.
    *
    * @param source - The oversized source
+   * @param onProgress - Optional callback for real-time progress lines from agent backends
    * @returns Bullet-point summary string
    */
-  private async summariseOversizedSource(source: SourceContent): Promise<string> {
+  private async summariseOversizedSource(source: SourceContent, onProgress?: (line: string) => void): Promise<string> {
     const raw = typeof source.content === 'string' ? source.content : JSON.stringify(source.content);
 
     const prompt =
@@ -1284,7 +1291,7 @@ export class IssueGenerateCommand extends CommandRunner {
       `\`\`\`\n${raw}\n\`\`\``;
 
     const responseContent = this.stageAgentService.isEnabledForStage('generate')
-      ? await this.stageAgentService.generateFromPrompt(prompt)
+      ? await this.stageAgentService.generateFromPrompt(prompt, onProgress)
       : await this.aiService.execute({
           prompt,
           maxTokens: 2048,
@@ -1411,14 +1418,18 @@ export class IssueGenerateCommand extends CommandRunner {
    * Returns an empty array when nothing needs clarification or on parse failure.
    *
    * @param sources - Fetched source contents
+   * @param onProgress - Optional callback for real-time progress lines from agent backends
    * @returns Clarification questions as plain strings
    */
-  private async identifyClarifications(sources: SourceContent[]): Promise<string[]> {
+  private async identifyClarifications(
+    sources: SourceContent[],
+    onProgress?: (line: string) => void
+  ): Promise<string[]> {
     const prompt = this.buildClarificationPrompt(sources);
 
     try {
       const responseContent = this.stageAgentService.isEnabledForStage('generate')
-        ? await this.stageAgentService.generateFromPrompt(prompt)
+        ? await this.stageAgentService.generateFromPrompt(prompt, onProgress)
         : await this.aiService.execute({
             prompt,
             maxTokens: 1024,
@@ -1497,7 +1508,8 @@ export class IssueGenerateCommand extends CommandRunner {
   private async synthesizeWithAI(
     sources: SourceContent[],
     silent = false,
-    repoContext?: RepoDiscoveryContext
+    repoContext?: RepoDiscoveryContext,
+    onProgress?: (line: string) => void
   ): Promise<UniversalTicket> {
     if (!silent) {
       console.log(chalk.cyan('\n🤖 Using AI to synthesize content...\n'));
@@ -1514,7 +1526,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
     // Call AI to synthesize
     const responseContent = this.stageAgentService.isEnabledForStage('generate')
-      ? await this.stageAgentService.generateFromPrompt(prompt)
+      ? await this.stageAgentService.generateFromPrompt(prompt, onProgress)
       : await this.aiService.execute({
           prompt: prompt,
           maxTokens: 4096,

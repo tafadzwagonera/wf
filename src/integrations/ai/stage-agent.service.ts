@@ -9,6 +9,8 @@ import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import dayjs from 'dayjs';
+import { formatProgressMessage as formatAnthropicProgressMessage } from './adapters/anthropic-agent.adapter';
+import { formatProgressMessage as formatOpenAiProgressMessage } from './adapters/openai-agent.adapter';
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
 import { assertClaudeCliAvailable, buildCliArgs, spawnCli, type ClaudeCliMessage } from './adapters/claude-cli-runner';
@@ -74,6 +76,8 @@ const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => 
   return undefined;
 };
 
+export type StageProgressCallback = (line: string) => void;
+
 export type AgentStageName = 'plan' | 'review' | 'generate';
 
 export type AgentChatSession = {
@@ -116,6 +120,7 @@ export class StageAgentService {
     priorTickets?: PriorTicketContext;
     crossRepoPatterns?: CrossRepoContext;
     recurrenceGaps?: RecurrenceGapAnalysis | null;
+    onProgress?: StageProgressCallback;
   }): Promise<ResolutionPlan> {
     const repoExample = resolveStagePromptRepoExample(params.affectedRepositories);
 
@@ -230,6 +235,7 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
       prompt,
       systemPrompt,
       repoDir: process.cwd(),
+      onProgress: params.onProgress,
     });
 
     try {
@@ -373,7 +379,7 @@ Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
     }
   }
 
-  async generateFromPrompt(prompt: string): Promise<string> {
+  async generateFromPrompt(prompt: string, onProgress?: StageProgressCallback): Promise<string> {
     const systemPrompt = `You are an expert technical writer and repository analyst.
 You may inspect repository files with read-only tools before answering.
 Return only the requested ticket markdown and preserve the required heading structure exactly.`;
@@ -382,6 +388,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       stage: 'generate',
       prompt,
       systemPrompt,
+      onProgress,
     });
 
     return requireAiResponseContent(
@@ -423,6 +430,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     prompt: string;
     systemPrompt: string;
     repoDir?: string;
+    onProgress?: StageProgressCallback;
   }): Promise<string> {
     const backend = this.resolveStageBackend(params.stage);
     if (backend === 'cli') {
@@ -442,6 +450,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     prompt: string;
     systemPrompt: string;
     repoDir?: string;
+    onProgress?: StageProgressCallback;
   }): Promise<string> {
     const apiKey = this.configService.get<string>('ai.anthropicApiKey');
     if (!apiKey) {
@@ -511,6 +520,10 @@ Return only the requested ticket markdown and preserve the required heading stru
     try {
       for await (const message of session) {
         if (message.type !== 'result') {
+          if (params.onProgress) {
+            const line = formatAnthropicProgressMessage(message);
+            if (line) params.onProgress(line);
+          }
           continue;
         }
 
@@ -534,6 +547,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     prompt: string;
     systemPrompt: string;
     repoDir?: string;
+    onProgress?: StageProgressCallback;
   }): Promise<string> {
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
     if (!apiKey) {
@@ -672,8 +686,10 @@ Return only the requested ticket markdown and preserve the required heading stru
     });
 
     for await (const event of streamedRun) {
-      void event;
-      // Intentionally consume the stream to completion; the final output is used below.
+      if (params.onProgress) {
+        const formatted = formatOpenAiProgressMessage(event);
+        if (formatted) params.onProgress(formatted.message);
+      }
     }
 
     if (streamedRun.error) {
@@ -990,6 +1006,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     prompt: string;
     systemPrompt: string;
     repoDir?: string;
+    onProgress?: StageProgressCallback;
   }): Promise<string> {
     assertClaudeCliAvailable();
 
@@ -1011,6 +1028,10 @@ Return only the requested ticket markdown and preserve the required heading stru
       let result = '';
       const cliDiagnostics: string[] = [];
       for await (const message of spawnCli(args, resolvedRepoDir, params.prompt)) {
+        if (params.onProgress) {
+          const line = formatAnthropicProgressMessage(message as never);
+          if (line) params.onProgress(line);
+        }
         if (message.type === 'result' && message.result && !message.is_error) {
           result = message.result;
         }

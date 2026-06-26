@@ -836,4 +836,54 @@ describe('IssuePlanCommand', () => {
       path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-1-plan-investigate.md')
     );
   });
+
+  it('passes onProgress to generatePlan when not silent', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['repo-a/src/auth.ts'],
+      repositoriesAffected: ['repo-a'],
+    } as any);
+    jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(planStageService.generatePlan).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ onProgress: expect.any(Function) })
+    );
+  });
+
+  it('passes undefined onProgress to generatePlan when silent', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      action: 'fix',
+      summary: 'Fix login',
+      estimatedComplexity: 'medium',
+      steps: ['Inspect auth'],
+      filesAffected: ['repo-a/src/auth.ts'],
+      repositoriesAffected: ['repo-a'],
+    } as any);
+    jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'], silent: true });
+
+    expect(planStageService.generatePlan).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ onProgress: undefined })
+    );
+  });
 });

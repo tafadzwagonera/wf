@@ -108,6 +108,51 @@ describe('StageAgentService', () => {
     });
   });
 
+  it('forwards onProgress callback to runStagePrompt when generating a plan', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue(
+      JSON.stringify({
+        action: 'fix',
+        summary: 'Fix it',
+        steps: ['step 1'],
+        estimatedComplexity: 'low',
+        filesAffected: [],
+        risks: [],
+      })
+    );
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    const onProgress = jest.fn();
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: 'Fix callback handling',
+      onProgress,
+    });
+
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(expect.objectContaining({ onProgress }));
+  });
+
+  it('forwards onProgress callback to runStagePrompt when generating from prompt', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue('Generated content');
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    const onProgress = jest.fn();
+    await service.generateFromPrompt('Summarise this', onProgress);
+
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(expect.objectContaining({ onProgress }));
+  });
+
+  it('does not pass onProgress when not provided', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue('Generated content');
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generateFromPrompt('Summarise this');
+
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(expect.objectContaining({ onProgress: undefined }));
+  });
+
   it('enables the review stage when backend is omitted from config', () => {
     const configService = {
       get: jest.fn((key: string, defaultValue?: unknown) => {

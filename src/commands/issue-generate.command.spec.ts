@@ -1592,4 +1592,42 @@ describe('IssueGenerateCommand', () => {
       expect(allOutput).not.toContain('Generating Ticket');
     });
   });
+
+  describe('onProgress threading', () => {
+    it('passes onProgress to generateFromPrompt when agent mode is enabled and not silent', async () => {
+      const { command, mockStageAgentService } = await buildCommand({
+        generateAgentEnabled: true,
+      });
+
+      await (command as any).synthesizeWithAI(
+        [
+          { type: 'file', source: './a.md', content: 'Source A' },
+          { type: 'file', source: './b.md', content: 'Source B' },
+        ],
+        false,
+        undefined,
+        jest.fn()
+      );
+
+      expect(mockStageAgentService.generateFromPrompt).toHaveBeenCalledWith(expect.any(String), expect.any(Function));
+    });
+
+    it('passes undefined onProgress to generateFromPrompt when silent', async () => {
+      const { command, mockStageAgentService } = await buildCommand({
+        generateAgentEnabled: true,
+      });
+
+      await (command as any).synthesizeWithAI(
+        [
+          { type: 'file', source: './a.md', content: 'Source A' },
+          { type: 'file', source: './b.md', content: 'Source B' },
+        ],
+        true,
+        undefined,
+        undefined
+      );
+
+      expect(mockStageAgentService.generateFromPrompt).toHaveBeenCalledWith(expect.any(String), undefined);
+    });
+  });
 });

@@ -163,6 +163,32 @@ describe('PlanStageService', () => {
     );
   });
 
+  it('forwards onProgress to stage agent service when agent mode is enabled', async () => {
+    const { service, stageAgentService } = await buildService(true);
+    const onProgress = jest.fn();
+
+    await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-321',
+      affectedRepositories: ['repo-a'],
+      onProgress,
+    });
+
+    expect(stageAgentService.generatePlan).toHaveBeenCalledWith(expect.objectContaining({ onProgress }));
+  });
+
+  it('does not forward onProgress when not provided', async () => {
+    const { service, stageAgentService } = await buildService(true);
+
+    await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-321',
+      affectedRepositories: ['repo-a'],
+    });
+
+    expect(stageAgentService.generatePlan).toHaveBeenCalledWith(expect.objectContaining({ onProgress: undefined }));
+  });
+
   it('persists a JSON plan artifact and returns cache metadata', async () => {
     const { service } = await buildService();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-'));

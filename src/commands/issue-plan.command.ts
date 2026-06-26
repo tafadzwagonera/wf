@@ -464,6 +464,8 @@ export class IssuePlanCommand extends CommandRunner {
         const recurrenceGaps =
           candidates.length > 0 ? await analyzeRecurrenceGaps(customSourceContent, candidates, this.aiService) : null;
 
+        const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
+
         const plan = await this.planStageService.generatePlan(customSourceContent, {
           action,
           affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
@@ -472,6 +474,7 @@ export class IssuePlanCommand extends CommandRunner {
           priorTickets,
           crossRepoPatterns,
           recurrenceGaps,
+          onProgress,
         });
         this.validateGeneratedPlan(
           plan,
@@ -681,6 +684,8 @@ export class IssuePlanCommand extends CommandRunner {
       const recurrenceGaps =
         candidates.length > 0 ? await analyzeRecurrenceGaps(ticketContent, candidates, this.aiService) : null;
 
+      const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
+
       const plan = await this.planStageService.generatePlan(ticketContent, {
         action,
         ticketKey,
@@ -690,6 +695,7 @@ export class IssuePlanCommand extends CommandRunner {
         priorTickets,
         crossRepoPatterns,
         recurrenceGaps,
+        onProgress,
       });
       this.validateGeneratedPlan(
         plan,

@@ -107,6 +107,7 @@ export interface PlannerOptions {
   skipExisting?: boolean;
   affectedRepositories?: string[];
   silent?: boolean;
+  onProgress?: (line: string) => void;
 }
 
 /** Controls how the implement-stage adapter selects its model.

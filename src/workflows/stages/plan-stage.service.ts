@@ -27,6 +27,7 @@ interface GeneratePlanOptions {
   priorTickets?: PriorTicketContext;
   crossRepoPatterns?: CrossRepoContext;
   recurrenceGaps?: RecurrenceGapAnalysis | null;
+  onProgress?: (line: string) => void;
 }
 
 @Injectable()
@@ -50,6 +51,7 @@ export class PlanStageService {
         priorTickets: options.priorTickets,
         crossRepoPatterns: options.crossRepoPatterns,
         recurrenceGaps: options.recurrenceGaps,
+        onProgress: options.onProgress,
       });
     }
 
@@ -91,6 +93,7 @@ export class PlanStageService {
       action: options.action,
       ticketKey: ticket.ticketKey,
       affectedRepositories: options.affectedRepositories,
+      onProgress: options.onProgress,
     });
 
     const createdAt = new Date();

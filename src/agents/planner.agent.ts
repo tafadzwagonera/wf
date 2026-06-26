@@ -23,7 +23,12 @@ export class PlannerAgent {
       console.log(chalk.gray('─'.repeat(70)));
       console.log(chalk.gray(`  Action type: ${options.action}`));
     }
-    const artifact = await this.planStageService.createPlanArtifact(ticket, options);
+    const onProgress = options.silent ? undefined : (line: string) => console.log(chalk.gray(line));
+
+    const artifact = await this.planStageService.createPlanArtifact(ticket, {
+      ...options,
+      onProgress,
+    });
 
     if (!options.silent) {
       if (artifact.fromCache) {
