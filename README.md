@@ -72,13 +72,19 @@ export default defineConfig({
     {
       provider: 'anthropic',
       apiKey: process.env.ANTHROPIC_API_KEY,
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
+    },
+    {
+      provider: 'openai',
+      apiKey: process.env.OPENAI_API_KEY,
+      model: 'gpt-5.5',
       default: true,
     },
     {
       provider: 'google',
       apiKey: process.env.GEMINI_API_KEY,
-      model: 'gemini-2.5-pro',
+      model: 'gemini-2.5-flash',
+      maxTokens: 8192,
     },
   ],
   atlassian: {
@@ -98,28 +104,45 @@ export default defineConfig({
     defaultRepo: 'owner/repo',
   },
   git: {
-    defaultBranch: 'develop',
     commitFormat: 'auto',
+    branchNamePattern:
+      '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$',
   },
   log: {
     level: 'info',
   },
+  slack: {
+    botToken: process.env.SLACK_BOT_TOKEN,
+    userToken: process.env.SLACK_USER_TOKEN,
+  },
   stages: {
+    generate: {
+      provider: 'anthropic',
+      backend: 'cli',
+    },
     plan: {
       provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
     },
     implement: {
       provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
-      backend: 'agent',
+      model: 'claude-haiku-4-5-20251001',
+      backend: 'cli',
       verificationConditions: {
         policyFile: 'verification.policy.json',
       },
     },
+    create: {
+      provider: 'anthropic',
+      backend: 'cli',
+    },
     review: {
+      provider: 'anthropic',
+      backend: 'cli',
+    },
+    commit: {
       provider: 'google',
-      model: 'gemini-2.5-pro',
+      backend: 'standard',
     },
   },
 });
@@ -132,29 +155,54 @@ tracker: jira
 ai:
   - provider: anthropic
     apiKey: ${ANTHROPIC_API_KEY}
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
+  - provider: openai
+    apiKey: ${OPENAI_API_KEY}
+    model: gpt-5.5
     default: true
+  - provider: google
+    apiKey: ${GEMINI_API_KEY}
+    model: gemini-2.5-flash
+    maxTokens: 8192
 atlassian:
   baseUrl: https://yourcompany.atlassian.net
   email: your-email@company.com
   jira:
     apiToken: ${ATLASSIAN_JIRA_API_TOKEN}
     defaultProject: WBP
+  bitbucket:
+    apiToken: ${ATLASSIAN_BITBUCKET_API_TOKEN}
+    workspace: your-workspace
+git:
+  commitFormat: auto
+  branchNamePattern: "^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$"
 log:
   level: info
+slack:
+  botToken: ${SLACK_BOT_TOKEN}
+  userToken: ${SLACK_USER_TOKEN}
 stages:
+  generate:
+    provider: anthropic
+    backend: cli
   plan:
     provider: anthropic
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
   implement:
     provider: anthropic
-    model: claude-sonnet-4-20250514
-    backend: agent
+    model: claude-haiku-4-5-20251001
+    backend: cli
     verificationConditions:
       policyFile: verification.policy.json
+  create:
+    provider: anthropic
+    backend: cli
   review:
+    provider: anthropic
+    backend: cli
+  commit:
     provider: google
-    model: gemini-2.5-pro
+    backend: standard
 ```
 
 Example verification manifest:
@@ -197,12 +245,15 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - `ai[].maxTokens` is only applied to Gemini provider entries using Gemini models; other providers ignore it.
 - `stages.generate`, `stages.plan`, `stages.review`, and `stages.implement` accept `{ provider, model, backend? }`.
 - `stages.generate`, `stages.plan`, and `stages.review` also accept `outputFormat?: 'json' | 'md' | 'yaml' | 'yml'` to override the per-stage default format (generate=md, plan=json, review=md).
-- `stages.commit` accepts `{ provider, model }`.
+- `stages.commit` accepts `{ provider, model, backend? }`.
+- `stages.create` accepts `{ provider, model, backend?, verificationConditions? }`.
 - Stage targets explicitly override the default `ai.provider` and `ai.model`.
 - Prefer `verificationConditions.policyFile` to point at a repository-owned verification manifest. This keeps baseline verification policy tool-agnostic and reusable from CI or other executors.
 - `verificationConditions.scripts` remains supported as a fallback when a manifest is not present.
 - Manifest baseline checks run in declaration order. Recommended sequence: `format` → `lint --fix` → `lint` → `build`. This removes formatting noise before the final lint/build gate and makes retries focus on real code issues.
 - Prefer portable wrappers such as `yarn lint`, `bash ./scripts/verify.sh`, or `node ./scripts/verify.mjs` instead of relying on executable bits or shell-specific features.
+- `git.branchNamePattern` sets a regex used to validate branch names during `issue:implement`. `git.branchPrefixMapping` overrides the prefix per action type (`feature`, `fix`, `investigate`).
+- `slack.botToken` and `slack.userToken` are used by `issue:generate` to fetch Slack thread content from permalinks.
 - `fetch` cannot be overridden.
 - `wf config get` and `wf config list` read the normalized runtime config.
 - `wf config set` is advisory only and points you at the config file to edit.
@@ -657,14 +708,14 @@ ai:
   - provider: anthropic
     apiKey: ${ANTHROPIC_API_KEY}
     model: claude-sonnet-4-6
-    default: true
   - provider: openai
     apiKey: ${OPENAI_API_KEY}
-    model: gpt-5.4-mini
+    model: gpt-5.5
+    default: true
 stages:
   implement:
     provider: openai
-    model: gpt-5.4-mini
+    model: gpt-5.5
 ```
 
 The `stages.implement.provider` and `stages.implement.model` values above are runtime implementation settings. The same shape may also appear in generated plan artifacts, but the plan artifact provider is informational and does not change backend selection by itself.
