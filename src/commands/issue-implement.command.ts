@@ -83,7 +83,7 @@ const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
     'Before implementation, the command runs an interactive branch creation workflow: checks the working tree for uncommitted changes (stashing if needed), detects and pulls the source branch (dev or main), then prompts for branch name confirmation. ' +
     'Use --silent to suppress prompts and auto-select defaults. Use --no-branch to skip branch creation and work directly on the source branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. ' +
     'Examples: wf issue:implement PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | ' +
-    'wf issue:implement PROJ-123 --repos my-repo | wf issue:implement PROJ-123 --repos repo-a repo-b | ' +
+    'wf issue:implement PROJ-123 --repos my-repo | ' +
     'wf issue:implement PROJ-123 --silent | wf issue:implement PROJ-123 --no-branch | ' +
     'wf issue:implement PROJ-123 --dry-run',
   arguments: '[ticket-key-or-plan-token]',
@@ -139,7 +139,7 @@ export class IssueImplementCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated repositories; first repo anchors artifact lookup, all repos remain available as implementation context',
+      'Space-separated repositories; first repo anchors artifact lookup, additional repos provide read-only context. The standalone issue:implement command only supports single-repository plans; use wf issue -r for multi-repo execution',
     required: false,
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
