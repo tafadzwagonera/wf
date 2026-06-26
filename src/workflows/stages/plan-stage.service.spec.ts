@@ -3,6 +3,7 @@ import { AiService } from '../../integrations/ai/ai.service';
 import { PlanStageService } from './plan-stage.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../../shared/utils/plan-artifact';
+import { AIError } from '../../shared/utils/errors';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -187,6 +188,68 @@ describe('PlanStageService', () => {
     });
 
     expect(stageAgentService.generatePlan).toHaveBeenCalledWith(expect.objectContaining({ onProgress: undefined }));
+  });
+
+  it('falls back to standard completion when agent returns prose instead of JSON', async () => {
+    const { service, aiService, stageAgentService } = await buildService(true);
+    const proseError = new AIError('Failed to parse resolution plan from agent response', {
+      response: 'Here is my analysis of the codebase. The auth module needs updating...',
+    });
+    (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(proseError);
+
+    const result = await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-400',
+      affectedRepositories: ['repo-a'],
+    });
+
+    expect(result).toEqual(mockPlan);
+    expect(aiService.generatePlan).toHaveBeenCalledWith(
+      'fix',
+      'Ticket body',
+      expect.objectContaining({
+        agentAnalysis: 'Here is my analysis of the codebase. The auth module needs updating...',
+      })
+    );
+  });
+
+  it('re-throws non-parsing AIErrors without falling back', async () => {
+    const { service, aiService, stageAgentService } = await buildService(true);
+    const rateLimitError = new AIError('Rate limit exceeded', { status: 429 });
+    (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(rateLimitError);
+
+    await expect(service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-401' })).rejects.toThrow(
+      'Rate limit exceeded'
+    );
+
+    expect(aiService.generatePlan).not.toHaveBeenCalled();
+  });
+
+  it('re-throws when agent prose response is empty', async () => {
+    const { service, aiService, stageAgentService } = await buildService(true);
+    const emptyProseError = new AIError('Failed to parse resolution plan from agent response', {
+      response: '',
+    });
+    (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(emptyProseError);
+
+    await expect(service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-402' })).rejects.toThrow(
+      'Failed to parse resolution plan'
+    );
+
+    expect(aiService.generatePlan).not.toHaveBeenCalled();
+  });
+
+  it('throws when fallback result is structurally invalid', async () => {
+    const { service, aiService, stageAgentService } = await buildService(true);
+    const proseError = new AIError('Failed to parse resolution plan from agent response', {
+      response: 'Some analysis prose...',
+    });
+    (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(proseError);
+    (aiService.generatePlan as jest.Mock).mockResolvedValueOnce({ summary: 'incomplete' });
+
+    await expect(service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-403' })).rejects.toThrow(
+      'Fallback completion did not produce a valid resolution plan'
+    );
   });
 
   it('persists a JSON plan artifact and returns cache metadata', async () => {

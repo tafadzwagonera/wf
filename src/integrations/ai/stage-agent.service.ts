@@ -1029,7 +1029,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       const cliDiagnostics: string[] = [];
       for await (const message of spawnCli(args, resolvedRepoDir, params.prompt)) {
         if (params.onProgress) {
-          const line = formatAnthropicProgressMessage(message as never);
+          const line = formatAnthropicProgressMessage(message as never, 'claude-cli');
           if (line) params.onProgress(line);
         }
         if (message.type === 'result' && message.result && !message.is_error) {

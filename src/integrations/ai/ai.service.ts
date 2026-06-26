@@ -513,7 +513,11 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     }
     const discoveryBlock = discoveryParts.length > 0 ? `\n${discoveryParts.join('\n\n')}\n` : '';
 
-    const prompt = `
+    const agentAnalysisBlock = context?.agentAnalysis
+      ? `Prior analysis (from agent codebase exploration — use as structured input, output JSON only):\n${(context.agentAnalysis as string).slice(0, 8000)}\n\n`
+      : '';
+
+    const prompt = `${agentAnalysisBlock}
 Action: ${action}
 Issue Content:
 ${issueContent}

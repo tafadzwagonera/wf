@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import chalk from 'chalk';
 import { AiService, ResolutionPlan } from '../../integrations/ai/ai.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import {
@@ -12,6 +13,7 @@ import {
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
+import { AIError, isAIErrorLike } from '../../shared/utils/errors';
 import { detectTestInfra } from '../../shared/utils/detect-test-infra';
 import type { RepoConventionsContext } from '../../shared/utils/detect-repo-conventions';
 import type { PriorTicketContext } from '../../shared/utils/detect-prior-tickets';
@@ -40,22 +42,7 @@ export class PlanStageService {
   async generatePlan(ticketContent: string, options: GeneratePlanOptions): Promise<ResolutionPlan> {
     const testInfra = detectTestInfra(options.repoDir ?? process.cwd());
 
-    if (this.stageAgentService.isEnabledForStage('plan')) {
-      return this.stageAgentService.generatePlan({
-        action: options.action,
-        issueContent: ticketContent,
-        ticketKey: options.ticketKey,
-        affectedRepositories: options.affectedRepositories,
-        testInfra,
-        conventions: options.conventions,
-        priorTickets: options.priorTickets,
-        crossRepoPatterns: options.crossRepoPatterns,
-        recurrenceGaps: options.recurrenceGaps,
-        onProgress: options.onProgress,
-      });
-    }
-
-    return this.aiService.generatePlan(options.action as any, ticketContent, {
+    const standardContext = {
       ticketKey: options.ticketKey,
       summary: this.extractSummary(ticketContent),
       affectedRepositories: options.affectedRepositories,
@@ -64,7 +51,54 @@ export class PlanStageService {
       priorTickets: options.priorTickets,
       crossRepoPatterns: options.crossRepoPatterns,
       recurrenceGaps: options.recurrenceGaps,
-    });
+    };
+
+    if (this.stageAgentService.isEnabledForStage('plan')) {
+      try {
+        return await this.stageAgentService.generatePlan({
+          action: options.action,
+          issueContent: ticketContent,
+          ticketKey: options.ticketKey,
+          affectedRepositories: options.affectedRepositories,
+          testInfra,
+          conventions: options.conventions,
+          priorTickets: options.priorTickets,
+          crossRepoPatterns: options.crossRepoPatterns,
+          recurrenceGaps: options.recurrenceGaps,
+          onProgress: options.onProgress,
+        });
+      } catch (error) {
+        if (!isAIErrorLike(error) || !error.message.includes('Failed to parse resolution plan')) {
+          throw error;
+        }
+        const agentProse = error.details?.response;
+        if (typeof agentProse !== 'string' || !agentProse.trim()) {
+          throw error;
+        }
+        console.log(chalk.yellow('  ⚠️  Agent returned prose — falling back to structured completion'));
+        const action = options.action as 'fix' | 'implement' | 'investigate';
+        const fallbackResult = await this.aiService.generatePlan(action, ticketContent, {
+          ...standardContext,
+          agentAnalysis: agentProse,
+        });
+
+        if (!fallbackResult?.action || !fallbackResult?.summary || !Array.isArray(fallbackResult?.steps)) {
+          throw new AIError(
+            'Fallback completion did not produce a valid resolution plan. Both agent and standard completion failed to return JSON.',
+            { agentResponse: agentProse.slice(0, 500), fallbackResult }
+          );
+        }
+
+        console.log(chalk.green('  ✓ Fallback produced valid plan'));
+        return fallbackResult;
+      }
+    }
+
+    return this.aiService.generatePlan(
+      options.action as 'fix' | 'implement' | 'investigate',
+      ticketContent,
+      standardContext
+    );
   }
 
   async createPlanArtifact(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {

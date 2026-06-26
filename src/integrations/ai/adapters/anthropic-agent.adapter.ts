@@ -74,42 +74,43 @@ const resolveRepoPath = (repoDir: string, rawPath: string): string =>
  * Format a streamed progress event for console output.
  *
  * @param message - The SDK progress message to format
+ * @param label - Backend label for the log prefix (defaults to `'claude-agent-sdk'`)
  * @returns A human-readable log line, or null when the message is not progress
  */
-export const formatProgressMessage = (message: SDKMessage): string | null => {
+export const formatProgressMessage = (message: SDKMessage, label: string = ANTHROPIC_AGENT_LABEL): string | null => {
   if (message.type === 'system' && message.subtype === 'task_progress') {
     const summary = message.summary?.trim() || message.description.trim();
     const lastToolLabel = message.last_tool_name ? ` · last tool: ${message.last_tool_name}` : '';
-    return `  [${ANTHROPIC_AGENT_LABEL}] Task progress: ${summary}${lastToolLabel}`;
+    return `  [${label}] Task progress: ${summary}${lastToolLabel}`;
   }
 
   if (message.type === 'tool_progress') {
     const elapsedSeconds = message.elapsed_time_seconds.toFixed(1);
     const taskLabel = message.task_id ? ` · task: ${message.task_id}` : '';
-    return `  [${ANTHROPIC_AGENT_LABEL}] Tool progress: ${message.tool_name} (${elapsedSeconds}s)${taskLabel}`;
+    return `  [${label}] Tool progress: ${message.tool_name} (${elapsedSeconds}s)${taskLabel}`;
   }
 
   if (message.type === 'system' && message.subtype === 'api_retry') {
     const errorLabel = message.error_status ? `HTTP ${message.error_status}` : 'connection error';
-    return `  [${ANTHROPIC_AGENT_LABEL}] API retry: attempt ${message.attempt}/${message.max_retries} after ${errorLabel} (${message.retry_delay_ms}ms backoff)`;
+    return `  [${label}] API retry: attempt ${message.attempt}/${message.max_retries} after ${errorLabel} (${message.retry_delay_ms}ms backoff)`;
   }
 
   if (message.type === 'system' && message.subtype === 'status') {
     if (!message.status) return null;
-    return `  [${ANTHROPIC_AGENT_LABEL}] Status: ${message.status}`;
+    return `  [${label}] Status: ${message.status}`;
   }
 
   if (message.type === 'rate_limit_event') {
-    return `  [${ANTHROPIC_AGENT_LABEL}] Rate limit: updated`;
+    return `  [${label}] Rate limit: updated`;
   }
 
   if (message.type === 'system' && message.subtype === 'compact_boundary') {
     const meta = message.compact_metadata;
-    return `  [${ANTHROPIC_AGENT_LABEL}] Context compacted (${meta.trigger}, ${meta.pre_tokens} tokens before)`;
+    return `  [${label}] Context compacted (${meta.trigger}, ${meta.pre_tokens} tokens before)`;
   }
 
   if (message.type === 'system' && message.subtype === 'session_state_changed') {
-    return `  [${ANTHROPIC_AGENT_LABEL}] Session state: ${message.state}`;
+    return `  [${label}] Session state: ${message.state}`;
   }
 
   return null;
