@@ -675,7 +675,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 | `--dry-run` | Preview branch, file, and investigation work without making changes |
 | `--model-routing <mode>` | Model selection strategy: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto. |
 | `--no-branch` | Suppress branch creation; work directly on the source branch |
-| `-r, --repos <repos...>` | Space-separated repositories; first repo anchors artifact lookup, additional repos provide read-only context. The standalone issue:implement command only supports single-repository plans; use wf issue -r for multi-repo execution |
+| `-r, --repos <repos...>` | Space-separated repositories; first repo anchors artifact lookup. When multiple repos are passed, implementation runs per-repo with cross-repo context |
 | `-s, --silent` | Suppress interactive prompts; auto-select defaults while preserving decorative output |
 | `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
 <!-- END GENERATED COMMAND DOCS: issue:implement -->
