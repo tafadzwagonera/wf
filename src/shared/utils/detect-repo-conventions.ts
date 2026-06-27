@@ -1,31 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { RepoLanguage, RepoConventionsContext } from '../types/detection.types';
 
-export type RepoLanguage = 'typescript' | 'javascript' | 'go' | 'python' | 'terraform' | 'unknown';
-
-export interface RepoConventionsContext {
-  language: RepoLanguage;
-  linter: { tool: string; keyRules: Record<string, unknown> } | null;
-  typescript: {
-    strict: boolean;
-    module: string;
-    target: string;
-    paths: Record<string, string[]>;
-  } | null;
-  go: { modulePath: string } | null;
-  python: { tool: string; keySettings: Record<string, unknown> } | null;
-  terraform: {
-    providers: string[];
-    backend: string | null;
-    modulePaths: string[];
-  } | null;
-  folderStructure: string[];
-  namingPattern: 'camelCase' | 'kebab-case' | 'PascalCase' | 'mixed';
-  nestjsDetected: boolean;
-  importStyle: 'commonjs' | 'esm' | 'unknown';
-  keyDependencies: string[];
-  errorHandlingPaths: string[];
-}
+export type { RepoLanguage, RepoConventionsContext };
 
 const KEY_DEPENDENCY_KEYWORDS = [
   '@nestjs/core',

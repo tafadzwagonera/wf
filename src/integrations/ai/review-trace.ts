@@ -1,27 +1,17 @@
 import { inspect } from 'util';
+import type {
+  ReviewTraceCallStackNode,
+  ReviewTraceValueChange,
+  ReviewTraceStateNode,
+  ReviewTraceStateTransition,
+} from '../../shared/types/review.types';
 
-export interface ReviewTraceCallStackNode {
-  frame: string;
-  children?: ReviewTraceCallStackNode[];
-}
-
-export interface ReviewTraceValueChange {
-  before?: unknown;
-  after?: unknown;
-}
-
-export interface ReviewTraceStateNode {
-  frame: string;
-  captured?: Record<string, unknown>;
-  changes?: Record<string, ReviewTraceValueChange>;
-  children?: ReviewTraceStateNode[];
-}
-
-export interface ReviewTraceStateTransition {
-  from?: string;
-  to?: string;
-  steps?: ReviewTraceStateNode[];
-}
+export type {
+  ReviewTraceCallStackNode,
+  ReviewTraceValueChange,
+  ReviewTraceStateNode,
+  ReviewTraceStateTransition,
+} from '../../shared/types/review.types';
 
 const formatValue = (value: unknown): string => {
   if (typeof value === 'string') {

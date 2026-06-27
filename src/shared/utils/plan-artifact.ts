@@ -3,8 +3,11 @@ import * as path from 'path';
 import * as YAML from 'yaml';
 import type { ResolutionPlan, FileEntry } from '../../integrations/ai/ai.service';
 import type { ResolutionAction } from '../../agents/interfaces';
+import type { PlanArtifactManifest, PlanArtifactReference } from '../types/plan-artifact.types';
 import { hashGeneratedTicketSources, matchesGeneratedTicketToken } from './generated-ticket-artifact';
 import { normalizePlanVerification } from './verification-manifest';
+
+export type { PlanArtifactManifest, PlanArtifactReference };
 
 const VALID_ACTIONS: ResolutionAction[] = ['feature', 'fix', 'investigate'];
 const VALID_COMPLEXITIES = ['low', 'medium', 'high'] as const;
@@ -17,32 +20,6 @@ type PlanComplexity = (typeof VALID_COMPLEXITIES)[number];
 type PlanArtifactFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 type PlanArtifactSourceKind = 'ticket' | 'custom';
-
-export interface PlanArtifactManifest {
-  artifactPath: string;
-  action: ResolutionAction;
-  createdAt: string;
-  format: PlanArtifactFormat;
-  hash: string;
-  sourceKind: PlanArtifactSourceKind;
-  sourceName: string;
-  ticketKey?: string;
-  customArtifactName?: string;
-  trackerName?: string;
-}
-
-export interface PlanArtifactReference {
-  action: ResolutionAction;
-  artifactPath: string;
-  format: PlanArtifactFormat;
-  hash: string;
-  manifestPath?: string;
-  sourceKind: PlanArtifactSourceKind;
-  sourceName: string;
-  ticketKey?: string;
-  customArtifactName?: string;
-  isLegacy: boolean;
-}
 
 export interface ResolvePlanArtifactOptions {
   artifactDir: string;

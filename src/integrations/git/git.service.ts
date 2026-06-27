@@ -4,27 +4,8 @@ import simpleGit, { SimpleGit, StatusResult, BranchSummary } from 'simple-git';
 import { GitError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 
-export interface BranchInfo {
-  current: string;
-  all: string[];
-  development?: string;
-  isClean: boolean;
-  hasUncommittedChanges: boolean;
-}
-
-export interface CommitOptions {
-  message: string;
-  files?: string[];
-  allowEmpty?: boolean;
-  cwd?: string;
-}
-
-export interface CommitInfo {
-  hash: string;
-  message: string;
-  author: string;
-  date: Date;
-}
+export type { BranchInfo, CommitOptions, CommitInfo } from '../../shared/types/git.types';
+import type { BranchInfo, CommitOptions, CommitInfo } from '../../shared/types/git.types';
 
 @Injectable()
 export class GitService {

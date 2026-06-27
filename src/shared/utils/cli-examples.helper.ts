@@ -1,10 +1,8 @@
 import chalk from 'chalk';
 import { formatCliCommand } from './cli-command-colors';
+import type { CliExample } from '../types/bootstrap.types';
 
-export interface CliExample {
-  comment: string;
-  command: string;
-}
+export type { CliExample };
 
 /**
  * Print color-coded usage examples in --help output.

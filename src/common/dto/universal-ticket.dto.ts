@@ -115,12 +115,4 @@ export class UniversalTicket {
   }
 }
 
-/**
- * Reference to a ticket on a specific platform
- */
-export interface IssueTrackerTicketReference {
-  tracker: string;
-  id: string;
-  key?: string;
-  url?: string;
-}
+export type { IssueTrackerTicketReference } from '../../shared/types/ticket.types';

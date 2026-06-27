@@ -1,19 +1,11 @@
 import type { CodeIssue, CodeReview } from '../integrations/ai/ai.service';
+import type { CodeReviewPresentation, ProcessedCodeReview } from '../shared/types/review.types';
 
-export interface ReviewPresentationIssueRow {
-  issue: CodeIssue;
-  suggestion?: string;
-}
-
-export interface CodeReviewPresentation {
-  issueRows: ReviewPresentationIssueRow[];
-  unmatchedSuggestions: string[];
-}
-
-export interface ProcessedCodeReview {
-  review: CodeReview;
-  presentation: CodeReviewPresentation;
-}
+export type {
+  ReviewPresentationIssueRow,
+  CodeReviewPresentation,
+  ProcessedCodeReview,
+} from '../shared/types/review.types';
 
 interface ChangedDestinationLine {
   line: number;

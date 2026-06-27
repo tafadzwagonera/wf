@@ -1,18 +1,18 @@
-import { AgentError, ErrorCode } from './errors';
+import { AppError, ERROR_CODE } from '../errors/app.error';
 import { isZodErrorLike, formatZodError } from './zod-error.util';
 import chalk from 'chalk';
 
 export class ErrorHandler {
-  static handle(error: Error | AgentError): never {
-    if (error instanceof AgentError) {
-      this.handleAgentError(error);
+  static handle(error: Error | AppError): never {
+    if (error instanceof AppError) {
+      this.handleAppError(error);
     } else {
       this.handleUnknownError(error);
     }
     process.exit(1);
   }
 
-  private static handleAgentError(error: AgentError): void {
+  private static handleAppError(error: AppError): void {
     console.error(chalk.red.bold(`\n❌ ${error.name}`));
     console.error(chalk.red(error.message));
 
@@ -43,23 +43,23 @@ export class ErrorHandler {
     }
   }
 
-  private static getSuggestion(code: ErrorCode): string | null {
-    const suggestions: Record<ErrorCode, string | null> = {
-      [ErrorCode.WORKFLOW_PARSE_ERROR]:
+  private static getSuggestion(code: string): string | null {
+    const suggestions: Record<string, string | null> = {
+      [ERROR_CODE.WORKFLOW_PARSE_ERROR]:
         'Check your workflow file syntax. Ensure YAML frontmatter is valid and markdown is properly formatted.',
-      [ErrorCode.VALIDATION_ERROR]: 'Review the validation errors above and correct the invalid values.',
-      [ErrorCode.EXECUTION_ERROR]: 'Check the execution logs for more details. Ensure all prerequisites are met.',
-      [ErrorCode.JIRA_API_ERROR]:
+      [ERROR_CODE.VALIDATION_ERROR]: 'Review the validation errors above and correct the invalid values.',
+      [ERROR_CODE.EXECUTION_ERROR]: 'Check the execution logs for more details. Ensure all prerequisites are met.',
+      [ERROR_CODE.JIRA_API_ERROR]:
         'Verify your Jira credentials in wf.config.* under atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken.',
-      [ErrorCode.GIT_ERROR]: 'Ensure you are in a git repository and have necessary permissions. Check git status.',
-      [ErrorCode.AI_ERROR]:
+      [ERROR_CODE.GIT_ERROR]: 'Ensure you are in a git repository and have necessary permissions. Check git status.',
+      [ERROR_CODE.AI_ERROR]:
         'Check your wf.config.* AI provider entries and API keys. Verify the selected provider has a valid apiKey, model, quota, and network access.',
-      [ErrorCode.STATE_ERROR]: 'State file may be corrupted. Check .wf/state/ directory permissions.',
-      [ErrorCode.USER_CANCELLED]: null,
-      [ErrorCode.APPROVAL_ERROR]: 'There was an issue with the approval process. Try again.',
-      [ErrorCode.CONFIGURATION_ERROR]:
+      [ERROR_CODE.STATE_ERROR]: 'State file may be corrupted. Check .wf/state/ directory permissions.',
+      [ERROR_CODE.USER_CANCELLED]: null,
+      [ERROR_CODE.APPROVAL_ERROR]: 'There was an issue with the approval process. Try again.',
+      [ERROR_CODE.CONFIGURATION_ERROR]:
         'Check your wf.config.* file and ensure the required configuration values are present and valid.',
-      [ErrorCode.FILE_SYSTEM_ERROR]: 'Check file permissions and ensure the path exists.',
+      [ERROR_CODE.FILE_SYSTEM_ERROR]: 'Check file permissions and ensure the path exists.',
     };
 
     return suggestions[code] || null;
@@ -78,7 +78,7 @@ export class ErrorHandler {
       } catch (error) {
         lastError = error as Error;
 
-        if (error instanceof AgentError && !error.recoverable) {
+        if (error instanceof AppError && !error.recoverable) {
           throw error;
         }
 

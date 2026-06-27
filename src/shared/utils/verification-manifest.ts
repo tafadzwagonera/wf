@@ -1,29 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type {
+  VerificationPolicy,
+  VerificationStep,
+  VerificationWaiver,
+  VerificationManifest,
+  PlanVerificationConfig,
+} from '../types/verification.types';
 
-export type VerificationPolicy = 'enforced' | 'best_effort';
-
-export interface VerificationStep {
-  id: string;
-  run: string;
-  policy: VerificationPolicy;
-  reason?: string;
-}
-
-export interface VerificationWaiver {
-  id: string;
-  reason: string;
-}
-
-export interface VerificationManifest {
-  version: 1;
-  baseline: VerificationStep[];
-}
-
-export interface PlanVerificationConfig {
-  targeted?: VerificationStep[];
-  waivers?: VerificationWaiver[];
-}
+export type { VerificationPolicy, VerificationStep, VerificationWaiver, VerificationManifest, PlanVerificationConfig };
 
 const normalizeStep = (value: unknown, filePath: string): VerificationStep => {
   if (!value || typeof value !== 'object') {

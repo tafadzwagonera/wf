@@ -76,9 +76,9 @@ const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => 
   return undefined;
 };
 
-export type StageProgressCallback = (line: string) => void;
+import type { StageProgressCallback, AgentStageName } from '../../shared/types/agent.types';
 
-export type AgentStageName = 'plan' | 'review' | 'generate';
+export type { StageProgressCallback, AgentStageName } from '../../shared/types/agent.types';
 
 export type AgentChatSession = {
   provider: 'anthropic' | 'openai';

@@ -1,14 +1,8 @@
 import { createHash } from 'crypto';
 import * as path from 'path';
+import type { GeneratedTicketSourceManifest } from '../types/plan-artifact.types';
 
-export interface GeneratedTicketSourceManifest {
-  artifactPath: string;
-  createdAt: string;
-  format: string;
-  hash: string;
-  trackerName: string;
-  sources: string[];
-}
+export type { GeneratedTicketSourceManifest };
 
 const GENERATED_TICKET_ARTIFACT_SUFFIX = 'ticket-description';
 const GENERATED_TICKET_MANIFEST_EXTENSION = '.sources.json';

@@ -1,0 +1,35 @@
+import type { z } from 'zod';
+import type {
+  agentStageNameSchema,
+  findingsArtifactSchema,
+  implementBackendNameSchema,
+  implementBackendSelectionSchema,
+  implementRunArtifactSchema,
+  modelRoutingSchema,
+  planArtifactSchema,
+  resolutionActionSchema,
+  retryScopeStrategySchema,
+  reviewArtifactSchema,
+  ticketArtifactSchema,
+  verificationAttemptArtifactSchema,
+  verificationFailureCategorySchema,
+  verificationFailureClassificationSchema,
+  verificationScriptSchema,
+} from '../schemas/agent.schema';
+
+export type AgentStageName = z.infer<typeof agentStageNameSchema>;
+export type FindingsArtifact = z.infer<typeof findingsArtifactSchema>;
+export type ImplementBackendName = z.infer<typeof implementBackendNameSchema>;
+export type ImplementBackendSelection = z.infer<typeof implementBackendSelectionSchema>;
+export type ImplementRunArtifact = z.infer<typeof implementRunArtifactSchema>;
+export type ModelRouting = z.infer<typeof modelRoutingSchema>;
+export type PlanArtifact = z.infer<typeof planArtifactSchema>;
+export type ResolutionAction = z.infer<typeof resolutionActionSchema>;
+export type RetryScopeStrategy = z.infer<typeof retryScopeStrategySchema>;
+export type ReviewArtifact = z.infer<typeof reviewArtifactSchema>;
+export type StageProgressCallback = (line: string) => void;
+export type TicketArtifact = z.infer<typeof ticketArtifactSchema>;
+export type VerificationAttemptArtifact = z.infer<typeof verificationAttemptArtifactSchema>;
+export type VerificationFailureCategory = z.infer<typeof verificationFailureCategorySchema>;
+export type VerificationFailureClassification = z.infer<typeof verificationFailureClassificationSchema>;
+export type VerificationScript = z.infer<typeof verificationScriptSchema>;

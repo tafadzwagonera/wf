@@ -1,21 +1,16 @@
-export type WfAiProviderName = 'anthropic' | 'openai' | 'google' | 'deepseek';
+import type { WfConfig } from '../shared/types/config.types';
 
-export type WfBackendMode = 'agent' | 'cli' | 'standard';
-
-export interface WfAiProviderConfig {
-  provider: WfAiProviderName;
-  apiKey?: string;
-  model?: string;
-  maxTokens?: number;
-  default?: boolean;
-}
-
-export interface WfAiStageTargetConfig {
-  provider: WfAiProviderName;
-  model?: string;
-  backend?: WfBackendMode;
-  outputFormat?: 'json' | 'md' | 'yaml' | 'yml';
-}
+export type {
+  WfAiProviderName,
+  WfBackendMode,
+  WfAiProviderConfig,
+  WfAiStageTargetConfig,
+  WfVerificationConditionsConfig,
+  WfImplementStageModelsConfig,
+  WfImplementStageConfig,
+  WfCreateStageConfig,
+  WfConfig,
+} from '../shared/types/config.types';
 
 export interface WfAtlassianConfig {
   baseUrl?: string;
@@ -28,62 +23,6 @@ export interface WfAtlassianConfig {
   bitbucket?: {
     workspace?: string;
     apiToken?: string;
-  };
-}
-
-export interface WfVerificationConditionsConfig {
-  policyFile?: string;
-  scripts?: Record<string, string>;
-}
-
-export interface WfImplementStageModelsConfig {
-  default?: string;
-  mechanical?: string;
-}
-
-export interface WfImplementStageConfig extends WfAiStageTargetConfig {
-  models?: WfImplementStageModelsConfig;
-  verificationConditions?: WfVerificationConditionsConfig;
-}
-
-export interface WfCreateStageConfig {
-  provider?: WfAiProviderName;
-  model?: string;
-  backend?: WfBackendMode;
-  verificationConditions?: WfVerificationConditionsConfig;
-}
-
-export interface WfConfig {
-  tracker?: 'jira' | 'github' | 'bitbucket';
-  ai?: WfAiProviderConfig[];
-  atlassian?: WfAtlassianConfig;
-  github?: {
-    token?: string;
-    defaultRepo?: string;
-  };
-  git?: {
-    commitFormat?: 'conventional' | 'freeform' | 'auto';
-    branchNamePattern?: string;
-    branchPrefixMapping?: {
-      feature?: string;
-      fix?: string;
-      investigate?: string;
-    };
-  };
-  log?: {
-    level?: 'error' | 'warn' | 'info' | 'debug';
-  };
-  logging?: {
-    level?: 'error' | 'warn' | 'info' | 'debug';
-  };
-  slack?: {
-    botToken?: string;
-    userToken?: string;
-  };
-  stages?: Partial<Record<'plan' | 'review' | 'generate' | 'commit', WfAiStageTargetConfig>> & {
-    create?: WfCreateStageConfig;
-    implement?: WfImplementStageConfig;
-    fetch?: string;
   };
 }
 

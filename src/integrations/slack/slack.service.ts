@@ -2,27 +2,19 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { ConfigurationError, ExecutionError } from '../../shared/utils/errors';
+import type {
+  SlackMessage,
+  SlackThreadResult,
+  SlackChannelHistoryResult,
+  SlackApiOptions,
+} from '../../shared/types/slack.types';
 
-interface SlackMessage {
-  user: string;
-  ts: string;
-  text: string;
-}
-
-interface SlackThreadResult {
-  channelId: string;
-  threadTs: string;
-  messages: SlackMessage[];
-}
-
-interface SlackChannelHistoryResult {
-  channelId: string;
-  messages: SlackMessage[];
-}
-
-interface SlackApiOptions {
-  fallbackOnChannelNotFound?: boolean;
-}
+export type {
+  SlackMessage,
+  SlackThreadResult,
+  SlackChannelHistoryResult,
+  SlackApiOptions,
+} from '../../shared/types/slack.types';
 
 @Injectable()
 export class SlackService {

@@ -1,15 +1,10 @@
 import * as path from 'path';
 
-import { detectRepoConventions, RepoConventionsContext } from './detect-repo-conventions';
+import { detectRepoConventions } from './detect-repo-conventions';
+import type { RepoConventionsContext } from '../types/detection.types';
+import type { CrossRepoPattern, CrossRepoContext } from '../types/detection.types';
 
-export interface CrossRepoPattern {
-  repoName: string;
-  deltas: string[];
-}
-
-export interface CrossRepoContext {
-  patterns: CrossRepoPattern[];
-}
+export type { CrossRepoPattern, CrossRepoContext };
 
 const TEST_FRAMEWORKS = ['jest', 'vitest', 'mocha', 'pytest', 'testify'];
 

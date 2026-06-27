@@ -2,55 +2,27 @@ import * as fs from 'fs';
 import type {
   ImplementBackendSelection,
   ImplementRunArtifact,
-  RetryScopeStrategy,
   VerificationAttemptArtifact,
-  VerificationFailureCategory,
   VerificationFailureClassification,
 } from '../../agents/interfaces';
+import type {
+  ImplementVerificationRunFile,
+  VerificationSignal,
+  ImplementProgressVerdict,
+  ImplementProgressSignal,
+  ImplementProgressVerificationSnapshot,
+  ImplementProgressMutation,
+  ImplementProgressStreamEvent,
+} from '../types/implement-verification.types';
 
-export interface ImplementVerificationRunFile {
-  run: ImplementRunArtifact;
-  attempts: VerificationAttemptArtifact[];
-}
-
-interface VerificationSignal {
-  category: VerificationFailureCategory;
-  rootSignal: string;
-  strategy: RetryScopeStrategy;
-  confidence: 'high' | 'medium' | 'low';
-}
-
-export type ImplementProgressVerdict = 'complete' | 'continue' | 'revisit' | 'regress';
-
-export interface ImplementProgressSignal {
-  score: number;
-  verdict: ImplementProgressVerdict;
-  reasons: string[];
-  nextAction: string;
-}
-
-export interface ImplementProgressVerificationSnapshot {
-  command: string;
-  commandIndex: number;
-  exitCode: number;
-  diagnosticLineCount: number;
-  errorClasses: Set<string>;
-}
-
-export interface ImplementProgressMutation {
-  change: 'created' | 'updated' | 'deleted';
-  path: string;
-  changedFilesSinceLastVerification: string[];
-}
-
-export interface ImplementProgressStreamEvent {
-  kind: 'task_progress' | 'tool_progress';
-  summary?: string;
-  lastToolName?: string;
-  toolName?: string;
-  elapsedTimeSeconds?: number;
-  taskId?: string;
-}
+export type {
+  ImplementVerificationRunFile,
+  ImplementProgressVerdict,
+  ImplementProgressSignal,
+  ImplementProgressVerificationSnapshot,
+  ImplementProgressMutation,
+  ImplementProgressStreamEvent,
+};
 
 const SYNTAX_ERROR_PATTERNS: Array<RegExp> = [
   /SyntaxError/i,

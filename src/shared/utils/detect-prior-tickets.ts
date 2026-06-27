@@ -1,18 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getWfHomeDir } from './wf-paths';
+import type { PriorTicketSummary, PriorTicketContext } from '../types/detection.types';
 
-export interface PriorTicketSummary {
-  title: string;
-  summary: string;
-  filename: string;
-  keywords: string[]; // extracted file paths, component names, error patterns
-}
-
-export interface PriorTicketContext {
-  tickets: PriorTicketSummary[];
-  repoName: string;
-}
+export type { PriorTicketSummary, PriorTicketContext };
 
 const FILE_PATH_REGEX = /[\w-/]+(?:\.[\w-]+)+/g;
 const COMPONENT_NAME_REGEX = /\b[A-Z][a-zA-Z]+(?:Service|Controller|Module|Agent|Command|Guard|Interceptor)\b/g;

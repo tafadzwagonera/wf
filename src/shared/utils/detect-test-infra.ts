@@ -1,42 +1,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
-
-type Ecosystem = 'node' | 'terraform' | 'python' | 'go';
-
-type NodeFramework = 'jest' | 'vitest' | 'mocha' | 'tap' | 'ava';
-
-interface NodeInfra {
-  ecosystem: 'node';
-  nodeVersionMajor: number | null;
-  hasNodeTest: boolean;
-  frameworks: NodeFramework[];
-  scripts: Record<string, string>;
-  allScriptNames: string[];
-}
-
-interface TerraformInfra {
-  ecosystem: 'terraform';
-  hasTfFiles: boolean;
-  hasBackendConfig: boolean;
-}
-
-interface PythonInfra {
-  ecosystem: 'python';
-  frameworks: Array<'pytest' | 'unittest' | 'tox' | 'nox'>;
-  hasRequirementsTxt: boolean;
-}
-
-interface GoInfra {
-  ecosystem: 'go';
-  hasGoMod: boolean;
-}
-
-type EcosystemInfra = NodeInfra | TerraformInfra | PythonInfra | GoInfra;
-
-interface TestInfraContext {
-  ecosystems: EcosystemInfra[];
-  primary: Ecosystem;
-}
+import type {
+  Ecosystem,
+  NodeFramework,
+  NodeInfra,
+  TerraformInfra,
+  PythonInfra,
+  GoInfra,
+  EcosystemInfra,
+  TestInfraContext,
+} from '../types/detection.types';
 
 const NODE_FRAMEWORKS: NodeFramework[] = ['jest', 'vitest', 'mocha', 'tap', 'ava'];
 

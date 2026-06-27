@@ -3,12 +3,11 @@
  * per-file patches so the review prompt stays within context-window limits.
  */
 
-export const MAX_REVIEW_DIFF_LENGTH = 80_000;
+import type { DiffSegment } from '../shared/types/review.types';
 
-export interface DiffSegment {
-  file: string;
-  patch: string;
-}
+export type { DiffSegment } from '../shared/types/review.types';
+
+export const MAX_REVIEW_DIFF_LENGTH = 80_000;
 
 /**
  * Split a unified diff on `diff --git` boundaries into per-file segments.

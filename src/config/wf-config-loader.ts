@@ -14,7 +14,19 @@ import type {
   WfAiProviderName,
   WfBackendMode,
   WfConfig,
-} from './public-config';
+  NormalizedAiStageTargetConfig,
+  NormalizedVerificationConditionsConfig,
+  NormalizedImplementStageConfig,
+  NormalizedCreateStageConfig,
+} from '../shared/types/config.types';
+
+export type {
+  NormalizedAiStageTargetConfig,
+  NormalizedVerificationConditionsConfig,
+  NormalizedImplementStageConfig,
+  NormalizedCreateStageConfig,
+} from '../shared/types/config.types';
+
 import {
   type StageBackendDefaultStageName,
   isAgentSupportedStage,
@@ -38,33 +50,6 @@ const CONFIG_FILE_NAMES = [
 type SupportedStageName = StageBackendDefaultStageName;
 type SupportedModelStageName = Exclude<SupportedStageName, 'implement' | 'create'>;
 const AGENT_SUPPORTED_PROVIDERS = new Set<WfAiProviderName>(['anthropic', 'openai']);
-
-export interface NormalizedAiStageTargetConfig {
-  provider: WfAiProviderName;
-  model: string;
-  backend: WfBackendMode;
-  outputFormat?: 'json' | 'md' | 'yaml' | 'yml';
-}
-
-export interface NormalizedVerificationConditionsConfig {
-  policyFile?: string;
-  scripts: Record<string, string>;
-}
-
-export interface NormalizedImplementStageConfig {
-  provider: WfAiProviderName;
-  model: string;
-  models?: { mechanical?: string };
-  backend: WfBackendMode;
-  verificationConditions?: NormalizedVerificationConditionsConfig;
-}
-
-export interface NormalizedCreateStageConfig {
-  provider?: WfAiProviderName;
-  model?: string;
-  backend?: WfBackendMode;
-  verificationConditions?: NormalizedVerificationConditionsConfig;
-}
 
 export interface NormalizedWfConfig {
   tracker: 'jira' | 'github' | 'bitbucket';

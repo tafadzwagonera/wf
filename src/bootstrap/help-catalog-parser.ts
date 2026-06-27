@@ -1,22 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { CommandHelpEntry, CommandHelpOption, CommandHelpExample } from '../shared/types/bootstrap.types';
 
-export interface CommandHelpEntry {
-  description: string;
-  usage: string;
-  options?: CommandHelpOption[];
-  examples?: CommandHelpExample[];
-}
-
-export interface CommandHelpOption {
-  flags: string;
-  description: string;
-}
-
-export interface CommandHelpExample {
-  comment?: string;
-  command: string;
-}
+export type { CommandHelpEntry, CommandHelpOption, CommandHelpExample };
 
 const STRING_LITERAL_PATTERN = /'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)"|`((?:\\.|[^`])*)`/g;
 

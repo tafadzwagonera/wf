@@ -17,24 +17,9 @@ export enum IssueTrackerFeature {
   CREATE_PULL_REQUEST = 'create_pull_request',
 }
 
-/**
- * Options for creating a pull request via IssueTrackerAdapter.createPullRequest
- */
-export interface CreatePullRequestOptions {
-  /** PR title */
-  title: string;
-  /** PR body (markdown) */
-  body: string;
-  /** Source branch name */
-  head: string;
-  /** Target branch name (e.g. 'main') */
-  base: string;
-  /**
-   * Repository in "owner/repo" format.
-   * Falls back to GITHUB_DEFAULT_REPO if omitted.
-   */
-  repo?: string;
-}
+import type { CreatePullRequestOptions } from '../../shared/types/ticket.types';
+
+export type { CreatePullRequestOptions } from '../../shared/types/ticket.types';
 
 /**
  * Base interface that all issue tracker adapters must implement.

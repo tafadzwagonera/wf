@@ -5,9 +5,7 @@ import { AIError, isAIErrorLike } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
-import type { PlanVerificationConfig } from '../../shared/utils/verification-manifest';
 import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
-import type { ReviewTraceCallStackNode, ReviewTraceStateTransition } from './review-trace';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 import {
   formatRepoConventionsPromptSection,
@@ -22,6 +20,26 @@ import {
   formatRecurrenceGapsPromptSection,
   type RecurrenceGapAnalysis,
 } from '../../shared/utils/detect-recurrence-gaps';
+import type {
+  AIRequest,
+  AIResponse,
+  AIConversationRequest,
+  FindingsDocument,
+  FileEntry,
+  ResolutionPlan,
+} from '../../shared/types/ai.types';
+import type { CodeReview } from '../../shared/types/review.types';
+
+export type {
+  AIRequest,
+  AIResponse,
+  AIConversationRequest,
+  FindingsDocument,
+  FileStatus,
+  FileEntry,
+  ResolutionPlan,
+} from '../../shared/types/ai.types';
+export type { CodeIssue, CodeReview } from '../../shared/types/review.types';
 
 /**
  * Strips a single wrapping markdown code fence from LLM output.
@@ -258,31 +276,6 @@ export const sanitizeCodeReviewTrace = (review: CodeReview, diff: string): CodeR
   return review;
 };
 
-export interface AIRequest {
-  prompt: string;
-  systemPrompt?: string;
-  maxTokens?: number;
-  temperature?: number;
-  context?: Record<string, any>;
-  model?: string;
-  provider?: string;
-  stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit' | 'create';
-}
-
-export interface AIResponse {
-  content: string;
-  provider?: string;
-  model?: string;
-  finishReason?: string;
-  stopReason?: string;
-  refusal?: string | null;
-  contentTypes?: string[];
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-  };
-}
-
 type ReviewResponseDiagnostics = Pick<
   AIResponse,
   'provider' | 'model' | 'finishReason' | 'stopReason' | 'refusal' | 'contentTypes' | 'usage'
@@ -377,35 +370,6 @@ export const requireAiResponseContent = (response: ResponseContentDiagnostics, m
 };
 
 /**
- * Request interface for multi-turn conversations
- * Supports passing full conversation history to maintain context
- */
-export interface AIConversationRequest {
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-  systemPrompt?: string;
-  maxTokens?: number;
-  temperature?: number;
-  model?: string;
-  provider?: string;
-  stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit' | 'create';
-}
-
-export interface FindingsDocument {
-  action: 'investigate';
-  summary: string;
-  findings: string[];
-  recommendations: string[];
-  conclusion: string;
-}
-
-export type FileStatus = 'found' | 'to-create' | 'not-found';
-
-export interface FileEntry {
-  filePath: string;
-  status: FileStatus;
-}
-
-/**
  * Normalizes a mixed array of legacy string paths and FileEntry objects
  * into a uniform FileEntry array. Legacy strings default to status 'found'.
  *
@@ -414,40 +378,6 @@ export interface FileEntry {
  */
 export const normalizeFileEntries = (raw: (string | FileEntry)[]): FileEntry[] =>
   raw.map(entry => (typeof entry === 'string' ? { filePath: entry, status: 'found' as const } : entry));
-
-export interface ResolutionPlan {
-  action: 'fix' | 'feature' | 'investigate';
-  summary: string;
-  steps: string[];
-  estimatedComplexity: 'low' | 'medium' | 'high';
-  filesAffected?: (string | FileEntry)[];
-  filesContext?: (string | FileEntry)[];
-  repositoriesAffected?: string[];
-  risks?: string[];
-  verification?: PlanVerificationConfig;
-  provider?: string;
-  source?: string;
-  timestamp?: string;
-}
-
-export interface CodeReview {
-  summary: string;
-  issues: CodeIssue[];
-  executionMode?: 'standard' | 'agent';
-  traceProvenance?: 'evidence-based' | 'best-effort' | 'unavailable';
-  callStack?: ReviewTraceCallStackNode[];
-  stateTransition?: ReviewTraceStateTransition;
-  suggestions: string[];
-  approved: boolean;
-}
-
-export interface CodeIssue {
-  severity: 'error' | 'warning' | 'info';
-  message: string;
-  file?: string;
-  line?: number;
-  suggestion?: string;
-}
 
 @Injectable()
 export class AiService {

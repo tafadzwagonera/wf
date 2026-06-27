@@ -1,27 +1,9 @@
 import simpleGit from 'simple-git';
-import { extractTicketKeywords, PriorTicketContext } from './detect-prior-tickets';
+import { extractTicketKeywords } from './detect-prior-tickets';
+import type { PriorTicketContext } from '../types/detection.types';
+import type { CommitEvidence, RecurrenceCandidate, RecurrenceGapAnalysis } from '../types/detection.types';
 
-export interface CommitEvidence {
-  hash: string;
-  message: string;
-  filesChanged: string[];
-}
-
-export interface RecurrenceCandidate {
-  title: string;
-  summary: string;
-  ticketKey: string | null;
-  overlapScore: number;
-  sharedKeywords: string[];
-  commits: CommitEvidence[];
-}
-
-export interface RecurrenceGapAnalysis {
-  isRecurrence: boolean;
-  candidates: RecurrenceCandidate[];
-  gaps: string[];
-  rootCauseHypothesis: string | null;
-}
+export type { CommitEvidence, RecurrenceCandidate, RecurrenceGapAnalysis };
 
 interface AiExecutor {
   execute(request: { prompt: string; maxTokens?: number; stage?: string }): Promise<{ content: string }>;
