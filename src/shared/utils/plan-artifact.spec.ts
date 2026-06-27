@@ -128,3 +128,41 @@ describe('plan artifact helpers', () => {
     ).toThrow('Non-canonical plan identifier');
   });
 });
+
+describe('backward-compatible migration', () => {
+  it('parsePlanArtifact accepts legacy filesAffected/filesContext keys', () => {
+    const plan = parsePlanArtifact(
+      JSON.stringify({
+        action: 'fix',
+        summary: 'Legacy plan with old field names',
+        steps: ['Step 1'],
+        estimatedComplexity: 'low',
+        filesAffected: [{ filePath: 'repo-a/src/auth.ts', status: 'found' }],
+        filesContext: [{ filePath: 'repo-a/package.json', status: 'found' }],
+      }),
+      '/tmp/legacy-plan.json'
+    );
+
+    expect(plan.affectedFiles).toEqual([{ filePath: 'repo-a/src/auth.ts', status: 'found' }]);
+    expect(plan.affectedFilesContext).toEqual([{ filePath: 'repo-a/package.json', status: 'found' }]);
+  });
+
+  it('prefers new field names over legacy when both are present', () => {
+    const plan = parsePlanArtifact(
+      JSON.stringify({
+        action: 'fix',
+        summary: 'Plan with both old and new field names',
+        steps: ['Step 1'],
+        estimatedComplexity: 'low',
+        affectedFiles: [{ filePath: 'repo-a/src/new.ts', status: 'found' }],
+        filesAffected: [{ filePath: 'repo-a/src/old.ts', status: 'found' }],
+        affectedFilesContext: [{ filePath: 'repo-a/new-pkg.json', status: 'found' }],
+        filesContext: [{ filePath: 'repo-a/old-pkg.json', status: 'found' }],
+      }),
+      '/tmp/dual-plan.json'
+    );
+
+    expect(plan.affectedFiles).toEqual([{ filePath: 'repo-a/src/new.ts', status: 'found' }]);
+    expect(plan.affectedFilesContext).toEqual([{ filePath: 'repo-a/new-pkg.json', status: 'found' }]);
+  });
+});

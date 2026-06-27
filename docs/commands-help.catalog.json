@@ -261,7 +261,7 @@
       },
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; first repo anchors artifact lookup, additional repos provide read-only context. The standalone issue:implement command only supports single-repository plans; use wf issue -r for multi-repo execution"
+        "description": "Space-separated repositories; first repo anchors artifact lookup. When multiple repos are passed, implementation runs per-repo with cross-repo context"
       },
       {
         "flags": "-s, --silent",

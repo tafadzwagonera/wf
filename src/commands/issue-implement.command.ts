@@ -57,16 +57,6 @@ interface SyntheticCustomExecutionContext {
   customBranchSlug: string;
 }
 
-const warnOnVerificationRepoBoundary = (repos?: string[]): void => {
-  if ((repos?.length ?? 0) > 1) {
-    console.log(
-      chalk.yellow(
-        `⚠️ issue:implement verifies only the first repository. Remaining repos are context only: ${repos!.slice(1).join(', ')}. Use wf issue or run wf issue:implement separately per repository for multi-repo plans.`
-      )
-    );
-  }
-};
-
 @Injectable()
 @Command({
   name: 'issue:implement',
@@ -139,7 +129,7 @@ export class IssueImplementCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated repositories; first repo anchors artifact lookup, additional repos provide read-only context. The standalone issue:implement command only supports single-repository plans; use wf issue -r for multi-repo execution',
+      'Space-separated repositories; first repo anchors artifact lookup. When multiple repos are passed, implementation runs per-repo with cross-repo context',
     required: false,
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
@@ -195,6 +185,9 @@ export class IssueImplementCommand extends CommandRunner {
         process.exit(1);
         return;
       }
+
+      const repoList: (string | undefined)[] = options?.repos?.length ? options.repos : [undefined];
+      const isMultiRepo = repoList.length > 1;
 
       const baseDir = resolveRepoBasePath(options?.repos?.[0]);
       const trackerDir = resolveArtifactDir(baseDir, trackerName);
@@ -424,21 +417,41 @@ Return ONLY a valid JSON object:
           action: plan.action,
           path: resolvedPlanReference.artifactPath,
         };
-        await this.orchestrator.implementer.execute(customExecutionContext.ticketArtifact, planArtifact, {
-          trackerName,
-          repoDir,
-          additionalRepoDirs: (options?.repos ?? []).slice(1).map(r => resolveRepoBasePath(r)),
-          customBranchSlug: customExecutionContext.customBranchSlug,
-          modelRouting: options?.modelRouting as ModelRouting,
-          silent: options?.silent,
-          noBranch: options?.noBranch,
-          branchNamePattern: options?.branchNamePattern,
-        });
+
+        if (isMultiRepo && !options?.silent) {
+          console.log(chalk.bold.yellow('\n🔧 Implementation'));
+          console.log(chalk.gray('─'.repeat(70)));
+        }
+
+        for (const repo of repoList) {
+          const iterRepoDir = resolveRepoBasePath(repo);
+          if (isMultiRepo && !options?.silent) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+          const result = await this.orchestrator.implementer.execute(
+            customExecutionContext.ticketArtifact,
+            planArtifact,
+            {
+              trackerName,
+              repoDir: iterRepoDir,
+              additionalRepoDirs: (options?.repos ?? []).filter(r => r !== repo).map(r => resolveRepoBasePath(r)),
+              suppressHeader: isMultiRepo,
+              allowMultiRepoScope: isMultiRepo,
+              customBranchSlug: customExecutionContext.customBranchSlug,
+              modelRouting: options?.modelRouting as ModelRouting,
+              silent: options?.silent,
+              noBranch: options?.noBranch,
+              branchNamePattern: options?.branchNamePattern,
+            }
+          );
+
+          if (result?.type === 'investigation') {
+            console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
+            return;
+          }
+        }
         return;
       }
 
       // ── MODE B & C: ticketKey present ──────────────────────────────────
-      warnOnVerificationRepoBoundary(options?.repos);
       const resolvedTicketKey = ticketKey ?? resolvedPlanReference?.ticketKey ?? identifier;
       const ticketPath = path.join(trackerDir, `${resolvedTicketKey}.md`);
       // Preflight Check 1: ticket artifact must exist (gates both live + dry-run)
@@ -580,7 +593,6 @@ Return ONLY a valid JSON object:
       }
 
       this.logger.info(`Implementing ticket ${resolvedTicketKey}...`);
-      const repoDir = resolveRepoBasePath(options?.repos?.[0]);
 
       const ticketContent = await fs.promises.readFile(ticketPath, 'utf-8');
       const ticketArtifact: TicketArtifact = {
@@ -595,15 +607,31 @@ Return ONLY a valid JSON object:
         path: planPath,
       };
 
-      await this.orchestrator.implementer.execute(ticketArtifact, planArtifact, {
-        trackerName,
-        repoDir,
-        additionalRepoDirs: (options?.repos ?? []).slice(1).map(r => resolveRepoBasePath(r)),
-        modelRouting: options?.modelRouting as ModelRouting,
-        silent: options?.silent,
-        noBranch: options?.noBranch,
-        branchNamePattern: options?.branchNamePattern,
-      });
+      if (isMultiRepo && !options?.silent) {
+        console.log(chalk.bold.yellow('\n🔧 Implementation'));
+        console.log(chalk.gray('─'.repeat(70)));
+      }
+
+      for (const repo of repoList) {
+        const repoDir = resolveRepoBasePath(repo);
+        if (isMultiRepo && !options?.silent) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
+        const result = await this.orchestrator.implementer.execute(ticketArtifact, planArtifact, {
+          trackerName,
+          repoDir,
+          additionalRepoDirs: (options?.repos ?? []).filter(r => r !== repo).map(r => resolveRepoBasePath(r)),
+          suppressHeader: isMultiRepo,
+          allowMultiRepoScope: isMultiRepo,
+          modelRouting: options?.modelRouting as ModelRouting,
+          silent: options?.silent,
+          noBranch: options?.noBranch,
+          branchNamePattern: options?.branchNamePattern,
+        });
+
+        if (result?.type === 'investigation') {
+          console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
+          return;
+        }
+      }
     } catch (error) {
       ErrorHandler.handle(error as Error);
     }

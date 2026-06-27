@@ -757,7 +757,7 @@ describe('IssueImplementCommand', () => {
   });
 
   describe('ticket mode with multiple repos', () => {
-    it('warns that only the first repository will be verified', async () => {
+    const setupMultiRepoTest = async () => {
       const command = await buildCommand();
       const hash = hashPlanArtifactSources(['WBP-0001']);
       const canonicalPlanPath = path.join(
@@ -797,14 +797,96 @@ describe('IssueImplementCommand', () => {
         }
         return JSON.stringify({ action: 'feature', steps: [] });
       });
+      const mockModule = await Test.createTestingModule({
+        providers: [
+          IssueImplementCommand,
+          { provide: AiService, useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') } },
+          { provide: IssueTrackerService, useValue: {} },
+          { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('jira') } },
+          {
+            provide: LoggerService,
+            useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+          },
+          {
+            provide: DryRunPreviewService,
+            useValue: {
+              showHeader: jest.fn(),
+              showSummary: jest.fn(),
+              showValidationResult: jest.fn(),
+              previewApiCall: jest.fn(),
+              previewFileRead: jest.fn(),
+              previewFileWrite: jest.fn(),
+              previewGitOperation: jest.fn(),
+            },
+          },
+          {
+            provide: AgentOrchestrator,
+            useValue: { implementer: { execute: jest.fn() }, planner: { execute: jest.fn() } },
+          },
+        ],
+      }).compile();
+      const orchestrator = mockModule.get(AgentOrchestrator);
+      return { command: mockModule.get(IssueImplementCommand), orchestrator, consoleSpy, existsSyncSpy };
+    };
+
+    it('calls implementer.execute per-repo with allowMultiRepoScope when multiple repos are passed', async () => {
+      const { command, orchestrator, existsSyncSpy, consoleSpy } = await setupMultiRepoTest();
 
       await command.run(['WBP-0001'], { repos: ['repo-a', 'repo-b'] });
 
-      expect(
-        consoleSpy.mock.calls.some(call =>
-          String(call[0]).includes('issue:implement verifies only the first repository')
-        )
-      ).toBe(true);
+      expect(orchestrator.implementer.execute).toHaveBeenCalledTimes(2);
+      expect(orchestrator.implementer.execute).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          repoDir: '/tmp/consumer-app/repo-a',
+          additionalRepoDirs: ['/tmp/consumer-app/repo-b'],
+          allowMultiRepoScope: true,
+          suppressHeader: true,
+        })
+      );
+      expect(orchestrator.implementer.execute).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          repoDir: '/tmp/consumer-app/repo-b',
+          additionalRepoDirs: ['/tmp/consumer-app/repo-a'],
+          allowMultiRepoScope: true,
+          suppressHeader: true,
+        })
+      );
+
+      existsSyncSpy.mockRestore();
+      consoleSpy.mockRestore();
+    });
+
+    it('calls implementer.execute once without allowMultiRepoScope for single repo', async () => {
+      const { command, orchestrator, existsSyncSpy, consoleSpy } = await setupMultiRepoTest();
+
+      await command.run(['WBP-0001'], { repos: ['repo-a'] });
+
+      expect(orchestrator.implementer.execute).toHaveBeenCalledTimes(1);
+      expect(orchestrator.implementer.execute).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          repoDir: '/tmp/consumer-app/repo-a',
+          allowMultiRepoScope: false,
+          suppressHeader: false,
+        })
+      );
+
+      existsSyncSpy.mockRestore();
+      consoleSpy.mockRestore();
+    });
+
+    it('stops iterating repos when investigation result is returned', async () => {
+      const { command, orchestrator, existsSyncSpy, consoleSpy } = await setupMultiRepoTest();
+      (orchestrator.implementer.execute as jest.Mock).mockResolvedValueOnce({ type: 'investigation' });
+
+      await command.run(['WBP-0001'], { repos: ['repo-a', 'repo-b'] });
+
+      expect(orchestrator.implementer.execute).toHaveBeenCalledTimes(1);
 
       existsSyncSpy.mockRestore();
       consoleSpy.mockRestore();
