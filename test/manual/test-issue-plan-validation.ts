@@ -213,7 +213,7 @@ const main = async (): Promise<void> => {
       summary: 'Valid plan',
       estimatedComplexity: 'low',
       steps: ['Update one file'],
-      filesAffected: [`${repoName}/src/example.ts`],
+      affectedFiles: [`${repoName}/src/example.ts`],
       repositoriesAffected: [repoName],
     } as never);
 
@@ -250,7 +250,7 @@ const main = async (): Promise<void> => {
       summary: 'Invalid plan',
       estimatedComplexity: 'low',
       steps: ['Update one file'],
-      filesAffected: ['repo-name/src/example.ts'],
+      affectedFiles: ['repo-name/src/example.ts'],
       repositoriesAffected: ['repo-name'],
     } as never);
 
@@ -293,7 +293,7 @@ const main = async (): Promise<void> => {
       summary: 'Invalid verification plan',
       estimatedComplexity: 'low',
       steps: ['Update one file'],
-      filesAffected: [`${repoName}/src/example.ts`],
+      affectedFiles: [`${repoName}/src/example.ts`],
       repositoriesAffected: [repoName],
       verification: {
         targeted: [

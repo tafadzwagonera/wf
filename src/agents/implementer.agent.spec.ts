@@ -26,7 +26,7 @@ describe('ImplementerAgent', () => {
       summary: 'Implement verification',
       steps: ['Update source file'],
       estimatedComplexity: 'medium',
-      filesAffected: ['repo-a/src/example.ts'],
+      affectedFiles: ['repo-a/src/example.ts'],
       repositoriesAffected: ['repo-a'],
       ...overrides,
     },
@@ -147,7 +147,7 @@ describe('ImplementerAgent', () => {
         agent.execute(
           ticketArtifact,
           buildPlan({
-            filesAffected: ['repo-a/src/example.ts', 'repo-b/src/example.ts'],
+            affectedFiles: ['repo-a/src/example.ts', 'repo-b/src/example.ts'],
             repositoriesAffected: ['repo-a', 'repo-b'],
           }),
           {
@@ -160,12 +160,12 @@ describe('ImplementerAgent', () => {
       );
     });
 
-    it('fails when filesAffected include a different repo prefix than the selected repo', async () => {
+    it('fails when affectedFiles include a different repo prefix than the selected repo', async () => {
       await expect(
         agent.execute(
           ticketArtifact,
           buildPlan({
-            filesAffected: ['repo-b/src/example.ts'],
+            affectedFiles: ['repo-b/src/example.ts'],
             repositoriesAffected: ['repo-a'],
           }),
           {
@@ -185,7 +185,7 @@ describe('ImplementerAgent', () => {
         agent.execute(
           ticketArtifact,
           buildPlan({
-            filesAffected: ['repo-a/src/example.ts', 'repo-b/src/example.ts'],
+            affectedFiles: ['repo-a/src/example.ts', 'repo-b/src/example.ts'],
             repositoriesAffected: ['repo-a', 'repo-b'],
           }),
           {
@@ -204,7 +204,7 @@ describe('ImplementerAgent', () => {
         agent.execute(
           ticketArtifact,
           buildPlan({
-            filesAffected: ['repo-b/src/x.ts'],
+            affectedFiles: ['repo-b/src/x.ts'],
             repositoriesAffected: ['repo-a'],
           }),
           {
@@ -221,7 +221,7 @@ describe('ImplementerAgent', () => {
     it('uses the custom branch slug when provided for non-ticket execution contexts', async () => {
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
 
-      await agent.execute(ticketArtifact, buildPlan({ filesAffected: [] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: [] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
         customBranchSlug: 'dark-building-creek',
@@ -235,7 +235,7 @@ describe('ImplementerAgent', () => {
     it('delegates to AnthropicAgentAdapter when provider is anthropic', async () => {
       const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
 
-      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
       });
@@ -248,7 +248,7 @@ describe('ImplementerAgent', () => {
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
       });
@@ -313,7 +313,7 @@ describe('ImplementerAgent', () => {
       const googleAgent = module.get(ImplementerAgent);
 
       await expect(
-        googleAgent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+        googleAgent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
           trackerName: 'jira',
           repoDir: '/tmp/repo-a',
         })
@@ -389,7 +389,7 @@ describe('ImplementerAgent', () => {
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      await openaiAgent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+      await openaiAgent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
       });
@@ -411,7 +411,7 @@ describe('ImplementerAgent', () => {
         isClean: () => false,
       } as any);
 
-      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
         silent: true,
@@ -422,7 +422,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('skips stash when working tree is clean', async () => {
-      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
         silent: true,
@@ -435,7 +435,7 @@ describe('ImplementerAgent', () => {
     it('auto-selects dev branch in silent mode', async () => {
       gitService.detectDevelopmentBranches.mockReturnValue(['develop']);
 
-      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
         silent: true,
@@ -456,7 +456,7 @@ describe('ImplementerAgent', () => {
         hasUncommittedChanges: false,
       });
 
-      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
         silent: true,
@@ -475,7 +475,7 @@ describe('ImplementerAgent', () => {
         hasUncommittedChanges: false,
       });
 
-      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
         silent: true,
@@ -487,7 +487,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('does not create branch when --no-branch is set', async () => {
-      const result = await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+      const result = await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
         silent: true,
@@ -501,7 +501,7 @@ describe('ImplementerAgent', () => {
     it('warns and continues when pull fails (no upstream)', async () => {
       gitService.pull.mockRejectedValue(new Error('no upstream'));
 
-      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
         silent: true,
@@ -526,7 +526,7 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: ['repo-a/src/example.ts', 'repo-a/docs/incidents/report.md'],
+          affectedFiles: ['repo-a/src/example.ts', 'repo-a/docs/incidents/report.md'],
         }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
@@ -547,7 +547,7 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: ['repo-a/src/example.ts', 'repo-a/docs/incidents/report.md'],
+          affectedFiles: ['repo-a/src/example.ts', 'repo-a/docs/incidents/report.md'],
         }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
@@ -564,7 +564,7 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: ['repo-a/src/a.ts', 'repo-a/src/b.ts'],
+          affectedFiles: ['repo-a/src/a.ts', 'repo-a/src/b.ts'],
         }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
@@ -574,20 +574,20 @@ describe('ImplementerAgent', () => {
     });
   });
 
-  describe('filesContext / contextFiles', () => {
+  describe('affectedFilesContext / contextFiles', () => {
     beforeEach(() => {
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
-    it('passes contextFiles to adapter when filesContext is present', async () => {
+    it('passes contextFiles to adapter when affectedFilesContext is present', async () => {
       const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
 
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: ['repo-a/src/example.ts'],
-          filesContext: [{ filePath: 'repo-a/package.json', status: 'found' }],
+          affectedFiles: ['repo-a/src/example.ts'],
+          affectedFilesContext: [{ filePath: 'repo-a/package.json', status: 'found' }],
         }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
@@ -596,10 +596,10 @@ describe('ImplementerAgent', () => {
       expect(call.contextFiles).toEqual(['repo-a/package.json']);
     });
 
-    it('passes empty contextFiles when filesContext is absent', async () => {
+    it('passes empty contextFiles when affectedFilesContext is absent', async () => {
       const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
 
-      await agent.execute(ticketArtifact, buildPlan({ filesAffected: ['repo-a/src/example.ts'] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
         silent: true,
@@ -615,8 +615,8 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: ['repo-a/src/example.ts'],
-          filesContext: [
+          affectedFiles: ['repo-a/src/example.ts'],
+          affectedFilesContext: [
             { filePath: 'repo-a/src/example.ts', status: 'found' },
             { filePath: 'repo-a/package.json', status: 'found' },
           ],
@@ -634,8 +634,8 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: ['repo-a/src/example.ts'],
-          filesContext: [
+          affectedFiles: ['repo-a/src/example.ts'],
+          affectedFilesContext: [
             { filePath: 'repo-a/package.json', status: 'found' },
             { filePath: 'repo-a/missing.ts', status: 'not-found' },
           ],
@@ -647,14 +647,14 @@ describe('ImplementerAgent', () => {
       expect(call.contextFiles).toEqual(['repo-a/package.json']);
     });
 
-    it('normalizes legacy string[] filesAffected to FileEntry[]', async () => {
+    it('normalizes legacy string[] affectedFiles to FileEntry[]', async () => {
       const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
 
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: ['repo-a/src/example.ts'],
-          filesContext: ['repo-a/package.json'],
+          affectedFiles: ['repo-a/src/example.ts'],
+          affectedFilesContext: ['repo-a/package.json'],
         }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
@@ -673,7 +673,7 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: [
+          affectedFiles: [
             { filePath: 'repo-a/src/real-file.ts', status: 'found' },
             { filePath: 'repo-a/src/phantom.ts', status: 'found' },
           ],
@@ -696,7 +696,7 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: [{ filePath: 'repo-a/src/new-file.ts', status: 'to-create' }],
+          affectedFiles: [{ filePath: 'repo-a/src/new-file.ts', status: 'to-create' }],
         }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
       );
@@ -714,8 +714,8 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          filesAffected: [{ filePath: 'repo-a/src/real-config.json', status: 'found' }],
-          filesContext: [
+          affectedFiles: [{ filePath: 'repo-a/src/real-config.json', status: 'found' }],
+          affectedFilesContext: [
             { filePath: 'repo-a/real-config.json', status: 'found' },
             { filePath: 'repo-a/phantom-ctx.ts', status: 'found' },
           ],
@@ -735,7 +735,7 @@ describe('ImplementerAgent', () => {
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      await agent.execute(ticketArtifact, buildPlan({ filesAffected: [] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: [] }), {
         trackerName: 'jira',
         repoDir: '/tmp/repo-a',
         silent: true,

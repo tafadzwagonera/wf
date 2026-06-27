@@ -196,7 +196,7 @@ describe('IssueCommand', () => {
             summary: 'Repair the cached plan',
             estimatedComplexity: 'medium',
             steps: ['Patch the login flow'],
-            filesAffected: ['repo-a/src/auth.ts'],
+            affectedFiles: ['repo-a/src/auth.ts'],
             repositoriesAffected: ['repo-a'],
           },
           action: 'fix',
@@ -288,7 +288,7 @@ describe('IssueCommand', () => {
           summary: 'Repair the cached plan',
           estimatedComplexity: 'medium',
           steps: ['Patch the login flow'],
-          filesAffected: ['repo-a/src/auth.ts'],
+          affectedFiles: ['repo-a/src/auth.ts'],
           repositoriesAffected: ['repo-a'],
         });
       }

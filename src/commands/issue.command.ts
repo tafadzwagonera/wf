@@ -394,7 +394,7 @@ export class IssueCommand extends CommandRunner {
                   `  "action": "${action || 'feature'}",`,
                   '  "estimatedComplexity": "medium",',
                   '  "steps": ["<step 1>", "..."],',
-                  '  "filesAffected": ["<file>", "..."]',
+                  '  "affectedFiles": ["<file>", "..."]',
                   '}',
                 ].join('\n'),
               });
@@ -902,7 +902,7 @@ Generated Plan:
 - Complexity: ${workflowState.plan.estimatedComplexity}
 - Steps:
 ${workflowState.plan.steps.map((step: string, i: number) => `  ${i + 1}. ${step}`).join('\n')}
-${workflowState.plan.filesAffected ? `\nFiles Affected:\n${workflowState.plan.filesAffected.map(f => `  - ${typeof f === 'string' ? f : f.filePath}`).join('\n')}` : ''}
+${workflowState.plan.affectedFiles ? `\nFiles Affected:\n${workflowState.plan.affectedFiles.map(f => `  - ${typeof f === 'string' ? f : f.filePath}`).join('\n')}` : ''}
 ${workflowState.plan.risks ? `\nRisks:\n${workflowState.plan.risks.map((r: string) => `  - ${r}`).join('\n')}` : ''}
 
 Help the developer refine the implementation plan, discuss the approach, or address concerns.`;

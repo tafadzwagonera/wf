@@ -1,5 +1,5 @@
 /**
- * Manual smoke test: filesContext plan schema and buildPlanContext extraction
+ * Manual smoke test: affectedFilesContext plan schema and buildPlanContext extraction
  *
  * Run: nr test:manual -- test-files-context-and-plan-context
  *
@@ -11,7 +11,7 @@
  *   5. buildPlanContext is exported from shared-routing.
  *   6. buildPlanContext includes context files section when contextFiles is non-empty.
  *   7. buildPlanContext omits context files section when contextFiles is empty/undefined.
- *   8. ResolutionPlan accepts filesContext and FileEntry in filesAffected.
+ *   8. ResolutionPlan accepts affectedFilesContext and FileEntry in affectedFiles.
  *   9. Plan artifact parser preserves FileEntry objects from JSON.
  *  10. Plan artifact parser preserves legacy string entries.
  *
@@ -45,7 +45,7 @@ const assert = (label: string, condition: boolean): void => {
 };
 
 const run = async (): Promise<void> => {
-  console.log(chalk.bold('\nSmoke test: filesContext and buildPlanContext\n'));
+  console.log(chalk.bold('\nSmoke test: affectedFilesContext and buildPlanContext\n'));
 
   // 1. Exports exist
   assert('FileEntry type is importable', typeof normalizeFileEntries === 'function');
@@ -103,19 +103,19 @@ const run = async (): Promise<void> => {
   });
   assert('buildPlanContext omits context files section when empty', !withEmptyContext.includes('Files for context'));
 
-  // 8. ResolutionPlan type accepts filesContext
+  // 8. ResolutionPlan type accepts affectedFilesContext
   const plan: ResolutionPlan = {
     action: 'fix',
     summary: 'Test',
     steps: ['Step 1'],
     estimatedComplexity: 'low',
-    filesAffected: [{ filePath: 'repo/src/a.ts', status: 'found' }, 'repo/src/legacy.ts'],
-    filesContext: [{ filePath: 'repo/package.json', status: 'found' }],
+    affectedFiles: [{ filePath: 'repo/src/a.ts', status: 'found' }, 'repo/src/legacy.ts'],
+    affectedFilesContext: [{ filePath: 'repo/package.json', status: 'found' }],
     repositoriesAffected: ['repo'],
   };
   assert(
-    'ResolutionPlan accepts filesContext and mixed filesAffected',
-    plan.filesContext!.length === 1 && plan.filesAffected!.length === 2
+    'ResolutionPlan accepts affectedFilesContext and mixed affectedFiles',
+    plan.affectedFilesContext!.length === 1 && plan.affectedFiles!.length === 2
   );
 
   // 9 & 10. Plan artifact parser preserves FileEntry objects and legacy strings
@@ -125,8 +125,8 @@ const run = async (): Promise<void> => {
     summary: 'Test plan',
     steps: ['Step 1'],
     estimatedComplexity: 'low',
-    filesAffected: [{ filePath: 'repo/src/a.ts', status: 'found' }, 'repo/src/b.ts'],
-    filesContext: [{ filePath: 'repo/package.json', status: 'found' }],
+    affectedFiles: [{ filePath: 'repo/src/a.ts', status: 'found' }, 'repo/src/b.ts'],
+    affectedFilesContext: [{ filePath: 'repo/package.json', status: 'found' }],
     repositoriesAffected: ['repo'],
   };
   const planPath = path.join(tmpDir, 'test-plan.json');
@@ -134,7 +134,7 @@ const run = async (): Promise<void> => {
   fs.writeFileSync(planPath, planJson);
 
   const parsed = parsePlanArtifact(planJson, planPath);
-  const parsedAffected = parsed.filesAffected ?? [];
+  const parsedAffected = parsed.affectedFiles ?? [];
   const firstEntry = parsedAffected[0];
   const secondEntry = parsedAffected[1];
   assert(
@@ -146,10 +146,10 @@ const run = async (): Promise<void> => {
     typeof secondEntry === 'string' && secondEntry === 'repo/src/b.ts'
   );
 
-  const parsedContext = parsed.filesContext ?? [];
+  const parsedContext = parsed.affectedFilesContext ?? [];
   const firstContext = parsedContext[0];
   assert(
-    'parsePlanArtifact preserves filesContext',
+    'parsePlanArtifact preserves affectedFilesContext',
     parsedContext.length === 1 && typeof firstContext === 'object' && firstContext.filePath === 'repo/package.json'
   );
 

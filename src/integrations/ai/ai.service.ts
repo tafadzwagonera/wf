@@ -466,7 +466,7 @@ ${repoHint}${discoveryBlock}Create a detailed resolution plan with:
    IMPORTANT: Do NOT guess or infer file paths from conventions. You MUST verify each path
    exists by searching the repository (e.g., grep, find, or reading directory listings)
    before listing it. Hallucinated paths cause the implementer to stall.
-5. Files needed for **context only** (read, not edit) — same object shape as filesAffected.
+5. Files needed for **context only** (read, not edit) — same object shape as affectedFiles.
    E.g., reading package.json to confirm a dependency is installed. All context files must
    have status "found" — you cannot read a file that does not exist yet. Verify each path
    exists before listing it.
@@ -502,8 +502,8 @@ Return ONLY a valid JSON object with these fields:
   "summary": "...",
   "steps": ["step 1", "step 2", ...],
   "estimatedComplexity": "low|medium|high",
-  "filesAffected": [{ "filePath": "${repoExample}/src/path/to/file.ts", "status": "found" }, { "filePath": "${repoExample}/src/path/to/new-file.ts", "status": "to-create" }],
-  "filesContext": [{ "filePath": "${repoExample}/package.json", "status": "found" }],
+  "affectedFiles": [{ "filePath": "${repoExample}/src/path/to/file.ts", "status": "found" }, { "filePath": "${repoExample}/src/path/to/new-file.ts", "status": "to-create" }],
+  "affectedFilesContext": [{ "filePath": "${repoExample}/package.json", "status": "found" }],
   "repositoriesAffected": ["${repoExample}"],
   "risks": ["risk 1", ...],
   "verification": {

@@ -528,7 +528,7 @@ describe('OpenAIAgentAdapter', () => {
         summary: 'Migrate all loggers',
         steps: ['Migrate all Logger instances to PinoLogger'],
         estimatedComplexity: 'low',
-        filesAffected: ['src/a.ts', 'src/b.ts'],
+        affectedFiles: ['src/a.ts', 'src/b.ts'],
       });
       expect(result.isMechanical).toBe(true);
       expect(result.reason).toContain('pattern');
@@ -540,7 +540,7 @@ describe('OpenAIAgentAdapter', () => {
         summary: 'Update imports',
         steps: ['Update imports'],
         estimatedComplexity: 'medium',
-        filesAffected: Array.from({ length: 15 }, (_, i) => `src/f${i}.ts`),
+        affectedFiles: Array.from({ length: 15 }, (_, i) => `src/f${i}.ts`),
       });
       expect(result.isMechanical).toBe(true);
       expect(result.reason).toContain('file-to-step ratio');
@@ -552,7 +552,7 @@ describe('OpenAIAgentAdapter', () => {
         summary: 'Rename function',
         steps: ['Rename foo to bar in each file'],
         estimatedComplexity: 'low',
-        filesAffected: Array.from({ length: 25 }, (_, i) => `src/f${i}.ts`),
+        affectedFiles: Array.from({ length: 25 }, (_, i) => `src/f${i}.ts`),
       });
       expect(result.isMechanical).toBe(true);
     });
@@ -563,7 +563,7 @@ describe('OpenAIAgentAdapter', () => {
         summary: 'Add auth module',
         steps: ['Design auth schema', 'Implement middleware', 'Add tests'],
         estimatedComplexity: 'high',
-        filesAffected: ['src/auth.ts', 'src/auth.spec.ts'],
+        affectedFiles: ['src/auth.ts', 'src/auth.spec.ts'],
       });
       expect(result.isMechanical).toBe(false);
       expect(result.reason).toBe('creative task');

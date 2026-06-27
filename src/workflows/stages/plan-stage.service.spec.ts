@@ -14,7 +14,7 @@ describe('PlanStageService', () => {
     summary: 'Update auth redirect handling',
     estimatedComplexity: 'medium',
     steps: ['Inspect redirect logic', 'Adjust callback handling'],
-    filesAffected: ['src/auth/callback.ts'],
+    affectedFiles: ['src/auth/callback.ts'],
     verification: {
       targeted: [
         {

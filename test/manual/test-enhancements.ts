@@ -99,7 +99,7 @@ async function main() {
       summary: 'Test plan',
       estimatedComplexity: 'low',
       steps: ['Step one', 'Step two'],
-      filesAffected: ['src/foo.ts'],
+      affectedFiles: ['src/foo.ts'],
       repositoriesAffected: ['test-repo'],
     })
   );
@@ -138,7 +138,7 @@ async function main() {
         summary: 'Test investigation',
         steps: ['Step 1'],
         estimatedComplexity: 'low',
-        filesAffected: [],
+        affectedFiles: [],
         repositoriesAffected: [],
         risks: [],
       })

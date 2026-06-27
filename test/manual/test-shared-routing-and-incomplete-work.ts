@@ -69,7 +69,7 @@ const run = async (): Promise<void> => {
     summary: 'Migrate loggers',
     steps: ['Migrate all Logger instances to PinoLogger'],
     estimatedComplexity: 'low',
-    filesAffected: ['a.ts', 'b.ts'],
+    affectedFiles: ['a.ts', 'b.ts'],
   });
   assert('detects mechanical task from step pattern', mechanical.isMechanical);
 
@@ -78,7 +78,7 @@ const run = async (): Promise<void> => {
     summary: 'Fix auth',
     steps: ['Update JWT validation'],
     estimatedComplexity: 'medium',
-    filesAffected: ['auth.ts'],
+    affectedFiles: ['auth.ts'],
   });
   assert('returns creative for focused plan', !creative.isMechanical);
 

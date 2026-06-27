@@ -85,7 +85,7 @@ async function main() {
         summary: 'Repair the custom implementation path',
         steps: ['Route custom plans to the shared implementer'],
         estimatedComplexity: 'medium',
-        filesAffected: ['repo-a/src/commands/issue-implement.command.ts'],
+        affectedFiles: ['repo-a/src/commands/issue-implement.command.ts'],
         repositoriesAffected: ['repo-a'],
       }),
       'utf-8'
@@ -167,7 +167,7 @@ async function main() {
         summary: 'Implement the custom plan flow',
         steps: ['Preview branch and file work'],
         estimatedComplexity: 'medium',
-        filesAffected: ['repo-a/src/commands/issue-implement.command.ts'],
+        affectedFiles: ['repo-a/src/commands/issue-implement.command.ts'],
         repositoriesAffected: ['repo-a'],
       }),
       'utf-8'

@@ -171,7 +171,7 @@ Create a detailed resolution plan with:
    IMPORTANT: Do NOT guess or infer file paths from conventions. You MUST use your read-only
    tools (grep, find, or directory listings) to verify each path exists before listing it.
    Hallucinated paths cause the implementer to stall.
-5. Files needed for **context only** (read, not edit) — same object shape as filesAffected.
+5. Files needed for **context only** (read, not edit) — same object shape as affectedFiles.
    E.g., reading package.json to confirm a dependency. All context files must have status
    "found". Verify each path exists with tools before listing it.
 6. Potential risks or considerations
@@ -204,8 +204,8 @@ Return ONLY a valid JSON object with these fields:
   "summary": "...",
   "steps": ["step 1", "step 2"],
   "estimatedComplexity": "low|medium|high",
-  "filesAffected": [{ "filePath": "${repoExample}/src/path/to/file.ts", "status": "found" }],
-  "filesContext": [{ "filePath": "${repoExample}/package.json", "status": "found" }],
+  "affectedFiles": [{ "filePath": "${repoExample}/src/path/to/file.ts", "status": "found" }],
+  "affectedFilesContext": [{ "filePath": "${repoExample}/package.json", "status": "found" }],
   "repositoriesAffected": ["${repoExample}"],
   "risks": ["risk 1"],
   "verification": {

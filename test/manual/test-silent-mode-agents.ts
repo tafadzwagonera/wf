@@ -33,7 +33,7 @@ const MOCK_PLAN = {
   summary: 'Fix the silent mode',
   estimatedComplexity: 'low',
   steps: ['Step 1'],
-  filesAffected: ['src/test.ts'],
+  affectedFiles: ['src/test.ts'],
   repositoriesAffected: ['wf'],
 };
 

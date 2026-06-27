@@ -75,7 +75,7 @@ async function main(): Promise<void> {
     summary: 'Migrate all loggers',
     steps: ['Migrate all Logger instances to PinoLogger'],
     estimatedComplexity: 'low',
-    filesAffected: ['src/a.ts', 'src/b.ts'],
+    affectedFiles: ['src/a.ts', 'src/b.ts'],
   });
   assert(
     'detects "migrate all" pattern',
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
     summary: 'Update imports',
     steps: ['Update imports'],
     estimatedComplexity: 'medium',
-    filesAffected: Array.from({ length: 15 }, (_, i) => `src/f${i}.ts`),
+    affectedFiles: Array.from({ length: 15 }, (_, i) => `src/f${i}.ts`),
   });
   assert(
     'detects high file-to-step ratio (15 files / 1 step)',
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
     summary: 'Rename function',
     steps: ['Rename foo to bar everywhere'],
     estimatedComplexity: 'low',
-    filesAffected: Array.from({ length: 25 }, (_, i) => `src/f${i}.ts`),
+    affectedFiles: Array.from({ length: 25 }, (_, i) => `src/f${i}.ts`),
   });
   assert(
     'detects low complexity with 25 files',
@@ -119,7 +119,7 @@ async function main(): Promise<void> {
     summary: 'Add auth module',
     steps: ['Design schema', 'Implement middleware', 'Add tests'],
     estimatedComplexity: 'high',
-    filesAffected: ['src/auth.ts', 'src/auth.spec.ts'],
+    affectedFiles: ['src/auth.ts', 'src/auth.spec.ts'],
   });
   assert(
     'returns creative for small focused plan',
@@ -135,7 +135,7 @@ async function main(): Promise<void> {
     summary: 'Replace every old import',
     steps: ['Replace every OldLogger with NewLogger'],
     estimatedComplexity: 'low',
-    filesAffected: ['src/a.ts'],
+    affectedFiles: ['src/a.ts'],
   });
   assert(
     'detects "replace every" pattern',
@@ -149,7 +149,7 @@ async function main(): Promise<void> {
     summary: 'Update config',
     steps: ['Update config'],
     estimatedComplexity: 'medium',
-    filesAffected: Array.from({ length: 12 }, (_, i) => `src/f${i}.ts`),
+    affectedFiles: Array.from({ length: 12 }, (_, i) => `src/f${i}.ts`),
   });
   assert(
     'detects high file-to-step ratio (12 files / 1 step)',
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
     summary: 'Build dashboard',
     steps: ['Design UI', 'Implement API', 'Write tests'],
     estimatedComplexity: 'high',
-    filesAffected: ['src/dashboard.ts'],
+    affectedFiles: ['src/dashboard.ts'],
   });
   assert('returns creative for focused plan', anthropic3.isMechanical === false);
 

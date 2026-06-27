@@ -81,7 +81,7 @@ export class ImplementerAgent {
 
     // Generate and write code changes for files belonging to this repo
     const repoName = options.repoDir ? path.basename(options.repoDir) : '';
-    const normalizedAffected = normalizeFileEntries(planArtifact.plan.filesAffected ?? []);
+    const normalizedAffected = normalizeFileEntries(planArtifact.plan.affectedFiles ?? []);
     const allFiles = normalizedAffected.filter(entry => entry.status !== 'not-found').map(entry => entry.filePath);
 
     // Primary: files explicitly prefixed with this repo's name.
@@ -99,15 +99,15 @@ export class ImplementerAgent {
         if (repoName) {
           console.log(
             chalk.yellow(
-              `  ⚠️ filesAffected lacks "${repoName}/" prefix — treating all paths as relative to ${repoName}`
+              `  ⚠️ affectedFiles lacks "${repoName}/" prefix — treating all paths as relative to ${repoName}`
             )
           );
         }
       }
     }
 
-    // Derive context files (read-only references) from filesContext
-    const normalizedContext = normalizeFileEntries(planArtifact.plan.filesContext ?? []);
+    // Derive context files (read-only references) from affectedFilesContext
+    const normalizedContext = normalizeFileEntries(planArtifact.plan.affectedFilesContext ?? []);
     const allContextPaths = normalizedContext
       .filter(entry => entry.status !== 'not-found')
       .map(entry => entry.filePath);
@@ -291,7 +291,7 @@ export class ImplementerAgent {
       'tsconfig.build.json',
       'README.md',
     ]);
-    const normalizedPaths = normalizeFileEntries(planArtifact.plan.filesAffected ?? []);
+    const normalizedPaths = normalizeFileEntries(planArtifact.plan.affectedFiles ?? []);
     const offendingPaths = normalizedPaths.filter(entry => {
       const [prefix] = entry.filePath.split('/');
       return prefix !== repoName && !localPathPrefixes.has(prefix);

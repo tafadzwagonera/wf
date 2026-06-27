@@ -790,12 +790,12 @@ Return ONLY a valid JSON object:
       '## Files Affected',
       '',
       ...(() => {
-        const affected = normalizeFileEntries(plan.filesAffected ?? []);
+        const affected = normalizeFileEntries(plan.affectedFiles ?? []);
         return affected.length > 0 ? affected.map(e => `- ${e.filePath} (${e.status})`) : ['- (none listed)'];
       })(),
       '',
       ...(() => {
-        const context = normalizeFileEntries(plan.filesContext ?? []);
+        const context = normalizeFileEntries(plan.affectedFilesContext ?? []);
         if (context.length === 0) return [];
         return ['## Files for Context (Read-Only)', '', ...context.map(e => `- ${e.filePath} (${e.status})`), ''];
       })(),
@@ -825,7 +825,7 @@ Return ONLY a valid JSON object:
    */
   private resolveDryRunTrackedFiles(plan: ResolutionPlan, repoDir: string): string[] {
     const repoName = path.basename(repoDir);
-    const entries = normalizeFileEntries(plan.filesAffected ?? []);
+    const entries = normalizeFileEntries(plan.affectedFiles ?? []);
 
     return entries
       .filter(entry => entry.status !== 'not-found')

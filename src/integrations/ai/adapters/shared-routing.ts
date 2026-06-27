@@ -26,7 +26,7 @@ const MECHANICAL_STEP_PATTERNS = [
  * @returns True when the plan appears mechanical, with a human-readable reason
  */
 export const detectMechanicalTask = (plan: ResolutionPlan): { isMechanical: boolean; reason: string } => {
-  const filesCount = plan.filesAffected?.length ?? 0;
+  const filesCount = plan.affectedFiles?.length ?? 0;
   const stepsCount = plan.steps.length;
 
   for (const step of plan.steps) {

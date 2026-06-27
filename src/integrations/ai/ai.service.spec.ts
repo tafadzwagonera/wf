@@ -126,7 +126,7 @@ describe('AiService', () => {
             summary: 'Resolve criteria path handling',
             steps: ['Add failing test', 'Implement resolver'],
             estimatedComplexity: 'medium',
-            filesAffected: ['repo-a/src/commands/issue-review.command.ts'],
+            affectedFiles: ['repo-a/src/commands/issue-review.command.ts'],
             repositoriesAffected: ['repo-a'],
             risks: ['Path resolution regressions'],
             verification: {
@@ -186,7 +186,7 @@ describe('AiService', () => {
           summary: 'Resolve criteria path handling',
           steps: ['Add failing test', 'Implement resolver'],
           estimatedComplexity: 'medium',
-          filesAffected: ['repo-a/src/commands/issue-review.command.ts'],
+          affectedFiles: ['repo-a/src/commands/issue-review.command.ts'],
           repositoriesAffected: ['repo-a'],
         }),
       });
@@ -199,7 +199,7 @@ describe('AiService', () => {
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            '"filesAffected": [{ "filePath": "repo-a/src/path/to/file.ts", "status": "found" }'
+            '"affectedFiles": [{ "filePath": "repo-a/src/path/to/file.ts", "status": "found" }'
           ),
         })
       );

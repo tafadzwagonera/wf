@@ -69,7 +69,7 @@ async function main(): Promise<void> {
         summary: 'Fix it',
         steps: ['step 1'],
         estimatedComplexity: 'low',
-        filesAffected: [],
+        affectedFiles: [],
         risks: [],
       });
     };
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
         summary: 'Fix it',
         steps: ['step 1'],
         estimatedComplexity: 'low',
-        filesAffected: [],
+        affectedFiles: [],
         risks: [],
       });
     };

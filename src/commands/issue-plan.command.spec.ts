@@ -340,7 +340,7 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
+      affectedFiles: ['repo-a/src/auth.ts'],
       repositoriesAffected: ['repo-a'],
       verification: {
         targeted: [
@@ -392,7 +392,7 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
+      affectedFiles: ['repo-a/src/auth.ts'],
       repositoriesAffected: ['repo-a'],
       verification: {
         targeted: [
@@ -435,7 +435,7 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-name/src/auth.ts'],
+      affectedFiles: ['repo-name/src/auth.ts'],
       repositoriesAffected: ['repo-name'],
     } as any);
 
@@ -453,7 +453,7 @@ describe('IssuePlanCommand', () => {
     exitSpy.mockRestore();
   });
 
-  it('rejects filesContext with placeholder prefix', async () => {
+  it('rejects affectedFilesContext with placeholder prefix', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
@@ -468,8 +468,8 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
-      filesContext: ['repo-name/package.json'],
+      affectedFiles: ['repo-a/src/auth.ts'],
+      affectedFilesContext: ['repo-name/package.json'],
       repositoriesAffected: ['repo-a'],
     } as any);
 
@@ -480,14 +480,14 @@ describe('IssuePlanCommand', () => {
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
-      'placeholder repository metadata found in filesContext'
+      'placeholder repository metadata found in affectedFilesContext'
     );
 
     consoleErrorSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
-  it('rejects filesContext with invalid repo prefix', async () => {
+  it('rejects affectedFilesContext with invalid repo prefix', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
@@ -502,8 +502,8 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
-      filesContext: [{ filePath: 'repo-b/package.json', status: 'found' }],
+      affectedFiles: ['repo-a/src/auth.ts'],
+      affectedFilesContext: [{ filePath: 'repo-b/package.json', status: 'found' }],
       repositoriesAffected: ['repo-a'],
     } as any);
 
@@ -514,14 +514,14 @@ describe('IssuePlanCommand', () => {
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
-      'filesContext must use explicit repository prefixes'
+      'affectedFilesContext must use explicit repository prefixes'
     );
 
     consoleErrorSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
-  it('rejects filesContext entries with to-create status', async () => {
+  it('rejects affectedFilesContext entries with to-create status', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
@@ -536,8 +536,8 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
-      filesContext: [{ filePath: 'repo-a/package.json', status: 'to-create' }],
+      affectedFiles: ['repo-a/src/auth.ts'],
+      affectedFilesContext: [{ filePath: 'repo-a/package.json', status: 'to-create' }],
       repositoriesAffected: ['repo-a'],
     } as any);
 
@@ -570,7 +570,7 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
+      affectedFiles: ['repo-a/src/auth.ts'],
       repositoriesAffected: ['repo-a'],
       verification: {
         targeted: [
@@ -615,7 +615,7 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
+      affectedFiles: ['repo-a/src/auth.ts'],
       repositoriesAffected: ['repo-a'],
       verification: {
         targeted: [
@@ -665,7 +665,7 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
+      affectedFiles: ['repo-a/src/auth.ts'],
       repositoriesAffected: ['repo-a'],
       verification: {
         targeted: [
@@ -717,7 +717,7 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
+      affectedFiles: ['repo-a/src/auth.ts'],
       repositoriesAffected: ['repo-a'],
       verification: {
         targeted: [
@@ -772,7 +772,7 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
+      affectedFiles: ['repo-a/src/auth.ts'],
       repositoriesAffected: ['repo-a'],
       verification: {
         targeted: [
@@ -812,7 +812,7 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
+      affectedFiles: ['repo-a/src/auth.ts'],
       repositoriesAffected: ['repo-a'],
     } as any);
 
@@ -849,7 +849,7 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
+      affectedFiles: ['repo-a/src/auth.ts'],
       repositoriesAffected: ['repo-a'],
     } as any);
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
@@ -874,7 +874,7 @@ describe('IssuePlanCommand', () => {
       summary: 'Fix login',
       estimatedComplexity: 'medium',
       steps: ['Inspect auth'],
-      filesAffected: ['repo-a/src/auth.ts'],
+      affectedFiles: ['repo-a/src/auth.ts'],
       repositoriesAffected: ['repo-a'],
     } as any);
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);

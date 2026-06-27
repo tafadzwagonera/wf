@@ -116,7 +116,7 @@ describe('StageAgentService', () => {
         summary: 'Fix it',
         steps: ['step 1'],
         estimatedComplexity: 'low',
-        filesAffected: [],
+        affectedFiles: [],
         risks: [],
       })
     );

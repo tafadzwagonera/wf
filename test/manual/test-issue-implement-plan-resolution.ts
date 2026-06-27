@@ -58,7 +58,7 @@ function overrideHomeDir(nextHomeDir: string): () => void {
 const minimalPlan = JSON.stringify({
   action: 'feature',
   steps: [],
-  filesAffected: [],
+  affectedFiles: [],
   repositoriesAffected: [],
 });
 

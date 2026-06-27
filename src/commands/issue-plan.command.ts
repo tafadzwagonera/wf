@@ -69,8 +69,8 @@ interface IssuePlanOptions {
 }
 
 interface RepoAwarePlan {
-  filesAffected?: (string | import('../integrations/ai/ai.service').FileEntry)[];
-  filesContext?: (string | import('../integrations/ai/ai.service').FileEntry)[];
+  affectedFiles?: (string | import('../integrations/ai/ai.service').FileEntry)[];
+  affectedFilesContext?: (string | import('../integrations/ai/ai.service').FileEntry)[];
   repositoriesAffected?: string[];
   verification?: {
     targeted?: Array<{
@@ -409,7 +409,7 @@ export class IssuePlanCommand extends CommandRunner {
               `  "action": "${action}",`,
               '  "estimatedComplexity": "medium",',
               '  "steps": ["<step 1>", "..."],',
-              '  "filesAffected": ["<file>", "..."]',
+              '  "affectedFiles": ["<file>", "..."]',
               '}',
             ].join('\n'),
           });
@@ -513,7 +513,7 @@ export class IssuePlanCommand extends CommandRunner {
           this.logger.info(`  Action: ${plan.action}`);
           this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
           this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
-          this.logger.info(`  Files affected: ${plan.filesAffected?.length || 0}`);
+          this.logger.info(`  Files affected: ${plan.affectedFiles?.length || 0}`);
         }
         return;
       }
@@ -570,7 +570,7 @@ export class IssuePlanCommand extends CommandRunner {
             `  "action": "${action}",`,
             '  "estimatedComplexity": "medium",',
             '  "steps": ["<step 1>", "..."],',
-            '  "filesAffected": ["<file>", "..."]',
+            '  "affectedFiles": ["<file>", "..."]',
             '}',
           ].join('\n'),
         });
@@ -738,7 +738,7 @@ export class IssuePlanCommand extends CommandRunner {
         this.logger.info(`  Action: ${plan.action}`);
         this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
         this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
-        this.logger.info(`  Files affected: ${plan.filesAffected?.length || 0}`);
+        this.logger.info(`  Files affected: ${plan.affectedFiles?.length || 0}`);
       }
     } catch (error) {
       ErrorHandler.handle(error as Error);
@@ -759,18 +759,18 @@ export class IssuePlanCommand extends CommandRunner {
       md += '\n';
     }
 
-    if (plan.filesAffected && plan.filesAffected.length > 0) {
+    if (plan.affectedFiles && plan.affectedFiles.length > 0) {
       md += `## Files Affected\n\n`;
-      plan.filesAffected.forEach(file => {
+      plan.affectedFiles.forEach(file => {
         const label = typeof file === 'string' ? file : file.filePath;
         md += `- ${label}\n`;
       });
       md += '\n';
     }
 
-    if (plan.filesContext && plan.filesContext.length > 0) {
+    if (plan.affectedFilesContext && plan.affectedFilesContext.length > 0) {
       md += `## Files for Context (Read-Only)\n\n`;
-      plan.filesContext.forEach(file => {
+      plan.affectedFilesContext.forEach(file => {
         const label = typeof file === 'string' ? file : file.filePath;
         md += `- ${label}\n`;
       });
@@ -973,19 +973,19 @@ export class IssuePlanCommand extends CommandRunner {
     testInfra?: TestInfraContext
   ): void {
     const repositoriesAffected = plan.repositoriesAffected ?? [];
-    const normalizedAffected = normalizeFileEntries(plan.filesAffected ?? []);
-    const normalizedContext = normalizeFileEntries(plan.filesContext ?? []);
+    const normalizedAffected = normalizeFileEntries(plan.affectedFiles ?? []);
+    const normalizedContext = normalizeFileEntries(plan.affectedFilesContext ?? []);
 
     if (repositoriesAffected.some(repository => repository === 'repo-name')) {
       throw createPlanValidationError('placeholder repository metadata found in repositoriesAffected.');
     }
 
     if (normalizedAffected.some(entry => entry.filePath.startsWith('repo-name/'))) {
-      throw createPlanValidationError('placeholder repository metadata found in filesAffected.');
+      throw createPlanValidationError('placeholder repository metadata found in affectedFiles.');
     }
 
     if (normalizedContext.some(entry => entry.filePath.startsWith('repo-name/'))) {
-      throw createPlanValidationError('placeholder repository metadata found in filesContext.');
+      throw createPlanValidationError('placeholder repository metadata found in affectedFilesContext.');
     }
 
     if (expectedRepositories.length > 0 && repositoriesAffected.length === 0) {
@@ -1009,7 +1009,7 @@ export class IssuePlanCommand extends CommandRunner {
     });
     if (invalidAffectedFiles.length > 0) {
       throw createPlanValidationError(
-        `filesAffected must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidAffectedFiles.map(e => e.filePath).join(', ')}.`
+        `affectedFiles must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidAffectedFiles.map(e => e.filePath).join(', ')}.`
       );
     }
 
@@ -1019,15 +1019,15 @@ export class IssuePlanCommand extends CommandRunner {
     });
     if (invalidContextFiles.length > 0) {
       throw createPlanValidationError(
-        `filesContext must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidContextFiles.map(e => e.filePath).join(', ')}.`
+        `affectedFilesContext must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidContextFiles.map(e => e.filePath).join(', ')}.`
       );
     }
 
-    // Validate to-create is not used in filesContext (cannot read a non-existent file)
+    // Validate to-create is not used in affectedFilesContext (cannot read a non-existent file)
     const invalidContextStatus = normalizedContext.filter(entry => entry.status === 'to-create');
     if (invalidContextStatus.length > 0) {
       throw createPlanValidationError(
-        `filesContext entries cannot have status "to-create" — context files must already exist. Invalid: ${invalidContextStatus.map(e => e.filePath).join(', ')}.`
+        `affectedFilesContext entries cannot have status "to-create" — context files must already exist. Invalid: ${invalidContextStatus.map(e => e.filePath).join(', ')}.`
       );
     }
 
@@ -1072,15 +1072,15 @@ export class IssuePlanCommand extends CommandRunner {
 
     if (cleanedAffected.length < normalizedAffected.length) {
       const removed = normalizedAffected.length - cleanedAffected.length;
-      console.log(chalk.yellow(`  ⚠️ Removed ${removed} unresolvable path(s) from filesAffected`));
+      console.log(chalk.yellow(`  ⚠️ Removed ${removed} unresolvable path(s) from affectedFiles`));
     }
     if (cleanedContext.length < normalizedContext.length) {
       const removed = normalizedContext.length - cleanedContext.length;
-      console.log(chalk.yellow(`  ⚠️ Removed ${removed} unresolvable path(s) from filesContext`));
+      console.log(chalk.yellow(`  ⚠️ Removed ${removed} unresolvable path(s) from affectedFilesContext`));
     }
 
-    plan.filesAffected = cleanedAffected;
-    plan.filesContext = cleanedContext;
+    plan.affectedFiles = cleanedAffected;
+    plan.affectedFilesContext = cleanedContext;
 
     if (plan.verification?.targeted?.length) {
       plan.verification.targeted = plan.verification.targeted.map(check => ({
