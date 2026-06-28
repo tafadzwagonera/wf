@@ -68,18 +68,26 @@ export class PlanStageService {
           onProgress: options.onProgress,
         });
       } catch (error) {
-        if (!isAIErrorLike(error) || !error.message.includes('Failed to parse resolution plan')) {
+        const isFallbackEligible =
+          isAIErrorLike(error) &&
+          (error.message.includes('Failed to parse resolution plan') ||
+            error.message.includes('CLI finished without returning a result'));
+
+        if (!isFallbackEligible) {
           throw error;
         }
-        const agentProse = error.details?.response;
-        if (typeof agentProse !== 'string' || !agentProse.trim()) {
-          throw error;
-        }
-        console.log(chalk.yellow('  ⚠️  Agent returned prose — falling back to structured completion'));
+
+        const agentProse =
+          typeof error.details?.response === 'string' && error.details.response.trim()
+            ? error.details.response
+            : undefined;
+
+        const label = agentProse ? 'Agent returned prose' : 'Agent returned no result';
+        console.log(chalk.yellow(`  \u26A0\uFE0F  ${label} \u2014 falling back to structured completion`));
         const action = options.action as 'fix' | 'implement' | 'investigate';
         const fallbackResult = await this.aiService.generatePlan(action, ticketContent, {
           ...standardContext,
-          agentAnalysis: agentProse,
+          ...(agentProse ? { agentAnalysis: agentProse } : {}),
         });
 
         if (!fallbackResult?.action || !fallbackResult?.summary || !Array.isArray(fallbackResult?.steps)) {

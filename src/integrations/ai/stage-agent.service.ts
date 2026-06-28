@@ -24,7 +24,6 @@ import {
   ResolutionPlan,
   sanitizeCodeReviewTrace,
 } from './ai.service';
-import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import { AIError, isAIErrorLike } from '../../shared/utils/errors';
 import type { TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
@@ -1015,8 +1014,6 @@ Return only the requested ticket markdown and preserve the required heading stru
     const resolvedRepoDir = params.repoDir ?? process.cwd();
     const allowInspection = Boolean(params.repoDir);
 
-    const jsonSchema = params.stage === 'plan' ? JSON.stringify(z.toJSONSchema(resolutionPlanSchema)) : undefined;
-
     let lastDiagnostics: string[] = [];
     for (let attempt = 0; attempt <= CLI_STAGE_MAX_RETRIES; attempt++) {
       const args = buildCliArgs({
@@ -1026,7 +1023,6 @@ Return only the requested ticket markdown and preserve the required heading stru
         cwd: resolvedRepoDir,
         tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
         permissionMode: 'plan',
-        jsonSchema,
       });
 
       let result = '';
@@ -1049,8 +1045,10 @@ Return only the requested ticket markdown and preserve the required heading stru
     }
 
     const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
-    throw new Error(
-      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`
+    throw new AIError(
+      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`,
+      null,
+      true
     );
   }
 
@@ -1110,8 +1108,10 @@ Return only the requested ticket markdown and preserve the required heading stru
     }
 
     const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
-    throw new Error(
-      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`
+    throw new AIError(
+      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`,
+      null,
+      true
     );
   }
 }

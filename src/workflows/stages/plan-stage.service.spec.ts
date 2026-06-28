@@ -225,18 +225,17 @@ describe('PlanStageService', () => {
     expect(aiService.generatePlan).not.toHaveBeenCalled();
   });
 
-  it('re-throws when agent prose response is empty', async () => {
+  it('falls back to structured completion when agent prose response is empty', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
     const emptyProseError = new AIError('Failed to parse resolution plan from agent response', {
       response: '',
     });
     (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(emptyProseError);
 
-    await expect(service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-402' })).rejects.toThrow(
-      'Failed to parse resolution plan'
-    );
+    const result = await service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-402' });
 
-    expect(aiService.generatePlan).not.toHaveBeenCalled();
+    expect(aiService.generatePlan).toHaveBeenCalled();
+    expect(result).toMatchObject({ action: 'fix', summary: expect.any(String) });
   });
 
   it('throws when fallback result is structurally invalid', async () => {
