@@ -141,6 +141,30 @@ describe('claude-cli-runner', () => {
       expect(args[addDirIndices[0] + 1]).toBe('/sibling-a');
       expect(args[addDirIndices[1] + 1]).toBe('/sibling-b');
     });
+
+    it('includes --json-schema when jsonSchema is provided', () => {
+      const schema = '{"type":"object","properties":{"action":{"type":"string"}}}';
+      const args = buildCliArgs({
+        prompt: 'test',
+        model: 'claude-sonnet-4-6',
+        cwd: '/repo',
+        jsonSchema: schema,
+      });
+
+      const idx = args.indexOf('--json-schema');
+      expect(idx).toBeGreaterThan(-1);
+      expect(args[idx + 1]).toBe(schema);
+    });
+
+    it('omits --json-schema when jsonSchema is not provided', () => {
+      const args = buildCliArgs({
+        prompt: 'test',
+        model: 'claude-sonnet-4-6',
+        cwd: '/repo',
+      });
+
+      expect(args).not.toContain('--json-schema');
+    });
   });
 
   describe('parseNdjsonLine', () => {

@@ -112,9 +112,12 @@ async function main(): Promise<void> {
   const isValid = validPlan?.action && validPlan?.summary && Array.isArray(validPlan?.steps);
   assert('Complete plan detected as valid', isValid);
 
-  // --- Test 7: globalThis.fetch is available ---
-  console.log(chalk.bold('\nTest 7: globalThis.fetch is available in runtime'));
-  assert('globalThis.fetch is a function', typeof globalThis.fetch === 'function');
+  // --- Test 7: node-fetch fallback is available ---
+  console.log(chalk.bold('\nTest 7: node-fetch fallback is available when globalThis.fetch is missing'));
+  const nodeFetch = require('node-fetch');
+  assert('node-fetch exports a function', typeof nodeFetch === 'function');
+  const fetchImpl = globalThis.fetch ?? nodeFetch;
+  assert('fetch fallback resolves to a function', typeof fetchImpl === 'function');
 
   // --- Summary ---
   console.log(chalk.bold('\nSummary'));

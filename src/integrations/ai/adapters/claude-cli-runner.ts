@@ -31,6 +31,7 @@ export interface CliRunnerParams {
   permissionMode?: 'plan' | 'acceptEdits';
   addDirs?: string[];
   env?: Record<string, string>;
+  jsonSchema?: string;
 }
 
 const CLI_TIMEOUT_MS = 10 * 60 * 1000;
@@ -81,6 +82,10 @@ export const buildCliArgs = (params: CliRunnerParams): string[] => {
     for (const dir of params.addDirs) {
       args.push('--add-dir', dir);
     }
+  }
+
+  if (params.jsonSchema) {
+    args.push('--json-schema', params.jsonSchema);
   }
 
   return args;

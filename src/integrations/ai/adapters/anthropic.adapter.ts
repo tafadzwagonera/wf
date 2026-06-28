@@ -52,7 +52,9 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
       return;
     }
 
-    this.client = new Anthropic({ apiKey, fetch: globalThis.fetch });
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fetchImpl = globalThis.fetch ?? require('node-fetch');
+    this.client = new Anthropic({ apiKey, fetch: fetchImpl });
     this.model = this.configService.get<string>('ai.model', 'claude-sonnet-4-20250514');
 
     this.logger.debug(`Initialized Anthropic adapter with model: ${this.model}`);

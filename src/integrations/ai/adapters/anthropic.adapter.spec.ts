@@ -97,13 +97,30 @@ describe('AnthropicAdapter', () => {
   });
 
   describe('initializeClient', () => {
-    it('passes globalThis.fetch to the Anthropic constructor', () => {
+    it('uses globalThis.fetch when available', () => {
       const adapter = createAdapter();
       (adapter as any).initializeClient();
 
       const client = (adapter as any).client as Anthropic;
       expect(client).toBeDefined();
       expect((client as any).fetch).toBe(globalThis.fetch);
+    });
+
+    it('falls back to node-fetch when globalThis.fetch is unavailable', () => {
+      const originalFetch = globalThis.fetch;
+      try {
+        // @ts-expect-error — simulate Node < 18 where fetch is undefined
+        delete globalThis.fetch;
+
+        const adapter = createAdapter();
+        (adapter as any).initializeClient();
+
+        const client = (adapter as any).client as Anthropic;
+        expect(client).toBeDefined();
+        expect((client as any).fetch).toBe(require('node-fetch'));
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
   });
 

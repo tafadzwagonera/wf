@@ -76,6 +76,7 @@
     "inquirer": "^8.2.6",
     "marked": "^17.0.4",
     "nest-commander": "^3.20.1",
+    "node-fetch": "2",
     "openai": "^6.32.0",
     "ora": "^5.4.1",
     "reflect-metadata": "^0.2.2",
