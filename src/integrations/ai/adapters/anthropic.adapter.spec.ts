@@ -96,6 +96,17 @@ describe('AnthropicAdapter', () => {
     });
   });
 
+  describe('initializeClient', () => {
+    it('passes globalThis.fetch to the Anthropic constructor', () => {
+      const adapter = createAdapter();
+      (adapter as any).initializeClient();
+
+      const client = (adapter as any).client as Anthropic;
+      expect(client).toBeDefined();
+      expect((client as any).fetch).toBe(globalThis.fetch);
+    });
+  });
+
   describe('onModuleInit', () => {
     it('loads context config and enables warning when provider intent exists', async () => {
       const adapter = createAdapter();

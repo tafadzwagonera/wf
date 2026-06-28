@@ -52,7 +52,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
       return;
     }
 
-    this.client = new Anthropic({ apiKey });
+    this.client = new Anthropic({ apiKey, fetch: globalThis.fetch });
     this.model = this.configService.get<string>('ai.model', 'claude-sonnet-4-20250514');
 
     this.logger.debug(`Initialized Anthropic adapter with model: ${this.model}`);

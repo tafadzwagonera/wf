@@ -9,6 +9,8 @@
  *   3. PlanStageService falls back to standard completion on prose AIError.
  *   4. PlanStageService re-throws non-parsing AIErrors.
  *   5. PlanStageService throws when fallback result is structurally invalid.
+ *   6. (continued from 5) Valid plan passes the structural gate.
+ *   7. globalThis.fetch is available in the Node.js runtime.
  */
 import chalk from 'chalk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -109,6 +111,10 @@ async function main(): Promise<void> {
   const validPlan = { action: 'fix', summary: 'Fix auth', steps: ['step 1'] } as any;
   const isValid = validPlan?.action && validPlan?.summary && Array.isArray(validPlan?.steps);
   assert('Complete plan detected as valid', isValid);
+
+  // --- Test 7: globalThis.fetch is available ---
+  console.log(chalk.bold('\nTest 7: globalThis.fetch is available in runtime'));
+  assert('globalThis.fetch is a function', typeof globalThis.fetch === 'function');
 
   // --- Summary ---
   console.log(chalk.bold('\nSummary'));
