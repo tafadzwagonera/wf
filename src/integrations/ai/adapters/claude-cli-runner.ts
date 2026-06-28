@@ -18,6 +18,7 @@ export interface ClaudeCliMessage {
   files?: Array<{ filename: string }>;
   summary?: string;
   rate_limit_info?: { status?: string; resetsAt?: number };
+  structured_output?: Record<string, unknown>;
   [key: string]: unknown;
 }
 

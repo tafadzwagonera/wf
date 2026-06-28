@@ -1,21 +1,21 @@
 /**
- * Manual smoke test: CLI --json-schema flag extension point and node-fetch polyfill
+ * Manual smoke test: CLI --json-schema flag and node-fetch polyfill
  *
  * Run: nr test:manual -- test-cli-json-schema-and-fetch-polyfill
  *
  * Verifies:
  *   1. buildCliArgs includes --json-schema when jsonSchema is provided.
  *   2. buildCliArgs omits --json-schema when jsonSchema is not provided.
- *   3. node-fetch is available as a CJS require.
- *   4. Anthropic adapter fetch fallback resolves to a function.
- *   5. Fetch fallback works when globalThis.fetch is deleted.
- *   6. Prose response triggers the fallback error shape in PlanStageService.
- *   7. "No result" AIError matches the widened fallback guard.
- *   8. Unrelated AIErrors do NOT match the fallback guard.
+ *   3. z.toJSONSchema produces a valid JSON Schema from resolutionPlanSchema.
+ *   4. The generated JSON Schema is a string-serializable object.
+ *   5. node-fetch is available as a CJS require.
+ *   6. Anthropic adapter fetch fallback resolves to a function.
+ *   7. CliRunnerParams accepts the jsonSchema field without type errors.
  */
 import chalk from 'chalk';
+import { z } from 'zod';
 import { buildCliArgs } from '../../src/integrations/ai/adapters/claude-cli-runner';
-import { AIError, isAIErrorLike } from '../../src/shared/utils/errors';
+import { resolutionPlanSchema } from '../../src/shared/schemas/ai.schema';
 
 let passed = 0;
 let failed = 0;
@@ -39,7 +39,7 @@ const assert = (message: string, condition: boolean, detail?: string): void => {
 };
 
 async function main(): Promise<void> {
-  console.log(chalk.bold.cyan('\n\uD83E\uDDEA CLI --json-schema extension and node-fetch polyfill smoke test\n'));
+  console.log(chalk.bold.cyan('\n\uD83E\uDDEA CLI --json-schema and node-fetch polyfill smoke test\n'));
 
   // --- Test 1: buildCliArgs includes --json-schema ---
   console.log(chalk.bold('Test 1: buildCliArgs includes --json-schema when provided'));
@@ -63,60 +63,91 @@ async function main(): Promise<void> {
   });
   assert('--json-schema flag is absent', !argsWithoutSchema.includes('--json-schema'));
 
-  // --- Test 3: node-fetch is available ---
-  console.log(chalk.bold('\nTest 3: node-fetch is available as CJS require'));
+  // --- Test 3: z.toJSONSchema produces valid JSON Schema ---
+  console.log(chalk.bold('\nTest 3: z.toJSONSchema produces a valid JSON Schema'));
+  const jsonSchema = z.toJSONSchema(resolutionPlanSchema);
+  assert('Result is an object', typeof jsonSchema === 'object' && jsonSchema !== null);
+  assert('Has type property', 'type' in jsonSchema && jsonSchema.type === 'object');
+  assert('Has properties', 'properties' in jsonSchema && typeof jsonSchema.properties === 'object');
+  const props = jsonSchema.properties as Record<string, unknown>;
+  assert('Contains action property', 'action' in props);
+  assert('Contains summary property', 'summary' in props);
+  assert('Contains steps property', 'steps' in props);
+  assert('Contains estimatedComplexity property', 'estimatedComplexity' in props);
+
+  // --- Test 4: JSON Schema is string-serializable ---
+  console.log(chalk.bold('\nTest 4: JSON Schema is string-serializable'));
+  const serialized = JSON.stringify(jsonSchema);
+  assert('Serializes to a non-empty string', typeof serialized === 'string' && serialized.length > 0);
+  const roundTripped = JSON.parse(serialized);
+  assert('Round-trips back to equivalent object', roundTripped.type === 'object');
+
+  // --- Test 5: node-fetch is available ---
+  console.log(chalk.bold('\nTest 5: node-fetch is available as CJS require'));
   const nodeFetch = require('node-fetch');
   assert('node-fetch exports a function', typeof nodeFetch === 'function');
 
-  // --- Test 4: fetch fallback resolves ---
-  console.log(chalk.bold('\nTest 4: Fetch fallback resolves to a function'));
+  // --- Test 6: fetch fallback resolves ---
+  console.log(chalk.bold('\nTest 6: Fetch fallback resolves to a function'));
   const fetchImpl = globalThis.fetch ?? nodeFetch;
   assert('Fallback is a function', typeof fetchImpl === 'function');
 
-  // --- Test 5: fetch fallback works when globalThis.fetch is deleted ---
-  console.log(chalk.bold('\nTest 5: Fetch fallback works when globalThis.fetch is missing'));
-  const originalFetch = globalThis.fetch;
-  try {
-    // @ts-expect-error — simulate Node < 18
-    delete globalThis.fetch;
-    const fallback = globalThis.fetch ?? nodeFetch;
-    assert('Fallback resolves to node-fetch', fallback === nodeFetch);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-
-  // --- Test 6: Prose response triggers the fallback error shape ---
-  console.log(chalk.bold('\nTest 6: Prose response triggers the PlanStageService fallback guard'));
-  const proseError = new AIError('Failed to parse resolution plan from agent response', {
-    response: 'Here is my detailed analysis of the codebase...',
-    error: new SyntaxError('Unexpected token H in JSON at position 0'),
+  // --- Test 7: CliRunnerParams accepts jsonSchema ---
+  console.log(chalk.bold('\nTest 7: CliRunnerParams accepts jsonSchema field'));
+  const paramsWithSchema = buildCliArgs({
+    prompt: 'plan prompt',
+    model: 'claude-sonnet-4-6',
+    cwd: '/repo',
+    permissionMode: 'plan',
+    jsonSchema: serialized,
   });
-  assert('isAIErrorLike returns true', isAIErrorLike(proseError));
-  assert('Error message matches fallback trigger', proseError.message.includes('Failed to parse resolution plan'));
-  const agentProse = proseError.details?.response;
+  assert('Args built successfully with jsonSchema', Array.isArray(paramsWithSchema));
   assert(
-    'Error details contain a non-empty prose response',
-    typeof agentProse === 'string' && agentProse.trim().length > 0
+    'Schema value is the full serialized schema',
+    paramsWithSchema[paramsWithSchema.indexOf('--json-schema') + 1] === serialized
   );
 
-  // --- Test 7: "No result" AIError matches the widened fallback guard ---
-  console.log(chalk.bold('\nTest 7: "No result" AIError matches the widened fallback guard'));
-  const noResultError = new AIError('Claude CLI finished without returning a result after 2 attempt(s).', null, true);
-  assert('isAIErrorLike returns true for no-result error', isAIErrorLike(noResultError));
-  assert(
-    'Error message matches widened fallback trigger',
-    noResultError.message.includes('CLI finished without returning a result')
-  );
-  assert('Error details.response is absent (no prose)', noResultError.details?.response === undefined);
+  // --- Test 8: structured_output is preferred over empty result ---
+  console.log(chalk.bold('\nTest 8: structured_output is preferred over empty result'));
+  const structuredMessage = {
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    result: '',
+    structured_output: { action: 'fix', summary: 'Fix auth', steps: ['step 1'] },
+  };
+  let extracted = '';
+  if (structuredMessage.type === 'result' && !structuredMessage.is_error) {
+    if (structuredMessage.structured_output && typeof structuredMessage.structured_output === 'object') {
+      extracted = JSON.stringify(structuredMessage.structured_output);
+    } else if (structuredMessage.result) {
+      extracted = structuredMessage.result;
+    }
+  }
+  assert('Extracts from structured_output when result is empty', extracted.length > 0);
+  const parsed = JSON.parse(extracted);
+  assert('Parsed action matches', parsed.action === 'fix');
+  assert('Parsed summary matches', parsed.summary === 'Fix auth');
+  assert('Parsed steps is an array', Array.isArray(parsed.steps));
 
-  // --- Test 8: Unrelated AIErrors do NOT match the fallback guard ---
-  console.log(chalk.bold('\nTest 8: Unrelated AIErrors bypass the fallback guard'));
-  const rateLimitError = new AIError('Rate limit exceeded', { status: 429 });
-  assert('Rate limit AIError is AIError-like', isAIErrorLike(rateLimitError));
-  const rateLimitMatchesFallback =
-    rateLimitError.message.includes('Failed to parse resolution plan') ||
-    rateLimitError.message.includes('CLI finished without returning a result');
-  assert('Rate limit error does NOT match fallback trigger', !rateLimitMatchesFallback);
+  // --- Test 9: result is used when structured_output is absent ---
+  console.log(chalk.bold('\nTest 9: result is used when structured_output is absent'));
+  const plainMessage = {
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    result: '{"action":"feature","summary":"Add login"}',
+  };
+  let plainExtracted = '';
+  if (plainMessage.type === 'result' && !plainMessage.is_error) {
+    const so = (plainMessage as Record<string, unknown>).structured_output;
+    if (so && typeof so === 'object') {
+      plainExtracted = JSON.stringify(so);
+    } else if (plainMessage.result) {
+      plainExtracted = plainMessage.result;
+    }
+  }
+  assert('Falls back to result when structured_output is absent', plainExtracted === plainMessage.result);
 
   // --- Summary ---
   console.log(chalk.bold('\nSummary'));

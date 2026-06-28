@@ -24,6 +24,7 @@ import {
   ResolutionPlan,
   sanitizeCodeReviewTrace,
 } from './ai.service';
+import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import { AIError, isAIErrorLike } from '../../shared/utils/errors';
 import type { TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
@@ -1014,6 +1015,8 @@ Return only the requested ticket markdown and preserve the required heading stru
     const resolvedRepoDir = params.repoDir ?? process.cwd();
     const allowInspection = Boolean(params.repoDir);
 
+    const jsonSchema = params.stage === 'plan' ? JSON.stringify(z.toJSONSchema(resolutionPlanSchema)) : undefined;
+
     let lastDiagnostics: string[] = [];
     for (let attempt = 0; attempt <= CLI_STAGE_MAX_RETRIES; attempt++) {
       const args = buildCliArgs({
@@ -1023,6 +1026,7 @@ Return only the requested ticket markdown and preserve the required heading stru
         cwd: resolvedRepoDir,
         tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
         permissionMode: 'plan',
+        jsonSchema,
       });
 
       let result = '';
@@ -1032,8 +1036,12 @@ Return only the requested ticket markdown and preserve the required heading stru
           const line = formatAnthropicProgressMessage(message as never, 'claude-cli');
           if (line) params.onProgress(line);
         }
-        if (message.type === 'result' && message.result && !message.is_error) {
-          result = message.result;
+        if (message.type === 'result' && !message.is_error) {
+          if (message.structured_output && typeof message.structured_output === 'object') {
+            result = JSON.stringify(message.structured_output);
+          } else if (message.result) {
+            result = message.result;
+          }
         }
         const diagnostic = extractCliDiagnostic(message);
         if (diagnostic) cliDiagnostics.push(diagnostic);
@@ -1086,8 +1094,12 @@ Return only the requested ticket markdown and preserve the required heading stru
         if (message.session_id) {
           sessionId = message.session_id;
         }
-        if (message.type === 'result' && message.result && !message.is_error) {
-          result = message.result;
+        if (message.type === 'result' && !message.is_error) {
+          if (message.structured_output && typeof message.structured_output === 'object') {
+            result = JSON.stringify(message.structured_output);
+          } else if (message.result) {
+            result = message.result;
+          }
         }
         const diagnostic = extractCliDiagnostic(message);
         if (diagnostic) cliDiagnostics.push(diagnostic);
