@@ -8,6 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import chalk from 'chalk';
 import dayjs from 'dayjs';
 import { formatProgressMessage as formatAnthropicProgressMessage } from './adapters/anthropic-agent.adapter';
 import { formatProgressMessage as formatOpenAiProgressMessage } from './adapters/openai-agent.adapter';
@@ -62,8 +63,6 @@ const ALLOWED_READ_ONLY_COMMAND_PREFIXES = [
   'git diff',
 ];
 
-const CLI_STAGE_MAX_RETRIES = 1;
-
 const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => {
   if (message.is_error) {
     return message.result ?? message.summary ?? JSON.stringify(message);
@@ -75,6 +74,34 @@ const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => 
     }
   }
   return undefined;
+};
+
+const CLI_STAGE_LABEL = 'claude-cli';
+const CLI_STALL_THRESHOLD = 2;
+
+/**
+ * Extracts the last assistant turn's text from a CLI NDJSON message.
+ * Only the last assistant turn is relevant — earlier turns may contain
+ * JSON-like fragments from intermediate analysis.
+ */
+const extractAssistantText = (message: ClaudeCliMessage): string | undefined => {
+  if (message.type !== 'assistant') return undefined;
+  const content = (message as Record<string, unknown>).message;
+  if (!content || typeof content !== 'object' || !('content' in content)) return undefined;
+  const blocks = (content as { content: unknown[] }).content;
+  if (!Array.isArray(blocks)) return undefined;
+  let turnText = '';
+  for (const block of blocks) {
+    if (
+      typeof block === 'object' &&
+      block !== null &&
+      (block as Record<string, unknown>).type === 'text' &&
+      typeof (block as Record<string, unknown>).text === 'string'
+    ) {
+      turnText += (block as { text: string }).text;
+    }
+  }
+  return turnText || undefined;
 };
 
 import type { StageProgressCallback, AgentStageName } from '../../shared/types/agent.types';
@@ -1017,47 +1044,90 @@ Return only the requested ticket markdown and preserve the required heading stru
 
     const jsonSchema = params.stage === 'plan' ? JSON.stringify(z.toJSONSchema(resolutionPlanSchema)) : undefined;
 
+    let sessionId: string | undefined;
+    let stalledPasses = 0;
+    let passNumber = 0;
     let lastDiagnostics: string[] = [];
-    for (let attempt = 0; attempt <= CLI_STAGE_MAX_RETRIES; attempt++) {
+
+    while (true) {
+      passNumber++;
+      const isResume = passNumber > 1 && sessionId;
+
+      const prompt = isResume
+        ? 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — raw JSON only.'
+        : params.prompt;
+
       const args = buildCliArgs({
-        prompt: params.prompt,
+        prompt,
         appendSystemPrompt: params.systemPrompt,
         model,
         cwd: resolvedRepoDir,
         tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
         permissionMode: 'plan',
+        sessionId: isResume ? sessionId : undefined,
         jsonSchema,
       });
 
       let result = '';
+      let resultSource: 'structured_output' | 'result' | 'assistant_text' | undefined;
+      let lastAssistantText = '';
       const cliDiagnostics: string[] = [];
-      for await (const message of spawnCli(args, resolvedRepoDir, params.prompt)) {
+
+      for await (const message of spawnCli(args, resolvedRepoDir, prompt)) {
+        if (message.session_id) sessionId = message.session_id;
+
         if (params.onProgress) {
-          const line = formatAnthropicProgressMessage(message as never, 'claude-cli');
+          const line = formatAnthropicProgressMessage(message as never, CLI_STAGE_LABEL);
           if (line) params.onProgress(line);
         }
+
+        const assistantText = extractAssistantText(message);
+        if (assistantText) lastAssistantText = assistantText;
+
         if (message.type === 'result' && !message.is_error) {
           if (message.structured_output && typeof message.structured_output === 'object') {
             result = JSON.stringify(message.structured_output);
+            resultSource = 'structured_output';
           } else if (message.result) {
             result = message.result;
+            resultSource = 'result';
           }
         }
         const diagnostic = extractCliDiagnostic(message);
         if (diagnostic) cliDiagnostics.push(diagnostic);
       }
 
-      if (result) return result.trim();
+      if (!result && lastAssistantText.trim()) {
+        result = lastAssistantText;
+        resultSource = 'assistant_text';
+      }
+
+      if (result) {
+        console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${resultSource} (pass ${passNumber})`));
+        return result.trim();
+      }
+
+      // Stall detection: stop when consecutive passes produce no content
+      const hadContent = lastAssistantText.trim().length > 0;
+      if (hadContent) {
+        stalledPasses = 0;
+      } else {
+        stalledPasses++;
+      }
+
+      if (stalledPasses >= CLI_STALL_THRESHOLD) {
+        const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
+        throw new AIError(
+          `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`,
+          null,
+          true
+        );
+      }
 
       lastDiagnostics = cliDiagnostics;
-    }
 
-    const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
-    throw new AIError(
-      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`,
-      null,
-      true
-    );
+      console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${passNumber}: no usable result — resuming session`));
+    }
   }
 
   private async cliChatTurn(params: {
@@ -1073,39 +1143,60 @@ Return only the requested ticket markdown and preserve the required heading stru
     const resolvedRepoDir = params.repoDir ?? process.cwd();
     const allowInspection = Boolean(params.repoDir);
 
-    let lastDiagnostics: string[] = [];
     let sessionId: string | undefined = params.session?.sessionId;
+    let stalledPasses = 0;
+    let passNumber = 0;
+    let lastDiagnostics: string[] = [];
 
-    for (let attempt = 0; attempt <= CLI_STAGE_MAX_RETRIES; attempt++) {
+    while (true) {
+      passNumber++;
+      const isResume = passNumber > 1 && sessionId;
+
+      const prompt = isResume
+        ? 'Your previous response did not include a usable result. Please respond with the requested content directly.'
+        : params.userMessage;
+
       const args = buildCliArgs({
-        prompt: params.userMessage,
+        prompt,
         appendSystemPrompt: params.systemPrompt,
         model,
         cwd: resolvedRepoDir,
-        sessionId: params.session?.sessionId,
+        sessionId: isResume ? sessionId : params.session?.sessionId,
         tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
         permissionMode: 'plan',
       });
 
       let result = '';
+      let resultSource: 'structured_output' | 'result' | 'assistant_text' | undefined;
+      let lastAssistantText = '';
       const cliDiagnostics: string[] = [];
 
-      for await (const message of spawnCli(args, resolvedRepoDir, params.userMessage)) {
-        if (message.session_id) {
-          sessionId = message.session_id;
-        }
+      for await (const message of spawnCli(args, resolvedRepoDir, prompt)) {
+        if (message.session_id) sessionId = message.session_id;
+
+        const assistantText = extractAssistantText(message);
+        if (assistantText) lastAssistantText = assistantText;
+
         if (message.type === 'result' && !message.is_error) {
           if (message.structured_output && typeof message.structured_output === 'object') {
             result = JSON.stringify(message.structured_output);
+            resultSource = 'structured_output';
           } else if (message.result) {
             result = message.result;
+            resultSource = 'result';
           }
         }
         const diagnostic = extractCliDiagnostic(message);
         if (diagnostic) cliDiagnostics.push(diagnostic);
       }
 
+      if (!result && lastAssistantText.trim()) {
+        result = lastAssistantText;
+        resultSource = 'assistant_text';
+      }
+
       if (result) {
+        console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${resultSource} (pass ${passNumber})`));
         return {
           content: result.trim(),
           session: {
@@ -1116,14 +1207,26 @@ Return only the requested ticket markdown and preserve the required heading stru
         };
       }
 
-      lastDiagnostics = cliDiagnostics;
-    }
+      // Stall detection: stop when consecutive passes produce no content
+      const hadContent = lastAssistantText.trim().length > 0;
+      if (hadContent) {
+        stalledPasses = 0;
+      } else {
+        stalledPasses++;
+      }
 
-    const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
-    throw new AIError(
-      `Claude CLI finished without returning a result after ${CLI_STAGE_MAX_RETRIES + 1} attempt(s).${detail}`,
-      null,
-      true
-    );
+      if (stalledPasses >= CLI_STALL_THRESHOLD) {
+        const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
+        throw new AIError(
+          `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`,
+          null,
+          true
+        );
+      }
+
+      lastDiagnostics = cliDiagnostics;
+
+      console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${passNumber}: no usable result — resuming session`));
+    }
   }
 }

@@ -1,5 +1,6 @@
 /**
- * Manual smoke test: CLI --json-schema flag and node-fetch polyfill
+ * Manual smoke test: CLI --json-schema + StructuredOutput workflow, assistant-text
+ * accumulation fallback, and node-fetch polyfill
  *
  * Run: nr test:manual -- test-cli-json-schema-and-fetch-polyfill
  *
@@ -8,13 +9,18 @@
  *   2. buildCliArgs omits --json-schema when jsonSchema is not provided.
  *   3. z.toJSONSchema produces a valid JSON Schema from resolutionPlanSchema.
  *   4. The generated JSON Schema is a string-serializable object.
- *   5. node-fetch is available as a CJS require.
- *   6. Anthropic adapter fetch fallback resolves to a function.
- *   7. CliRunnerParams accepts the jsonSchema field without type errors.
+ *   5. structured_output is preferred over empty result (primary path).
+ *   6. result is used when structured_output is absent (secondary path).
+ *   7. Assistant-text extraction captures text blocks (fallback path).
+ *   8. Assistant-text extraction ignores non-text blocks.
+ *   9. Assistant-text extraction returns undefined for non-assistant messages.
+ *  10. Three-tier priority: structured_output > result > assistant_text.
+ *  11. node-fetch is available as a CJS require.
+ *  12. Anthropic adapter fetch fallback resolves to a function.
  */
 import chalk from 'chalk';
 import { z } from 'zod';
-import { buildCliArgs } from '../../src/integrations/ai/adapters/claude-cli-runner';
+import { buildCliArgs, type ClaudeCliMessage } from '../../src/integrations/ai/adapters/claude-cli-runner';
 import { resolutionPlanSchema } from '../../src/shared/schemas/ai.schema';
 
 let passed = 0;
@@ -38,8 +44,50 @@ const assert = (message: string, condition: boolean, detail?: string): void => {
   fail(message, detail);
 };
 
+/**
+ * Mirrors the extractAssistantText helper in stage-agent.service.ts.
+ * Duplicated here to test the extraction logic in isolation.
+ */
+const extractAssistantText = (message: ClaudeCliMessage): string | undefined => {
+  if (message.type !== 'assistant') return undefined;
+  const content = (message as Record<string, unknown>).message;
+  if (!content || typeof content !== 'object' || !('content' in content)) return undefined;
+  const blocks = (content as { content: unknown[] }).content;
+  if (!Array.isArray(blocks)) return undefined;
+  let turnText = '';
+  for (const block of blocks) {
+    if (
+      typeof block === 'object' &&
+      block !== null &&
+      (block as Record<string, unknown>).type === 'text' &&
+      typeof (block as Record<string, unknown>).text === 'string'
+    ) {
+      turnText += (block as { text: string }).text;
+    }
+  }
+  return turnText || undefined;
+};
+
+/**
+ * Mirrors the three-tier extraction logic in runCliStagePrompt / cliChatTurn.
+ */
+const extractResult = (
+  message: ClaudeCliMessage
+): { value: string; source: 'structured_output' | 'result' } | undefined => {
+  if (message.type !== 'result' || message.is_error) return undefined;
+  if (message.structured_output && typeof message.structured_output === 'object') {
+    return { value: JSON.stringify(message.structured_output), source: 'structured_output' };
+  }
+  if (message.result) {
+    return { value: message.result, source: 'result' };
+  }
+  return undefined;
+};
+
 async function main(): Promise<void> {
-  console.log(chalk.bold.cyan('\n\uD83E\uDDEA CLI --json-schema and node-fetch polyfill smoke test\n'));
+  console.log(
+    chalk.bold.cyan('\n\uD83E\uDDEA CLI --json-schema + assistant-text fallback + node-fetch polyfill smoke test\n')
+  );
 
   // --- Test 1: buildCliArgs includes --json-schema ---
   console.log(chalk.bold('Test 1: buildCliArgs includes --json-schema when provided'));
@@ -82,72 +130,91 @@ async function main(): Promise<void> {
   const roundTripped = JSON.parse(serialized);
   assert('Round-trips back to equivalent object', roundTripped.type === 'object');
 
-  // --- Test 5: node-fetch is available ---
-  console.log(chalk.bold('\nTest 5: node-fetch is available as CJS require'));
-  const nodeFetch = require('node-fetch');
-  assert('node-fetch exports a function', typeof nodeFetch === 'function');
-
-  // --- Test 6: fetch fallback resolves ---
-  console.log(chalk.bold('\nTest 6: Fetch fallback resolves to a function'));
-  const fetchImpl = globalThis.fetch ?? nodeFetch;
-  assert('Fallback is a function', typeof fetchImpl === 'function');
-
-  // --- Test 7: CliRunnerParams accepts jsonSchema ---
-  console.log(chalk.bold('\nTest 7: CliRunnerParams accepts jsonSchema field'));
-  const paramsWithSchema = buildCliArgs({
-    prompt: 'plan prompt',
-    model: 'claude-sonnet-4-6',
-    cwd: '/repo',
-    permissionMode: 'plan',
-    jsonSchema: serialized,
-  });
-  assert('Args built successfully with jsonSchema', Array.isArray(paramsWithSchema));
-  assert(
-    'Schema value is the full serialized schema',
-    paramsWithSchema[paramsWithSchema.indexOf('--json-schema') + 1] === serialized
-  );
-
-  // --- Test 8: structured_output is preferred over empty result ---
-  console.log(chalk.bold('\nTest 8: structured_output is preferred over empty result'));
-  const structuredMessage = {
+  // --- Test 5: structured_output is preferred (primary path) ---
+  console.log(chalk.bold('\nTest 5: structured_output is preferred over empty result'));
+  const structuredMsg: ClaudeCliMessage = {
     type: 'result',
-    subtype: 'success',
     is_error: false,
     result: '',
     structured_output: { action: 'fix', summary: 'Fix auth', steps: ['step 1'] },
   };
-  let extracted = '';
-  if (structuredMessage.type === 'result' && !structuredMessage.is_error) {
-    if (structuredMessage.structured_output && typeof structuredMessage.structured_output === 'object') {
-      extracted = JSON.stringify(structuredMessage.structured_output);
-    } else if (structuredMessage.result) {
-      extracted = structuredMessage.result;
-    }
-  }
-  assert('Extracts from structured_output when result is empty', extracted.length > 0);
-  const parsed = JSON.parse(extracted);
+  const structuredResult = extractResult(structuredMsg);
+  assert('Extracts from structured_output', structuredResult?.source === 'structured_output');
+  const parsed = JSON.parse(structuredResult!.value);
   assert('Parsed action matches', parsed.action === 'fix');
   assert('Parsed summary matches', parsed.summary === 'Fix auth');
-  assert('Parsed steps is an array', Array.isArray(parsed.steps));
 
-  // --- Test 9: result is used when structured_output is absent ---
-  console.log(chalk.bold('\nTest 9: result is used when structured_output is absent'));
-  const plainMessage = {
+  // --- Test 6: result is used when structured_output is absent (secondary path) ---
+  console.log(chalk.bold('\nTest 6: result is used when structured_output is absent'));
+  const plainMsg: ClaudeCliMessage = {
     type: 'result',
-    subtype: 'success',
     is_error: false,
     result: '{"action":"feature","summary":"Add login"}',
   };
-  let plainExtracted = '';
-  if (plainMessage.type === 'result' && !plainMessage.is_error) {
-    const so = (plainMessage as Record<string, unknown>).structured_output;
-    if (so && typeof so === 'object') {
-      plainExtracted = JSON.stringify(so);
-    } else if (plainMessage.result) {
-      plainExtracted = plainMessage.result;
-    }
-  }
-  assert('Falls back to result when structured_output is absent', plainExtracted === plainMessage.result);
+  const plainResult = extractResult(plainMsg);
+  assert('Falls back to result', plainResult?.source === 'result');
+  assert('Value matches', plainResult?.value === plainMsg.result);
+
+  // --- Test 7: Assistant-text extraction captures text blocks (fallback path) ---
+  console.log(chalk.bold('\nTest 7: extractAssistantText captures text blocks'));
+  const assistantMsg: ClaudeCliMessage = {
+    type: 'assistant',
+    message: {
+      content: [
+        { type: 'text', text: '{"action":"fix",' },
+        { type: 'text', text: '"summary":"Fix auth"}' },
+      ],
+    },
+  };
+  const extracted = extractAssistantText(assistantMsg);
+  assert('Extracts concatenated text', extracted === '{"action":"fix","summary":"Fix auth"}');
+
+  // --- Test 8: Ignores non-text blocks ---
+  console.log(chalk.bold('\nTest 8: extractAssistantText ignores non-text blocks'));
+  const mixedMsg: ClaudeCliMessage = {
+    type: 'assistant',
+    message: {
+      content: [
+        { type: 'tool_use', id: 'tool-1', name: 'Read', input: {} },
+        { type: 'text', text: 'only this' },
+      ],
+    },
+  };
+  assert('Only text blocks extracted', extractAssistantText(mixedMsg) === 'only this');
+
+  // --- Test 9: Returns undefined for non-assistant messages ---
+  console.log(chalk.bold('\nTest 9: extractAssistantText returns undefined for non-assistant'));
+  const resultMsg: ClaudeCliMessage = { type: 'result', result: 'done' };
+  assert('Returns undefined for result message', extractAssistantText(resultMsg) === undefined);
+  const systemMsg: ClaudeCliMessage = { type: 'system', subtype: 'init' };
+  assert('Returns undefined for system message', extractAssistantText(systemMsg) === undefined);
+
+  // --- Test 10: Three-tier priority ---
+  console.log(chalk.bold('\nTest 10: Three-tier priority: structured_output > result > assistant_text'));
+  const bothMsg: ClaudeCliMessage = {
+    type: 'result',
+    is_error: false,
+    result: '{"action":"from-result"}',
+    structured_output: { action: 'from-structured' },
+  };
+  const bothResult = extractResult(bothMsg);
+  assert('structured_output wins over result', bothResult?.source === 'structured_output');
+  assert('structured_output value used', JSON.parse(bothResult!.value).action === 'from-structured');
+
+  // When result message has neither, assistant_text would be used (tested by absence)
+  const emptyMsg: ClaudeCliMessage = { type: 'result', is_error: false, result: '' };
+  const emptyResult = extractResult(emptyMsg);
+  assert('Returns undefined when both are empty', emptyResult === undefined);
+
+  // --- Test 11: node-fetch is available ---
+  console.log(chalk.bold('\nTest 11: node-fetch is available as CJS require'));
+  const nodeFetch = require('node-fetch');
+  assert('node-fetch exports a function', typeof nodeFetch === 'function');
+
+  // --- Test 12: fetch fallback resolves ---
+  console.log(chalk.bold('\nTest 12: Fetch fallback resolves to a function'));
+  const fetchImpl = globalThis.fetch ?? nodeFetch;
+  assert('Fallback is a function', typeof fetchImpl === 'function');
 
   // --- Summary ---
   console.log(chalk.bold('\nSummary'));

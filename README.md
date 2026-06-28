@@ -23,6 +23,7 @@ A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan,
 - [Architecture](#architecture)
 - [Development](#development)
 - [Testing](#testing)
+- [Known Issues](#known-issues)
 
 ## Prerequisites
 
@@ -1062,6 +1063,63 @@ Enable debug logging:
 ```bash
 LOG_LEVEL=debug yarn start issue:fetch PROJ-123
 ```
+
+## Known Issues
+
+### CLI plan stage JSON output is non-deterministic
+
+**Status**: Mitigated with fallback — monitoring for upstream fix
+
+The Claude CLI implements `--json-schema` via an internal `StructuredOutput` **deferred tool**, not the API's native structured output. The model must call `ToolSearch` then `StructuredOutput` to emit JSON — a tool-call chain that competes with codebase exploration tools and fails non-deterministically.
+
+```
+IssueCommand.run()
+ └─ PlanStageService.generatePlanFromAgent()
+     └─ StageAgentService.generatePlan()
+         └─ runCliStagePrompt()                          ◄── incomplete-work loop
+             ├─ buildCliArgs(--json-schema, --allowedTools, --resume)
+             └─ spawnCli() → NDJSON stream
+                 ├─ 1. structured_output  ◄── --json-schema → ToolSearch → StructuredOutput
+                 ├─ 2. result             ◄── CLI summary field
+                 ├─ 3. assistant_text     ◄── message.content[].text (last turn)
+                 └─ stall detection (2 empty passes) → resume session OR AIError
+                     └─ PlanStageService fallback → AiService.generatePlan()
+```
+
+Each extraction path logs `[claude-cli] Result extracted via <source> (pass N)` so the active path is always visible. The four observed modes:
+
+| # | `structured_output` | `result` | `assistant_text` | Outcome |
+|---|---------------------|----------|-------------------|---------|
+| 1 | populated | — | — | Primary path extracts JSON |
+| 2 | — | prose | — | `parseJsonResponse` extracts JSON or fallback engages |
+| 3 | — | — | populated | Fallback captures text; `parseJsonResponse` extracts JSON |
+| 4 | — | — | — | Stall detection → AIError → PlanStageService fallback |
+
+**Root cause**: `ToolSearch` → `StructuredOutput` competes with `Read`, `Glob`, `Grep`, `Bash` for the model's tool-call budget. In multi-turn exploration conversations, the model non-deterministically skips the `StructuredOutput` call.
+
+**Monitoring**: When future CLI versions adopt native API structured output (not the deferred tool), `structured_output` should become the consistent primary path and the `result` / `assistant_text` fallbacks should stop appearing in logs.
+
+**Files**: `src/integrations/ai/stage-agent.service.ts`, `src/integrations/ai/adapters/claude-cli-runner.ts`
+
+### node-fetch polyfill required for Node < 18
+
+**Status**: Fixed — permanent workaround
+
+The `@anthropic-ai/sdk` client constructor expects a `fetch` implementation. On Node < 18 (or when `globalThis.fetch` is undefined due to `.nvmrc` version pinning in target repos), the SDK throws at construction time. The Anthropic adapter resolves fetch via `globalThis.fetch ?? require('node-fetch')` and passes it explicitly to `new Anthropic({ fetch })`.
+
+**Workaround for consumers**: Run `nvm use 22` before `wf` when working in repos with older `.nvmrc` files.
+
+**Files**: `src/integrations/ai/adapters/anthropic.adapter.ts`
+
+### `.wf/` directory artifacts in target repos
+
+**Status**: Mitigated — requires consumer `.gitignore`
+
+The `wf` CLI creates `.wf/state/` and `.wf/logs/` directories inside target repositories. These are tooling artifacts and must never be committed. The `CommitterAgent` excludes `.wf/**` from staged diffs, but nothing prevents manual `git add .` from including them.
+
+**Workaround**: Add `.wf/` to the target repo's `.gitignore`.
+
+**Files**: `src/agents/committer.agent.ts`
 
 ## Contributing
 
