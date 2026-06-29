@@ -660,7 +660,16 @@ export class ImplementerAgent {
     const status = await this.gitService.getStatus(cwd);
     let didStash = false;
 
-    if (!status.isClean()) {
+    if (status.conflicted.length > 0) {
+      throw new GitError(
+        `Working tree has unresolved merge conflicts: ${status.conflicted.join(', ')}. Resolve them before running implement.`
+      );
+    }
+
+    const hasTrackedChanges =
+      status.modified.length > 0 || status.staged.length > 0 || status.deleted.length > 0 || status.renamed.length > 0;
+
+    if (hasTrackedChanges) {
       const stashMessage = path.basename(planArtifact.path) || 'wf-auto-stash';
 
       if (interactive) {
@@ -681,7 +690,7 @@ export class ImplementerAgent {
       }
 
       console.log(chalk.yellow(`  Working tree has uncommitted changes — stashing (${stashMessage})...`));
-      await this.gitService.stashChanges(stashMessage);
+      await this.gitService.stashChanges(stashMessage, cwd);
       didStash = true;
     } else {
       console.log(chalk.green('  Working tree is clean'));
@@ -736,7 +745,7 @@ export class ImplementerAgent {
     // 4. Pull latest (skip for remote branches — already at remote HEAD)
     if (!sourceIsRemote) {
       if (branchInfo.current !== sourceBranch) {
-        await this.gitService.checkoutBranch(sourceBranch);
+        await this.gitService.checkoutBranch(sourceBranch, cwd);
       }
       try {
         console.log(chalk.gray(`  Pulling latest from origin/${sourceBranch}...`));
@@ -753,7 +762,7 @@ export class ImplementerAgent {
     // 5. Restore stash
     if (didStash) {
       try {
-        await this.gitService.stashPop();
+        await this.gitService.stashPop(cwd);
       } catch {
         console.log(
           chalk.yellow(

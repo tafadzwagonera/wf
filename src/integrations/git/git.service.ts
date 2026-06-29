@@ -275,18 +275,21 @@ export class GitService {
     });
   }
 
-  async stashChanges(message?: string): Promise<void> {
+  async stashChanges(message?: string, cwd?: string): Promise<void> {
     try {
-      await this.git.stash(['push', '-m', message || 'Auto-stashed by wf']);
+      const git = cwd ? simpleGit(cwd) : this.git;
+      await git.stash(['push', '-m', message || 'Auto-stashed by wf']);
       this.logger.success('Stashed uncommitted changes');
     } catch (error) {
-      throw new GitError('Failed to stash changes', error);
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new GitError(`Failed to stash changes: ${reason}`, error);
     }
   }
 
-  async stashPop(): Promise<void> {
+  async stashPop(cwd?: string): Promise<void> {
     try {
-      await this.git.stash(['pop']);
+      const git = cwd ? simpleGit(cwd) : this.git;
+      await git.stash(['pop']);
       this.logger.success('Restored stashed changes');
     } catch (error) {
       throw new GitError('Failed to restore stashed changes', error);
@@ -312,9 +315,10 @@ export class GitService {
     }
   }
 
-  async checkoutBranch(branchName: string): Promise<void> {
+  async checkoutBranch(branchName: string, cwd?: string): Promise<void> {
     try {
-      await this.git.checkout(branchName);
+      const git = cwd ? simpleGit(cwd) : this.git;
+      await git.checkout(branchName);
       this.logger.success(`Checked out branch: ${branchName}`);
     } catch (error) {
       throw new GitError(`Failed to checkout branch: ${branchName}`, error);

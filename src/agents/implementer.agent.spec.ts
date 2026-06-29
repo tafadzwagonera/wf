@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { ImplementerAgent } from './implementer.agent';
 import { GitService } from '../integrations/git/git.service';
+import { GitError } from '../shared/errors/app.error';
 import { AiService } from '../integrations/ai/ai.service';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
@@ -68,7 +69,15 @@ describe('ImplementerAgent', () => {
           useValue: {
             getCurrentBranch: jest.fn().mockResolvedValue('main'),
             createBranch: jest.fn().mockResolvedValue(undefined),
-            getStatus: jest.fn().mockResolvedValue({ isClean: () => true }),
+            getStatus: jest.fn().mockResolvedValue({
+              isClean: () => true,
+              modified: [],
+              staged: [],
+              deleted: [],
+              renamed: [],
+              conflicted: [],
+              not_added: [],
+            }),
             getBranchInfo: jest.fn().mockResolvedValue({
               current: 'main',
               all: ['main', 'develop'],
@@ -283,7 +292,15 @@ describe('ImplementerAgent', () => {
             useValue: {
               getCurrentBranch: jest.fn().mockResolvedValue('main'),
               createBranch: jest.fn().mockResolvedValue(undefined),
-              getStatus: jest.fn().mockResolvedValue({ isClean: () => true }),
+              getStatus: jest.fn().mockResolvedValue({
+                isClean: () => true,
+                modified: [],
+                staged: [],
+                deleted: [],
+                renamed: [],
+                conflicted: [],
+                not_added: [],
+              }),
               getBranchInfo: jest.fn().mockResolvedValue({
                 current: 'main',
                 all: ['main', 'develop'],
@@ -346,7 +363,15 @@ describe('ImplementerAgent', () => {
             useValue: {
               getCurrentBranch: jest.fn().mockResolvedValue('main'),
               createBranch: jest.fn().mockResolvedValue(undefined),
-              getStatus: jest.fn().mockResolvedValue({ isClean: () => true }),
+              getStatus: jest.fn().mockResolvedValue({
+                isClean: () => true,
+                modified: [],
+                staged: [],
+                deleted: [],
+                renamed: [],
+                conflicted: [],
+                not_added: [],
+              }),
               getBranchInfo: jest.fn().mockResolvedValue({
                 current: 'main',
                 all: ['main', 'develop'],
@@ -409,6 +434,12 @@ describe('ImplementerAgent', () => {
     it('auto-stashes when working tree is dirty in silent mode', async () => {
       gitService.getStatus.mockResolvedValue({
         isClean: () => false,
+        modified: ['src/example.ts'],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: [],
       } as any);
 
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
@@ -417,8 +448,51 @@ describe('ImplementerAgent', () => {
         silent: true,
       });
 
-      expect(gitService.stashChanges).toHaveBeenCalled();
-      expect(gitService.stashPop).toHaveBeenCalled();
+      expect(gitService.stashChanges).toHaveBeenCalledWith(expect.any(String), '/tmp/repo-a');
+      expect(gitService.stashPop).toHaveBeenCalledWith('/tmp/repo-a');
+    });
+
+    it('throws when working tree has unresolved merge conflicts', async () => {
+      gitService.getStatus.mockResolvedValue({
+        isClean: () => false,
+        modified: [],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: ['.gitignore'],
+        not_added: [],
+      } as any);
+
+      await expect(
+        agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+          trackerName: 'jira',
+          repoDir: '/tmp/repo-a',
+          silent: true,
+        })
+      ).rejects.toThrow('unresolved merge conflicts');
+
+      expect(gitService.stashChanges).not.toHaveBeenCalled();
+    });
+
+    it('skips stash when only untracked files are present', async () => {
+      gitService.getStatus.mockResolvedValue({
+        isClean: () => false,
+        modified: [],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: ['.wf/state/session.json'],
+      } as any);
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      expect(gitService.stashChanges).not.toHaveBeenCalled();
+      expect(gitService.stashPop).not.toHaveBeenCalled();
     });
 
     it('skips stash when working tree is clean', async () => {
@@ -441,7 +515,7 @@ describe('ImplementerAgent', () => {
         silent: true,
       });
 
-      expect(gitService.checkoutBranch).toHaveBeenCalledWith('develop');
+      expect(gitService.checkoutBranch).toHaveBeenCalledWith('develop', '/tmp/repo-a');
       expect(gitService.pull).toHaveBeenCalledWith('origin', 'develop', '/tmp/repo-a');
     });
 
@@ -508,6 +582,50 @@ describe('ImplementerAgent', () => {
       });
 
       // Should not throw — pull failure is non-fatal
+      expect(gitService.createBranch).toHaveBeenCalled();
+    });
+
+    it('stash failure propagates GitError', async () => {
+      gitService.getStatus.mockResolvedValue({
+        isClean: () => false,
+        modified: ['src/example.ts'],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: [],
+      } as any);
+      gitService.stashChanges.mockRejectedValue(new GitError('Failed to stash changes'));
+
+      await expect(
+        agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+          trackerName: 'jira',
+          repoDir: '/tmp/repo-a',
+          silent: true,
+        })
+      ).rejects.toThrow('Failed to stash changes');
+    });
+
+    it('stash pop conflict logs warning and continues', async () => {
+      gitService.getStatus.mockResolvedValue({
+        isClean: () => false,
+        modified: ['src/example.ts'],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: [],
+      } as any);
+      gitService.stashPop.mockRejectedValue(new Error('CONFLICT'));
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      // Should not throw — stash pop conflict is non-fatal
+      expect(gitService.stashPop).toHaveBeenCalledWith('/tmp/repo-a');
       expect(gitService.createBranch).toHaveBeenCalled();
     });
   });
