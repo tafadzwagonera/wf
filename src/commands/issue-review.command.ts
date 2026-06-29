@@ -35,6 +35,7 @@ interface IssueReviewOptions {
   criteria?: string;
   replaceCriteria?: string;
   silent?: boolean;
+  sessionId?: string;
 }
 
 interface ReviewTarget {
@@ -573,6 +574,14 @@ export class IssueReviewCommand extends CommandRunner {
       'Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker',
   })
   parseTracker(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '--session-id <id>',
+    description: 'Resume a previous workflow session by ID',
+  })
+  parseSessionId(val: string): string {
     return val;
   }
 

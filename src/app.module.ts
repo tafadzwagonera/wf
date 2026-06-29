@@ -7,6 +7,7 @@ import { AIModule } from './integrations/ai/ai.module';
 import { CommandsModule } from './commands/commands.module';
 import { ConvertersModule } from './common/converters/converters.module';
 import { IssueTrackerModule } from './integrations/issue-trackers/issue-tracker.module';
+import { SessionModule } from './shared/session/session.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { IssueTrackerModule } from './integrations/issue-trackers/issue-tracker.
     CommandsModule,
     ConvertersModule,
     IssueTrackerModule,
+    SessionModule,
   ],
   controllers: [],
   providers: [],

@@ -336,20 +336,22 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      repositoriesAffected: ['repo-a'],
-      verification: {
-        targeted: [
-          {
-            id: 'manual-auth-smoke',
-            run: 'node -e "require(\'node:assert\').ok(true)"',
-            policy: 'enforced',
-          },
-        ],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        repositoriesAffected: ['repo-a'],
+        verification: {
+          targeted: [
+            {
+              id: 'manual-auth-smoke',
+              run: 'node -e "require(\'node:assert\').ok(true)"',
+              policy: 'enforced',
+            },
+          ],
+        },
       },
     } as any);
 
@@ -388,20 +390,22 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      repositoriesAffected: ['repo-a'],
-      verification: {
-        targeted: [
-          {
-            id: 'manual-auth-smoke',
-            run: 'node -e "require(\'node:assert\').ok(true)"',
-            policy: 'enforced',
-          },
-        ],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        repositoriesAffected: ['repo-a'],
+        verification: {
+          targeted: [
+            {
+              id: 'manual-auth-smoke',
+              run: 'node -e "require(\'node:assert\').ok(true)"',
+              policy: 'enforced',
+            },
+          ],
+        },
       },
     } as any);
 
@@ -431,12 +435,14 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-name/src/auth.ts'],
-      repositoriesAffected: ['repo-name'],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-name/src/auth.ts'],
+        repositoriesAffected: ['repo-name'],
+      },
     } as any);
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
@@ -464,13 +470,15 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      affectedFilesContext: ['repo-name/package.json'],
-      repositoriesAffected: ['repo-a'],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        affectedFilesContext: ['repo-name/package.json'],
+        repositoriesAffected: ['repo-a'],
+      },
     } as any);
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
@@ -498,13 +506,15 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      affectedFilesContext: [{ filePath: 'repo-b/package.json', status: 'found' }],
-      repositoriesAffected: ['repo-a'],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        affectedFilesContext: [{ filePath: 'repo-b/package.json', status: 'found' }],
+        repositoriesAffected: ['repo-a'],
+      },
     } as any);
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
@@ -532,13 +542,15 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      affectedFilesContext: [{ filePath: 'repo-a/package.json', status: 'to-create' }],
-      repositoriesAffected: ['repo-a'],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        affectedFilesContext: [{ filePath: 'repo-a/package.json', status: 'to-create' }],
+        repositoriesAffected: ['repo-a'],
+      },
     } as any);
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
@@ -566,21 +578,23 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      repositoriesAffected: ['repo-a'],
-      verification: {
-        targeted: [
-          {
-            id: 'criteria-txt-rejected',
-            run: 'wf issue:review --criteria criteria.txt',
-            policy: 'enforced',
-            reason: 'Expect command to fail for non-Markdown criteria',
-          },
-        ],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        repositoriesAffected: ['repo-a'],
+        verification: {
+          targeted: [
+            {
+              id: 'criteria-txt-rejected',
+              run: 'wf issue:review --criteria criteria.txt',
+              policy: 'enforced',
+              reason: 'Expect command to fail for non-Markdown criteria',
+            },
+          ],
+        },
       },
     } as any);
 
@@ -611,25 +625,27 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      repositoriesAffected: ['repo-a'],
-      verification: {
-        targeted: [
-          {
-            id: 'repo-relative-test',
-            run: 'cd repo-a && node -e "require(\'node:assert\').ok(true)"',
-            policy: 'enforced',
-          },
-          {
-            id: 'absolute-repo-test',
-            run: 'cd /tmp/consumer-app/repo-a && node -e "process.exit(0)"',
-            policy: 'enforced',
-          },
-        ],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        repositoriesAffected: ['repo-a'],
+        verification: {
+          targeted: [
+            {
+              id: 'repo-relative-test',
+              run: 'cd repo-a && node -e "require(\'node:assert\').ok(true)"',
+              policy: 'enforced',
+            },
+            {
+              id: 'absolute-repo-test',
+              run: 'cd /tmp/consumer-app/repo-a && node -e "process.exit(0)"',
+              policy: 'enforced',
+            },
+          ],
+        },
       },
     } as any);
 
@@ -661,20 +677,22 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      repositoriesAffected: ['repo-a'],
-      verification: {
-        targeted: [
-          {
-            id: 'wrong-repo-test',
-            run: 'cd repo-b && yarn test',
-            policy: 'enforced',
-          },
-        ],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        repositoriesAffected: ['repo-a'],
+        verification: {
+          targeted: [
+            {
+              id: 'wrong-repo-test',
+              run: 'cd repo-b && yarn test',
+              policy: 'enforced',
+            },
+          ],
+        },
       },
     } as any);
 
@@ -713,20 +731,22 @@ describe('IssuePlanCommand', () => {
       path: path.join(repoDir, '.wf', 'repo-a', 'jira', 'WBP-1.md'),
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      repositoriesAffected: ['repo-a'],
-      verification: {
-        targeted: [
-          {
-            id: 'nonexistent-script',
-            run: 'yarn test:integration -- --bail',
-            policy: 'enforced',
-          },
-        ],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        repositoriesAffected: ['repo-a'],
+        verification: {
+          targeted: [
+            {
+              id: 'nonexistent-script',
+              run: 'yarn test:integration -- --bail',
+              policy: 'enforced',
+            },
+          ],
+        },
       },
     } as any);
 
@@ -768,20 +788,22 @@ describe('IssuePlanCommand', () => {
       path: path.join(repoDir, '.wf', 'repo-a', 'jira', 'WBP-1.md'),
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      repositoriesAffected: ['repo-a'],
-      verification: {
-        targeted: [
-          {
-            id: 'existing-script',
-            run: 'yarn test:manual -- test-auth-redirect',
-            policy: 'enforced',
-          },
-        ],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        repositoriesAffected: ['repo-a'],
+        verification: {
+          targeted: [
+            {
+              id: 'existing-script',
+              run: 'yarn test:manual -- test-auth-redirect',
+              policy: 'enforced',
+            },
+          ],
+        },
       },
     } as any);
 
@@ -808,12 +830,14 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      repositoriesAffected: ['repo-a'],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        repositoriesAffected: ['repo-a'],
+      },
     } as any);
 
     jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
@@ -845,12 +869,14 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      repositoriesAffected: ['repo-a'],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        repositoriesAffected: ['repo-a'],
+      },
     } as any);
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
@@ -870,12 +896,14 @@ describe('IssuePlanCommand', () => {
       path: '/tmp/.wf/repo-a/jira/WBP-1.md',
     });
     planStageService.generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Fix login',
-      estimatedComplexity: 'medium',
-      steps: ['Inspect auth'],
-      affectedFiles: ['repo-a/src/auth.ts'],
-      repositoriesAffected: ['repo-a'],
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        repositoriesAffected: ['repo-a'],
+      },
     } as any);
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 

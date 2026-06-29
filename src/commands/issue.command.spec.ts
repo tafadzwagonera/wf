@@ -53,9 +53,30 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import { AiService } from '../integrations/ai/ai.service';
+import { SessionService } from '../shared/session/session.service';
+import { SummaryService } from '../shared/session/summary.service';
 import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../shared/utils/plan-artifact';
 import * as os from 'os';
 import * as path from 'path';
+
+const mockSessionService = {
+  load: jest.fn().mockResolvedValue(null),
+  save: jest.fn().mockResolvedValue(undefined),
+  findByTicketKey: jest.fn().mockResolvedValue(null),
+  recordStageStart: jest.fn().mockImplementation(session => Promise.resolve(session)),
+  recordProviderSessionId: jest.fn().mockImplementation(session => Promise.resolve(session)),
+  recordStageComplete: jest.fn().mockImplementation(session => Promise.resolve(session)),
+  markComplete: jest.fn().mockImplementation(session => Promise.resolve(session)),
+  validateForStage: jest
+    .fn()
+    .mockReturnValue({ canResume: false, resumableProviderSessionId: null, priorSummary: null, warnings: [] }),
+  isExpired: jest.fn().mockReturnValue(false),
+  getSessionDir: jest.fn().mockReturnValue('/tmp/sessions'),
+};
+
+const mockSummaryService = {
+  generateStageSummary: jest.fn().mockResolvedValue('Mock stage summary'),
+};
 
 const mockCwd = '/tmp/consumer-app';
 
@@ -104,6 +125,8 @@ async function buildCommand(): Promise<IssueCommand> {
           getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
         },
       },
+      { provide: SessionService, useValue: mockSessionService },
+      { provide: SummaryService, useValue: mockSummaryService },
     ],
   }).compile();
 
@@ -251,6 +274,8 @@ describe('IssueCommand', () => {
             getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
           },
         },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
       ],
     }).compile();
     const command = module.get(IssueCommand);

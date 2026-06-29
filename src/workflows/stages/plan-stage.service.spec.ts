@@ -42,7 +42,7 @@ describe('PlanStageService', () => {
           provide: StageAgentService,
           useValue: {
             isEnabledForStage: jest.fn().mockReturnValue(agentEnabled),
-            generatePlan: jest.fn().mockResolvedValue(mockPlan),
+            generatePlan: jest.fn().mockResolvedValue({ plan: mockPlan, sessionId: undefined }),
           },
         },
       ],
@@ -203,7 +203,7 @@ describe('PlanStageService', () => {
       affectedRepositories: ['repo-a'],
     });
 
-    expect(result).toEqual(mockPlan);
+    expect(result).toEqual({ plan: mockPlan });
     expect(aiService.generatePlan).toHaveBeenCalledWith(
       'fix',
       'Ticket body',
@@ -235,7 +235,7 @@ describe('PlanStageService', () => {
     const result = await service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-402' });
 
     expect(aiService.generatePlan).toHaveBeenCalled();
-    expect(result).toMatchObject({ action: 'fix', summary: expect.any(String) });
+    expect(result).toMatchObject({ plan: { action: 'fix', summary: expect.any(String) } });
   });
 
   it('throws when fallback result is structurally invalid', async () => {

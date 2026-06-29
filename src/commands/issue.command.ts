@@ -31,6 +31,10 @@ import {
   ImplementerResult,
 } from '../agents/interfaces';
 import type { ModelRouting } from '../agents/interfaces';
+import { SessionService } from '../shared/session/session.service';
+import { SummaryService } from '../shared/session/summary.service';
+import type { SessionState } from '../shared/types/session.types';
+import * as crypto from 'crypto';
 
 const VALID_MODEL_ROUTINGS: ModelRouting[] = ['auto', 'default', 'mechanical'];
 
@@ -78,6 +82,7 @@ interface IssueOptions {
   dryRun?: boolean;
   pr?: boolean;
   modelRouting?: string;
+  sessionId?: string;
 }
 
 @Command({
@@ -96,7 +101,9 @@ export class IssueCommand extends CommandRunner {
     private configService: ConfigService,
     private dryRunPreview: DryRunPreviewService,
     private agents: AgentOrchestrator,
-    private readonly aiService: AiService
+    private readonly aiService: AiService,
+    private readonly sessionService: SessionService,
+    private readonly summaryService: SummaryService
   ) {
     super();
   }
@@ -203,6 +210,14 @@ export class IssueCommand extends CommandRunner {
     description: 'Tracker to use (jira|github|bitbucket)',
   })
   parseTracker(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '--session-id <id>',
+    description: 'Resume a previous workflow session by ID',
+  })
+  parseSessionId(val: string): string {
     return val;
   }
 
@@ -567,6 +582,64 @@ export class IssueCommand extends CommandRunner {
         console.log(chalk.gray(`Stages: ${fromStage} → ${toStage}\n`));
       }
 
+      // ── Session lifecycle ─────────────────────────────────────────
+      let sessionState: SessionState | undefined;
+      let wfSessionId: string | undefined = options.sessionId;
+
+      if (wfSessionId) {
+        sessionState = (await this.sessionService.load(wfSessionId)) ?? undefined;
+      }
+
+      if (wfSessionId && !sessionState) {
+        if (this.isInteractiveSession()) {
+          const { proceed } = await inquirer.prompt([
+            {
+              type: 'confirm',
+              name: 'proceed',
+              message: `Session ${wfSessionId} not found. Start a new session?`,
+              prefix: ' ',
+              default: false,
+            },
+          ]);
+          if (!proceed) {
+            throw new Error(`Session ${wfSessionId} not found — aborting`);
+          }
+        } else {
+          throw new Error(`Session ${wfSessionId} not found. Omit --session-id to start a new session.`);
+        }
+        wfSessionId = undefined;
+      }
+
+      if (sessionState && sessionState.ticketKey !== ticketKey) {
+        throw new Error(`Session ${wfSessionId} belongs to ${sessionState.ticketKey}, not ${ticketKey}`);
+      }
+
+      if (sessionState && this.sessionService.isExpired(sessionState)) {
+        console.log(chalk.yellow(`  Session ${wfSessionId} expired — starting fresh`));
+        sessionState = undefined;
+        wfSessionId = undefined;
+      }
+
+      if (!sessionState) {
+        sessionState = {
+          sessionId: crypto.randomUUID(),
+          ticketKey,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          completedAt: null,
+          stages: {},
+        };
+        wfSessionId = sessionState.sessionId;
+      }
+
+      if (!options?.silent) {
+        console.log(chalk.gray(`  wf session: ${wfSessionId}`));
+      }
+
+      if (options?.silent && wfSessionId) {
+        console.log(`session:${wfSessionId}`);
+      }
+
       let ticketArtifact!: TicketArtifact;
       let planArtifact: PlanArtifact | undefined;
       let reviewArtifact: ReviewArtifact | null = null;
@@ -625,6 +698,11 @@ export class IssueCommand extends CommandRunner {
             );
           }
         }
+      }
+
+      // Record plan session
+      if (planArtifact?.sessionId && sessionState) {
+        sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'plan', planArtifact.sessionId);
       }
 
       // Load plan for IMPLEMENT or REVIEW stages when PLAN stage was skipped
@@ -745,6 +823,11 @@ export class IssueCommand extends CommandRunner {
             options?.silent
           );
         }
+      }
+
+      // Mark session complete
+      if (sessionState) {
+        sessionState = await this.sessionService.markComplete(sessionState);
       }
 
       if (!options?.silent) {

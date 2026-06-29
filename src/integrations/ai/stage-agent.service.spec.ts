@@ -33,7 +33,7 @@ describe('StageAgentService', () => {
       service as unknown as {
         runStagePrompt: jest.Mock;
       }
-    ).runStagePrompt = jest.fn().mockResolvedValue('  ');
+    ).runStagePrompt = jest.fn().mockResolvedValue({ content: '  ' });
 
     await expect(
       service.generatePlan({
@@ -55,7 +55,7 @@ describe('StageAgentService', () => {
       service as unknown as {
         runStagePrompt: jest.Mock;
       }
-    ).runStagePrompt = jest.fn().mockResolvedValue('');
+    ).runStagePrompt = jest.fn().mockResolvedValue({ content: '' });
 
     await expect(service.generateFromPrompt('Summarise this diff')).rejects.toMatchObject({
       message: 'AI provider returned an empty generated content response',
@@ -110,16 +110,16 @@ describe('StageAgentService', () => {
 
   it('forwards onProgress callback to runStagePrompt when generating a plan', async () => {
     const service = new StageAgentService(createConfigService());
-    const mockRunStagePrompt = jest.fn().mockResolvedValue(
-      JSON.stringify({
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
         action: 'fix',
         summary: 'Fix it',
         steps: ['step 1'],
         estimatedComplexity: 'low',
         affectedFiles: [],
         risks: [],
-      })
-    );
+      }),
+    });
     (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
 
     const onProgress = jest.fn();
@@ -134,7 +134,7 @@ describe('StageAgentService', () => {
 
   it('forwards onProgress callback to runStagePrompt when generating from prompt', async () => {
     const service = new StageAgentService(createConfigService());
-    const mockRunStagePrompt = jest.fn().mockResolvedValue('Generated content');
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({ content: 'Generated content' });
     (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
 
     const onProgress = jest.fn();
@@ -145,7 +145,7 @@ describe('StageAgentService', () => {
 
   it('does not pass onProgress when not provided', async () => {
     const service = new StageAgentService(createConfigService());
-    const mockRunStagePrompt = jest.fn().mockResolvedValue('Generated content');
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({ content: 'Generated content' });
     (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
 
     await service.generateFromPrompt('Summarise this');

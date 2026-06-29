@@ -26,6 +26,7 @@ import { loadVerificationManifest, type VerificationStep } from '../shared/utils
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import { ClaudeCliAdapter } from '../integrations/ai/adapters/claude-cli.adapter';
+import { CodexCliAdapter } from '../integrations/ai/adapters/codex-cli.adapter';
 import inquirer from 'inquirer';
 
 const DEFAULT_PREFIX_MAPPING: Record<ResolutionAction, string> = {
@@ -217,6 +218,7 @@ export class ImplementerAgent {
 
     const adapter = (() => {
       if (backendSelection.selected === 'claude-cli') return new ClaudeCliAdapter(this.configService);
+      if (backendSelection.selected === 'codex-cli') return new CodexCliAdapter(this.configService);
       if (backendSelection.selected === 'openai-agent') return new OpenAIAgentAdapter(this.configService);
       return new AnthropicAgentAdapter(this.configService);
     })();
@@ -544,8 +546,13 @@ export class ImplementerAgent {
     }
 
     if (backend === 'cli') {
+      if (provider === 'openai') {
+        return { configured: 'codex-cli', selected: 'codex-cli', provider };
+      }
       if (provider !== 'anthropic') {
-        throw new ConfigurationError(`Implement stage backend "cli" requires provider "anthropic". Got "${provider}".`);
+        throw new ConfigurationError(
+          `Implement stage backend "cli" requires provider "anthropic" or "openai". Got "${provider}".`
+        );
       }
       return { configured: 'claude-cli', selected: 'claude-cli', provider };
     }

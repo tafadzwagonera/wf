@@ -18,6 +18,7 @@ interface IssueCommitOptions {
   dryRun?: boolean;
   tracker?: string;
   repos?: string[];
+  sessionId?: string;
 }
 
 const ISSUE_COMMIT_EXAMPLES: CliExample[] = [
@@ -247,6 +248,14 @@ export class IssueCommitCommand extends CommandRunner {
     description: 'Tracker (jira|github|bitbucket)',
   })
   parseTracker(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '--session-id <id>',
+    description: 'Resume a previous workflow session by ID',
+  })
+  parseSessionId(val: string): string {
     return val;
   }
 

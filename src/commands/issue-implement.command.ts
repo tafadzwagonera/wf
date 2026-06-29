@@ -50,6 +50,7 @@ interface IssueImplementOptions {
   repos?: string[];
   silent?: boolean;
   tracker?: string;
+  sessionId?: string;
 }
 
 interface SyntheticCustomExecutionContext {
@@ -154,6 +155,14 @@ export class IssueImplementCommand extends CommandRunner {
       throw new Error(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
     }
     return tracker;
+  }
+
+  @Option({
+    flags: '--session-id <id>',
+    description: 'Resume a previous workflow session by ID',
+  })
+  parseSessionId(val: string): string {
+    return val;
   }
 
   async run([identifier]: string[], options?: IssueImplementOptions): Promise<void> {

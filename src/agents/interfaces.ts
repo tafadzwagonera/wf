@@ -64,6 +64,8 @@ export interface ImplementerOptions {
   noBranch?: boolean;
   /** CLI override for branch name validation regex (git.branchNamePattern config). */
   branchNamePattern?: string;
+  /** Summary from a prior workflow stage (e.g. plan) injected as background context. */
+  priorStageSummary?: string;
 }
 
 export interface ReviewerOptions {

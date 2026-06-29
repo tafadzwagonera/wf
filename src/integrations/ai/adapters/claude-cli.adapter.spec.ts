@@ -185,7 +185,7 @@ describe('ClaudeCliAdapter', () => {
     });
 
     const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
-    expect(logCalls.some(l => /Session:.*abc-123-session/.test(l))).toBe(true);
+    expect(logCalls.some(l => /Provider session:.*abc-123-session/.test(l))).toBe(true);
 
     consoleSpy.mockRestore();
   });

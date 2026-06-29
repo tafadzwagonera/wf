@@ -2,6 +2,7 @@ import { Command, CommandRunner, SubCommand } from 'nest-commander';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { getWfLogDir, getWfStateDir } from '../shared/utils/wf-paths';
+import { ConfigCleanCommand } from './config-clean.command';
 import { createRequire } from 'module';
 import chalk from 'chalk';
 
@@ -132,7 +133,7 @@ export class ConfigListCommand extends CommandRunner {
   name: 'config',
   description: 'Configure agent settings',
   options: { isDefault: false },
-  subCommands: [ConfigGetCommand, ConfigSetCommand, ConfigListCommand],
+  subCommands: [ConfigGetCommand, ConfigSetCommand, ConfigListCommand, ConfigCleanCommand],
 })
 export class ConfigCommand extends CommandRunner {
   constructor(
@@ -151,6 +152,7 @@ export class ConfigCommand extends CommandRunner {
     console.log(chalk.gray('  get <key>        Get configuration value'));
     console.log(chalk.gray('  set <key> <val>  Set configuration value'));
     console.log(chalk.gray('  list             List all configuration'));
+    console.log(chalk.gray('  clean            Delete session state files'));
     console.log(chalk.gray('\nExamples:'));
     console.log(chalk.gray('  wf config get atlassian.baseUrl'));
     console.log(chalk.gray('  wf config set atlassian.email user@example.com'));

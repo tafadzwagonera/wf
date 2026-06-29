@@ -81,7 +81,14 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       planAction: params.planArtifact.plan.action,
     });
 
-    const appendSystemPrompt = [claudeContext ? `Repo AI context:\n${claudeContext}` : '', systemPrompt]
+    const priorStagePreamble = params.options.priorStageSummary
+      ? `<prior-stage-context>\n${params.options.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.`
+      : '';
+    const appendSystemPrompt = [
+      priorStagePreamble,
+      claudeContext ? `Repo AI context:\n${claudeContext}` : '',
+      systemPrompt,
+    ]
       .filter(Boolean)
       .join('\n\n');
 
@@ -104,7 +111,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     let sessionId: string | undefined;
 
     for await (const message of spawnCli(cliArgs, repoDir, implementPrompt)) {
-      this.logCliMessage(message, repoDir, activityState);
+      this.logCliMessage(message, repoDir, activityState, touchedFiles);
 
       if (message.session_id) {
         sessionId = message.session_id;
@@ -139,7 +146,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
           console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Cost: $${message.total_cost_usd.toFixed(4)} USD`));
         }
         if (sessionId) {
-          console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Session: ${sessionId}`));
+          console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Provider session: ${sessionId}`));
         }
       }
     }
@@ -198,7 +205,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       });
 
       for await (const message of spawnCli(continueArgs, repoDir, continuationPrompt)) {
-        this.logCliMessage(message, repoDir, activityState);
+        this.logCliMessage(message, repoDir, activityState, touchedFiles);
 
         if (message.session_id) {
           sessionId = message.session_id;
@@ -240,7 +247,12 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     }
   }
 
-  private logCliMessage(message: ClaudeCliMessage, repoDir: string, activityState: ActivityState): void {
+  private logCliMessage(
+    message: ClaudeCliMessage,
+    repoDir: string,
+    activityState: ActivityState,
+    touchedFiles?: Set<string>
+  ): void {
     // SDK-compatible progress events (rate_limit_event, system:status, etc.)
     const progressLine = formatProgressMessage(message as never);
     if (progressLine) {
@@ -264,7 +276,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
     // CLI-specific: parse assistant messages for tool_use activity
     if (message.type === 'assistant') {
-      this.logCliAssistantMessage(message, repoDir, activityState);
+      this.logCliAssistantMessage(message, repoDir, activityState, touchedFiles);
       return;
     }
 
@@ -274,7 +286,12 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     }
   }
 
-  private logCliAssistantMessage(message: ClaudeCliMessage, repoDir: string, activityState: ActivityState): void {
+  private logCliAssistantMessage(
+    message: ClaudeCliMessage,
+    repoDir: string,
+    activityState: ActivityState,
+    touchedFiles?: Set<string>
+  ): void {
     const innerMessage = message.message as
       | {
           content?: Array<{
@@ -300,6 +317,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
           console.log(
             chalk.cyan(`  [${CLI_ADAPTER_LABEL}] File ${toolName === 'Write' ? 'created' : 'updated'}: ${relativePath}`)
           );
+          touchedFiles?.add(relativePath);
         }
         continue;
       }

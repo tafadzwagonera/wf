@@ -12,7 +12,7 @@ export const verificationScriptSchema = z.object({
   aliases: z.array(z.string()),
 });
 
-export const implementBackendNameSchema = z.enum(['anthropic-agent', 'openai-agent', 'claude-cli']);
+export const implementBackendNameSchema = z.enum(['anthropic-agent', 'openai-agent', 'claude-cli', 'codex-cli']);
 
 export const implementBackendSelectionSchema = z.object({
   configured: implementBackendNameSchema,
@@ -89,6 +89,7 @@ export const planArtifactSchema = z.object({
   action: resolutionActionSchema,
   path: z.string(),
   fromCache: z.boolean().optional(),
+  sessionId: z.string().optional(),
 });
 
 export const reviewArtifactSchema = z.object({

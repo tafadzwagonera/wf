@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigCommand, ConfigGetCommand, ConfigSetCommand, ConfigListCommand } from './config.command';
+import { ConfigCleanCommand } from './config-clean.command';
 import { IssueCreateCommand } from './issue-create.command';
 import { IssueFetchCommand } from './issue-fetch.command';
 import { IssuePlanCommand } from './issue-plan.command';
@@ -21,14 +22,25 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { SlackService } from '../integrations/slack/slack.service';
 import { WorkflowStagesModule } from '../workflows/stages/workflow-stages.module';
+import { SessionModule } from '../shared/session/session.module';
 
 @Module({
-  imports: [AgentsModule, JiraModule, GitModule, AIModule, IssueTrackerModule, ConvertersModule, WorkflowStagesModule],
+  imports: [
+    AgentsModule,
+    JiraModule,
+    GitModule,
+    AIModule,
+    IssueTrackerModule,
+    ConvertersModule,
+    WorkflowStagesModule,
+    SessionModule,
+  ],
   providers: [
     ConfigCommand,
     ConfigGetCommand,
     ConfigSetCommand,
     ConfigListCommand,
+    ConfigCleanCommand,
     IssueCreateCommand,
     IssueFetchCommand,
     IssuePlanCommand,

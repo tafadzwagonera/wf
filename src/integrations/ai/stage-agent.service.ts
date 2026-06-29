@@ -15,6 +15,7 @@ import { formatProgressMessage as formatOpenAiProgressMessage } from './adapters
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
 import { assertClaudeCliAvailable, buildCliArgs, spawnCli, type ClaudeCliMessage } from './adapters/claude-cli-runner';
+import { assertCodexCliAvailable, buildCodexCliArgs, spawnCodex } from './adapters/codex-cli-runner';
 import type { WfBackendMode } from '../../config/public-config';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import {
@@ -149,7 +150,8 @@ export class StageAgentService {
     crossRepoPatterns?: CrossRepoContext;
     recurrenceGaps?: RecurrenceGapAnalysis | null;
     onProgress?: StageProgressCallback;
-  }): Promise<ResolutionPlan> {
+    priorStageSummary?: string;
+  }): Promise<{ plan: ResolutionPlan; sessionId?: string }> {
     const repoExample = resolveStagePromptRepoExample(params.affectedRepositories);
 
     // Build discovery context sections
@@ -258,12 +260,13 @@ Return ONLY a valid JSON object with these fields:
 You may inspect repository files with read-only tools before answering.
 Return your response as a JSON object matching the ResolutionPlan interface.`;
 
-    const response = await this.runStagePrompt({
+    const { content: response, sessionId } = await this.runStagePrompt({
       stage: 'plan',
       prompt,
       systemPrompt,
       repoDir: process.cwd(),
       onProgress: params.onProgress,
+      priorStageSummary: params.priorStageSummary,
     });
 
     try {
@@ -291,7 +294,7 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
       plan.provider = provider;
       plan.source = source;
       plan.timestamp = dayjs().toISOString();
-      return plan;
+      return { plan, sessionId };
     } catch (error) {
       if (isAIErrorLike(error)) {
         throw error;
@@ -304,7 +307,12 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     }
   }
 
-  async reviewCode(diff: string, guidelines: string[], repoDir?: string): Promise<CodeReview> {
+  async reviewCode(
+    diff: string,
+    guidelines: string[],
+    repoDir?: string,
+    priorStageSummary?: string
+  ): Promise<{ review: CodeReview; sessionId?: string }> {
     const prompt = `
 Code Changes:
 \`\`\`
@@ -375,11 +383,12 @@ You may inspect repository files with read-only tools before answering.
 Focus on code quality, bugs, security, and the changed execution path.
 Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
 
-    const response = await this.runStagePrompt({
+    const { content: response, sessionId } = await this.runStagePrompt({
       stage: 'review',
       prompt,
       systemPrompt,
       repoDir,
+      priorStageSummary,
     });
 
     try {
@@ -392,8 +401,11 @@ Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
       );
       const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
       return {
-        ...processedReview.review,
-        executionMode: 'agent',
+        review: {
+          ...processedReview.review,
+          executionMode: 'agent',
+        },
+        sessionId,
       };
     } catch (error) {
       if (isAIErrorLike(error)) {
@@ -412,7 +424,7 @@ Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
 You may inspect repository files with read-only tools before answering.
 Return only the requested ticket markdown and preserve the required heading structure exactly.`;
 
-    const response = await this.runStagePrompt({
+    const { content: response } = await this.runStagePrompt({
       stage: 'generate',
       prompt,
       systemPrompt,
@@ -459,9 +471,14 @@ Return only the requested ticket markdown and preserve the required heading stru
     systemPrompt: string;
     repoDir?: string;
     onProgress?: StageProgressCallback;
-  }): Promise<string> {
+    priorStageSummary?: string;
+  }): Promise<{ content: string; sessionId?: string }> {
     const backend = this.resolveStageBackend(params.stage);
     if (backend === 'cli') {
+      const provider = this.resolveStageProvider(params.stage);
+      if (provider === 'openai') {
+        return this.runCodexCliStagePrompt(params);
+      }
       return this.runCliStagePrompt(params);
     }
 
@@ -470,7 +487,8 @@ Return only the requested ticket markdown and preserve the required heading stru
       return this.runAnthropicStagePrompt(params);
     }
 
-    return this.runOpenAiStagePrompt(params);
+    const content = await this.runOpenAiStagePrompt(params);
+    return { content };
   }
 
   private async runAnthropicStagePrompt(params: {
@@ -479,7 +497,8 @@ Return only the requested ticket markdown and preserve the required heading stru
     systemPrompt: string;
     repoDir?: string;
     onProgress?: StageProgressCallback;
-  }): Promise<string> {
+    priorStageSummary?: string;
+  }): Promise<{ content: string; sessionId?: string }> {
     const apiKey = this.configService.get<string>('ai.anthropicApiKey');
     if (!apiKey) {
       throw new Error('Anthropic agent backend requires `ai.anthropicApiKey` to be configured.');
@@ -510,7 +529,15 @@ Return only the requested ticket markdown and preserve the required heading stru
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: [anthropicContext, anthropicSystemPrompt].filter(Boolean).join('\n\n'),
+          append: [
+            params.priorStageSummary
+              ? `<prior-stage-context>\n${params.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.`
+              : '',
+            anthropicContext,
+            anthropicSystemPrompt,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
         },
         canUseTool: async (toolName, input) => {
           if (toolName !== 'Bash') {
@@ -545,8 +572,14 @@ Return only the requested ticket markdown and preserve the required heading stru
       },
     });
 
+    let extractedSessionId: string | undefined;
+
     try {
       for await (const message of session) {
+        if ('session_id' in message && typeof message.session_id === 'string') {
+          extractedSessionId = message.session_id;
+        }
+
         if (message.type !== 'result') {
           if (params.onProgress) {
             const line = formatAnthropicProgressMessage(message);
@@ -561,7 +594,7 @@ Return only the requested ticket markdown and preserve the required heading stru
           throw new Error(`Claude Agent SDK failed (${message.subtype}): ${errorSummary}`);
         }
 
-        return message.result.trim();
+        return { content: message.result.trim(), sessionId: extractedSessionId };
       }
     } finally {
       session.close();
@@ -1035,7 +1068,8 @@ Return only the requested ticket markdown and preserve the required heading stru
     systemPrompt: string;
     repoDir?: string;
     onProgress?: StageProgressCallback;
-  }): Promise<string> {
+    priorStageSummary?: string;
+  }): Promise<{ content: string; sessionId?: string }> {
     assertClaudeCliAvailable();
 
     const model = this.resolveStageModel(params.stage);
@@ -1057,9 +1091,12 @@ Return only the requested ticket markdown and preserve the required heading stru
         ? 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — raw JSON only.'
         : params.prompt;
 
+      const priorStagePreamble = params.priorStageSummary
+        ? `<prior-stage-context>\n${params.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
+        : '';
       const args = buildCliArgs({
         prompt,
-        appendSystemPrompt: params.systemPrompt,
+        appendSystemPrompt: `${priorStagePreamble}${params.systemPrompt}`,
         model,
         cwd: resolvedRepoDir,
         tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
@@ -1104,7 +1141,7 @@ Return only the requested ticket markdown and preserve the required heading stru
 
       if (result) {
         console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${resultSource} (pass ${passNumber})`));
-        return result.trim();
+        return { content: result.trim(), sessionId };
       }
 
       // Stall detection: stop when consecutive passes produce no content
@@ -1128,6 +1165,52 @@ Return only the requested ticket markdown and preserve the required heading stru
 
       console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${passNumber}: no usable result — resuming session`));
     }
+  }
+
+  private async runCodexCliStagePrompt(params: {
+    stage: AgentStageName;
+    prompt: string;
+    systemPrompt: string;
+    repoDir?: string;
+    onProgress?: StageProgressCallback;
+    priorStageSummary?: string;
+  }): Promise<{ content: string; sessionId?: string }> {
+    assertCodexCliAvailable();
+
+    const model = this.resolveStageModel(params.stage);
+    const resolvedRepoDir = params.repoDir ?? process.cwd();
+
+    const priorStagePreamble = params.priorStageSummary
+      ? `<prior-stage-context>\n${params.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
+      : '';
+    const fullPrompt = `${priorStagePreamble}${params.systemPrompt}\n\n${params.prompt}`;
+
+    const args = buildCodexCliArgs({
+      prompt: fullPrompt,
+      model,
+      cwd: resolvedRepoDir,
+    });
+
+    let sessionId: string | undefined;
+    let result = '';
+
+    for await (const message of spawnCodex(args, resolvedRepoDir, fullPrompt)) {
+      if (message.session_id) sessionId = message.session_id;
+
+      if (params.onProgress && message.summary) {
+        params.onProgress(`  [codex-cli] ${message.summary}`);
+      }
+
+      if (message.type === 'result' && !message.is_error && message.result) {
+        result = message.result;
+      }
+    }
+
+    if (!result) {
+      throw new AIError('Codex CLI finished without returning a result.', null, true);
+    }
+
+    return { content: result.trim(), sessionId };
   }
 
   private async cliChatTurn(params: {

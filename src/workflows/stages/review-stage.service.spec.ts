@@ -170,8 +170,10 @@ describe('ReviewStageService', () => {
           useValue: {
             isEnabledForStage: jest.fn().mockReturnValue(agentEnabled),
             reviewCode: jest.fn().mockResolvedValue({
-              ...mockReview,
-              executionMode: 'agent',
+              review: {
+                ...mockReview,
+                executionMode: 'agent',
+              },
             }),
           },
         },

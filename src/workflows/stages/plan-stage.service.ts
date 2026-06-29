@@ -39,7 +39,10 @@ export class PlanStageService {
     private readonly stageAgentService: StageAgentService
   ) {}
 
-  async generatePlan(ticketContent: string, options: GeneratePlanOptions): Promise<ResolutionPlan> {
+  async generatePlan(
+    ticketContent: string,
+    options: GeneratePlanOptions
+  ): Promise<{ plan: ResolutionPlan; sessionId?: string }> {
     const testInfra = detectTestInfra(options.repoDir ?? process.cwd());
 
     const standardContext = {
@@ -55,7 +58,7 @@ export class PlanStageService {
 
     if (this.stageAgentService.isEnabledForStage('plan')) {
       try {
-        return await this.stageAgentService.generatePlan({
+        const result = await this.stageAgentService.generatePlan({
           action: options.action,
           issueContent: ticketContent,
           ticketKey: options.ticketKey,
@@ -67,6 +70,7 @@ export class PlanStageService {
           recurrenceGaps: options.recurrenceGaps,
           onProgress: options.onProgress,
         });
+        return result;
       } catch (error) {
         const isFallbackEligible =
           isAIErrorLike(error) &&
@@ -98,15 +102,16 @@ export class PlanStageService {
         }
 
         console.log(chalk.green('  ✓ Fallback produced valid plan'));
-        return fallbackResult;
+        return { plan: fallbackResult };
       }
     }
 
-    return this.aiService.generatePlan(
+    const plan = await this.aiService.generatePlan(
       options.action as 'fix' | 'implement' | 'investigate',
       ticketContent,
       standardContext
     );
+    return { plan };
   }
 
   async createPlanArtifact(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {
@@ -131,7 +136,7 @@ export class PlanStageService {
       }
     }
 
-    const plan = await this.generatePlan(ticket.content, {
+    const { plan, sessionId } = await this.generatePlan(ticket.content, {
       action: options.action,
       ticketKey: ticket.ticketKey,
       affectedRepositories: options.affectedRepositories,
@@ -154,7 +159,7 @@ export class PlanStageService {
       buildPlanArtifactManifest(planPath, options.action, 'json', planHash, sourceName, 'ticket', createdAt)
     );
     this.deleteStalePlanArtifacts(artifactDir, planHash, options.action, planPath);
-    return { plan, action: options.action, path: planPath, fromCache: false };
+    return { plan, action: options.action, path: planPath, fromCache: false, sessionId };
   }
 
   loadPlanArtifact(ticketPath: string, action?: ResolutionAction): PlanArtifact {

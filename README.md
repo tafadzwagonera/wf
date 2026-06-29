@@ -371,6 +371,7 @@ wf issue:plan WBP-2971 --action fix --force --tracker jira
 | `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the plan path for piping |
 | `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
+| `--session-id <id>` | Associate this plan with an existing workflow session, or create a new one |
 <!-- END GENERATED COMMAND DOCS: issue:plan -->
 
 Targeted verification commands are stored as **repo-root-relative** commands. If the plan generator emits a redundant `cd <selected-repo> && ...`, `issue:plan` normalizes it before writing the artifact. If a targeted check tries to `cd` outside the selected repo, the plan is rejected.
@@ -416,6 +417,7 @@ wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 | `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker |
+| `--session-id <id>` | Resume a previous workflow session by ID |
 <!-- END GENERATED COMMAND DOCS: issue:review -->
 
 Accepts three source modes:
@@ -565,6 +567,7 @@ wf issue:commit WBP-2971 --conventional --tracker jira
 | `--no-ai` | Disable AI generation and require manual message |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
+| `--session-id <id>` | Resume a previous workflow session by ID |
 <!-- END GENERATED COMMAND DOCS: issue:commit -->
 
 **Branch detection:** ticket keys are extracted from the branch name using the pattern `[A-Z]+-\d+` (e.g., `feature/WBP-2971__add-oauth` → `WBP-2971`).
@@ -679,6 +682,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 | `-r, --repos <repos...>` | Space-separated repositories; first repo anchors artifact lookup. When multiple repos are passed, implementation runs per-repo with cross-repo context |
 | `-s, --silent` | Suppress interactive prompts; auto-select defaults while preserving decorative output |
 | `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
+| `--session-id <id>` | Resume a previous workflow session by ID |
 <!-- END GENERATED COMMAND DOCS: issue:implement -->
 
 `issue:implement` only supports plans that affect a single repository. If the plan's `repositoriesAffected` lists more than one repo, the command exits with an error. Use `wf issue -r <repos...>` to run implementation per repo when the plan spans multiple repositories.
@@ -823,6 +827,32 @@ yarn start config get atlassian.baseUrl
 yarn start config set atlassian.email user@example.com
 yarn start config list
 ```
+
+#### `wf config clean`
+
+Delete session state files by ID, ticket key, date range, or pattern.
+
+```bash
+# Delete a specific session
+wf config clean --session-id <id>
+
+# Delete all sessions for a ticket
+wf config clean --ticket PROJ-123
+
+# Delete expired sessions (> configured TTL)
+wf config clean --expired
+
+# Dry run — list matching sessions without deleting
+wf config clean --expired --dry-run
+```
+
+#### Session Continuity
+
+When running multi-stage workflows (`wf issue --from plan --to review`), a session state file is persisted at `~/.wf/state/sessions/` to track session IDs and AI-generated summaries across stages. This enables:
+
+- **Automatic handoff**: within a single `wf issue` run, the plan summary is injected into the implement stage prompt
+- **Manual resumption**: run `wf issue:plan PROJ-123`, note the session ID, then `wf issue:implement PROJ-123 --session-id <id>` in a separate invocation
+- **Provider-switch detection**: when a stage uses a different AI provider or backend than the prior stage, a warning is emitted and conversation resumption is skipped (summaries still flow through)
 
 ## Architecture
 

@@ -30,6 +30,10 @@
       {
         "flags": "-t, --tracker <tracker>",
         "description": "Tracker (jira|github|bitbucket)"
+      },
+      {
+        "flags": "--session-id <id>",
+        "description": "Resume a previous workflow session by ID"
       }
     ],
     "examples": [
@@ -270,6 +274,10 @@
       {
         "flags": "-t, --tracker <tracker>",
         "description": "Tracker to fetch from if local artifact not found"
+      },
+      {
+        "flags": "--session-id <id>",
+        "description": "Resume a previous workflow session by ID"
       }
     ]
   },
@@ -308,6 +316,10 @@
       {
         "flags": "-t, --tracker <tracker>",
         "description": "Tracker to fetch from if local artifact not found"
+      },
+      {
+        "flags": "--session-id <id>",
+        "description": "Associate this plan with an existing workflow session, or create a new one"
       }
     ],
     "examples": [
@@ -412,6 +424,10 @@
       {
         "flags": "-t, --tracker <tracker>",
         "description": "Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker"
+      },
+      {
+        "flags": "--session-id <id>",
+        "description": "Resume a previous workflow session by ID"
       }
     ],
     "examples": [
@@ -488,6 +504,10 @@
       {
         "flags": "-t, --tracker <tracker>",
         "description": "Tracker to use (jira|github|bitbucket)"
+      },
+      {
+        "flags": "--session-id <id>",
+        "description": "Resume a previous workflow session by ID"
       }
     ],
     "examples": [

@@ -337,6 +337,10 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     const model = modelRoutingResult.model;
     console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
 
+    const priorStagePreamble = params.options.priorStageSummary
+      ? `<prior-stage-context>\n${params.options.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.`
+      : '';
+
     const sdkOptions = {
       cwd: repoDir,
       model,
@@ -355,6 +359,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
         type: 'preset' as const,
         preset: 'claude_code' as const,
         append: [
+          priorStagePreamble ? `\n\n${priorStagePreamble}` : '',
           claudeContext ? `\n\nRepo AI context:\n${claudeContext}` : '',
           `\n\n${buildSystemPrompt({
             ticketKey: params.ticket.ticketKey,

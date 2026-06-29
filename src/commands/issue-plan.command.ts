@@ -66,6 +66,7 @@ interface IssuePlanOptions {
   repos?: string[];
   dryRun?: boolean;
   silent?: boolean;
+  sessionId?: string;
 }
 
 interface RepoAwarePlan {
@@ -337,6 +338,14 @@ export class IssuePlanCommand extends CommandRunner {
     return tracker;
   }
 
+  @Option({
+    flags: '--session-id <id>',
+    description: 'Associate this plan with an existing workflow session, or create a new one',
+  })
+  parseSessionId(val: string): string {
+    return val;
+  }
+
   async run([ticketKey]: string[], options?: IssuePlanOptions): Promise<void> {
     if (!options?.silent) {
       printExamples(ISSUE_PLAN_EXAMPLES);
@@ -466,7 +475,7 @@ export class IssuePlanCommand extends CommandRunner {
 
         const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
 
-        const plan = await this.planStageService.generatePlan(customSourceContent, {
+        const { plan } = await this.planStageService.generatePlan(customSourceContent, {
           action,
           affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
           repoDir: artifactBaseDir,
@@ -686,7 +695,7 @@ export class IssuePlanCommand extends CommandRunner {
 
       const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
 
-      const plan = await this.planStageService.generatePlan(ticketContent, {
+      const { plan } = await this.planStageService.generatePlan(ticketContent, {
         action,
         ticketKey,
         affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],

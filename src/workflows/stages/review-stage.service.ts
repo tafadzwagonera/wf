@@ -73,7 +73,7 @@ export class ReviewStageService {
     const processedDiff = await summariseDiff(segments, MAX_REVIEW_DIFF_LENGTH, summariseCallback);
 
     const review = this.stageAgentService.isEnabledForStage('review')
-      ? await this.stageAgentService.reviewCode(processedDiff, guidelines, options.repoDir)
+      ? (await this.stageAgentService.reviewCode(processedDiff, guidelines, options.repoDir)).review
       : await this.aiService.reviewCode(processedDiff, guidelines);
 
     if (review.executionMode) {
