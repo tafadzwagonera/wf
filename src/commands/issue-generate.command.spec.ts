@@ -1630,4 +1630,145 @@ describe('IssueGenerateCommand', () => {
       expect(mockStageAgentService.generateFromPrompt).toHaveBeenCalledWith(expect.any(String), undefined);
     });
   });
+
+  describe('synthesizeWithAI always invokes AI', () => {
+    it('calls AI even for a single source with a long description', async () => {
+      const { command, mockAiService } = await buildCommand();
+
+      const sources = [
+        {
+          type: 'tracker',
+          source: 'WBP-3371',
+          content: 'Title\n\n' + 'A '.repeat(200),
+          ticket: {
+            title: 'Existing ticket title',
+            description: 'A '.repeat(200),
+            type: 'bug',
+            priority: 'high',
+          },
+        },
+      ];
+
+      await (command as any).synthesizeWithAI(sources, true, undefined, undefined);
+
+      expect(mockAiService.execute).toHaveBeenCalled();
+    });
+  });
+
+  describe('parseTrackerSource', () => {
+    it('parses a configured baseUrl browse URL', async () => {
+      const { command } = await buildCommand();
+      const configService = (command as any).configService as ConfigService;
+      jest.spyOn(configService, 'get').mockImplementation((key: string) => {
+        if (key === 'atlassian.baseUrl') return 'https://touraxis.atlassian.net';
+        if (key === 'tracker') return 'jira';
+        return undefined;
+      });
+
+      const result = (command as any).parseTrackerSource('https://touraxis.atlassian.net/browse/WBP-3371');
+      expect(result).toEqual({ ticketKey: 'WBP-3371' });
+    });
+
+    it('parses a well-known atlassian.net browse URL without config', async () => {
+      const { command } = await buildCommand();
+      const configService = (command as any).configService as ConfigService;
+      jest.spyOn(configService, 'get').mockImplementation((key: string) => {
+        if (key === 'atlassian.baseUrl') return undefined;
+        if (key === 'tracker') return 'jira';
+        return undefined;
+      });
+
+      const result = (command as any).parseTrackerSource('https://other-org.atlassian.net/browse/PROJ-42');
+      expect(result).toEqual({ ticketKey: 'PROJ-42' });
+    });
+
+    it('handles trailing slash', async () => {
+      const { command } = await buildCommand();
+
+      const result = (command as any).parseTrackerSource('https://touraxis.atlassian.net/browse/WBP-3371/');
+      expect(result).toEqual({ ticketKey: 'WBP-3371' });
+    });
+
+    it('ignores query params and hash fragments', async () => {
+      const { command } = await buildCommand();
+
+      const result = (command as any).parseTrackerSource(
+        'https://touraxis.atlassian.net/browse/WBP-3371?focusedId=123#comment-123'
+      );
+      expect(result).toEqual({ ticketKey: 'WBP-3371' });
+    });
+
+    it('returns null for Confluence URLs', async () => {
+      const { command } = await buildCommand();
+
+      const result = (command as any).parseTrackerSource('https://touraxis.atlassian.net/wiki/spaces/DEV/pages/123');
+      expect(result).toBeNull();
+    });
+
+    it('returns null for Jira board URLs', async () => {
+      const { command } = await buildCommand();
+
+      const result = (command as any).parseTrackerSource(
+        'https://touraxis.atlassian.net/jira/software/projects/WBP/boards/1'
+      );
+      expect(result).toBeNull();
+    });
+
+    it('returns null for non-Atlassian URLs', async () => {
+      const { command } = await buildCommand();
+
+      const result = (command as any).parseTrackerSource('https://github.com/org/repo/issues/42');
+      expect(result).toBeNull();
+    });
+
+    it('returns null for bare ticket keys', async () => {
+      const { command } = await buildCommand();
+
+      const result = (command as any).parseTrackerSource('WBP-3371');
+      expect(result).toBeNull();
+    });
+
+    it('returns null for self-hosted Jira without config', async () => {
+      const { command } = await buildCommand();
+      const configService = (command as any).configService as ConfigService;
+      jest.spyOn(configService, 'get').mockImplementation((key: string) => {
+        if (key === 'atlassian.baseUrl') return undefined;
+        if (key === 'tracker') return 'jira';
+        return undefined;
+      });
+
+      const result = (command as any).parseTrackerSource('https://jira.mycompany.com/browse/PROJ-1');
+      expect(result).toBeNull();
+    });
+
+    it('parses self-hosted Jira when config matches', async () => {
+      const { command } = await buildCommand();
+      const configService = (command as any).configService as ConfigService;
+      jest.spyOn(configService, 'get').mockImplementation((key: string) => {
+        if (key === 'atlassian.baseUrl') return 'https://jira.mycompany.com';
+        if (key === 'tracker') return 'jira';
+        return undefined;
+      });
+
+      const result = (command as any).parseTrackerSource('https://jira.mycompany.com/browse/PROJ-1');
+      expect(result).toEqual({ ticketKey: 'PROJ-1' });
+    });
+  });
+
+  describe('fetchSource routes Jira browse URLs through tracker', () => {
+    it('calls fetchFromTracker for Jira browse URLs instead of fetchFromUrl', async () => {
+      const { command } = await buildCommand();
+      const fetchFromTrackerSpy = jest
+        .spyOn(command as any, 'fetchFromTracker')
+        .mockResolvedValue({ type: 'ticket', source: 'WBP-3371', content: 'Ticket content' });
+      const fetchFromUrlSpy = jest
+        .spyOn(command as any, 'fetchFromUrl')
+        .mockResolvedValue({ type: 'url', source: 'https://touraxis.atlassian.net/browse/WBP-3371', content: 'HTML' });
+
+      await (command as any).fetchSource('https://touraxis.atlassian.net/browse/WBP-3371', 'jira', 'my-repo');
+
+      expect(fetchFromTrackerSpy).toHaveBeenCalledWith('WBP-3371', 'jira', 'my-repo');
+      expect(fetchFromUrlSpy).not.toHaveBeenCalled();
+    });
+  });
 });

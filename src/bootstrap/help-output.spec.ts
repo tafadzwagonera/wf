@@ -42,7 +42,7 @@ describe('getHelpText', () => {
 
     expect(helpText).toContain('<bold-cyan>Usage:</bold-cyan> <cyan>wf</cyan> issue:generate <sources...> [options]');
     expect(plainHelpText).toContain(
-      'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or Jira keys'
+      'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs'
     );
     expect(plainHelpText).toContain('When --repos points to a local checkout, wf bootstraps config from that repo');
     expect(helpText).toContain('--title <title>');
