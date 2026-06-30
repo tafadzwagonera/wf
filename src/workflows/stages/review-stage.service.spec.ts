@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { AiService } from '../../integrations/ai/ai.service';
 import { ReviewStageService } from './review-stage.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
+import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -143,9 +144,11 @@ describe('ReviewStageService', () => {
   const buildService = async ({
     agentEnabled = false,
     reviewBackend,
+    mockStageExecutionMode = 'agent',
   }: {
     agentEnabled?: boolean;
     reviewBackend?: 'agent' | 'cli' | 'standard';
+    mockStageExecutionMode?: 'agent' | 'cli';
   } = {}) => {
     const module = await Test.createTestingModule({
       providers: [
@@ -172,7 +175,7 @@ describe('ReviewStageService', () => {
             reviewCode: jest.fn().mockResolvedValue({
               review: {
                 ...mockReview,
-                executionMode: 'agent',
+                executionMode: mockStageExecutionMode,
               },
             }),
           },
@@ -341,6 +344,45 @@ describe('ReviewStageService', () => {
     expect(reviewMarkdown).toContain('Provenance: evidence-based');
   });
 
+  it('marks cli-backed traces as evidence-based when trace payload exists', async () => {
+    const { service, aiService, stageAgentService } = await buildService({
+      agentEnabled: true,
+      reviewBackend: 'cli',
+      mockStageExecutionMode: 'cli',
+    });
+    const review = await service.reviewDiff('diff --git a/file b/file', {
+      context: 'ticket WBP-129: CLI-backed review',
+      repoDir: '/tmp/repo',
+    });
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-cli-'));
+    const ticketPath = path.join(tempDir, 'WBP-129.md');
+    fs.writeFileSync(ticketPath, '# WBP-129: CLI-backed review');
+
+    const artifact = service.createReviewArtifact(
+      {
+        ticketKey: 'WBP-129',
+        content: '# WBP-129: CLI-backed review',
+        path: ticketPath,
+      },
+      review
+    );
+
+    const reviewMarkdown = fs.readFileSync(artifact.path, 'utf-8');
+    expect(stageAgentService.reviewCode).toHaveBeenCalled();
+    expect(stageAgentService.reviewCode).toHaveBeenCalledWith(
+      'diff --git a/file b/file',
+      expect.any(Array),
+      '/tmp/repo',
+      undefined,
+      undefined
+    );
+    expect(aiService.reviewCode).not.toHaveBeenCalled();
+    expect(review.executionMode).toBe('cli');
+    expect(reviewMarkdown).toContain('Execution mode: cli');
+    expect(reviewMarkdown).toContain('Provenance: evidence-based');
+  });
+
   it('preserves agent execution mode when the review backend is inferred', async () => {
     const { service, aiService, stageAgentService } = await buildService({
       agentEnabled: true,
@@ -370,6 +412,28 @@ describe('ReviewStageService', () => {
     expect(review.executionMode).toBe('agent');
     expect(reviewMarkdown).toContain('Execution mode: agent');
     expect(reviewMarkdown).toContain('Provenance: evidence-based');
+  });
+
+  it.each(['standard', 'agent', 'cli'] as const)('accepts executionMode "%s" in codeReviewSchema', mode => {
+    const result = codeReviewSchema.safeParse({
+      summary: 'OK',
+      issues: [],
+      suggestions: [],
+      approved: true,
+      executionMode: mode,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an unknown executionMode in codeReviewSchema', () => {
+    const result = codeReviewSchema.safeParse({
+      summary: 'OK',
+      issues: [],
+      suggestions: [],
+      approved: true,
+      executionMode: 'unknown',
+    });
+    expect(result.success).toBe(false);
   });
 
   it('propagates empty-response AI errors from the standard review path', async () => {

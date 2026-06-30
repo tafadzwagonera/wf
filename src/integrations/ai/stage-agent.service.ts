@@ -407,7 +407,7 @@ Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
       return {
         review: {
           ...processedReview.review,
-          executionMode: 'agent',
+          executionMode: this.resolveStageBackend('review') === 'cli' ? 'cli' : 'agent',
         },
         sessionId,
       };

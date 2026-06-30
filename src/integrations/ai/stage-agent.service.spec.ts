@@ -215,6 +215,51 @@ describe('StageAgentService', () => {
     });
   });
 
+  it('sets executionMode to cli when review backend is cli', async () => {
+    const configService = {
+      get: jest.fn((key: string, defaultValue?: unknown) => {
+        const values: Record<string, unknown> = {
+          'stages.review.backend': 'cli',
+          'stages.review.provider': 'openai',
+          'stages.review.model': 'gpt-5.4',
+          'ai.provider': 'openai',
+          'ai.model': 'gpt-5.4',
+        };
+        return key in values ? values[key] : defaultValue;
+      }),
+    } as unknown as ConfigService;
+
+    const service = new StageAgentService(configService);
+    const mockReviewJson = JSON.stringify({
+      summary: 'Looks good',
+      issues: [],
+      suggestions: [],
+      approved: true,
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest
+      .fn()
+      .mockResolvedValue({ content: mockReviewJson, sessionId: undefined });
+
+    const { review } = await service.reviewCode('diff --git a/f b/f', []);
+    expect(review.executionMode).toBe('cli');
+  });
+
+  it('sets executionMode to agent when review backend is agent', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockReviewJson = JSON.stringify({
+      summary: 'Looks good',
+      issues: [],
+      suggestions: [],
+      approved: true,
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest
+      .fn()
+      .mockResolvedValue({ content: mockReviewJson, sessionId: undefined });
+
+    const { review } = await service.reviewCode('diff --git a/f b/f', []);
+    expect(review.executionMode).toBe('agent');
+  });
+
   it('enables the review stage when backend is omitted from config', () => {
     const configService = {
       get: jest.fn((key: string, defaultValue?: unknown) => {

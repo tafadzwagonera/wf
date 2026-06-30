@@ -94,7 +94,7 @@ export class ReviewStageService {
 
     return {
       ...review,
-      executionMode: backend === 'agent' || backend === 'cli' ? 'agent' : 'standard',
+      executionMode: backend === 'agent' ? 'agent' : 'standard',
     };
   }
 
@@ -162,7 +162,7 @@ ${review.approved ? '✓ Approved' : '✗ Changes needed'}
       return 'unavailable';
     }
 
-    if (review.executionMode === 'agent') return 'evidence-based';
+    if (review.executionMode === 'agent' || review.executionMode === 'cli') return 'evidence-based';
 
     if (review.traceProvenance) {
       return review.traceProvenance;

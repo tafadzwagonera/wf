@@ -70,7 +70,7 @@ export const processedCodeReviewSchema = z.lazy(() =>
 export const codeReviewSchema = z.object({
   summary: z.string(),
   issues: z.array(codeIssueSchema),
-  executionMode: z.enum(['standard', 'agent']).optional(),
+  executionMode: z.enum(['standard', 'agent', 'cli']).optional(),
   traceProvenance: z.enum(['evidence-based', 'best-effort', 'unavailable']).optional(),
   callStack: z.array(reviewTraceCallStackNodeSchema).optional(),
   stateTransition: reviewTraceStateTransitionSchema.optional(),
