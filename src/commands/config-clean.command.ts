@@ -25,7 +25,7 @@ export class ConfigCleanCommand extends CommandRunner {
 
   @Option({
     flags: '--session-id <id>',
-    description: 'Delete a specific session by its ID',
+    description: 'Delete a specific wf session by its UUID',
   })
   parseSessionId(val: string): string {
     return val;

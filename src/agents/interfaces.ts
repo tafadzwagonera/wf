@@ -66,6 +66,8 @@ export interface ImplementerOptions {
   branchNamePattern?: string;
   /** Summary from a prior workflow stage (e.g. plan) injected as background context. */
   priorStageSummary?: string;
+  /** Provider session ID for conversation resumption (agent SDK or CLI session). */
+  resumeProviderSessionId?: string;
 }
 
 export interface ReviewerOptions {

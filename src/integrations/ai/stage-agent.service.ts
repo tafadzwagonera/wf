@@ -151,6 +151,7 @@ export class StageAgentService {
     recurrenceGaps?: RecurrenceGapAnalysis | null;
     onProgress?: StageProgressCallback;
     priorStageSummary?: string;
+    resumeProviderSessionId?: string;
   }): Promise<{ plan: ResolutionPlan; sessionId?: string }> {
     const repoExample = resolveStagePromptRepoExample(params.affectedRepositories);
 
@@ -267,6 +268,7 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
       repoDir: process.cwd(),
       onProgress: params.onProgress,
       priorStageSummary: params.priorStageSummary,
+      resumeProviderSessionId: params.resumeProviderSessionId,
     });
 
     try {
@@ -311,7 +313,8 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     diff: string,
     guidelines: string[],
     repoDir?: string,
-    priorStageSummary?: string
+    priorStageSummary?: string,
+    resumeProviderSessionId?: string
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const prompt = `
 Code Changes:
@@ -389,6 +392,7 @@ Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
       systemPrompt,
       repoDir,
       priorStageSummary,
+      resumeProviderSessionId,
     });
 
     try {
@@ -472,6 +476,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     repoDir?: string;
     onProgress?: StageProgressCallback;
     priorStageSummary?: string;
+    resumeProviderSessionId?: string;
   }): Promise<{ content: string; sessionId?: string }> {
     const backend = this.resolveStageBackend(params.stage);
     if (backend === 'cli') {
@@ -498,6 +503,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     repoDir?: string;
     onProgress?: StageProgressCallback;
     priorStageSummary?: string;
+    resumeProviderSessionId?: string;
   }): Promise<{ content: string; sessionId?: string }> {
     const apiKey = this.configService.get<string>('ai.anthropicApiKey');
     if (!apiKey) {
@@ -518,9 +524,11 @@ Return only the requested ticket markdown and preserve the required heading stru
       ? params.systemPrompt
       : `${params.systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
     const { query } = await loadAnthropicAgentSdk();
+    const resumeOption = params.resumeProviderSessionId ? { resume: params.resumeProviderSessionId } : {};
     const session = query({
       prompt: params.prompt,
       options: {
+        ...resumeOption,
         cwd: resolvedRepoDir,
         model,
         tools: anthropicTools,
@@ -612,6 +620,8 @@ Return only the requested ticket markdown and preserve the required heading stru
     systemPrompt: string;
     repoDir?: string;
     onProgress?: StageProgressCallback;
+    priorStageSummary?: string;
+    resumeProviderSessionId?: string;
   }): Promise<string> {
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
     if (!apiKey) {
@@ -629,9 +639,21 @@ Return only the requested ticket markdown and preserve the required heading stru
     );
     const resolvedRepoDir = params.repoDir ?? process.cwd();
     const allowInspection = Boolean(params.repoDir);
+
+    if (params.resumeProviderSessionId) {
+      console.log(
+        chalk.yellow(
+          '  [openai-agent] Session resumption is not yet supported for the OpenAI agent backend. Starting fresh.'
+        )
+      );
+    }
+
+    const priorStagePreamble = params.priorStageSummary
+      ? `<prior-stage-context>\n${params.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
+      : '';
     const openAiSystemPrompt = allowInspection
-      ? params.systemPrompt
-      : `${params.systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
+      ? `${priorStagePreamble}${params.systemPrompt}`
+      : `${priorStagePreamble}${params.systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
     const context: OpenAiStageContext = {
       repoDir: resolvedRepoDir,
     };
@@ -1072,6 +1094,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     repoDir?: string;
     onProgress?: StageProgressCallback;
     priorStageSummary?: string;
+    resumeProviderSessionId?: string;
   }): Promise<{ content: string; sessionId?: string }> {
     assertClaudeCliAvailable();
 
@@ -1081,18 +1104,19 @@ Return only the requested ticket markdown and preserve the required heading stru
 
     const jsonSchema = params.stage === 'plan' ? JSON.stringify(z.toJSONSchema(resolutionPlanSchema)) : undefined;
 
-    let sessionId: string | undefined;
+    let sessionId: string | undefined = params.resumeProviderSessionId;
     let stalledPasses = 0;
     let passNumber = 0;
     let lastDiagnostics: string[] = [];
 
     while (true) {
       passNumber++;
-      const isResume = passNumber > 1 && sessionId;
+      const isResume = (passNumber > 1 && sessionId) || (passNumber === 1 && params.resumeProviderSessionId);
 
-      const prompt = isResume
-        ? 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — raw JSON only.'
-        : params.prompt;
+      const prompt =
+        isResume && passNumber > 1
+          ? 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — raw JSON only.'
+          : params.prompt;
 
       const priorStagePreamble = params.priorStageSummary
         ? `<prior-stage-context>\n${params.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
@@ -1180,6 +1204,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     repoDir?: string;
     onProgress?: StageProgressCallback;
     priorStageSummary?: string;
+    resumeProviderSessionId?: string;
   }): Promise<{ content: string; sessionId?: string }> {
     assertCodexCliAvailable();
 
@@ -1195,9 +1220,10 @@ Return only the requested ticket markdown and preserve the required heading stru
       prompt: fullPrompt,
       model,
       cwd: resolvedRepoDir,
+      sessionId: params.resumeProviderSessionId,
     });
 
-    let sessionId: string | undefined;
+    let sessionId: string | undefined = params.resumeProviderSessionId;
     let result = '';
 
     for await (const message of spawnCodex(args, resolvedRepoDir, fullPrompt)) {

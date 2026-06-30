@@ -444,6 +444,7 @@ export class IssueReviewCommand extends CommandRunner {
           extraCriteria: extraCriteria ?? undefined,
           replaceCriteria: Boolean(options?.replaceCriteria),
           repoDir: target.repoDir,
+          resumeProviderSessionId: options?.sessionId,
         });
 
         reviewedTargets.push({ ...target, review });
@@ -579,7 +580,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   @Option({
     flags: '--session-id <id>',
-    description: 'Resume a previous workflow session by ID',
+    description: 'Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)',
   })
   parseSessionId(val: string): string {
     return val;

@@ -30,6 +30,8 @@ interface GeneratePlanOptions {
   crossRepoPatterns?: CrossRepoContext;
   recurrenceGaps?: RecurrenceGapAnalysis | null;
   onProgress?: (line: string) => void;
+  priorStageSummary?: string;
+  resumeProviderSessionId?: string;
 }
 
 @Injectable()
@@ -69,6 +71,8 @@ export class PlanStageService {
           crossRepoPatterns: options.crossRepoPatterns,
           recurrenceGaps: options.recurrenceGaps,
           onProgress: options.onProgress,
+          priorStageSummary: options.priorStageSummary,
+          resumeProviderSessionId: options.resumeProviderSessionId,
         });
         return result;
       } catch (error) {

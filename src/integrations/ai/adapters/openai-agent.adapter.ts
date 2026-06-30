@@ -1154,11 +1154,23 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
       },
     });
 
+    if (params.options.resumeProviderSessionId) {
+      console.log(
+        chalk.yellow(
+          '  [openai-agent] Session resumption is not yet supported for the OpenAI agent backend. Starting fresh.'
+        )
+      );
+    }
+
+    const priorStagePreamble = params.options.priorStageSummary
+      ? `<prior-stage-context>\n${params.options.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
+      : '';
+
     const agent = new Agent<OpenAiImplementerContext>({
       name: 'wf issue:implement openai backend',
       handoffDescription:
         'Implements the selected ticket by editing workspace files and validating them with whitelisted verification commands.',
-      instructions: buildSystemPrompt({
+      instructions: `${priorStagePreamble}${buildSystemPrompt({
         ticketKey: params.ticket.ticketKey,
         repoDir,
         repoName,
@@ -1171,7 +1183,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         planSummary: params.planArtifact.plan.summary,
         planRisks: params.planArtifact.plan.risks,
         planAction: params.planArtifact.plan.action,
-      }),
+      })}`,
       model,
       tools: [
         readFileTool,

@@ -268,7 +268,7 @@ export class IssuePlanCommand extends CommandRunner {
 
   @Option({
     flags: '--session-id <id>',
-    description: 'Associate this plan with an existing workflow session, or create a new one',
+    description: 'Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)',
   })
   parseSessionId(val: string): string {
     return val;
@@ -429,6 +429,7 @@ export class IssuePlanCommand extends CommandRunner {
           crossRepoPatterns,
           recurrenceGaps,
           onProgress,
+          resumeProviderSessionId: options?.sessionId,
         });
         this.validateGeneratedPlan(
           plan,
@@ -664,6 +665,7 @@ export class IssuePlanCommand extends CommandRunner {
         crossRepoPatterns,
         recurrenceGaps,
         onProgress,
+        resumeProviderSessionId: options?.sessionId,
       });
       this.validateGeneratedPlan(
         plan,

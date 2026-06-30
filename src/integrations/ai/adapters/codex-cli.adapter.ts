@@ -78,12 +78,13 @@ export class CodexCliAdapter implements ImplementerBackend {
       model,
       cwd: repoDir,
       permissionMode: 'full-auto',
+      sessionId: params.options.resumeProviderSessionId,
     });
 
     console.log(chalk.bold.cyan(`\n  [${CODEX_ADAPTER_LABEL}] Running Codex CLI agent in ${repoDir}...`));
 
     const touchedFiles = new Set<string>();
-    let sessionId: string | undefined;
+    let sessionId: string | undefined = params.options.resumeProviderSessionId;
 
     for await (const message of spawnCodex(cliArgs, repoDir, implementPrompt)) {
       this.logCodexMessage(message, repoDir, touchedFiles);

@@ -222,7 +222,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--session-id <id>',
-    description: 'Resume a previous workflow session by ID',
+    description: 'Resume a wf session by UUID (persisted to ~/.wf/state/sessions/); omit to auto-generate a new one',
   })
   parseSessionId(val: string): string {
     return val;

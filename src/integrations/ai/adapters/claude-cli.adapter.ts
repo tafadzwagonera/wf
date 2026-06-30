@@ -102,13 +102,14 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       tools: IMPLEMENT_TOOLS,
       permissionMode: 'acceptEdits',
       addDirs: additionalRepoDirs.length > 0 ? additionalRepoDirs : undefined,
+      sessionId: params.options.resumeProviderSessionId,
     });
 
     console.log(chalk.bold.cyan(`\n  [${CLI_ADAPTER_LABEL}] Running CLI agent in ${repoDir}...`));
 
     const touchedFiles = new Set<string>();
     const activityState: ActivityState = {};
-    let sessionId: string | undefined;
+    let sessionId: string | undefined = params.options.resumeProviderSessionId;
 
     for await (const message of spawnCli(cliArgs, repoDir, implementPrompt)) {
       this.logCliMessage(message, repoDir, activityState, touchedFiles);

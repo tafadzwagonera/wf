@@ -155,7 +155,7 @@ export class IssueImplementCommand extends CommandRunner {
 
   @Option({
     flags: '--session-id <id>',
-    description: 'Resume a previous workflow session by ID',
+    description: 'Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)',
   })
   parseSessionId(val: string): string {
     return val;
@@ -440,6 +440,7 @@ Return ONLY a valid JSON object:
             silent: options?.silent,
             noBranch: options?.noBranch,
             branchNamePattern: options?.branchNamePattern,
+            resumeProviderSessionId: options?.sessionId,
           });
 
           if (result?.type === 'investigation') {
@@ -624,6 +625,7 @@ Return ONLY a valid JSON object:
           silent: options?.silent,
           noBranch: options?.noBranch,
           branchNamePattern: options?.branchNamePattern,
+          resumeProviderSessionId: options?.sessionId,
         });
 
         if (result?.type === 'investigation') {

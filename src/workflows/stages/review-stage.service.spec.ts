@@ -331,7 +331,9 @@ describe('ReviewStageService', () => {
     expect(stageAgentService.reviewCode).toHaveBeenCalledWith(
       'diff --git a/file b/file',
       expect.any(Array),
-      '/tmp/repo'
+      '/tmp/repo',
+      undefined,
+      undefined
     );
     expect(aiService.reviewCode).not.toHaveBeenCalled();
     expect(review.executionMode).toBe('agent');

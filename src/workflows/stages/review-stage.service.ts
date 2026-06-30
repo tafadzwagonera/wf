@@ -29,6 +29,8 @@ interface ReviewDiffOptions {
   extraCriteria?: string[];
   replaceCriteria?: boolean;
   repoDir?: string;
+  priorStageSummary?: string;
+  resumeProviderSessionId?: string;
 }
 
 @Injectable()
@@ -73,7 +75,15 @@ export class ReviewStageService {
     const processedDiff = await summariseDiff(segments, MAX_REVIEW_DIFF_LENGTH, summariseCallback);
 
     const review = this.stageAgentService.isEnabledForStage('review')
-      ? (await this.stageAgentService.reviewCode(processedDiff, guidelines, options.repoDir)).review
+      ? (
+          await this.stageAgentService.reviewCode(
+            processedDiff,
+            guidelines,
+            options.repoDir,
+            options.priorStageSummary,
+            options.resumeProviderSessionId
+          )
+        ).review
       : await this.aiService.reviewCode(processedDiff, guidelines);
 
     if (review.executionMode) {

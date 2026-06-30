@@ -20,7 +20,7 @@ A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan,
   - [Issue API](#issue-api)
   - [Workflow Commands](#workflow-commands)
 - [Workflows](#workflows)
-- [Architecture](#architecture)
+- [Key Design Decisions](#key-design-decisions)
 - [Development](#development)
 - [Testing](#testing)
 - [Known Issues](#known-issues)
@@ -371,7 +371,7 @@ wf issue:plan WBP-2971 --action fix --force --tracker jira
 | `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the plan path for piping |
 | `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
-| `--session-id <id>` | Associate this plan with an existing workflow session, or create a new one |
+| `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 <!-- END GENERATED COMMAND DOCS: issue:plan -->
 
 Targeted verification commands are stored as **repo-root-relative** commands. If the plan generator emits a redundant `cd <selected-repo> && ...`, `issue:plan` normalizes it before writing the artifact. If a targeted check tries to `cd` outside the selected repo, the plan is rejected.
@@ -417,7 +417,7 @@ wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 | `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker |
-| `--session-id <id>` | Resume a previous workflow session by ID |
+| `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 <!-- END GENERATED COMMAND DOCS: issue:review -->
 
 Accepts three source modes:
@@ -572,7 +572,7 @@ wf issue:commit WBP-2971 --conventional --tracker jira
 | `--no-ai` | Disable AI generation and require manual message |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
-| `--session-id <id>` | Resume a previous workflow session by ID |
+| `--session-id <id>` | Resume a wf session by UUID (persisted to ~/.wf/state/sessions/) |
 <!-- END GENERATED COMMAND DOCS: issue:commit -->
 
 **Branch detection:** ticket keys are extracted from the branch name using the pattern `[A-Z]+-\d+` (e.g., `feature/WBP-2971__add-oauth` → `WBP-2971`).
@@ -692,7 +692,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 | `-r, --repos <repos...>` | Space-separated repositories; first repo anchors artifact lookup. When multiple repos are passed, implementation runs per-repo with cross-repo context |
 | `-s, --silent` | Suppress interactive prompts; auto-select defaults while preserving decorative output |
 | `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
-| `--session-id <id>` | Resume a previous workflow session by ID |
+| `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 <!-- END GENERATED COMMAND DOCS: issue:implement -->
 
 `issue:implement` only supports plans that affect a single repository. If the plan's `repositoriesAffected` lists more than one repo, the command exits with an error. Use `wf issue -r <repos...>` to run implementation per repo when the plan spans multiple repositories.
@@ -861,10 +861,10 @@ wf config clean --expired --dry-run
 When running multi-stage workflows (`wf issue --from plan --to review`), a session state file is persisted at `~/.wf/state/sessions/` to track session IDs and AI-generated summaries across stages. This enables:
 
 - **Automatic handoff**: within a single `wf issue` run, the plan summary is injected into the implement stage prompt
-- **Manual resumption**: run `wf issue:plan PROJ-123`, note the session ID, then `wf issue:implement PROJ-123 --session-id <id>` in a separate invocation
+- **Manual resumption**: run `wf issue:plan PROJ-123`, note the provider session ID logged to the terminal, then `wf issue:implement PROJ-123 --session-id <provider-session-id>` in a separate invocation
 - **Provider-switch detection**: when a stage uses a different AI provider or backend than the prior stage, a warning is emitted and conversation resumption is skipped (summaries still flow through)
 
-## Architecture
+## Key Design Decisions
 
 ### High-Level Overview
 
@@ -961,13 +961,110 @@ wf/
 └── wf.config.ts                   # Project's own config (dogfooding)
 ```
 
-### Key Design Decisions
-
 - **File-system-only state.** No database — all artifacts, state, and logs live under `.wf/` in the target repository or `~/.wf/<repo>/` for repo-scoped artifacts. This keeps wf portable and easy to debug.
 - **Per-stage provider overrides.** Each pipeline stage can use a different AI provider and model via `stages.<command>` config, so you can use a cheaper model for planning and a more capable one for implementation.
 - **Agent vs completion mode.** Most stages (plan, implement, review, generate, create) default to agent mode via the Claude Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode. The commit stage defaults to standard (completion API). Controlled by `stages.<command>.backend: 'agent' | 'cli' | 'standard'`.
 - **Adapter pattern.** Platform adapters (Jira, GitHub, Bitbucket) and AI adapters (Anthropic, OpenAI, Gemini, DeepSeek) share a common interface so new providers can be added without changing command or agent code.
 - **Config resolution.** `wf` resolves config from the target repository when `--repos` is supplied, not from the caller's cwd. This lets a single wf installation manage many repositories with different settings.
+- **Session continuity.** `--session-id` enables conversation resumption across invocations. See [Session Continuity](#session-continuity) below.
+
+### Session Continuity
+
+Session continuity enables context awareness across workflow stages. It operates at two levels with distinct session identity semantics:
+
+- **wf sessions** are workflow-level UUIDs managed by the orchestrator command (`wf issue`). They track per-stage fingerprints (`{provider, backend}`), provider session IDs, and AI-generated summaries. Persisted to `~/.wf/state/sessions/<ticketKey>-<sessionId>.json`.
+- **Provider sessions** are agent SDK or CLI session identifiers (e.g. Anthropic `sess_abc123`, Codex CLI session IDs). Standalone commands pass these directly to the backend for conversation resumption.
+
+The `--session-id` flag means different things depending on the command:
+
+| Command | `--session-id` value | Behaviour |
+|---------|---------------------|-----------|
+| `wf issue` | wf session ID | Loads session from disk, validates fingerprints, extracts provider session IDs and prior summaries per stage |
+| `wf issue:plan` | Provider session ID | Passed directly to the configured backend for conversation resumption |
+| `wf issue:implement` | Provider session ID | Passed directly to the configured backend for conversation resumption |
+| `wf issue:review` | Provider session ID | Passed directly to the configured backend for conversation resumption |
+
+#### Orchestrated workflow
+
+`wf issue <ticket> --session-id <wf-id>` manages a wf session across stages. A new UUID is generated via `crypto.randomUUID()` if `--session-id` is omitted.
+
+```
+IssueCommand.run(options.sessionId)                            # wf session ID (or auto-generated)
+│
+├── sessionService.load(wfSessionId)                           # load SessionState from disk
+│
+├── PLAN ──────────────────────────────────────────────────────────────────
+│   ├── sessionService.validateForStage(session, 'plan', ...) # { resumableProviderSessionId, priorSummary }
+│   │
+│   ├── planStageService.generatePlan(content, { resumeProviderSessionId, priorStageSummary })
+│   │   └── stageAgentService.generatePlan({ resumeProviderSessionId, priorStageSummary })
+│   │       └── runStagePrompt({ resumeProviderSessionId, priorStageSummary })
+│   │           ├── [anthropic/agent] → runAnthropicStagePrompt()
+│   │           │                       query({ options: { resume: id } })
+│   │           ├── [anthropic/cli]   → runCliStagePrompt()
+│   │           │                       buildCliArgs({ sessionId: id })    # --resume <id>
+│   │           ├── [openai/agent]    → runOpenAiStagePrompt()
+│   │           │                       (WfDiskSession deferred — warns and starts fresh)
+│   │           ├── [openai/cli]      → runCodexCliStagePrompt()
+│   │           │                       buildCodexCliArgs({ sessionId: id }) # codex exec resume <id>
+│   │           └── returns { content, sessionId }             # provider session ID extracted
+│   │
+│   ├── sessionService.recordProviderSessionId(session, 'plan', providerSessionId)
+│   └── sessionService.recordStageComplete(session, 'plan', summary)
+│
+├── IMPLEMENT ─────────────────────────────────────────────────────────────
+│   ├── sessionService.validateForStage(session, 'implement', ...)
+│   │
+│   ├── implementer.execute(ticket, plan, { resumeProviderSessionId, priorStageSummary })
+│   │   └── adapter.generateAndVerify({ options: { resumeProviderSessionId, priorStageSummary } })
+│   │       ├── [AnthropicAgentAdapter]  query({ options: { resume: id } })
+│   │       ├── [ClaudeCliAdapter]       buildCliArgs({ sessionId: id })
+│   │       ├── [OpenAIAgentAdapter]     (WfDiskSession deferred — warns and starts fresh)
+│   │       └── [CodexCliAdapter]        buildCodexCliArgs({ sessionId: id })
+│   │
+│   └── sessionService.recordStageComplete(session, 'implement', summary)
+│
+├── REVIEW ────────────────────────────────────────────────────────────────
+│   ├── sessionService.validateForStage(session, 'review', ...)
+│   │
+│   ├── reviewStageService.reviewDiff(diff, { resumeProviderSessionId, priorStageSummary })
+│   │   └── stageAgentService.reviewCode(diff, guidelines, repoDir, priorStageSummary, resumeProviderSessionId)
+│   │       └── runStagePrompt({ resumeProviderSessionId, priorStageSummary })
+│   │           └── (same backend dispatch as PLAN)
+│   │
+│   └── sessionService.recordStageComplete(session, 'review', summary)
+│
+└── sessionService.markComplete(session)
+```
+
+#### Standalone commands
+
+`wf issue:plan <ticket> --session-id <provider-id>` passes the provider session ID straight to the backend. No wf session, no `SessionService`, no drift detection.
+
+```
+IssuePlanCommand.run(options.sessionId)                        # provider session ID
+└── planStageService.generatePlan(content, { resumeProviderSessionId: options.sessionId })
+    └── stageAgentService.generatePlan({ resumeProviderSessionId })
+        └── runStagePrompt({ resumeProviderSessionId })
+            └── (same backend dispatch as above)
+
+IssueImplementCommand.run(options.sessionId)                   # provider session ID
+└── implementer.execute(ticket, plan, { resumeProviderSessionId: options.sessionId })
+    └── adapter.generateAndVerify({ options: { resumeProviderSessionId } })
+        └── (same backend dispatch as above)
+
+IssueReviewCommand.run(options.sessionId)                      # provider session ID
+└── reviewStageService.reviewDiff(diff, { resumeProviderSessionId: options.sessionId })
+    └── stageAgentService.reviewCode(..., resumeProviderSessionId)
+        └── runStagePrompt({ resumeProviderSessionId })
+            └── (same backend dispatch as above)
+```
+
+#### Config drift detection
+
+When `validateForStage()` runs in the orchestrated workflow, it compares each completed stage's recorded `{provider, backend}` fingerprint against the current `wf.config.*` runtime resolution. If a mismatch is detected, it logs a warning and skips session resumption for the affected stage, falling back to default (non-resumption) behaviour. Model changes are recorded per-stage for telemetry but do not trigger drift detection.
+
+Provider session IDs are never portable across backends. An `anthropic/agent` session ID is incompatible with `anthropic/cli` (and vice versa) because they are managed by different systems. The same applies across providers.
 
 ## Development
 

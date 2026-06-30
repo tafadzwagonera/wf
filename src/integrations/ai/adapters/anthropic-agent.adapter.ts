@@ -394,11 +394,14 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
       },
     };
 
+    const resumeOption = params.options.resumeProviderSessionId
+      ? { resume: params.options.resumeProviderSessionId }
+      : {};
     const { query } = await loadAnthropicAgentSdk();
     const session = query({
       prompt:
         'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes, then Bash for each verification step. Do not output any text or plan before making your first tool call.',
-      options: sdkOptions,
+      options: { ...sdkOptions, ...resumeOption },
     });
 
     let finalResult: SDKResultMessage | undefined;

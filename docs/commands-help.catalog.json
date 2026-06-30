@@ -33,7 +33,7 @@
       },
       {
         "flags": "--session-id <id>",
-        "description": "Resume a previous workflow session by ID"
+        "description": "Resume a wf session by UUID (persisted to ~/.wf/state/sessions/)"
       }
     ],
     "examples": [
@@ -281,7 +281,7 @@
       },
       {
         "flags": "--session-id <id>",
-        "description": "Resume a previous workflow session by ID"
+        "description": "Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)"
       }
     ]
   },
@@ -323,7 +323,7 @@
       },
       {
         "flags": "--session-id <id>",
-        "description": "Associate this plan with an existing workflow session, or create a new one"
+        "description": "Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)"
       }
     ],
     "examples": [
@@ -431,7 +431,7 @@
       },
       {
         "flags": "--session-id <id>",
-        "description": "Resume a previous workflow session by ID"
+        "description": "Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)"
       }
     ],
     "examples": [
@@ -511,7 +511,7 @@
       },
       {
         "flags": "--session-id <id>",
-        "description": "Resume a previous workflow session by ID"
+        "description": "Resume a wf session by UUID (persisted to ~/.wf/state/sessions/); omit to auto-generate a new one"
       }
     ],
     "examples": [
