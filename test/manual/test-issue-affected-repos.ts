@@ -48,7 +48,7 @@ async function testIssueAffectedRepos() {
   const makeFixtures = (opts: {
     ticketKey: string;
     platformName?: string;
-    planRepositoriesAffected?: string[];
+    planAffectedRepositories?: string[];
     action?: string;
   }): { tmpRoot: string; homeDir: string; cleanup: () => void } => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-'));
@@ -72,8 +72,8 @@ async function testIssueAffectedRepos() {
       steps: ['Step 1'],
       estimatedComplexity: 'low',
     };
-    if (opts.planRepositoriesAffected) {
-      plan.repositoriesAffected = opts.planRepositoriesAffected;
+    if (opts.planAffectedRepositories) {
+      plan.affectedRepositories = opts.planAffectedRepositories;
     }
     const planPath = path.join(platformDir, `${opts.ticketKey}-plan-${action}.json`);
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2), 'utf-8');
@@ -133,7 +133,7 @@ async function testIssueAffectedRepos() {
 
   // ── Tests ────────────────────────────────────────────────────────────────
 
-  // Test 1: --repos flag only; plan has no repositoriesAffected → IMPLEMENT shows flag repo
+  // Test 1: --repos flag only; plan has no affectedRepositories → IMPLEMENT shows flag repo
   console.log('Test 1: explicit --repos only → IMPLEMENT shows flag repo');
   {
     const { tmpRoot, homeDir, cleanup } = makeFixtures({ ticketKey: 'TEST-1' });
@@ -167,7 +167,7 @@ async function testIssueAffectedRepos() {
   {
     const { tmpRoot, homeDir, cleanup } = makeFixtures({
       ticketKey: 'TEST-2',
-      planRepositoriesAffected: ['repo-b'],
+      planAffectedRepositories: ['repo-b'],
       action: 'fix',
     });
     const originalCwd = process.cwd();
@@ -199,12 +199,12 @@ async function testIssueAffectedRepos() {
   // Test 3: Multi-repo issue orchestration loop bypasses the single-repo guard
   // When `wf issue` is called with multiple --repos, allowMultiRepoScope:true
   // is passed to ImplementerAgent so the per-repo loop proceeds without error,
-  // even when the plan's repositoriesAffected lists more than one repo.
+  // even when the plan's affectedRepositories lists more than one repo.
   console.log('Test 3: explicit multi-repos + multi-repo plan → issue orchestration proceeds (no single-repo error)');
   {
     const { tmpRoot, homeDir, cleanup } = makeFixtures({
       ticketKey: 'TEST-3',
-      planRepositoriesAffected: ['repo-b', 'repo-c'],
+      planAffectedRepositories: ['repo-b', 'repo-c'],
       action: 'fix',
     });
     const originalCwd = process.cwd();
@@ -267,7 +267,7 @@ async function testIssueAffectedRepos() {
   {
     const { tmpRoot, homeDir, cleanup } = makeFixtures({
       ticketKey: 'TEST-5',
-      planRepositoriesAffected: ['review-repo'],
+      planAffectedRepositories: ['review-repo'],
       action: 'fix',
     });
     const originalCwd = process.cwd();

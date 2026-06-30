@@ -469,7 +469,7 @@ const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
     estimatedComplexity,
     affectedFiles: normalizeFileEntryList(rawPlan.affectedFiles ?? rawPlan.filesAffected),
     affectedFilesContext: normalizeFileEntryList(rawPlan.affectedFilesContext ?? rawPlan.filesContext),
-    repositoriesAffected: normalizeOptionalStringList(rawPlan.repositoriesAffected),
+    affectedRepositories: normalizeOptionalStringList(rawPlan.affectedRepositories ?? rawPlan.repositoriesAffected),
     risks: normalizeOptionalStringList(rawPlan.risks),
     verification: normalizePlanVerification(rawPlan.verification, filePath),
     provider: typeof rawPlan.provider === 'string' ? rawPlan.provider : undefined,
@@ -511,7 +511,9 @@ const parseMarkdownPlan = (content: string, filePath: string): ResolutionPlan =>
       summary: collapseSection(sections.get('summary')),
       steps: extractNumberedList(sections.get('steps')),
       affectedFiles: extractBulletedList(sections.get('files affected')),
-      repositoriesAffected: extractBulletedList(sections.get('repositories affected')),
+      affectedRepositories: extractBulletedList(
+        sections.get('affected repositories') ?? sections.get('repositories affected')
+      ),
       risks: extractBulletedList(sections.get('risks')),
     },
     filePath

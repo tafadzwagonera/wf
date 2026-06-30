@@ -594,7 +594,7 @@ async function main() {
       estimatedComplexity: 'low',
       steps: ['Step one', 'Step two'],
       filesAffected: ['src/foo.ts'],
-      repositoriesAffected: ['test-repo'],
+      affectedRepositories: ['test-repo'],
     }),
   );
 
@@ -1044,7 +1044,7 @@ async run(
 
       const steps = plan.steps as string[] | undefined;
       const filesAffected = plan.filesAffected as string[] | undefined;
-      const repositoriesAffected = plan.repositoriesAffected as string[] | undefined;
+      const affectedRepositories = plan.affectedRepositories as string[] | undefined;
 
       if (steps?.length) {
         console.log(chalk.bold('\n  Steps:'));
@@ -1056,9 +1056,9 @@ async run(
         filesAffected.forEach((file) => console.log(chalk.gray(`    - ${file}`)));
       }
 
-      if (repositoriesAffected?.length) {
+      if (affectedRepositories?.length) {
         console.log(chalk.bold('\n  Repositories affected:'));
-        repositoriesAffected.forEach((repo) => console.log(chalk.gray(`    - ${repo}`)));
+        affectedRepositories.forEach((repo) => console.log(chalk.gray(`    - ${repo}`)));
       }
 
       console.log(chalk.bold('\n  Status:'));
@@ -1143,7 +1143,7 @@ async run(
     this.logger.info(`  Complexity: ${String(plan.estimatedComplexity ?? 'N/A')}`);
     this.logger.info(`  Steps: ${Array.isArray(plan.steps) ? plan.steps.length : 0}`);
     this.logger.info(`  Files affected: ${Array.isArray(plan.filesAffected) ? plan.filesAffected.length : 0}`);
-    this.logger.info(`  Repositories affected: ${Array.isArray(plan.repositoriesAffected) ? plan.repositoriesAffected.length : 0}`);
+    this.logger.info(`  Repositories affected: ${Array.isArray(plan.affectedRepositories) ? plan.affectedRepositories.length : 0}`);
 ```
 
 - [ ] **Step 6: Run lint and type-check**

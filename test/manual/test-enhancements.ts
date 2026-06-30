@@ -100,7 +100,7 @@ async function main() {
       estimatedComplexity: 'low',
       steps: ['Step one', 'Step two'],
       affectedFiles: ['src/foo.ts'],
-      repositoriesAffected: ['test-repo'],
+      affectedRepositories: ['test-repo'],
     })
   );
 
@@ -139,7 +139,7 @@ async function main() {
         steps: ['Step 1'],
         estimatedComplexity: 'low',
         affectedFiles: [],
-        repositoriesAffected: [],
+        affectedRepositories: [],
         risks: [],
       })
     );

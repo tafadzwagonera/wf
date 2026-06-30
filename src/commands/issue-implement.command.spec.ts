@@ -168,7 +168,7 @@ describe('IssueImplementCommand', () => {
           summary: 'Repair the custom implementation path',
           steps: ['Route custom plans to the shared implementer'],
           affectedFiles: ['repo-a/src/commands/issue-implement.command.ts'],
-          repositoriesAffected: ['repo-a'],
+          affectedRepositories: ['repo-a'],
         })
       );
 
@@ -225,7 +225,7 @@ describe('IssueImplementCommand', () => {
           summary: 'Repair the cached plan',
           steps: ['Patch the login flow'],
           affectedFiles: ['repo-a/src/auth.ts'],
-          repositoriesAffected: ['repo-a'],
+          affectedRepositories: ['repo-a'],
         });
       });
 
@@ -460,7 +460,7 @@ describe('IssueImplementCommand', () => {
           summary: 'Repair the failing custom workflow',
           steps: ['Update the implement command'],
           affectedFiles: ['repo-a/src/commands/issue-implement.command.ts'],
-          repositoriesAffected: ['repo-a'],
+          affectedRepositories: ['repo-a'],
         })
       );
 
@@ -508,7 +508,7 @@ describe('IssueImplementCommand', () => {
           summary: 'Implement the custom workflow',
           steps: ['Update the implement command'],
           affectedFiles: ['repo-a/src/commands/issue-implement.command.ts'],
-          repositoriesAffected: ['repo-a'],
+          affectedRepositories: ['repo-a'],
         })
       );
 

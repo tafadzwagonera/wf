@@ -86,7 +86,7 @@ const minimalPlan = JSON.stringify({
   estimatedComplexity: 'low',
   steps: ['Apply patch'],
   affectedFiles: ['src/main.ts'],
-  repositoriesAffected: [],
+  affectedRepositories: [],
 });
 
 const buildManifest = (artifactPath: string) =>

@@ -342,7 +342,7 @@ describe('IssuePlanCommand', () => {
         estimatedComplexity: 'medium',
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
         verification: {
           targeted: [
             {
@@ -396,7 +396,7 @@ describe('IssuePlanCommand', () => {
         estimatedComplexity: 'medium',
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
         verification: {
           targeted: [
             {
@@ -441,7 +441,7 @@ describe('IssuePlanCommand', () => {
         estimatedComplexity: 'medium',
         steps: ['Inspect auth'],
         affectedFiles: ['repo-name/src/auth.ts'],
-        repositoriesAffected: ['repo-name'],
+        affectedRepositories: ['repo-name'],
       },
     } as any);
 
@@ -477,7 +477,7 @@ describe('IssuePlanCommand', () => {
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
         affectedFilesContext: ['repo-name/package.json'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
       },
     } as any);
 
@@ -513,7 +513,7 @@ describe('IssuePlanCommand', () => {
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
         affectedFilesContext: [{ filePath: 'repo-b/package.json', status: 'found' }],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
       },
     } as any);
 
@@ -549,7 +549,7 @@ describe('IssuePlanCommand', () => {
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
         affectedFilesContext: [{ filePath: 'repo-a/package.json', status: 'to-create' }],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
       },
     } as any);
 
@@ -584,7 +584,7 @@ describe('IssuePlanCommand', () => {
         estimatedComplexity: 'medium',
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
         verification: {
           targeted: [
             {
@@ -631,7 +631,7 @@ describe('IssuePlanCommand', () => {
         estimatedComplexity: 'medium',
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
         verification: {
           targeted: [
             {
@@ -683,7 +683,7 @@ describe('IssuePlanCommand', () => {
         estimatedComplexity: 'medium',
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
         verification: {
           targeted: [
             {
@@ -737,7 +737,7 @@ describe('IssuePlanCommand', () => {
         estimatedComplexity: 'medium',
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
         verification: {
           targeted: [
             {
@@ -794,7 +794,7 @@ describe('IssuePlanCommand', () => {
         estimatedComplexity: 'medium',
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
         verification: {
           targeted: [
             {
@@ -836,7 +836,7 @@ describe('IssuePlanCommand', () => {
         estimatedComplexity: 'medium',
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
       },
     } as any);
 
@@ -875,7 +875,7 @@ describe('IssuePlanCommand', () => {
         estimatedComplexity: 'medium',
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
       },
     } as any);
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
@@ -902,7 +902,7 @@ describe('IssuePlanCommand', () => {
         estimatedComplexity: 'medium',
         steps: ['Inspect auth'],
         affectedFiles: ['repo-a/src/auth.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
       },
     } as any);
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);

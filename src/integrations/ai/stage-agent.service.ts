@@ -237,7 +237,7 @@ Return ONLY a valid JSON object with these fields:
   "estimatedComplexity": "low|medium|high",
   "affectedFiles": [{ "filePath": "${repoExample}/src/path/to/file.ts", "status": "found" }],
   "affectedFilesContext": [{ "filePath": "${repoExample}/package.json", "status": "found" }],
-  "repositoriesAffected": ["${repoExample}"],
+  "affectedRepositories": ["${repoExample}"],
   "risks": ["risk 1"],
   "verification": {
     "targeted": [
@@ -272,7 +272,7 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     });
 
     try {
-      const plan = parseJsonResponse<ResolutionPlan>(
+      const plan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
         requireAiResponseContent(
           {
             content: response,
@@ -282,6 +282,11 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
           'AI provider returned an empty plan response'
         )
       );
+      // Backward-compat: AI may still return the old key name during the transition period
+      if (!plan.affectedRepositories && plan.repositoriesAffected) {
+        plan.affectedRepositories = plan.repositoriesAffected;
+      }
+      delete plan.repositoriesAffected;
       const provider = this.resolveStageProvider('plan');
       const model = this.resolveStageModel('plan');
       const prefixMap: Record<string, string> = {

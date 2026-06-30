@@ -83,7 +83,7 @@ const buildCommand = async (): Promise<{
   >;
   generatePlan: AsyncMock<
     [string, { action: string; ticketKey?: string; affectedRepositories?: string[] }],
-    Record<string, unknown>
+    { plan: Record<string, unknown> }
   >;
 }> => {
   const fetchArtifact = createAsyncMock<
@@ -96,7 +96,7 @@ const buildCommand = async (): Promise<{
   >();
   const generatePlan = createAsyncMock<
     [string, { action: string; ticketKey?: string; affectedRepositories?: string[] }],
-    Record<string, unknown>
+    { plan: Record<string, unknown> }
   >();
 
   const module = await Test.createTestingModule({
@@ -209,12 +209,14 @@ const main = async (): Promise<void> => {
       path: `/tmp/.wf/${repoName}/jira/PLAN-1.md`,
     });
     generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Valid plan',
-      estimatedComplexity: 'low',
-      steps: ['Update one file'],
-      affectedFiles: [`${repoName}/src/example.ts`],
-      repositoriesAffected: [repoName],
+      plan: {
+        action: 'fix',
+        summary: 'Valid plan',
+        estimatedComplexity: 'low',
+        steps: ['Update one file'],
+        affectedFiles: [`${repoName}/src/example.ts`],
+        affectedRepositories: [repoName],
+      },
     } as never);
 
     const { callCount } = await captureWriteFileCalls(() =>
@@ -246,12 +248,14 @@ const main = async (): Promise<void> => {
       path: `/tmp/.wf/${repoName}/jira/PLAN-2.md`,
     });
     generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Invalid plan',
-      estimatedComplexity: 'low',
-      steps: ['Update one file'],
-      affectedFiles: ['repo-name/src/example.ts'],
-      repositoriesAffected: ['repo-name'],
+      plan: {
+        action: 'fix',
+        summary: 'Invalid plan',
+        estimatedComplexity: 'low',
+        steps: ['Update one file'],
+        affectedFiles: ['repo-name/src/example.ts'],
+        affectedRepositories: ['repo-name'],
+      },
     } as never);
 
     const originalWriteFile = fs.promises.writeFile;
@@ -289,21 +293,23 @@ const main = async (): Promise<void> => {
       path: `/tmp/.wf/${repoName}/jira/PLAN-3.md`,
     });
     generatePlan.mockResolvedValue({
-      action: 'fix',
-      summary: 'Invalid verification plan',
-      estimatedComplexity: 'low',
-      steps: ['Update one file'],
-      affectedFiles: [`${repoName}/src/example.ts`],
-      repositoriesAffected: [repoName],
-      verification: {
-        targeted: [
-          {
-            id: 'criteria-rejected',
-            run: 'yarn start issue:review --criteria criteria.txt',
-            policy: 'enforced',
-            reason: 'Expected failure for non-Markdown criteria',
-          },
-        ],
+      plan: {
+        action: 'fix',
+        summary: 'Invalid verification plan',
+        estimatedComplexity: 'low',
+        steps: ['Update one file'],
+        affectedFiles: [`${repoName}/src/example.ts`],
+        affectedRepositories: [repoName],
+        verification: {
+          targeted: [
+            {
+              id: 'criteria-rejected',
+              run: 'yarn start issue:review --criteria criteria.txt',
+              policy: 'enforced',
+              reason: 'Expected failure for non-Markdown criteria',
+            },
+          ],
+        },
       },
     } as never);
 

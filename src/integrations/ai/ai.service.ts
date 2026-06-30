@@ -460,7 +460,7 @@ ${repoHint}${discoveryBlock}Create a detailed resolution plan with:
 3. Estimated complexity (low/medium/high)
 4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name (e.g., "service-tourv3/src/pricing/pricing.service.ts").
-   Use the repository names from repositoriesAffected when available. Use REAL file paths
+   Use the repository names from affectedRepositories when available. Use REAL file paths
    from the repository — not globs, not placeholders. Set status to "found" for existing
    files or "to-create" for new files the plan will create.
    IMPORTANT: Do NOT guess or infer file paths from conventions. You MUST verify each path
@@ -504,7 +504,7 @@ Return ONLY a valid JSON object with these fields:
   "estimatedComplexity": "low|medium|high",
   "affectedFiles": [{ "filePath": "${repoExample}/src/path/to/file.ts", "status": "found" }, { "filePath": "${repoExample}/src/path/to/new-file.ts", "status": "to-create" }],
   "affectedFilesContext": [{ "filePath": "${repoExample}/package.json", "status": "found" }],
-  "repositoriesAffected": ["${repoExample}"],
+  "affectedRepositories": ["${repoExample}"],
   "risks": ["risk 1", ...],
   "verification": {
     "targeted": [
@@ -535,7 +535,12 @@ Return ONLY a valid JSON object with these fields:
       const stripped = stripCodeFences(
         requireAiResponseContent(response, 'AI provider returned an empty plan response')
       );
-      const plan = JSON.parse(stripped) as ResolutionPlan;
+      const plan = JSON.parse(stripped) as ResolutionPlan & { repositoriesAffected?: string[] };
+      // Backward-compat: AI may still return the old key name during the transition period
+      if (!plan.affectedRepositories && plan.repositoriesAffected) {
+        plan.affectedRepositories = plan.repositoriesAffected;
+      }
+      delete plan.repositoriesAffected;
 
       const rawSteps: unknown[] = Array.isArray(plan.steps) ? plan.steps : [];
       plan.steps = rawSteps.map(step => {

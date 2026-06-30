@@ -68,7 +68,7 @@ export const resolutionPlanSchema = z.object({
   estimatedComplexity: z.enum(['low', 'medium', 'high']),
   affectedFiles: z.array(z.union([z.string(), fileEntrySchema])).optional(),
   affectedFilesContext: z.array(z.union([z.string(), fileEntrySchema])).optional(),
-  repositoriesAffected: z.array(z.string()).optional(),
+  affectedRepositories: z.array(z.string()).optional(),
   risks: z.array(z.string()).optional(),
   verification: planVerificationConfigSchema.optional(),
   provider: z.string().optional(),

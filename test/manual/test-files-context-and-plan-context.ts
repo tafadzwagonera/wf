@@ -111,7 +111,7 @@ const run = async (): Promise<void> => {
     estimatedComplexity: 'low',
     affectedFiles: [{ filePath: 'repo/src/a.ts', status: 'found' }, 'repo/src/legacy.ts'],
     affectedFilesContext: [{ filePath: 'repo/package.json', status: 'found' }],
-    repositoriesAffected: ['repo'],
+    affectedRepositories: ['repo'],
   };
   assert(
     'ResolutionPlan accepts affectedFilesContext and mixed affectedFiles',
@@ -127,7 +127,7 @@ const run = async (): Promise<void> => {
     estimatedComplexity: 'low',
     affectedFiles: [{ filePath: 'repo/src/a.ts', status: 'found' }, 'repo/src/b.ts'],
     affectedFilesContext: [{ filePath: 'repo/package.json', status: 'found' }],
-    repositoriesAffected: ['repo'],
+    affectedRepositories: ['repo'],
   };
   const planPath = path.join(tmpDir, 'test-plan.json');
   const planJson = JSON.stringify(planWithEntries, null, 2);

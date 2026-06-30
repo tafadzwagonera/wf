@@ -86,7 +86,7 @@ async function main() {
         steps: ['Route custom plans to the shared implementer'],
         estimatedComplexity: 'medium',
         affectedFiles: ['repo-a/src/commands/issue-implement.command.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
       }),
       'utf-8'
     );
@@ -168,7 +168,7 @@ async function main() {
         steps: ['Preview branch and file work'],
         estimatedComplexity: 'medium',
         affectedFiles: ['repo-a/src/commands/issue-implement.command.ts'],
-        repositoriesAffected: ['repo-a'],
+        affectedRepositories: ['repo-a'],
       }),
       'utf-8'
     );

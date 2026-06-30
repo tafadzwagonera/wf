@@ -4,6 +4,6 @@
   "steps": ["Step 1", "Step 2"],
   "estimatedComplexity": "low",
   "affectedFiles": ["src/test.ts"],
-  "repositoriesAffected": ["test-repo"],
+  "affectedRepositories": ["test-repo"],
   "risks": []
 }

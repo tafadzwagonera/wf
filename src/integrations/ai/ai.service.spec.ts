@@ -127,7 +127,7 @@ describe('AiService', () => {
             steps: ['Add failing test', 'Implement resolver'],
             estimatedComplexity: 'medium',
             affectedFiles: ['repo-a/src/commands/issue-review.command.ts'],
-            repositoriesAffected: ['repo-a'],
+            affectedRepositories: ['repo-a'],
             risks: ['Path resolution regressions'],
             verification: {
               targeted: [
@@ -187,7 +187,7 @@ describe('AiService', () => {
           steps: ['Add failing test', 'Implement resolver'],
           estimatedComplexity: 'medium',
           affectedFiles: ['repo-a/src/commands/issue-review.command.ts'],
-          repositoriesAffected: ['repo-a'],
+          affectedRepositories: ['repo-a'],
         }),
       });
       const service = new AiService(mockLogger, adapter, createConfigService());

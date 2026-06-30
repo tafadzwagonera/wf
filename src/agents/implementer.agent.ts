@@ -94,7 +94,7 @@ export class ImplementerAgent {
     // known repo prefix — if some files are prefixed and this repo's aren't, the
     // empty result is intentional and we must not override it.
     if (repoFiles.length === 0 && allFiles.length > 0) {
-      const planRepos = planArtifact.plan.repositoriesAffected ?? [];
+      const planRepos = planArtifact.plan.affectedRepositories ?? [];
       const hasAnyRepoPrefix = allFiles.some(f => planRepos.some(repo => f.startsWith(`${repo}/`)));
       if (!hasAnyRepoPrefix && (planRepos.includes(repoName) || planRepos.length === 0)) {
         repoFiles = allFiles;
@@ -116,7 +116,7 @@ export class ImplementerAgent {
     let contextFiles = repoName ? allContextPaths.filter(f => f.startsWith(`${repoName}/`)) : allContextPaths;
     // Unprefixed fallback — same logic as repoFiles
     if (contextFiles.length === 0 && allContextPaths.length > 0) {
-      const planRepos = planArtifact.plan.repositoriesAffected ?? [];
+      const planRepos = planArtifact.plan.affectedRepositories ?? [];
       const hasAnyRepoPrefix = allContextPaths.some(f => planRepos.some(repo => f.startsWith(`${repo}/`)));
       if (!hasAnyRepoPrefix && (planRepos.includes(repoName) || planRepos.length === 0)) {
         contextFiles = allContextPaths;
@@ -235,9 +235,9 @@ export class ImplementerAgent {
       trackedFilePaths,
     });
 
-    if ((planArtifact.plan.repositoriesAffected?.length ?? 0) > 0) {
+    if ((planArtifact.plan.affectedRepositories?.length ?? 0) > 0) {
       console.log(chalk.bold('\n  Repositories affected:'));
-      planArtifact.plan.repositoriesAffected!.forEach((repo: string) => console.log(chalk.gray(`    - ${repo}`)));
+      planArtifact.plan.affectedRepositories!.forEach((repo: string) => console.log(chalk.gray(`    - ${repo}`)));
     }
 
     console.log(chalk.bold('\n  Status:'));
@@ -260,10 +260,10 @@ export class ImplementerAgent {
     allowMultiRepoScope?: boolean
   ): void {
     const repoName = repoDir ? path.basename(repoDir) : '';
-    const repositoriesAffected = [...new Set(planArtifact.plan.repositoriesAffected ?? [])];
-    if (repositoriesAffected.length > 1 && !allowMultiRepoScope) {
+    const affectedRepositories = [...new Set(planArtifact.plan.affectedRepositories ?? [])];
+    if (affectedRepositories.length > 1 && !allowMultiRepoScope) {
       throw new ValidationError(
-        `issue:implement only verifies a single repository. This plan affects multiple repositories: ${repositoriesAffected.join(', ')}. Use wf issue or run wf issue:implement separately per repository.`
+        `issue:implement only verifies a single repository. This plan affects multiple repositories: ${affectedRepositories.join(', ')}. Use wf issue or run wf issue:implement separately per repository.`
       );
     }
 

@@ -59,7 +59,7 @@ const minimalPlan = JSON.stringify({
   action: 'feature',
   steps: [],
   affectedFiles: [],
-  repositoriesAffected: [],
+  affectedRepositories: [],
 });
 
 async function main() {

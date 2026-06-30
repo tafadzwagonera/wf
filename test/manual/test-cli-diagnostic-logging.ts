@@ -58,7 +58,7 @@ const makeParams = () => ({
       steps: ['step 1'],
       estimatedComplexity: 'low' as const,
       affectedFiles: [],
-      repositoriesAffected: [],
+      affectedRepositories: [],
       risks: [],
     },
     action: 'feature' as const,

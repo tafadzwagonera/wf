@@ -72,7 +72,7 @@ interface IssuePlanOptions {
 interface RepoAwarePlan {
   affectedFiles?: (string | import('../integrations/ai/ai.service').FileEntry)[];
   affectedFilesContext?: (string | import('../integrations/ai/ai.service').FileEntry)[];
-  repositoriesAffected?: string[];
+  affectedRepositories?: string[];
   verification?: {
     targeted?: Array<{
       id?: string;
@@ -747,9 +747,9 @@ export class IssuePlanCommand extends CommandRunner {
       md += '\n';
     }
 
-    if (plan.repositoriesAffected && plan.repositoriesAffected.length > 0) {
-      md += `## Repositories Affected\n\n`;
-      plan.repositoriesAffected.forEach((repository: string) => {
+    if (plan.affectedRepositories && plan.affectedRepositories.length > 0) {
+      md += `## Affected Repositories\n\n`;
+      plan.affectedRepositories.forEach((repository: string) => {
         md += `- ${repository}\n`;
       });
       md += '\n';
@@ -921,12 +921,12 @@ export class IssuePlanCommand extends CommandRunner {
     expectedRepositories: string[],
     testInfra?: TestInfraContext
   ): void {
-    const repositoriesAffected = plan.repositoriesAffected ?? [];
+    const affectedRepositories = plan.affectedRepositories ?? [];
     const normalizedAffected = normalizeFileEntries(plan.affectedFiles ?? []);
     const normalizedContext = normalizeFileEntries(plan.affectedFilesContext ?? []);
 
-    if (repositoriesAffected.some(repository => repository === 'repo-name')) {
-      throw createPlanValidationError('placeholder repository metadata found in repositoriesAffected.');
+    if (affectedRepositories.some(repository => repository === 'repo-name')) {
+      throw createPlanValidationError('placeholder repository metadata found in affectedRepositories.');
     }
 
     if (normalizedAffected.some(entry => entry.filePath.startsWith('repo-name/'))) {
@@ -937,38 +937,38 @@ export class IssuePlanCommand extends CommandRunner {
       throw createPlanValidationError('placeholder repository metadata found in affectedFilesContext.');
     }
 
-    if (expectedRepositories.length > 0 && repositoriesAffected.length === 0) {
+    if (expectedRepositories.length > 0 && affectedRepositories.length === 0) {
       throw createPlanValidationError(
-        `repositoriesAffected must be present and limited to: ${expectedRepositories.join(', ')}.`
+        `affectedRepositories must be present and limited to: ${expectedRepositories.join(', ')}.`
       );
     }
 
-    const unexpectedRepositories = repositoriesAffected.filter(
+    const unexpectedRepositories = affectedRepositories.filter(
       repository => !expectedRepositories.includes(repository)
     );
     if (unexpectedRepositories.length > 0) {
       throw createPlanValidationError(
-        `repositoriesAffected contains out-of-scope repositories: ${unexpectedRepositories.join(', ')}.`
+        `affectedRepositories contains out-of-scope repositories: ${unexpectedRepositories.join(', ')}.`
       );
     }
 
     const invalidAffectedFiles = normalizedAffected.filter(entry => {
       const [prefix] = entry.filePath.split('/');
-      return !prefix || !repositoriesAffected.includes(prefix);
+      return !prefix || !affectedRepositories.includes(prefix);
     });
     if (invalidAffectedFiles.length > 0) {
       throw createPlanValidationError(
-        `affectedFiles must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidAffectedFiles.map(e => e.filePath).join(', ')}.`
+        `affectedFiles must use explicit repository prefixes from affectedRepositories. Invalid entries: ${invalidAffectedFiles.map(e => e.filePath).join(', ')}.`
       );
     }
 
     const invalidContextFiles = normalizedContext.filter(entry => {
       const [prefix] = entry.filePath.split('/');
-      return !prefix || !repositoriesAffected.includes(prefix);
+      return !prefix || !affectedRepositories.includes(prefix);
     });
     if (invalidContextFiles.length > 0) {
       throw createPlanValidationError(
-        `affectedFilesContext must use explicit repository prefixes from repositoriesAffected. Invalid entries: ${invalidContextFiles.map(e => e.filePath).join(', ')}.`
+        `affectedFilesContext must use explicit repository prefixes from affectedRepositories. Invalid entries: ${invalidContextFiles.map(e => e.filePath).join(', ')}.`
       );
     }
 

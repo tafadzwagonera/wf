@@ -34,7 +34,7 @@ const MOCK_PLAN = {
   estimatedComplexity: 'low',
   steps: ['Step 1'],
   affectedFiles: ['src/test.ts'],
-  repositoriesAffected: ['wf'],
+  affectedRepositories: ['wf'],
 };
 
 function captureConsole(): { getOutput: () => string; restore: () => void } {

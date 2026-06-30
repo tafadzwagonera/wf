@@ -695,7 +695,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 | `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 <!-- END GENERATED COMMAND DOCS: issue:implement -->
 
-`issue:implement` only supports plans that affect a single repository. If the plan's `repositoriesAffected` lists more than one repo, the command exits with an error. Use `wf issue -r <repos...>` to run implementation per repo when the plan spans multiple repositories.
+`issue:implement` only supports plans that affect a single repository. If the plan's `affectedRepositories` lists more than one repo, the command exits with an error. Use `wf issue -r <repos...>` to run implementation per repo when the plan spans multiple repositories.
 
 When a canonical hashed plan artifact is detected, the CLI prints a yellow warning with the decoded artifact and action so you can confirm the resolved plan before implementation starts. Supplying `--action` alongside that artifact still performs a strict validation check against the filename and manifest contents.
 

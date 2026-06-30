@@ -220,7 +220,7 @@ describe('IssueCommand', () => {
             estimatedComplexity: 'medium',
             steps: ['Patch the login flow'],
             affectedFiles: ['repo-a/src/auth.ts'],
-            repositoriesAffected: ['repo-a'],
+            affectedRepositories: ['repo-a'],
           },
           action: 'fix',
           path: planPath,
@@ -314,7 +314,7 @@ describe('IssueCommand', () => {
           estimatedComplexity: 'medium',
           steps: ['Patch the login flow'],
           affectedFiles: ['repo-a/src/auth.ts'],
-          repositoriesAffected: ['repo-a'],
+          affectedRepositories: ['repo-a'],
         });
       }
       return '';
@@ -365,7 +365,7 @@ describe('IssueCommand', () => {
             estimatedComplexity: 'low',
             steps: ['Apply patch'],
             affectedFiles: ['src/auth.ts'],
-            repositoriesAffected: [],
+            affectedRepositories: [],
           },
           action: 'fix',
           path: planPath,
@@ -452,7 +452,7 @@ describe('IssueCommand', () => {
           estimatedComplexity: 'low',
           steps: ['Apply patch'],
           affectedFiles: ['src/auth.ts'],
-          repositoriesAffected: [],
+          affectedRepositories: [],
         });
       }
       return '';
@@ -488,7 +488,7 @@ describe('IssueCommand', () => {
             estimatedComplexity: 'low',
             steps: ['Apply repo patch'],
             affectedFiles: ['target-repo/src/main.ts'],
-            repositoriesAffected: ['target-repo'],
+            affectedRepositories: ['target-repo'],
           },
           action: 'fix',
           path: planPath,
@@ -573,7 +573,7 @@ describe('IssueCommand', () => {
           estimatedComplexity: 'low',
           steps: ['Apply repo patch'],
           affectedFiles: ['target-repo/src/main.ts'],
-          repositoriesAffected: ['target-repo'],
+          affectedRepositories: ['target-repo'],
         });
       }
       return '';
@@ -619,7 +619,7 @@ describe('IssueCommand', () => {
             estimatedComplexity: 'low',
             steps: ['Apply custom patch'],
             affectedFiles: ['src/custom.ts'],
-            repositoriesAffected: [],
+            affectedRepositories: [],
           },
           action: 'fix',
           path: planPath,
@@ -701,7 +701,7 @@ describe('IssueCommand', () => {
           estimatedComplexity: 'low',
           steps: ['Apply custom patch'],
           affectedFiles: ['src/custom.ts'],
-          repositoriesAffected: [],
+          affectedRepositories: [],
         });
       }
       return '';

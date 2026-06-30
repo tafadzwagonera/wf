@@ -28,7 +28,7 @@ describe('ImplementerAgent', () => {
       steps: ['Update source file'],
       estimatedComplexity: 'medium',
       affectedFiles: ['repo-a/src/example.ts'],
-      repositoriesAffected: ['repo-a'],
+      affectedRepositories: ['repo-a'],
       ...overrides,
     },
   });
@@ -157,7 +157,7 @@ describe('ImplementerAgent', () => {
           ticketArtifact,
           buildPlan({
             affectedFiles: ['repo-a/src/example.ts', 'repo-b/src/example.ts'],
-            repositoriesAffected: ['repo-a', 'repo-b'],
+            affectedRepositories: ['repo-a', 'repo-b'],
           }),
           {
             trackerName: 'jira',
@@ -175,7 +175,7 @@ describe('ImplementerAgent', () => {
           ticketArtifact,
           buildPlan({
             affectedFiles: ['repo-b/src/example.ts'],
-            repositoriesAffected: ['repo-a'],
+            affectedRepositories: ['repo-a'],
           }),
           {
             trackerName: 'jira',
@@ -195,7 +195,7 @@ describe('ImplementerAgent', () => {
           ticketArtifact,
           buildPlan({
             affectedFiles: ['repo-a/src/example.ts', 'repo-b/src/example.ts'],
-            repositoriesAffected: ['repo-a', 'repo-b'],
+            affectedRepositories: ['repo-a', 'repo-b'],
           }),
           {
             trackerName: 'jira',
@@ -214,7 +214,7 @@ describe('ImplementerAgent', () => {
           ticketArtifact,
           buildPlan({
             affectedFiles: ['repo-b/src/x.ts'],
-            repositoriesAffected: ['repo-a'],
+            affectedRepositories: ['repo-a'],
           }),
           {
             trackerName: 'jira',
