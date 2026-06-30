@@ -36,7 +36,8 @@ import type { ModelRouting } from '../agents/interfaces';
 import { SessionService } from '../shared/session/session.service';
 import { SummaryService } from '../shared/session/summary.service';
 import type { PlanTokenResolution } from '../shared/types/plan-artifact.types';
-import type { SessionState } from '../shared/types/session.types';
+import type { SessionState, StageConfigFingerprint } from '../shared/types/session.types';
+import { resolveDefaultStageBackend, type StageBackendDefaultStageName } from '../config/stage-backend-defaults';
 import * as crypto from 'crypto';
 
 const VALID_MODEL_ROUTINGS: ModelRouting[] = ['auto', 'default', 'mechanical'];
@@ -648,6 +649,47 @@ export class IssueCommand extends CommandRunner {
           action: planTokenResolution.action,
           path: planTokenResolution.artifactPath,
         };
+
+        // Prompt for the provider session ID from the standalone issue:plan run.
+        // No silent guard — this is the only path to capture the provider session ID
+        // for custom plan tokens; suppressing it would silently break session continuity.
+        if (this.isInteractiveSession()) {
+          const { providerSessionId } = await inquirer.prompt([
+            {
+              type: 'input',
+              name: 'providerSessionId',
+              message: 'Provider session ID from issue:plan (leave blank to skip):',
+              prefix: ' ',
+              default: '',
+            },
+          ]);
+          if (providerSessionId) {
+            planArtifact.sessionId = providerSessionId;
+          }
+        }
+
+        // Record the plan stage as complete so downstream stages can extract the
+        // provider session ID via validateForStage.
+        if (sessionState) {
+          sessionState = await this.sessionService.recordStageStart(
+            sessionState,
+            'plan',
+            this.resolveStageFingerprint('plan'),
+            this.resolveStageModel('plan')
+          );
+          if (planArtifact.sessionId) {
+            sessionState = await this.sessionService.recordProviderSessionId(
+              sessionState,
+              'plan',
+              planArtifact.sessionId
+            );
+          }
+          sessionState = await this.sessionService.recordStageComplete(
+            sessionState,
+            'plan',
+            planArtifact.plan.summary ?? null
+          );
+        }
       }
 
       if (!planArtifact && stagesToRun.includes(WorkflowStage.FETCH)) {
@@ -669,6 +711,14 @@ export class IssueCommand extends CommandRunner {
       }
 
       if (!planArtifact && stagesToRun.includes(WorkflowStage.PLAN)) {
+        if (sessionState) {
+          sessionState = await this.sessionService.recordStageStart(
+            sessionState,
+            'plan',
+            this.resolveStageFingerprint('plan'),
+            this.resolveStageModel('plan')
+          );
+        }
         planArtifact = await this.agents.planner.execute(ticketArtifact, {
           action: action!,
           skipExisting,
@@ -707,6 +757,13 @@ export class IssueCommand extends CommandRunner {
       if (planArtifact?.sessionId && sessionState) {
         sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'plan', planArtifact.sessionId);
       }
+      if (sessionState && sessionState.stages['plan'] && !sessionState.stages['plan'].completedAt) {
+        sessionState = await this.sessionService.recordStageComplete(
+          sessionState,
+          'plan',
+          planArtifact?.plan?.summary ?? null
+        );
+      }
 
       if (stagesToRun.some(s => [WorkflowStage.IMPLEMENT, WorkflowStage.REVIEW].includes(s)) && !planArtifact) {
         planArtifact = this.agents.planner.loadFromDisk(ticketArtifact.path, action, options?.silent);
@@ -717,6 +774,27 @@ export class IssueCommand extends CommandRunner {
 
       let implementerResult: ImplementerResult | undefined;
       if (stagesToRun.includes(WorkflowStage.IMPLEMENT) && planArtifact) {
+        let implementSessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string } = {};
+        if (sessionState) {
+          const validation = this.sessionService.validateForStage(
+            sessionState,
+            'implement',
+            this.resolveStageFingerprint('implement'),
+            stage => this.resolveStageFingerprint(stage)
+          );
+          for (const w of validation.warnings) console.log(chalk.yellow(`  ⚠️ ${w}`));
+          implementSessionContext = {
+            resumeProviderSessionId: validation.resumableProviderSessionId ?? undefined,
+            priorStageSummary: validation.priorSummary ?? undefined,
+          };
+          sessionState = await this.sessionService.recordStageStart(
+            sessionState,
+            'implement',
+            this.resolveStageFingerprint('implement'),
+            this.resolveStageModel('implement')
+          );
+        }
+
         const isMultiRepo = repoList.length > 1;
         if (isMultiRepo && !options?.silent) {
           console.log(chalk.bold.yellow('\n🔧 STAGE 3: Implementation Guide'));
@@ -736,6 +814,8 @@ export class IssueCommand extends CommandRunner {
             silent: options.silent,
             noBranch: options.noBranch,
             branchNamePattern: options.branchNamePattern,
+            resumeProviderSessionId: implementSessionContext.resumeProviderSessionId,
+            priorStageSummary: implementSessionContext.priorStageSummary,
           });
 
           // Investigation workflows end at the IMPLEMENT stage
@@ -744,9 +824,47 @@ export class IssueCommand extends CommandRunner {
             return;
           }
         }
+
+        if (sessionState && implementerResult?.type === 'implementation' && implementerResult.sessionId) {
+          sessionState = await this.sessionService.recordProviderSessionId(
+            sessionState,
+            'implement',
+            implementerResult.sessionId
+          );
+        }
+        if (sessionState) {
+          sessionState = await this.sessionService.recordStageComplete(sessionState, 'implement', null);
+        }
       }
 
       if (stagesToRun.includes(WorkflowStage.REVIEW) && planArtifact?.action !== 'investigate') {
+        let reviewSessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string } = {};
+        if (sessionState) {
+          const validation = this.sessionService.validateForStage(
+            sessionState,
+            'review',
+            this.resolveStageFingerprint('review'),
+            stage => this.resolveStageFingerprint(stage)
+          );
+          for (const w of validation.warnings) console.log(chalk.yellow(`  ⚠️ ${w}`));
+          // When validateForStage returns no resumable session (e.g. fingerprint
+          // mismatch between implement and review backends), fall back to the
+          // implement stage's session ID directly — matching the behaviour of
+          // the standalone `issue:review --session-id` command.
+          const implementSessionId =
+            implementerResult?.type === 'implementation' ? implementerResult.sessionId : undefined;
+          reviewSessionContext = {
+            resumeProviderSessionId: validation.resumableProviderSessionId ?? implementSessionId ?? undefined,
+            priorStageSummary: validation.priorSummary ?? undefined,
+          };
+          sessionState = await this.sessionService.recordStageStart(
+            sessionState,
+            'review',
+            this.resolveStageFingerprint('review'),
+            this.resolveStageModel('review')
+          );
+        }
+
         const isMultiRepo = repoList.length > 1;
         if (isMultiRepo && !options?.silent) {
           console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
@@ -760,6 +878,8 @@ export class IssueCommand extends CommandRunner {
             repoDir,
             suppressHeader: isMultiRepo,
             silent: options?.silent,
+            resumeProviderSessionId: reviewSessionContext.resumeProviderSessionId,
+            priorStageSummary: reviewSessionContext.priorStageSummary,
           });
 
           if (reviewArtifact) {
@@ -802,6 +922,10 @@ export class IssueCommand extends CommandRunner {
               }
             }
           }
+        }
+
+        if (sessionState) {
+          sessionState = await this.sessionService.recordStageComplete(sessionState, 'review', null);
         }
       }
 
@@ -1036,6 +1160,18 @@ Help the developer understand the review feedback, discuss issues, or suggest fi
    * @param repo Repository name or path (e.g. "bar", "../bar", "/abs/path/bar")
    * @returns Absolute base path to use for artifact storage
    */
+
+  private resolveStageFingerprint(stage: string): StageConfigFingerprint {
+    const provider = (this.configService.get<string>(`stages.${stage}.provider`) ??
+      this.configService.get<string>('ai.provider', 'anthropic')) as StageConfigFingerprint['provider'];
+    const backend = (this.configService.get<string>(`stages.${stage}.backend`) ??
+      resolveDefaultStageBackend(stage as StageBackendDefaultStageName)) as StageConfigFingerprint['backend'];
+    return { provider, backend };
+  }
+
+  private resolveStageModel(stage: string): string {
+    return this.configService.get<string>(`stages.${stage}.model`) ?? this.configService.get<string>('ai.model', '');
+  }
 
   private isInteractiveSession(): boolean {
     return Boolean(process.stdin.isTTY && process.stdout.isTTY);

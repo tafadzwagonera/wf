@@ -31,7 +31,7 @@ export class CodexCliAdapter implements ImplementerBackend {
     contextFiles?: string[];
     repoName: string;
     trackedFilePaths: string[];
-  }): Promise<void> {
+  }): Promise<{ sessionId?: string }> {
     const { options, verificationScripts, ticketContext, repoFiles, repoName } = params;
 
     const repoDir = options.repoDir ?? process.cwd();
@@ -129,6 +129,8 @@ export class CodexCliAdapter implements ImplementerBackend {
     if (sessionId) {
       console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] Provider session: ${sessionId}`));
     }
+
+    return { sessionId };
   }
 
   private logCodexMessage(message: CodexCliMessage, repoDir: string, touchedFiles: Set<string>): void {

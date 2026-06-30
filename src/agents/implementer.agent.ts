@@ -223,7 +223,7 @@ export class ImplementerAgent {
       if (backendSelection.selected === 'openai-agent') return new OpenAIAgentAdapter(this.configService);
       return new AnthropicAgentAdapter(this.configService);
     })();
-    await adapter.generateAndVerify({
+    const backendResult = await adapter.generateAndVerify({
       ticket,
       planArtifact,
       options,
@@ -244,7 +244,7 @@ export class ImplementerAgent {
     console.log(chalk.cyan('    Changes generated, verified, and written to disk'));
     console.log(chalk.cyan('    issue:implement completed for the selected repository'));
 
-    return { type: 'implementation', branchName };
+    return { type: 'implementation', branchName, sessionId: backendResult.sessionId };
   }
 
   /**

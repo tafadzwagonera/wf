@@ -75,6 +75,8 @@ export class ReviewerAgent {
     const review = await this.reviewStageService.reviewDiff(diff, {
       context: `ticket ${ticket.ticketKey}`,
       repoDir: options.repoDir,
+      resumeProviderSessionId: options.resumeProviderSessionId,
+      priorStageSummary: options.priorStageSummary,
     });
 
     if (!options.silent) {

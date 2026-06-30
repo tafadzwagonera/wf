@@ -26,7 +26,7 @@ export type {
 } from '../shared/types/agent.types';
 
 export type ImplementerResult =
-  | { type: 'implementation'; branchName: string | null }
+  | { type: 'implementation'; branchName: string | null; sessionId?: string }
   | { type: 'investigation'; artifact: FindingsArtifact };
 
 export interface FetcherOptions {
@@ -50,6 +50,8 @@ export interface ReviewerOptions {
   repoDir?: string;
   suppressHeader?: boolean;
   silent?: boolean;
+  resumeProviderSessionId?: string;
+  priorStageSummary?: string;
 }
 
 /**
@@ -68,5 +70,5 @@ export interface ImplementerBackend {
     contextFiles?: string[];
     repoName: string;
     trackedFilePaths: string[];
-  }): Promise<void>;
+  }): Promise<{ sessionId?: string }>;
 }

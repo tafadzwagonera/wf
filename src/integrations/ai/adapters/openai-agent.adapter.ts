@@ -762,7 +762,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     contextFiles?: string[];
     repoName: string;
     trackedFilePaths: string[];
-  }): Promise<void> {
+  }): Promise<{ sessionId?: string }> {
     const { options, verificationScripts, ticketContext, repoFiles, repoName } = params;
     const repoDir = options.repoDir ?? process.cwd();
     const readRoots = toWorkspaceRoots(repoDir, options.additionalRepoDirs ?? []);
@@ -1532,6 +1532,8 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     if (verificationScripts.length > 0) {
       console.log(chalk.gray(`  Verification whitelist respected: ${[...allowedCommands].join(', ') || '(none)'}`));
     }
+
+    return { sessionId: undefined };
   }
 
   /**

@@ -44,7 +44,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     contextFiles?: string[];
     repoName: string;
     trackedFilePaths: string[];
-  }): Promise<void> {
+  }): Promise<{ sessionId?: string }> {
     const { options, verificationScripts, ticketContext, repoFiles, repoName } = params;
 
     const repoDir = options.repoDir ?? process.cwd();
@@ -246,6 +246,8 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     } else {
       console.log(chalk.gray('\n  File summary: no file changes were made.'));
     }
+
+    return { sessionId };
   }
 
   private logCliMessage(

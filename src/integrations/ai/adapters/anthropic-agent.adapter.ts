@@ -310,7 +310,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     contextFiles?: string[];
     repoName: string;
     trackedFilePaths: string[];
-  }): Promise<void> {
+  }): Promise<{ sessionId?: string }> {
     const { options, verificationScripts, ticketContext, repoFiles, repoName } = params;
 
     const repoDir = options.repoDir ?? process.cwd();
@@ -604,5 +604,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
 
       sessionId = iterationResult.session_id;
     }
+
+    return { sessionId };
   }
 }

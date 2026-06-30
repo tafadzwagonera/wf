@@ -188,7 +188,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('allowMultiRepoScope bypasses the multi-repo count guard', async () => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
 
       await expect(
         agent.execute(
@@ -207,7 +207,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('allowMultiRepoScope bypasses the offending-paths guard', async () => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
 
       await expect(
         agent.execute(
@@ -228,7 +228,7 @@ describe('ImplementerAgent', () => {
 
   describe('custom branch slug', () => {
     it('uses the custom branch slug when provided for non-ticket execution contexts', async () => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
 
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: [] }), {
         trackerName: 'jira',
@@ -242,7 +242,9 @@ describe('ImplementerAgent', () => {
 
   describe('agent backend delegation', () => {
     it('delegates to AnthropicAgentAdapter when provider is anthropic', async () => {
-      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
+      const adapterSpy = jest
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined });
 
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
@@ -253,7 +255,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('logs the selected anthropic-agent backend', async () => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -401,7 +403,7 @@ describe('ImplementerAgent', () => {
       const openaiAgent = module.get(ImplementerAgent);
       const openaiAdapterSpy = jest
         .spyOn(OpenAIAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue(undefined);
+        .mockResolvedValue({ sessionId: undefined });
       jest
         .spyOn(require('fs'), 'existsSync')
         .mockImplementation((p: string) => ['/tmp/repo-a/package.json', '/tmp/repo-a/src/example.ts'].includes(p));
@@ -427,7 +429,7 @@ describe('ImplementerAgent', () => {
 
   describe('branch workflow', () => {
     beforeEach(() => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
@@ -694,7 +696,7 @@ describe('ImplementerAgent', () => {
 
   describe('affectedFilesContext / contextFiles', () => {
     beforeEach(() => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
@@ -850,7 +852,7 @@ describe('ImplementerAgent', () => {
     it('warns when repoFiles is empty after filtering', async () => {
       jest.spyOn(require('fs'), 'existsSync').mockImplementation(() => false);
 
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: [] }), {
