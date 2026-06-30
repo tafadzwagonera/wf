@@ -74,7 +74,7 @@ async function main(): Promise<void> {
     action: 'fix',
     summary: 'Migrate all loggers',
     steps: ['Migrate all Logger instances to PinoLogger'],
-    estimatedComplexity: 'low',
+    estimatedComplexity: 'medium',
     affectedFiles: ['src/a.ts', 'src/b.ts'],
   });
   assert(
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
     openAi4.isMechanical === false,
     `isMechanical=${openAi4.isMechanical}`
   );
-  assert('reason is "creative task"', openAi4.reason === 'creative task');
+  assert('reason is "high complexity task"', openAi4.reason === 'high complexity task');
 
   // ── Anthropic detectMechanicalTask ───────────────────────────────────
   console.log(chalk.bold('\nTest 5: Anthropic — step language pattern'));
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
     action: 'fix',
     summary: 'Replace every old import',
     steps: ['Replace every OldLogger with NewLogger'],
-    estimatedComplexity: 'low',
+    estimatedComplexity: 'medium',
     affectedFiles: ['src/a.ts'],
   });
   assert(

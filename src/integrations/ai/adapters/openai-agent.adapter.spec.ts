@@ -179,7 +179,7 @@ const makeParams = (repoDir: string, verificationScripts: VerificationScript[] =
       action: 'fix' as const,
       summary: 'test',
       steps: [],
-      estimatedComplexity: 'low' as const,
+      estimatedComplexity: 'medium' as const,
     },
   },
   options: {
@@ -527,7 +527,7 @@ describe('OpenAIAgentAdapter', () => {
         action: 'fix',
         summary: 'Migrate all loggers',
         steps: ['Migrate all Logger instances to PinoLogger'],
-        estimatedComplexity: 'low',
+        estimatedComplexity: 'medium',
         affectedFiles: ['src/a.ts', 'src/b.ts'],
       });
       expect(result.isMechanical).toBe(true);
@@ -564,6 +564,66 @@ describe('OpenAIAgentAdapter', () => {
         steps: ['Design auth schema', 'Implement middleware', 'Add tests'],
         estimatedComplexity: 'high',
         affectedFiles: ['src/auth.ts', 'src/auth.spec.ts'],
+      });
+      expect(result.isMechanical).toBe(false);
+      expect(result.reason).toBe('high complexity task');
+    });
+
+    it('detects mechanical from low estimated complexity alone', () => {
+      const result = detectMechanicalTask({
+        action: 'fix',
+        summary: 'Update config',
+        steps: ['Update value', 'Update another value', 'Update third value'],
+        estimatedComplexity: 'low',
+        affectedFiles: Array.from({ length: 5 }, (_, i) => `src/f${i}.ts`),
+      });
+      expect(result.isMechanical).toBe(true);
+      expect(result.reason).toContain('low complexity');
+    });
+
+    it('returns creative for high complexity even with mechanical keywords', () => {
+      const result = detectMechanicalTask({
+        action: 'feature',
+        summary: 'Migrate all services',
+        steps: ['Migrate all services to new architecture'],
+        estimatedComplexity: 'high',
+        affectedFiles: ['src/service1.ts', 'src/service2.ts'],
+      });
+      expect(result.isMechanical).toBe(false);
+      expect(result.reason).toBe('high complexity task');
+    });
+
+    it('detects mechanical from semantic signals in medium complexity plan', () => {
+      const result = detectMechanicalTask({
+        action: 'fix',
+        summary: 'Standardize code',
+        steps: ['Standardize naming convention', 'Apply same approach in every module'],
+        estimatedComplexity: 'medium',
+        affectedFiles: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+      });
+      expect(result.isMechanical).toBe(true);
+      expect(result.reason).toContain('semantic');
+    });
+
+    it('returns creative when semantic signals tie', () => {
+      const result = detectMechanicalTask({
+        action: 'feature',
+        summary: 'Normalize and refactor',
+        steps: ['Normalize the config format', 'Refactor the parser module'],
+        estimatedComplexity: 'medium',
+        affectedFiles: ['src/config.ts', 'src/parser.ts'],
+      });
+      expect(result.isMechanical).toBe(false);
+      expect(result.reason).toBe('creative task');
+    });
+
+    it('does not false-positive on incidental "repeat" without directional context', () => {
+      const result = detectMechanicalTask({
+        action: 'fix',
+        summary: 'Prevent repeat failures',
+        steps: ['Do not repeat this mistake in production'],
+        estimatedComplexity: 'medium',
+        affectedFiles: ['src/handler.ts'],
       });
       expect(result.isMechanical).toBe(false);
       expect(result.reason).toBe('creative task');

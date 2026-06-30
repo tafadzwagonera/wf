@@ -10,14 +10,67 @@ import type { VerificationScript, ModelRouting } from '../../../agents/interface
 
 const execAsync = promisify(exec);
 
-const MECHANICAL_STEP_PATTERNS = [
+const MECHANICAL_KEYWORD_PATTERNS = [
   /migrate all/i,
   /replace every/i,
   /update each/i,
   /same pattern across/i,
   /rename all/i,
   /add .+ to every/i,
+  /\bfind.and.replace\b/i,
+  /\bsearch.and.replace\b/i,
+  /\b(bulk|batch|mass)\s+(update|change|edit|modify|rename|delete)/i,
+  /\bremove\b.+\bfrom (all|every|each)\b/i,
+  /\bdelete\b.+\b(across|everywhere)\b/i,
+  /\bapply\b.+\b(across|everywhere|to (all|every|each))\b/i,
 ];
+
+const MECHANICAL_SEMANTIC_PATTERNS = [
+  /\brepeat\b.+\b(across|for each|in every)\b|replicate.+across/i,
+  /boilerplate|scaffold/i,
+  /same change|uniform/i,
+  /for each file|for each module/i,
+  /change in all/i,
+  /standardize|normalize/i,
+  /same way|same approach/i,
+];
+
+const CREATIVE_SEMANTIC_PATTERNS = [
+  /design|architect/i,
+  /analyze|investigate/i,
+  /implement new|implement novel/i,
+  /algorithm|heuristic/i,
+  /research|explore/i,
+  /refactor|restructure/i,
+];
+
+/**
+ * Counts semantic signal matches in plan steps.
+ *
+ * @param steps - Plan steps to analyze
+ * @returns Object with mechanical and creative signal counts
+ */
+const countSemanticSignals = (steps: string[]): { mechanical: number; creative: number } => {
+  let mechanical = 0;
+  let creative = 0;
+
+  for (const step of steps) {
+    for (const pattern of MECHANICAL_SEMANTIC_PATTERNS) {
+      if (pattern.test(step)) {
+        mechanical++;
+        break;
+      }
+    }
+    for (const pattern of CREATIVE_SEMANTIC_PATTERNS) {
+      if (pattern.test(step)) {
+        creative++;
+        break;
+      }
+    }
+  }
+
+  return { mechanical, creative };
+};
 
 /**
  * Detects whether a plan describes a mechanical (repetitive, pattern-based) task.
@@ -29,8 +82,33 @@ export const detectMechanicalTask = (plan: ResolutionPlan): { isMechanical: bool
   const filesCount = plan.affectedFiles?.length ?? 0;
   const stepsCount = plan.steps.length;
 
+  // Step 1: Low complexity → mechanical immediately
+  if (plan.estimatedComplexity === 'low') {
+    return {
+      isMechanical: true,
+      reason: `low complexity task (${filesCount} files)`,
+    };
+  }
+
+  // Step 2: High complexity → creative immediately
+  if (plan.estimatedComplexity === 'high') {
+    return {
+      isMechanical: false,
+      reason: 'high complexity task',
+    };
+  }
+
+  // Step 3: File-to-step ratio check
+  if (stepsCount > 0 && filesCount > 3 && filesCount / stepsCount > 3) {
+    return {
+      isMechanical: true,
+      reason: `high file-to-step ratio: ${filesCount} files / ${stepsCount} steps`,
+    };
+  }
+
+  // Step 4: Keyword match against MECHANICAL_KEYWORD_PATTERNS
   for (const step of plan.steps) {
-    const matched = MECHANICAL_STEP_PATTERNS.find(pattern => pattern.test(step));
+    const matched = MECHANICAL_KEYWORD_PATTERNS.find(pattern => pattern.test(step));
     if (matched) {
       return {
         isMechanical: true,
@@ -39,20 +117,16 @@ export const detectMechanicalTask = (plan: ResolutionPlan): { isMechanical: bool
     }
   }
 
-  if (stepsCount > 0 && filesCount > 3 && filesCount / stepsCount > 3) {
+  // Step 5: Semantic signals
+  const signals = countSemanticSignals(plan.steps);
+  if (signals.mechanical > 0 && signals.mechanical > signals.creative) {
     return {
       isMechanical: true,
-      reason: `high file-to-step ratio: ${filesCount} files / ${stepsCount} steps`,
+      reason: `semantic signals: ${signals.mechanical} mechanical vs ${signals.creative} creative`,
     };
   }
 
-  if (plan.estimatedComplexity === 'low' && filesCount >= 20) {
-    return {
-      isMechanical: true,
-      reason: `low complexity with ${filesCount} files`,
-    };
-  }
-
+  // Step 6: Fallback creative
   return { isMechanical: false, reason: 'creative task' };
 };
 

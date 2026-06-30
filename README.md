@@ -745,7 +745,7 @@ The `--model-routing` flag controls which model the implement stage uses:
 | `default` | Force the default model for the entire run | gpt-4.1 | claude-sonnet-4-6 |
 | `mechanical` | Force the cheaper mechanical model | gpt-5.1-codex-mini | claude-haiku-4-5-20251001 |
 
-In `auto` mode, the adapter detects mechanical tasks by examining plan steps for patterns like "migrate all", "replace every", "update each", or by checking for a high file-to-step ratio (>3) or low complexity with 20+ files.
+In `auto` mode, the adapter classifies tasks through a six-step cascade: (1) low `estimatedComplexity` routes to the mechanical model immediately, (2) high complexity routes to the creative model immediately, (3) a high file-to-step ratio (>3) signals mechanical, (4) keyword patterns in plan steps (e.g. "migrate all", "replace every", "bulk update", "find and replace") signal mechanical, (5) semantic signal analysis compares mechanical indicators (e.g. "standardize", "boilerplate", "same change") against creative indicators (e.g. "design", "algorithm", "refactor") — mechanical wins only when its count exceeds creative, and (6) the fallback is creative.
 
 Override both models in config:
 

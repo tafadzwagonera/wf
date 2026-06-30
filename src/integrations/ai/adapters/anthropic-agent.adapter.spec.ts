@@ -244,7 +244,7 @@ const makeParams = (repoDir = '/repo/primary', verificationScripts: Verification
       action: 'fix' as const,
       summary: 'test',
       steps: [],
-      estimatedComplexity: 'low' as const,
+      estimatedComplexity: 'medium' as const,
     },
   },
   options: {
@@ -371,7 +371,7 @@ describe('AnthropicAgentAdapter', () => {
         action: 'fix',
         summary: 'Migrate all loggers',
         steps: ['Replace every Logger with PinoLogger'],
-        estimatedComplexity: 'low',
+        estimatedComplexity: 'medium',
         affectedFiles: ['src/a.ts', 'src/b.ts'],
       });
       expect(result.isMechanical).toBe(true);
