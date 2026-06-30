@@ -1,10 +1,10 @@
 import type {
-  VerificationScript,
   ResolutionAction,
+  FindingsArtifact,
   TicketArtifact,
   PlanArtifact,
-  ModelRouting,
-  FindingsArtifact,
+  ImplementerOptions,
+  VerificationScript,
 } from '../shared/types/agent.types';
 
 export type {
@@ -14,6 +14,7 @@ export type {
   VerificationFailureCategory,
   RetryScopeStrategy,
   VerificationFailureClassification,
+  ImplementerOptions,
   ImplementRunArtifact,
   VerificationAttemptArtifact,
   ResolutionAction,
@@ -42,32 +43,6 @@ export interface PlannerOptions {
   affectedRepositories?: string[];
   silent?: boolean;
   onProgress?: (line: string) => void;
-}
-
-/** trackerName is required to apply Atlassian vs GitHub ticket-key casing rules. */
-export interface ImplementerOptions {
-  trackerName: string;
-  repoDir?: string;
-  /** Sibling repository directories available for cross-repo file reads.
-   *  Writes always stay within repoDir. Populated from --repos options. */
-  additionalRepoDirs?: string[];
-  suppressHeader?: boolean;
-  conversationContext?: string;
-  customBranchSlug?: string;
-  /** When true, skips single-repo boundary guards. Set only by IssueCommand's per-repo loop. */
-  allowMultiRepoScope?: boolean;
-  /** Controls model selection strategy for the implement stage. Defaults to 'auto'. */
-  modelRouting?: ModelRouting;
-  /** Suppress interactive prompts; auto-select defaults while preserving decorative output. */
-  silent?: boolean;
-  /** Suppress branch creation; work directly on the source branch. */
-  noBranch?: boolean;
-  /** CLI override for branch name validation regex (git.branchNamePattern config). */
-  branchNamePattern?: string;
-  /** Summary from a prior workflow stage (e.g. plan) injected as background context. */
-  priorStageSummary?: string;
-  /** Provider session ID for conversation resumption (agent SDK or CLI session). */
-  resumeProviderSessionId?: string;
 }
 
 export interface ReviewerOptions {

@@ -109,6 +109,22 @@ export const findingsArtifactSchema = z.object({
   path: z.string(),
 });
 
+export const implementerOptionsSchema = z.object({
+  trackerName: z.string(),
+  repoDir: z.string().optional(),
+  additionalRepoDirs: z.array(z.string()).optional(),
+  suppressHeader: z.boolean().optional(),
+  conversationContext: z.string().optional(),
+  customBranchSlug: z.string().optional(),
+  allowMultiRepoScope: z.boolean().optional(),
+  modelRouting: modelRoutingSchema.optional(),
+  silent: z.boolean().optional(),
+  noBranch: z.boolean().optional(),
+  branchNamePattern: z.string().optional(),
+  priorStageSummary: z.string().optional(),
+  resumeProviderSessionId: z.string().optional(),
+});
+
 export const agentStageNameSchema = z.enum(['plan', 'review', 'generate']);
 
 export const stageProgressCallbackSchema = z.custom<(line: string) => void>();

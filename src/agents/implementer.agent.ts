@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import { GitService } from '../integrations/git/git.service';
+import type { BranchInfo } from '../integrations/git/git.service';
 import { AiService, normalizeFileEntries } from '../integrations/ai/ai.service';
 import {
   ImplementBackendSelection,
@@ -655,10 +656,47 @@ export class ImplementerAgent {
     const cwd = options.repoDir;
     const interactive = !options.silent && this.isInteractiveSession();
 
-    // 1. Dirty tree check
+    const { didStash } = await this.ensureCleanWorkingTree(planArtifact, options, interactive, cwd);
+
+    console.log(chalk.gray('  Detecting source branches...'));
+    const branchInfo = await this.gitService.getBranchInfo(cwd);
+    const devBranches = this.gitService.detectDevelopmentBranches(branchInfo.all);
+    const mainBranch = this.gitService.detectMainBranch(branchInfo.all);
+
+    const sourceBranch = await this.resolveSourceBranch({ branchInfo, devBranches, mainBranch, interactive, cwd });
+
+    await this.pullLatestFromSource(sourceBranch, branchInfo, cwd);
+    await this.restoreStash(didStash, cwd);
+
+    const generatedName = this.generateBranchNameForTicket(ticket, planArtifact, options);
+    const branchName = await this.promptBranchName({
+      generatedName,
+      sourceBranch,
+      noBranch: options.noBranch,
+      interactive,
+    });
+    if (branchName === null) {
+      return null;
+    }
+
+    const currentBranch = await this.gitService.getCurrentBranch(cwd).catch(() => '');
+    if (currentBranch === branchName) {
+      console.log(chalk.green(`  Already on branch: ${branchName}`));
+      return branchName;
+    }
+    await this.gitService.createBranch(branchName, sourceBranch, cwd);
+    console.log(chalk.green(`  Created branch: ${branchName} from ${sourceBranch}`));
+    return branchName;
+  }
+
+  private async ensureCleanWorkingTree(
+    planArtifact: PlanArtifact,
+    options: ImplementerOptions,
+    interactive: boolean,
+    cwd: string | undefined
+  ): Promise<{ didStash: boolean }> {
     console.log(chalk.gray('  Checking working tree status...'));
     const status = await this.gitService.getStatus(cwd);
-    let didStash = false;
 
     if (status.conflicted.length > 0) {
       throw new GitError(
@@ -669,49 +707,58 @@ export class ImplementerAgent {
     const hasTrackedChanges =
       status.modified.length > 0 || status.staged.length > 0 || status.deleted.length > 0 || status.renamed.length > 0;
 
-    if (hasTrackedChanges) {
-      const stashMessage = path.basename(planArtifact.path) || 'wf-auto-stash';
-
-      if (interactive) {
-        const { shouldStash } = await inquirer.prompt<{
-          shouldStash: boolean;
-        }>([
-          {
-            type: 'confirm',
-            name: 'shouldStash',
-            message: 'Working tree has uncommitted changes. Stash and continue?',
-            prefix: ' ',
-            default: true,
-          },
-        ]);
-        if (!shouldStash) {
-          throw new GitError('Aborted: working tree has uncommitted changes. Commit or stash them first.');
-        }
-      }
-
-      console.log(chalk.yellow(`  Working tree has uncommitted changes — stashing (${stashMessage})...`));
-      await this.gitService.stashChanges(stashMessage, cwd);
-      didStash = true;
-    } else {
+    if (!hasTrackedChanges) {
       console.log(chalk.green('  Working tree is clean'));
+      return { didStash: false };
     }
 
-    // 2. Detect source branches
-    console.log(chalk.gray('  Detecting source branches...'));
-    const branchInfo = await this.gitService.getBranchInfo(cwd);
-    const devBranches = this.gitService.detectDevelopmentBranches(branchInfo.all);
-    const mainBranch = this.gitService.detectMainBranch(branchInfo.all);
+    const stashMessage = path.basename(planArtifact.path) || 'wf-auto-stash';
 
+    if (interactive) {
+      const { shouldStash } = await inquirer.prompt<{
+        shouldStash: boolean;
+      }>([
+        {
+          type: 'confirm',
+          name: 'shouldStash',
+          message: 'Working tree has uncommitted changes. Stash and continue?',
+          prefix: ' ',
+          default: true,
+        },
+      ]);
+      if (!shouldStash) {
+        throw new GitError('Aborted: working tree has uncommitted changes. Commit or stash them first.');
+      }
+    }
+
+    console.log(chalk.yellow(`  Working tree has uncommitted changes — stashing (${stashMessage})...`));
+    await this.gitService.stashChanges(stashMessage, cwd);
+    return { didStash: true };
+  }
+
+  private async resolveSourceBranch(params: {
+    branchInfo: BranchInfo;
+    devBranches: string[];
+    mainBranch: string | undefined;
+    interactive: boolean;
+    cwd: string | undefined;
+  }): Promise<string> {
+    const { branchInfo, devBranches, mainBranch, interactive, cwd } = params;
     const isRemote = (b: string): boolean => b.startsWith('remotes/') || b.startsWith('origin/');
     const formatBranchChoice = (b: string): { name: string; value: string } =>
       isRemote(b) ? { name: chalk.gray(b), value: b } : { name: chalk.cyan(b), value: b };
-
-    // 3. Select source branch
-    let sourceBranch: string | undefined;
+    const logSource = async (b: string): Promise<string> => {
+      const branchColor = isRemote(b) ? chalk.gray : chalk.cyan;
+      const hasUpstream = isRemote(b) ? true : await this.gitService.hasUpstream(b, cwd);
+      console.log(chalk.cyan(`  Source branch: ${branchColor(b)}${hasUpstream ? ' (has upstream)' : ''}`));
+      return b;
+    };
 
     if (devBranches.length === 1) {
-      sourceBranch = devBranches[0];
-    } else if (devBranches.length > 1 && interactive) {
+      return logSource(devBranches[0]);
+    }
+
+    if (devBranches.length > 1 && interactive) {
       const choices = [...devBranches.map(formatBranchChoice), ...(mainBranch ? [formatBranchChoice(mainBranch)] : [])];
       const { selected } = await inquirer.prompt<{ selected: string }>([
         {
@@ -723,125 +770,140 @@ export class ImplementerAgent {
           default: devBranches[0],
         },
       ]);
-      sourceBranch = selected;
-    } else if (devBranches.length > 1) {
-      // Silent mode: pick the first dev branch
-      sourceBranch = devBranches[0];
-    } else {
-      sourceBranch = mainBranch;
+      return logSource(selected);
     }
 
-    if (!sourceBranch) {
-      sourceBranch = branchInfo.current;
-      console.log(chalk.yellow(`  No dev or main branch detected — using current branch: ${sourceBranch}`));
-    } else {
-      const branchColor = isRemote(sourceBranch) ? chalk.gray : chalk.cyan;
-      const hasUpstream = isRemote(sourceBranch) ? true : await this.gitService.hasUpstream(sourceBranch, cwd);
-      console.log(chalk.cyan(`  Source branch: ${branchColor(sourceBranch)}${hasUpstream ? ' (has upstream)' : ''}`));
+    if (devBranches.length > 1) {
+      return logSource(devBranches[0]);
     }
 
-    const sourceIsRemote = isRemote(sourceBranch);
+    if (mainBranch) {
+      return logSource(mainBranch);
+    }
 
-    // 4. Pull latest (skip for remote branches — already at remote HEAD)
-    if (!sourceIsRemote) {
-      if (branchInfo.current !== sourceBranch) {
-        await this.gitService.checkoutBranch(sourceBranch, cwd);
-      }
-      try {
-        console.log(chalk.gray(`  Pulling latest from origin/${sourceBranch}...`));
-        await this.gitService.pull('origin', sourceBranch, cwd);
-      } catch {
-        console.log(
-          chalk.yellow(`  Could not pull ${sourceBranch} (no upstream or network issue) — continuing with local state`)
-        );
-      }
-    } else {
+    const fallback = branchInfo.current;
+    console.log(chalk.yellow(`  No dev or main branch detected — using current branch: ${fallback}`));
+    return fallback;
+  }
+
+  private async pullLatestFromSource(
+    sourceBranch: string,
+    branchInfo: BranchInfo,
+    cwd: string | undefined
+  ): Promise<void> {
+    const isRemote = (b: string): boolean => b.startsWith('remotes/') || b.startsWith('origin/');
+
+    if (isRemote(sourceBranch)) {
       console.log(chalk.gray(`  Skipping pull — ${sourceBranch} is a remote tracking ref`));
+      return;
     }
 
-    // 5. Restore stash
-    if (didStash) {
-      try {
-        await this.gitService.stashPop(cwd);
-      } catch {
-        console.log(
-          chalk.yellow(
-            '  Stash pop encountered conflicts. Your changes are in stash@{0} — resolve manually after implementation.'
-          )
-        );
-      }
+    if (branchInfo.current !== sourceBranch) {
+      await this.gitService.checkoutBranch(sourceBranch, cwd);
+    }
+    try {
+      console.log(chalk.gray(`  Pulling latest from origin/${sourceBranch}...`));
+      await this.gitService.pull('origin', sourceBranch, cwd);
+    } catch {
+      console.log(
+        chalk.yellow(`  Could not pull ${sourceBranch} (no upstream or network issue) — continuing with local state`)
+      );
+    }
+  }
+
+  private async restoreStash(didStash: boolean, cwd: string | undefined): Promise<void> {
+    if (!didStash) {
+      return;
     }
 
-    // 6. Branch creation decision
-    if (options.noBranch) {
+    try {
+      await this.gitService.stashPop(cwd);
+    } catch {
+      console.log(
+        chalk.yellow(
+          '  Stash pop encountered conflicts. Your changes are in stash@{0} — resolve manually after implementation.'
+        )
+      );
+    }
+  }
+
+  /**
+   * @param ticket - Ticket artifact for branch name derivation
+   * @param planArtifact - Plan artifact with resolution action
+   * @param options - Implementation options with slug/pattern overrides
+   * @returns Generated branch name string
+   */
+  private generateBranchNameForTicket(
+    ticket: TicketArtifact,
+    planArtifact: PlanArtifact,
+    options: ImplementerOptions
+  ): string {
+    const summary = extractSummary(ticket.content);
+    if (options.customBranchSlug) {
+      return this.generateCustomBranchName(options.customBranchSlug, planArtifact.action);
+    }
+    return this.generateBranchName(
+      ticket.ticketKey,
+      summary,
+      planArtifact.action,
+      options.trackerName,
+      options.branchNamePattern
+    );
+  }
+
+  private async promptBranchName(params: {
+    generatedName: string;
+    sourceBranch: string;
+    noBranch?: boolean;
+    interactive: boolean;
+  }): Promise<string | null> {
+    const { generatedName, sourceBranch, noBranch, interactive } = params;
+
+    if (noBranch) {
       console.log(chalk.cyan(`  Staying on ${sourceBranch} (--no-branch)`));
       return null;
     }
 
-    const summary = extractSummary(ticket.content);
-    const generatedName = options.customBranchSlug
-      ? this.generateCustomBranchName(options.customBranchSlug, planArtifact.action)
-      : this.generateBranchName(
-          ticket.ticketKey,
-          summary,
-          planArtifact.action,
-          options.trackerName,
-          options.branchNamePattern
-        );
+    if (!interactive) {
+      return generatedName;
+    }
 
-    let branchName: string;
+    const { choice } = await inquirer.prompt<{ choice: string }>([
+      {
+        type: 'list',
+        name: 'choice',
+        message: 'Branch name:',
+        prefix: ' ',
+        choices: [
+          { name: generatedName, value: 'accept' },
+          { name: 'Edit branch name', value: 'edit' },
+          { name: 'Skip (stay on current branch)', value: 'skip' },
+        ],
+        default: 'accept',
+      },
+    ]);
 
-    if (interactive) {
-      const { choice } = await inquirer.prompt<{ choice: string }>([
+    if (choice === 'skip') {
+      console.log(chalk.cyan(`  Staying on ${sourceBranch}`));
+      return null;
+    }
+
+    if (choice === 'edit') {
+      const { customName } = await inquirer.prompt<{
+        customName: string;
+      }>([
         {
-          type: 'list',
-          name: 'choice',
-          message: 'Branch name:',
+          type: 'input',
+          name: 'customName',
+          message: 'Enter branch name:',
           prefix: ' ',
-          choices: [
-            { name: generatedName, value: 'accept' },
-            { name: 'Edit branch name', value: 'edit' },
-            { name: 'Skip (stay on current branch)', value: 'skip' },
-          ],
-          default: 'accept',
+          default: generatedName,
         },
       ]);
-
-      if (choice === 'skip') {
-        console.log(chalk.cyan(`  Staying on ${sourceBranch}`));
-        return null;
-      }
-
-      if (choice === 'edit') {
-        const { customName } = await inquirer.prompt<{
-          customName: string;
-        }>([
-          {
-            type: 'input',
-            name: 'customName',
-            message: 'Enter branch name:',
-            prefix: ' ',
-            default: generatedName,
-          },
-        ]);
-        branchName = customName;
-      } else {
-        branchName = generatedName;
-      }
-    } else {
-      branchName = generatedName;
+      return customName;
     }
 
-    // 7. Create branch
-    const currentBranch = await this.gitService.getCurrentBranch(cwd).catch(() => '');
-    if (currentBranch === branchName) {
-      console.log(chalk.green(`  Already on branch: ${branchName}`));
-    } else {
-      await this.gitService.createBranch(branchName, sourceBranch, cwd);
-      console.log(chalk.green(`  Created branch: ${branchName} from ${sourceBranch}`));
-    }
-
-    return branchName;
+    return generatedName;
   }
 
   private isInteractiveSession(): boolean {
