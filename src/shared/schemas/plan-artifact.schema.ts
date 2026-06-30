@@ -30,6 +30,19 @@ export const planArtifactReferenceSchema = z.object({
   isLegacy: z.boolean(),
 });
 
+export const planTokenResolutionSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('ticket'),
+    ticketKey: z.string(),
+  }),
+  z.object({
+    kind: z.literal('custom'),
+    artifactPath: z.string(),
+    action: resolutionActionSchema,
+    sourceName: z.string(),
+  }),
+]);
+
 export const generatedTicketSourceManifestSchema = z.object({
   artifactPath: z.string(),
   createdAt: z.string(),

@@ -14,6 +14,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { isAIErrorLike } from '../shared/utils/errors';
 import {
+  buildSyntheticTicketArtifact,
   isTicketKey,
   parsePlanArtifact,
   buildPlanArtifactResolutionNotice,
@@ -51,11 +52,6 @@ interface IssueImplementOptions {
   silent?: boolean;
   tracker?: string;
   sessionId?: string;
-}
-
-interface SyntheticCustomExecutionContext {
-  ticketArtifact: TicketArtifact;
-  customBranchSlug: string;
 }
 
 @Injectable()
@@ -237,10 +233,8 @@ export class IssueImplementCommand extends CommandRunner {
 
       if (resolvedPlanReference?.sourceKind === 'custom' && plan) {
         const repoDir = resolveRepoBasePath(options?.repos?.[0]);
-        const customExecutionContext = this.buildSyntheticCustomExecutionContext(
-          resolvedPlanReference.artifactPath,
-          plan
-        );
+        const syntheticTicketArtifact = buildSyntheticTicketArtifact(resolvedPlanReference.artifactPath, plan);
+        const customBranchSlug = syntheticTicketArtifact.ticketKey;
 
         if (options?.dryRun) {
           this.dryRunPreview.showHeader('issue:implement', identifier);
@@ -305,7 +299,7 @@ export class IssueImplementCommand extends CommandRunner {
 
             this.dryRunPreview.previewGitOperation({
               operation: 'branch',
-              description: `create or switch to feature branch ${this.formatCustomBranchName(plan.action, customExecutionContext.customBranchSlug)}`,
+              description: `create or switch to feature branch ${this.formatCustomBranchName(plan.action, customBranchSlug)}`,
             });
             trackedFiles.forEach(filePath => {
               this.dryRunPreview.previewFileWrite({
@@ -323,7 +317,7 @@ export class IssueImplementCommand extends CommandRunner {
               gitOperationCount: 1,
               terminalOutputLines: [
                 `⚠️ Synthetic execution context for custom plan ${path.basename(resolvedPlanReference.artifactPath)}`,
-                `Branch: ${this.formatCustomBranchName(plan.action, customExecutionContext.customBranchSlug)}`,
+                `Branch: ${this.formatCustomBranchName(plan.action, customBranchSlug)}`,
                 '🔧 Implementation Guide',
                 '─'.repeat(70),
                 '  Steps:',
@@ -417,7 +411,7 @@ Return ONLY a valid JSON object:
 
         console.log(
           chalk.yellow(
-            `⚠️ Created synthetic execution context for custom plan ${path.basename(resolvedPlanReference.artifactPath)}. Branch naming will use artifact stem "${customExecutionContext.customBranchSlug}".`
+            `⚠️ Created synthetic execution context for custom plan ${path.basename(resolvedPlanReference.artifactPath)}. Branch naming will use artifact stem "${customBranchSlug}".`
           )
         );
 
@@ -435,22 +429,18 @@ Return ONLY a valid JSON object:
         for (const repo of repoList) {
           const iterRepoDir = resolveRepoBasePath(repo);
           if (isMultiRepo && !options?.silent) console.log(chalk.bold.cyan(`\n  ── ${repo ?? 'current directory'} ──`));
-          const result = await this.orchestrator.implementer.execute(
-            customExecutionContext.ticketArtifact,
-            planArtifact,
-            {
-              trackerName,
-              repoDir: iterRepoDir,
-              additionalRepoDirs: (options?.repos ?? []).filter(r => r !== repo).map(r => resolveRepoBasePath(r)),
-              suppressHeader: isMultiRepo,
-              allowMultiRepoScope: isMultiRepo,
-              customBranchSlug: customExecutionContext.customBranchSlug,
-              modelRouting: options?.modelRouting as ModelRouting,
-              silent: options?.silent,
-              noBranch: options?.noBranch,
-              branchNamePattern: options?.branchNamePattern,
-            }
-          );
+          const result = await this.orchestrator.implementer.execute(syntheticTicketArtifact, planArtifact, {
+            trackerName,
+            repoDir: iterRepoDir,
+            additionalRepoDirs: (options?.repos ?? []).filter(r => r !== repo).map(r => resolveRepoBasePath(r)),
+            suppressHeader: isMultiRepo,
+            allowMultiRepoScope: isMultiRepo,
+            customBranchSlug: customBranchSlug,
+            modelRouting: options?.modelRouting as ModelRouting,
+            silent: options?.silent,
+            noBranch: options?.noBranch,
+            branchNamePattern: options?.branchNamePattern,
+          });
 
           if (result?.type === 'investigation') {
             console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
@@ -791,66 +781,6 @@ Return ONLY a valid JSON object:
     }
 
     throw new Error(`Custom plan artifact not found for ${identifier}. Checked: ${candidatePaths.join(', ')}`);
-  }
-
-  /**
-   * Build a synthetic ticket-like context so custom plans can reuse the
-   * standard implementer flow without a backing ticket artifact.
-   *
-   * @param planPath - Absolute custom plan artifact path
-   * @param plan - Parsed custom plan
-   * @returns Synthetic execution context for the implementer
-   */
-  private buildSyntheticCustomExecutionContext(
-    planPath: string,
-    plan: ResolutionPlan
-  ): SyntheticCustomExecutionContext {
-    const artifactName = path.basename(planPath, path.extname(planPath));
-    const customBranchSlug = artifactName.replace(new RegExp(`-${plan.action}$`), '');
-    const ticketKey = customBranchSlug || artifactName;
-    const ticketContent = [
-      `# ${ticketKey}: ${plan.summary || 'Custom implementation'}`,
-      '',
-      `**Plan Artifact:** ${path.basename(planPath)}`,
-      `**Action:** ${plan.action}`,
-      '',
-      '## Summary',
-      '',
-      plan.summary || 'Custom plan execution context synthesized from artifact.',
-      '',
-      '## Steps',
-      '',
-      ...(plan.steps.length > 0
-        ? plan.steps.map((step, index) => `${index + 1}. ${step}`)
-        : ['1. Follow the custom implementation plan']),
-      '',
-      '## Files Affected',
-      '',
-      ...(() => {
-        const affected = normalizeFileEntries(plan.affectedFiles ?? []);
-        return affected.length > 0 ? affected.map(e => `- ${e.filePath} (${e.status})`) : ['- (none listed)'];
-      })(),
-      '',
-      ...(() => {
-        const context = normalizeFileEntries(plan.affectedFilesContext ?? []);
-        if (context.length === 0) return [];
-        return ['## Files for Context (Read-Only)', '', ...context.map(e => `- ${e.filePath} (${e.status})`), ''];
-      })(),
-      '## Risks',
-      '',
-      ...((plan.risks ?? []).length > 0
-        ? (plan.risks ?? []).map(risk => `- ${risk}`)
-        : ['- Synthetic execution context derived from custom plan artifact']),
-    ].join('\n');
-
-    return {
-      ticketArtifact: {
-        ticketKey,
-        content: ticketContent,
-        path: planPath,
-      },
-      customBranchSlug: ticketKey,
-    };
   }
 
   /**

@@ -526,6 +526,10 @@
       {
         "comment": "Resume from a hashed plan artifact without --action",
         "command": "wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement"
+      },
+      {
+        "comment": "Resume from a custom plan artifact created with --custom",
+        "command": "wf issue dark-building-creek-fix-plan.json --from implement"
       }
     ]
   }

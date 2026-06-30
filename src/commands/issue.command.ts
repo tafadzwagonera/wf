@@ -10,9 +10,11 @@ import { ValidationError } from '../shared/utils/errors';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import {
   buildPlanArtifactFilename,
+  buildSyntheticTicketArtifact,
   hashPlanArtifactSources,
-  isTicketKey,
+  parsePlanArtifact,
   resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
+  resolvePlanToken,
 } from '../shared/utils/plan-artifact';
 import { parseReposOption } from './utils/repos-option';
 import { ConfigService } from '@nestjs/config';
@@ -33,6 +35,7 @@ import {
 import type { ModelRouting } from '../agents/interfaces';
 import { SessionService } from '../shared/session/session.service';
 import { SummaryService } from '../shared/session/summary.service';
+import type { PlanTokenResolution } from '../shared/types/plan-artifact.types';
 import type { SessionState } from '../shared/types/session.types';
 import * as crypto from 'crypto';
 
@@ -50,6 +53,10 @@ const ISSUE_EXAMPLES: CliExample[] = [
   {
     comment: 'Resume from a hashed plan artifact without --action',
     command: 'wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement',
+  },
+  {
+    comment: 'Resume from a custom plan artifact created with --custom',
+    command: 'wf issue dark-building-creek-fix-plan.json --from implement',
   },
 ];
 
@@ -260,14 +267,12 @@ export class IssueCommand extends CommandRunner {
     try {
       const skipExisting = !options?.force;
 
-      // Parse stages first to determine if PLAN stage will run
       const fromStage = this.parseStage(options.from);
       const toStage = options.to ? this.parseStage(options.to) : WorkflowStage.COMMIT;
       const trackerName = options?.tracker || this.configService.get<string>('tracker') || 'jira';
       const repoBaseDir = resolveRepoBasePath(options.repos?.[0]);
       const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
 
-      // Validate stage range
       const fromIndex = STAGE_ORDER.indexOf(fromStage);
       const toIndex = STAGE_ORDER.indexOf(toStage);
       if (fromIndex > toIndex) {
@@ -279,25 +284,16 @@ export class IssueCommand extends CommandRunner {
 
       const stagesToRun = this.getStagesToRun(fromStage, toStage);
 
+      let planTokenResolution: PlanTokenResolution | undefined;
       if (
-        !isTicketKey(ticketKey) &&
         stagesToRun.some(stage => [WorkflowStage.IMPLEMENT, WorkflowStage.REVIEW, WorkflowStage.COMMIT].includes(stage))
       ) {
-        try {
-          const resolvedReference = resolvePlanArtifactReferenceInDir(ticketKey, {
-            artifactDir: trackerDir,
-          });
-          if (resolvedReference.ticketKey) {
-            ticketKey = resolvedReference.ticketKey;
-          }
-        } catch {
-          throw new ValidationError(
-            `Plan artifact not found for ${ticketKey}. Run wf issue:plan first or provide a supported plan filename.`
-          );
+        planTokenResolution = resolvePlanToken(ticketKey, trackerDir, repoBaseDir);
+        if (planTokenResolution?.kind === 'ticket') {
+          ticketKey = planTokenResolution.ticketKey;
         }
       }
 
-      // Validate action only if PLAN stage will run
       let action: ResolutionAction | undefined;
       if (stagesToRun.includes(WorkflowStage.PLAN)) {
         if (!options?.action) {
@@ -305,22 +301,18 @@ export class IssueCommand extends CommandRunner {
             'Error: --action is required when running PLAN stage.\n' + 'Specify: --action <feature|fix|investigate>'
           );
         }
-        // Validate action
         const validActions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
         if (!validActions.includes(options.action as ResolutionAction)) {
           throw new ValidationError(`Invalid action: ${options.action}. Must be one of: ${validActions.join(', ')}`);
         }
         action = options.action as ResolutionAction;
       } else if (options?.action) {
-        // Action provided but PLAN stage not running - validate it
         const validActions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
         if (!validActions.includes(options.action as ResolutionAction)) {
           throw new ValidationError(`Invalid action: ${options.action}. Must be one of: ${validActions.join(', ')}`);
         }
         action = options.action as ResolutionAction;
       }
-      // If action not provided and PLAN stage not running, it will be auto-discovered later
-
       const repoList: (string | undefined)[] = options.repos?.length ? options.repos : [undefined];
 
       if (options?.dryRun) {
@@ -582,7 +574,6 @@ export class IssueCommand extends CommandRunner {
         console.log(chalk.gray(`Stages: ${fromStage} → ${toStage}\n`));
       }
 
-      // ── Session lifecycle ─────────────────────────────────────────
       let sessionState: SessionState | undefined;
       let wfSessionId: string | undefined = options.sessionId;
 
@@ -644,8 +635,22 @@ export class IssueCommand extends CommandRunner {
       let planArtifact: PlanArtifact | undefined;
       let reviewArtifact: ReviewArtifact | null = null;
 
-      // STAGE 1: FETCH
-      if (stagesToRun.includes(WorkflowStage.FETCH)) {
+      if (planTokenResolution?.kind === 'custom') {
+        const plan = parsePlanArtifact(
+          fs.readFileSync(planTokenResolution.artifactPath, 'utf-8'),
+          planTokenResolution.artifactPath
+        );
+        ticketKey = planTokenResolution.sourceName;
+        action = planTokenResolution.action;
+        ticketArtifact = buildSyntheticTicketArtifact(planTokenResolution.artifactPath, plan);
+        planArtifact = {
+          plan,
+          action: planTokenResolution.action,
+          path: planTokenResolution.artifactPath,
+        };
+      }
+
+      if (!planArtifact && stagesToRun.includes(WorkflowStage.FETCH)) {
         ticketArtifact = await this.agents.fetcher.execute(ticketKey, {
           trackerName,
           repo: options?.repos?.[0],
@@ -656,15 +661,14 @@ export class IssueCommand extends CommandRunner {
         if (options?.silent) {
           console.log(ticketArtifact.path);
         }
-      } else {
+      } else if (!planArtifact) {
         ticketArtifact = this.agents.fetcher.loadFromDisk(ticketKey, trackerName, repoBaseDir, options?.silent);
         if (options?.silent) {
           console.log(ticketArtifact.path);
         }
       }
 
-      // STAGE 2: PLAN
-      if (stagesToRun.includes(WorkflowStage.PLAN)) {
+      if (!planArtifact && stagesToRun.includes(WorkflowStage.PLAN)) {
         planArtifact = await this.agents.planner.execute(ticketArtifact, {
           action: action!,
           skipExisting,
@@ -700,18 +704,15 @@ export class IssueCommand extends CommandRunner {
         }
       }
 
-      // Record plan session
       if (planArtifact?.sessionId && sessionState) {
         sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'plan', planArtifact.sessionId);
       }
 
-      // Load plan for IMPLEMENT or REVIEW stages when PLAN stage was skipped
       if (stagesToRun.some(s => [WorkflowStage.IMPLEMENT, WorkflowStage.REVIEW].includes(s)) && !planArtifact) {
         planArtifact = this.agents.planner.loadFromDisk(ticketArtifact.path, action, options?.silent);
         if (planArtifact.action !== action) action = planArtifact.action;
       }
 
-      // ── STAGE 3: IMPLEMENT ──────────────────────────────────────────────
       let conversationContext: string | undefined;
 
       let implementerResult: ImplementerResult | undefined;
@@ -745,7 +746,6 @@ export class IssueCommand extends CommandRunner {
         }
       }
 
-      // ── STAGE 4: REVIEW ─────────────────────────────────────────────────
       if (stagesToRun.includes(WorkflowStage.REVIEW) && planArtifact?.action !== 'investigate') {
         const isMultiRepo = repoList.length > 1;
         if (isMultiRepo && !options?.silent) {
@@ -805,7 +805,6 @@ export class IssueCommand extends CommandRunner {
         }
       }
 
-      // ── STAGE 5: COMMIT ──────────────────────────────────────────────────
       if (stagesToRun.includes(WorkflowStage.COMMIT) && planArtifact?.action !== 'investigate') {
         const isMultiRepo = repoList.length > 1;
         if (isMultiRepo && !options?.silent) {

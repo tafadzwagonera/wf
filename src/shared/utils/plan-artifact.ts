@@ -1,9 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
-import type { ResolutionPlan, FileEntry } from '../../integrations/ai/ai.service';
-import type { ResolutionAction } from '../../agents/interfaces';
-import type { PlanArtifactManifest, PlanArtifactReference } from '../types/plan-artifact.types';
+import { type ResolutionPlan, type FileEntry, normalizeFileEntries } from '../../integrations/ai/ai.service';
+import type { ResolutionAction, TicketArtifact } from '../../agents/interfaces';
+import { resolveCustomArtifactDir } from '../../agents/utils';
+import type { PlanArtifactManifest, PlanArtifactReference, PlanTokenResolution } from '../types/plan-artifact.types';
 import { hashGeneratedTicketSources, matchesGeneratedTicketToken } from './generated-ticket-artifact';
 import { normalizePlanVerification } from './verification-manifest';
 
@@ -573,4 +574,106 @@ const normalizeFileEntryList = (value: unknown): (string | FileEntry)[] | undefi
     if (isFileEntry(item)) return item;
     return String(item);
   });
+};
+
+/**
+ * Resolve a CLI argument as a plan artifact by searching the tracker
+ * directory (`~/.wf/<app>/<tracker>/`) then the custom artifact directory
+ * (`~/.wf/<app>/`).
+ *
+ * @param argument - Raw CLI positional argument (ticket key or plan filename)
+ * @param trackerDir - Tracker artifact directory
+ * @param repoBaseDir - Repository base path used to derive the custom artifact directory
+ * @returns Resolution result, or undefined when the argument is not a plan artifact
+ */
+export const resolvePlanToken = (
+  argument: string,
+  trackerDir: string,
+  repoBaseDir: string
+): PlanTokenResolution | undefined => {
+  const basename = path.basename(argument);
+  const customDir = resolveCustomArtifactDir(repoBaseDir);
+  const candidateDirs = [trackerDir, customDir];
+
+  for (const dir of candidateDirs) {
+    try {
+      const resolved = resolvePlanArtifactReference(argument, { artifactDir: dir });
+      if (resolved.ticketKey) return { kind: 'ticket', ticketKey: resolved.ticketKey };
+      if (resolved.sourceKind === 'custom') {
+        return {
+          kind: 'custom',
+          artifactPath: resolved.artifactPath,
+          action: resolved.action,
+          sourceName: resolved.sourceName,
+        };
+      }
+    } catch {
+      // fall through
+    }
+
+    const directPath = path.join(dir, basename);
+    if (!fs.existsSync(directPath)) continue;
+
+    const manifestPath = buildPlanArtifactManifestPath(directPath);
+    const manifest = readPlanArtifactManifest(manifestPath);
+    if (manifest?.ticketKey) return { kind: 'ticket', ticketKey: manifest.ticketKey };
+    if (manifest?.sourceKind === 'custom') {
+      return {
+        kind: 'custom',
+        artifactPath: directPath,
+        action: manifest.action,
+        sourceName: manifest.sourceName,
+      };
+    }
+  }
+
+  return undefined;
+};
+
+/**
+ * Build a synthetic ticket artifact from a custom plan so downstream
+ * stages (implement, review, commit) have a uniform `TicketArtifact` shape.
+ *
+ * @param planPath - Absolute path to the custom plan file
+ * @param plan - Parsed plan content
+ * @returns A ticket artifact synthesized from the plan metadata
+ */
+export const buildSyntheticTicketArtifact = (planPath: string, plan: ResolutionPlan): TicketArtifact => {
+  const artifactName = path.basename(planPath, path.extname(planPath));
+  const ticketKey = artifactName.replace(new RegExp(`-${plan.action}$`), '') || artifactName;
+
+  const affected = normalizeFileEntries(plan.affectedFiles ?? []);
+  const context = normalizeFileEntries(plan.affectedFilesContext ?? []);
+
+  const content = [
+    `# ${ticketKey}: ${plan.summary || 'Custom implementation'}`,
+    '',
+    `**Plan Artifact:** ${path.basename(planPath)}`,
+    `**Action:** ${plan.action}`,
+    '',
+    '## Summary',
+    '',
+    plan.summary || 'Custom plan execution context synthesized from artifact.',
+    '',
+    '## Steps',
+    '',
+    ...(plan.steps.length > 0
+      ? plan.steps.map((step, index) => `${index + 1}. ${step}`)
+      : ['1. Follow the custom implementation plan']),
+    '',
+    '## Files Affected',
+    '',
+    ...(affected.length > 0 ? affected.map(e => `- ${e.filePath} (${e.status})`) : ['- (none listed)']),
+    '',
+    ...(context.length > 0
+      ? ['## Files for Context (Read-Only)', '', ...context.map(e => `- ${e.filePath} (${e.status})`), '']
+      : []),
+    '## Risks',
+    '',
+    ...((plan.risks ?? []).length > 0
+      ? (plan.risks ?? []).map(risk => `- ${risk}`)
+      : ['- Synthetic execution context derived from custom plan artifact']),
+  ].join('\n');
+
+  return { ticketKey, content, path: planPath };
 };

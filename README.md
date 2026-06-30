@@ -626,6 +626,9 @@ wf issue WBP-2971 --from implement
 # Resume from a canonical hashed plan artifact without --action
 wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement
 
+# Resume from a custom plan artifact created with --custom
+wf issue dark-building-creek-fix-plan.json --from implement
+
 # Force refresh even when local artifacts already exist
 wf issue WBP-2971 --from fetch --action fix --force
 
@@ -666,6 +669,8 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 | `implement` | working tree updates in the selected repo plus branch setup                                 |
 | `review`    | `./<tracker>/<ticket-key>-review.md`                                                       |
 | `commit`    | _(display only — commit commands printed for confirmation)_                                 |
+
+**Plan token resolution:** When a non-ticket-key argument is passed and the workflow includes `implement`, `review`, or `commit`, the command searches for a matching plan artifact in two directories: `~/.wf/<app>/<tracker>/` (ticket-backed plans) then `~/.wf/<app>/` (custom plans created with `issue:plan --custom`). It tries manifest-based resolution first, then falls back to a direct file-path lookup with sidecar manifest reading.
 
 **Branch naming:** `issue` generates a branch name in the format `<prefix>/<TICKET-KEY>__<slug>`, where prefix is controlled by `BRANCH_PREFIX_*` env vars (`feature`, `bugfix`, `chore`).
 

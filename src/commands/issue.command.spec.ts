@@ -339,4 +339,376 @@ describe('IssueCommand', () => {
       expect.objectContaining({ trackerName: 'jira' })
     );
   });
+
+  it('resolves a plan token via direct file-path fallback when manifest-based resolution fails (no --repos)', async () => {
+    const hash = hashPlanArtifactSources(['WBP-2']);
+    const artifactDir = path.join(os.homedir(), '.wf', 'consumer-app', 'jira');
+    const planFilename = `2026-06-30-${hash}-fix-plan.json`;
+    const planPath = path.join(artifactDir, planFilename);
+    const manifestPath = buildPlanArtifactManifestPath(planPath);
+    const ticketPath = path.join(artifactDir, 'WBP-2.md');
+    const ticketMarkdown = '# WBP-2: Fallback fix\n\n## Description\n\nTest fallback';
+
+    const mockOrchestrator = {
+      fetcher: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          ticketKey: 'WBP-2',
+          content: ticketMarkdown,
+          path: ticketPath,
+        }),
+      },
+      planner: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          plan: {
+            action: 'fix',
+            summary: 'Fallback plan',
+            estimatedComplexity: 'low',
+            steps: ['Apply patch'],
+            affectedFiles: ['src/auth.ts'],
+            repositoriesAffected: [],
+          },
+          action: 'fix',
+          path: planPath,
+        }),
+      },
+      implementer: {
+        execute: jest.fn().mockResolvedValue(undefined),
+      },
+    };
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueCommand,
+        { provide: ConversationService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'ai.provider') return 'openai';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showStageHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            showSkipped: jest.fn(),
+            showNoSideEffects: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+        { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        {
+          provide: AiService,
+          useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+        },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
+      ],
+    }).compile();
+    const command = module.get(IssueCommand);
+
+    // readdirSync returns empty — manifest scanner finds nothing
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+    // existsSync succeeds for the direct plan path and its manifest
+    jest
+      .spyOn(require('fs'), 'existsSync')
+      .mockImplementation(
+        (input: string) =>
+          String(input) === planPath ||
+          String(input) === manifestPath ||
+          String(input) === ticketPath ||
+          String(input) === artifactDir
+      );
+    jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
+      const filePath = String(input);
+      if (filePath === manifestPath) {
+        return JSON.stringify({
+          artifactPath: planPath,
+          action: 'fix',
+          createdAt: new Date('2026-06-30T00:00:00.000Z').toISOString(),
+          format: 'json',
+          hash,
+          sourceKind: 'ticket',
+          sourceName: 'WBP-2',
+          ticketKey: 'WBP-2',
+        });
+      }
+      if (filePath === ticketPath) return ticketMarkdown;
+      if (filePath === planPath) {
+        return JSON.stringify({
+          action: 'fix',
+          summary: 'Fallback plan',
+          estimatedComplexity: 'low',
+          steps: ['Apply patch'],
+          affectedFiles: ['src/auth.ts'],
+          repositoriesAffected: [],
+        });
+      }
+      return '';
+    });
+
+    await command.run([planFilename], { from: 'implement', to: 'implement' });
+
+    expect(mockOrchestrator.fetcher.loadFromDisk).toHaveBeenCalledWith('WBP-2', 'jira', mockCwd, undefined);
+  });
+
+  it('resolves a plan token via direct file-path fallback when --repos is provided', async () => {
+    const hash = hashPlanArtifactSources(['WBP-3']);
+    const artifactDir = path.join(os.homedir(), '.wf', 'target-repo', 'jira');
+    const planFilename = `2026-06-30-${hash}-fix-plan.json`;
+    const planPath = path.join(artifactDir, planFilename);
+    const manifestPath = buildPlanArtifactManifestPath(planPath);
+    const ticketPath = path.join(artifactDir, 'WBP-3.md');
+    const ticketMarkdown = '# WBP-3: Repo-scoped fallback\n\n## Description\n\nTest repo scope';
+
+    const mockOrchestrator = {
+      fetcher: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          ticketKey: 'WBP-3',
+          content: ticketMarkdown,
+          path: ticketPath,
+        }),
+      },
+      planner: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          plan: {
+            action: 'fix',
+            summary: 'Repo-scoped fallback plan',
+            estimatedComplexity: 'low',
+            steps: ['Apply repo patch'],
+            affectedFiles: ['target-repo/src/main.ts'],
+            repositoriesAffected: ['target-repo'],
+          },
+          action: 'fix',
+          path: planPath,
+        }),
+      },
+      implementer: {
+        execute: jest.fn().mockResolvedValue(undefined),
+      },
+    };
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueCommand,
+        { provide: ConversationService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'ai.provider') return 'openai';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showStageHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            showSkipped: jest.fn(),
+            showNoSideEffects: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+        { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        {
+          provide: AiService,
+          useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+        },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
+      ],
+    }).compile();
+    const command = module.get(IssueCommand);
+
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+    jest
+      .spyOn(require('fs'), 'existsSync')
+      .mockImplementation(
+        (input: string) =>
+          String(input) === planPath ||
+          String(input) === manifestPath ||
+          String(input) === ticketPath ||
+          String(input) === artifactDir
+      );
+    jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
+      const filePath = String(input);
+      if (filePath === manifestPath) {
+        return JSON.stringify({
+          artifactPath: planPath,
+          action: 'fix',
+          createdAt: new Date('2026-06-30T00:00:00.000Z').toISOString(),
+          format: 'json',
+          hash,
+          sourceKind: 'ticket',
+          sourceName: 'WBP-3',
+          ticketKey: 'WBP-3',
+        });
+      }
+      if (filePath === ticketPath) return ticketMarkdown;
+      if (filePath === planPath) {
+        return JSON.stringify({
+          action: 'fix',
+          summary: 'Repo-scoped fallback plan',
+          estimatedComplexity: 'low',
+          steps: ['Apply repo patch'],
+          affectedFiles: ['target-repo/src/main.ts'],
+          repositoriesAffected: ['target-repo'],
+        });
+      }
+      return '';
+    });
+
+    await command.run([planFilename], {
+      from: 'implement',
+      to: 'implement',
+      repos: ['target-repo'],
+    });
+
+    expect(mockOrchestrator.fetcher.loadFromDisk).toHaveBeenCalledWith(
+      'WBP-3',
+      'jira',
+      path.join('/tmp/consumer-app', 'target-repo'),
+      undefined
+    );
+  });
+
+  it('resolves a plan token from the custom artifact directory when tracker directory has no match', async () => {
+    const hash = hashPlanArtifactSources(['WBP-4']);
+    const customDir = path.join(os.homedir(), '.wf', 'consumer-app');
+    const trackerDir = path.join(customDir, 'jira');
+    const planFilename = `2026-06-30-${hash}-fix-plan.json`;
+    const planPath = path.join(customDir, planFilename);
+    const manifestPath = buildPlanArtifactManifestPath(planPath);
+    const ticketPath = path.join(trackerDir, 'WBP-4.md');
+    const ticketMarkdown = '# WBP-4: Custom source\n\n## Description\n\nCustom plan';
+
+    const mockOrchestrator = {
+      fetcher: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          ticketKey: 'WBP-4',
+          content: ticketMarkdown,
+          path: ticketPath,
+        }),
+      },
+      planner: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          plan: {
+            action: 'fix',
+            summary: 'Custom source plan',
+            estimatedComplexity: 'low',
+            steps: ['Apply custom patch'],
+            affectedFiles: ['src/custom.ts'],
+            repositoriesAffected: [],
+          },
+          action: 'fix',
+          path: planPath,
+        }),
+      },
+      implementer: {
+        execute: jest.fn().mockResolvedValue(undefined),
+      },
+    };
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueCommand,
+        { provide: ConversationService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'ai.provider') return 'openai';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showStageHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            showSkipped: jest.fn(),
+            showNoSideEffects: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+        { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        {
+          provide: AiService,
+          useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+        },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
+      ],
+    }).compile();
+    const command = module.get(IssueCommand);
+
+    // trackerDir (jira/) has no manifests and no direct match
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+    jest
+      .spyOn(require('fs'), 'existsSync')
+      .mockImplementation(
+        (input: string) => String(input) === planPath || String(input) === manifestPath || String(input) === ticketPath
+      );
+    jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
+      const filePath = String(input);
+      if (filePath === manifestPath) {
+        return JSON.stringify({
+          artifactPath: planPath,
+          action: 'fix',
+          createdAt: new Date('2026-06-30T00:00:00.000Z').toISOString(),
+          format: 'json',
+          hash,
+          sourceKind: 'ticket',
+          sourceName: 'WBP-4',
+          ticketKey: 'WBP-4',
+        });
+      }
+      if (filePath === ticketPath) return ticketMarkdown;
+      if (filePath === planPath) {
+        return JSON.stringify({
+          action: 'fix',
+          summary: 'Custom source plan',
+          estimatedComplexity: 'low',
+          steps: ['Apply custom patch'],
+          affectedFiles: ['src/custom.ts'],
+          repositoriesAffected: [],
+        });
+      }
+      return '';
+    });
+
+    await command.run([planFilename], { from: 'implement', to: 'implement' });
+
+    expect(mockOrchestrator.fetcher.loadFromDisk).toHaveBeenCalledWith('WBP-4', 'jira', mockCwd, undefined);
+  });
 });

@@ -4,9 +4,9 @@
  * Run: nr test:manual -- test-issue-implement-plan-resolution
  *
  * Verifies:
- *   1. Bare filename (e.g. plan.json) resolves to ~/.wf/<app>/<platform>/plan.json
+ *   1. Bare filename (e.g. plan.json) resolves to ~/.wf/<app>/plan.json (custom artifact dir)
  *   2. Relative path (e.g. subdir/plan.json) resolves from the app root
- *   3. Bare filename with --repos resolves to ~/.wf/<repo>/<platform>/plan.json
+ *   3. Bare filename with --repos resolves to ~/.wf/<repo>/plan.json (custom artifact dir)
  */
 
 import { NestFactory } from '@nestjs/core';
@@ -68,14 +68,14 @@ async function main() {
   });
   const command = app.get(IssueImplementCommand);
 
-  // ── Test 1: bare filename → ~/.wf/<app>/<platform>/<filename> ───────────
-  console.log('\n🧪 Test 1: bare filename resolves to artifact dir\n' + '─'.repeat(60));
+  // ── Test 1: bare filename → ~/.wf/<app>/<filename> (custom artifact dir) ─
+  console.log('\n🧪 Test 1: bare filename resolves to custom artifact dir\n' + '─'.repeat(60));
   {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-resolution-'));
     const restoreHome = overrideHomeDir(tmpDir);
-    const artifactDir = path.join(tmpDir, '.wf', path.basename(tmpDir), 'jira');
-    fs.mkdirSync(artifactDir, { recursive: true });
-    const expectedPath = path.join(artifactDir, 'my-plan.json');
+    const customDir = path.join(tmpDir, '.wf', path.basename(tmpDir));
+    fs.mkdirSync(customDir, { recursive: true });
+    const expectedPath = path.join(customDir, 'my-plan.json');
     fs.writeFileSync(expectedPath, minimalPlan);
 
     const origCwd = process.cwd.bind(process);
@@ -104,6 +104,8 @@ async function main() {
   {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-resolution-'));
     const restoreHome = overrideHomeDir(tmpDir);
+    fs.mkdirSync(path.join(tmpDir, '.wf', 'logs'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.wf', 'state'), { recursive: true });
     const subDir = path.join(tmpDir, 'subdir');
     fs.mkdirSync(subDir, { recursive: true });
     const expectedPath = path.resolve(tmpDir, 'subdir', 'my-plan.json');
@@ -131,9 +133,8 @@ async function main() {
   }
 
   // ── Test 3: bare filename + --repos → repo namespace under ~/.wf ────────
-  console.log('\n🧪 Test 3: bare filename with --repos resolves to repo artifact dir\n' + '─'.repeat(60));
+  console.log('\n🧪 Test 3: bare filename with --repos resolves to repo custom artifact dir\n' + '─'.repeat(60));
   {
-    // Simulate a sibling repo directory: <tmp>/myapp/ (cwd) and <tmp>/bar/ (repo)
     const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-repos-'));
     const restoreHome = overrideHomeDir(tmpBase);
     const appDir = path.join(tmpBase, 'myapp');
@@ -141,9 +142,9 @@ async function main() {
     fs.mkdirSync(appDir, { recursive: true });
     fs.mkdirSync(repoDir, { recursive: true });
 
-    const artifactDir = path.join(tmpBase, '.wf', 'bar', 'jira');
-    fs.mkdirSync(artifactDir, { recursive: true });
-    const expectedPath = path.join(artifactDir, 'bar-plan-fix.json');
+    const customDir = path.join(tmpBase, '.wf', 'bar');
+    fs.mkdirSync(customDir, { recursive: true });
+    const expectedPath = path.join(customDir, 'bar-plan-fix.json');
     fs.writeFileSync(expectedPath, minimalPlan);
 
     const origCwd = process.cwd.bind(process);
