@@ -914,4 +914,20 @@ describe('IssuePlanCommand', () => {
       expect.objectContaining({ onProgress: undefined })
     );
   });
+
+  it('produces deterministic hash for same custom source across runs', async () => {
+    const { command } = await buildCommand();
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
+
+    await command.run([], { action: 'fix', custom: 'foo.md', dryRun: true });
+    const firstFilename = path.basename(dryRunPreview.previewFileWrite.mock.calls[0][0].filePath);
+
+    dryRunPreview.previewFileWrite.mockClear();
+
+    await command.run([], { action: 'fix', custom: 'foo.md', dryRun: true });
+    const secondFilename = path.basename(dryRunPreview.previewFileWrite.mock.calls[0][0].filePath);
+
+    expect(firstFilename).toBe(secondFilename);
+    expect(firstFilename).toContain(hashPlanArtifactSources(['foo']));
+  });
 });

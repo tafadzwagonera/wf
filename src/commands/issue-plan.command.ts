@@ -83,78 +83,6 @@ interface RepoAwarePlan {
   };
 }
 
-const ADJECTIVES = [
-  'bold',
-  'calm',
-  'dark',
-  'fast',
-  'hard',
-  'keen',
-  'late',
-  'loud',
-  'merry',
-  'neat',
-  'pale',
-  'pure',
-  'rare',
-  'rich',
-  'safe',
-  'slim',
-  'soft',
-  'tall',
-  'warm',
-  'wise',
-];
-const VERBS = [
-  'building',
-  'chasing',
-  'diving',
-  'driving',
-  'flying',
-  'forging',
-  'jumping',
-  'lifting',
-  'moving',
-  'paving',
-  'rolling',
-  'running',
-  'shifting',
-  'tinkering',
-  'tracing',
-  'turning',
-  'walking',
-  'weaving',
-  'wiring',
-  'writing',
-];
-const NOUNS = [
-  'axe',
-  'bridge',
-  'cloud',
-  'coast',
-  'creek',
-  'dune',
-  'flame',
-  'forge',
-  'grove',
-  'hill',
-  'lake',
-  'lane',
-  'leaf',
-  'peak',
-  'pine',
-  'reef',
-  'ridge',
-  'river',
-  'stone',
-  'wave',
-];
-
-const generateMnemonic = (): string => {
-  const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
-  return `${pick(ADJECTIVES)}-${pick(VERBS)}-${pick(NOUNS)}`;
-};
-
 /**
  * Build a formatted plan validation error.
  *
@@ -393,9 +321,9 @@ export class IssuePlanCommand extends CommandRunner {
         }
 
         const customSourcePath = this.resolveCustomSourcePath(options.custom, artifactBaseDir, options?.repos);
-        const customSourceName = this.generateUniqueCustomPlanStem(customArtifactDir, action);
+        const customSourceStem = path.basename(options.custom, '.md');
         const planFilename = buildPlanArtifactFilename({
-          hash: hashPlanArtifactSources([customSourceName]),
+          hash: hashPlanArtifactSources([customSourceStem]),
           action,
           format: extension,
         });
@@ -446,11 +374,28 @@ export class IssuePlanCommand extends CommandRunner {
         }
 
         if (!options?.silent) {
-          this.logger.info(`Generating custom ${action} plan from markdown...`);
+          this.logger.info(`Planning custom source ${customSourceStem} (action: ${action})...`);
         }
 
         if (!fs.existsSync(customArtifactDir)) {
           fs.mkdirSync(customArtifactDir, { recursive: true });
+        }
+
+        const planExists = fs.existsSync(planPath);
+        if (planExists && !options?.force) {
+          if (options?.silent) {
+            console.log(planPath);
+          } else {
+            this.logger.info(`Using existing plan: ${planPath}`);
+          }
+          return;
+        }
+
+        if (!options?.silent) {
+          if (options?.force && planExists) {
+            this.logger.info('Forcing recreation of plan artifact...');
+          }
+          this.logger.info('Generating implementation plan...');
         }
 
         const customSourceContent = fs.readFileSync(customSourcePath, 'utf-8');
@@ -507,13 +452,13 @@ export class IssuePlanCommand extends CommandRunner {
             planPath,
             action,
             format,
-            hashPlanArtifactSources([customSourceName]),
-            customSourceName,
+            hashPlanArtifactSources([customSourceStem]),
+            customSourceStem,
             'custom',
             new Date()
           )
         );
-        this.deleteSiblingPlanArtifacts(customArtifactDir, customSourceName, 'custom', action, planPath);
+        this.deleteSiblingPlanArtifacts(customArtifactDir, customSourceStem, 'custom', action, planPath);
         if (options?.silent) {
           console.log(planPath);
         } else {
@@ -670,8 +615,22 @@ export class IssuePlanCommand extends CommandRunner {
         ticketContent = artifact.content;
       }
 
+      // Return existing plan unless --force is set
+      const planExists = fs.existsSync(planPath);
+      if (planExists && !options?.force) {
+        if (options?.silent) {
+          console.log(planPath);
+        } else {
+          this.logger.info(`Using existing plan: ${planPath}`);
+        }
+        return;
+      }
+
       // Generate plan using AI
       if (!options?.silent) {
+        if (options?.force && planExists) {
+          this.logger.info('Forcing recreation of plan artifact...');
+        }
         this.logger.info('Generating implementation plan...');
       }
 
@@ -883,27 +842,6 @@ export class IssuePlanCommand extends CommandRunner {
         }
       }
     }
-  }
-
-  /**
-   * Generate a collision-resistant custom plan stem under the active artifact namespace.
-   *
-   * @param trackerDir - Artifact namespace for the active repo/tracker
-   * @param action - Resolution action suffix
-   * @returns Unique mnemonic stem without the trailing action or extension
-   */
-  private generateUniqueCustomPlanStem(trackerDir: string, action: ResolutionAction): string {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const stem = generateMnemonic();
-      const hasCollision = ['json', 'md', 'yaml'].some(extension =>
-        fs.existsSync(path.join(trackerDir, `${stem}-${action}.${extension}`))
-      );
-      if (!hasCollision) {
-        return stem;
-      }
-    }
-
-    throw new Error('Unable to generate a unique custom plan filename');
   }
 
   /**

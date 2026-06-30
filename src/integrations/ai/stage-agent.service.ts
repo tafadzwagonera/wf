@@ -594,6 +594,9 @@ Return only the requested ticket markdown and preserve the required heading stru
           throw new Error(`Claude Agent SDK failed (${message.subtype}): ${errorSummary}`);
         }
 
+        if (extractedSessionId) {
+          console.log(chalk.cyan('  [claude-agent-sdk] Provider session: ' + extractedSessionId));
+        }
         return { content: message.result.trim(), sessionId: extractedSessionId };
       }
     } finally {
@@ -1141,6 +1144,9 @@ Return only the requested ticket markdown and preserve the required heading stru
 
       if (result) {
         console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${resultSource} (pass ${passNumber})`));
+        if (sessionId) {
+          console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Provider session: ${sessionId}`));
+        }
         return { content: result.trim(), sessionId };
       }
 
@@ -1210,6 +1216,9 @@ Return only the requested ticket markdown and preserve the required heading stru
       throw new AIError('Codex CLI finished without returning a result.', null, true);
     }
 
+    if (sessionId) {
+      console.log(chalk.gray(`  [codex-cli] Provider session: ${sessionId}`));
+    }
     return { content: result.trim(), sessionId };
   }
 
