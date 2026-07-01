@@ -156,8 +156,8 @@ describe('IssueCommand', () => {
   let cwdSpy: jest.SpyInstance;
 
   beforeEach(() => {
+    jest.clearAllMocks();
     cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(mockCwd);
-    (inquirer.prompt as unknown as jest.Mock).mockClear();
   });
 
   afterEach(() => {
@@ -1076,5 +1076,127 @@ describe('IssueCommand', () => {
       expect.any(String)
     );
     expect(mockSessionService.recordStageComplete).toHaveBeenCalledWith(expect.any(Object), 'implement', null);
+  });
+
+  it('persists new session to disk before executing stages', async () => {
+    const mockOrchestrator = {
+      fetcher: { execute: jest.fn().mockRejectedValue(new Error('fetch failed')) },
+    };
+
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueCommand,
+        { provide: ConversationService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'ai.provider') return 'openai';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showStageHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            showSkipped: jest.fn(),
+            showNoSideEffects: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+        { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        {
+          provide: AiService,
+          useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+        },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
+      ],
+    }).compile();
+    const command = module.get(IssueCommand);
+
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+    jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+    jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+
+    await expect(command.run(['WBP-42'], { from: 'fetch', to: 'plan', action: 'fix' })).rejects.toThrow();
+
+    // save() must have been called once (at creation) before the fetch error
+    expect(mockSessionService.save).toHaveBeenCalledTimes(1);
+    expect(mockSessionService.save).toHaveBeenCalledWith(expect.objectContaining({ stages: {}, ticketKey: 'WBP-42' }));
+  });
+
+  it('persists new session to disk even when no stages run successfully', async () => {
+    const mockOrchestrator = {
+      fetcher: { execute: jest.fn().mockRejectedValue(new Error('fetch failed')) },
+    };
+
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueCommand,
+        { provide: ConversationService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'ai.provider') return 'openai';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showStageHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            showSkipped: jest.fn(),
+            showNoSideEffects: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+        { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        {
+          provide: AiService,
+          useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+        },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
+      ],
+    }).compile();
+    const command = module.get(IssueCommand);
+
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+    jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+    jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+
+    await expect(command.run(['WBP-99'], { from: 'fetch', to: 'plan', action: 'fix' })).rejects.toThrow();
+
+    // save() called once at creation; recordStageComplete never reached because fetch failed
+    expect(mockSessionService.save).toHaveBeenCalledTimes(1);
+    expect(mockSessionService.recordStageComplete).not.toHaveBeenCalled();
   });
 });

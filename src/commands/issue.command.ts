@@ -577,6 +577,7 @@ export class IssueCommand extends CommandRunner {
 
       let sessionState: SessionState | undefined;
       let wfSessionId: string | undefined = options.sessionId;
+      let isNewSession = false;
 
       if (wfSessionId) {
         sessionState = (await this.sessionService.load(wfSessionId)) ?? undefined;
@@ -622,6 +623,7 @@ export class IssueCommand extends CommandRunner {
           stages: {},
         };
         wfSessionId = sessionState.sessionId;
+        isNewSession = true;
       }
 
       if (!options?.silent) {
@@ -630,6 +632,10 @@ export class IssueCommand extends CommandRunner {
 
       if (options?.silent && wfSessionId) {
         console.log(`session:${wfSessionId}`);
+      }
+
+      if (isNewSession) {
+        await this.sessionService.save(sessionState);
       }
 
       let ticketArtifact!: TicketArtifact;
