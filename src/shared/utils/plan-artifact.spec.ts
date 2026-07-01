@@ -7,6 +7,7 @@ import {
   buildPlanArtifactManifestPath,
   resolvePlanArtifactReference,
   parsePlanArtifact,
+  deriveReviewArtifactPath,
 } from './plan-artifact';
 
 describe('parsePlanArtifact', () => {
@@ -126,6 +127,38 @@ describe('plan artifact helpers', () => {
         artifactDir: '/tmp',
       })
     ).toThrow('Non-canonical plan identifier');
+  });
+});
+
+describe('deriveReviewArtifactPath', () => {
+  it('strips .md and appends -review.md', () => {
+    expect(deriveReviewArtifactPath('WBP-123.md')).toBe('WBP-123-review.md');
+  });
+
+  it('strips .json and appends -review.md', () => {
+    expect(deriveReviewArtifactPath('2026-06-30-b37ef1d4-fix-plan.json')).toBe(
+      '2026-06-30-b37ef1d4-fix-plan-review.md'
+    );
+  });
+
+  it('strips .yaml and appends -review.md', () => {
+    expect(deriveReviewArtifactPath('plan.yaml')).toBe('plan-review.md');
+  });
+
+  it('strips .yml and appends -review.md', () => {
+    expect(deriveReviewArtifactPath('plan.yml')).toBe('plan-review.md');
+  });
+
+  it('appends -review.md when there is no extension', () => {
+    expect(deriveReviewArtifactPath('plan')).toBe('plan-review.md');
+  });
+
+  it('preserves directory path', () => {
+    expect(deriveReviewArtifactPath('/home/user/.wf/jira/WBP-123.md')).toBe('/home/user/.wf/jira/WBP-123-review.md');
+  });
+
+  it('only strips the last extension from multi-dot filenames', () => {
+    expect(deriveReviewArtifactPath('file.backup.json')).toBe('file.backup-review.md');
   });
 });
 

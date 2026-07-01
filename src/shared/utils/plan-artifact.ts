@@ -10,6 +10,19 @@ import { normalizePlanVerification } from './verification-manifest';
 
 export type { PlanArtifactManifest, PlanArtifactReference };
 
+/**
+ * Derive the review artifact path from a ticket artifact path.
+ * Works for both real ticket paths (.md) and synthetic paths (.json, .yaml).
+ *
+ * @param ticketPath - Path to the ticket artifact
+ * @returns Path for the review artifact
+ */
+export const deriveReviewArtifactPath = (ticketPath: string): string => {
+  const ext = path.extname(ticketPath);
+  if (!ext) return ticketPath + '-review.md';
+  return ticketPath.slice(0, -ext.length) + '-review.md';
+};
+
 const VALID_ACTIONS: ResolutionAction[] = ['feature', 'fix', 'investigate'];
 const VALID_COMPLEXITIES = ['low', 'medium', 'high'] as const;
 const PLAN_ARTIFACT_MANIFEST_EXTENSION = '.sources.json';

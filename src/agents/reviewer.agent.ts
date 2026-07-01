@@ -6,6 +6,7 @@ import type { CodeReview } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
+import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
 
 @Injectable()
 export class ReviewerAgent {
@@ -26,7 +27,7 @@ export class ReviewerAgent {
    * @returns ReviewArtifact with review data, disk path, and approval status; or null when skipped
    */
   async execute(ticket: TicketArtifact, options: ReviewerOptions = {}): Promise<ReviewArtifact | null> {
-    const reviewPath = ticket.path.replace('.md', '-review.md');
+    const reviewPath = deriveReviewArtifactPath(ticket.path);
 
     if (options.skipExisting && fs.existsSync(reviewPath)) {
       if (!options.silent) {

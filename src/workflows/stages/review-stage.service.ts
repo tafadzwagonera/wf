@@ -9,6 +9,7 @@ import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import { buildCodeReviewPresentation } from '../../review/code-review-post-processing';
 import { splitDiffByFile, summariseDiff, MAX_REVIEW_DIFF_LENGTH } from '../../review/summarise-diff';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
+import { deriveReviewArtifactPath } from '../../shared/utils/plan-artifact';
 
 const DEFAULT_REVIEW_GUIDELINES = [
   'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
@@ -99,7 +100,7 @@ export class ReviewStageService {
   }
 
   createReviewArtifact(ticket: TicketArtifact, review: CodeReview): ReviewArtifact {
-    const reviewPath = ticket.path.replace('.md', '-review.md');
+    const reviewPath = deriveReviewArtifactPath(ticket.path);
     fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
     fs.writeFileSync(reviewPath, this.formatReviewMarkdown(ticket.ticketKey, review));
 
