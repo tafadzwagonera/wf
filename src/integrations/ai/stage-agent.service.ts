@@ -213,6 +213,15 @@ Create a detailed resolution plan with:
 7. Repositories that will be affected (if known)
 
 ${params.testInfra ? formatTestInfraPromptSection(params.testInfra) : ''}
+${
+  params.testInfra
+    ? `When a plan step includes test code snippets or prescribes test changes:
+   - Follow ALL test conventions listed above (mock cleanup, DI setup, error handling).
+   - Mock isolation steps MUST be concrete, not conditional — prescribe the exact call, do not say "check whether X or add Y".
+   - State your DI and test-framework assumptions explicitly (e.g., "assumes NestJS Test.createTestingModule") so the implementer can verify them against the actual codebase.
+`
+    : ''
+}
 Minimal-change principles — apply to every plan:
 - Propose the smallest effective change. Do not modify files unrelated to the ticket.
 - Limit verification to files edited by this plan.

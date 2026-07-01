@@ -10,7 +10,8 @@
  * 3. buildSkipDirs merges DEFAULT_SKIP_DIRS with .gitignore entries
  * 4. walkDir respects the merged skip set
  * 5. detectTestPatterns detects .spec suffix, mock prefix, factory prefix,
- *    nested describe style, and helper paths from a synthetic repo
+ *    nested describe style, helper paths, mockCleanup, diSetupPattern,
+ *    and errorHandlerExits from a synthetic repo
  * 6. formatTestInfraPromptSection emits test conventions block and allowlist
  */
 
@@ -142,6 +143,9 @@ const createTempDir = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'wf-sm
           mockFactoryPrefix: 'createMock',
           describeStyle: 'nested',
           helperPaths: ['src/test-utils/helpers.ts'],
+          mockCleanup: null,
+          diSetupPattern: null,
+          errorHandlerExits: false,
         },
       },
     ],

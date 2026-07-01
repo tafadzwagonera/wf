@@ -68,10 +68,15 @@ const detectTestPatterns = (repoDir: string): NodeInfra['testPatterns'] => {
   const fileSuffix: '.spec' | '.test' | 'mixed' =
     specCount / total >= 0.8 ? '.spec' : testCount / total >= 0.8 ? '.test' : 'mixed';
 
-  // Single-pass content scan: mockPrefix, mockFactoryPrefix, describeStyle
+  // Single-pass content scan: mockPrefix, mockFactoryPrefix, describeStyle, mockCleanup, diSetupPattern
   let mockPrefix: string | null = null;
   let mockFactoryPrefix: string | null = null;
   let nestedCount = 0;
+  let diSetupPattern: 'testing-module' | 'factory-function' | null = null;
+  const cleanupCounts: Record<string, number> = { restoreAllMocks: 0, resetAllMocks: 0, clearAllMocks: 0 };
+  const filesWithCleanup = new Set<string>();
+  const contentCache = new Map<string, string>();
+
   for (const f of testFiles) {
     const content = (() => {
       try {
@@ -80,20 +85,90 @@ const detectTestPatterns = (repoDir: string): NodeInfra['testPatterns'] => {
         return '';
       }
     })();
+    contentCache.set(f, content);
+
     if (mockPrefix === null && /const mock[A-Z]/.test(content)) mockPrefix = 'mock';
     if (mockFactoryPrefix === null && /(?:const|function)\s+createMock[A-Z]/.test(content)) {
       mockFactoryPrefix = 'createMock';
     }
     const matches = content.match(/describe\s*\(/g);
     if (matches && matches.length >= 2) nestedCount++;
+
+    // mockCleanup detection
+    if (/jest\.restoreAllMocks\(\)/.test(content)) {
+      cleanupCounts.restoreAllMocks++;
+      filesWithCleanup.add(f);
+    }
+    if (/jest\.resetAllMocks\(\)/.test(content)) {
+      cleanupCounts.resetAllMocks++;
+      filesWithCleanup.add(f);
+    }
+    if (/jest\.clearAllMocks\(\)/.test(content)) {
+      cleanupCounts.clearAllMocks++;
+      filesWithCleanup.add(f);
+    }
+
+    // diSetupPattern detection
+    if (diSetupPattern === null && /Test\.createTestingModule/.test(content)) {
+      diSetupPattern = 'testing-module';
+    }
   }
+
   const describeStyle: 'flat' | 'nested' = nestedCount > testFiles.length / 2 ? 'nested' : 'flat';
+
+  // Determine mockCleanup: whichever variant appears in >= 50% of unique files with any cleanup wins
+  let mockCleanup: 'restoreAllMocks' | 'resetAllMocks' | 'clearAllMocks' | null = null;
+  if (filesWithCleanup.size > 0) {
+    const threshold = filesWithCleanup.size * 0.5;
+    if (cleanupCounts.restoreAllMocks >= threshold) mockCleanup = 'restoreAllMocks';
+    else if (cleanupCounts.resetAllMocks >= threshold) mockCleanup = 'resetAllMocks';
+    else if (cleanupCounts.clearAllMocks >= threshold) mockCleanup = 'clearAllMocks';
+  }
+
+  // Determine diSetupPattern: if not nestjs-testing-module, check for factory patterns
+  if (diSetupPattern === null) {
+    for (const [, content] of contentCache) {
+      if (/buildCommand\(|buildAgent\(/.test(content)) {
+        diSetupPattern = 'factory-function';
+        break;
+      }
+    }
+  }
+
+  // errorHandlerExits detection: scan src/ files for both handle( and process.exit(1)
+  const errorHandlerExits = (() => {
+    const srcDir = path.join(repoDir, 'src');
+    if (!fs.existsSync(srcDir)) return false;
+    const srcFiles = walkDir(srcDir, () => true, skipDirs).filter(f => /\.(ts|tsx|js|jsx)$/.test(f));
+    for (const f of srcFiles) {
+      const content = (() => {
+        try {
+          return fs.readFileSync(f, 'utf-8');
+        } catch {
+          return '';
+        }
+      })();
+      if (/handle\s*\(/.test(content) && /process\.exit\(1\)/.test(content)) {
+        return true;
+      }
+    }
+    return false;
+  })();
 
   // helperPaths — walk full repo for helper file patterns, capped at 10
   const helperFiles = walkDir(repoDir, f => HELPER_PATTERNS.some(p => p.test(f)), skipDirs);
   const helperPaths = helperFiles.slice(0, 10).map(f => path.relative(repoDir, f));
 
-  return { fileSuffix, mockPrefix, mockFactoryPrefix, describeStyle, helperPaths };
+  return {
+    fileSuffix,
+    mockPrefix,
+    mockFactoryPrefix,
+    describeStyle,
+    helperPaths,
+    mockCleanup,
+    diSetupPattern,
+    errorHandlerExits,
+  };
 };
 
 /**
@@ -302,6 +377,25 @@ const formatTestInfraPromptSection = (ctx: TestInfraContext): string => {
           );
           if (eco.testPatterns.helperPaths.length > 0) {
             lines.push(`- Test helpers: ${eco.testPatterns.helperPaths.join(', ')}`);
+          }
+          if (eco.testPatterns.mockCleanup) {
+            lines.push(
+              `- Mock isolation: always prescribe \`jest.${eco.testPatterns.mockCleanup}()\` in afterEach() — do NOT leave cleanup steps as conditional; prescribe the exact call`
+            );
+          }
+          if (eco.testPatterns.diSetupPattern === 'testing-module') {
+            lines.push(
+              '- DI test setup: tests use a testing-module pattern (e.g., Test.createTestingModule). State which DI framework you assume so the implementer can verify.'
+            );
+          } else if (eco.testPatterns.diSetupPattern === 'factory-function') {
+            lines.push(
+              '- DI test setup: tests use factory helpers to construct the unit under test. State which factory you assume so the implementer can verify.'
+            );
+          }
+          if (eco.testPatterns.errorHandlerExits) {
+            lines.push(
+              '- Error handler: ErrorHandler.handle() calls process.exit(1) — tests MUST mock process.exit before invoking code that reaches this handler; rejects.toThrow() alone will not work'
+            );
           }
           lines.push('Follow these patterns when prescribing test changes.');
         }

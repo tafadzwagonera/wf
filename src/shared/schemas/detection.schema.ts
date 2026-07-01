@@ -18,6 +18,9 @@ export const nodeInfraSchema = z.object({
       mockFactoryPrefix: z.string().nullable(),
       describeStyle: z.enum(['flat', 'nested']),
       helperPaths: z.array(z.string()),
+      mockCleanup: z.enum(['restoreAllMocks', 'resetAllMocks', 'clearAllMocks']).nullable(),
+      diSetupPattern: z.enum(['testing-module', 'factory-function']).nullable(),
+      errorHandlerExits: z.boolean(),
     })
     .optional(),
 });
