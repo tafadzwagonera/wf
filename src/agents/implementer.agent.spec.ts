@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import inquirer from 'inquirer';
 import { ImplementerAgent } from './implementer.agent';
 import { GitService } from '../integrations/git/git.service';
 import { GitError } from '../shared/errors/app.error';
@@ -7,6 +8,8 @@ import { AiService } from '../integrations/ai/ai.service';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, TicketArtifact } from './interfaces';
+
+jest.mock('inquirer');
 
 describe('ImplementerAgent', () => {
   let agent: ImplementerAgent;
@@ -433,6 +436,10 @@ describe('ImplementerAgent', () => {
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
+    afterEach(() => {
+      jest.clearAllMocks();
+    });
+
     it('auto-stashes when working tree is dirty in silent mode', async () => {
       gitService.getStatus.mockResolvedValue({
         isClean: () => false,
@@ -519,6 +526,41 @@ describe('ImplementerAgent', () => {
 
       expect(gitService.checkoutBranch).toHaveBeenCalledWith('develop', '/tmp/repo-a');
       expect(gitService.pull).toHaveBeenCalledWith('origin', 'develop', '/tmp/repo-a');
+    });
+
+    it('prompts for source branch selection in silent mode when TTY is available', async () => {
+      jest.spyOn(agent as any, 'isInteractiveSession').mockReturnValue(true);
+      gitService.detectDevelopmentBranches.mockReturnValue(['develop', 'dev']);
+      const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+      mockPrompt
+        .mockResolvedValueOnce({ selected: 'develop' } as any)
+        .mockResolvedValueOnce({ choice: 'accept' } as any);
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      expect(mockPrompt).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ name: 'selected' })]));
+    });
+
+    it('prompts for branch name in silent mode when TTY is available', async () => {
+      jest.spyOn(agent as any, 'isInteractiveSession').mockReturnValue(true);
+      (inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>).mockResolvedValue({
+        choice: 'accept',
+      } as any);
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      expect(inquirer.prompt).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ name: 'choice' })])
+      );
+      expect(gitService.createBranch).toHaveBeenCalled();
     });
 
     it('falls back to main when no dev branch exists', async () => {
@@ -634,7 +676,7 @@ describe('ImplementerAgent', () => {
 
   describe('tracked file validation', () => {
     beforeEach(() => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(undefined);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 

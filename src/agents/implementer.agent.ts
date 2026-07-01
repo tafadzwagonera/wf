@@ -640,8 +640,9 @@ export class ImplementerAgent {
 
   /**
    * Orchestrates the full branch creation workflow: dirty-tree check, source
-   * branch selection, pull, and branch creation with interactive or silent
-   * fallback behavior.
+   * branch selection, pull, and branch creation. `--silent` only suppresses
+   * the stash prompt; branch selection and naming still prompt when a TTY
+   * is available.
    *
    * @param ticket - Ticket artifact for branch name generation
    * @param planArtifact - Plan artifact with action and metadata
@@ -654,16 +655,24 @@ export class ImplementerAgent {
     options: ImplementerOptions
   ): Promise<string | null> {
     const cwd = options.repoDir;
-    const interactive = !options.silent && this.isInteractiveSession();
+    const isTTY = this.isInteractiveSession();
+    const stashInteractive = !options.silent && isTTY;
+    const branchInteractive = isTTY;
 
-    const { didStash } = await this.ensureCleanWorkingTree(planArtifact, options, interactive, cwd);
+    const { didStash } = await this.ensureCleanWorkingTree(planArtifact, options, stashInteractive, cwd);
 
     console.log(chalk.gray('  Detecting source branches...'));
     const branchInfo = await this.gitService.getBranchInfo(cwd);
     const devBranches = this.gitService.detectDevelopmentBranches(branchInfo.all);
     const mainBranch = this.gitService.detectMainBranch(branchInfo.all);
 
-    const sourceBranch = await this.resolveSourceBranch({ branchInfo, devBranches, mainBranch, interactive, cwd });
+    const sourceBranch = await this.resolveSourceBranch({
+      branchInfo,
+      devBranches,
+      mainBranch,
+      interactive: branchInteractive,
+      cwd,
+    });
 
     await this.pullLatestFromSource(sourceBranch, branchInfo, cwd);
     await this.restoreStash(didStash, cwd);
@@ -673,7 +682,7 @@ export class ImplementerAgent {
       generatedName,
       sourceBranch,
       noBranch: options.noBranch,
-      interactive,
+      interactive: branchInteractive,
     });
     if (branchName === null) {
       return null;

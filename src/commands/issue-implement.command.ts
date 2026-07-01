@@ -68,7 +68,7 @@ interface IssueImplementOptions {
     'Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. ' +
     'When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. ' +
     'Before implementation, the command runs an interactive branch creation workflow: checks the working tree for uncommitted changes (stashing if needed), detects and pulls the source branch (dev or main), then prompts for branch name confirmation. ' +
-    'Use --silent to suppress prompts and auto-select defaults. Use --no-branch to skip branch creation and work directly on the source branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. ' +
+    'Use --silent to auto-stash without prompting; branch selection and naming still prompt when a TTY is available. Use --no-branch to skip branch creation and work directly on the source branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. ' +
     'Examples: wf issue:implement PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | ' +
     'wf issue:implement PROJ-123 --repos my-repo | ' +
     'wf issue:implement PROJ-123 --silent | wf issue:implement PROJ-123 --no-branch | ' +
@@ -135,7 +135,7 @@ export class IssueImplementCommand extends CommandRunner {
 
   @Option({
     flags: '-s, --silent',
-    description: 'Suppress interactive prompts; auto-select defaults while preserving decorative output',
+    description: 'Auto-stash without prompting; branch selection and naming still prompt when a TTY is available',
   })
   parseSilent(): boolean {
     return true;
