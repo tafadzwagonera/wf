@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { RepoLanguage, RepoConventionsContext } from '../types/detection.types';
+import { buildSkipDirs, walkDir } from './walk-dir';
 
 export type { RepoLanguage, RepoConventionsContext };
 
@@ -54,41 +55,14 @@ const classifyNamingPattern = (names: string[]): 'camelCase' | 'kebab-case' | 'P
 };
 
 /**
- * Recursively walk a directory collecting file paths that match a predicate.
- *
- * @param dir - Absolute directory path to walk
- * @param predicate - Function returning true for paths to include
- * @returns Array of matching absolute file paths
- */
-const walkDir = (dir: string, predicate: (filePath: string) => boolean): string[] => {
-  const results: string[] = [];
-
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return results;
-  }
-
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...walkDir(fullPath, predicate));
-    } else if (predicate(fullPath)) {
-      results.push(fullPath);
-    }
-  }
-
-  return results;
-};
-
-/**
  * Detect repository coding conventions from config files in the given directory.
  *
  * @param repoDir - Absolute path to the repository root
  * @returns A RepoConventionsContext snapshot; never throws
  */
 export const detectRepoConventions = (repoDir: string): RepoConventionsContext => {
+  const skipDirs = buildSkipDirs(repoDir);
+
   // --- Language detection ---
   const hasTsConfig = fs.existsSync(path.join(repoDir, 'tsconfig.json'));
   const hasPkgJson = fs.existsSync(path.join(repoDir, 'package.json'));
@@ -496,10 +470,14 @@ export const detectRepoConventions = (repoDir: string): RepoConventionsContext =
     sourceRoots.length > 0 ? sourceRoots : fs.existsSync(path.join(repoDir, 'src')) ? [path.join(repoDir, 'src')] : [];
 
   for (const root of errorScanRoots) {
-    const matches = walkDir(root, filePath => {
-      const base = path.basename(filePath).toLowerCase();
-      return base.includes('error') || base.includes('exception');
-    });
+    const matches = walkDir(
+      root,
+      filePath => {
+        const base = path.basename(filePath).toLowerCase();
+        return base.includes('error') || base.includes('exception');
+      },
+      skipDirs
+    );
     errorHandlingPaths.push(...matches);
   }
 

@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { buildSkipDirs, walkDir } from './walk-dir';
 import type {
   Ecosystem,
   NodeFramework,
@@ -36,6 +37,63 @@ const readFileOrNull = (filePath: string): string | null => {
   } catch {
     return null;
   }
+};
+
+const TEST_FILE_PATTERN = /\.(spec|test)\.(ts|tsx|js|jsx)$/;
+const HELPER_PATTERNS = [/test-utils/, /test-helper/, /__mocks__/, /fixtures/, /test-setup/];
+
+/**
+ * Scan up to 20 test files in repoDir to detect project-level test conventions.
+ *
+ * @param repoDir - Absolute path to the repository root
+ * @returns Detected test pattern data, or undefined when no test files are found
+ */
+const detectTestPatterns = (repoDir: string): NodeInfra['testPatterns'] => {
+  const scanRoot = fs.existsSync(path.join(repoDir, 'src')) ? path.join(repoDir, 'src') : repoDir;
+  const skipDirs = buildSkipDirs(repoDir);
+
+  const allFiles = walkDir(scanRoot, f => TEST_FILE_PATTERN.test(f), skipDirs);
+  const testFiles = allFiles.slice(0, 20);
+
+  if (testFiles.length === 0) return undefined;
+
+  // fileSuffix
+  let specCount = 0;
+  let testCount = 0;
+  for (const f of testFiles) {
+    if (/\.spec\./.test(f)) specCount++;
+    else testCount++;
+  }
+  const total = testFiles.length;
+  const fileSuffix: '.spec' | '.test' | 'mixed' =
+    specCount / total >= 0.8 ? '.spec' : testCount / total >= 0.8 ? '.test' : 'mixed';
+
+  // Single-pass content scan: mockPrefix, mockFactoryPrefix, describeStyle
+  let mockPrefix: string | null = null;
+  let mockFactoryPrefix: string | null = null;
+  let nestedCount = 0;
+  for (const f of testFiles) {
+    const content = (() => {
+      try {
+        return fs.readFileSync(f, 'utf-8');
+      } catch {
+        return '';
+      }
+    })();
+    if (mockPrefix === null && /const mock[A-Z]/.test(content)) mockPrefix = 'mock';
+    if (mockFactoryPrefix === null && /(?:const|function)\s+createMock[A-Z]/.test(content)) {
+      mockFactoryPrefix = 'createMock';
+    }
+    const matches = content.match(/describe\s*\(/g);
+    if (matches && matches.length >= 2) nestedCount++;
+  }
+  const describeStyle: 'flat' | 'nested' = nestedCount > testFiles.length / 2 ? 'nested' : 'flat';
+
+  // helperPaths — walk full repo for helper file patterns, capped at 10
+  const helperFiles = walkDir(repoDir, f => HELPER_PATTERNS.some(p => p.test(f)), skipDirs);
+  const helperPaths = helperFiles.slice(0, 10).map(f => path.relative(repoDir, f));
+
+  return { fileSuffix, mockPrefix, mockFactoryPrefix, describeStyle, helperPaths };
 };
 
 /**
@@ -106,6 +164,7 @@ const detectNode = (repoDir: string): NodeInfra | null => {
     frameworks,
     scripts: relevantScripts,
     allScriptNames: Object.keys(allScripts),
+    testPatterns: detectTestPatterns(repoDir),
   };
 };
 
@@ -224,6 +283,28 @@ const formatTestInfraPromptSection = (ctx: TestInfraContext): string => {
             .join(', ');
           lines.push(`- Scripts: ${scriptEntries}`);
         }
+        if (eco.testPatterns) {
+          lines.push('');
+          lines.push('Test conventions detected in this repository:');
+          const suffixLabel =
+            eco.testPatterns.fileSuffix === 'mixed' ? '*.spec.ts / *.test.ts' : `*${eco.testPatterns.fileSuffix}.ts`;
+          lines.push(`- Test file suffix: ${suffixLabel} (use this suffix for new test files)`);
+          if (eco.testPatterns.mockPrefix) {
+            const factoryNote = eco.testPatterns.mockFactoryPrefix
+              ? `; factories use "${eco.testPatterns.mockFactoryPrefix}" (e.g., ${eco.testPatterns.mockFactoryPrefix}User)`
+              : '';
+            lines.push(
+              `- Mock naming: prefix mocks with "${eco.testPatterns.mockPrefix}" (e.g., ${eco.testPatterns.mockPrefix}User)${factoryNote}`
+            );
+          }
+          lines.push(
+            `- Test structure: ${eco.testPatterns.describeStyle === 'nested' ? 'nested' : 'flat'} describe blocks`
+          );
+          if (eco.testPatterns.helperPaths.length > 0) {
+            lines.push(`- Test helpers: ${eco.testPatterns.helperPaths.join(', ')}`);
+          }
+          lines.push('Follow these patterns when prescribing test changes.');
+        }
         break;
       }
       case 'terraform': {
@@ -269,8 +350,18 @@ const formatTestInfraPromptSection = (ctx: TestInfraContext): string => {
 
   lines.push('- Every command must be copy-paste-runnable from the repo root.');
 
+  if (nodeEco) {
+    lines.push('');
+    lines.push('Allowed verification command forms (exhaustive — do NOT use unlisted commands):');
+    lines.push('- node -e "..."');
+    lines.push('- sh -c "..." / bash -c "..."');
+    for (const [name, cmd] of Object.entries(nodeEco.scripts)) {
+      lines.push(`- yarn ${name} -- ... (runs: "${cmd}")`);
+    }
+  }
+
   return lines.join('\n');
 };
 
-export { detectTestInfra, formatTestInfraPromptSection };
+export { detectTestInfra, detectTestPatterns, formatTestInfraPromptSection };
 export type { Ecosystem, EcosystemInfra, NodeInfra, TerraformInfra, PythonInfra, GoInfra, TestInfraContext };

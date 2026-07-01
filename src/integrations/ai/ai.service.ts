@@ -457,6 +457,10 @@ ${context ? `Context:\n${JSON.stringify(context, null, 2)}` : ''}
 ${repoHint}${discoveryBlock}Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
 2. Specific, actionable steps to ${action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
+   Every rename, move, or refactoring step MUST state both the current name/path AND the
+   replacement name/path (e.g., "Rename class \`PaymentService\` to \`PaymentProcessorService\`
+   in src/payments/payment.service.ts"). A step that says only "rename X" without the target
+   is unusable by the implementer and will be rejected.
 3. Estimated complexity (low/medium/high)
 4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name (e.g., "service-tourv3/src/pricing/pricing.service.ts").
@@ -488,6 +492,8 @@ Minimal-change principles — apply to every plan:
    - Every verification command must exit 0 when it succeeds
    - Commands must be copy-paste-runnable: reference ONLY scripts/binaries listed in the
      "Available test infrastructure" section. Do not invent scripts.
+   - CRITICAL: verification commands are validated against the allowlist above. Any command
+     that does not match an allowed form will be rejected. When unsure, use: node -e "..."
    - Each verification command MUST be relevant to this plan: it should verify a side effect
      or behavior introduced by the steps above, not just run the whole test suite.
      Good: "node -e \\"require('node:assert').ok(require('./src/config').validate())\\""

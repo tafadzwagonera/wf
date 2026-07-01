@@ -11,6 +11,15 @@ export const nodeInfraSchema = z.object({
   frameworks: z.array(nodeFrameworkSchema),
   scripts: z.record(z.string(), z.string()),
   allScriptNames: z.array(z.string()),
+  testPatterns: z
+    .object({
+      fileSuffix: z.enum(['.spec', '.test', 'mixed']),
+      mockPrefix: z.string().nullable(),
+      mockFactoryPrefix: z.string().nullable(),
+      describeStyle: z.enum(['flat', 'nested']),
+      helperPaths: z.array(z.string()),
+    })
+    .optional(),
 });
 
 export const terraformInfraSchema = z.object({

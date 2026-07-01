@@ -1,4 +1,4 @@
-import { detectTestInfra, formatTestInfraPromptSection } from './detect-test-infra';
+import { detectTestInfra, detectTestPatterns, formatTestInfraPromptSection } from './detect-test-infra';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -274,5 +274,222 @@ describe('formatTestInfraPromptSection', () => {
 
     expect(output).toContain('Python project detected');
     expect(output).toContain('Frameworks: pytest, tox');
+  });
+
+  it('includes allowlist block for node repos', () => {
+    const output = formatTestInfraPromptSection({
+      ecosystems: [
+        {
+          ecosystem: 'node',
+          nodeVersionMajor: 22,
+          hasNodeTest: true,
+          frameworks: ['jest'],
+          scripts: { test: 'jest', build: 'nest build' },
+          allScriptNames: ['test', 'build'],
+        },
+      ],
+      primary: 'node',
+    });
+
+    expect(output).toContain('Allowed verification command forms');
+    expect(output).toContain('node -e "..."');
+    expect(output).toContain('sh -c "..." / bash -c "..."');
+    expect(output).toContain('yarn test -- ...');
+    expect(output).toContain('yarn build -- ...');
+  });
+
+  it('includes test conventions block when testPatterns is defined', () => {
+    const output = formatTestInfraPromptSection({
+      ecosystems: [
+        {
+          ecosystem: 'node',
+          nodeVersionMajor: 22,
+          hasNodeTest: true,
+          frameworks: ['jest'],
+          scripts: { test: 'jest' },
+          allScriptNames: ['test'],
+          testPatterns: {
+            fileSuffix: '.spec',
+            mockPrefix: 'mock',
+            mockFactoryPrefix: 'createMock',
+            describeStyle: 'nested',
+            helperPaths: ['src/test/helpers.ts'],
+          },
+        },
+      ],
+      primary: 'node',
+    });
+
+    expect(output).toContain('Test conventions detected');
+    expect(output).toContain('*.spec.ts');
+    expect(output).toContain('prefix mocks with "mock"');
+    expect(output).toContain('createMock');
+    expect(output).toContain('nested describe blocks');
+    expect(output).toContain('src/test/helpers.ts');
+    expect(output).toContain('Follow these patterns');
+  });
+
+  it('omits test conventions block when testPatterns is undefined', () => {
+    const output = formatTestInfraPromptSection({
+      ecosystems: [
+        {
+          ecosystem: 'node',
+          nodeVersionMajor: 22,
+          hasNodeTest: true,
+          frameworks: ['jest'],
+          scripts: { test: 'jest' },
+          allScriptNames: ['test'],
+        },
+      ],
+      primary: 'node',
+    });
+
+    expect(output).not.toContain('Test conventions detected');
+  });
+});
+
+describe('detectTestPatterns', () => {
+  describe('.spec suffix detection', () => {
+    it('returns fileSuffix .spec when >= 80% of files use .spec', () => {
+      const dir = createTempRepo();
+      fs.mkdirSync(path.join(dir, 'src'));
+      for (let i = 0; i < 9; i++) {
+        fs.writeFileSync(path.join(dir, 'src', `file${i}.spec.ts`), 'describe("x", () => { it("y", () => {}); })');
+      }
+      fs.writeFileSync(path.join(dir, 'src', 'other.test.ts'), 'describe("x", () => { it("y", () => {}); })');
+
+      const result = detectTestPatterns(dir);
+
+      expect(result?.fileSuffix).toBe('.spec');
+    });
+  });
+
+  describe('.test suffix detection', () => {
+    it('returns fileSuffix .test when >= 80% of files use .test', () => {
+      const dir = createTempRepo();
+      fs.mkdirSync(path.join(dir, 'src'));
+      for (let i = 0; i < 9; i++) {
+        fs.writeFileSync(path.join(dir, 'src', `file${i}.test.ts`), 'describe("x", () => { it("y", () => {}); })');
+      }
+      fs.writeFileSync(path.join(dir, 'src', 'other.spec.ts'), 'describe("x", () => { it("y", () => {}); })');
+
+      const result = detectTestPatterns(dir);
+
+      expect(result?.fileSuffix).toBe('.test');
+    });
+  });
+
+  describe('mixed suffix detection', () => {
+    it('returns fileSuffix mixed when neither suffix reaches 80%', () => {
+      const dir = createTempRepo();
+      fs.mkdirSync(path.join(dir, 'src'));
+      for (let i = 0; i < 5; i++) {
+        fs.writeFileSync(path.join(dir, 'src', `a${i}.spec.ts`), 'it("x", () => {})');
+      }
+      for (let i = 0; i < 5; i++) {
+        fs.writeFileSync(path.join(dir, 'src', `b${i}.test.ts`), 'it("x", () => {})');
+      }
+
+      const result = detectTestPatterns(dir);
+
+      expect(result?.fileSuffix).toBe('mixed');
+    });
+  });
+
+  describe('mock prefix detection', () => {
+    it('detects mockPrefix when const mock[A-Z] pattern is found', () => {
+      const dir = createTempRepo();
+      fs.mkdirSync(path.join(dir, 'src'));
+      fs.writeFileSync(path.join(dir, 'src', 'user.spec.ts'), 'const mockUser = {};\nit("x", () => {})');
+
+      const result = detectTestPatterns(dir);
+
+      expect(result?.mockPrefix).toBe('mock');
+    });
+
+    it('returns null mockPrefix when pattern is absent', () => {
+      const dir = createTempRepo();
+      fs.mkdirSync(path.join(dir, 'src'));
+      fs.writeFileSync(path.join(dir, 'src', 'user.spec.ts'), 'it("x", () => {})');
+
+      const result = detectTestPatterns(dir);
+
+      expect(result?.mockPrefix).toBeNull();
+    });
+  });
+
+  describe('factory prefix detection', () => {
+    it('detects mockFactoryPrefix when createMock[A-Z] pattern is found', () => {
+      const dir = createTempRepo();
+      fs.mkdirSync(path.join(dir, 'src'));
+      fs.writeFileSync(path.join(dir, 'src', 'user.spec.ts'), 'const createMockUser = () => ({});\nit("x", () => {})');
+
+      const result = detectTestPatterns(dir);
+
+      expect(result?.mockFactoryPrefix).toBe('createMock');
+    });
+
+    it('returns null mockFactoryPrefix when pattern is absent', () => {
+      const dir = createTempRepo();
+      fs.mkdirSync(path.join(dir, 'src'));
+      fs.writeFileSync(path.join(dir, 'src', 'user.spec.ts'), 'it("x", () => {})');
+
+      const result = detectTestPatterns(dir);
+
+      expect(result?.mockFactoryPrefix).toBeNull();
+    });
+  });
+
+  describe('nested describe detection', () => {
+    it('returns describeStyle nested when majority of files have 2+ describe calls', () => {
+      const dir = createTempRepo();
+      fs.mkdirSync(path.join(dir, 'src'));
+      const nested = 'describe("outer", () => { describe("inner", () => { it("x", () => {}); }); });';
+      for (let i = 0; i < 4; i++) {
+        fs.writeFileSync(path.join(dir, 'src', `file${i}.spec.ts`), nested);
+      }
+      fs.writeFileSync(path.join(dir, 'src', 'flat.spec.ts'), 'describe("only", () => { it("x", () => {}); })');
+
+      const result = detectTestPatterns(dir);
+
+      expect(result?.describeStyle).toBe('nested');
+    });
+
+    it('returns describeStyle flat when majority of files have fewer than 2 describe calls', () => {
+      const dir = createTempRepo();
+      fs.mkdirSync(path.join(dir, 'src'));
+      for (let i = 0; i < 4; i++) {
+        fs.writeFileSync(path.join(dir, 'src', `file${i}.spec.ts`), 'describe("only", () => { it("x", () => {}); })');
+      }
+
+      const result = detectTestPatterns(dir);
+
+      expect(result?.describeStyle).toBe('flat');
+    });
+  });
+
+  describe('helper path detection', () => {
+    it('returns helperPaths for matching files', () => {
+      const dir = createTempRepo();
+      fs.mkdirSync(path.join(dir, 'src'));
+      fs.writeFileSync(path.join(dir, 'src', 'user.spec.ts'), 'it("x", () => {})');
+      fs.mkdirSync(path.join(dir, 'src', 'test-utils'));
+      fs.writeFileSync(path.join(dir, 'src', 'test-utils', 'index.ts'), '');
+
+      const result = detectTestPatterns(dir);
+
+      expect(result?.helperPaths.some(p => p.includes('test-utils'))).toBe(true);
+    });
+  });
+
+  describe('no test files', () => {
+    it('returns undefined when no test files exist', () => {
+      const dir = createTempRepo();
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ scripts: {} }));
+
+      const result = detectTestPatterns(dir);
+
+      expect(result).toBeUndefined();
+    });
   });
 });
