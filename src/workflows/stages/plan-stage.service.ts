@@ -91,7 +91,7 @@ export class PlanStageService {
             : undefined;
 
         const label = agentProse ? 'Agent returned prose' : 'Agent returned no result';
-        console.log(chalk.yellow(`  \u26A0\uFE0F  ${label} \u2014 falling back to structured completion`));
+        console.log(chalk.yellow(`  \u26A0\uFE0F ${label}   \u2014 falling back to structured completion`));
         const action = options.action as 'fix' | 'implement' | 'investigate';
         const fallbackResult = await this.aiService.generatePlan(action, ticketContent, {
           ...standardContext,
