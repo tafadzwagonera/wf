@@ -111,7 +111,7 @@ function run(): void {
     throw new Error(`Case 2 FAILED: expected traceProvenance "unavailable", got "${sanitized.traceProvenance}"`);
   }
 
-  if ((sanitized.callStack ?? []).length !== 0) {
+  if (sanitized.callStack?.length) {
     throw new Error('Case 2 FAILED: callStack was not wiped for narration trace');
   }
 
