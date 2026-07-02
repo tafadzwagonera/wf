@@ -7,7 +7,14 @@ jest.mock('./adapters/claude-cli-runner', () => ({
   spawnCli: jest.fn(),
 }));
 
+jest.mock('./adapters/codex-cli-runner', () => ({
+  assertCodexCliAvailable: jest.fn(),
+  buildCodexCliArgs: jest.fn().mockReturnValue([]),
+  spawnCodex: jest.fn(),
+}));
+
 const { spawnCli }: { spawnCli: jest.Mock } = jest.requireMock('./adapters/claude-cli-runner');
+const { spawnCodex }: { spawnCodex: jest.Mock } = jest.requireMock('./adapters/codex-cli-runner');
 
 describe('StageAgentService', () => {
   const createConfigService = (): ConfigService =>
@@ -25,6 +32,21 @@ describe('StageAgentService', () => {
           'stages.generate.model': 'gpt-5.4',
           'ai.provider': 'openai',
           'ai.model': 'gpt-5.4',
+        };
+
+        return key in values ? values[key] : defaultValue;
+      }),
+    }) as unknown as ConfigService;
+
+  const createCodexConfigService = (): ConfigService =>
+    ({
+      get: jest.fn((key: string, defaultValue?: unknown) => {
+        const values: Record<string, unknown> = {
+          'stages.plan.backend': 'cli',
+          'stages.plan.provider': 'openai',
+          'stages.plan.model': 'gpt-5.4-mini',
+          'ai.provider': 'openai',
+          'ai.model': 'gpt-5.4-mini',
         };
 
         return key in values ? values[key] : defaultValue;
@@ -277,5 +299,123 @@ describe('StageAgentService', () => {
     const service = new StageAgentService(configService);
 
     expect(service.isEnabledForStage('review')).toBe(true);
+  });
+
+  describe('Codex CLI stage prompt', () => {
+    const makeCodexStream = (...messages: object[]) =>
+      async function* () {
+        for (const m of messages) yield m;
+      };
+
+    const validPlanJson = JSON.stringify({
+      action: 'fix',
+      summary: 'Test summary',
+      steps: ['Step 1'],
+      estimatedComplexity: 'low',
+    });
+
+    it('extracts result from a single item.completed agent_message event', async () => {
+      spawnCodex.mockImplementation(
+        makeCodexStream({
+          type: 'item.completed',
+          item: { type: 'agent_message', text: validPlanJson },
+        })
+      );
+
+      const service = new StageAgentService(createCodexConfigService());
+      const result = await service.generatePlan({
+        action: 'fix',
+        issueContent: 'Test issue',
+      });
+
+      expect(result.plan.action).toBe('fix');
+      expect(result.plan.summary).toBe('Test summary');
+    });
+
+    it('extracts session ID from a thread.started event', async () => {
+      spawnCodex.mockImplementation(
+        makeCodexStream(
+          { type: 'thread.started', thread_id: 'tid-123' },
+          { type: 'item.completed', item: { type: 'agent_message', text: validPlanJson } }
+        )
+      );
+
+      const service = new StageAgentService(createCodexConfigService());
+      const result = await service.generatePlan({
+        action: 'fix',
+        issueContent: 'Test issue',
+      });
+
+      expect(result.sessionId).toBe('tid-123');
+    });
+
+    it('throws AIError containing "without returning a result" when no agent_message events are emitted', async () => {
+      spawnCodex.mockImplementation(makeCodexStream({ type: 'thread.started', thread_id: 'tid-123' }));
+
+      const service = new StageAgentService(createCodexConfigService());
+
+      await expect(
+        service.generatePlan({
+          action: 'fix',
+          issueContent: 'Test issue',
+        })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('without returning a result'),
+      });
+    });
+
+    it('uses the last agent_message text when multiple are emitted', async () => {
+      const plan1 = JSON.stringify({
+        action: 'fix',
+        summary: 'First',
+        steps: [],
+        estimatedComplexity: 'low',
+      });
+      const plan2 = JSON.stringify({
+        action: 'fix',
+        summary: 'Second',
+        steps: [],
+        estimatedComplexity: 'low',
+      });
+      const plan3 = JSON.stringify({
+        action: 'fix',
+        summary: 'Third',
+        steps: [],
+        estimatedComplexity: 'low',
+      });
+
+      spawnCodex.mockImplementation(
+        makeCodexStream(
+          { type: 'item.completed', item: { type: 'agent_message', text: plan1 } },
+          { type: 'item.completed', item: { type: 'agent_message', text: plan2 } },
+          { type: 'item.completed', item: { type: 'agent_message', text: plan3 } }
+        )
+      );
+
+      const service = new StageAgentService(createCodexConfigService());
+      const result = await service.generatePlan({
+        action: 'fix',
+        issueContent: 'Test issue',
+      });
+
+      expect(result.plan.summary).toBe('Third');
+    });
+
+    it('ignores message.session_id field — sessionId stays undefined when only session_id (not thread_id) is present', async () => {
+      spawnCodex.mockImplementation(
+        makeCodexStream(
+          { type: 'some.event', session_id: 'old-id' },
+          { type: 'item.completed', item: { type: 'agent_message', text: validPlanJson } }
+        )
+      );
+
+      const service = new StageAgentService(createCodexConfigService());
+      const result = await service.generatePlan({
+        action: 'fix',
+        issueContent: 'Test issue',
+      });
+
+      expect(result.sessionId).toBeUndefined();
+    });
   });
 });

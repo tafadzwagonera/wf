@@ -1291,15 +1291,17 @@ Return only the requested ticket markdown and preserve the required heading stru
     let result = '';
 
     for await (const message of spawnCodex(args, resolvedRepoDir, fullPrompt)) {
-      if (message.session_id) sessionId = message.session_id;
+      if (message.type === 'thread.started' && message.thread_id) {
+        sessionId = message.thread_id;
+      }
 
       if (params.onProgress) {
         const line = formatCodexProgressMessage(message);
         if (line) params.onProgress(line);
       }
 
-      if (message.type === 'result' && !message.is_error && message.result) {
-        result = message.result;
+      if (message.type === 'item.completed' && message.item?.type === 'agent_message' && message.item.text) {
+        result = message.item.text;
       }
     }
 

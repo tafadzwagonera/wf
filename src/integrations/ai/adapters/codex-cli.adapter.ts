@@ -89,8 +89,8 @@ export class CodexCliAdapter implements ImplementerBackend {
     for await (const message of spawnCodex(cliArgs, repoDir, implementPrompt)) {
       this.logCodexMessage(message, repoDir, touchedFiles);
 
-      if (message.session_id) {
-        sessionId = message.session_id;
+      if (message.type === 'thread.started' && message.thread_id) {
+        sessionId = message.thread_id;
       }
 
       if (message.files) {
@@ -100,12 +100,8 @@ export class CodexCliAdapter implements ImplementerBackend {
         }
       }
 
-      if (message.type === 'result') {
-        if (message.is_error) {
-          throw new Error(`Codex CLI failed: ${message.result ?? 'unknown error'}`);
-        }
-
-        const summary = message.result?.trim();
+      if (message.type === 'item.completed' && message.item?.type === 'agent_message') {
+        const summary = message.item.text?.trim();
         if (summary) {
           console.log(chalk.bold('\n  Summary:'));
           summary.split('\n').forEach(line => {
