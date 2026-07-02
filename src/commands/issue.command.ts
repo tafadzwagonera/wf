@@ -81,6 +81,7 @@ interface IssueOptions {
   from: string;
   to?: string;
   action?: string;
+  branch?: boolean;
   branchNamePattern?: string;
   tracker?: string;
   silent?: boolean;
@@ -231,6 +232,11 @@ export class IssueCommand extends CommandRunner {
 
   async run(passedParams: string[], options?: IssueOptions): Promise<void> {
     await ensureWfHome();
+
+    // Commander maps --no-branch to { branch: false }; normalize to noBranch
+    if (options && options.branch === false) {
+      options.noBranch = true;
+    }
 
     // Mutual exclusion: --no-branch + --branch-name-pattern
     if (options?.noBranch && options?.branchNamePattern) {

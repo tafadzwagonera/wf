@@ -44,6 +44,7 @@ const loadPlanFile = (filePath: string): ResolutionPlan => {
 };
 
 interface IssueImplementOptions {
+  branch?: boolean;
   branchNamePattern?: string;
   dryRun?: boolean;
   modelRouting?: string;
@@ -164,6 +165,11 @@ export class IssueImplementCommand extends CommandRunner {
   async run([identifier]: string[], options?: IssueImplementOptions): Promise<void> {
     try {
       await ensureWfHome();
+
+      // Commander maps --no-branch to { branch: false }; normalize to noBranch
+      if (options && options.branch === false) {
+        options.noBranch = true;
+      }
 
       // Mutual exclusion: --no-branch + --branch-name-pattern
       if (options?.noBranch && options?.branchNamePattern) {
