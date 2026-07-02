@@ -78,6 +78,8 @@ export const assertCodexCliAvailable = (): void => {
 
 /**
  * Builds the argument array for spawning the Codex CLI.
+ * Always includes `--json` so the CLI emits NDJSON on stdout;
+ * removing it breaks `parseNdjsonLine` and causes the review stage to throw.
  *
  * @param params - CLI runner parameters
  * @returns Argument array for the `codex` binary
@@ -85,12 +87,12 @@ export const assertCodexCliAvailable = (): void => {
 export const buildCodexCliArgs = (params: CodexCliRunnerParams): string[] => {
   if (params.sessionId) {
     // Resume existing session
-    const args = ['exec', 'resume', params.sessionId];
+    const args = ['exec', '--json', 'resume', params.sessionId];
     if (params.model) args.push('--model', params.model);
     return args;
   }
 
-  const args: string[] = ['exec'];
+  const args: string[] = ['exec', '--json'];
 
   if (params.model) {
     args.push('--model', params.model);
