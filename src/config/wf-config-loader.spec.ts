@@ -612,7 +612,7 @@ describe('wf-config-loader', () => {
       ).toThrow(/backend.*agent.*google/i);
     });
 
-    it('accepts backend: cli with provider: anthropic', () => {
+    it('accepts backend: cli', () => {
       const config = normalizeWfConfig({
         ai: [
           {
@@ -633,25 +633,25 @@ describe('wf-config-loader', () => {
       expect(config.stages.plan?.backend).toBe('cli');
     });
 
-    it('rejects backend: cli with provider: openai', () => {
-      expect(() =>
-        normalizeWfConfig({
-          ai: [
-            {
-              provider: 'openai',
-              apiKey: 'openai-key',
-              model: 'gpt-5.4',
-              default: true,
-            },
-          ],
-          stages: {
-            plan: {
-              provider: 'openai',
-              backend: 'cli',
-            },
+    it('accepts backend: cli with provider: openai', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'openai',
+            apiKey: 'openai-key',
+            model: 'gpt-5.4',
+            default: true,
           },
-        })
-      ).toThrow(/cli.*only.*anthropic/i);
+        ],
+        stages: {
+          plan: {
+            provider: 'openai',
+            backend: 'cli',
+          },
+        },
+      });
+
+      expect(config.stages.plan?.backend).toBe('cli');
     });
 
     it('rejects backend: cli on unsupported stage', () => {

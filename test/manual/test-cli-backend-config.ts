@@ -7,7 +7,7 @@
  *   1. `WfBackendMode` type includes 'agent', 'cli', and 'standard'
  *   2. `ImplementBackendName` includes 'claude-cli'
  *   3. Config normalization: `backend: 'cli'` + `provider: 'anthropic'` passes
- *   4. Config normalization: `backend: 'cli'` + `provider: 'openai'` throws
+ *   4. Config normalization: `backend: 'cli'` + `provider: 'openai'` passes
  *   5. Config normalization: `backend: 'agent'` + `provider: 'google'` throws
  *   6. Config normalization: `backend: 'cli'` on commit stage throws
  *   7. Config normalization: agent-capable stages default to `agent` backend when omitted
@@ -94,9 +94,9 @@ function main(): void {
     );
   }
 
-  // 4. backend: cli + provider: openai throws
+  // 4. backend: cli + provider: openai passes
   try {
-    normalizeWfConfig({
+    const openaiCliConfig = normalizeWfConfig({
       ai: [
         {
           provider: 'openai',
@@ -112,12 +112,15 @@ function main(): void {
         },
       },
     });
-    fail('backend: cli + provider: openai throws');
-  } catch (error) {
     assert(
-      'backend: cli + provider: openai throws',
-      error instanceof Error && /cli.*anthropic/i.test(error.message),
-      `got: ${error instanceof Error ? error.message : String(error)}`
+      'backend: cli + provider: openai passes validation',
+      openaiCliConfig.stages.plan?.backend === 'cli',
+      `got: ${openaiCliConfig.stages.plan?.backend}`
+    );
+  } catch (error) {
+    fail(
+      'backend: cli + provider: openai passes validation',
+      `threw: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 

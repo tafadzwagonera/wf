@@ -623,12 +623,6 @@ const normalizeStageTarget = ({
       `Invalid wf config: ${stageName} stage with backend: 'agent' is unsupported for provider "${stageTarget.provider}".`
     );
   }
-  if (backend === 'cli' && stageTarget.provider !== 'anthropic') {
-    throw new ValidationError(
-      `Invalid wf config: ${stageName} stage with backend: 'cli' is only supported for provider "anthropic". Got "${stageTarget.provider}".`
-    );
-  }
-
   return {
     provider: stageTarget.provider,
     model,
