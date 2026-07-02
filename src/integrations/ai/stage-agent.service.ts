@@ -1265,12 +1265,15 @@ Return only the requested ticket markdown and preserve the required heading stru
       console.error(
         '[codex-diag] No result message received from Codex CLI. Check [codex-diag] lines above for raw output.'
       );
+      console.error(`[codex-diag] Provider session: ${sessionId ?? '(none)'}`);
+
       throw new AIError('Codex CLI finished without returning a result.', null, true);
     }
 
     if (sessionId) {
       console.log(chalk.gray(`  [codex-cli] Provider session: ${sessionId}`));
     }
+
     return { content: result.trim(), sessionId };
   }
 
