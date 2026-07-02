@@ -25,10 +25,12 @@ export class FetcherAgent {
     if (!options.silent) {
       if (artifact.fromCache) {
         console.log(chalk.yellow(`⚠️  Using existing FETCH artifact: ${artifact.path}`));
-      } else if (options.skipExisting === false) {
+      }
+      if (!artifact.fromCache && options.skipExisting === false) {
         console.log(chalk.yellow(`⚠️  --force enabled; overwrote ticket artifact`));
         console.log(chalk.green('✓ Ticket refetched'));
-      } else {
+      }
+      if (!artifact.fromCache && options.skipExisting !== false) {
         console.log(chalk.green('✓ Ticket fetched'));
       }
       console.log(chalk.bold('  Title:'), chalk.bold.cyan(titleMatch?.[1] ?? ticketKey));
