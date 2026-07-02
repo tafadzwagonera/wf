@@ -1262,6 +1262,9 @@ Return only the requested ticket markdown and preserve the required heading stru
     }
 
     if (!result) {
+      console.error(
+        '[codex-diag] No result message received from Codex CLI. Check [codex-diag] lines above for raw output.'
+      );
       throw new AIError('Codex CLI finished without returning a result.', null, true);
     }
 

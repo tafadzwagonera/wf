@@ -31,6 +31,37 @@ export interface CodexCliRunnerParams {
 }
 
 const CLI_TIMEOUT_MS = 10 * 60 * 1000;
+
+const CODEX_ERROR_LINE_PATTERN = /^ERROR:\s*(.+)$/;
+
+/**
+ * Extracts meaningful error messages from Codex CLI stderr noise.
+ *
+ * @param stderr - Raw stderr output from the Codex CLI
+ * @returns Extracted error message(s) or full stderr if no `ERROR:` lines found
+ */
+export const extractCodexErrorMessages = (stderr: string): string => {
+  const errorLines = stderr
+    .split('\n')
+    .map(line => line.match(CODEX_ERROR_LINE_PATTERN)?.[1])
+    .filter((match): match is string => match !== undefined);
+
+  if (errorLines.length === 0) {
+    return stderr;
+  }
+
+  const messages = errorLines.map(raw => {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed?.error?.message ?? raw;
+    } catch {
+      return raw;
+    }
+  });
+
+  const unique = [...new Set(messages)];
+  return unique.join('; ');
+};
 const SIGKILL_GRACE_MS = 5000;
 
 /**
@@ -129,8 +160,12 @@ export async function* spawnCodex(
 
   try {
     for await (const line of rl) {
+      console.error(`[codex-diag] raw-line: ${line}`);
       const message = parseNdjsonLine(line) as CodexCliMessage | null;
       if (message) {
+        console.error(
+          `[codex-diag] parsed-type: ${message.type}, is_error: ${message.is_error}, has_result: ${!!message.result}`
+        );
         yieldedAny = true;
         yield message;
       }
@@ -139,6 +174,13 @@ export async function* spawnCodex(
     if (timeoutHandle) clearTimeout(timeoutHandle);
     rl.close();
     killChild();
+  }
+
+  if (stderrChunks.length > 0) {
+    const stderrContent = Buffer.concat(stderrChunks).toString('utf-8').trim();
+    if (stderrContent) {
+      console.error(`[codex-diag] stderr:\n${stderrContent}`);
+    }
   }
 
   if (timedOut) {
@@ -154,7 +196,8 @@ export async function* spawnCodex(
   if (!yieldedAny && stderrChunks.length > 0) {
     const stderr = Buffer.concat(stderrChunks).toString('utf-8').trim();
     if (stderr) {
-      throw new Error(`Codex CLI failed to produce output: ${stderr}`);
+      const extractedError = extractCodexErrorMessages(stderr);
+      throw new Error(`Codex CLI failed: ${extractedError}`);
     }
   }
 }
