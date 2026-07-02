@@ -461,6 +461,8 @@ ${repoHint}${discoveryBlock}Create a detailed resolution plan with:
    replacement name/path (e.g., "Rename class \`PaymentService\` to \`PaymentProcessorService\`
    in src/payments/payment.service.ts"). A step that says only "rename X" without the target
    is unusable by the implementer and will be rejected.
+   When a step adds a new call site to an existing function or method, the plan MUST trace every existing call site for that function and note whether the shared code path already handles the new case. If it does, state so explicitly and skip the redundant change. If it does not, list which call sites need updating.
+   When a step adds or modifies a JSDoc comment or docstring, the prose MUST be cross-checked against the implementation's guard clauses. If the function throws on null input, the docstring must document that. If the function silently returns undefined, the docstring must not claim it throws.
 3. Estimated complexity (low/medium/high)
 4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name (e.g., "service-tourv3/src/pricing/pricing.service.ts").
@@ -483,7 +485,8 @@ ${
     ? `When a plan step includes test code snippets or prescribes test changes:
    - Follow ALL test conventions listed above (mock cleanup, DI setup, error handling).
    - Mock isolation steps MUST be concrete, not conditional — prescribe the exact call, do not say "check whether X or add Y".
-   - State your DI and test-framework assumptions explicitly (e.g., "assumes NestJS Test.createTestingModule") so the implementer can verify them against the actual codebase.
+   - Test setup MUST match the DI wiring the code path requires — every injected service the code reaches MUST have a mock provider, not an empty object.
+   - Follow the repo's existing test isolation conventions (detected above). If tests use jest.restoreAllMocks() in afterEach, new tests MUST do the same — do not introduce a different cleanup strategy.
 `
     : ''
 }
