@@ -293,6 +293,9 @@ export class IssueCommand extends CommandRunner {
         if (planTokenResolution?.kind === 'ticket') {
           ticketKey = planTokenResolution.ticketKey;
         }
+        if (planTokenResolution?.kind === 'custom') {
+          ticketKey = planTokenResolution.sourceName;
+        }
       }
 
       let action: ResolutionAction | undefined;
@@ -647,7 +650,6 @@ export class IssueCommand extends CommandRunner {
           fs.readFileSync(planTokenResolution.artifactPath, 'utf-8'),
           planTokenResolution.artifactPath
         );
-        ticketKey = planTokenResolution.sourceName;
         action = planTokenResolution.action;
         ticketArtifact = buildSyntheticTicketArtifact(planTokenResolution.artifactPath, plan);
         planArtifact = {
