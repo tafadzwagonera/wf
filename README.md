@@ -862,7 +862,7 @@ When running multi-stage workflows (`wf issue --from plan --to review`), a sessi
 
 - **Automatic handoff**: within a single `wf issue` run, the plan summary is injected into the implement stage prompt
 - **Manual resumption**: run `wf issue:plan PROJ-123`, note the provider session ID logged to the terminal, then `wf issue:implement PROJ-123 --session-id <provider-session-id>` in a separate invocation
-- **Custom plan token prompt**: when resuming from a custom plan artifact via `wf issue <plan-token> --from implement`, an interactive prompt asks for the provider session ID from the standalone `issue:plan` run. Leave blank to skip. The prompt is suppressed in non-TTY environments (CI/pipes)
+- **Provider session ID prompt**: when the plan was not freshly generated in this invocation, an interactive prompt asks for the provider session ID from a prior conversation. This covers three scenarios: (1) custom plan tokens (`wf issue <plan-token> --from implement`), (2) plan served from cache (`planner.execute` returns `fromCache: true`), and (3) plan stage skipped (`--from implement` with plan already on disk). Leave blank to skip. The prompt is suppressed in non-TTY environments (CI/pipes)
 - **Provider-switch detection**: when a stage uses a different AI provider or backend than the prior stage, a warning is emitted and conversation resumption is skipped (summaries still flow through)
 
 ## Key Design Decisions

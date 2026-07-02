@@ -661,19 +661,11 @@ export class IssueCommand extends CommandRunner {
         // Prompt for the provider session ID from the standalone issue:plan run.
         // No silent guard — this is the only path to capture the provider session ID
         // for custom plan tokens; suppressing it would silently break session continuity.
-        if (this.isInteractiveSession()) {
-          const { providerSessionId } = await inquirer.prompt([
-            {
-              type: 'input',
-              name: 'providerSessionId',
-              message: 'Provider session ID from issue:plan (leave blank to skip):',
-              prefix: ' ',
-              default: '',
-            },
-          ]);
-          if (providerSessionId) {
-            planArtifact.sessionId = providerSessionId;
-          }
+        // INVARIANT: this prompt and the cache-hit prompt (below) are mutually exclusive —
+        // a custom plan token never goes through the plan stage, so fromCache is never set.
+        const providerSessionId = await this.promptProviderSessionId();
+        if (providerSessionId) {
+          planArtifact.sessionId = providerSessionId;
         }
 
         // Record the plan stage as complete so downstream stages can extract the
@@ -685,13 +677,8 @@ export class IssueCommand extends CommandRunner {
             this.resolveStageFingerprint('plan'),
             this.resolveStageModel('plan')
           );
-          if (planArtifact.sessionId) {
-            sessionState = await this.sessionService.recordProviderSessionId(
-              sessionState,
-              'plan',
-              planArtifact.sessionId
-            );
-          }
+          // Provider session ID recording is handled by the shared block after
+          // the plan stage (L769), keeping all three prompt paths consistent.
           sessionState = await this.sessionService.recordStageComplete(
             sessionState,
             'plan',
@@ -737,6 +724,18 @@ export class IssueCommand extends CommandRunner {
           console.log(planArtifact.path);
         }
 
+        // Prompt for provider session ID when the plan was served from cache.
+        // INVARIANT: this prompt and the custom-plan-token prompt (above) are mutually
+        // exclusive — a cached plan always runs through the plan stage, not the custom-token
+        // path. Recording is handled by the shared block below (lines 757–759), which runs
+        // after the plan stage block and reads planArtifact.sessionId.
+        if (planArtifact.fromCache) {
+          const providerSessionId = await this.promptProviderSessionId();
+          if (providerSessionId) {
+            planArtifact.sessionId = providerSessionId;
+          }
+        }
+
         if (!options?.silent && this.isInteractiveSession() && !planArtifact.fromCache) {
           const { startChat } = await inquirer.prompt([
             {
@@ -776,6 +775,18 @@ export class IssueCommand extends CommandRunner {
       if (stagesToRun.some(s => [WorkflowStage.IMPLEMENT, WorkflowStage.REVIEW].includes(s)) && !planArtifact) {
         planArtifact = this.agents.planner.loadFromDisk(ticketArtifact.path, action, options?.silent);
         if (planArtifact.action !== action) action = planArtifact.action;
+
+        // Prompt for provider session ID when the plan stage was skipped entirely.
+        // An explicit recordProviderSessionId call is required here because the shared
+        // recording block above runs before this loadFromDisk block, so planArtifact.sessionId
+        // is always undefined when that block executes for this path.
+        const providerSessionId = await this.promptProviderSessionId();
+        if (providerSessionId) {
+          planArtifact.sessionId = providerSessionId;
+          if (sessionState) {
+            sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'plan', providerSessionId);
+          }
+        }
       }
 
       let conversationContext: string | undefined;
@@ -1183,5 +1194,30 @@ Help the developer understand the review feedback, discuss issues, or suggest fi
 
   private isInteractiveSession(): boolean {
     return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  }
+
+  /**
+   * Prompt the user for a provider session ID from a prior conversation.
+   * Gated on TTY only — no silent guard — because this is the only path to
+   * capture the provider session ID when the plan was not freshly generated.
+   * Safe to call in any context; returns `undefined` without prompting when
+   * no TTY is available.
+   *
+   * @returns The entered session ID, or `undefined` if blank or non-interactive.
+   */
+  private async promptProviderSessionId(): Promise<string | undefined> {
+    if (!this.isInteractiveSession()) {
+      return undefined;
+    }
+    const { providerSessionId } = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'providerSessionId',
+        message: 'Provider session ID from issue:plan (leave blank to skip):',
+        prefix: ' ',
+        default: '',
+      },
+    ]);
+    return providerSessionId || undefined;
   }
 }

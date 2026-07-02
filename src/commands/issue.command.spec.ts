@@ -1199,4 +1199,449 @@ describe('IssueCommand', () => {
     expect(mockSessionService.save).toHaveBeenCalledTimes(1);
     expect(mockSessionService.recordStageComplete).not.toHaveBeenCalled();
   });
+
+  it('prompts for provider session ID when plan is from cache', async () => {
+    const ticketPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-20.md');
+    const planPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-20-fix-plan.json');
+
+    const mockOrchestrator = {
+      fetcher: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          ticketKey: 'WBP-20',
+          content: '# WBP-20\n\nTest',
+          path: ticketPath,
+        }),
+      },
+      planner: {
+        execute: jest.fn().mockResolvedValue({
+          plan: {
+            action: 'fix',
+            summary: 'Cached plan',
+            estimatedComplexity: 'low',
+            steps: ['Step 1'],
+            affectedFiles: ['src/test.ts'],
+            affectedRepositories: [],
+          },
+          action: 'fix',
+          path: planPath,
+          fromCache: true,
+          sessionId: undefined,
+        }),
+      },
+    };
+
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueCommand,
+        { provide: ConversationService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'ai.provider') return 'openai';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showStageHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            showSkipped: jest.fn(),
+            showNoSideEffects: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+        { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        {
+          provide: AiService,
+          useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+        },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
+      ],
+    }).compile();
+    const command = module.get(IssueCommand);
+
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+    jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+    jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+
+    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ providerSessionId: 'sess-cache-123' });
+    setInteractiveSession();
+
+    await command.run(['WBP-20'], { from: 'plan', to: 'plan', action: 'fix' });
+
+    expect(inquirer.prompt).toHaveBeenCalled();
+    expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
+      expect.any(Object),
+      'plan',
+      'sess-cache-123'
+    );
+  });
+
+  it('prompts for provider session ID when plan stage is skipped', async () => {
+    const ticketPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-21.md');
+    const planPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-21-fix-plan.json');
+
+    const mockOrchestrator = {
+      fetcher: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          ticketKey: 'WBP-21',
+          content: '# WBP-21\n\nTest',
+          path: ticketPath,
+        }),
+      },
+      planner: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          plan: {
+            action: 'fix',
+            summary: 'Skipped plan',
+            estimatedComplexity: 'low',
+            steps: ['Step 1'],
+            affectedFiles: ['src/test.ts'],
+            affectedRepositories: [],
+          },
+          action: 'fix',
+          path: planPath,
+        }),
+      },
+      implementer: {
+        execute: jest.fn().mockResolvedValue(undefined),
+      },
+    };
+
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueCommand,
+        { provide: ConversationService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'ai.provider') return 'openai';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showStageHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            showSkipped: jest.fn(),
+            showNoSideEffects: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+        { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        {
+          provide: AiService,
+          useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+        },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
+      ],
+    }).compile();
+    const command = module.get(IssueCommand);
+
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+    jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+    jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+
+    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ providerSessionId: 'sess-skip-456' });
+    setInteractiveSession();
+
+    await command.run(['WBP-21'], { from: 'implement', to: 'implement' });
+
+    expect(inquirer.prompt).toHaveBeenCalled();
+    expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
+      expect.any(Object),
+      'plan',
+      'sess-skip-456'
+    );
+  });
+
+  it('records provider session ID into an existing wf session when plan is from cache', async () => {
+    const ticketPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-22.md');
+    const planPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-22-fix-plan.json');
+    const existingSession = {
+      sessionId: 'existing-uuid',
+      ticketKey: 'WBP-22',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: null,
+      stages: {},
+    };
+
+    mockSessionService.load.mockResolvedValueOnce(existingSession);
+
+    const mockOrchestrator = {
+      fetcher: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          ticketKey: 'WBP-22',
+          content: '# WBP-22\n\nTest',
+          path: ticketPath,
+        }),
+      },
+      planner: {
+        execute: jest.fn().mockResolvedValue({
+          plan: {
+            action: 'fix',
+            summary: 'Cached plan',
+            estimatedComplexity: 'low',
+            steps: ['Step 1'],
+            affectedFiles: ['src/test.ts'],
+            affectedRepositories: [],
+          },
+          action: 'fix',
+          path: planPath,
+          fromCache: true,
+          sessionId: undefined,
+        }),
+      },
+    };
+
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueCommand,
+        { provide: ConversationService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'ai.provider') return 'openai';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showStageHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            showSkipped: jest.fn(),
+            showNoSideEffects: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+        { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        {
+          provide: AiService,
+          useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+        },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
+      ],
+    }).compile();
+    const command = module.get(IssueCommand);
+
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+    jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+    jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+
+    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ providerSessionId: 'sess-resume-789' });
+    setInteractiveSession();
+
+    await command.run(['WBP-22'], { from: 'plan', to: 'plan', action: 'fix', sessionId: 'existing-uuid' });
+
+    expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'existing-uuid' }),
+      'plan',
+      'sess-resume-789'
+    );
+  });
+
+  it('skips provider session ID prompt in non-interactive session when plan is from cache', async () => {
+    const ticketPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-23.md');
+    const planPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-23-fix-plan.json');
+
+    const mockOrchestrator = {
+      fetcher: {
+        loadFromDisk: jest.fn().mockReturnValue({ ticketKey: 'WBP-23', content: '# WBP-23', path: ticketPath }),
+      },
+      planner: {
+        execute: jest.fn().mockResolvedValue({
+          plan: {
+            action: 'fix',
+            summary: 'Cached',
+            estimatedComplexity: 'low',
+            steps: [],
+            affectedFiles: [],
+            affectedRepositories: [],
+          },
+          action: 'fix',
+          path: planPath,
+          fromCache: true,
+          sessionId: undefined,
+        }),
+      },
+    };
+
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueCommand,
+        { provide: ConversationService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'ai.provider') return 'openai';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showStageHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            showSkipped: jest.fn(),
+            showNoSideEffects: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+        { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        {
+          provide: AiService,
+          useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+        },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
+      ],
+    }).compile();
+    const command = module.get(IssueCommand);
+
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+    jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+    jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+
+    await command.run(['WBP-23'], { from: 'plan', to: 'plan', action: 'fix' });
+
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+  });
+
+  it('skips provider session ID prompt in non-interactive session when plan stage is skipped', async () => {
+    const ticketPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-24.md');
+    const planPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-24-fix-plan.json');
+
+    const mockOrchestrator = {
+      fetcher: {
+        loadFromDisk: jest.fn().mockReturnValue({ ticketKey: 'WBP-24', content: '# WBP-24', path: ticketPath }),
+      },
+      planner: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          plan: {
+            action: 'fix',
+            summary: 'Skipped',
+            estimatedComplexity: 'low',
+            steps: [],
+            affectedFiles: [],
+            affectedRepositories: [],
+          },
+          action: 'fix',
+          path: planPath,
+        }),
+      },
+      implementer: { execute: jest.fn().mockResolvedValue(undefined) },
+    };
+
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueCommand,
+        { provide: ConversationService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'ai.provider') return 'openai';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showStageHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            showSkipped: jest.fn(),
+            showNoSideEffects: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+        { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        {
+          provide: AiService,
+          useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+        },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
+      ],
+    }).compile();
+    const command = module.get(IssueCommand);
+
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+    jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+    jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+
+    await command.run(['WBP-24'], { from: 'implement', to: 'implement' });
+
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+  });
 });
