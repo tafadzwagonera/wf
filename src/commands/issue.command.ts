@@ -178,7 +178,9 @@ export class IssueCommand extends CommandRunner {
     description: 'Suppress branch creation; work directly on the source branch',
   })
   parseNoBranch(): boolean {
-    return true;
+    // Commander maps --no-X flags as boolean negation of X.
+    // Return false so that options.branch becomes false when --no-branch is passed.
+    return false;
   }
 
   @Option({
