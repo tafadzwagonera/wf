@@ -67,7 +67,7 @@ export class GitError extends AppError {
 
 export class AIError extends AppError {
   constructor(message: string, details?: any, recoverable: boolean = true) {
-    super(ERROR_CODE.AI_ERROR, message, details, recoverable);
+    super(ERROR_CODE.AI_PROVIDER_ERROR, message, details, recoverable);
     this.name = 'AIError';
   }
 }
@@ -80,10 +80,14 @@ export class AIError extends AppError {
  */
 export const isAIErrorLike = (error: unknown): error is AIError => {
   if (error instanceof AIError) return true;
-  if (error instanceof AppError && error.code === ERROR_CODE.AI_ERROR) return true;
+  if (error instanceof AppError && error.code === ERROR_CODE.AI_PROVIDER_ERROR) {
+    return true;
+  }
   if (!error || typeof error !== 'object') return false;
   const maybeError = error as { code?: unknown; name?: unknown };
-  return maybeError.code === ERROR_CODE.AI_ERROR || maybeError.name === 'AIError';
+  return (
+    maybeError.code === ERROR_CODE.AI_PROVIDER_ERROR || maybeError.code === 'AI_ERROR' || maybeError.name === 'AIError'
+  );
 };
 
 export class StateError extends AppError {

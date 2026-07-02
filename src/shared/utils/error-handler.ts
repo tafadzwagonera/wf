@@ -52,7 +52,7 @@ export class ErrorHandler {
       [ERROR_CODE.JIRA_API_ERROR]:
         'Verify your Jira credentials in wf.config.* under atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken.',
       [ERROR_CODE.GIT_ERROR]: 'Ensure you are in a git repository and have necessary permissions. Check git status.',
-      [ERROR_CODE.AI_ERROR]:
+      [ERROR_CODE.AI_PROVIDER_ERROR]:
         'Check your wf.config.* AI provider entries and API keys. Verify the selected provider has a valid apiKey, model, quota, and network access.',
       [ERROR_CODE.STATE_ERROR]: 'State file may be corrupted. Check .wf/state/ directory permissions.',
       [ERROR_CODE.USER_CANCELLED]: null,

@@ -137,7 +137,7 @@ test('ticketTypeSchema accepts valid ticket type', () => {
 });
 
 test('errorCodeSchema accepts valid error code', () => {
-  const result = errorCodeSchema.safeParse('AI_ERROR');
+  const result = errorCodeSchema.safeParse('AI_PROVIDER_ERROR');
   assert.ok(result.success, 'Expected parse to succeed');
 });
 
@@ -150,16 +150,16 @@ test('errorCodeSchema rejects unknown error code', () => {
 console.log(chalk.bold('\n--- AppError hierarchy ---'));
 
 test('AppError has correct name and code', () => {
-  const err = new AppError('AI_ERROR', 'test');
+  const err = new AppError('AI_PROVIDER_ERROR', 'test');
   assert.equal(err.name, 'AppError');
-  assert.equal(err.code, 'AI_ERROR');
+  assert.equal(err.code, 'AI_PROVIDER_ERROR');
   assert.ok(err instanceof Error);
 });
 
 test('AIError defaults to recoverable', () => {
   const err = new AIError('test');
   assert.equal(err.name, 'AIError');
-  assert.equal(err.code, 'AI_ERROR');
+  assert.equal(err.code, 'AI_PROVIDER_ERROR');
   assert.equal(err.recoverable, true);
 });
 
@@ -244,6 +244,10 @@ test('isAIErrorLike detects AIError instance', () => {
 });
 
 test('isAIErrorLike detects duck-typed object with code', () => {
+  assert.ok(isAIErrorLike({ code: 'AI_PROVIDER_ERROR', name: 'SomeError', message: 'x' }));
+});
+
+test('isAIErrorLike detects legacy duck-typed object with old code', () => {
   assert.ok(isAIErrorLike({ code: 'AI_ERROR', name: 'SomeError', message: 'x' }));
 });
 
@@ -270,7 +274,8 @@ test('Facade isAIErrorLike is same as direct', () => {
 });
 
 test('ErrorCode enum values match ERROR_CODE const', () => {
-  assert.equal(ErrorCode.AI_ERROR, ERROR_CODE.AI_ERROR);
+  assert.equal(ErrorCode.AI_ERROR, ERROR_CODE.AI_PROVIDER_ERROR);
+  assert.equal(ErrorCode.AI_PROVIDER_ERROR, ERROR_CODE.AI_PROVIDER_ERROR);
   assert.equal(ErrorCode.GIT_ERROR, ERROR_CODE.GIT_ERROR);
   assert.equal(ErrorCode.VALIDATION_ERROR, ERROR_CODE.VALIDATION_ERROR);
   assert.equal(ErrorCode.JIRA_API_ERROR, ERROR_CODE.JIRA_API_ERROR);
