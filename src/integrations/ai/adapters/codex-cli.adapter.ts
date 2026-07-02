@@ -142,6 +142,33 @@ export class CodexCliAdapter implements ImplementerBackend {
       console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] Tool: ${message.tool_name}`));
     }
 
+    if (message.type === 'item.started' && message.item?.type === 'command_execution' && message.item.command) {
+      const cmd = message.item.command.length > 80 ? `${message.item.command.slice(0, 77)}...` : message.item.command;
+      console.log(chalk.cyan(`  [${CODEX_ADAPTER_LABEL}] Running: ${cmd}`));
+      return;
+    }
+
+    if (message.type === 'item.completed' && message.item?.type === 'command_execution') {
+      const cmd = message.item.command ?? 'unknown';
+      const shortCmd = cmd.length > 60 ? `${cmd.slice(0, 57)}...` : cmd;
+      if (message.item.exit_code === 0) {
+        console.log(chalk.green(`  [${CODEX_ADAPTER_LABEL}] Command completed: ${shortCmd}`));
+      } else if (message.item.exit_code == null) {
+        console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] Command status unknown: ${shortCmd}`));
+      } else {
+        console.log(
+          chalk.red(`  [${CODEX_ADAPTER_LABEL}] Command failed (exit ${message.item.exit_code}): ${shortCmd}`)
+        );
+      }
+      return;
+    }
+
+    if (message.type === 'item.completed' && message.item?.type === 'agent_message' && message.item.text) {
+      const text = message.item.text.length > 120 ? `${message.item.text.slice(0, 117)}...` : message.item.text;
+      console.log(chalk.cyan(`  [${CODEX_ADAPTER_LABEL}] Agent: ${text}`));
+      return;
+    }
+
     // Track files from tool_use blocks to catch mutations committed mid-session
     if (message.type === 'assistant') {
       const innerMessage = message.message as

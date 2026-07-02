@@ -15,7 +15,12 @@ import { formatProgressMessage as formatOpenAiProgressMessage } from './adapters
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
 import { assertClaudeCliAvailable, buildCliArgs, spawnCli, type ClaudeCliMessage } from './adapters/claude-cli-runner';
-import { assertCodexCliAvailable, buildCodexCliArgs, spawnCodex } from './adapters/codex-cli-runner';
+import {
+  assertCodexCliAvailable,
+  buildCodexCliArgs,
+  spawnCodex,
+  type CodexCliMessage,
+} from './adapters/codex-cli-runner';
 import type { WfBackendMode } from '../../config/public-config';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import {
@@ -79,6 +84,42 @@ const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => 
 
 const CLI_STAGE_LABEL = 'claude-cli';
 const CLI_STALL_THRESHOLD = 2;
+
+const CODEX_STAGE_LABEL = 'codex-cli';
+
+const formatCodexProgressMessage = (message: CodexCliMessage): string | null => {
+  if (message.type === 'thread.started' && message.thread_id) {
+    return `  [${CODEX_STAGE_LABEL}] Session started: ${message.thread_id}`;
+  }
+
+  if (message.type === 'item.started' && message.item?.type === 'command_execution' && message.item.command) {
+    const cmd = message.item.command.length > 80 ? `${message.item.command.slice(0, 77)}...` : message.item.command;
+    return `  [${CODEX_STAGE_LABEL}] Running: ${cmd}`;
+  }
+
+  if (message.type === 'item.completed' && message.item?.type === 'agent_message' && message.item.text) {
+    const text = message.item.text.length > 120 ? `${message.item.text.slice(0, 117)}...` : message.item.text;
+    return `  [${CODEX_STAGE_LABEL}] Agent: ${text}`;
+  }
+
+  if (message.type === 'item.completed' && message.item?.type === 'command_execution') {
+    const status =
+      message.item.exit_code === 0
+        ? 'completed'
+        : message.item.exit_code == null
+          ? 'status unknown'
+          : `exit ${message.item.exit_code}`;
+    const cmd = message.item.command ?? 'unknown';
+    const shortCmd = cmd.length > 60 ? `${cmd.slice(0, 57)}...` : cmd;
+    return `  [${CODEX_STAGE_LABEL}] Command ${status}: ${shortCmd}`;
+  }
+
+  if (message.type === 'turn.completed' && message.usage) {
+    return `  [${CODEX_STAGE_LABEL}] Turn complete (${message.usage.input_tokens} in / ${message.usage.output_tokens} out)`;
+  }
+
+  return null;
+};
 
 /**
  * Extracts the last assistant turn's text from a CLI NDJSON message.
@@ -1252,8 +1293,9 @@ Return only the requested ticket markdown and preserve the required heading stru
     for await (const message of spawnCodex(args, resolvedRepoDir, fullPrompt)) {
       if (message.session_id) sessionId = message.session_id;
 
-      if (params.onProgress && message.summary) {
-        params.onProgress(`  [codex-cli] ${message.summary}`);
+      if (params.onProgress) {
+        const line = formatCodexProgressMessage(message);
+        if (line) params.onProgress(line);
       }
 
       if (message.type === 'result' && !message.is_error && message.result) {
@@ -1262,16 +1304,16 @@ Return only the requested ticket markdown and preserve the required heading stru
     }
 
     if (!result) {
-      console.error(
-        '[codex-diag] No result message received from Codex CLI. Check [codex-diag] lines above for raw output.'
-      );
-      console.error(`[codex-diag] Provider session: ${sessionId ?? '(none)'}`);
+      console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] No result message received from Codex CLI`));
+      if (sessionId) {
+        console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] Provider session: ${sessionId}`));
+      }
 
       throw new AIError('Codex CLI finished without returning a result.', null, true);
     }
 
     if (sessionId) {
-      console.log(chalk.gray(`  [codex-cli] Provider session: ${sessionId}`));
+      console.log(chalk.gray(`  [${CODEX_STAGE_LABEL}] Provider session: ${sessionId}`));
     }
 
     return { content: result.trim(), sessionId };

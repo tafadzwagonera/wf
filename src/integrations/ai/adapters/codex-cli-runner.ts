@@ -16,6 +16,16 @@ export interface CodexCliMessage {
   tool_name?: string;
   files?: Array<{ filename: string }>;
   summary?: string;
+  thread_id?: string;
+  item?: {
+    id?: string;
+    type?: string;
+    text?: string;
+    command?: string;
+    exit_code?: number | null;
+    status?: string;
+    aggregated_output?: string;
+  };
   [key: string]: unknown;
 }
 
@@ -162,12 +172,8 @@ export async function* spawnCodex(
 
   try {
     for await (const line of rl) {
-      console.error(`[codex-diag] raw-line: ${line}`);
       const message = parseNdjsonLine(line) as CodexCliMessage | null;
       if (message) {
-        console.error(
-          `[codex-diag] parsed-type: ${message.type}, is_error: ${message.is_error}, has_result: ${!!message.result}`
-        );
         yieldedAny = true;
         yield message;
       }
@@ -176,13 +182,6 @@ export async function* spawnCodex(
     if (timeoutHandle) clearTimeout(timeoutHandle);
     rl.close();
     killChild();
-  }
-
-  if (stderrChunks.length > 0) {
-    const stderrContent = Buffer.concat(stderrChunks).toString('utf-8').trim();
-    if (stderrContent) {
-      console.error(`[codex-diag] stderr:\n${stderrContent}`);
-    }
   }
 
   if (timedOut) {

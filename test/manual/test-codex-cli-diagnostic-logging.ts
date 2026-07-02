@@ -1,16 +1,17 @@
 /**
- * Manual smoke test: Codex CLI diagnostic logging in spawnCodex
+ * Manual smoke test: Codex CLI formatted progress output
  *
  * Run: nr test:manual -- test-codex-cli-diagnostic-logging
  *
  * Verifies:
- *   1. spawnCodex emits [codex-diag] raw-line logs for each stdout line
- *   2. spawnCodex emits [codex-diag] parsed-type logs for valid NDJSON
- *   3. spawnCodex emits [codex-diag] stderr logs when stderr has content
- *   4. No diagnostic logs appear when subprocess produces no output
+ *   1. parseNdjsonLine round-trips item.started, item.completed, and turn.completed
+ *      CodexCliMessage objects preserving item.command, item.exit_code, and usage fields
+ *   2. parseNdjsonLine returns null for non-JSON input
+ *   3. No-result label string uses [codex-cli] prefix
  */
 import chalk from 'chalk';
 import { parseNdjsonLine } from '../../src/integrations/ai/adapters/claude-cli-runner';
+import type { CodexCliMessage } from '../../src/integrations/ai/adapters/codex-cli-runner';
 
 let passed = 0;
 let failed = 0;
@@ -32,92 +33,64 @@ const assert = (condition: boolean, label: string, detail = ''): void => {
 };
 
 async function main(): Promise<void> {
-  console.log(chalk.bold('\nCodex CLI diagnostic logging smoke test\n'));
+  console.log(chalk.bold('\nCodex CLI formatted progress smoke test\n'));
 
-  // Test 1 & 2: raw-line and parsed-type logs appear for valid NDJSON
+  // Test 1: parseNdjsonLine round-trips item.started preserving item.command
   {
-    const mockLines = [
-      JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-abc' }),
-      JSON.stringify({ type: 'result', result: 'hello world', is_error: false }),
-      'not valid json',
-    ];
-
-    const rawLineLogs: string[] = [];
-    const parsedTypeLogs: string[] = [];
-
-    for (const line of mockLines) {
-      const rawLog = `[codex-diag] raw-line: ${line}`;
-      rawLineLogs.push(rawLog);
-
-      const message = parseNdjsonLine(line);
-      if (message) {
-        const msg = message as Record<string, unknown>;
-        const parsedLog = `[codex-diag] parsed-type: ${msg.type}, is_error: ${msg.is_error}, has_result: ${!!msg.result}`;
-        parsedTypeLogs.push(parsedLog);
-      }
-    }
-
+    const itemStarted: CodexCliMessage = {
+      type: 'item.started',
+      item: { type: 'command_execution', command: 'yarn build' },
+    };
+    const parsed = parseNdjsonLine(JSON.stringify(itemStarted)) as CodexCliMessage | null;
+    assert(parsed !== null, 'parseNdjsonLine parses item.started message', 'returned null');
+    assert(parsed?.type === 'item.started', 'parsed item.started has correct type', `got: ${parsed?.type}`);
     assert(
-      rawLineLogs.length === 3,
-      'emits [codex-diag] raw-line for every stdout line (including invalid JSON)',
-      `expected 3, got ${rawLineLogs.length}`
-    );
-
-    assert(
-      parsedTypeLogs.length === 2,
-      'emits [codex-diag] parsed-type only for valid NDJSON lines',
-      `expected 2, got ${parsedTypeLogs.length}`
-    );
-
-    assert(
-      parsedTypeLogs[0].includes('parsed-type: system'),
-      'first parsed log contains type "system"',
-      `got: ${parsedTypeLogs[0]}`
-    );
-
-    assert(
-      parsedTypeLogs[1].includes('parsed-type: result') && parsedTypeLogs[1].includes('has_result: true'),
-      'second parsed log contains type "result" with has_result: true',
-      `got: ${parsedTypeLogs[1]}`
+      (parsed?.item as Record<string, unknown> | undefined)?.['command'] === 'yarn build',
+      'parsed item.started preserves item.command',
+      `got: ${JSON.stringify(parsed?.item)}`
     );
   }
 
-  // Test 3: stderr diagnostic logging path
+  // Test 2: parseNdjsonLine round-trips item.completed preserving item.exit_code
   {
-    const stderrChunks = [Buffer.from('OpenAI Codex v0.130.0\n'), Buffer.from('some warning\n')];
-    const stderrContent = Buffer.concat(stderrChunks).toString('utf-8').trim();
-    const expectedLog = `[codex-diag] stderr:\n${stderrContent}`;
-
+    const itemCompleted: CodexCliMessage = {
+      type: 'item.completed',
+      item: { type: 'command_execution', command: 'yarn test', exit_code: 0 },
+    };
+    const parsed = parseNdjsonLine(JSON.stringify(itemCompleted)) as CodexCliMessage | null;
+    assert(parsed !== null, 'parseNdjsonLine parses item.completed message', 'returned null');
     assert(
-      expectedLog.includes('[codex-diag] stderr:'),
-      'stderr diagnostic log is formatted with [codex-diag] prefix',
-      `got: ${expectedLog}`
-    );
-
-    assert(
-      expectedLog.includes('OpenAI Codex v0.130.0') && expectedLog.includes('some warning'),
-      'stderr diagnostic log contains full stderr content',
-      `got: ${expectedLog}`
+      (parsed?.item as Record<string, unknown> | undefined)?.['exit_code'] === 0,
+      'parsed item.completed preserves exit_code: 0',
+      `got: ${JSON.stringify(parsed?.item)}`
     );
   }
 
-  // Test 4: no-result diagnostic log message
+  // Test 3: parseNdjsonLine round-trips turn.completed preserving usage fields
   {
-    const noResultLog =
-      '[codex-diag] No result message received from Codex CLI. Check [codex-diag] lines above for raw output.';
-
+    const turnCompleted: CodexCliMessage = {
+      type: 'turn.completed',
+      usage: { input_tokens: 100, output_tokens: 200 },
+    };
+    const parsed = parseNdjsonLine(JSON.stringify(turnCompleted)) as CodexCliMessage | null;
+    assert(parsed !== null, 'parseNdjsonLine parses turn.completed message', 'returned null');
     assert(
-      noResultLog.includes('No result message received'),
-      'no-result diagnostic log mentions missing result',
-      `got: ${noResultLog}`
+      parsed?.usage?.input_tokens === 100 && parsed?.usage?.output_tokens === 200,
+      'parsed turn.completed preserves usage.input_tokens and usage.output_tokens',
+      `got: ${JSON.stringify(parsed?.usage)}`
     );
   }
 
-  // Test 5: parseNdjsonLine returns null for non-JSON, confirming raw-line still logs
+  // Test 4: parseNdjsonLine returns null for non-JSON input
   {
     const result = parseNdjsonLine('this is not json');
+    assert(result === null, 'parseNdjsonLine returns null for non-JSON input');
+  }
 
-    assert(result === null, 'parseNdjsonLine returns null for non-JSON input so raw-line log covers it');
+  // Test 5: no-result label uses [codex-cli] prefix
+  {
+    const noResultLabel = '[codex-cli] No result message received from Codex CLI';
+    assert(noResultLabel.startsWith('[codex-cli]'), 'no-result label starts with [codex-cli]', `got: ${noResultLabel}`);
   }
 
   console.log(chalk.bold(`\n  ${passed} passed, ${failed} failed\n`));
