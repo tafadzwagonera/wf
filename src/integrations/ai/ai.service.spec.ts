@@ -281,6 +281,10 @@ describe('AiService', () => {
   });
 
   describe('reviewCode trace validation', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
     it('raises an AIError with provider metadata when the review response is blank', async () => {
       const adapter = createAdapter();
       adapter.execute
@@ -648,6 +652,129 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
           },
         ],
       });
+    });
+
+    it('preserves traces where suggestions appears as a code identifier', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: 'ok',
+          issues: [],
+          traceProvenance: 'evidence-based',
+          callStack: [
+            {
+              frame: 'handleProviderError()',
+              children: [
+                {
+                  frame: 'getSuggestion(error.code)',
+                  children: [
+                    {
+                      frame: 'suggestions[ERROR_CODE.AI_PROVIDER_ERROR]',
+                      children: [],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+          stateTransition: {
+            from: 'handleProviderError',
+            to: 'getSuggestion',
+            steps: [
+              {
+                frame: 'handleProviderError()',
+                captured: {
+                  'suggestion map key': 'computed property',
+                },
+                changes: {},
+                children: [],
+              },
+            ],
+          },
+          suggestions: [],
+          approved: true,
+        }),
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const review = await service.reviewCode(
+        `
+diff --git a/src/error/error.handler.ts b/src/error/error.handler.ts
+@@
++function handleProviderError() {
++  return getSuggestion(error.code);
++}
+`,
+        ['guideline']
+      );
+
+      expect(review.traceProvenance).toBe('evidence-based');
+      expect(review.callStack).toEqual([
+        {
+          frame: 'handleProviderError()',
+          children: [
+            {
+              frame: 'getSuggestion(error.code)',
+              children: [
+                {
+                  frame: 'suggestions[ERROR_CODE.AI_PROVIDER_ERROR]',
+                  children: [],
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      expect(review.stateTransition).toEqual(
+        expect.objectContaining({
+          from: 'handleProviderError',
+        })
+      );
+    });
+
+    it('sanitizes traces containing reviewer-narration phrase generating suggestions', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: 'ok',
+          issues: [],
+          traceProvenance: 'evidence-based',
+          callStack: [
+            {
+              frame: 'Generating suggestions for payment.controller.ts',
+              children: [
+                {
+                  frame: 'eventPaymentRecorded()',
+                  children: [],
+                },
+              ],
+            },
+          ],
+          stateTransition: {
+            from: 'initial',
+            to: 'complete',
+            steps: [],
+          },
+          suggestions: [],
+          approved: true,
+        }),
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const review = await service.reviewCode(
+        `
+diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.ts
+@@
++export async function eventPaymentRecorded() {
++  return addPaymentToBooking();
++}
+`,
+        ['guideline']
+      );
+
+      expect(review.traceProvenance).toBe('unavailable');
+      expect(review.callStack).toEqual([]);
+      expect(review.stateTransition).toEqual({});
     });
 
     it('asks the model to return issue-local suggestions and detached global suggestions separately', async () => {
