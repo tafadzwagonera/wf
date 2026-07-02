@@ -741,9 +741,9 @@ The `--model-routing` flag controls which model the implement stage uses:
 
 | Value | Behavior | OpenAI default | Anthropic default |
 |---|---|---|---|
-| `auto` (default) | Detect mechanical vs creative from the plan | gpt-4.1 or gpt-5.1-codex-mini | claude-sonnet-4-6 or claude-haiku-4-5-20251001 |
+| `auto` (default) | Detect mechanical vs creative from the plan | gpt-4.1 or gpt-5.4-mini | claude-sonnet-4-6 or claude-haiku-4-5-20251001 |
 | `default` | Force the default model for the entire run | gpt-4.1 | claude-sonnet-4-6 |
-| `mechanical` | Force the cheaper mechanical model | gpt-5.1-codex-mini | claude-haiku-4-5-20251001 |
+| `mechanical` | Force the cheaper mechanical model | gpt-5.4-mini | claude-haiku-4-5-20251001 |
 
 In `auto` mode, the adapter classifies tasks through a six-step cascade: (1) low `estimatedComplexity` routes to the mechanical model immediately, (2) high complexity routes to the creative model immediately, (3) a high file-to-step ratio (>3) signals mechanical, (4) keyword patterns in plan steps (e.g. "migrate all", "replace every", "bulk update", "find and replace") signal mechanical, (5) semantic signal analysis compares mechanical indicators (e.g. "standardize", "boilerplate", "same change") against creative indicators (e.g. "design", "algorithm", "refactor") — mechanical wins only when its count exceeds creative, and (6) the fallback is creative.
 
@@ -755,7 +755,7 @@ stages:
     provider: openai
     models:
       default: gpt-4.1
-      mechanical: gpt-5.1-codex-mini
+      mechanical: gpt-5.4-mini
 ```
 
 The primary model resolves from `stages.implement.models.default` → `stages.implement.model` → `ai.$.model` → provider default. The mechanical model resolves from `stages.implement.models.mechanical` → provider default mechanical. When both `model` and `models` are set, `models` takes precedence (it is more specific) and a warning displays the effective configuration.

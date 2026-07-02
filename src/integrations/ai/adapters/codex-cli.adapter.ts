@@ -12,7 +12,7 @@ import { resolveModelRouting, discoverChangedFiles } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
 import { assertCodexCliAvailable, buildCodexCliArgs, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
 
-const DEFAULT_MECHANICAL_MODEL = 'gpt-4.1-mini';
+const DEFAULT_MECHANICAL_MODEL = 'gpt-5.4-mini';
 const CODEX_ADAPTER_LABEL = 'codex-cli';
 /**
  * Codex CLI headless mode implementer backend.
