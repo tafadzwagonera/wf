@@ -16,6 +16,8 @@ jest.mock('./wf-paths', () => ({
 const REPO_NAME = 'service-tourv3';
 const REPO_DIR = `/fake/.wf/${REPO_NAME}`;
 const JIRA_DIR = path.join(REPO_DIR, 'jira');
+const ARCHIVE_DIR = path.join(REPO_DIR, 'history');
+const NESTED_ARCHIVE_DIR = path.join(ARCHIVE_DIR, '2026');
 
 const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
 const mockReadFileSync = fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>;
@@ -32,6 +34,23 @@ const createMockTicketMarkdown = (overrides: { title?: string; summary?: string 
   return `# ${title}\n\n### Summary\n${summary}\n\n### Details\nSome extra details here.\n`;
 };
 
+const createMockTicketJson = (overrides: { title?: string; description?: string } = {}): string =>
+  JSON.stringify(
+    {
+      title: overrides.title ?? 'Fix pricing service timeout',
+      description:
+        overrides.description ?? 'The PricingService is throwing ECONNREFUSED when calling src/pricing/pricing.ts',
+    },
+    null,
+    2
+  );
+
+const createMockTicketYaml = (overrides: { title?: string; description?: string } = {}): string => `title: ${
+  overrides.title ?? 'Fix pricing service timeout'
+}
+description: ${overrides.description ?? 'The PricingService is throwing ECONNREFUSED when calling src/pricing/pricing.ts'}
+`;
+
 const createMockPriorTicketSummary = (overrides: Partial<PriorTicketSummary> = {}): PriorTicketSummary => ({
   title: 'Fix pricing service timeout',
   summary: 'The PricingService is throwing ECONNREFUSED when calling src/pricing/pricing.ts',
@@ -46,7 +65,12 @@ const createMockPriorTicketContext = (overrides: Partial<PriorTicketContext> = {
   ...overrides,
 });
 
-const createMockDirent = (name: string, isDir: boolean): fs.Dirent => ({ name, isDirectory: () => isDir }) as fs.Dirent;
+const createMockDirent = (name: string, isDir: boolean): fs.Dirent =>
+  ({
+    name,
+    isDirectory: () => isDir,
+    isFile: () => !isDir,
+  }) as fs.Dirent;
 
 const createMockStat = (mtimeMs: number): fs.Stats => ({ mtimeMs }) as fs.Stats;
 
@@ -105,53 +129,75 @@ describe('detectPriorTickets', () => {
     });
   });
 
-  describe('when scanning tracker subdirectories', () => {
-    it('finds ticket files in tracker subdirectories', () => {
+  describe('when scanning repo artifact directories recursively', () => {
+    it.each([
+      ['md', 'TOUR-123-ticket-description.md', createMockTicketMarkdown({})],
+      ['json', 'TOUR-123-ticket-description.json', createMockTicketJson()],
+      ['yaml', 'TOUR-123-ticket-description.yaml', createMockTicketYaml()],
+      ['yml', 'TOUR-123-ticket-description.yml', createMockTicketYaml()],
+    ])('finds %s ticket artifacts in nested repo subdirectories', (_format, fileName, fileContent) => {
       mockExistsSync.mockReturnValue(true);
 
       mockReaddirSync.mockImplementation((dir: fs.PathLike, opts?: unknown) => {
         const s = String(dir);
         if (s === REPO_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
-          return [createMockDirent('jira', true)];
+          return [createMockDirent('jira', true), createMockDirent('history', true)];
         }
         if (s === JIRA_DIR) {
-          return ['TOUR-123-ticket-description.md'];
+          return [];
+        }
+        if (s === ARCHIVE_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
+          return [createMockDirent('2026', true)];
+        }
+        if (s === NESTED_ARCHIVE_DIR) {
+          return [createMockDirent(fileName, false)];
         }
         return [];
       });
 
       mockStatSync.mockReturnValue(createMockStat(1000));
-
-      mockReadFileSync.mockReturnValue(
-        createMockTicketMarkdown({
-          title: 'Fix pricing service timeout',
-          summary: 'The PricingService is throwing ECONNREFUSED',
-        })
-      );
+      mockReadFileSync.mockReturnValue(fileContent);
 
       const result = detectPriorTickets(REPO_NAME);
 
       expect(result.repoName).toBe(REPO_NAME);
       expect(result.tickets).toHaveLength(1);
-      expect(result.tickets[0].filename).toBe('TOUR-123-ticket-description.md');
+      expect(result.tickets[0].filename).toBe(fileName);
     });
 
-    it('ignores non-markdown files in tracker directories', () => {
+    it('ignores unsupported and invalid ticket artifacts in nested repo directories', () => {
       mockExistsSync.mockReturnValue(true);
 
       mockReaddirSync.mockImplementation((dir: fs.PathLike, opts?: unknown) => {
         const s = String(dir);
         if (s === REPO_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
-          return [createMockDirent('jira', true)];
+          return [createMockDirent('history', true)];
         }
-        if (s === JIRA_DIR) {
-          return ['state.json', 'TOUR-123-ticket-description.md'];
+        if (s === ARCHIVE_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
+          return [createMockDirent('2026', true)];
+        }
+        if (s === NESTED_ARCHIVE_DIR) {
+          return [
+            createMockDirent('state.json', false),
+            createMockDirent('TOUR-123-ticket-description.md', false),
+            createMockDirent('TOUR-124-ticket-description.json', false),
+          ];
         }
         return [];
       });
 
       mockStatSync.mockReturnValue(createMockStat(1000));
-      mockReadFileSync.mockReturnValue(createMockTicketMarkdown({}));
+      mockReadFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+        const value = String(filePath);
+        if (value.endsWith('TOUR-123-ticket-description.md')) {
+          return createMockTicketMarkdown({});
+        }
+        if (value.endsWith('TOUR-124-ticket-description.json')) {
+          return JSON.stringify({ title: 'missing description' });
+        }
+
+        return JSON.stringify({ cached: true });
+      });
 
       const result = detectPriorTickets(REPO_NAME);
 
@@ -166,10 +212,17 @@ describe('detectPriorTickets', () => {
       mockReaddirSync.mockImplementation((dir: fs.PathLike, opts?: unknown) => {
         const s = String(dir);
         if (s === REPO_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
-          return [createMockDirent('jira', true)];
+          return [createMockDirent('history', true)];
         }
-        if (s === JIRA_DIR) {
-          return ['TOUR-100-ticket-description.md', 'TOUR-200-ticket-description.md', 'TOUR-300-ticket-description.md'];
+        if (s === ARCHIVE_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
+          return [createMockDirent('2026', true)];
+        }
+        if (s === NESTED_ARCHIVE_DIR) {
+          return [
+            createMockDirent('TOUR-100-ticket-description.md', false),
+            createMockDirent('TOUR-200-ticket-description.json', false),
+            createMockDirent('TOUR-300-ticket-description.yaml', false),
+          ];
         }
         return [];
       });
@@ -185,6 +238,13 @@ describe('detectPriorTickets', () => {
       mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
         const s = String(p);
         const num = s.match(/TOUR-(\d+)/)?.[1] ?? '000';
+        if (s.endsWith('.json')) {
+          return createMockTicketJson({ title: `Ticket ${num}` });
+        }
+        if (s.endsWith('.yaml')) {
+          return createMockTicketYaml({ title: `Ticket ${num}` });
+        }
+
         return createMockTicketMarkdown({ title: `Ticket ${num}` });
       });
 
@@ -197,28 +257,50 @@ describe('detectPriorTickets', () => {
   });
 
   describe('when extracting ticket content', () => {
-    it('extracts title, summary, and keywords from ticket markdown', () => {
+    it.each([
+      [
+        'markdown',
+        'TOUR-123-ticket-description.md',
+        createMockTicketMarkdown({
+          title: 'Fix PricingService timeout',
+          summary: 'The PricingService throws ECONNREFUSED in src/pricing/pricing.ts',
+        }),
+      ],
+      [
+        'json',
+        'TOUR-123-ticket-description.json',
+        createMockTicketJson({
+          title: 'Fix PricingService timeout',
+          description: 'The PricingService throws ECONNREFUSED in src/pricing/pricing.ts',
+        }),
+      ],
+      [
+        'yaml',
+        'TOUR-123-ticket-description.yaml',
+        createMockTicketYaml({
+          title: 'Fix PricingService timeout',
+          description: 'The PricingService throws ECONNREFUSED in src/pricing/pricing.ts',
+        }),
+      ],
+    ])('extracts title, summary, and keywords from %s ticket artifacts', (_format, fileName, fileContent) => {
       mockExistsSync.mockReturnValue(true);
 
       mockReaddirSync.mockImplementation((dir: fs.PathLike, opts?: unknown) => {
         const s = String(dir);
         if (s === REPO_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
-          return [createMockDirent('jira', true)];
+          return [createMockDirent('history', true)];
         }
-        if (s === JIRA_DIR) {
-          return ['TOUR-123-ticket-description.md'];
+        if (s === ARCHIVE_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
+          return [createMockDirent('2026', true)];
+        }
+        if (s === NESTED_ARCHIVE_DIR) {
+          return [createMockDirent(fileName, false)];
         }
         return [];
       });
 
       mockStatSync.mockReturnValue(createMockStat(1000));
-
-      mockReadFileSync.mockReturnValue(
-        createMockTicketMarkdown({
-          title: 'Fix PricingService timeout',
-          summary: 'The PricingService throws ECONNREFUSED in src/pricing/pricing.ts',
-        })
-      );
+      mockReadFileSync.mockReturnValue(fileContent);
 
       const result = detectPriorTickets(REPO_NAME);
       const ticket = result.tickets[0];

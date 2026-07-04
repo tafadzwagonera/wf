@@ -15,6 +15,7 @@ import {
 } from './plan-artifact';
 import { COMPONENT_NAME_REGEX, ERROR_PATTERN_REGEX, FILE_PATH_REGEX } from './detect-prior-tickets';
 import { getWfHomeDir } from './wf-paths';
+import { collectWfArtifactFiles } from './collect-wf-artifact-files';
 
 export type { PriorPlanContext, PriorPlanSummary };
 
@@ -53,7 +54,7 @@ export const extractPlanKeywords = (plan: ResolutionPlan): string[] => {
 };
 
 /**
- * Detect prior plan artifacts from `~/.wf/<repoName>/` tracker subdirectories.
+ * Detect prior plan artifacts from anywhere under `~/.wf/<repoName>/`.
  *
  * @param repoName - Repository name under the wf home directory
  * @param opts - Optional detection settings
@@ -68,40 +69,19 @@ export const detectPriorPlans = (repoName: string, opts?: { limit?: number }): P
     return { plans: [], repoName };
   }
 
+  const planPaths = collectWfArtifactFiles(repoDir, (_filePath, fileName) => {
+    const stem = fileName.replace(/\.[^.]+$/, '');
+    return CANONICAL_PLAN_STEM.test(stem);
+  });
   const planFiles: Array<{ filePath: string; mtime: number }> = [];
 
-  try {
-    const trackerEntries = fs.readdirSync(repoDir, { withFileTypes: true });
-
-    for (const trackerEntry of trackerEntries) {
-      if (!trackerEntry.isDirectory()) continue;
-
-      const trackerDir = path.join(repoDir, trackerEntry.name);
-
-      try {
-        const fileEntries = fs.readdirSync(trackerDir);
-
-        for (const fileName of fileEntries) {
-          const stem = fileName.replace(/\.[^.]+$/, '');
-          if (!CANONICAL_PLAN_STEM.test(stem)) {
-            continue;
-          }
-
-          const filePath = path.join(trackerDir, fileName);
-
-          try {
-            const stat = fs.statSync(filePath);
-            planFiles.push({ filePath, mtime: stat.mtimeMs });
-          } catch {
-            // skip unreadable stat
-          }
-        }
-      } catch {
-        // skip unreadable tracker dir
-      }
+  for (const filePath of planPaths) {
+    try {
+      const stat = fs.statSync(filePath);
+      planFiles.push({ filePath, mtime: stat.mtimeMs });
+    } catch {
+      // skip unreadable stat
     }
-  } catch {
-    return { plans: [], repoName };
   }
 
   planFiles.sort((a, b) => b.mtime - a.mtime);

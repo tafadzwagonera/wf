@@ -27,6 +27,8 @@ jest.mock('./plan-artifact', () => {
 const REPO_NAME = 'service-tourv3';
 const REPO_DIR = `/fake/.wf/${REPO_NAME}`;
 const JIRA_DIR = path.join(REPO_DIR, 'jira');
+const ARCHIVE_DIR = path.join(REPO_DIR, 'history');
+const NESTED_ARCHIVE_DIR = path.join(ARCHIVE_DIR, '2026');
 
 const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
 const mockReadFileSync = fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>;
@@ -69,7 +71,12 @@ const createMockPriorTicketContext = (overrides: Partial<PriorTicketContext> = {
   ...overrides,
 });
 
-const createMockDirent = (name: string, isDir: boolean): fs.Dirent => ({ name, isDirectory: () => isDir }) as fs.Dirent;
+const createMockDirent = (name: string, isDir: boolean): fs.Dirent =>
+  ({
+    name,
+    isDirectory: () => isDir,
+    isFile: () => !isDir,
+  }) as fs.Dirent;
 const createMockStat = (mtimeMs: number): fs.Stats => ({ mtimeMs }) as fs.Stats;
 
 describe('extractPlanKeywords', () => {
@@ -134,10 +141,16 @@ describe('detectPriorPlans', () => {
     mockReaddirSync.mockImplementation((dir: fs.PathLike, opts?: unknown) => {
       const value = String(dir);
       if (value === REPO_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
-        return [createMockDirent('jira', true)];
+        return [createMockDirent('jira', true), createMockDirent('history', true)];
       }
       if (value === JIRA_DIR) {
-        return ['2026-07-01-abc123-fix-plan.json', 'notes.md'];
+        return [];
+      }
+      if (value === ARCHIVE_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
+        return [createMockDirent('2026', true)];
+      }
+      if (value === NESTED_ARCHIVE_DIR) {
+        return [createMockDirent('2026-07-01-abc123-fix-plan.json', false), createMockDirent('notes.md', false)];
       }
       return [];
     });
@@ -172,13 +185,16 @@ describe('detectPriorPlans', () => {
     mockReaddirSync.mockImplementation((dir: fs.PathLike, opts?: unknown) => {
       const value = String(dir);
       if (value === REPO_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
-        return [createMockDirent('jira', true)];
+        return [createMockDirent('history', true)];
       }
-      if (value === JIRA_DIR) {
+      if (value === ARCHIVE_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
+        return [createMockDirent('2026', true)];
+      }
+      if (value === NESTED_ARCHIVE_DIR) {
         return [
-          '2026-07-01-aaa111-fix-plan.json',
-          '2026-07-02-bbb222-fix-plan.json',
-          '2026-07-03-ccc333-fix-plan.json',
+          createMockDirent('2026-07-01-aaa111-fix-plan.json', false),
+          createMockDirent('2026-07-02-bbb222-fix-plan.json', false),
+          createMockDirent('2026-07-03-ccc333-fix-plan.json', false),
         ];
       }
       return [];
@@ -211,10 +227,13 @@ describe('detectPriorPlans', () => {
     mockReaddirSync.mockImplementation((dir: fs.PathLike, opts?: unknown) => {
       const value = String(dir);
       if (value === REPO_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
-        return [createMockDirent('jira', true)];
+        return [createMockDirent('history', true)];
       }
-      if (value === JIRA_DIR) {
-        return ['2026-07-01-abc123-fix-plan.json'];
+      if (value === ARCHIVE_DIR && opts && (opts as { withFileTypes?: boolean }).withFileTypes) {
+        return [createMockDirent('2026', true)];
+      }
+      if (value === NESTED_ARCHIVE_DIR) {
+        return [createMockDirent('2026-07-01-abc123-fix-plan.json', false)];
       }
       return [];
     });
