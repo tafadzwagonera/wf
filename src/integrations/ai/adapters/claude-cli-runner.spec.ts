@@ -1,4 +1,10 @@
-import { assertClaudeCliAvailable, buildCliArgs, parseNdjsonLine, spawnCli } from './claude-cli-runner';
+import {
+  assertClaudeCliAvailable,
+  buildCliArgs,
+  parseClaudeCliVersion,
+  parseNdjsonLine,
+  spawnCli,
+} from './claude-cli-runner';
 import { execSync, spawn } from 'child_process';
 import { EventEmitter, Readable, Writable } from 'stream';
 
@@ -35,8 +41,16 @@ const createMockChildProcess = () => {
 
 describe('claude-cli-runner', () => {
   describe('assertClaudeCliAvailable', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+      mockExecSync.mockReset();
+      delete process.env['WF_SKIP_CLI_VERSION_CHECK'];
+    });
+
     it('does not throw when claude is available', () => {
-      mockExecSync.mockReturnValue(Buffer.from('/usr/local/bin/claude'));
+      mockExecSync
+        .mockReturnValueOnce(Buffer.from('/usr/local/bin/claude'))
+        .mockReturnValueOnce('2.1.80 (Claude Code)' as any);
       expect(() => assertClaudeCliAvailable()).not.toThrow();
     });
 
@@ -46,6 +60,52 @@ describe('claude-cli-runner', () => {
       });
       expect(() => assertClaudeCliAvailable()).toThrow(/Claude CLI is not installed/);
       expect(() => assertClaudeCliAvailable()).toThrow(/docs\.anthropic\.com/);
+    });
+
+    it('throws when the installed major version does not match', () => {
+      mockExecSync.mockReturnValueOnce(Buffer.from('/usr/local/bin/claude')).mockReturnValueOnce('3.0.0' as any);
+      expect(() => assertClaudeCliAvailable()).toThrow(/Incompatible Claude CLI version 3\.0\.0/);
+    });
+
+    it('throws when the installed minor version is too old', () => {
+      mockExecSync.mockReturnValueOnce(Buffer.from('/usr/local/bin/claude')).mockReturnValueOnce('2.0.5' as any);
+      expect(() => assertClaudeCliAvailable()).toThrow(/2\.0\.5 is too old/);
+    });
+
+    it('does not throw when the installed minor version is newer than the minimum', () => {
+      mockExecSync.mockReturnValueOnce(Buffer.from('/usr/local/bin/claude')).mockReturnValueOnce('2.3.0' as any);
+      expect(() => assertClaudeCliAvailable()).not.toThrow();
+    });
+
+    it('throws when the version output is unrecognisable', () => {
+      mockExecSync.mockReturnValueOnce(Buffer.from('/usr/local/bin/claude')).mockReturnValueOnce('unknown' as any);
+      expect(() => assertClaudeCliAvailable()).toThrow(/Unrecognised Claude CLI version format/);
+    });
+
+    it('skips version check when WF_SKIP_CLI_VERSION_CHECK=1', () => {
+      process.env['WF_SKIP_CLI_VERSION_CHECK'] = '1';
+      mockExecSync.mockReturnValueOnce(Buffer.from('/usr/local/bin/claude'));
+      expect(() => assertClaudeCliAvailable()).not.toThrow();
+      expect(mockExecSync).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('parseClaudeCliVersion', () => {
+    it('parses the full claude --version output', () => {
+      expect(parseClaudeCliVersion('2.1.80 (Claude Code)')).toEqual({ major: 2, minor: 1, patch: 80 });
+    });
+
+    it('parses a bare semver triple', () => {
+      expect(parseClaudeCliVersion('2.1.80')).toEqual({ major: 2, minor: 1, patch: 80 });
+    });
+
+    it('returns null for non-version strings', () => {
+      expect(parseClaudeCliVersion('unknown')).toBeNull();
+      expect(parseClaudeCliVersion('')).toBeNull();
+    });
+
+    it('handles leading and trailing whitespace', () => {
+      expect(parseClaudeCliVersion('  2.1.80 (Claude Code)  ')).toEqual({ major: 2, minor: 1, patch: 80 });
     });
   });
 

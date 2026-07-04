@@ -37,10 +37,27 @@ export interface CliRunnerParams {
 
 const CLI_TIMEOUT_MS = 10 * 60 * 1000;
 const SIGKILL_GRACE_MS = 5000;
+const REQUIRED_CLAUDE_CLI_MAJOR = 2;
+const REQUIRED_CLAUDE_CLI_MIN_MINOR = 1;
+const SKIP_VERSION_CHECK_ENV = 'WF_SKIP_CLI_VERSION_CHECK';
 
 /**
- * Asserts that the Claude CLI binary is available on the system PATH.
- * Throws with install instructions when missing.
+ * Parses a `claude --version` output string into major/minor/patch components.
+ * Returns null when the string does not contain a recognisable semver triple.
+ *
+ * @param raw - Raw stdout from `claude --version` (e.g. "2.1.80 (Claude Code)")
+ * @returns Parsed version object, or null if the format is unrecognisable
+ */
+export const parseClaudeCliVersion = (raw: string): { major: number; minor: number; patch: number } | null => {
+  const match = raw.trim().match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return null;
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
+};
+
+/**
+ * Asserts that the Claude CLI binary is installed and meets the minimum version requirement.
+ * Throws with install/upgrade instructions when the binary is missing or incompatible.
+ * Set WF_SKIP_CLI_VERSION_CHECK=1 to bypass the version check (e.g. in CI).
  */
 export const assertClaudeCliAvailable = (): void => {
   try {
@@ -48,6 +65,41 @@ export const assertClaudeCliAvailable = (): void => {
   } catch {
     throw new Error(
       'Claude CLI is not installed. Install it by following: https://docs.anthropic.com/en/docs/claude-code'
+    );
+  }
+
+  if (process.env[SKIP_VERSION_CHECK_ENV] === '1') return;
+
+  let raw: string;
+  try {
+    raw = execSync('claude --version', { stdio: 'pipe', encoding: 'utf-8' });
+  } catch {
+    throw new Error('Claude CLI version check failed. Run `claude --version` to diagnose.');
+  }
+
+  const version = parseClaudeCliVersion(raw);
+  if (!version) {
+    throw new Error(
+      `Unrecognised Claude CLI version format: "${raw.trim()}". ` +
+        `Set ${SKIP_VERSION_CHECK_ENV}=1 to bypass this check.`
+    );
+  }
+
+  if (version.major !== REQUIRED_CLAUDE_CLI_MAJOR) {
+    throw new Error(
+      `Incompatible Claude CLI version ${version.major}.${version.minor}.${version.patch}. ` +
+        `Required: major=${REQUIRED_CLAUDE_CLI_MAJOR} (>=${REQUIRED_CLAUDE_CLI_MAJOR}.${REQUIRED_CLAUDE_CLI_MIN_MINOR}). ` +
+        `Upgrade: npm install -g @anthropic-ai/claude-code@latest. ` +
+        `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
+    );
+  }
+
+  if (version.minor < REQUIRED_CLAUDE_CLI_MIN_MINOR) {
+    throw new Error(
+      `Claude CLI version ${version.major}.${version.minor}.${version.patch} is too old. ` +
+        `Required: >=${REQUIRED_CLAUDE_CLI_MAJOR}.${REQUIRED_CLAUDE_CLI_MIN_MINOR}. ` +
+        `Upgrade: npm install -g @anthropic-ai/claude-code@latest. ` +
+        `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
     );
   }
 };

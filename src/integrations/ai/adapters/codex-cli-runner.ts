@@ -73,16 +73,68 @@ export const extractCodexErrorMessages = (stderr: string): string => {
   return unique.join('; ');
 };
 const SIGKILL_GRACE_MS = 5000;
+const REQUIRED_CODEX_CLI_MAJOR = 0;
+const REQUIRED_CODEX_CLI_MIN_MINOR = 142;
+const SKIP_VERSION_CHECK_ENV = 'WF_SKIP_CLI_VERSION_CHECK';
 
 /**
- * Asserts that the Codex CLI binary is available on the system PATH.
- * Throws with install instructions when missing.
+ * Parses a `codex --version` output string into major/minor/patch components.
+ * Returns null when the string does not contain a recognisable semver triple.
+ *
+ * @param raw - Raw stdout from `codex --version` (e.g. "codex-cli 0.142.5")
+ * @returns Parsed version object, or null if the format is unrecognisable
+ */
+export const parseCodexCliVersion = (raw: string): { major: number; minor: number; patch: number } | null => {
+  const match = raw.trim().match(/(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return null;
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
+};
+
+/**
+ * Asserts that the Codex CLI binary is installed and meets the minimum version requirement.
+ * Throws with install/upgrade instructions when the binary is missing or incompatible.
+ * Set WF_SKIP_CLI_VERSION_CHECK=1 to bypass the version check (e.g. in CI).
  */
 export const assertCodexCliAvailable = (): void => {
   try {
     execSync('command -v codex', { stdio: 'pipe' });
   } catch {
     throw new Error('Codex CLI is not installed. Install it by following: https://github.com/openai/codex');
+  }
+
+  if (process.env[SKIP_VERSION_CHECK_ENV] === '1') return;
+
+  let raw: string;
+  try {
+    raw = execSync('codex --version', { stdio: 'pipe', encoding: 'utf-8' });
+  } catch {
+    throw new Error('Codex CLI version check failed. Run `codex --version` to diagnose.');
+  }
+
+  const version = parseCodexCliVersion(raw);
+  if (!version) {
+    throw new Error(
+      `Unrecognised Codex CLI version format: "${raw.trim()}". ` +
+        `Set ${SKIP_VERSION_CHECK_ENV}=1 to bypass this check.`
+    );
+  }
+
+  if (version.major !== REQUIRED_CODEX_CLI_MAJOR) {
+    throw new Error(
+      `Incompatible Codex CLI version ${version.major}.${version.minor}.${version.patch}. ` +
+        `Required: major=${REQUIRED_CODEX_CLI_MAJOR} (>=${REQUIRED_CODEX_CLI_MAJOR}.${REQUIRED_CODEX_CLI_MIN_MINOR}). ` +
+        `Upgrade: npm install -g @openai/codex@latest. ` +
+        `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
+    );
+  }
+
+  if (version.minor < REQUIRED_CODEX_CLI_MIN_MINOR) {
+    throw new Error(
+      `Codex CLI version ${version.major}.${version.minor}.${version.patch} is too old. ` +
+        `Required: >=${REQUIRED_CODEX_CLI_MAJOR}.${REQUIRED_CODEX_CLI_MIN_MINOR}. ` +
+        `Upgrade: npm install -g @openai/codex@latest. ` +
+        `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
+    );
   }
 };
 
