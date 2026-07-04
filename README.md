@@ -397,6 +397,9 @@ yarn start issue:review WBP-3057 -r service-bookingv3
 # Review a ticket and its associated pull requests across credentialed repos
 wf issue:review WBP-2971 --tracker jira --repos service-tourv3
 
+# Force re-review a ticket, ignoring cached artifacts
+wf issue:review WBP-2971 --force --tracker jira -r service-bookingv3
+
 # Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd
 yarn start issue:review CTRL-280 -r api-gateway-v1
 
@@ -412,12 +415,13 @@ wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 | `--criteria <path>` | Path to a markdown file with additional review criteria to append to the defaults |
 | `--dry-run` | Preview the review operation without making changes |
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
+| `--force` | Force recreate review artifacts, ignoring any cached files |
 | `-o, --output <path>` | Save review to file |
 | `--replace-criteria <path>` | Path to a markdown file whose criteria replace the default review guidelines entirely |
 | `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
+| `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker |
-| `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 <!-- END GENERATED COMMAND DOCS: issue:review -->
 
 Accepts three source modes:

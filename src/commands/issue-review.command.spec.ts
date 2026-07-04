@@ -266,6 +266,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
   conversationService: typeof mockConversationService;
   dryRunPreview: {
     showHeader: jest.Mock;
+    showSkipped: jest.Mock;
     showSummary: jest.Mock;
     showValidationResult: jest.Mock;
     previewApiCall: jest.Mock;
@@ -367,6 +368,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
         provide: DryRunPreviewService,
         useValue: {
           showHeader: jest.fn(),
+          showSkipped: jest.fn(),
           showSummary: jest.fn(),
           showValidationResult: jest.fn(),
           previewApiCall: jest.fn(),
@@ -379,6 +381,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
 
   const dryRunPreview = module.get<{
     showHeader: jest.Mock;
+    showSkipped: jest.Mock;
     showSummary: jest.Mock;
     showValidationResult: jest.Mock;
     previewApiCall: jest.Mock;
@@ -434,6 +437,92 @@ describe('IssueReviewCommand', () => {
   });
 
   describe('ticket-driven review', () => {
+    beforeEach(() => {
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+      jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined);
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
+    });
+
+    it('skips AI review when cached review artifact exists for ticket key', async () => {
+      const { command, reviewStageService, adapters } = await buildCommand();
+      const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
+        if (targetPath === '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md') {
+          return true;
+        }
+
+        return false;
+      });
+      const readFileSyncSpy = jest
+        .spyOn(require('fs'), 'readFileSync')
+        .mockReturnValue('# Cached review\n\nAlready reviewed.');
+      const reviewPullRequestSpy = jest.spyOn(command as any, 'reviewPullRequest');
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
+        'https://bitbucket.org/workspace/repo/pull-requests/160',
+      ]);
+      adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 160');
+
+      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+
+      expect(existsSyncSpy).toHaveBeenCalledWith('/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md');
+      expect(readFileSyncSpy).not.toHaveBeenCalled();
+      expect(adapters.bitbucketAdapter.findPullRequestsByTicketKey).not.toHaveBeenCalled();
+      expect(reviewPullRequestSpy).not.toHaveBeenCalled();
+      expect(reviewStageService.reviewDiff).not.toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '  Review artifact exists: /Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md'
+      );
+      expect(consoleLogSpy).toHaveBeenCalledWith('  Use --force to regenerate.\n');
+    });
+
+    it('uses the cached review artifact without fetching the ticket', async () => {
+      const { command, reviewStageService, adapters } = await buildCommand();
+
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
+        if (targetPath === '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md') {
+          return true;
+        }
+
+        return false;
+      });
+      jest.spyOn(require('fs'), 'readFileSync').mockReturnValue('# Cached review\n\nAlready reviewed.');
+      adapters.jiraAdapter.getTicket.mockRejectedValue(new Error('ticket lookup should be skipped'));
+      const handleSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
+
+      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+
+      expect(adapters.jiraAdapter.getTicket).not.toHaveBeenCalled();
+      expect(reviewStageService.reviewDiff).not.toHaveBeenCalled();
+      expect(handleSpy).not.toHaveBeenCalled();
+    });
+
+    it('runs AI review with --force even when cached artifact exists', async () => {
+      const { command, reviewStageService, adapters } = await buildCommand();
+
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
+        if (targetPath === '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md') {
+          return true;
+        }
+
+        return false;
+      });
+      const loggerInfoSpy = jest.spyOn((command as any).logger, 'info');
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
+        'https://bitbucket.org/workspace/repo/pull-requests/160',
+      ]);
+      adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 160');
+
+      await command.run(['TAD-575'], { repos: ['service-tourv3'], force: true });
+
+      expect(loggerInfoSpy).toHaveBeenCalledWith('Forcing recreation of review artifact...');
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+        'diff 160',
+        expect.objectContaining({
+          context: expect.stringContaining('ticket TAD-575'),
+        })
+      );
+    });
+
     it('reviews open pull request diffs instead of local changes when PRs are discovered', async () => {
       const { command, reviewStageService, adapters } = await buildCommand();
       const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('local diff');
@@ -674,9 +763,43 @@ describe('IssueReviewCommand', () => {
         expect.stringContaining('## AI Code Review')
       );
     });
+
+    it('saves review artifact to .wf/ after ticket-keyed review', async () => {
+      const { command, adapters } = await buildCommand();
+      const mkdirSyncSpy = jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined);
+      const writeFileSyncSpy = jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
+
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
+        'https://bitbucket.org/workspace/repo/pull-requests/160',
+      ]);
+      adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 160');
+
+      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+
+      expect(mkdirSyncSpy).toHaveBeenCalledWith('/Users/tafadzwagonera/.wf/wf/jira', { recursive: true });
+      expect(writeFileSyncSpy).toHaveBeenCalledWith(
+        '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md',
+        expect.stringContaining('Code Review Report')
+      );
+    });
   });
 
   describe('saved output', () => {
+    it('--force has no effect on local diff reviews', async () => {
+      const { command, reviewStageService } = await buildCommand();
+      const reviewRepoSetSpy = jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('diff content');
+
+      await command.run([], { force: true });
+
+      expect(reviewRepoSetSpy).toHaveBeenCalled();
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+        'diff content',
+        expect.objectContaining({
+          context: expect.stringContaining('current repository changes'),
+        })
+      );
+    });
+
     it('includes the absolute repo root in the dry-run header for local review', async () => {
       const { command, dryRunPreview } = await buildCommand();
 
@@ -684,6 +807,52 @@ describe('IssueReviewCommand', () => {
 
       expect(dryRunPreview.showHeader).toHaveBeenCalledWith('issue:review', expect.stringContaining(process.cwd()));
       expect(dryRunPreview.showHeader).toHaveBeenCalledWith('issue:review', expect.stringContaining('current repo'));
+    });
+
+    it('shows a cached ticket review as skipped during dry run', async () => {
+      const { command, dryRunPreview } = await buildCommand();
+
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
+        if (targetPath === '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md') {
+          return true;
+        }
+
+        return false;
+      });
+      jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048 } as any);
+
+      await command.run(['TAD-575'], { dryRun: true, repos: ['service-tourv3'] });
+
+      expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith({
+        filePath: '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md',
+        exists: true,
+        sizeInKb: '2.00',
+      });
+      expect(dryRunPreview.showSummary).toHaveBeenCalledWith(
+        expect.objectContaining({
+          apiCallCount: 0,
+        })
+      );
+    });
+
+    it('prints only the output path for silent cached reviews', async () => {
+      const { command, adapters } = await buildCommand();
+
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
+        if (targetPath === '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md') {
+          return true;
+        }
+
+        return false;
+      });
+      jest.spyOn(require('fs'), 'readFileSync').mockReturnValue('# Cached review\n\nAlready reviewed.');
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      adapters.jiraAdapter.getTicket.mockRejectedValue(new Error('ticket lookup should be skipped'));
+
+      await command.run(['TAD-575'], { repos: ['service-tourv3'], output: 'review.txt', silent: true });
+
+      expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+      expect(consoleLogSpy).toHaveBeenCalledWith('/Users/tafadzwagonera/.wf/wf/review.txt');
     });
 
     it('writes the new review sections in the expected order', async () => {

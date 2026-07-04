@@ -12,12 +12,13 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
-import { resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { ConversationContext } from '../integrations/ai/conversation/interfaces';
+import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -27,6 +28,7 @@ type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 interface IssueReviewOptions {
   format?: OutputFormat;
+  force?: boolean;
   output?: string;
   dryRun?: boolean;
   comment?: boolean;
@@ -79,6 +81,10 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   {
     comment: 'Review a ticket and its associated pull requests across credentialed repos',
     command: 'wf issue:review WBP-2971 --tracker jira --repos service-tourv3',
+  },
+  {
+    comment: 'Force re-review a ticket, ignoring cached artifacts',
+    command: 'wf issue:review WBP-2971 --force --tracker jira -r service-bookingv3',
   },
   {
     comment: 'Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd',
@@ -171,24 +177,50 @@ export class IssueReviewCommand extends CommandRunner {
         const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
         const reviewScopeLabel = source ? source : `current repo (${this.formatRepoScope(repoDirs)})`;
         this.dryRunPreview.showHeader('issue:review', reviewScopeLabel);
+        const outputFormat =
+          options?.format ??
+          (this.configService.get<string>('stages.review.outputFormat') as OutputFormat | undefined) ??
+          'md';
+        const ticketAdapter =
+          source && this.isTicketKey(source)
+            ? options?.tracker
+              ? this.issueTrackerService.getAdapter(options.tracker)
+              : this.issueTrackerService.getDefaultAdapter()
+            : null;
+        const reviewPath =
+          source && ticketAdapter
+            ? this.resolveTicketReviewArtifactPath(source, repoInputs, ticketAdapter.getTrackerName())
+            : undefined;
+        const reviewArtifactExists = reviewPath ? fs.existsSync(reviewPath) : false;
 
         if (!source) {
           console.log(chalk.gray(`   Repository: ${this.formatRepoScope(repoDirs)}\n`));
         } else if (this.isTicketKey(source)) {
-          this.dryRunPreview.previewApiCall({
-            method: 'GET',
-            endpoint: `/rest/api/3/issue/${source}`,
-            platform: 'Jira',
-            description: 'Fetch ticket details for review context',
-            estimatedResponse: '200 OK — ticket title and description',
-          });
-          this.dryRunPreview.previewApiCall({
-            method: 'GET',
-            endpoint: '<ticket-associated pull requests>',
-            platform: 'Primary platform adapters',
-            description: 'Discover associated open pull requests for the ticket',
-            estimatedResponse: '200 OK — 0..n pull request URLs',
-          });
+          if (!options?.force && reviewPath && reviewArtifactExists) {
+            this.dryRunPreview.previewFileRead({
+              filePath: reviewPath,
+              exists: true,
+              sizeInKb: (fs.statSync(reviewPath).size / 1024).toFixed(2),
+            });
+            this.dryRunPreview.showSkipped('artifact exists');
+          }
+
+          if (options?.force || !reviewPath || !reviewArtifactExists) {
+            this.dryRunPreview.previewApiCall({
+              method: 'GET',
+              endpoint: `/rest/api/3/issue/${source}`,
+              platform: 'Jira',
+              description: 'Fetch ticket details for review context',
+              estimatedResponse: '200 OK — ticket title and description',
+            });
+            this.dryRunPreview.previewApiCall({
+              method: 'GET',
+              endpoint: '<ticket-associated pull requests>',
+              platform: 'Primary platform adapters',
+              description: 'Discover associated open pull requests for the ticket',
+              estimatedResponse: '200 OK — 0..n pull request URLs',
+            });
+          }
         } else if (this.isUrl(source)) {
           this.dryRunPreview.previewApiCall({
             method: 'GET',
@@ -201,35 +233,45 @@ export class IssueReviewCommand extends CommandRunner {
           throw new Error(`Invalid source: ${source}. Expected: ticket key (ABC-123) or PR URL.`);
         }
 
-        this.dryRunPreview.previewApiCall({
-          method: 'POST',
-          endpoint: '/v1/messages',
-          platform: this.aiService.getProviderDisplayName(),
-          description: 'Perform AI-powered code review',
-          estimatedResponse: [
-            '{',
-            '  "summary": "<review summary>",',
-            '  "approved": true,',
-            '  "issues": [],',
-            '  "traceProvenance": "evidence-based|best-effort|unavailable",',
-            '  "callStack": [{ "frame": "...", "children": [] }],',
-            '  "stateTransition": {',
-            '    "from": "...",',
-            '    "to": "...",',
-            '    "steps": [{',
-            '      "frame": "...",',
-            '      "captured": { "...": "..." },',
-            '      "changes": { "...": { "before": "...", "after": "..." } }',
-            '    }]',
-            '  },',
-            '  "suggestions": ["..."]',
-            '}',
-          ].join('\n'),
-        });
+        const shouldPreviewAiReview =
+          !source ||
+          this.isUrl(source) ||
+          !this.isTicketKey(source) ||
+          options?.force ||
+          !reviewPath ||
+          !reviewArtifactExists;
+
+        if (shouldPreviewAiReview) {
+          this.dryRunPreview.previewApiCall({
+            method: 'POST',
+            endpoint: '/v1/messages',
+            platform: this.aiService.getProviderDisplayName(),
+            description: 'Perform AI-powered code review',
+            estimatedResponse: [
+              '{',
+              '  "summary": "<review summary>",',
+              '  "approved": true,',
+              '  "issues": [],',
+              '  "traceProvenance": "evidence-based|best-effort|unavailable",',
+              '  "callStack": [{ "frame": "...", "children": [] }],',
+              '  "stateTransition": {',
+              '    "from": "...",',
+              '    "to": "...",',
+              '    "steps": [{',
+              '      "frame": "...",',
+              '      "captured": { "...": "..." },',
+              '      "changes": { "...": { "before": "...", "after": "..." } }',
+              '    }]',
+              '  },',
+              '  "suggestions": ["..."]',
+              '}',
+            ].join('\n'),
+          });
+        }
 
         const willPostComment = Boolean(options?.comment && source);
 
-        if (willPostComment) {
+        if (willPostComment && shouldPreviewAiReview) {
           this.dryRunPreview.previewApiCall({
             method: 'POST',
             endpoint: '<pull-request comments endpoint>',
@@ -240,13 +282,26 @@ export class IssueReviewCommand extends CommandRunner {
         }
 
         let fileCreatedCount = 0;
+        if (source && this.isTicketKey(source) && reviewPath && shouldPreviewAiReview) {
+          this.dryRunPreview.previewFileWrite({
+            filePath: reviewPath,
+            operation: reviewArtifactExists ? 'overwrite' : 'create',
+            sizeEstimate: '2–5 KB',
+            format: 'md',
+            contentPreview: ['Code Review Report', 'Context: <source>', '', '## Summary', '<AI review summary>'].join(
+              '\n'
+            ),
+          });
+          fileCreatedCount++;
+        }
+
         if (options?.output) {
           const outputPath = this.resolveOutputPath(options.output, this.resolveOutputBaseDir(source, repoInputs));
           this.dryRunPreview.previewFileWrite({
             filePath: outputPath,
             operation: 'create',
             sizeEstimate: '2–5 KB',
-            format: options?.format || this.configService.get<string>('stages.review.outputFormat') || 'md',
+            format: outputFormat,
             contentPreview: [
               'Code Review Report',
               'Context: <source>',
@@ -282,7 +337,7 @@ export class IssueReviewCommand extends CommandRunner {
         const isTicketKey = source && this.isTicketKey(source);
         const isPrUrl = source && this.isUrl(source);
         this.dryRunPreview.showSummary({
-          apiCallCount: (isTicketKey ? 2 : isPrUrl ? 2 : 1) + (willPostComment ? 1 : 0),
+          apiCallCount: shouldPreviewAiReview ? (isTicketKey ? 2 : isPrUrl ? 2 : 1) + (willPostComment ? 1 : 0) : 0,
           fileCreatedCount,
           fileModifiedCount: 0,
           gitOperationCount: 0,
@@ -306,6 +361,7 @@ export class IssueReviewCommand extends CommandRunner {
       }
 
       const reviewTargets: ReviewTarget[] = [];
+      let reviewPath: string | undefined;
 
       if (!source) {
         const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
@@ -343,6 +399,36 @@ export class IssueReviewCommand extends CommandRunner {
         const ticketAdapter = options?.tracker
           ? this.issueTrackerService.getAdapter(options.tracker)
           : this.issueTrackerService.getDefaultAdapter();
+
+        reviewPath = this.resolveTicketReviewArtifactPath(source, repoInputs, ticketAdapter.getTrackerName());
+        const reviewArtifactExists = fs.existsSync(reviewPath);
+        if (!options?.force && reviewArtifactExists) {
+          if (!options?.silent) {
+            console.log(chalk.gray(`  Review artifact exists: ${reviewPath}`));
+            console.log(chalk.gray('  Use --force to regenerate.\n'));
+          }
+
+          if (options?.output) {
+            const outputPath = this.resolveOutputPath(options.output, this.resolveOutputBaseDir(source, repoInputs));
+            const cachedReviewOutput = fs.readFileSync(reviewPath, 'utf-8');
+            fs.writeFileSync(outputPath, cachedReviewOutput);
+            if (options?.silent) {
+              console.log(outputPath);
+            } else {
+              console.log(chalk.green(`\n✓ Review saved to: ${outputPath}\n`));
+            }
+          }
+
+          if (options?.silent && !options?.output) {
+            console.log(reviewPath);
+          }
+
+          return;
+        }
+
+        if (options?.force && reviewArtifactExists && !options?.silent) {
+          this.logger.info('Forcing recreation of review artifact...');
+        }
 
         if (!options?.silent) {
           console.log(chalk.gray(`  Fetching ticket ${source} from ${ticketAdapter.getTrackerName()}...\n`));
@@ -457,6 +543,15 @@ export class IssueReviewCommand extends CommandRunner {
         }
       }
 
+      if (source && this.isTicketKey(source) && reviewPath && reviewedTargets.length > 0) {
+        const reviewOutput = this.formatReviewOutput(reviewedTargets, 'md');
+        fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
+        fs.writeFileSync(reviewPath, reviewOutput);
+        if (!options?.silent) {
+          console.log(chalk.gray(`  Cached to: ${reviewPath}`));
+        }
+      }
+
       if (!options?.silent && this.isInteractiveSession() && reviewedTargets.length > 0) {
         const { startChat } = await inquirer.prompt([
           {
@@ -536,6 +631,14 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--force',
+    description: 'Force recreate review artifacts, ignoring any cached files',
+  })
+  parseForce(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-o, --output <path>',
     description: 'Save review to file',
   })
@@ -562,6 +665,14 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--session-id <id>',
+    description: 'Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)',
+  })
+  parseSessionId(val: string): string {
+    return val;
+  }
+
+  @Option({
     flags: '-s, --silent',
     description: 'Suppress decorative output and interactive prompts. Emits only the review artifact path for piping',
   })
@@ -578,14 +689,6 @@ export class IssueReviewCommand extends CommandRunner {
     return val;
   }
 
-  @Option({
-    flags: '--session-id <id>',
-    description: 'Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)',
-  })
-  parseSessionId(val: string): string {
-    return val;
-  }
-
   /**
    * Build a rich review context string from a fetched ticket.
    * @param ticket Universal ticket data
@@ -593,6 +696,20 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private buildTicketContext(ticket: UniversalTicket): string {
     return `ticket ${ticket.key}: ${ticket.title}\n\n${ticket.description}`;
+  }
+
+  /**
+   * Resolve the cache artifact path for a ticket review.
+   * @param source Ticket key under review
+   * @param repoInputs Raw `--repos` values
+   * @param trackerName Tracker namespace for cache storage
+   * @returns Absolute review artifact path
+   */
+  private resolveTicketReviewArtifactPath(source: string, repoInputs: string[], trackerName: string): string {
+    const repoBaseDir = this.resolveLocalRepoDirForReview(repoInputs) ?? process.cwd();
+    const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
+    const ticketPath = path.join(trackerDir, `${source}.md`);
+    return deriveReviewArtifactPath(ticketPath);
   }
 
   /**

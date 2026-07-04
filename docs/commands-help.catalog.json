@@ -410,6 +410,10 @@
         "description": "Output format (json|md|yaml|yml) - default: md"
       },
       {
+        "flags": "--force",
+        "description": "Force recreate review artifacts, ignoring any cached files"
+      },
+      {
         "flags": "-o, --output <path>",
         "description": "Save review to file"
       },
@@ -422,16 +426,16 @@
         "description": "Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk"
       },
       {
+        "flags": "--session-id <id>",
+        "description": "Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)"
+      },
+      {
         "flags": "-s, --silent",
         "description": "Suppress decorative output and interactive prompts. Emits only the review artifact path for piping"
       },
       {
         "flags": "-t, --tracker <tracker>",
         "description": "Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker"
-      },
-      {
-        "flags": "--session-id <id>",
-        "description": "Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)"
       }
     ],
     "examples": [
@@ -446,6 +450,10 @@
       {
         "comment": "Review a ticket and its associated pull requests across credentialed repos",
         "command": "wf issue:review WBP-2971 --tracker jira --repos service-tourv3"
+      },
+      {
+        "comment": "Force re-review a ticket, ignoring cached artifacts",
+        "command": "wf issue:review WBP-2971 --force --tracker jira -r service-bookingv3"
       },
       {
         "comment": "Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd",
