@@ -504,10 +504,27 @@ Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
         })
       );
       const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
+      const backend = this.resolveStageBackend('review');
+      if (backend === 'cli' && sessionId) {
+        const label = this.resolveStageProvider('review') === 'openai' ? CODEX_STAGE_LABEL : CLI_STAGE_LABEL;
+
+        try {
+          await this.sendCliReviewEpilogue({
+            sessionId,
+            repoDir: repoDir ?? process.cwd(),
+            systemPrompt,
+            priorStageSummary,
+          });
+          console.log(chalk.gray(`  [${label}] Review epilogue sent`));
+        } catch {
+          console.log(chalk.yellow(`  [${label}] Review epilogue failed — manual resume may show raw JSON`));
+        }
+      }
+
       return {
         review: {
           ...processedReview.review,
-          executionMode: this.resolveStageBackend('review') === 'cli' ? 'cli' : 'agent',
+          executionMode: backend === 'cli' ? 'cli' : 'agent',
         },
         sessionId,
       };
@@ -1355,6 +1372,61 @@ Return only the requested ticket markdown and preserve the required heading stru
     }
 
     return { content: result.trim(), sessionId };
+  }
+
+  /**
+   * Send a best-effort follow-up turn that replaces the raw JSON session tail
+   * with a short readable summary for manual CLI resume flows.
+   *
+   * @param params - Resumed review session context
+   * @returns Nothing; failures are handled by the caller
+   */
+  private async sendCliReviewEpilogue(params: {
+    sessionId: string;
+    repoDir: string;
+    systemPrompt: string;
+    priorStageSummary?: string;
+  }): Promise<void> {
+    const epiloguePrompt =
+      'Summarize the code review you just completed in a brief, human-readable format. ' +
+      'Include: approval status, issue count by severity, and top suggestions. ' +
+      'IMPORTANT: Do NOT repeat the raw JSON.';
+
+    const model = this.resolveStageModel('review');
+    const provider = this.resolveStageProvider('review');
+
+    if (provider === 'openai') {
+      const args = buildCodexCliArgs({
+        prompt: epiloguePrompt,
+        sessionId: params.sessionId,
+        model,
+        cwd: params.repoDir,
+      });
+
+      for await (const _message of spawnCodex(args, params.repoDir, epiloguePrompt)) {
+        void _message;
+      }
+      return;
+    }
+
+    const allowInspection = Boolean(params.repoDir);
+    const priorStagePreamble = params.priorStageSummary
+      ? `<prior-stage-context>\n${params.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
+      : '';
+    const args = buildCliArgs({
+      prompt: epiloguePrompt,
+      appendSystemPrompt: `${priorStagePreamble}${params.systemPrompt}`,
+      model,
+      sessionId: params.sessionId,
+      cwd: params.repoDir,
+      permissionMode: 'plan',
+      tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
+      jsonSchema: undefined,
+    });
+
+    for await (const _message of spawnCli(args, params.repoDir, epiloguePrompt)) {
+      void _message;
+    }
   }
 
   private async cliChatTurn(params: {

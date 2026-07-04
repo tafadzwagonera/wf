@@ -94,6 +94,11 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
     comment: 'Review a pull request and post review comments with diff-aligned inline anchors',
     command: 'wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment',
   },
+  {
+    comment:
+      'Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail',
+    command: 'wf issue:review WBP-2971 --session-id review-session-42 -r service-bookingv3',
+  },
 ];
 
 /**
@@ -134,7 +139,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 @Command({
   name: 'issue:review',
   description:
-    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors.',
+    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
   arguments: '[source]',
   options: { isDefault: false },
 })

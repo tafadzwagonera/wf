@@ -15,6 +15,7 @@ jest.mock('./adapters/codex-cli-runner', () => ({
 
 const { spawnCli }: { spawnCli: jest.Mock } = jest.requireMock('./adapters/claude-cli-runner');
 const { spawnCodex }: { spawnCodex: jest.Mock } = jest.requireMock('./adapters/codex-cli-runner');
+const { buildCliArgs }: { buildCliArgs: jest.Mock } = jest.requireMock('./adapters/claude-cli-runner');
 
 describe('StageAgentService', () => {
   const createConfigService = (): ConfigService =>
@@ -47,6 +48,36 @@ describe('StageAgentService', () => {
           'stages.plan.model': 'gpt-5.4-mini',
           'ai.provider': 'openai',
           'ai.model': 'gpt-5.4-mini',
+        };
+
+        return key in values ? values[key] : defaultValue;
+      }),
+    }) as unknown as ConfigService;
+
+  const createCodexReviewConfigService = (): ConfigService =>
+    ({
+      get: jest.fn((key: string, defaultValue?: unknown) => {
+        const values: Record<string, unknown> = {
+          'stages.review.backend': 'cli',
+          'stages.review.provider': 'openai',
+          'stages.review.model': 'gpt-5.4-mini',
+          'ai.provider': 'openai',
+          'ai.model': 'gpt-5.4-mini',
+        };
+
+        return key in values ? values[key] : defaultValue;
+      }),
+    }) as unknown as ConfigService;
+
+  const createClaudeCliReviewConfigService = (): ConfigService =>
+    ({
+      get: jest.fn((key: string, defaultValue?: unknown) => {
+        const values: Record<string, unknown> = {
+          'stages.review.backend': 'cli',
+          'stages.review.provider': 'anthropic',
+          'stages.review.model': 'claude-sonnet-4-5-20250514',
+          'ai.provider': 'anthropic',
+          'ai.model': 'claude-sonnet-4-5-20250514',
         };
 
         return key in values ? values[key] : defaultValue;
@@ -521,6 +552,205 @@ describe('StageAgentService', () => {
       });
 
       expect(result.sessionId).toBeUndefined();
+    });
+  });
+
+  describe('CLI review epilogue', () => {
+    beforeEach(() => {
+      spawnCli.mockReset();
+      spawnCodex.mockReset();
+    });
+
+    const makeCodexStream = (...messages: object[]) =>
+      async function* () {
+        for (const message of messages) {
+          yield message;
+        }
+      };
+
+    const makeClaudeStream = (...messages: object[]) =>
+      async function* () {
+        for (const message of messages) {
+          yield message;
+        }
+      };
+
+    const validReviewJson = JSON.stringify({
+      summary: 'Looks good overall',
+      issues: [],
+      suggestions: ['Add unit tests'],
+      approved: true,
+    });
+
+    it('sends epilogue turn after successful Codex CLI review', async () => {
+      spawnCodex
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'thread.started', thread_id: 'review-session-42' },
+            { type: 'item.completed', item: { type: 'agent_message', text: validReviewJson } }
+          )
+        )
+        .mockImplementationOnce(
+          makeCodexStream({
+            type: 'item.completed',
+            item: { type: 'agent_message', text: 'Approved. No major issues found.' },
+          })
+        );
+
+      const service = new StageAgentService(createCodexReviewConfigService());
+
+      const result = await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(result.review.approved).toBe(true);
+      expect(result.sessionId).toBe('review-session-42');
+      expect(spawnCodex).toHaveBeenCalledTimes(2);
+    });
+
+    it('sends epilogue turn after successful Claude CLI review', async () => {
+      spawnCli
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'result',
+            subtype: 'success',
+            result: validReviewJson,
+            session_id: 'claude-review-session-42',
+          })
+        )
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'assistant',
+            message: {
+              content: [{ type: 'text', text: 'Approved with one follow-up suggestion.' }],
+            },
+          })
+        );
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+
+      const result = await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(result.review.approved).toBe(true);
+      expect(spawnCli).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses the same Claude Code CLI arguments as the main review turn', async () => {
+      spawnCli
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'result',
+            subtype: 'success',
+            result: validReviewJson,
+            session_id: 'claude-review-session-42',
+          })
+        )
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'assistant',
+            message: {
+              content: [{ type: 'text', text: 'Approved with one follow-up suggestion.' }],
+            },
+          })
+        );
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+
+      await service.reviewCode('diff --git a/f b/f', [], '/tmp/repo');
+
+      expect(buildCliArgs).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('Summarize the code review you just completed'),
+          appendSystemPrompt:
+            'You are an expert code reviewer providing constructive feedback.\n' +
+            'You may inspect repository files with read-only tools before answering.\n' +
+            'Focus on code quality, bugs, security, and the changed execution path.\n' +
+            'Ignore JSON or markdown files under .wf/ and tracker artifact directories.',
+          model: 'claude-sonnet-4-5-20250514',
+          sessionId: 'claude-review-session-42',
+          cwd: '/tmp/repo',
+          permissionMode: 'plan',
+          tools: ['Read', 'Glob', 'Grep', 'Bash'],
+          jsonSchema: undefined,
+        })
+      );
+    });
+
+    it('returns review even when Codex epilogue fails', async () => {
+      spawnCodex
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'thread.started', thread_id: 'review-session-42' },
+            { type: 'item.completed', item: { type: 'agent_message', text: validReviewJson } }
+          )
+        )
+        .mockImplementationOnce(() => {
+          throw new Error('epilogue failed');
+        });
+
+      const service = new StageAgentService(createCodexReviewConfigService());
+
+      await expect(service.reviewCode('diff --git a/f b/f', [])).resolves.toMatchObject({
+        review: expect.objectContaining({ approved: true }),
+        sessionId: 'review-session-42',
+      });
+      expect(spawnCodex).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns review even when Claude CLI epilogue fails', async () => {
+      spawnCli
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'result',
+            subtype: 'success',
+            result: validReviewJson,
+            session_id: 'claude-review-session-42',
+          })
+        )
+        .mockImplementationOnce(() => {
+          throw new Error('epilogue failed');
+        });
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+
+      await expect(service.reviewCode('diff --git a/f b/f', [])).resolves.toMatchObject({
+        review: expect.objectContaining({ approved: true }),
+        sessionId: 'claude-review-session-42',
+      });
+      expect(spawnCli).toHaveBeenCalledTimes(2);
+    });
+
+    it('skips epilogue when no sessionId is returned', async () => {
+      spawnCodex.mockImplementationOnce(
+        makeCodexStream({
+          type: 'item.completed',
+          item: { type: 'agent_message', text: validReviewJson },
+        })
+      );
+
+      const service = new StageAgentService(createCodexReviewConfigService());
+
+      const result = await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(result.review.approved).toBe(true);
+      expect(result.sessionId).toBeUndefined();
+      expect(spawnCodex).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips epilogue when review backend is not cli', async () => {
+      const service = new StageAgentService(createConfigService());
+      (
+        service as unknown as {
+          runStagePrompt: jest.Mock;
+        }
+      ).runStagePrompt = jest.fn().mockResolvedValue({
+        content: validReviewJson,
+        sessionId: 'review-session-42',
+      });
+
+      const result = await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(result.review.approved).toBe(true);
+      expect(spawnCodex).not.toHaveBeenCalled();
+      expect(spawnCli).not.toHaveBeenCalled();
     });
   });
 });

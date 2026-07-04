@@ -385,7 +385,7 @@ When `--repos` is present, filename-only custom sources are resolved against the
 #### `wf issue:review [source]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:review -->
-AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors.
+AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
 
 ```bash
 # Review current repo changes
@@ -405,6 +405,9 @@ yarn start issue:review CTRL-280 -r api-gateway-v1
 
 # Review a pull request and post review comments with diff-aligned inline anchors
 wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
+
+# Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail
+wf issue:review WBP-2971 --session-id review-session-42 -r service-bookingv3
 ```
 
 **Options:**
@@ -979,6 +982,8 @@ Session continuity enables context awareness across workflow stages. It operates
 
 - **wf sessions** are workflow-level UUIDs managed by the orchestrator command (`wf issue`). They track per-stage fingerprints (`{provider, backend}`), provider session IDs, and AI-generated summaries. Persisted to `~/.wf/state/sessions/<ticketKey>-<sessionId>.json`.
 - **Provider sessions** are agent SDK or CLI session identifiers (e.g. Anthropic `sess_abc123`, Codex CLI session IDs). Standalone commands pass these directly to the backend for conversation resumption.
+
+For CLI-backed review sessions, `wf issue:review` first parses the structured review payload, then sends a final summary-only epilogue to the same provider session. This keeps wf's downstream behavior JSON-driven while ensuring a later manual provider resume such as `claude --resume <provider-session-id>` or `codex exec resume <provider-session-id>` replays a short human-readable summary instead of the raw review JSON.
 
 The `--session-id` flag means different things depending on the command:
 
