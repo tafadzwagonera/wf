@@ -285,6 +285,46 @@ describe('AiService', () => {
       );
     });
 
+    it('includes prior plan context in the plan prompt when provided', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Resolve prior plan reuse',
+          steps: ['Inspect historical plans'],
+          estimatedComplexity: 'low',
+          affectedFiles: ['repo-a/src/example.ts'],
+          affectedRepositories: ['repo-a'],
+        }),
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generatePlan('fix', '# WBP-126: Reuse prior plans', {
+        affectedRepositories: ['repo-a'],
+        priorPlans: {
+          repoName: 'repo-a',
+          plans: [
+            {
+              title: 'Fix pricing timeout',
+              summary: 'Fix pricing timeout',
+              filename: '2026-07-01-abc123-fix-plan.json',
+              keywords: ['PricingService'],
+              steps: ['Inspect PricingService'],
+              action: 'fix',
+              estimatedComplexity: 'medium',
+              ticketKey: 'WBP-123',
+            },
+          ],
+        },
+      });
+
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('Related prior plans (repo-a):'),
+        })
+      );
+    });
+
     it('omits node-specific shell-safety guidance when the detected repo is not node-based', async () => {
       const adapter = createAdapter();
       adapter.execute.mockResolvedValueOnce({

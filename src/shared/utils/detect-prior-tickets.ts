@@ -5,9 +5,9 @@ import type { PriorTicketSummary, PriorTicketContext } from '../types/detection.
 
 export type { PriorTicketSummary, PriorTicketContext };
 
-const FILE_PATH_REGEX = /[\w-/]+(?:\.[\w-]+)+/g;
-const COMPONENT_NAME_REGEX = /\b[A-Z][a-zA-Z]+(?:Service|Controller|Module|Agent|Command|Guard|Interceptor)\b/g;
-const ERROR_PATTERN_REGEX = /\b(?:Error|Exception|ENOENT|ECONNREFUSED|timeout|deadlock|race condition)\b/gi;
+export const FILE_PATH_REGEX = /[\w-/]+(?:\.[\w-]+)+/g;
+export const COMPONENT_NAME_REGEX = /\b[A-Z][a-zA-Z]+(?:Service|Controller|Module|Agent|Command|Guard|Interceptor)\b/g;
+export const ERROR_PATTERN_REGEX = /\b(?:Error|Exception|ENOENT|ECONNREFUSED|timeout|deadlock|race condition)\b/gi;
 
 const SUMMARY_MAX_CHARS = 500;
 const DEFAULT_LIMIT = 10;

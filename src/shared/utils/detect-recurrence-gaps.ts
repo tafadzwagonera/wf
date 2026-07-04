@@ -49,7 +49,7 @@ export const filterRecurrenceCandidates = (
     if (overlapScore < JACCARD_THRESHOLD) continue;
 
     const keyMatch = ticket.filename.match(TICKET_KEY_REGEX);
-    const ticketKey = keyMatch ? keyMatch[1] : null;
+    const ticketKey = ticket.ticketKey ?? (keyMatch ? keyMatch[1] : null);
 
     candidates.push({
       title: ticket.title,

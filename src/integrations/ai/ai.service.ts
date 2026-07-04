@@ -12,6 +12,7 @@ import {
   type RepoConventionsContext,
 } from '../../shared/utils/detect-repo-conventions';
 import { formatPriorTicketsPromptSection, type PriorTicketContext } from '../../shared/utils/detect-prior-tickets';
+import { formatPriorPlansPromptSection, type PriorPlanContext } from '../../shared/utils/detect-prior-plans';
 import {
   formatCrossRepoPatternsPromptSection,
   type CrossRepoContext,
@@ -440,6 +441,10 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     }
     if (context?.recurrenceGaps) {
       const section = formatRecurrenceGapsPromptSection(context.recurrenceGaps as RecurrenceGapAnalysis);
+      if (section) discoveryParts.push(section);
+    }
+    if (context?.priorPlans) {
+      const section = formatPriorPlansPromptSection(context.priorPlans as PriorPlanContext);
       if (section) discoveryParts.push(section);
     }
     const discoveryBlock = discoveryParts.length > 0 ? `\n${discoveryParts.join('\n\n')}\n` : '';

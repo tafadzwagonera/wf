@@ -8,6 +8,8 @@ import type {
   goInfraSchema,
   nodeFrameworkSchema,
   nodeInfraSchema,
+  priorPlanContextSchema,
+  priorPlanSummarySchema,
   priorTicketContextSchema,
   priorTicketSummarySchema,
   pythonInfraSchema,
@@ -27,6 +29,8 @@ export type EcosystemInfra = z.infer<typeof ecosystemInfraSchema>;
 export type GoInfra = z.infer<typeof goInfraSchema>;
 export type NodeFramework = z.infer<typeof nodeFrameworkSchema>;
 export type NodeInfra = z.infer<typeof nodeInfraSchema>;
+export type PriorPlanContext = z.infer<typeof priorPlanContextSchema>;
+export type PriorPlanSummary = z.infer<typeof priorPlanSummarySchema>;
 export type PriorTicketContext = z.infer<typeof priorTicketContextSchema>;
 export type PriorTicketSummary = z.infer<typeof priorTicketSummarySchema>;
 export type PythonInfra = z.infer<typeof pythonInfraSchema>;

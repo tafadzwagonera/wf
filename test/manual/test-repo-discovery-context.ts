@@ -21,9 +21,13 @@
  *  15. formatCrossRepoPatternsPromptSection returns empty string for empty patterns
  *  16. buildSynthesisPrompt includes discovery sections when repoContext is provided
  *  17. buildSynthesisPrompt omits discovery sections when no repoContext provided
- *  18. PlanStageService.generatePlan accepts new optional context fields without error
- *  19. AI plan prompt includes minimal-change principles text
- *  20. Agent plan prompt includes minimal-change principles text
+ *  18. buildSynthesisPrompt includes prior plan formatter wiring
+ *  19. detect-prior-plans prompt formatter includes the related prior plans heading
+ *  20. PlanStageService.generatePlan accepts priorPlans as an optional context field
+ *  21. AI plan prompt includes prior plan formatter wiring
+ *  22. Agent plan prompt includes prior plan formatter wiring
+ *  23. AI plan prompt includes minimal-change principles text
+ *  24. Agent plan prompt includes minimal-change principles text
  *
  * @returns Promise that resolves when the smoke test completes
  */
@@ -193,6 +197,7 @@ const run = async (): Promise<void> => {
     '16. buildSynthesisPrompt includes discovery sections when repoContext is provided',
     generateSrc.includes('formatRepoConventionsPromptSection') &&
       generateSrc.includes('formatPriorTicketsPromptSection') &&
+      generateSrc.includes('formatPriorPlansPromptSection') &&
       generateSrc.includes('formatCrossRepoPatternsPromptSection') &&
       generateSrc.includes('formatRecurrenceGapsPromptSection')
   );
@@ -202,15 +207,27 @@ const run = async (): Promise<void> => {
     generateSrc.includes('if (repoContext)') || generateSrc.includes('repoContext?')
   );
 
+  assert(
+    '18. buildSynthesisPrompt includes prior plan formatter wiring',
+    generateSrc.includes('formatPriorPlansPromptSection')
+  );
+
+  const priorPlansSrc = fs.readFileSync(path.join(wfRepoDir, 'src/shared/utils/detect-prior-plans.ts'), 'utf-8');
+  assert(
+    '19. detect-prior-plans prompt formatter includes the related prior plans heading',
+    priorPlansSrc.includes('Related prior plans (')
+  );
+
   // --- PlanStageService context threading ---
   console.log(chalk.yellow('\n  PlanStageService context threading:'));
 
   const planStageSrc = fs.readFileSync(path.join(wfRepoDir, 'src/workflows/stages/plan-stage.service.ts'), 'utf-8');
 
   assert(
-    '18. PlanStageService.generatePlan accepts new optional context fields',
+    '20. PlanStageService.generatePlan accepts priorPlans as an optional context field',
     planStageSrc.includes('conventions?:') &&
       planStageSrc.includes('priorTickets?:') &&
+      planStageSrc.includes('priorPlans?:') &&
       planStageSrc.includes('crossRepoPatterns?:') &&
       planStageSrc.includes('recurrenceGaps?:')
   );
@@ -220,13 +237,23 @@ const run = async (): Promise<void> => {
 
   const aiServiceSrc = fs.readFileSync(path.join(wfRepoDir, 'src/integrations/ai/ai.service.ts'), 'utf-8');
   assert(
-    '19. AI plan prompt includes minimal-change principles text',
-    aiServiceSrc.includes('Minimal-change principles')
+    '21. AI plan prompt includes prior plan formatter wiring',
+    aiServiceSrc.includes('formatPriorPlansPromptSection')
   );
 
   const stageAgentSrc = fs.readFileSync(path.join(wfRepoDir, 'src/integrations/ai/stage-agent.service.ts'), 'utf-8');
   assert(
-    '20. Agent plan prompt includes minimal-change principles text',
+    '22. Agent plan prompt includes prior plan formatter wiring',
+    stageAgentSrc.includes('formatPriorPlansPromptSection')
+  );
+
+  assert(
+    '23. AI plan prompt includes minimal-change principles text',
+    aiServiceSrc.includes('Minimal-change principles')
+  );
+
+  assert(
+    '24. Agent plan prompt includes minimal-change principles text',
     stageAgentSrc.includes('Minimal-change principles')
   );
 

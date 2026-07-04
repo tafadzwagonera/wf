@@ -262,6 +262,48 @@ describe('StageAgentService', () => {
     );
   });
 
+  it('includes prior plan context in the generated plan prompt when provided', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix',
+        summary: 'Fix it',
+        steps: ['step 1'],
+        estimatedComplexity: 'low',
+        affectedFiles: [],
+        risks: [],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: 'Fix callback handling',
+      affectedRepositories: ['repo-a'],
+      priorPlans: {
+        repoName: 'repo-a',
+        plans: [
+          {
+            title: 'Fix pricing timeout',
+            summary: 'Fix pricing timeout',
+            filename: '2026-07-01-abc123-fix-plan.json',
+            keywords: ['PricingService'],
+            steps: ['Inspect PricingService'],
+            action: 'fix',
+            estimatedComplexity: 'medium',
+            ticketKey: 'WBP-123',
+          },
+        ],
+      },
+    });
+
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Related prior plans (repo-a):'),
+      })
+    );
+  });
+
   it('omits node-specific shell-safety guidance when generating a non-node plan', async () => {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = jest.fn().mockResolvedValue({

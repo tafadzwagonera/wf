@@ -17,6 +17,7 @@ import { AIError, isAIErrorLike } from '../../shared/utils/errors';
 import { detectTestInfra } from '../../shared/utils/detect-test-infra';
 import type { RepoConventionsContext } from '../../shared/utils/detect-repo-conventions';
 import type { PriorTicketContext } from '../../shared/utils/detect-prior-tickets';
+import type { PriorPlanContext } from '../../shared/utils/detect-prior-plans';
 import type { CrossRepoContext } from '../../shared/utils/detect-cross-repo-patterns';
 import type { RecurrenceGapAnalysis } from '../../shared/utils/detect-recurrence-gaps';
 
@@ -27,6 +28,7 @@ interface GeneratePlanOptions {
   repoDir?: string;
   conventions?: RepoConventionsContext;
   priorTickets?: PriorTicketContext;
+  priorPlans?: PriorPlanContext;
   crossRepoPatterns?: CrossRepoContext;
   recurrenceGaps?: RecurrenceGapAnalysis | null;
   onProgress?: (line: string) => void;
@@ -54,6 +56,7 @@ export class PlanStageService {
       testInfra,
       conventions: options.conventions,
       priorTickets: options.priorTickets,
+      priorPlans: options.priorPlans,
       crossRepoPatterns: options.crossRepoPatterns,
       recurrenceGaps: options.recurrenceGaps,
     };
@@ -68,6 +71,7 @@ export class PlanStageService {
           testInfra,
           conventions: options.conventions,
           priorTickets: options.priorTickets,
+          priorPlans: options.priorPlans,
           crossRepoPatterns: options.crossRepoPatterns,
           recurrenceGaps: options.recurrenceGaps,
           onProgress: options.onProgress,

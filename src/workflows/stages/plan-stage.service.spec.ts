@@ -153,7 +153,7 @@ describe('PlanStageService', () => {
     expect(aiService.generatePlan).not.toHaveBeenCalled();
   });
 
-  it('passes conventions and prior tickets through to AI service', async () => {
+  it('passes conventions, prior tickets, and prior plans through to AI service', async () => {
     const { service, aiService } = await buildService();
     const mockConventions = {
       language: 'typescript',
@@ -170,11 +170,13 @@ describe('PlanStageService', () => {
       errorHandlingPaths: [],
     };
     const mockPriorTickets = { tickets: [], repoName: 'test-repo' };
+    const mockPriorPlans = { plans: [], repoName: 'test-repo' };
 
     await service.generatePlan('Ticket body', {
       action: 'fix',
       conventions: mockConventions as any,
       priorTickets: mockPriorTickets,
+      priorPlans: mockPriorPlans as any,
     });
 
     expect(aiService.generatePlan).toHaveBeenCalledWith(
@@ -183,6 +185,7 @@ describe('PlanStageService', () => {
       expect.objectContaining({
         conventions: mockConventions,
         priorTickets: mockPriorTickets,
+        priorPlans: mockPriorPlans,
       })
     );
   });
@@ -212,6 +215,22 @@ describe('PlanStageService', () => {
     expect(stageAgentService.generatePlan).toHaveBeenCalledWith(
       expect.objectContaining({
         conventions: mockConventions,
+      })
+    );
+  });
+
+  it('passes prior plans through to stage agent service when agent mode enabled', async () => {
+    const { service, stageAgentService } = await buildService(true);
+    const mockPriorPlans = { plans: [], repoName: 'test-repo' };
+
+    await service.generatePlan('Ticket body', {
+      action: 'fix',
+      priorPlans: mockPriorPlans as any,
+    });
+
+    expect(stageAgentService.generatePlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        priorPlans: mockPriorPlans,
       })
     );
   });

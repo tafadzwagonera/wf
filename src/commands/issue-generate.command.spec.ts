@@ -429,6 +429,21 @@ describe('IssueGenerateCommand', () => {
           errorHandlingPaths: [],
         },
         priorTickets: { tickets: [], repoName: 'test-repo' },
+        priorPlans: {
+          repoName: 'test-repo',
+          plans: [
+            {
+              title: 'Fix pricing timeout',
+              summary: 'Fix pricing timeout',
+              filename: '2026-07-01-abc123-fix-plan.json',
+              keywords: ['PricingService'],
+              steps: ['Inspect PricingService'],
+              action: 'fix',
+              estimatedComplexity: 'medium',
+              ticketKey: 'WBP-123',
+            },
+          ],
+        },
       };
 
       const prompt = (command as any).buildSynthesisPrompt(
@@ -439,6 +454,7 @@ describe('IssueGenerateCommand', () => {
       expect(prompt).toContain('Repository conventions (test-repo):');
       expect(prompt).toContain('Language: typescript');
       expect(prompt).toContain('Linter: eslint');
+      expect(prompt).toContain('Related prior plans (test-repo):');
     });
 
     it('omits repo context sections when no context provided', async () => {
@@ -450,6 +466,7 @@ describe('IssueGenerateCommand', () => {
 
       expect(prompt).not.toContain('Repository conventions');
       expect(prompt).not.toContain('Related prior tickets');
+      expect(prompt).not.toContain('Related prior plans');
     });
   });
 

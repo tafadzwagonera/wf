@@ -37,6 +37,12 @@ import {
   type PriorTicketContext,
 } from '../shared/utils/detect-prior-tickets';
 import {
+  detectPriorPlans,
+  formatPriorPlansPromptSection,
+  mergePriorContexts,
+  type PriorPlanContext,
+} from '../shared/utils/detect-prior-plans';
+import {
   detectCrossRepoPatterns,
   formatCrossRepoPatternsPromptSection,
   type CrossRepoContext,
@@ -116,6 +122,10 @@ const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
     command: 'wf issue:generate itinerary-pdf-generation.md -r service-tourv3',
   },
   {
+    comment: 'Generate with repo context so prior tickets and prior plans inform recurrence analysis',
+    command: 'wf issue:generate ./requirements.md -r service-tourv3 --save',
+  },
+  {
     comment: 'Save with overridden title',
     command: 'wf issue:generate ./requirements.md --title "Add OAuth2" --save',
   },
@@ -173,6 +183,7 @@ interface TrackerSourceMatch {
 interface RepoDiscoveryContext {
   conventions?: RepoConventionsContext;
   priorTickets?: PriorTicketContext;
+  priorPlans?: PriorPlanContext;
   crossRepoPatterns?: CrossRepoContext;
   recurrenceGaps?: RecurrenceGapAnalysis | null;
 }
@@ -192,7 +203,7 @@ class UnresolvedSourceError extends Error {}
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g. https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. AI synthesis always runs on every source to enrich and standardise the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g. https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Repo-scoped generation now inspects both prior ticket descriptions and prior plan artifacts so recurrence analysis and synthesis prompts can reuse earlier implementation context. AI synthesis always runs on every source to enrich and standardise the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -1614,6 +1625,9 @@ export class IssueGenerateCommand extends CommandRunner {
 
       // Detect prior tickets
       context.priorTickets = detectPriorTickets(repoName);
+      const priorPlans = detectPriorPlans(repoName);
+      context.priorTickets = mergePriorContexts(context.priorTickets, priorPlans);
+      context.priorPlans = priorPlans;
 
       // Cross-repo patterns (only when multiple repos)
       if (repos && repos.length > 1) {
@@ -1687,6 +1701,10 @@ export class IssueGenerateCommand extends CommandRunner {
       }
       if (repoContext.priorTickets) {
         const section = formatPriorTicketsPromptSection(repoContext.priorTickets);
+        if (section) parts.push(section);
+      }
+      if (repoContext.priorPlans) {
+        const section = formatPriorPlansPromptSection(repoContext.priorPlans);
         if (section) parts.push(section);
       }
       if (repoContext.crossRepoPatterns) {

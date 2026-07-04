@@ -27,7 +27,7 @@ const VALID_ACTIONS: ResolutionAction[] = ['feature', 'fix', 'investigate'];
 const VALID_COMPLEXITIES = ['low', 'medium', 'high'] as const;
 const PLAN_ARTIFACT_MANIFEST_EXTENSION = '.sources.json';
 const PLAN_ARTIFACT_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
-const CANONICAL_PLAN_STEM = /^(\d{4}-\d{2}-\d{2})-([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
+export const CANONICAL_PLAN_STEM = /^(\d{4}-\d{2}-\d{2})-([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 const SHORT_HASHED_PLAN_STEM = /^([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 
 type PlanComplexity = (typeof VALID_COMPLEXITIES)[number];

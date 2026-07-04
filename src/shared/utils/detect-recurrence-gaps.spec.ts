@@ -135,6 +135,21 @@ describe('filterRecurrenceCandidates', () => {
 
       expect(result[0].ticketKey).toBeNull();
     });
+
+    it('prefers an explicit ticketKey on the prior ticket summary', () => {
+      const priorTickets = createMockPriorTicketContext({
+        tickets: [
+          createMockPriorTicketSummary({
+            filename: '2026-07-01-abc123-fix-plan.json',
+            ticketKey: 'WBP-789',
+          }),
+        ],
+      });
+
+      const result = filterRecurrenceCandidates(CURRENT_CONTENT_WITH_OVERLAP, priorTickets);
+
+      expect(result[0].ticketKey).toBe('WBP-789');
+    });
   });
 
   describe('when sorting candidates', () => {

@@ -62,6 +62,8 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import { hashPlanArtifactSources } from '../shared/utils/plan-artifact';
+import * as priorPlansModule from '../shared/utils/detect-prior-plans';
+import * as priorTicketsModule from '../shared/utils/detect-prior-tickets';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -379,6 +381,39 @@ describe('IssuePlanCommand', () => {
 
   it('passes repo discovery context to generatePlan', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
+    const mockPriorTickets = {
+      tickets: [
+        { title: 'prior ticket', summary: 'prior ticket', filename: 'WBP-1-ticket-description.md', keywords: ['auth'] },
+      ],
+      repoName: 'repo-a',
+    };
+    const mockPriorPlans = {
+      plans: [
+        {
+          title: 'prior plan',
+          summary: 'prior plan',
+          filename: '2026-07-01-abc123-fix-plan.json',
+          keywords: ['auth'],
+          steps: ['Inspect auth'],
+          action: 'fix',
+          estimatedComplexity: 'medium',
+          ticketKey: 'WBP-1',
+        },
+      ],
+      repoName: 'repo-a',
+    };
+    const mockMergedPriorContext = {
+      tickets: [
+        {
+          title: 'prior ticket',
+          summary: 'prior ticket',
+          filename: 'WBP-1-ticket-description.md',
+          keywords: ['auth'],
+          ticketKey: 'WBP-1',
+        },
+      ],
+      repoName: 'repo-a',
+    };
     fetchStageService.fetchArtifact.mockResolvedValue({
       ticketKey: 'WBP-1',
       content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
@@ -408,6 +443,9 @@ describe('IssuePlanCommand', () => {
         },
       },
     } as any);
+    jest.spyOn(priorTicketsModule, 'detectPriorTickets').mockReturnValue(mockPriorTickets as any);
+    jest.spyOn(priorPlansModule, 'detectPriorPlans').mockReturnValue(mockPriorPlans as any);
+    jest.spyOn(priorPlansModule, 'mergePriorContexts').mockReturnValue(mockMergedPriorContext as any);
 
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
@@ -420,8 +458,89 @@ describe('IssuePlanCommand', () => {
         ticketKey: 'WBP-1',
         affectedRepositories: ['repo-a'],
         repoDir: '/tmp/consumer-app/repo-a',
+        priorTickets: mockMergedPriorContext,
+        priorPlans: mockPriorPlans,
       })
     );
+  });
+
+  it('passes merged prior ticket context and raw prior plans in custom-source mode', async () => {
+    const { command, planStageService } = await buildCommand();
+    const customSourcePath = path.join(os.homedir(), '.wf', 'consumer-app', 'bar.md');
+    const mockPriorTickets = {
+      tickets: [
+        { title: 'prior ticket', summary: 'prior ticket', filename: 'WBP-2-ticket-description.md', keywords: ['auth'] },
+      ],
+      repoName: 'consumer-app',
+    };
+    const mockPriorPlans = {
+      plans: [
+        {
+          title: 'prior plan',
+          summary: 'prior plan',
+          filename: '2026-07-01-abc123-fix-plan.json',
+          keywords: ['auth'],
+          steps: ['Inspect auth'],
+          action: 'fix',
+          estimatedComplexity: 'medium',
+          ticketKey: null,
+        },
+      ],
+      repoName: 'consumer-app',
+    };
+    const mockMergedPriorContext = {
+      tickets: [
+        {
+          title: 'prior ticket',
+          summary: 'prior ticket',
+          filename: 'WBP-2-ticket-description.md',
+          keywords: ['auth'],
+        },
+      ],
+      repoName: 'consumer-app',
+    };
+    const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
+      const filePath = String(input);
+      return filePath === customSourcePath || filePath === path.join(os.homedir(), '.wf', 'consumer-app');
+    });
+    const readFileSyncSpy = jest
+      .spyOn(require('fs'), 'readFileSync')
+      .mockImplementation((input: fs.PathOrFileDescriptor) => {
+        if (String(input) === customSourcePath) {
+          return '# Custom issue\n\nRestore auth flow';
+        }
+        return '';
+      });
+    jest.spyOn(priorTicketsModule, 'detectPriorTickets').mockReturnValue(mockPriorTickets as any);
+    jest.spyOn(priorPlansModule, 'detectPriorPlans').mockReturnValue(mockPriorPlans as any);
+    jest.spyOn(priorPlansModule, 'mergePriorContexts').mockReturnValue(mockMergedPriorContext as any);
+    jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['consumer-app/src/auth.ts'],
+        affectedRepositories: ['consumer-app'],
+      },
+    } as any);
+
+    await command.run([], { action: 'fix', custom: 'bar.md' });
+
+    expect(planStageService.generatePlan).toHaveBeenCalledWith(
+      '# Custom issue\n\nRestore auth flow',
+      expect.objectContaining({
+        action: 'fix',
+        affectedRepositories: ['consumer-app'],
+        repoDir: '/tmp/consumer-app',
+        priorTickets: mockMergedPriorContext,
+        priorPlans: mockPriorPlans,
+      })
+    );
+
+    existsSyncSpy.mockRestore();
+    readFileSyncSpy.mockRestore();
   });
 
   it('rejects a generated ticket-mode plan with placeholder repository metadata', async () => {

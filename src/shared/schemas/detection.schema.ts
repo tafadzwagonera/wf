@@ -94,10 +94,27 @@ export const priorTicketSummarySchema = z.object({
   summary: z.string(),
   filename: z.string(),
   keywords: z.array(z.string()),
+  ticketKey: z.string().nullable().optional(),
 });
 
 export const priorTicketContextSchema = z.object({
   tickets: z.array(priorTicketSummarySchema),
+  repoName: z.string(),
+});
+
+export const priorPlanSummarySchema = z.object({
+  title: z.string(),
+  summary: z.string(),
+  filename: z.string(),
+  keywords: z.array(z.string()),
+  steps: z.array(z.string()).optional(),
+  action: z.enum(['feature', 'fix', 'investigate']),
+  estimatedComplexity: z.enum(['low', 'medium', 'high']).optional(),
+  ticketKey: z.string().nullable(),
+});
+
+export const priorPlanContextSchema = z.object({
+  plans: z.array(priorPlanSummarySchema),
   repoName: z.string(),
 });
 

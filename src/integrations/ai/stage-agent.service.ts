@@ -41,6 +41,7 @@ import {
   type RepoConventionsContext,
 } from '../../shared/utils/detect-repo-conventions';
 import { formatPriorTicketsPromptSection, type PriorTicketContext } from '../../shared/utils/detect-prior-tickets';
+import { formatPriorPlansPromptSection, type PriorPlanContext } from '../../shared/utils/detect-prior-plans';
 import {
   formatCrossRepoPatternsPromptSection,
   type CrossRepoContext,
@@ -188,6 +189,7 @@ export class StageAgentService {
     testInfra?: TestInfraContext;
     conventions?: RepoConventionsContext;
     priorTickets?: PriorTicketContext;
+    priorPlans?: PriorPlanContext;
     crossRepoPatterns?: CrossRepoContext;
     recurrenceGaps?: RecurrenceGapAnalysis | null;
     onProgress?: StageProgressCallback;
@@ -213,6 +215,10 @@ export class StageAgentService {
     }
     if (params.recurrenceGaps) {
       const section = formatRecurrenceGapsPromptSection(params.recurrenceGaps);
+      if (section) discoveryParts.push(section);
+    }
+    if (params.priorPlans) {
+      const section = formatPriorPlansPromptSection(params.priorPlans);
       if (section) discoveryParts.push(section);
     }
     const discoveryBlock = discoveryParts.length > 0 ? `\n${discoveryParts.join('\n\n')}\n` : '';
