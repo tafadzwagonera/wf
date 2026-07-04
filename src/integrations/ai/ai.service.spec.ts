@@ -194,6 +194,19 @@ describe('AiService', () => {
 
       await service.generatePlan('fix', '# WBP-123: Fix criteria resolution', {
         affectedRepositories: ['repo-a'],
+        testInfra: {
+          primary: 'node',
+          ecosystems: [
+            {
+              ecosystem: 'node',
+              nodeVersionMajor: 22,
+              hasNodeTest: true,
+              frameworks: ['jest'],
+              scripts: { test: 'jest' },
+              allScriptNames: ['test'],
+            },
+          ],
+        },
       });
 
       expect(adapter.execute).toHaveBeenCalledWith(
@@ -209,6 +222,100 @@ describe('AiService', () => {
             'If you need to prove an expected failure, wrap it in a shell assertion that exits 0 when the expected failure occurs.'
           ),
         })
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'Verification commands MUST be shell-safe by construction. For inline `node -e`, prefer'
+          ),
+        })
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'Each verification command MUST target the specific behavior introduced by the step it validates'
+          ),
+        })
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'When a step says "remove line X inside block Y", the plan MUST state whether the'
+          ),
+        })
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'Generated-doc workflows (e.g., auto-generated README sections, API docs from'
+          ),
+        })
+      );
+    });
+
+    it('requires explicit rename targets and null-consumer tracing in the plan prompt', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Resolve rename planning gaps',
+          steps: ['Inspect rename guidance'],
+          estimatedComplexity: 'low',
+          affectedFiles: ['repo-a/src/example.ts'],
+          affectedRepositories: ['repo-a'],
+        }),
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generatePlan('fix', '# WBP-124: Tighten rename guidance', {
+        affectedRepositories: ['repo-a'],
+      });
+
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('A step that says only "rename X" without the target'),
+        })
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining(
+            'When a step introduces an interface field typed with `| null` or `.nullable()`,'
+          ),
+        })
+      );
+    });
+
+    it('omits node-specific shell-safety guidance when the detected repo is not node-based', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Keep terraform prompt generic',
+          steps: ['Inspect verification guidance'],
+          estimatedComplexity: 'low',
+          affectedFiles: ['repo-a/main.tf'],
+          affectedRepositories: ['repo-a'],
+        }),
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generatePlan('fix', '# WBP-125: Keep non-node prompts generic', {
+        affectedRepositories: ['repo-a'],
+        testInfra: {
+          primary: 'terraform',
+          ecosystems: [
+            {
+              ecosystem: 'terraform',
+              hasTfFiles: true,
+              hasBackendConfig: false,
+            },
+          ],
+        },
+      });
+
+      const executeCall = (adapter.execute as jest.Mock).mock.calls[0]?.[0];
+      expect(executeCall.prompt).not.toContain(
+        'Verification commands MUST be shell-safe by construction. For inline `node -e`, prefer'
       );
     });
 

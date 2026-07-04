@@ -216,6 +216,8 @@ export class StageAgentService {
       if (section) discoveryParts.push(section);
     }
     const discoveryBlock = discoveryParts.length > 0 ? `\n${discoveryParts.join('\n\n')}\n` : '';
+    const hasNodeTestInfra =
+      params.testInfra && params.testInfra.ecosystems.some(ecosystem => ecosystem.ecosystem === 'node');
 
     const prompt = `
 Action: ${params.action}
@@ -242,6 +244,29 @@ Create a detailed resolution plan with:
    is unusable by the implementer and will be rejected.
    When a step adds a new call site to an existing function or method, the plan MUST trace every existing call site for that function and note whether the shared code path already handles the new case. If it does, state so explicitly and skip the redundant change. If it does not, list which call sites need updating.
    When a step adds or modifies a JSDoc comment or docstring, the prose MUST be cross-checked against the implementation's guard clauses. If the function throws on null input, the docstring must document that. If the function silently returns undefined, the docstring must not claim it throws.
+   When a step says "remove line X inside block Y", the plan MUST state whether the
+   surrounding block (function, if-branch, class) becomes dead code after the removal
+   and whether it should also be removed. Do not leave dead-code discovery to the
+   implementer.
+   When prescribing a new module-level helper near existing class methods, explicitly
+   state its placement: "add as a module-level function outside the class, near the
+   existing \`<CONSTANT_NAME>\` constant at line N". Do not leave placement ambiguous —
+   the implementer should not have to guess whether it belongs inside or outside the
+   class.
+   When a step introduces an interface field typed with \`| null\` or \`.nullable()\`,
+   the plan MUST trace every consumer of that interface and specify the concrete
+   behaviour for the null case (skip, default value, throw). Do not leave null
+   handling to the implementer to discover during review.
+   When a plan involves operations where cache state affects network access (e.g.,
+   reading a cached token before calling an API), the plan MUST explicitly state
+   that the cache check happens before the network call and note the consequence of
+   reversing the order. Cache-before-network ordering bugs are silent and hard to
+   catch in review.
+   Generated-doc workflows (e.g., auto-generated README sections, API docs from
+   schemas) MUST be treated as source-of-truth updates. The plan should prescribe
+   re-running the generator — not manually patching the output file. If no generator
+   exists, the plan should say so and prescribe the manual edit as a stopgap with a
+   TODO to add generation later.
 3. Estimated complexity (low/medium/high)
 4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not
@@ -282,8 +307,19 @@ Minimal-change principles — apply to every plan:
      "Available test infrastructure" section. Do not invent scripts.
    - CRITICAL: verification commands are validated against the allowlist above. Any command
      that does not match an allowed form will be rejected. When unsure, use: node -e "..."
+${
+  hasNodeTestInfra
+    ? `   - Verification commands MUST be shell-safe by construction. For inline \`node -e\`, prefer
+     single-quoted JS strings or properly escaped backticks — never rely on unescaped
+     template literals inside double-quoted shell strings.
+`
+    : ''
+}
    - Each verification command MUST be relevant to this plan: it should verify a side effect
      or behavior introduced by the steps above, not just run the whole test suite.
+   - Each verification command MUST target the specific behavior introduced by the step it validates
+     — not unrelated output like global README string order or full-file snapshots.
+     A verification that checks something the step did not change will produce false failures.
    - For inline assertions, prefer: node -e "const assert = require('node:assert'); ..."
      (when node:test is available) or the installed test framework CLI
    - If you need to prove an expected failure, wrap it in a shell assertion that exits 0

@@ -125,7 +125,7 @@ const detectTestPatterns = (repoDir: string): NodeInfra['testPatterns'] => {
     else if (cleanupCounts.clearAllMocks >= threshold) mockCleanup = 'clearAllMocks';
   }
 
-  // Determine diSetupPattern: if not nestjs-testing-module, check for factory patterns
+  // Determine diSetupPattern: if no testing-module match was found, check for factory patterns
   if (diSetupPattern === null) {
     for (const [, content] of contentCache) {
       if (/buildCommand\(|buildAgent\(/.test(content)) {
@@ -433,6 +433,9 @@ const formatTestInfraPromptSection = (ctx: TestInfraContext): string => {
     );
     lines.push(
       '- When no matching script exists, prefer inline: node -e "const assert = require(\'node:assert\'); ..."'
+    );
+    lines.push(
+      '- Verification commands MUST be shell-safe by construction. For inline `node -e`, prefer single-quoted JS strings or properly escaped backticks — never rely on unescaped template literals inside double-quoted shell strings.'
     );
   }
 

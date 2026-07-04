@@ -13,6 +13,7 @@
  *   7. errorHandlerExits detects handle() + process.exit(1) co-location in src/
  *   8. errorHandlerExits returns false when src/ is absent
  *   9. formatTestInfraPromptSection renders assumption-stating guidance for each heuristic
+ *  10. formatTestInfraPromptSection renders shell-safety guidance for inline node commands
  */
 
 import chalk from 'chalk';
@@ -224,6 +225,12 @@ async function main(): Promise<void> {
       'renders errorHandlerExits line',
       output.includes('process.exit(1)') && output.includes('MUST mock process.exit'),
       'missing errorHandlerExits prompt text'
+    );
+    check(
+      'renders shell-safety guidance for node -e',
+      output.includes('Verification commands MUST be shell-safe by construction.') &&
+        output.includes('single-quoted JS strings or properly escaped backticks'),
+      'missing shell-safety prompt text'
     );
   }
 

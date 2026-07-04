@@ -169,6 +169,7 @@ const extractScriptName = (command: string): string | undefined => {
     'Plan ticket implementation from a local artifact or repo-scoped custom artifact. ' +
     'If a local artifact is not found, the command will attempt to fetch it from the primary tracker. ' +
     'Use --force to fetch and recreate artifacts. ' +
+    'Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. ' +
     'Targeted verification commands are interpreted as repo-root-relative: redundant ' +
     '`cd <repo>` prefixes are normalized away, while commands that change directories ' +
     'outside the selected repository are rejected.',

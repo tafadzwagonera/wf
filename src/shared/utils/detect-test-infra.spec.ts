@@ -298,6 +298,25 @@ describe('formatTestInfraPromptSection', () => {
     expect(output).toContain('yarn build -- ...');
   });
 
+  it('includes shell-safety guidance for inline node commands', () => {
+    const output = formatTestInfraPromptSection({
+      ecosystems: [
+        {
+          ecosystem: 'node',
+          nodeVersionMajor: 22,
+          hasNodeTest: true,
+          frameworks: ['jest'],
+          scripts: { test: 'jest' },
+          allScriptNames: ['test'],
+        },
+      ],
+      primary: 'node',
+    });
+
+    expect(output).toContain('Verification commands MUST be shell-safe by construction.');
+    expect(output).toContain('single-quoted JS strings or properly escaped backticks');
+  });
+
   it('includes test conventions block when testPatterns is defined', () => {
     const output = formatTestInfraPromptSection({
       ecosystems: [

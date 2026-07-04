@@ -162,6 +162,111 @@ describe('StageAgentService', () => {
     expect(mockRunStagePrompt).toHaveBeenCalledWith(expect.objectContaining({ onProgress }));
   });
 
+  it('includes the prompt-quality rules when generating a plan', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix',
+        summary: 'Fix it',
+        steps: ['step 1'],
+        estimatedComplexity: 'low',
+        affectedFiles: [],
+        risks: [],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: 'Fix callback handling',
+      affectedRepositories: ['repo-a'],
+      testInfra: {
+        primary: 'node',
+        ecosystems: [
+          {
+            ecosystem: 'node',
+            nodeVersionMajor: 22,
+            hasNodeTest: true,
+            frameworks: ['jest'],
+            scripts: { test: 'jest' },
+            allScriptNames: ['test'],
+            testPatterns: {
+              fileSuffix: '.spec',
+              mockPrefix: 'mock',
+              mockFactoryPrefix: 'createMock',
+              describeStyle: 'flat',
+              helperPaths: ['src/test/helpers.ts'],
+              mockCleanup: 'restoreAllMocks',
+              diSetupPattern: 'testing-module',
+              errorHandlerExits: true,
+            },
+          },
+        ],
+      },
+    });
+
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('A step that says only "rename X" without the target'),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining(
+          'Verification commands MUST be shell-safe by construction. For inline `node -e`, prefer'
+        ),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining(
+          'When a step introduces an interface field typed with `| null` or `.nullable()`,'
+        ),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Generated-doc workflows (e.g., auto-generated README sections, API docs from'),
+      })
+    );
+  });
+
+  it('omits node-specific shell-safety guidance when generating a non-node plan', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix',
+        summary: 'Fix it',
+        steps: ['step 1'],
+        estimatedComplexity: 'low',
+        affectedFiles: [],
+        risks: [],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: 'Fix terraform validation guidance',
+      affectedRepositories: ['repo-a'],
+      testInfra: {
+        primary: 'terraform',
+        ecosystems: [
+          {
+            ecosystem: 'terraform',
+            hasTfFiles: true,
+            hasBackendConfig: false,
+          },
+        ],
+      },
+    });
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt;
+    expect(prompt).not.toContain(
+      'Verification commands MUST be shell-safe by construction. For inline `node -e`, prefer'
+    );
+  });
+
   it('forwards onProgress callback to runStagePrompt when generating from prompt', async () => {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = jest.fn().mockResolvedValue({ content: 'Generated content' });

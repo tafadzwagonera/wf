@@ -10,6 +10,7 @@
  *   3. DI wiring bullet (conditional on testInfra)
  *   4. Test isolation conventions bullet (conditional on testInfra)
  *   5. Old generic DI assumption bullet is absent
+ *   6. Node-specific shell-safety guidance appears only when testInfra includes node
  */
 
 import * as assert from 'node:assert/strict';
@@ -31,6 +32,7 @@ const JSDOC_CROSS_CHECK = "cross-checked against the implementation's guard clau
 const DI_WIRING = 'every injected service the code reaches MUST have a mock provider';
 const TEST_ISOLATION = "Follow the repo's existing test isolation conventions";
 const OLD_DI_BULLET = 'State your DI and test-framework assumptions explicitly';
+const NODE_SHELL_SAFETY = 'Verification commands MUST be shell-safe by construction.';
 
 const mockPlanResponse = JSON.stringify({
   action: 'fix',
@@ -95,6 +97,17 @@ const mockTestInfra: TestInfraContext = {
   ],
 };
 
+const mockTerraformInfra: TestInfraContext = {
+  primary: 'terraform',
+  ecosystems: [
+    {
+      ecosystem: 'terraform',
+      hasTfFiles: true,
+      hasBackendConfig: false,
+    },
+  ],
+};
+
 // ---------------------------------------------------------------------------
 // Main — wrapped in async IIFE for CommonJS compatibility
 // ---------------------------------------------------------------------------
@@ -120,6 +133,12 @@ const mockTestInfra: TestInfraContext = {
 
     assert.ok(!prompt.includes(OLD_DI_BULLET), 'AiService prompt must NOT contain old DI assumption bullet');
     pass('AiService: old DI assumption bullet absent');
+
+    assert.ok(
+      !prompt.includes(NODE_SHELL_SAFETY),
+      'AiService prompt must NOT contain node shell-safety guidance without node testInfra'
+    );
+    pass('AiService: node shell-safety guidance absent without testInfra');
   }
 
   // Test 2: AiService — conditional constraints present (with testInfra)
@@ -136,6 +155,28 @@ const mockTestInfra: TestInfraContext = {
 
     assert.ok(prompt.includes(TEST_ISOLATION), 'AiService prompt must contain test isolation bullet with testInfra');
     pass('AiService: test isolation conventions bullet present with testInfra');
+
+    assert.ok(
+      prompt.includes(NODE_SHELL_SAFETY),
+      'AiService prompt must contain node shell-safety guidance with node testInfra'
+    );
+    pass('AiService: node shell-safety guidance present with node testInfra');
+  }
+
+  // Test 2b: AiService — node-only shell-safety guidance omitted for non-node infra
+  {
+    const adapter = createMockAdapter();
+    const service = new AiService(createMockLogger(), adapter as unknown as LlmAdapter, createConfigService());
+
+    await service.generatePlan('fix', '# WBP-2b: Fix terraform flow', { testInfra: mockTerraformInfra });
+
+    const prompt: string = adapter.execute.calls[0][0].prompt;
+
+    assert.ok(
+      !prompt.includes(NODE_SHELL_SAFETY),
+      'AiService prompt must NOT contain node shell-safety guidance with non-node testInfra'
+    );
+    pass('AiService: node shell-safety guidance absent with non-node testInfra');
   }
 
   // Test 3: StageAgentService — unconditional constraints present (no testInfra)
@@ -159,6 +200,12 @@ const mockTestInfra: TestInfraContext = {
 
     assert.ok(!prompt.includes(OLD_DI_BULLET), 'StageAgentService prompt must NOT contain old DI assumption bullet');
     pass('StageAgentService: old DI assumption bullet absent');
+
+    assert.ok(
+      !prompt.includes(NODE_SHELL_SAFETY),
+      'StageAgentService prompt must NOT contain node shell-safety guidance without testInfra'
+    );
+    pass('StageAgentService: node shell-safety guidance absent without testInfra');
   }
 
   // Test 4: StageAgentService — conditional constraints present (with testInfra)
@@ -180,7 +227,34 @@ const mockTestInfra: TestInfraContext = {
 
     assert.ok(prompt.includes(TEST_ISOLATION), 'StageAgentService prompt must contain test isolation with testInfra');
     pass('StageAgentService: test isolation conventions bullet present with testInfra');
+
+    assert.ok(
+      prompt.includes(NODE_SHELL_SAFETY),
+      'StageAgentService prompt must contain node shell-safety guidance with node testInfra'
+    );
+    pass('StageAgentService: node shell-safety guidance present with node testInfra');
   }
 
-  console.log('\n  12/12 assertions passed');
+  // Test 4b: StageAgentService — node-only shell-safety guidance omitted for non-node infra
+  {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = createSpy(Promise.resolve({ content: mockPlanResponse }));
+    (service as unknown as { runStagePrompt: typeof mockRunStagePrompt }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: '# WBP-4b: Fix terraform flow',
+      testInfra: mockTerraformInfra,
+    });
+
+    const prompt: string = mockRunStagePrompt.calls[0][0].prompt;
+
+    assert.ok(
+      !prompt.includes(NODE_SHELL_SAFETY),
+      'StageAgentService prompt must NOT contain node shell-safety guidance with non-node testInfra'
+    );
+    pass('StageAgentService: node shell-safety guidance absent with non-node testInfra');
+  }
+
+  console.log('\n  18/18 assertions passed');
 })();

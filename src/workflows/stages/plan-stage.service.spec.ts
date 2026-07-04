@@ -4,11 +4,17 @@ import { PlanStageService } from './plan-stage.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../../shared/utils/plan-artifact';
 import { AIError } from '../../shared/utils/errors';
+import { detectTestInfra } from '../../shared/utils/detect-test-infra';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+jest.mock('../../shared/utils/detect-test-infra', () => ({
+  detectTestInfra: jest.fn(),
+}));
+
 describe('PlanStageService', () => {
+  const mockDetectTestInfra = detectTestInfra as jest.MockedFunction<typeof detectTestInfra>;
   const mockPlan = {
     action: 'fix',
     summary: 'Update auth redirect handling',
@@ -59,6 +65,32 @@ describe('PlanStageService', () => {
     jest.restoreAllMocks();
   });
 
+  beforeEach(() => {
+    mockDetectTestInfra.mockReturnValue({
+      primary: 'node',
+      ecosystems: [
+        {
+          ecosystem: 'node',
+          nodeVersionMajor: 22,
+          hasNodeTest: true,
+          frameworks: ['jest'],
+          scripts: { test: 'jest' },
+          allScriptNames: ['test'],
+          testPatterns: {
+            fileSuffix: '.spec',
+            mockPrefix: 'mock',
+            mockFactoryPrefix: 'createMock',
+            describeStyle: 'flat',
+            helperPaths: ['src/test/helpers.ts'],
+            mockCleanup: 'restoreAllMocks',
+            diSetupPattern: 'testing-module',
+            errorHandlerExits: true,
+          },
+        },
+      ],
+    });
+  });
+
   it('generates a plan using extracted ticket summary and affected repositories', async () => {
     const { service, aiService } = await buildService();
 
@@ -75,7 +107,17 @@ describe('PlanStageService', () => {
         ticketKey: 'WBP-123',
         summary: 'Fix auth redirect',
         affectedRepositories: ['repo-a', 'repo-b'],
-        testInfra: expect.objectContaining({ primary: expect.any(String) }),
+        testInfra: expect.objectContaining({
+          primary: expect.any(String),
+          ecosystems: expect.arrayContaining([
+            expect.objectContaining({
+              ecosystem: 'node',
+              testPatterns: expect.objectContaining({
+                fileSuffix: '.spec',
+              }),
+            }),
+          ]),
+        }),
       })
     );
   });
@@ -95,7 +137,17 @@ describe('PlanStageService', () => {
         issueContent: 'Ticket body',
         ticketKey: 'WBP-321',
         affectedRepositories: ['repo-a'],
-        testInfra: expect.objectContaining({ primary: expect.any(String) }),
+        testInfra: expect.objectContaining({
+          primary: expect.any(String),
+          ecosystems: expect.arrayContaining([
+            expect.objectContaining({
+              ecosystem: 'node',
+              testPatterns: expect.objectContaining({
+                fileSuffix: '.spec',
+              }),
+            }),
+          ]),
+        }),
       })
     );
     expect(aiService.generatePlan).not.toHaveBeenCalled();
