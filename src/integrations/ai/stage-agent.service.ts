@@ -267,6 +267,19 @@ Create a detailed resolution plan with:
    re-running the generator — not manually patching the output file. If no generator
    exists, the plan should say so and prescribe the manual edit as a stopgap with a
    TODO to add generation later.
+
+   When a step specifies the return type of a function or method, the plan MUST derive
+   it from the call-site options that will actually be passed — not the function's
+   default return type. If the call site passes options that narrow or widen the return
+   type (e.g., an overload, a generic parameter, or a conditional return), the plan
+   must state the concrete type the caller will see and use that in downstream steps.
+
+   When a plan prescribes adding specific text to a file (e.g., a prompt paragraph, a
+   config key, a schema field), the plan MUST include a verification step that greps
+   for a unique, distinctive substring of that text in the target file. If the substring
+   is already present, the step should be marked as "already implemented" and skipped.
+   Do NOT conclude that prescribed text is present based on thematic similarity to
+   nearby content — perform an exact substring check.
 3. Estimated complexity (low/medium/high)
 4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not
@@ -320,6 +333,10 @@ ${
    - Each verification command MUST target the specific behavior introduced by the step it validates
      — not unrelated output like global README string order or full-file snapshots.
      A verification that checks something the step did not change will produce false failures.
+   - Verification commands that use CLI flags (e.g., jest --forceExit, tsc --noEmit) MUST
+     cross-check flag names against the installed framework version. If the flag was added
+     in a later version or renamed, the command will fail for reasons unrelated to the
+     change. When uncertain, prefer the long-form flag name and note the minimum version.
    - For inline assertions, prefer: node -e "const assert = require('node:assert'); ..."
      (when node:test is available) or the installed test framework CLI
    - If you need to prove an expected failure, wrap it in a shell assertion that exits 0

@@ -11,6 +11,8 @@
  *   4. Test isolation conventions bullet (conditional on testInfra)
  *   5. Old generic DI assumption bullet is absent
  *   6. Node-specific shell-safety guidance appears only when testInfra includes node
+ *   7. Flag version cross-check paragraph (unconditional)
+ *   8. Return type from call-site rule (unconditional)
  */
 
 import * as assert from 'node:assert/strict';
@@ -33,6 +35,9 @@ const DI_WIRING = 'every injected service the code reaches MUST have a mock prov
 const TEST_ISOLATION = "Follow the repo's existing test isolation conventions";
 const OLD_DI_BULLET = 'State your DI and test-framework assumptions explicitly';
 const NODE_SHELL_SAFETY = 'Verification commands MUST be shell-safe by construction.';
+const FLAG_VERSION_CHECK = 'cross-check flag names against the installed framework version';
+const RETURN_TYPE_CALLSITE = 'plan MUST derive';
+const SUBSTRING_VERIFICATION = 'perform an exact substring check';
 
 const mockPlanResponse = JSON.stringify({
   action: 'fix',
@@ -139,6 +144,15 @@ const mockTerraformInfra: TestInfraContext = {
       'AiService prompt must NOT contain node shell-safety guidance without node testInfra'
     );
     pass('AiService: node shell-safety guidance absent without testInfra');
+
+    assert.ok(prompt.includes(FLAG_VERSION_CHECK), 'AiService prompt must contain flag version cross-check');
+    pass('AiService: flag version cross-check present');
+
+    assert.ok(prompt.includes(RETURN_TYPE_CALLSITE), 'AiService prompt must contain return type from call-site rule');
+    pass('AiService: return type from call-site rule present');
+
+    assert.ok(prompt.includes(SUBSTRING_VERIFICATION), 'AiService prompt must contain substring verification rule');
+    pass('AiService: substring verification rule present');
   }
 
   // Test 2: AiService — conditional constraints present (with testInfra)
@@ -206,6 +220,21 @@ const mockTerraformInfra: TestInfraContext = {
       'StageAgentService prompt must NOT contain node shell-safety guidance without testInfra'
     );
     pass('StageAgentService: node shell-safety guidance absent without testInfra');
+
+    assert.ok(prompt.includes(FLAG_VERSION_CHECK), 'StageAgentService prompt must contain flag version cross-check');
+    pass('StageAgentService: flag version cross-check present');
+
+    assert.ok(
+      prompt.includes(RETURN_TYPE_CALLSITE),
+      'StageAgentService prompt must contain return type from call-site rule'
+    );
+    pass('StageAgentService: return type from call-site rule present');
+
+    assert.ok(
+      prompt.includes(SUBSTRING_VERIFICATION),
+      'StageAgentService prompt must contain substring verification rule'
+    );
+    pass('StageAgentService: substring verification rule present');
   }
 
   // Test 4: StageAgentService — conditional constraints present (with testInfra)
@@ -256,5 +285,5 @@ const mockTerraformInfra: TestInfraContext = {
     pass('StageAgentService: node shell-safety guidance absent with non-node testInfra');
   }
 
-  console.log('\n  18/18 assertions passed');
+  console.log('\n  24/24 assertions passed');
 })();
