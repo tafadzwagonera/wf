@@ -51,7 +51,7 @@ const ISSUE_PLAN_EXAMPLES: CliExample[] = [
     command: 'wf issue:plan WBP-2971 --action fix',
   },
   {
-    comment: 'Plan against a repo so prior tickets and prior plans feed recurrence analysis',
+    comment: 'Plan against a repo so prior json|md|yaml|yml tickets and plans feed recurrence analysis',
     command: 'wf issue:plan WBP-2971 --action fix --repos repo-a',
   },
   {
@@ -174,7 +174,7 @@ const extractScriptName = (command: string): string | undefined => {
     'Plan ticket implementation from a local artifact or repo-scoped custom artifact. ' +
     'If a local artifact is not found, the command will attempt to fetch it from the primary tracker. ' +
     'Use --force to fetch and recreate artifacts. ' +
-    'Repo-scoped planning inspects both prior ticket descriptions and prior plan artifacts so recurrence analysis and planning prompts can reuse earlier implementation context. ' +
+    'Repo-scoped planning inspects prior ticket-description artifacts (json|md|yaml|yml) and prior plan artifacts anywhere under ~/.wf/<repo>/**/* so recurrence analysis and planning prompts can reuse earlier implementation context. ' +
     'Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. ' +
     'Targeted verification commands are interpreted as repo-root-relative: redundant ' +
     '`cd <repo>` prefixes are normalized away, while commands that change directories ' +
