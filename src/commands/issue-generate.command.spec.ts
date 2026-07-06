@@ -428,7 +428,6 @@ describe('IssueGenerateCommand', () => {
           keyDependencies: ['@nestjs/core'],
           errorHandlingPaths: [],
         },
-        priorTickets: { tickets: [], repoName: 'test-repo' },
         priorPlans: {
           repoName: 'test-repo',
           plans: [
