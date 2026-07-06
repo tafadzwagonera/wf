@@ -196,7 +196,7 @@ const detectTestConventionViolations = (steps: string[], testInfra?: TestInfraCo
 
   if (testPatterns.mockFactoryPrefix) {
     const expectedFactoryPrefix = testPatterns.mockFactoryPrefix;
-    const factoryIdentifiers = stepText.match(/\bcreate[A-Z][A-Za-z0-9_]*/g) ?? [];
+    const factoryIdentifiers = stepText.match(/\bcreate[A-Za-z0-9_]*(?:Mock|Stub|Fake|Spy)[A-Za-z0-9_]*/g) ?? [];
     const mismatchedFactory = factoryIdentifiers.find(identifier => !identifier.startsWith(expectedFactoryPrefix));
 
     if (mismatchedFactory) {

@@ -165,7 +165,7 @@ describe('validatePlanQuality', () => {
         summary: 'Use conflicting test conventions',
         estimatedComplexity: 'medium',
         steps: [
-          'Add wf/src/auth/auth.service.test.ts with afterEach(() => jest.resetAllMocks()) and createFixtureAuthRepository().',
+          'Add wf/src/auth/auth.service.test.ts with afterEach(() => jest.resetAllMocks()) and createFakeAuthRepository().',
         ],
         affectedRepositories: [repoName],
       },
