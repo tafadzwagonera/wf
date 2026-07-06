@@ -647,7 +647,10 @@ export class ImplementerAgent {
    * @param ticket - Ticket artifact for branch name generation
    * @param planArtifact - Plan artifact with action and metadata
    * @param options - Implementation options including silent/noBranch flags
-   * @returns The created branch name, or null when --no-branch was used
+   * @returns The active branch name when staying on the current branch, or the
+   *   created branch name when a new branch is created. The method is typed as
+   *   Promise<string | null> for compatibility, but the current control flow
+   *   no longer returns null.
    */
   private async handleBranchWorkflow(
     ticket: TicketArtifact,
@@ -660,6 +663,37 @@ export class ImplementerAgent {
     const branchInteractive = isTTY;
 
     const { didStash } = await this.ensureCleanWorkingTree(planArtifact, options, stashInteractive, cwd);
+
+    if (options.noBranch) {
+      await this.restoreStash(didStash, cwd);
+      const current = await this.gitService.getCurrentBranch(cwd).catch(() => '');
+      await this.offerPullOnCurrentBranch(current, branchInteractive, cwd);
+      console.log(chalk.cyan(`  Staying on ${current} (--no-branch)`));
+      return current;
+    }
+
+    if (branchInteractive) {
+      const current = await this.gitService.getCurrentBranch(cwd).catch(() => '');
+      const { branchAction } = await inquirer.prompt<{ branchAction: string }>([
+        {
+          type: 'list',
+          name: 'branchAction',
+          message: 'Branch workflow:',
+          prefix: ' ',
+          choices: [
+            { name: 'Create new branch from source', value: 'create' },
+            { name: `Stay on ${current}`, value: 'stay' },
+          ],
+          default: 'create',
+        },
+      ]);
+      if (branchAction === 'stay') {
+        await this.restoreStash(didStash, cwd);
+        await this.offerPullOnCurrentBranch(current, branchInteractive, cwd);
+        console.log(chalk.cyan(`  Staying on ${current}`));
+        return current;
+      }
+    }
 
     console.log(chalk.gray('  Detecting source branches...'));
     const branchInfo = await this.gitService.getBranchInfo(cwd);
@@ -678,15 +712,7 @@ export class ImplementerAgent {
     await this.restoreStash(didStash, cwd);
 
     const generatedName = this.generateBranchNameForTicket(ticket, planArtifact, options);
-    const branchName = await this.promptBranchName({
-      generatedName,
-      sourceBranch,
-      noBranch: options.noBranch,
-      interactive: branchInteractive,
-    });
-    if (branchName === null) {
-      return null;
-    }
+    const branchName = await this.promptBranchName({ generatedName, interactive: branchInteractive });
 
     const currentBranch = await this.gitService.getCurrentBranch(cwd).catch(() => '');
     if (currentBranch === branchName) {
@@ -836,6 +862,36 @@ export class ImplementerAgent {
     }
   }
 
+  private async offerPullOnCurrentBranch(branch: string, interactive: boolean, cwd: string | undefined): Promise<void> {
+    if (!branch) {
+      return;
+    }
+
+    if (interactive) {
+      const { shouldPull } = await inquirer.prompt<{ shouldPull: boolean }>([
+        {
+          type: 'confirm',
+          name: 'shouldPull',
+          message: `Pull latest changes on ${branch}?`,
+          prefix: ' ',
+          default: true,
+        },
+      ]);
+      if (!shouldPull) {
+        return;
+      }
+    }
+
+    try {
+      console.log(chalk.gray(`  Pulling latest from origin/${branch}...`));
+      await this.gitService.pull('origin', branch, cwd);
+    } catch {
+      console.log(
+        chalk.yellow(`  Could not pull ${branch} (no upstream or network issue) — continuing with local state`)
+      );
+    }
+  }
+
   /**
    * @param ticket - Ticket artifact for branch name derivation
    * @param planArtifact - Plan artifact with resolution action
@@ -860,18 +916,8 @@ export class ImplementerAgent {
     );
   }
 
-  private async promptBranchName(params: {
-    generatedName: string;
-    sourceBranch: string;
-    noBranch?: boolean;
-    interactive: boolean;
-  }): Promise<string | null> {
-    const { generatedName, sourceBranch, noBranch, interactive } = params;
-
-    if (noBranch) {
-      console.log(chalk.cyan(`  Staying on ${sourceBranch} (--no-branch)`));
-      return null;
-    }
+  private async promptBranchName(params: { generatedName: string; interactive: boolean }): Promise<string> {
+    const { generatedName, interactive } = params;
 
     if (!interactive) {
       return generatedName;
@@ -886,16 +932,10 @@ export class ImplementerAgent {
         choices: [
           { name: generatedName, value: 'accept' },
           { name: 'Edit branch name', value: 'edit' },
-          { name: 'Skip (stay on current branch)', value: 'skip' },
         ],
         default: 'accept',
       },
     ]);
-
-    if (choice === 'skip') {
-      console.log(chalk.cyan(`  Staying on ${sourceBranch}`));
-      return null;
-    }
 
     if (choice === 'edit') {
       const { customName } = await inquirer.prompt<{

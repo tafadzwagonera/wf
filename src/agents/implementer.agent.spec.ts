@@ -533,6 +533,7 @@ describe('ImplementerAgent', () => {
       gitService.detectDevelopmentBranches.mockReturnValue(['develop', 'dev']);
       const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
       mockPrompt
+        .mockResolvedValueOnce({ branchAction: 'create' } as any)
         .mockResolvedValueOnce({ selected: 'develop' } as any)
         .mockResolvedValueOnce({ choice: 'accept' } as any);
 
@@ -547,9 +548,10 @@ describe('ImplementerAgent', () => {
 
     it('prompts for branch name in silent mode when TTY is available', async () => {
       jest.spyOn(agent as any, 'isInteractiveSession').mockReturnValue(true);
-      (inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>).mockResolvedValue({
-        choice: 'accept',
-      } as any);
+      const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+      mockPrompt
+        .mockResolvedValueOnce({ branchAction: 'create' } as any)
+        .mockResolvedValueOnce({ choice: 'accept' } as any);
 
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
@@ -557,9 +559,7 @@ describe('ImplementerAgent', () => {
         silent: true,
       });
 
-      expect(inquirer.prompt).toHaveBeenCalledWith(
-        expect.arrayContaining([expect.objectContaining({ name: 'choice' })])
-      );
+      expect(mockPrompt).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ name: 'choice' })]));
       expect(gitService.createBranch).toHaveBeenCalled();
     });
 
@@ -612,8 +612,83 @@ describe('ImplementerAgent', () => {
         noBranch: true,
       });
 
+      expect(gitService.getBranchInfo).not.toHaveBeenCalled();
+      expect(gitService.checkoutBranch).not.toHaveBeenCalled();
       expect(gitService.createBranch).not.toHaveBeenCalled();
-      expect(result).toEqual({ type: 'implementation', branchName: null });
+      expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
+      expect(result).toEqual({ type: 'implementation', branchName: 'main' });
+    });
+
+    it('stays on current branch when user selects stay interactively', async () => {
+      jest.spyOn(agent as any, 'isInteractiveSession').mockReturnValue(true);
+      const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+      mockPrompt
+        .mockResolvedValueOnce({ branchAction: 'stay' } as any)
+        .mockResolvedValueOnce({ shouldPull: false } as any);
+
+      const result = await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      expect(result).toEqual({ type: 'implementation', branchName: 'main' });
+      expect(gitService.getBranchInfo).not.toHaveBeenCalled();
+      expect(gitService.checkoutBranch).not.toHaveBeenCalled();
+      expect(gitService.createBranch).not.toHaveBeenCalled();
+    });
+
+    it('offers pull on current branch when --no-branch is set', async () => {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        noBranch: true,
+      });
+
+      expect(gitService.getBranchInfo).not.toHaveBeenCalled();
+      expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
+    });
+
+    it('skips pull when user declines in --no-branch interactive mode', async () => {
+      jest.spyOn(agent as any, 'isInteractiveSession').mockReturnValue(true);
+      const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+      mockPrompt.mockResolvedValueOnce({ shouldPull: false } as any);
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        noBranch: true,
+      });
+
+      expect(gitService.pull).not.toHaveBeenCalled();
+    });
+
+    it('restores stash before offering pull when staying on current branch', async () => {
+      jest.spyOn(agent as any, 'isInteractiveSession').mockReturnValue(true);
+      gitService.getStatus.mockResolvedValue({
+        isClean: () => false,
+        modified: ['src/example.ts'],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: [],
+      } as any);
+      const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+      mockPrompt.mockResolvedValueOnce({ shouldPull: true } as any);
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        noBranch: true,
+      });
+
+      expect(gitService.stashPop).toHaveBeenCalledWith('/tmp/repo-a');
+      expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
+      expect(gitService.stashPop.mock.invocationCallOrder[0]).toBeLessThan(gitService.pull.mock.invocationCallOrder[0]);
     });
 
     it('warns and continues when pull fails (no upstream)', async () => {
