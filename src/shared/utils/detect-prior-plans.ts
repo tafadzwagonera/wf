@@ -30,10 +30,6 @@ const FORMAT_MAX_CHARS = 3000;
 const FORMAT_CORRELATION_MAX_MATCHES = 5;
 const FORMAT_CORRELATION_MAX_CHARS = 5000;
 
-export interface AiExecutor {
-  execute(request: { prompt: string; maxTokens?: number; stage?: string }): Promise<{ content: string }>;
-}
-
 export interface CorrelateOptions {
   jaccardThreshold?: number;
   maxMatches?: number;
@@ -303,107 +299,6 @@ export const correlatePlans = (
 };
 
 /**
- * Correlate plans with an AI semantic-matching fallback when Jaccard produces zero matches.
- *
- * @param currentContent - The current ticket/issue content
- * @param priorPlans - Prior plan context
- * @param repoDir - Absolute path to the repository root
- * @param aiExecutor - AI executor for semantic matching fallback
- * @param opts - Optional correlation and AI settings
- * @returns Correlation result; never throws
- */
-export const correlateWithAiFallback = async (
-  currentContent: string,
-  priorPlans: PriorPlanContext,
-  repoDir: string,
-  aiExecutor: AiExecutor,
-  opts?: CorrelateOptions & { maxAiCandidates?: number }
-): Promise<PlanCorrelationResult> => {
-  const result = correlatePlans(currentContent, priorPlans, repoDir, opts);
-
-  if (result.matches.length > 0) return result;
-  if (priorPlans.plans.length === 0) return result;
-
-  const maxAiCandidates = opts?.maxAiCandidates ?? 10;
-  const maxFiles = opts?.maxFiles ?? 5;
-  const maxLinesPerFile = opts?.maxLinesPerFile ?? 500;
-  const maxTotalChars = opts?.maxTotalChars ?? 8000;
-
-  try {
-    const candidates = priorPlans.plans.slice(0, maxAiCandidates);
-    const candidateLines = candidates.map((p, i) => `${i}. "${p.summary}" (keywords: ${p.keywords.join(', ')})`);
-
-    const prompt = `You are analyzing whether a new issue is related to any prior plans.
-
-Current issue content (truncated):
-${currentContent.slice(0, 1500)}
-
-Prior plans:
-${candidateLines.join('\n')}
-
-Which prior plans are semantically related to this issue? Consider functional overlap, shared subsystems, or causal relationships — not just keyword matches.
-
-Return ONLY a JSON array of objects with "index" (0-based) and "reason" (brief explanation):
-[{"index": 0, "reason": "both address the pricing timeout path"}]
-
-If none are related, return an empty array: []`;
-
-    const response = await aiExecutor.execute({
-      prompt,
-      maxTokens: 512,
-      stage: 'plan',
-    });
-
-    if (!response.content) return result;
-
-    const raw = response.content
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/, '')
-      .trim();
-
-    const parsed = JSON.parse(raw) as Array<{ index: number; reason: string }>;
-
-    if (!Array.isArray(parsed)) return result;
-
-    const matches: PlanCorrelationMatch[] = [];
-    let cumulativeChars = 0;
-
-    for (const entry of parsed) {
-      if (typeof entry.index !== 'number' || entry.index < 0 || entry.index >= candidates.length) continue;
-
-      const plan = candidates[entry.index];
-      const details = loadPlanDetails(plan, repoDir, {
-        maxFiles,
-        maxLinesPerFile,
-        maxTotalChars,
-        currentTotalChars: cumulativeChars,
-      });
-      cumulativeChars = details.totalChars;
-
-      matches.push({
-        summary: plan.summary,
-        filename: plan.filename,
-        action: plan.action,
-        estimatedComplexity: plan.estimatedComplexity,
-        overlapScore: 0,
-        sharedKeywords: [],
-        matchSource: 'ai',
-        aiReason: typeof entry.reason === 'string' ? entry.reason : undefined,
-        affectedFiles: details.affectedFiles,
-        affectedFilesContext: details.affectedFilesContext,
-        risks: details.risks,
-        verification: details.verification,
-        sourceSnippets: details.sourceSnippets,
-      });
-    }
-
-    return { matches, repoName: priorPlans.repoName };
-  } catch {
-    return result;
-  }
-};
-
-/**
  * Format plan correlation matches for AI prompt injection.
  *
  * @param result - Plan correlation result
@@ -418,11 +313,7 @@ export const formatPlanCorrelationPromptSection = (result: PlanCorrelationResult
   for (const match of result.matches.slice(0, FORMAT_CORRELATION_MAX_MATCHES)) {
     if (totalChars >= FORMAT_CORRELATION_MAX_CHARS) break;
 
-    const matchInfo =
-      match.matchSource === 'ai'
-        ? `(semantic match: ${match.aiReason ?? 'related'})`
-        : `(overlap: ${match.overlapScore.toFixed(2)}, shared: ${match.sharedKeywords.join(', ')})`;
-
+    const matchInfo = `(overlap: ${match.overlapScore.toFixed(2)}, shared: ${match.sharedKeywords.join(', ')})`;
     lines.push(`- [${match.action}] ${match.summary} ${matchInfo}`);
 
     if (match.affectedFiles?.length) {

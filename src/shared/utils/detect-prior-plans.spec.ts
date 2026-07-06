@@ -6,12 +6,10 @@ import {
   extractContentKeywords,
   formatPriorPlansPromptSection,
   correlatePlans,
-  correlateWithAiFallback,
   formatPlanCorrelationPromptSection,
   type PriorPlanContext,
   type PriorPlanSummary,
   type PlanCorrelationResult,
-  type AiExecutor,
 } from './detect-prior-plans';
 import { parsePlanArtifact, readPlanArtifactManifest } from './plan-artifact';
 
@@ -442,98 +440,6 @@ describe('correlatePlans', () => {
   });
 });
 
-describe('correlateWithAiFallback', () => {
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
-  const createMockAiExecutor = (response?: string): AiExecutor => ({
-    execute: jest.fn().mockResolvedValue({ content: response ?? '[]' }),
-  });
-
-  it('returns keyword matches without calling AI when Jaccard succeeds', async () => {
-    const aiExecutor = createMockAiExecutor();
-    const plans = createMockPriorPlanContext({
-      plans: [
-        createMockPriorPlanSummary({
-          keywords: ['PricingService', 'timeout'],
-        }),
-      ],
-    });
-
-    mockReadFileSync.mockImplementation(() => {
-      throw new Error('not found');
-    });
-
-    const result = await correlateWithAiFallback(
-      'Fix PricingService timeout ECONNREFUSED',
-      plans,
-      '/tmp/repo',
-      aiExecutor
-    );
-
-    expect(result.matches.length).toBeGreaterThan(0);
-    expect(result.matches[0].matchSource).toBe('keyword');
-    expect(aiExecutor.execute).not.toHaveBeenCalled();
-  });
-
-  it('calls AI when zero keyword matches and parses response indices', async () => {
-    const aiExecutor = createMockAiExecutor('[{"index": 0, "reason": "both address billing retries"}]');
-    const plans = createMockPriorPlanContext({
-      plans: [
-        createMockPriorPlanSummary({
-          summary: 'Add BillingService retries',
-          keywords: ['BillingService', 'retries'],
-        }),
-      ],
-    });
-
-    mockReadFileSync.mockImplementation(() => {
-      throw new Error('not found');
-    });
-
-    const result = await correlateWithAiFallback(
-      'Completely unrelated login page content',
-      plans,
-      '/tmp/repo',
-      aiExecutor
-    );
-
-    expect(aiExecutor.execute).toHaveBeenCalled();
-    expect(result.matches).toHaveLength(1);
-    expect(result.matches[0].matchSource).toBe('ai');
-    expect(result.matches[0].aiReason).toBe('both address billing retries');
-    expect(result.matches[0].overlapScore).toBe(0);
-    expect(result.matches[0].sharedKeywords).toEqual([]);
-  });
-
-  it('handles AI failure gracefully and returns empty result', async () => {
-    const aiExecutor: AiExecutor = {
-      execute: jest.fn().mockRejectedValue(new Error('API error')),
-    };
-    const plans = createMockPriorPlanContext({
-      plans: [
-        createMockPriorPlanSummary({
-          keywords: ['CompletelyDifferent'],
-        }),
-      ],
-    });
-
-    const result = await correlateWithAiFallback('Unrelated content about login', plans, '/tmp/repo', aiExecutor);
-
-    expect(result.matches).toHaveLength(0);
-  });
-
-  it('returns empty when no prior plans exist', async () => {
-    const aiExecutor = createMockAiExecutor();
-
-    const result = await correlateWithAiFallback('Some content', createMockPriorPlanContext(), '/tmp/repo', aiExecutor);
-
-    expect(result.matches).toHaveLength(0);
-    expect(aiExecutor.execute).not.toHaveBeenCalled();
-  });
-});
-
 describe('formatPlanCorrelationPromptSection', () => {
   it('returns empty string when no matches', () => {
     expect(formatPlanCorrelationPromptSection({ matches: [], repoName: 'test' })).toBe('');
@@ -563,27 +469,6 @@ describe('formatPlanCorrelationPromptSection', () => {
     expect(output).toContain('overlap: 0.45');
     expect(output).toContain('shared: PricingService, timeout');
     expect(output).toContain('Affected: src/pricing.ts');
-  });
-
-  it('includes aiReason for AI matches', () => {
-    const result: PlanCorrelationResult = {
-      matches: [
-        {
-          summary: 'Add BillingService retries',
-          filename: 'plan.json',
-          action: 'feature',
-          overlapScore: 0,
-          sharedKeywords: [],
-          matchSource: 'ai',
-          aiReason: 'both address retry logic in payment flow',
-          sourceSnippets: [],
-        },
-      ],
-      repoName: 'test-repo',
-    };
-
-    const output = formatPlanCorrelationPromptSection(result);
-    expect(output).toContain('(semantic match: both address retry logic in payment flow)');
   });
 
   it('includes source snippets', () => {
