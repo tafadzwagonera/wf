@@ -20,7 +20,7 @@ import { assertClaudeCliAvailable, buildCliArgs, spawnCli, type ClaudeCliMessage
 
 const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const CLI_ADAPTER_LABEL = 'claude-cli';
-const IMPLEMENT_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'];
+const IMPLEMENT_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Skill'];
 
 type ActivityState = {
   lastVerificationCommand?: string;
