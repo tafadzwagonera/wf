@@ -665,6 +665,22 @@ describe('ImplementerAgent', () => {
       expect(gitService.pull).not.toHaveBeenCalled();
     });
 
+    it('warns and continues when current-branch pull fails in --no-branch mode', async () => {
+      gitService.pull.mockRejectedValue(new Error('no upstream'));
+
+      const result = await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        noBranch: true,
+      });
+
+      expect(gitService.getBranchInfo).not.toHaveBeenCalled();
+      expect(gitService.createBranch).not.toHaveBeenCalled();
+      expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
+      expect(result).toEqual({ type: 'implementation', branchName: 'main' });
+    });
+
     it('restores stash before offering pull when staying on current branch', async () => {
       jest.spyOn(agent as any, 'isInteractiveSession').mockReturnValue(true);
       gitService.getStatus.mockResolvedValue({

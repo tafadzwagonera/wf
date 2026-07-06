@@ -175,7 +175,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--no-branch',
-    description: 'Suppress branch creation; work directly on the source branch',
+    description: 'Suppress branch creation; work directly on the current branch',
   })
   parseNoBranch(): boolean {
     // Commander maps --no-X flags as boolean negation of X.
@@ -245,7 +245,7 @@ export class IssueCommand extends CommandRunner {
       console.error(
         chalk.red(
           'Error: --no-branch and --branch-name-pattern are mutually exclusive.\n' +
-            '  Use --no-branch to stay on the source branch, or\n' +
+            '  Use --no-branch to stay on the current branch, or\n' +
             '  Use --branch-name-pattern <pattern> to validate a generated branch name.'
         )
       );

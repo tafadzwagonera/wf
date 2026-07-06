@@ -6,8 +6,10 @@
  * Verifies:
  *   1. Commander maps --no-branch to { branch: false }, not { noBranch: true }
  *   2. Both issue.command.ts and issue-implement.command.ts normalize branch→noBranch
- *   3. promptBranchName returns null when noBranch is true
- *   4. The IssueOptions and IssueImplementOptions interfaces include `branch?: boolean`
+ *   3. handleBranchWorkflow short-circuits --no-branch before source detection
+ *   4. promptBranchName no longer owns noBranch handling
+ *   5. The IssueOptions and IssueImplementOptions interfaces include `branch?: boolean`
+ *   6. User-facing --no-branch help text says "current branch"
  */
 import chalk from 'chalk';
 import * as assert from 'node:assert/strict';
@@ -45,6 +47,7 @@ function main(): void {
     path.join(__dirname, '../../src/commands/issue-implement.command.ts'),
     'utf-8'
   );
+  const agentSource = fs.readFileSync(path.join(__dirname, '../../src/agents/implementer.agent.ts'), 'utf-8');
 
   // 1. Commander --no-X behavior produces { branch: false }
   test('commander maps --no-branch to { branch: false }', () => {
@@ -75,26 +78,58 @@ function main(): void {
     );
   });
 
-  // 4. IssueOptions interface includes branch?: boolean
+  // 4. handleBranchWorkflow short-circuits before source detection
+  test('handleBranchWorkflow short-circuits --no-branch before source detection', () => {
+    const noBranchIndex = agentSource.indexOf('if (options.noBranch)');
+    const detectIndex = agentSource.indexOf("console.log(chalk.gray('  Detecting source branches...'));");
+    assert.ok(noBranchIndex !== -1, 'Expected --no-branch guard in handleBranchWorkflow');
+    assert.ok(detectIndex !== -1, 'Expected source detection log in handleBranchWorkflow');
+    assert.ok(noBranchIndex < detectIndex, '--no-branch guard should run before source detection');
+    assert.ok(
+      agentSource.includes('await this.offerPullOnCurrentBranch(current, branchInteractive, cwd);'),
+      'Expected current-branch pull helper call in --no-branch path'
+    );
+  });
+
+  // 5. promptBranchName no longer handles noBranch
+  test('promptBranchName no longer handles noBranch directly', () => {
+    const start = agentSource.indexOf('private async promptBranchName');
+    const promptMethod = agentSource.slice(start, start + 700);
+    assert.ok(!promptMethod.includes('if (noBranch)'), 'promptBranchName should not check noBranch');
+    assert.ok(!promptMethod.includes('return null'), 'promptBranchName should no longer return null for noBranch');
+  });
+
+  // 6. IssueOptions interface includes branch?: boolean
   test('IssueOptions interface includes branch property', () => {
     assert.ok(issueSource.includes('branch?: boolean;'), 'Expected branch?: boolean in IssueOptions');
   });
 
-  // 5. IssueImplementOptions interface includes branch?: boolean
+  // 7. IssueImplementOptions interface includes branch?: boolean
   test('IssueImplementOptions interface includes branch property', () => {
     assert.ok(implementSource.includes('branch?: boolean;'), 'Expected branch?: boolean in IssueImplementOptions');
   });
 
-  // 6. promptBranchName still returns null for noBranch
-  test('promptBranchName returns null when noBranch is true', () => {
-    const agentSource = fs.readFileSync(path.join(__dirname, '../../src/agents/implementer.agent.ts'), 'utf-8');
-    const start = agentSource.indexOf('private async promptBranchName');
-    const promptMethod = agentSource.slice(start, start + 500);
-    assert.ok(promptMethod.includes('if (noBranch)'), 'promptBranchName should check noBranch');
-    assert.ok(promptMethod.includes('return null'), 'promptBranchName should return null for noBranch');
+  // 8. current-branch wording is present in command help text
+  test('user-facing help text says current branch', () => {
+    assert.ok(
+      issueSource.includes('work directly on the current branch'),
+      'Expected current-branch wording in issue.command.ts'
+    );
+    assert.ok(
+      implementSource.includes('work directly on the current branch'),
+      'Expected current-branch wording in issue-implement.command.ts'
+    );
+    assert.ok(
+      issueSource.includes('stay on the current branch'),
+      'Expected current-branch mutual-exclusion wording in issue.command.ts'
+    );
+    assert.ok(
+      implementSource.includes('stay on the current branch'),
+      'Expected current-branch mutual-exclusion wording in issue-implement.command.ts'
+    );
   });
 
-  // 7. Normalization comment is present (documents the why)
+  // 9. Normalization comment is present (documents the why)
   test('normalization has explanatory comment', () => {
     assert.ok(
       issueSource.includes('Commander maps --no-branch to { branch: false }'),
@@ -102,7 +137,7 @@ function main(): void {
     );
   });
 
-  // 8. parseNoBranch returns false (not true) so commander stores branch: false
+  // 10. parseNoBranch returns false (not true) so commander stores branch: false
   test('parseNoBranch returns false in issue.command.ts', () => {
     const methodMatch = issueSource.match(/parseNoBranch\(\)[^{]*\{[^}]*return\s+(true|false)/);
     assert.ok(methodMatch, 'Expected parseNoBranch method');
