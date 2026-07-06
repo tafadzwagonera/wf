@@ -262,6 +262,32 @@ describe('StageAgentService', () => {
     );
   });
 
+  it('places the JSON minification instruction after the plan example block', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix',
+        summary: 'Fix it',
+        steps: ['step 1'],
+        estimatedComplexity: 'low',
+        affectedFiles: [],
+        risks: [],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: 'Fix callback handling',
+      affectedRepositories: ['repo-a'],
+    });
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
+
+    expect(prompt).toContain('  }\n}\n\nIMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.');
+    expect(prompt).not.toContain('  }\nIMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.\n}');
+  });
+
   it('includes prior plan context in the generated plan prompt when provided', async () => {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = jest.fn().mockResolvedValue({
@@ -413,6 +439,34 @@ describe('StageAgentService', () => {
 
       logSpy.mockRestore();
     });
+
+    it('uses the minified JSON retry prompt after a blank first pass', async () => {
+      async function* firstPass() {
+        yield { type: 'assistant', message: { content: [] }, session_id: 'sess_abc123' };
+      }
+      async function* secondPass() {
+        yield { type: 'result', subtype: 'success', result: '{"action":"fix"}', session_id: 'sess_abc123' };
+      }
+      buildCliArgs.mockClear();
+      spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
+
+      const service = new StageAgentService(createCliConfigService());
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
+
+      expect(buildCliArgs).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          prompt:
+            'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines).',
+          sessionId: 'sess_abc123',
+        })
+      );
+
+      logSpy.mockRestore();
+    });
   });
 
   it('sets executionMode to cli when review backend is cli', async () => {
@@ -442,6 +496,29 @@ describe('StageAgentService', () => {
 
     const { review } = await service.reviewCode('diff --git a/f b/f', []);
     expect(review.executionMode).toBe('cli');
+  });
+
+  it('places the JSON minification instruction after the review example block', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockReviewJson = JSON.stringify({
+      summary: 'Looks good',
+      issues: [],
+      suggestions: [],
+      approved: true,
+    });
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({ content: mockReviewJson, sessionId: undefined });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.reviewCode('diff --git a/f b/f', []);
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
+
+    expect(prompt).toContain(
+      '  "approved": true\n}\n\nIMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.'
+    );
+    expect(prompt).not.toContain(
+      '  "approved": true\nIMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.\n}'
+    );
   });
 
   it('sets executionMode to agent when review backend is agent', async () => {
@@ -646,6 +723,13 @@ describe('StageAgentService', () => {
       expect(result.review.approved).toBe(true);
       expect(result.sessionId).toBe('review-session-42');
       expect(spawnCodex).toHaveBeenCalledTimes(2);
+      expect(spawnCodex).toHaveBeenLastCalledWith(
+        expect.any(Array),
+        process.cwd(),
+        expect.stringContaining('Summarize the code review you just completed'),
+        undefined,
+        5000
+      );
     });
 
     it('sends epilogue turn after successful Claude CLI review', async () => {
@@ -673,6 +757,13 @@ describe('StageAgentService', () => {
 
       expect(result.review.approved).toBe(true);
       expect(spawnCli).toHaveBeenCalledTimes(2);
+      expect(spawnCli).toHaveBeenLastCalledWith(
+        expect.any(Array),
+        process.cwd(),
+        expect.stringContaining('Summarize the code review you just completed'),
+        undefined,
+        5000
+      );
     });
 
     it('uses the same Claude Code CLI arguments as the main review turn', async () => {

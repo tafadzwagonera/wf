@@ -85,6 +85,7 @@ const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => 
 
 const CLI_STAGE_LABEL = 'claude-cli';
 const CLI_STALL_THRESHOLD = 2;
+const CLI_REVIEW_EPILOGUE_TIMEOUT_MS = 5000;
 
 const CODEX_STAGE_LABEL = 'codex-cli';
 
@@ -373,7 +374,9 @@ Return ONLY a valid JSON object with these fields:
       }
     ]
   }
-}`;
+}
+
+IMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.`;
 
     const systemPrompt = `You are an expert software engineer creating detailed resolution plans.
 You may inspect repository files with read-only tools before answering.
@@ -502,7 +505,9 @@ Return ONLY a valid JSON object:
   },
   "suggestions": ["general follow-up suggestion 1"],
   "approved": true
-}`;
+}
+
+IMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.`;
 
     const systemPrompt = `You are an expert code reviewer providing constructive feedback.
 You may inspect repository files with read-only tools before answering.
@@ -1253,9 +1258,10 @@ Return only the requested ticket markdown and preserve the required heading stru
       passNumber++;
       const isResume = (passNumber > 1 && sessionId) || (passNumber === 1 && params.resumeProviderSessionId);
 
+      // Keep retry turns aligned with the parser contract: JSON-only and minified.
       const prompt =
         isResume && passNumber > 1
-          ? 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — raw JSON only.'
+          ? 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines).'
           : params.prompt;
 
       const priorStagePreamble = params.priorStageSummary
@@ -1426,7 +1432,13 @@ Return only the requested ticket markdown and preserve the required heading stru
         cwd: params.repoDir,
       });
 
-      for await (const _message of spawnCodex(args, params.repoDir, epiloguePrompt)) {
+      for await (const _message of spawnCodex(
+        args,
+        params.repoDir,
+        epiloguePrompt,
+        undefined,
+        CLI_REVIEW_EPILOGUE_TIMEOUT_MS
+      )) {
         void _message;
       }
       return;
@@ -1447,7 +1459,13 @@ Return only the requested ticket markdown and preserve the required heading stru
       jsonSchema: undefined,
     });
 
-    for await (const _message of spawnCli(args, params.repoDir, epiloguePrompt)) {
+    for await (const _message of spawnCli(
+      args,
+      params.repoDir,
+      epiloguePrompt,
+      undefined,
+      CLI_REVIEW_EPILOGUE_TIMEOUT_MS
+    )) {
       void _message;
     }
   }

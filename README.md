@@ -379,6 +379,8 @@ wf issue:plan WBP-2971 --action fix --force --tracker jira
 
 Targeted verification commands are stored as **repo-root-relative** commands. If the plan generator emits a redundant `cd <selected-repo> && ...`, `issue:plan` normalizes it before writing the artifact. If a targeted check tries to `cd` outside the selected repo, the plan is rejected.
 
+When the selected backend returns structured JSON for planning, wf now explicitly asks for minified single-line JSON in both the primary prompt and any CLI retry turn. This reduces token overhead and avoids downstream parsing drift caused by prettified responses.
+
 When `--repos` is present, filename-only custom sources are resolved against the repo-scoped `~/.wf/<repo>/` artifact directory before cwd-relative paths.
 
 When `--repos` points at a local checkout, `issue:plan` now inspects `~/.wf/<repo>/**/*` for prior ticket-description artifacts in `json|md|yaml|yml` and prior plan artifacts. Matching plans are merged into recurrence analysis and also forwarded to the planning prompt with action, complexity, and step context.
@@ -993,6 +995,8 @@ Session continuity enables context awareness across workflow stages. It operates
 - **Provider sessions** are agent SDK or CLI session identifiers (e.g. Anthropic `sess_abc123`, Codex CLI session IDs). Standalone commands pass these directly to the backend for conversation resumption.
 
 For CLI-backed review sessions, `wf issue:review` first parses the structured review payload, then sends a final summary-only epilogue to the same provider session. This keeps wf's downstream behavior JSON-driven while ensuring a later manual provider resume such as `claude --resume <provider-session-id>` or `codex exec resume <provider-session-id>` replays a short human-readable summary instead of the raw review JSON.
+
+Structured plan and review payloads also explicitly request minified single-line JSON in their prompt epilogues so CLI-backed retries and downstream consumers see the same compact shape consistently.
 
 The `--session-id` flag means different things depending on the command:
 
