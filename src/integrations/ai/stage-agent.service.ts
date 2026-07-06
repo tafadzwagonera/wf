@@ -40,16 +40,16 @@ import {
   formatRepoConventionsPromptSection,
   type RepoConventionsContext,
 } from '../../shared/utils/detect-repo-conventions';
-import { formatPriorTicketsPromptSection, type PriorTicketContext } from '../../shared/utils/detect-prior-tickets';
-import { formatPriorPlansPromptSection, type PriorPlanContext } from '../../shared/utils/detect-prior-plans';
+import {
+  formatPriorPlansPromptSection,
+  formatPlanCorrelationPromptSection,
+  type PriorPlanContext,
+  type PlanCorrelationResult,
+} from '../../shared/utils/detect-prior-plans';
 import {
   formatCrossRepoPatternsPromptSection,
   type CrossRepoContext,
 } from '../../shared/utils/detect-cross-repo-patterns';
-import {
-  formatRecurrenceGapsPromptSection,
-  type RecurrenceGapAnalysis,
-} from '../../shared/utils/detect-recurrence-gaps';
 
 const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
@@ -190,10 +190,9 @@ export class StageAgentService {
     planQualityFeedback?: string[];
     testInfra?: TestInfraContext;
     conventions?: RepoConventionsContext;
-    priorTickets?: PriorTicketContext;
     priorPlans?: PriorPlanContext;
+    planCorrelation?: PlanCorrelationResult;
     crossRepoPatterns?: CrossRepoContext;
-    recurrenceGaps?: RecurrenceGapAnalysis | null;
     onProgress?: StageProgressCallback;
     priorStageSummary?: string;
     resumeProviderSessionId?: string;
@@ -207,16 +206,12 @@ export class StageAgentService {
       const section = formatRepoConventionsPromptSection(params.conventions, repoName);
       if (section) discoveryParts.push(section);
     }
-    if (params.priorTickets) {
-      const section = formatPriorTicketsPromptSection(params.priorTickets);
-      if (section) discoveryParts.push(section);
-    }
     if (params.crossRepoPatterns) {
       const section = formatCrossRepoPatternsPromptSection(params.crossRepoPatterns);
       if (section) discoveryParts.push(section);
     }
-    if (params.recurrenceGaps) {
-      const section = formatRecurrenceGapsPromptSection(params.recurrenceGaps);
+    if (params.planCorrelation) {
+      const section = formatPlanCorrelationPromptSection(params.planCorrelation);
       if (section) discoveryParts.push(section);
     }
     if (params.priorPlans) {

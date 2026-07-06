@@ -19,14 +19,8 @@ import { detectTestInfra } from '../shared/utils/detect-test-infra';
 import type { TestInfraContext, NodeInfra } from '../shared/utils/detect-test-infra';
 import { createPlanQualityError, validatePlanQuality } from '../shared/utils/plan-quality';
 import { detectRepoConventions } from '../shared/utils/detect-repo-conventions';
-import { detectPriorTickets } from '../shared/utils/detect-prior-tickets';
-import { detectPriorPlans, mergePriorContexts } from '../shared/utils/detect-prior-plans';
+import { detectPriorPlans, correlatePlans } from '../shared/utils/detect-prior-plans';
 import { detectCrossRepoPatterns } from '../shared/utils/detect-cross-repo-patterns';
-import {
-  filterRecurrenceCandidates,
-  enrichWithCommitHistory,
-  analyzeRecurrenceGaps,
-} from '../shared/utils/detect-recurrence-gaps';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
@@ -52,7 +46,7 @@ const ISSUE_PLAN_EXAMPLES: CliExample[] = [
     command: 'wf issue:plan WBP-2971 --action fix',
   },
   {
-    comment: 'Plan against a repo so prior json|md|yaml|yml tickets and plans feed recurrence analysis',
+    comment: 'Plan against a repo so prior plan artifacts feed plan correlation',
     command: 'wf issue:plan WBP-2971 --action fix --repos repo-a',
   },
   {
@@ -175,7 +169,7 @@ const extractScriptName = (command: string): string | undefined => {
     'Plan ticket implementation from a local artifact or repo-scoped custom artifact. ' +
     'If a local artifact is not found, the command will attempt to fetch it from the primary tracker. ' +
     'Use --force to fetch and recreate artifacts. ' +
-    'Repo-scoped planning inspects prior ticket-description artifacts (json|md|yaml|yml) and prior plan artifacts anywhere under ~/.wf/<repo>/**/* so recurrence analysis and planning prompts can reuse earlier implementation context. ' +
+    'Repo-scoped planning inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so planning prompts can reuse earlier implementation context. ' +
     'Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. ' +
     'Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. ' +
     'Targeted verification commands are interpreted as repo-root-relative: redundant ' +
@@ -411,9 +405,8 @@ export class IssuePlanCommand extends CommandRunner {
 
         // Gather repo discovery context
         const conventions = detectRepoConventions(artifactBaseDir);
-        const priorTickets = detectPriorTickets(path.basename(artifactBaseDir));
         const priorPlans = detectPriorPlans(path.basename(artifactBaseDir));
-        const mergedPriorContext = mergePriorContexts(priorTickets, priorPlans);
+        const planCorrelation = correlatePlans(customSourceContent, priorPlans, artifactBaseDir);
         const crossRepoPatterns =
           (options?.repos?.length ?? 0) > 1
             ? detectCrossRepoPatterns(
@@ -422,13 +415,6 @@ export class IssuePlanCommand extends CommandRunner {
               )
             : undefined;
 
-        let candidates = filterRecurrenceCandidates(customSourceContent, mergedPriorContext);
-        if (candidates.length > 0) {
-          candidates = await enrichWithCommitHistory(candidates, artifactBaseDir);
-        }
-        const recurrenceGaps =
-          candidates.length > 0 ? await analyzeRecurrenceGaps(customSourceContent, candidates, this.aiService) : null;
-
         const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
 
         const { plan } = await this.planStageService.generatePlan(customSourceContent, {
@@ -436,10 +422,9 @@ export class IssuePlanCommand extends CommandRunner {
           affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
           repoDir: artifactBaseDir,
           conventions,
-          priorTickets: mergedPriorContext,
           priorPlans,
+          planCorrelation,
           crossRepoPatterns,
-          recurrenceGaps,
           onProgress,
           resumeProviderSessionId: options?.sessionId,
         });
@@ -649,9 +634,8 @@ export class IssuePlanCommand extends CommandRunner {
 
       // Gather repo discovery context
       const conventions = detectRepoConventions(artifactBaseDir);
-      const priorTickets = detectPriorTickets(path.basename(artifactBaseDir));
       const priorPlans = detectPriorPlans(path.basename(artifactBaseDir));
-      const mergedPriorContext = mergePriorContexts(priorTickets, priorPlans);
+      const planCorrelation = correlatePlans(ticketContent, priorPlans, artifactBaseDir);
       const crossRepoPatterns =
         (options?.repos?.length ?? 0) > 1
           ? detectCrossRepoPatterns(
@@ -659,13 +643,6 @@ export class IssuePlanCommand extends CommandRunner {
               (options?.repos ?? []).slice(1).map(r => resolveRepoBasePath(r))
             )
           : undefined;
-
-      let candidates = filterRecurrenceCandidates(ticketContent, mergedPriorContext);
-      if (candidates.length > 0) {
-        candidates = await enrichWithCommitHistory(candidates, artifactBaseDir);
-      }
-      const recurrenceGaps =
-        candidates.length > 0 ? await analyzeRecurrenceGaps(ticketContent, candidates, this.aiService) : null;
 
       const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
 
@@ -675,10 +652,9 @@ export class IssuePlanCommand extends CommandRunner {
         affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
         repoDir: artifactBaseDir,
         conventions,
-        priorTickets: mergedPriorContext,
         priorPlans,
+        planCorrelation,
         crossRepoPatterns,
-        recurrenceGaps,
         onProgress,
         resumeProviderSessionId: options?.sessionId,
       });

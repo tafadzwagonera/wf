@@ -32,28 +32,18 @@ import {
   type RepoConventionsContext,
 } from '../shared/utils/detect-repo-conventions';
 import {
-  detectPriorTickets,
-  formatPriorTicketsPromptSection,
-  type PriorTicketContext,
-} from '../shared/utils/detect-prior-tickets';
-import {
   detectPriorPlans,
   formatPriorPlansPromptSection,
-  mergePriorContexts,
+  correlatePlans,
+  formatPlanCorrelationPromptSection,
   type PriorPlanContext,
+  type PlanCorrelationResult,
 } from '../shared/utils/detect-prior-plans';
 import {
   detectCrossRepoPatterns,
   formatCrossRepoPatternsPromptSection,
   type CrossRepoContext,
 } from '../shared/utils/detect-cross-repo-patterns';
-import {
-  filterRecurrenceCandidates,
-  enrichWithCommitHistory,
-  analyzeRecurrenceGaps,
-  formatRecurrenceGapsPromptSection,
-  type RecurrenceGapAnalysis,
-} from '../shared/utils/detect-recurrence-gaps';
 
 /** Maximum source content length (chars) before AI summarisation kicks in. */
 const MAX_SOURCE_CONTENT_LENGTH = 30_000;
@@ -122,7 +112,7 @@ const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
     command: 'wf issue:generate itinerary-pdf-generation.md -r service-tourv3',
   },
   {
-    comment: 'Generate with repo context so prior json|md|yaml|yml tickets and plans inform recurrence analysis',
+    comment: 'Generate with repo context so prior plan artifacts inform plan correlation',
     command: 'wf issue:generate ./requirements.md -r service-tourv3 --save',
   },
   {
@@ -182,10 +172,9 @@ interface TrackerSourceMatch {
 
 interface RepoDiscoveryContext {
   conventions?: RepoConventionsContext;
-  priorTickets?: PriorTicketContext;
   priorPlans?: PriorPlanContext;
+  planCorrelation?: PlanCorrelationResult;
   crossRepoPatterns?: CrossRepoContext;
-  recurrenceGaps?: RecurrenceGapAnalysis | null;
 }
 
 class UnresolvedSourceError extends Error {}
@@ -199,14 +188,14 @@ class UnresolvedSourceError extends Error {}
  * to a local checkout, bootstrap config is loaded from that repository before
  * command execution. Repo-scoped discovery inspects the full
  * `~/.wf/<repo>/` artifact tree for
- * ticket-description artifacts (`json|md|yaml|yml`) and plan artifacts so
- * recurrence analysis can reuse earlier implementation context. Generated
+ * plan artifacts and correlates them by keyword similarity so
+ * planning prompts can reuse earlier implementation context. Generated
  * serialized output enforces formal writing conventions before display or save.
  */
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g. https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Repo-scoped generation now inspects prior ticket-description artifacts (json|md|yaml|yml) and prior plan artifacts anywhere under ~/.wf/<repo>/**/* so recurrence analysis and synthesis prompts can reuse earlier implementation context. AI synthesis always runs on every source to enrich and standardise the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g. https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Repo-scoped generation now inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. AI synthesis always runs on every source to enrich and standardise the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -1613,7 +1602,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * Gather repo discovery context for enriching synthesis prompts.
    *
    * @param repos - Optional repos from command options
-   * @param sources - The fetched source contents (used for recurrence detection)
+   * @param sources - The fetched source contents (used for plan correlation)
    * @returns Repo discovery context object
    */
   private async gatherRepoContext(repos?: string[], sources?: SourceContent[]): Promise<RepoDiscoveryContext> {
@@ -1626,11 +1615,8 @@ export class IssueGenerateCommand extends CommandRunner {
       // Detect conventions
       context.conventions = detectRepoConventions(primaryRepoDir);
 
-      // Detect prior tickets
-      context.priorTickets = detectPriorTickets(repoName);
-      const priorPlans = detectPriorPlans(repoName);
-      context.priorTickets = mergePriorContexts(context.priorTickets, priorPlans);
-      context.priorPlans = priorPlans;
+      // Detect prior plans
+      context.priorPlans = detectPriorPlans(repoName);
 
       // Cross-repo patterns (only when multiple repos)
       if (repos && repos.length > 1) {
@@ -1638,18 +1624,13 @@ export class IssueGenerateCommand extends CommandRunner {
         context.crossRepoPatterns = detectCrossRepoPatterns(primaryRepoDir, secondaryDirs);
       }
 
-      // Recurrence detection: keyword pre-filter, git history, AI analysis
-      if (context.priorTickets.tickets.length > 0 && sources && sources.length > 0) {
+      // Plan correlation
+      if (context.priorPlans.plans.length > 0 && sources && sources.length > 0) {
         const currentContent = sources
           .map(s => (typeof s.content === 'string' ? s.content : JSON.stringify(s.content)))
           .join('\n')
           .substring(0, 3000);
-
-        let candidates = filterRecurrenceCandidates(currentContent, context.priorTickets);
-        if (candidates.length > 0) {
-          candidates = await enrichWithCommitHistory(candidates, primaryRepoDir);
-          context.recurrenceGaps = await analyzeRecurrenceGaps(currentContent, candidates, this.aiService);
-        }
+        context.planCorrelation = correlatePlans(currentContent, context.priorPlans, primaryRepoDir);
       }
     } catch {
       // Discovery is best-effort; don't block generation on failure
@@ -1698,24 +1679,20 @@ export class IssueGenerateCommand extends CommandRunner {
       if (repoContext.conventions) {
         const section = formatRepoConventionsPromptSection(
           repoContext.conventions,
-          repoContext.priorTickets?.repoName ?? 'repo'
+          repoContext.priorPlans?.repoName ?? 'repo'
         );
-        if (section) parts.push(section);
-      }
-      if (repoContext.priorTickets) {
-        const section = formatPriorTicketsPromptSection(repoContext.priorTickets);
         if (section) parts.push(section);
       }
       if (repoContext.priorPlans) {
         const section = formatPriorPlansPromptSection(repoContext.priorPlans);
         if (section) parts.push(section);
       }
-      if (repoContext.crossRepoPatterns) {
-        const section = formatCrossRepoPatternsPromptSection(repoContext.crossRepoPatterns);
+      if (repoContext.planCorrelation) {
+        const section = formatPlanCorrelationPromptSection(repoContext.planCorrelation);
         if (section) parts.push(section);
       }
-      if (repoContext.recurrenceGaps) {
-        const section = formatRecurrenceGapsPromptSection(repoContext.recurrenceGaps);
+      if (repoContext.crossRepoPatterns) {
+        const section = formatCrossRepoPatternsPromptSection(repoContext.crossRepoPatterns);
         if (section) parts.push(section);
       }
       if (parts.length > 0) {

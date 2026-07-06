@@ -343,7 +343,7 @@ wf issue:fetch WBP-2971 --tracker jira --format md
 #### `wf issue:plan <ticket-key>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:plan -->
-Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary tracker. Use --force to fetch and recreate artifacts. Repo-scoped planning inspects prior ticket-description artifacts (json|md|yaml|yml) and prior plan artifacts anywhere under ~/.wf/<repo>/**/* so recurrence analysis and planning prompts can reuse earlier implementation context. Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.
+Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary tracker. Use --force to fetch and recreate artifacts. Repo-scoped planning inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so planning prompts can reuse earlier implementation context. Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.
 
 ```bash
 # Create a custom feature plan from a markdown artifact
@@ -355,7 +355,7 @@ wf issue:plan --action feature --custom bar.md --repos repo-a
 # Plan a fix for a ticket
 wf issue:plan WBP-2971 --action fix
 
-# Plan against a repo so prior json|md|yaml|yml tickets and plans feed recurrence analysis
+# Plan against a repo so prior plan artifacts feed plan correlation
 wf issue:plan WBP-2971 --action fix --repos repo-a
 
 # Force re-fetch before planning
@@ -385,7 +385,7 @@ When the selected backend returns structured JSON for planning, wf now explicitl
 
 When `--repos` is present, filename-only custom sources are resolved against the repo-scoped `~/.wf/<repo>/` artifact directory before cwd-relative paths.
 
-When `--repos` points at a local checkout, `issue:plan` now inspects `~/.wf/<repo>/**/*` for prior ticket-description artifacts in `json|md|yaml|yml` and prior plan artifacts. Matching plans are merged into recurrence analysis and also forwarded to the planning prompt with action, complexity, and step context.
+When `--repos` points at a local checkout, `issue:plan` inspects `~/.wf/<repo>/**/*` for prior plan artifacts and correlates them by Jaccard keyword similarity. Matched plans — along with their affected files and source snippets — are forwarded to the planning prompt so it can build on earlier implementation context.
 
 **Output:** saves to `./<tracker>/YYYY-MM-DD-<hash>-<action>-plan.<format>` for both ticket-backed and custom plans. A sidecar `.<format>.sources.json` manifest records the original ticket key or custom source name so `issue:implement` can resolve the artifact later.
 
@@ -510,7 +510,7 @@ For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF 
 #### `wf issue:generate <sources...>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->
-Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g. https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Repo-scoped generation now inspects prior ticket-description artifacts (json|md|yaml|yml) and prior plan artifacts anywhere under ~/.wf/<repo>/**/* so recurrence analysis and synthesis prompts can reuse earlier implementation context. AI synthesis always runs on every source to enrich and standardise the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent
+Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g. https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Repo-scoped generation now inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. AI synthesis always runs on every source to enrich and standardise the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent
 
 ```bash
 # Generate ticket from a URL
@@ -525,7 +525,7 @@ wf issue:generate "https://workspace.slack.com/archives/C0AP5MMCP53/p17756506468
 # Generate from a repo-scoped artifact (requires -r, --repos)
 wf issue:generate itinerary-pdf-generation.md -r service-tourv3
 
-# Generate with repo context so prior json|md|yaml|yml tickets and plans inform recurrence analysis
+# Generate with repo context so prior plan artifacts inform plan correlation
 wf issue:generate ./requirements.md -r service-tourv3 --save
 
 # Save with overridden title
@@ -559,7 +559,7 @@ Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<ha
 Tracker browse URLs (e.g. `https://<org>.atlassian.net/browse/<KEY>`) are automatically detected and fetched via the tracker REST API instead of scraping the HTML page. Self-hosted instances are supported when `atlassian.baseUrl` is configured; without it, only `*.atlassian.net` domains are recognised. Non-browse URLs on the same domain (Confluence, board, sprint) fall through to the generic URL handler.
 
 When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, unresolved bare filenames stay cwd-relative and the command now tells you to retry with `--repos <repo>` when the source looks like a repo-scoped artifact. When the first `--repos` entry resolves to a local checkout, `issue:generate` also bootstraps AI provider and stage config from that repository before command execution.
-Repo-scoped generation also inspects `~/.wf/<repo>/**/*` for prior ticket-description artifacts in `json|md|yaml|yml` and prior plan artifacts. Matching plan artifacts are merged into recurrence analysis and injected into the synthesis prompt so generated tickets can reflect earlier implementation steps and risks.
+Repo-scoped generation also inspects `~/.wf/<repo>/**/*` for prior plan artifacts and correlates them by Jaccard keyword similarity. Matched plans — along with their affected files and source snippets — are injected into the synthesis prompt so generated tickets can reflect earlier implementation steps and risks.
 Slack permalinks that include query parameters should be quoted when invoked from shells such as `zsh` or `bash`.
 
 In interactive mode (TTY, no `--silent`), the command performs a pre-synthesis clarification pass: the AI identifies unaddressed ambiguities, assumptions, or risks in the sources, and prompts the user to answer them before generating the ticket. Sources that already acknowledge their own risks and assumptions are not re-surfaced. The `--silent` flag suppresses all decorative output and interactive prompts, emitting only file paths (with `--save`/`--output`) or raw ticket content suitable for piping.

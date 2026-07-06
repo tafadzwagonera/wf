@@ -354,6 +354,7 @@ describe('AiService', () => {
               title: 'Fix pricing timeout',
               summary: 'Fix pricing timeout',
               filename: '2026-07-01-abc123-fix-plan.json',
+              artifactPath: '/fake/.wf/repo-a/jira/2026-07-01-abc123-fix-plan.json',
               keywords: ['PricingService'],
               steps: ['Inspect PricingService'],
               action: 'fix',

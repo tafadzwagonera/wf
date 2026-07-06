@@ -3,13 +3,17 @@ import * as path from 'path';
 import {
   detectPriorPlans,
   extractPlanKeywords,
+  extractContentKeywords,
   formatPriorPlansPromptSection,
-  mergePriorContexts,
+  correlatePlans,
+  correlateWithAiFallback,
+  formatPlanCorrelationPromptSection,
   type PriorPlanContext,
   type PriorPlanSummary,
+  type PlanCorrelationResult,
+  type AiExecutor,
 } from './detect-prior-plans';
 import { parsePlanArtifact, readPlanArtifactManifest } from './plan-artifact';
-import type { PriorTicketContext } from '../types/detection.types';
 
 jest.mock('fs');
 jest.mock('./wf-paths', () => ({
@@ -51,6 +55,7 @@ const createMockPriorPlanSummary = (overrides: Partial<PriorPlanSummary> = {}): 
   title: 'Fix PricingService timeout',
   summary: 'Fix PricingService timeout',
   filename: '2026-07-01-abc123-fix-plan.json',
+  artifactPath: `${JIRA_DIR}/2026-07-01-abc123-fix-plan.json`,
   keywords: ['PricingService'],
   steps: ['Inspect PricingService'],
   action: 'fix',
@@ -61,12 +66,6 @@ const createMockPriorPlanSummary = (overrides: Partial<PriorPlanSummary> = {}): 
 
 const createMockPriorPlanContext = (overrides: Partial<PriorPlanContext> = {}): PriorPlanContext => ({
   plans: [],
-  repoName: REPO_NAME,
-  ...overrides,
-});
-
-const createMockPriorTicketContext = (overrides: Partial<PriorTicketContext> = {}): PriorTicketContext => ({
-  tickets: [],
   repoName: REPO_NAME,
   ...overrides,
 });
@@ -125,6 +124,30 @@ describe('extractPlanKeywords', () => {
   });
 });
 
+describe('extractContentKeywords', () => {
+  it('extracts file paths from text', () => {
+    const result = extractContentKeywords('Error in src/pricing/pricing.service.ts');
+    expect(result).toContain('src/pricing/pricing.service.ts');
+  });
+
+  it('extracts component names from text', () => {
+    const result = extractContentKeywords('Fix PricingService and BookingController');
+    expect(result).toContain('PricingService');
+    expect(result).toContain('BookingController');
+  });
+
+  it('extracts error patterns from text', () => {
+    const result = extractContentKeywords('Got ECONNREFUSED and timeout errors');
+    expect(result.some(k => k.toLowerCase() === 'econnrefused')).toBe(true);
+    expect(result.some(k => k.toLowerCase() === 'timeout')).toBe(true);
+  });
+
+  it('deduplicates results', () => {
+    const result = extractContentKeywords('PricingService PricingService PricingService');
+    expect(result.filter(k => k === 'PricingService')).toHaveLength(1);
+  });
+});
+
 describe('detectPriorPlans', () => {
   afterEach(() => {
     jest.restoreAllMocks();
@@ -176,6 +199,7 @@ describe('detectPriorPlans', () => {
         filename: '2026-07-01-abc123-fix-plan.json',
         ticketKey: 'WBP-123',
         steps: ['Inspect PricingService', 'Patch BookingController timeout handling'],
+        artifactPath: expect.any(String),
       })
     );
   });
@@ -248,91 +272,355 @@ describe('detectPriorPlans', () => {
   });
 });
 
-describe('mergePriorContexts', () => {
+describe('correlatePlans', () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  it('returns the existing ticket context when no plans are present', () => {
-    const tickets = createMockPriorTicketContext({
-      tickets: [{ title: 'Existing ticket', summary: 'Existing ticket', filename: 'WBP-1.md', keywords: ['x'] }],
-    });
-
-    expect(mergePriorContexts(tickets, createMockPriorPlanContext())).toEqual(tickets);
+  it('returns empty matches when no prior plans exist', () => {
+    const result = correlatePlans('Fix PricingService timeout', createMockPriorPlanContext(), '/tmp/repo');
+    expect(result.matches).toHaveLength(0);
+    expect(result.repoName).toBe(REPO_NAME);
   });
 
-  it('adds plan summaries and deduplicates by ticket key', () => {
-    const tickets = createMockPriorTicketContext({
-      tickets: [
-        {
-          title: 'WBP-123 existing ticket',
-          summary: 'WBP-123 existing ticket',
-          filename: 'WBP-123-ticket-description.md',
-          keywords: ['PricingService'],
-        },
-      ],
-    });
+  it('filters plans below Jaccard threshold', () => {
     const plans = createMockPriorPlanContext({
       plans: [
-        createMockPriorPlanSummary({ ticketKey: 'WBP-123' }),
         createMockPriorPlanSummary({
-          filename: '2026-07-02-def456-feature-plan.json',
-          summary: 'Add BillingService retries',
-          keywords: ['BillingService'],
-          action: 'feature',
-          ticketKey: null,
+          keywords: ['CompletelyUnrelatedKeyword', 'AnotherUnrelatedThing'],
         }),
       ],
     });
 
-    const result = mergePriorContexts(tickets, plans);
-
-    expect(result.tickets).toHaveLength(2);
-    expect(result.tickets[0].filename).toBe('WBP-123-ticket-description.md');
-    expect(result.tickets[1]).toEqual(
-      expect.objectContaining({
-        title: 'Add BillingService retries',
-        filename: '2026-07-02-def456-feature-plan.json',
-      })
-    );
+    const result = correlatePlans('Fix login page rendering issue', plans, '/tmp/repo');
+    expect(result.matches).toHaveLength(0);
   });
 
-  it('preserves manifest ticket keys on synthetic ticket summaries', () => {
-    const result = mergePriorContexts(
-      createMockPriorTicketContext(),
-      createMockPriorPlanContext({
-        plans: [createMockPriorPlanSummary({ filename: '2026-07-02-def456-fix-plan.json', ticketKey: 'WBP-456' })],
-      })
-    );
-
-    expect(result.tickets[0]).toEqual(
-      expect.objectContaining({
-        filename: '2026-07-02-def456-fix-plan.json',
-        ticketKey: 'WBP-456',
-      })
-    );
-  });
-
-  it('deduplicates markdown plan files already discovered as prior tickets', () => {
-    const tickets = createMockPriorTicketContext({
-      tickets: [
-        {
-          title: 'Fix PricingService timeout',
-          summary: 'Fix PricingService timeout',
-          filename: '2026-07-01-abc123-fix-plan.md',
+  it('returns matches sorted by score descending', () => {
+    const plans = createMockPriorPlanContext({
+      plans: [
+        createMockPriorPlanSummary({
+          summary: 'Low overlap plan',
+          filename: 'low.json',
+          artifactPath: '/fake/low.json',
           keywords: ['PricingService'],
-        },
+        }),
+        createMockPriorPlanSummary({
+          summary: 'High overlap plan',
+          filename: 'high.json',
+          artifactPath: '/fake/high.json',
+          keywords: ['PricingService', 'timeout', 'ECONNREFUSED'],
+        }),
       ],
     });
 
-    const result = mergePriorContexts(
-      tickets,
-      createMockPriorPlanContext({
-        plans: [createMockPriorPlanSummary({ filename: '2026-07-01-abc123-fix-plan.md', ticketKey: null })],
-      })
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error('not found');
+    });
+
+    const result = correlatePlans('Fix PricingService timeout ECONNREFUSED error', plans, '/tmp/repo');
+
+    if (result.matches.length >= 2) {
+      expect(result.matches[0].overlapScore).toBeGreaterThanOrEqual(result.matches[1].overlapScore);
+    }
+  });
+
+  it('loads source code from affected files in repoDir', () => {
+    const artifactPath = '/fake/plan.json';
+    const plans = createMockPriorPlanContext({
+      plans: [
+        createMockPriorPlanSummary({
+          keywords: ['PricingService', 'timeout'],
+          artifactPath,
+        }),
+      ],
+    });
+
+    mockReadFileSync.mockImplementation((input: fs.PathOrFileDescriptor) => {
+      const filePath = String(input);
+      if (filePath === artifactPath) {
+        return JSON.stringify(createMockPlanJson());
+      }
+      if (filePath.includes('pricing.service.ts')) {
+        return 'export class PricingService {}';
+      }
+      throw new Error('not found');
+    });
+    mockParsePlanArtifact.mockReturnValue(createMockPlanJson() as any);
+    mockExistsSync.mockReturnValue(true);
+
+    const result = correlatePlans('Fix PricingService timeout issues', plans, '/tmp/repo');
+
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0].matchSource).toBe('keyword');
+    expect(result.matches[0].affectedFiles).toContain('src/pricing/pricing.service.ts');
+  });
+
+  it('skips files that do not exist', () => {
+    const artifactPath = '/fake/plan.json';
+    const plans = createMockPriorPlanContext({
+      plans: [
+        createMockPriorPlanSummary({
+          keywords: ['PricingService'],
+          artifactPath,
+        }),
+      ],
+    });
+
+    mockReadFileSync.mockImplementation((input: fs.PathOrFileDescriptor) => {
+      if (String(input) === artifactPath) {
+        return JSON.stringify(createMockPlanJson());
+      }
+      throw new Error('not found');
+    });
+    mockParsePlanArtifact.mockReturnValue(createMockPlanJson() as any);
+    mockExistsSync.mockImplementation((input: fs.PathLike) => {
+      return !String(input).includes('pricing.service.ts');
+    });
+
+    const result = correlatePlans('Fix PricingService timeout', plans, '/tmp/repo');
+
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0].sourceSnippets).toHaveLength(0);
+  });
+
+  it('skips binary files with null bytes', () => {
+    const artifactPath = '/fake/plan.json';
+    const plans = createMockPriorPlanContext({
+      plans: [
+        createMockPriorPlanSummary({
+          keywords: ['PricingService'],
+          artifactPath,
+        }),
+      ],
+    });
+
+    mockReadFileSync.mockImplementation((input: fs.PathOrFileDescriptor) => {
+      if (String(input) === artifactPath) {
+        return JSON.stringify(createMockPlanJson());
+      }
+      return 'binary\0content';
+    });
+    mockParsePlanArtifact.mockReturnValue(createMockPlanJson() as any);
+    mockExistsSync.mockReturnValue(true);
+
+    const result = correlatePlans('Fix PricingService timeout', plans, '/tmp/repo');
+
+    expect(result.matches[0].sourceSnippets).toHaveLength(0);
+  });
+
+  it('respects maxTotalChars limit', () => {
+    const artifactPath = '/fake/plan.json';
+    const plans = createMockPriorPlanContext({
+      plans: [
+        createMockPriorPlanSummary({
+          keywords: ['PricingService'],
+          artifactPath,
+        }),
+      ],
+    });
+
+    mockReadFileSync.mockImplementation((input: fs.PathOrFileDescriptor) => {
+      if (String(input) === artifactPath) {
+        return JSON.stringify(
+          createMockPlanJson({
+            affectedFiles: ['src/a.ts', 'src/b.ts'],
+          })
+        );
+      }
+      return 'x'.repeat(100);
+    });
+    mockParsePlanArtifact.mockReturnValue(createMockPlanJson({ affectedFiles: ['src/a.ts', 'src/b.ts'] }) as any);
+    mockExistsSync.mockReturnValue(true);
+
+    const result = correlatePlans('Fix PricingService', plans, '/tmp/repo', {
+      maxTotalChars: 50,
+    });
+
+    const totalContent = result.matches[0].sourceSnippets.reduce((sum, s) => sum + s.content.length, 0);
+    expect(totalContent).toBeLessThanOrEqual(50);
+  });
+});
+
+describe('correlateWithAiFallback', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const createMockAiExecutor = (response?: string): AiExecutor => ({
+    execute: jest.fn().mockResolvedValue({ content: response ?? '[]' }),
+  });
+
+  it('returns keyword matches without calling AI when Jaccard succeeds', async () => {
+    const aiExecutor = createMockAiExecutor();
+    const plans = createMockPriorPlanContext({
+      plans: [
+        createMockPriorPlanSummary({
+          keywords: ['PricingService', 'timeout'],
+        }),
+      ],
+    });
+
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error('not found');
+    });
+
+    const result = await correlateWithAiFallback(
+      'Fix PricingService timeout ECONNREFUSED',
+      plans,
+      '/tmp/repo',
+      aiExecutor
     );
 
-    expect(result.tickets).toHaveLength(1);
+    expect(result.matches.length).toBeGreaterThan(0);
+    expect(result.matches[0].matchSource).toBe('keyword');
+    expect(aiExecutor.execute).not.toHaveBeenCalled();
+  });
+
+  it('calls AI when zero keyword matches and parses response indices', async () => {
+    const aiExecutor = createMockAiExecutor('[{"index": 0, "reason": "both address billing retries"}]');
+    const plans = createMockPriorPlanContext({
+      plans: [
+        createMockPriorPlanSummary({
+          summary: 'Add BillingService retries',
+          keywords: ['BillingService', 'retries'],
+        }),
+      ],
+    });
+
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error('not found');
+    });
+
+    const result = await correlateWithAiFallback(
+      'Completely unrelated login page content',
+      plans,
+      '/tmp/repo',
+      aiExecutor
+    );
+
+    expect(aiExecutor.execute).toHaveBeenCalled();
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0].matchSource).toBe('ai');
+    expect(result.matches[0].aiReason).toBe('both address billing retries');
+    expect(result.matches[0].overlapScore).toBe(0);
+    expect(result.matches[0].sharedKeywords).toEqual([]);
+  });
+
+  it('handles AI failure gracefully and returns empty result', async () => {
+    const aiExecutor: AiExecutor = {
+      execute: jest.fn().mockRejectedValue(new Error('API error')),
+    };
+    const plans = createMockPriorPlanContext({
+      plans: [
+        createMockPriorPlanSummary({
+          keywords: ['CompletelyDifferent'],
+        }),
+      ],
+    });
+
+    const result = await correlateWithAiFallback('Unrelated content about login', plans, '/tmp/repo', aiExecutor);
+
+    expect(result.matches).toHaveLength(0);
+  });
+
+  it('returns empty when no prior plans exist', async () => {
+    const aiExecutor = createMockAiExecutor();
+
+    const result = await correlateWithAiFallback('Some content', createMockPriorPlanContext(), '/tmp/repo', aiExecutor);
+
+    expect(result.matches).toHaveLength(0);
+    expect(aiExecutor.execute).not.toHaveBeenCalled();
+  });
+});
+
+describe('formatPlanCorrelationPromptSection', () => {
+  it('returns empty string when no matches', () => {
+    expect(formatPlanCorrelationPromptSection({ matches: [], repoName: 'test' })).toBe('');
+  });
+
+  it('includes action, overlap score, and shared keywords for keyword matches', () => {
+    const result: PlanCorrelationResult = {
+      matches: [
+        {
+          summary: 'Fix PricingService timeout',
+          filename: 'plan.json',
+          action: 'fix',
+          estimatedComplexity: 'medium',
+          overlapScore: 0.45,
+          sharedKeywords: ['PricingService', 'timeout'],
+          matchSource: 'keyword',
+          affectedFiles: ['src/pricing.ts'],
+          sourceSnippets: [],
+        },
+      ],
+      repoName: 'test-repo',
+    };
+
+    const output = formatPlanCorrelationPromptSection(result);
+    expect(output).toContain('Prior plan correlation (test-repo):');
+    expect(output).toContain('[fix] Fix PricingService timeout');
+    expect(output).toContain('overlap: 0.45');
+    expect(output).toContain('shared: PricingService, timeout');
+    expect(output).toContain('Affected: src/pricing.ts');
+  });
+
+  it('includes aiReason for AI matches', () => {
+    const result: PlanCorrelationResult = {
+      matches: [
+        {
+          summary: 'Add BillingService retries',
+          filename: 'plan.json',
+          action: 'feature',
+          overlapScore: 0,
+          sharedKeywords: [],
+          matchSource: 'ai',
+          aiReason: 'both address retry logic in payment flow',
+          sourceSnippets: [],
+        },
+      ],
+      repoName: 'test-repo',
+    };
+
+    const output = formatPlanCorrelationPromptSection(result);
+    expect(output).toContain('(semantic match: both address retry logic in payment flow)');
+  });
+
+  it('includes source snippets', () => {
+    const result: PlanCorrelationResult = {
+      matches: [
+        {
+          summary: 'Fix timeout',
+          filename: 'plan.json',
+          action: 'fix',
+          overlapScore: 0.5,
+          sharedKeywords: ['timeout'],
+          matchSource: 'keyword',
+          sourceSnippets: [{ filePath: 'src/service.ts', content: 'export class Service {}' }],
+        },
+      ],
+      repoName: 'test',
+    };
+
+    const output = formatPlanCorrelationPromptSection(result);
+    expect(output).toContain('Source (src/service.ts):');
+    expect(output).toContain('export class Service {}');
+  });
+
+  it('caps at 5 matches', () => {
+    const matches = Array.from({ length: 7 }, (_, i) => ({
+      summary: `Plan ${i + 1}`,
+      filename: `plan-${i}.json`,
+      action: 'fix' as const,
+      overlapScore: 0.5,
+      sharedKeywords: ['k'],
+      matchSource: 'keyword' as const,
+      sourceSnippets: [],
+    }));
+
+    const output = formatPlanCorrelationPromptSection({ matches, repoName: 'test' });
+    expect(output).toContain('Plan 5');
+    expect(output).not.toContain('Plan 6');
   });
 });
 

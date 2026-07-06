@@ -1,10 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type {
+  PlanCorrelationMatch,
+  PlanCorrelationResult,
   PriorPlanContext,
   PriorPlanSummary,
-  PriorTicketContext,
-  PriorTicketSummary,
+  SourceSnippet,
 } from '../types/detection.types';
 import type { FileEntry, ResolutionPlan } from '../types/ai.types';
 import {
@@ -13,16 +14,33 @@ import {
   readPlanArtifactManifest,
   buildPlanArtifactManifestPath,
 } from './plan-artifact';
-import { COMPONENT_NAME_REGEX, ERROR_PATTERN_REGEX, FILE_PATH_REGEX } from './detect-prior-tickets';
 import { getWfHomeDir } from './wf-paths';
 import { collectWfArtifactFiles } from './collect-wf-artifact-files';
 
-export type { PriorPlanContext, PriorPlanSummary };
+export type { PriorPlanContext, PriorPlanSummary, PlanCorrelationMatch, PlanCorrelationResult };
+
+export const FILE_PATH_REGEX = /[\w-/]+(?:\.[\w-]+)+/g;
+export const COMPONENT_NAME_REGEX = /\b[A-Z][a-zA-Z]+(?:Service|Controller|Module|Agent|Command|Guard|Interceptor)\b/g;
+export const ERROR_PATTERN_REGEX = /\b(?:Error|Exception|ENOENT|ECONNREFUSED|timeout|deadlock|race condition)\b/gi;
 
 const DEFAULT_LIMIT = 10;
 const EXTRACT_MAX_CHARS = 5000;
 const FORMAT_MAX_PLANS = 5;
 const FORMAT_MAX_CHARS = 3000;
+const FORMAT_CORRELATION_MAX_MATCHES = 5;
+const FORMAT_CORRELATION_MAX_CHARS = 5000;
+
+export interface AiExecutor {
+  execute(request: { prompt: string; maxTokens?: number; stage?: string }): Promise<{ content: string }>;
+}
+
+export interface CorrelateOptions {
+  jaccardThreshold?: number;
+  maxMatches?: number;
+  maxFiles?: number;
+  maxLinesPerFile?: number;
+  maxTotalChars?: number;
+}
 
 const isFileEntry = (value: string | FileEntry): value is FileEntry =>
   typeof value === 'object' && value !== null && 'filePath' in value && typeof value.filePath === 'string';
@@ -31,11 +49,21 @@ const extractAffectedFilePaths = (affectedFiles?: (string | FileEntry)[]): strin
   (affectedFiles ?? []).map(entry => (isFileEntry(entry) ? entry.filePath : entry));
 
 /**
- * Extract keywords from a persisted plan artifact.
+ * Extract keywords from arbitrary text content.
  *
- * `ticketKey === null` is intentional for plans without manifests: they still
- * appear in plan prompts, but merged recurrence candidates remain keyless so
- * downstream commit enrichment skips commit lookup for them.
+ * @param text - Raw text to extract keywords from
+ * @returns Deduplicated file paths, component names, and error patterns
+ */
+export const extractContentKeywords = (text: string): string[] => {
+  const bounded = text.slice(0, EXTRACT_MAX_CHARS);
+  const filePaths = bounded.match(FILE_PATH_REGEX) ?? [];
+  const componentNames = bounded.match(COMPONENT_NAME_REGEX) ?? [];
+  const errorPatterns = bounded.match(ERROR_PATTERN_REGEX) ?? [];
+  return [...new Set([...filePaths, ...componentNames, ...errorPatterns])];
+};
+
+/**
+ * Extract keywords from a persisted plan artifact.
  *
  * @param plan - Parsed plan artifact
  * @returns Deduplicated file, component, and error keywords
@@ -99,6 +127,7 @@ export const detectPriorPlans = (repoName: string, opts?: { limit?: number }): P
         title: plan.summary,
         summary: plan.summary,
         filename: path.basename(filePath),
+        artifactPath: filePath,
         keywords,
         steps: plan.steps,
         action: plan.action,
@@ -111,62 +140,6 @@ export const detectPriorPlans = (repoName: string, opts?: { limit?: number }): P
   }
 
   return { plans, repoName };
-};
-
-const createSyntheticPriorTicketSummary = (plan: PriorPlanSummary): PriorTicketSummary => ({
-  title: plan.summary,
-  summary: plan.summary,
-  filename: plan.filename,
-  keywords: plan.keywords,
-  ticketKey: plan.ticketKey,
-});
-
-/**
- * Merge plan-derived summaries into the prior-ticket recurrence context.
- *
- * When a plan has no manifest-derived `ticketKey`, it cannot be deduplicated
- * against ticket descriptions and remains as a keyless recurrence candidate.
- *
- * @param tickets - Existing prior ticket context
- * @param plans - Prior plan context
- * @returns Ticket context enriched with plan summaries
- */
-export const mergePriorContexts = (tickets: PriorTicketContext, plans: PriorPlanContext): PriorTicketContext => {
-  if (plans.plans.length === 0) {
-    return tickets;
-  }
-
-  const ticketKeyToSummary = new Map<string, PriorTicketSummary>();
-  const existingFilenames = new Set(tickets.tickets.map(ticket => ticket.filename));
-  const mergedTickets = [...tickets.tickets];
-
-  for (const ticket of tickets.tickets) {
-    const ticketKeyMatch = ticket.filename.match(/^([A-Z]+-\d+)/);
-    if (!ticketKeyMatch?.[1]) continue;
-    ticketKeyToSummary.set(ticketKeyMatch[1], ticket);
-  }
-
-  for (const plan of plans.plans) {
-    if (existingFilenames.has(plan.filename)) {
-      continue;
-    }
-    if (plan.ticketKey && ticketKeyToSummary.has(plan.ticketKey)) {
-      continue;
-    }
-
-    const syntheticTicket = createSyntheticPriorTicketSummary(plan);
-    mergedTickets.push(syntheticTicket);
-    existingFilenames.add(plan.filename);
-
-    if (plan.ticketKey) {
-      ticketKeyToSummary.set(plan.ticketKey, syntheticTicket);
-    }
-  }
-
-  return {
-    tickets: mergedTickets,
-    repoName: tickets.repoName,
-  };
 };
 
 /**
@@ -200,4 +173,276 @@ export const formatPriorPlansPromptSection = (ctx: PriorPlanContext): string => 
   }
 
   return lines.join('\n').slice(0, FORMAT_MAX_CHARS);
+};
+
+/**
+ * Load detail from a plan artifact for a matched prior plan.
+ */
+const loadPlanDetails = (
+  plan: PriorPlanSummary,
+  repoDir: string,
+  opts: { maxFiles: number; maxLinesPerFile: number; maxTotalChars: number; currentTotalChars: number }
+): {
+  affectedFiles?: string[];
+  affectedFilesContext?: string[];
+  risks?: string[];
+  verification?: PlanCorrelationMatch['verification'];
+  sourceSnippets: SourceSnippet[];
+  totalChars: number;
+} => {
+  const snippets: SourceSnippet[] = [];
+  let totalChars = opts.currentTotalChars;
+
+  try {
+    const raw = fs.readFileSync(plan.artifactPath, 'utf-8');
+    const parsed = parsePlanArtifact(raw, plan.artifactPath);
+    const affectedFiles = extractAffectedFilePaths(parsed.affectedFiles);
+    const affectedFilesContext = parsed.affectedFilesContext as string[] | undefined;
+    const risks = parsed.risks;
+    const verification = parsed.verification;
+
+    for (const filePath of affectedFiles.slice(0, opts.maxFiles)) {
+      if (totalChars >= opts.maxTotalChars) break;
+
+      const resolved = path.resolve(repoDir, filePath);
+      if (!resolved.startsWith(path.resolve(repoDir))) continue;
+
+      try {
+        if (!fs.existsSync(resolved)) continue;
+
+        const content = fs.readFileSync(resolved, 'utf-8');
+
+        // Skip binary files (null byte in first 512 chars)
+        if (content.slice(0, 512).includes('\0')) continue;
+
+        const lines = content.split('\n').slice(0, opts.maxLinesPerFile).join('\n');
+        const remaining = opts.maxTotalChars - totalChars;
+        const capped = lines.slice(0, remaining);
+        snippets.push({ filePath, content: capped });
+        totalChars += capped.length;
+      } catch {
+        // skip unreadable source file
+      }
+    }
+
+    return { affectedFiles, affectedFilesContext, risks, verification, sourceSnippets: snippets, totalChars };
+  } catch {
+    return { sourceSnippets: snippets, totalChars };
+  }
+};
+
+/**
+ * Correlate current content against prior plans using Jaccard keyword similarity.
+ * For matches, loads full plan details and reads source files.
+ *
+ * @param currentContent - The current ticket/issue content
+ * @param priorPlans - Prior plan context from detectPriorPlans
+ * @param repoDir - Absolute path to the repository root
+ * @param opts - Optional correlation settings
+ * @returns Correlation result with matches; never throws
+ */
+export const correlatePlans = (
+  currentContent: string,
+  priorPlans: PriorPlanContext,
+  repoDir: string,
+  opts?: CorrelateOptions
+): PlanCorrelationResult => {
+  const jaccardThreshold = opts?.jaccardThreshold ?? 0.2;
+  const maxMatches = opts?.maxMatches ?? 3;
+  const maxFiles = opts?.maxFiles ?? 5;
+  const maxLinesPerFile = opts?.maxLinesPerFile ?? 500;
+  const maxTotalChars = opts?.maxTotalChars ?? 8000;
+
+  const currentKeywords = extractContentKeywords(currentContent);
+  const currentSet = new Set(currentKeywords);
+
+  const scored: Array<{ plan: PriorPlanSummary; overlapScore: number; sharedKeywords: string[] }> = [];
+
+  for (const plan of priorPlans.plans) {
+    const priorSet = new Set(plan.keywords);
+    const intersection = [...currentSet].filter(k => priorSet.has(k));
+    const union = new Set([...currentSet, ...priorSet]);
+    const overlapScore = union.size === 0 ? 0 : intersection.length / union.size;
+
+    if (overlapScore >= jaccardThreshold) {
+      scored.push({ plan, overlapScore, sharedKeywords: intersection });
+    }
+  }
+
+  scored.sort((a, b) => b.overlapScore - a.overlapScore);
+
+  const matches: PlanCorrelationMatch[] = [];
+  let cumulativeChars = 0;
+
+  for (const { plan, overlapScore, sharedKeywords } of scored.slice(0, maxMatches)) {
+    const details = loadPlanDetails(plan, repoDir, {
+      maxFiles,
+      maxLinesPerFile,
+      maxTotalChars,
+      currentTotalChars: cumulativeChars,
+    });
+    cumulativeChars = details.totalChars;
+
+    matches.push({
+      summary: plan.summary,
+      filename: plan.filename,
+      action: plan.action,
+      estimatedComplexity: plan.estimatedComplexity,
+      overlapScore,
+      sharedKeywords,
+      matchSource: 'keyword',
+      affectedFiles: details.affectedFiles,
+      affectedFilesContext: details.affectedFilesContext,
+      risks: details.risks,
+      verification: details.verification,
+      sourceSnippets: details.sourceSnippets,
+    });
+  }
+
+  return { matches, repoName: priorPlans.repoName };
+};
+
+/**
+ * Correlate plans with an AI semantic-matching fallback when Jaccard produces zero matches.
+ *
+ * @param currentContent - The current ticket/issue content
+ * @param priorPlans - Prior plan context
+ * @param repoDir - Absolute path to the repository root
+ * @param aiExecutor - AI executor for semantic matching fallback
+ * @param opts - Optional correlation and AI settings
+ * @returns Correlation result; never throws
+ */
+export const correlateWithAiFallback = async (
+  currentContent: string,
+  priorPlans: PriorPlanContext,
+  repoDir: string,
+  aiExecutor: AiExecutor,
+  opts?: CorrelateOptions & { maxAiCandidates?: number }
+): Promise<PlanCorrelationResult> => {
+  const result = correlatePlans(currentContent, priorPlans, repoDir, opts);
+
+  if (result.matches.length > 0) return result;
+  if (priorPlans.plans.length === 0) return result;
+
+  const maxAiCandidates = opts?.maxAiCandidates ?? 10;
+  const maxFiles = opts?.maxFiles ?? 5;
+  const maxLinesPerFile = opts?.maxLinesPerFile ?? 500;
+  const maxTotalChars = opts?.maxTotalChars ?? 8000;
+
+  try {
+    const candidates = priorPlans.plans.slice(0, maxAiCandidates);
+    const candidateLines = candidates.map((p, i) => `${i}. "${p.summary}" (keywords: ${p.keywords.join(', ')})`);
+
+    const prompt = `You are analyzing whether a new issue is related to any prior plans.
+
+Current issue content (truncated):
+${currentContent.slice(0, 1500)}
+
+Prior plans:
+${candidateLines.join('\n')}
+
+Which prior plans are semantically related to this issue? Consider functional overlap, shared subsystems, or causal relationships — not just keyword matches.
+
+Return ONLY a JSON array of objects with "index" (0-based) and "reason" (brief explanation):
+[{"index": 0, "reason": "both address the pricing timeout path"}]
+
+If none are related, return an empty array: []`;
+
+    const response = await aiExecutor.execute({
+      prompt,
+      maxTokens: 512,
+      stage: 'plan',
+    });
+
+    if (!response.content) return result;
+
+    const raw = response.content
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim();
+
+    const parsed = JSON.parse(raw) as Array<{ index: number; reason: string }>;
+
+    if (!Array.isArray(parsed)) return result;
+
+    const matches: PlanCorrelationMatch[] = [];
+    let cumulativeChars = 0;
+
+    for (const entry of parsed) {
+      if (typeof entry.index !== 'number' || entry.index < 0 || entry.index >= candidates.length) continue;
+
+      const plan = candidates[entry.index];
+      const details = loadPlanDetails(plan, repoDir, {
+        maxFiles,
+        maxLinesPerFile,
+        maxTotalChars,
+        currentTotalChars: cumulativeChars,
+      });
+      cumulativeChars = details.totalChars;
+
+      matches.push({
+        summary: plan.summary,
+        filename: plan.filename,
+        action: plan.action,
+        estimatedComplexity: plan.estimatedComplexity,
+        overlapScore: 0,
+        sharedKeywords: [],
+        matchSource: 'ai',
+        aiReason: typeof entry.reason === 'string' ? entry.reason : undefined,
+        affectedFiles: details.affectedFiles,
+        affectedFilesContext: details.affectedFilesContext,
+        risks: details.risks,
+        verification: details.verification,
+        sourceSnippets: details.sourceSnippets,
+      });
+    }
+
+    return { matches, repoName: priorPlans.repoName };
+  } catch {
+    return result;
+  }
+};
+
+/**
+ * Format plan correlation matches for AI prompt injection.
+ *
+ * @param result - Plan correlation result
+ * @returns Formatted prompt section, or empty string when no matches
+ */
+export const formatPlanCorrelationPromptSection = (result: PlanCorrelationResult): string => {
+  if (result.matches.length === 0) return '';
+
+  const lines: string[] = [`Prior plan correlation (${result.repoName}):`];
+  let totalChars = lines[0].length;
+
+  for (const match of result.matches.slice(0, FORMAT_CORRELATION_MAX_MATCHES)) {
+    if (totalChars >= FORMAT_CORRELATION_MAX_CHARS) break;
+
+    const matchInfo =
+      match.matchSource === 'ai'
+        ? `(semantic match: ${match.aiReason ?? 'related'})`
+        : `(overlap: ${match.overlapScore.toFixed(2)}, shared: ${match.sharedKeywords.join(', ')})`;
+
+    lines.push(`- [${match.action}] ${match.summary} ${matchInfo}`);
+
+    if (match.affectedFiles?.length) {
+      lines.push(`  Affected: ${match.affectedFiles.join(', ')}`);
+    }
+
+    if (match.risks?.length) {
+      lines.push(`  Risks: ${match.risks.join('; ')}`);
+    }
+
+    for (const snippet of match.sourceSnippets) {
+      const ext = path.extname(snippet.filePath).slice(1) || 'text';
+      lines.push(`  Source (${snippet.filePath}):`);
+      lines.push(`  \`\`\`${ext}`);
+      lines.push(`  ${snippet.content}`);
+      lines.push(`  \`\`\``);
+    }
+
+    totalChars = lines.join('\n').length;
+  }
+
+  return lines.join('\n').slice(0, FORMAT_CORRELATION_MAX_CHARS);
 };

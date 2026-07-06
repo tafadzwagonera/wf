@@ -153,7 +153,7 @@ describe('PlanStageService', () => {
     expect(aiService.generatePlan).not.toHaveBeenCalled();
   });
 
-  it('passes conventions, prior tickets, and prior plans through to AI service', async () => {
+  it('passes conventions and prior plans through to AI service', async () => {
     const { service, aiService } = await buildService();
     const mockConventions = {
       language: 'typescript',
@@ -169,14 +169,14 @@ describe('PlanStageService', () => {
       keyDependencies: [],
       errorHandlingPaths: [],
     };
-    const mockPriorTickets = { tickets: [], repoName: 'test-repo' };
     const mockPriorPlans = { plans: [], repoName: 'test-repo' };
+    const mockPlanCorrelation = { matches: [], repoName: 'test-repo' };
 
     await service.generatePlan('Ticket body', {
       action: 'fix',
       conventions: mockConventions as any,
-      priorTickets: mockPriorTickets,
       priorPlans: mockPriorPlans as any,
+      planCorrelation: mockPlanCorrelation as any,
     });
 
     expect(aiService.generatePlan).toHaveBeenCalledWith(
@@ -184,8 +184,8 @@ describe('PlanStageService', () => {
       'Ticket body',
       expect.objectContaining({
         conventions: mockConventions,
-        priorTickets: mockPriorTickets,
         priorPlans: mockPriorPlans,
+        planCorrelation: mockPlanCorrelation,
       })
     );
   });

@@ -11,16 +11,16 @@ import {
   formatRepoConventionsPromptSection,
   type RepoConventionsContext,
 } from '../../shared/utils/detect-repo-conventions';
-import { formatPriorTicketsPromptSection, type PriorTicketContext } from '../../shared/utils/detect-prior-tickets';
-import { formatPriorPlansPromptSection, type PriorPlanContext } from '../../shared/utils/detect-prior-plans';
+import {
+  formatPriorPlansPromptSection,
+  formatPlanCorrelationPromptSection,
+  type PriorPlanContext,
+  type PlanCorrelationResult,
+} from '../../shared/utils/detect-prior-plans';
 import {
   formatCrossRepoPatternsPromptSection,
   type CrossRepoContext,
 } from '../../shared/utils/detect-cross-repo-patterns';
-import {
-  formatRecurrenceGapsPromptSection,
-  type RecurrenceGapAnalysis,
-} from '../../shared/utils/detect-recurrence-gaps';
 import type {
   AIRequest,
   AIResponse,
@@ -435,16 +435,12 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
       const section = formatRepoConventionsPromptSection(context.conventions as RepoConventionsContext, repoName);
       if (section) discoveryParts.push(section);
     }
-    if (context?.priorTickets) {
-      const section = formatPriorTicketsPromptSection(context.priorTickets as PriorTicketContext);
-      if (section) discoveryParts.push(section);
-    }
     if (context?.crossRepoPatterns) {
       const section = formatCrossRepoPatternsPromptSection(context.crossRepoPatterns as CrossRepoContext);
       if (section) discoveryParts.push(section);
     }
-    if (context?.recurrenceGaps) {
-      const section = formatRecurrenceGapsPromptSection(context.recurrenceGaps as RecurrenceGapAnalysis);
+    if (context?.planCorrelation) {
+      const section = formatPlanCorrelationPromptSection(context.planCorrelation as PlanCorrelationResult);
       if (section) discoveryParts.push(section);
     }
     if (context?.priorPlans) {

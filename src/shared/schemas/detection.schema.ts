@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { planVerificationConfigSchema } from './verification.schema';
 
 export const ecosystemSchema = z.enum(['node', 'terraform', 'python', 'go']);
 
@@ -89,23 +90,11 @@ export const repoConventionsContextSchema = z.object({
   errorHandlingPaths: z.array(z.string()),
 });
 
-export const priorTicketSummarySchema = z.object({
-  title: z.string(),
-  summary: z.string(),
-  filename: z.string(),
-  keywords: z.array(z.string()),
-  ticketKey: z.string().nullable().optional(),
-});
-
-export const priorTicketContextSchema = z.object({
-  tickets: z.array(priorTicketSummarySchema),
-  repoName: z.string(),
-});
-
 export const priorPlanSummarySchema = z.object({
   title: z.string(),
   summary: z.string(),
   filename: z.string(),
+  artifactPath: z.string(),
   keywords: z.array(z.string()),
   steps: z.array(z.string()).optional(),
   action: z.enum(['feature', 'fix', 'investigate']),
@@ -118,26 +107,30 @@ export const priorPlanContextSchema = z.object({
   repoName: z.string(),
 });
 
-export const commitEvidenceSchema = z.object({
-  hash: z.string(),
-  message: z.string(),
-  filesChanged: z.array(z.string()),
+export const sourceSnippetSchema = z.object({
+  filePath: z.string(),
+  content: z.string(),
 });
 
-export const recurrenceCandidateSchema = z.object({
-  title: z.string(),
+export const planCorrelationMatchSchema = z.object({
   summary: z.string(),
-  ticketKey: z.string().nullable(),
+  filename: z.string(),
+  action: z.enum(['feature', 'fix', 'investigate']),
+  estimatedComplexity: z.enum(['low', 'medium', 'high']).optional(),
   overlapScore: z.number(),
   sharedKeywords: z.array(z.string()),
-  commits: z.array(commitEvidenceSchema),
+  matchSource: z.enum(['keyword', 'ai']).default('keyword'),
+  aiReason: z.string().optional(),
+  affectedFiles: z.array(z.string()).optional(),
+  affectedFilesContext: z.array(z.string()).optional(),
+  risks: z.array(z.string()).optional(),
+  verification: planVerificationConfigSchema.optional(),
+  sourceSnippets: z.array(sourceSnippetSchema),
 });
 
-export const recurrenceGapAnalysisSchema = z.object({
-  isRecurrence: z.boolean(),
-  candidates: z.array(recurrenceCandidateSchema),
-  gaps: z.array(z.string()),
-  rootCauseHypothesis: z.string().nullable(),
+export const planCorrelationResultSchema = z.object({
+  matches: z.array(planCorrelationMatchSchema),
+  repoName: z.string(),
 });
 
 export const crossRepoPatternSchema = z.object({

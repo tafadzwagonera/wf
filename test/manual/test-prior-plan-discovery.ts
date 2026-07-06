@@ -5,9 +5,9 @@
  *
  * Verifies:
  *   1. detectPriorPlans discovers canonical plan artifacts and manifest ticket keys
- *   2. mergePriorContexts preserves manifest ticket keys on synthetic recurrence entries
- *   3. mergePriorContexts skips duplicate markdown plan filenames already discovered as prior tickets
- *   4. formatPriorPlansPromptSection includes action, complexity, keywords, and step context
+ *   2. formatPriorPlansPromptSection includes action, complexity, keywords, and step context
+ *   3. correlatePlans returns empty matches for non-existent repo
+ *   4. formatPlanCorrelationPromptSection returns '' for empty matches
  */
 import chalk from 'chalk';
 import * as fs from 'fs';
@@ -33,8 +33,9 @@ const run = async (): Promise<void> => {
 
   const {
     detectPriorPlans,
-    mergePriorContexts,
     formatPriorPlansPromptSection,
+    correlatePlans,
+    formatPlanCorrelationPromptSection,
   } = require('../../src/shared/utils/detect-prior-plans');
   const wfHomeDir = path.join(os.homedir(), '.wf');
   const repoName = `wf-prior-plan-smoke-${Date.now()}`;
@@ -85,59 +86,21 @@ const run = async (): Promise<void> => {
     priorPlans.plans.length === 1 && priorPlans.plans[0].ticketKey === 'WBP-321'
   );
 
-  const mergedPriorContext = mergePriorContexts(
-    {
-      repoName,
-      tickets: [],
-    },
-    priorPlans
-  );
-  assert(
-    '2. mergePriorContexts preserves manifest ticket keys on synthetic recurrence entries',
-    mergedPriorContext.tickets.length === 1 && mergedPriorContext.tickets[0].ticketKey === 'WBP-321'
-  );
-
-  const markdownDuplicateContext = mergePriorContexts(
-    {
-      repoName,
-      tickets: [
-        {
-          title: 'Fix PricingService timeout',
-          summary: 'Fix PricingService timeout',
-          filename: '2026-07-04-abc123-fix-plan.md',
-          keywords: ['PricingService'],
-        },
-      ],
-    },
-    {
-      repoName,
-      plans: [
-        {
-          title: 'Fix PricingService timeout',
-          summary: 'Fix PricingService timeout',
-          filename: '2026-07-04-abc123-fix-plan.md',
-          keywords: ['PricingService'],
-          steps: ['Inspect PricingService'],
-          action: 'fix',
-          estimatedComplexity: 'medium',
-          ticketKey: null,
-        },
-      ],
-    }
-  );
-  assert(
-    '3. mergePriorContexts skips duplicate markdown plan filenames already discovered as prior tickets',
-    markdownDuplicateContext.tickets.length === 1
-  );
-
   const promptSection = formatPriorPlansPromptSection(priorPlans);
   assert(
-    '4. formatPriorPlansPromptSection includes action, complexity, keywords, and step context',
+    '2. formatPriorPlansPromptSection includes action, complexity, keywords, and step context',
     promptSection.includes('Related prior plans') &&
       promptSection.includes('[fix] Fix PricingService timeout') &&
       promptSection.includes('complexity: medium') &&
       promptSection.includes('Steps: 1. Inspect PricingService; 2. Patch BookingController timeout handling')
   );
+
+  const emptyPlans = detectPriorPlans('nonexistent-repo-' + Date.now());
+  const emptyCorrelation = correlatePlans('some content', emptyPlans, '/tmp/nonexistent');
+  assert('3. correlatePlans returns empty matches for non-existent repo', emptyCorrelation.matches.length === 0);
+
+  const emptySection = formatPlanCorrelationPromptSection({ matches: [], repoName: 'test' });
+  assert('4. formatPlanCorrelationPromptSection returns empty string for empty matches', emptySection === '');
 
   fs.rmSync(path.join(wfHomeDir, repoName), { recursive: true, force: true });
 

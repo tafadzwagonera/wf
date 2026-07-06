@@ -14,13 +14,11 @@ import {
 } from '../../shared/utils/plan-artifact';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
 import { AIError, isAIErrorLike } from '../../shared/utils/errors';
-import { detectTestInfra } from '../../shared/utils/detect-test-infra';
+import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { createPlanQualityError, validatePlanQuality } from '../../shared/utils/plan-quality';
 import type { RepoConventionsContext } from '../../shared/utils/detect-repo-conventions';
-import type { PriorTicketContext } from '../../shared/utils/detect-prior-tickets';
-import type { PriorPlanContext } from '../../shared/utils/detect-prior-plans';
+import type { PriorPlanContext, PlanCorrelationResult } from '../../shared/utils/detect-prior-plans';
 import type { CrossRepoContext } from '../../shared/utils/detect-cross-repo-patterns';
-import type { RecurrenceGapAnalysis } from '../../shared/utils/detect-recurrence-gaps';
 
 interface GeneratePlanOptions {
   action: ResolutionAction;
@@ -28,13 +26,13 @@ interface GeneratePlanOptions {
   affectedRepositories?: string[];
   repoDir?: string;
   conventions?: RepoConventionsContext;
-  priorTickets?: PriorTicketContext;
   priorPlans?: PriorPlanContext;
+  planCorrelation?: PlanCorrelationResult;
   crossRepoPatterns?: CrossRepoContext;
-  recurrenceGaps?: RecurrenceGapAnalysis | null;
   onProgress?: (line: string) => void;
   priorStageSummary?: string;
   resumeProviderSessionId?: string;
+  testInfra?: TestInfraContext;
 }
 
 @Injectable()
@@ -56,10 +54,9 @@ export class PlanStageService {
       affectedRepositories: options.affectedRepositories,
       testInfra,
       conventions: options.conventions,
-      priorTickets: options.priorTickets,
       priorPlans: options.priorPlans,
+      planCorrelation: options.planCorrelation,
       crossRepoPatterns: options.crossRepoPatterns,
-      recurrenceGaps: options.recurrenceGaps,
     };
 
     const generatePlanAttempt = async (
@@ -75,10 +72,9 @@ export class PlanStageService {
             planQualityFeedback,
             testInfra,
             conventions: options.conventions,
-            priorTickets: options.priorTickets,
             priorPlans: options.priorPlans,
+            planCorrelation: options.planCorrelation,
             crossRepoPatterns: options.crossRepoPatterns,
-            recurrenceGaps: options.recurrenceGaps,
             onProgress: options.onProgress,
             priorStageSummary: options.priorStageSummary,
             resumeProviderSessionId: options.resumeProviderSessionId,
