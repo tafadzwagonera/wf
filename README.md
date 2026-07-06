@@ -343,7 +343,7 @@ wf issue:fetch WBP-2971 --tracker jira --format md
 #### `wf issue:plan <ticket-key>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:plan -->
-Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary tracker. Use --force to fetch and recreate artifacts. Repo-scoped planning inspects prior ticket-description artifacts (json|md|yaml|yml) and prior plan artifacts anywhere under ~/.wf/<repo>/**/* so recurrence analysis and planning prompts can reuse earlier implementation context. Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.
+Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary tracker. Use --force to fetch and recreate artifacts. Repo-scoped planning inspects prior ticket-description artifacts (json|md|yaml|yml) and prior plan artifacts anywhere under ~/.wf/<repo>/**/* so recurrence analysis and planning prompts can reuse earlier implementation context. Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.
 
 ```bash
 # Create a custom feature plan from a markdown artifact
@@ -378,6 +378,8 @@ wf issue:plan WBP-2971 --action fix --force --tracker jira
 <!-- END GENERATED COMMAND DOCS: issue:plan -->
 
 Targeted verification commands are stored as **repo-root-relative** commands. If the plan generator emits a redundant `cd <selected-repo> && ...`, `issue:plan` normalizes it before writing the artifact. If a targeted check tries to `cd` outside the selected repo, the plan is rejected.
+
+Before a plan artifact is written, `issue:plan` now runs a semantic quality gate over the generated JSON. If the first draft omits a rename target, uses a verification command outside the detected allowlist, or prescribes test guidance that contradicts the repo's detected conventions, wf sends one corrective retry with explicit repair feedback. Plans that still fail those checks are rejected instead of being persisted.
 
 When the selected backend returns structured JSON for planning, wf now explicitly asks for minified single-line JSON in both the primary prompt and any CLI retry turn. This reduces token overhead and avoids downstream parsing drift caused by prettified responses.
 

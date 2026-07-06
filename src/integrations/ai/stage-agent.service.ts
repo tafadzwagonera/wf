@@ -187,6 +187,7 @@ export class StageAgentService {
     issueContent: string;
     ticketKey?: string;
     affectedRepositories?: string[];
+    planQualityFeedback?: string[];
     testInfra?: TestInfraContext;
     conventions?: RepoConventionsContext;
     priorTickets?: PriorTicketContext;
@@ -225,6 +226,10 @@ export class StageAgentService {
     const discoveryBlock = discoveryParts.length > 0 ? `\n${discoveryParts.join('\n\n')}\n` : '';
     const hasNodeTestInfra =
       params.testInfra && params.testInfra.ecosystems.some(ecosystem => ecosystem.ecosystem === 'node');
+    const retryFeedbackBlock =
+      params.planQualityFeedback && params.planQualityFeedback.length > 0
+        ? `Previous plan attempt was rejected for these exact reasons:\n${params.planQualityFeedback.join('\n')}\n\nRegenerate the full plan and fix every listed problem. Do not repeat any rejected step wording.\n\n`
+        : '';
 
     const prompt = `
 Action: ${params.action}
@@ -241,7 +246,7 @@ ${JSON.stringify(
   null,
   2
 )}
-${discoveryBlock}
+${retryFeedbackBlock}${discoveryBlock}
 Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
 2. Specific, actionable steps to ${params.action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
@@ -1272,7 +1277,7 @@ Return only the requested ticket markdown and preserve the required heading stru
         appendSystemPrompt: `${priorStagePreamble}${params.systemPrompt}`,
         model,
         cwd: resolvedRepoDir,
-        tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
+        tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [],
         permissionMode: 'plan',
         sessionId: isResume ? sessionId : undefined,
         jsonSchema,
@@ -1455,7 +1460,7 @@ Return only the requested ticket markdown and preserve the required heading stru
       sessionId: params.sessionId,
       cwd: params.repoDir,
       permissionMode: 'plan',
-      tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
+      tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [],
       jsonSchema: undefined,
     });
 
@@ -1502,7 +1507,7 @@ Return only the requested ticket markdown and preserve the required heading stru
         model,
         cwd: resolvedRepoDir,
         sessionId: isResume ? sessionId : params.session?.sessionId,
-        tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash'] : [],
+        tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [],
         permissionMode: 'plan',
       });
 

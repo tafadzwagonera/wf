@@ -17,6 +17,7 @@ import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { detectTestInfra } from '../shared/utils/detect-test-infra';
 import type { TestInfraContext, NodeInfra } from '../shared/utils/detect-test-infra';
+import { createPlanQualityError, validatePlanQuality } from '../shared/utils/plan-quality';
 import { detectRepoConventions } from '../shared/utils/detect-repo-conventions';
 import { detectPriorTickets } from '../shared/utils/detect-prior-tickets';
 import { detectPriorPlans, mergePriorContexts } from '../shared/utils/detect-prior-plans';
@@ -176,6 +177,7 @@ const extractScriptName = (command: string): string | undefined => {
     'Use --force to fetch and recreate artifacts. ' +
     'Repo-scoped planning inspects prior ticket-description artifacts (json|md|yaml|yml) and prior plan artifacts anywhere under ~/.wf/<repo>/**/* so recurrence analysis and planning prompts can reuse earlier implementation context. ' +
     'Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. ' +
+    'Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. ' +
     'Targeted verification commands are interpreted as repo-root-relative: redundant ' +
     '`cd <repo>` prefixes are normalized away, while commands that change directories ' +
     'outside the selected repository are rejected.',
@@ -1148,6 +1150,15 @@ export class IssuePlanCommand extends CommandRunner {
       throw createPlanValidationError(
         `verification command "${escapedRepoVerificationCommand.run}" must not change directories outside the selected repository; commands run from the repo root already.`
       );
+    }
+
+    const qualityViolations = validatePlanQuality({
+      plan: plan as any,
+      affectedRepositories,
+      testInfra,
+    });
+    if (qualityViolations.length > 0) {
+      throw createPlanQualityError(qualityViolations);
     }
   }
 }

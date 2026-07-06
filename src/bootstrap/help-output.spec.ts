@@ -103,6 +103,9 @@ describe('getHelpText', () => {
     const plainImplementHelpText = normalizeWrappedText(implementHelpText);
 
     expect(planHelpText).toContain('Plan ticket implementation from a local artifact or repo-scoped custom artifact.');
+    expect(normalizeWrappedText(planHelpText)).toContain(
+      'wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions'
+    );
     expect(plainGenerateHelpText).toContain(
       'Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources'
     );

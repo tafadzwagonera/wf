@@ -74,8 +74,8 @@ describe('PlanStageService', () => {
           nodeVersionMajor: 22,
           hasNodeTest: true,
           frameworks: ['jest'],
-          scripts: { test: 'jest' },
-          allScriptNames: ['test'],
+          scripts: { test: 'jest', 'test:manual': 'ts-node run-manual-test.ts' },
+          allScriptNames: ['test', 'test:manual'],
           testPatterns: {
             fileSuffix: '.spec',
             mockPrefix: 'mock',
@@ -320,6 +320,88 @@ describe('PlanStageService', () => {
     await expect(service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-403' })).rejects.toThrow(
       'Fallback completion did not produce a valid resolution plan'
     );
+  });
+
+  it('retries once with plan-quality feedback when the first standard plan is semantically invalid', async () => {
+    const { service, aiService } = await buildService();
+    (aiService.generatePlan as jest.Mock)
+      .mockResolvedValueOnce({
+        ...mockPlan,
+        steps: ['Rename AuthService in repo-a/src/auth.ts.'],
+        affectedRepositories: ['repo-a'],
+      })
+      .mockResolvedValueOnce({
+        ...mockPlan,
+        steps: ['Rename AuthService to AuthSessionService in repo-a/src/auth.ts.'],
+        affectedRepositories: ['repo-a'],
+      });
+
+    const result = await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-404',
+      affectedRepositories: ['repo-a'],
+    });
+
+    expect(result.plan.steps).toEqual(['Rename AuthService to AuthSessionService in repo-a/src/auth.ts.']);
+    expect(aiService.generatePlan).toHaveBeenNthCalledWith(
+      2,
+      'fix',
+      'Ticket body',
+      expect.objectContaining({
+        planQualityFeedback: expect.arrayContaining([expect.stringContaining('[rename-target-required]')]),
+      })
+    );
+  });
+
+  it('throws a quality error when the retried plan is still semantically invalid', async () => {
+    const { service, aiService } = await buildService();
+    (aiService.generatePlan as jest.Mock)
+      .mockResolvedValueOnce({
+        ...mockPlan,
+        steps: ['Rename AuthService in repo-a/src/auth.ts.'],
+        affectedRepositories: ['repo-a'],
+      })
+      .mockResolvedValueOnce({
+        ...mockPlan,
+        steps: ['Rename AuthService in repo-a/src/auth.ts.'],
+        affectedRepositories: ['repo-a'],
+      });
+
+    await expect(
+      service.generatePlan('Ticket body', {
+        action: 'fix',
+        ticketKey: 'WBP-405',
+        affectedRepositories: ['repo-a'],
+      })
+    ).rejects.toThrow('Generated plan failed quality checks');
+  });
+
+  it('accepts repo-local verification commands without triggering a corrective retry', async () => {
+    const { service, aiService } = await buildService();
+    (aiService.generatePlan as jest.Mock).mockResolvedValueOnce({
+      ...mockPlan,
+      affectedRepositories: ['repo-a'],
+      verification: {
+        targeted: [
+          {
+            id: 'repo-local-command',
+            run: 'cd repo-a && yarn test:manual -- test-issue-plan-validation',
+            policy: 'enforced',
+          },
+        ],
+      },
+    });
+
+    const result = await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-406',
+      affectedRepositories: ['repo-a'],
+    });
+
+    expect(result.plan.verification?.targeted?.[0]?.run).toBe(
+      'cd repo-a && yarn test:manual -- test-issue-plan-validation'
+    );
+    expect(aiService.generatePlan).toHaveBeenCalledTimes(1);
   });
 
   it('persists a JSON plan artifact and returns cache metadata', async () => {

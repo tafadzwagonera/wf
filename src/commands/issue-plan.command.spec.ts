@@ -142,6 +142,10 @@ describe('IssuePlanCommand', () => {
 
   beforeEach(() => {
     cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(mockCwd);
+    const { resolveRepoBasePath } = require('../agents/utils');
+    (resolveRepoBasePath as jest.Mock).mockImplementation((repo?: string) =>
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
+    );
   });
 
   afterEach(() => {
@@ -726,6 +730,127 @@ describe('IssuePlanCommand', () => {
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
       'must assert expected failure inside the command'
     );
+
+    consoleErrorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('rejects rename steps that omit the replacement target', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Rename AuthService in repo-a/src/auth.ts.'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        affectedRepositories: ['repo-a'],
+      },
+    } as any);
+
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('rename-target-required');
+
+    consoleErrorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('rejects targeted verification commands outside the detected allowlist', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Inspect auth'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        affectedRepositories: ['repo-a'],
+        verification: {
+          targeted: [
+            {
+              id: 'non-allowlisted-command',
+              run: 'ruby -e "puts 1"',
+              policy: 'enforced',
+            },
+          ],
+        },
+      },
+    } as any);
+
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('verification-allowlist');
+
+    consoleErrorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('rejects test guidance that conflicts with detected repo conventions', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-quality-'));
+    const repoPath = path.join(repoDir, 'repo-a');
+    fs.mkdirSync(path.join(repoPath, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repoPath, 'package.json'), JSON.stringify({ scripts: { test: 'jest' } }));
+    fs.writeFileSync(
+      path.join(repoPath, 'src', 'auth.spec.ts'),
+      'afterEach(() => { jest.restoreAllMocks(); });\nconst mockUser = {};\nconst createMockUser = () => mockUser;\n'
+    );
+
+    const { resolveRepoBasePath } = require('../agents/utils');
+    (resolveRepoBasePath as jest.Mock).mockImplementation((repo?: string) =>
+      repo ? path.join(repoDir, repo) : repoDir
+    );
+
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'medium',
+        steps: ['Add repo-a/src/auth/auth.service.test.ts with afterEach(() => jest.resetAllMocks()).'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        affectedRepositories: ['repo-a'],
+      },
+    } as any);
+
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+
+    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('mock-cleanup-convention');
 
     consoleErrorSpy.mockRestore();
     exitSpy.mockRestore();

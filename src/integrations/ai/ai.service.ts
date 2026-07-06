@@ -422,6 +422,10 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     const repoHint = context?.affectedRepositories?.length
       ? `Affected repositories (hint): ${(context.affectedRepositories as string[]).join(', ')}\n\n`
       : '';
+    const retryFeedbackBlock =
+      Array.isArray(context?.planQualityFeedback) && context.planQualityFeedback.length > 0
+        ? `Previous plan attempt was rejected for these exact reasons:\n${(context.planQualityFeedback as string[]).join('\n')}\n\nRegenerate the full plan and fix every listed problem. Do not repeat any rejected step wording.\n\n`
+        : '';
     const repoExample = resolvePlanPromptRepoExample(context?.affectedRepositories as string[] | undefined);
 
     // Build discovery context sections
@@ -468,7 +472,7 @@ ${issueContent}
 
 ${context ? `Context:\n${JSON.stringify(context, null, 2)}` : ''}
 
-${repoHint}${discoveryBlock}Create a detailed resolution plan with:
+${repoHint}${retryFeedbackBlock}${discoveryBlock}Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
 2. Specific, actionable steps to ${action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
    Every rename, move, or refactoring step MUST state both the current name/path AND the

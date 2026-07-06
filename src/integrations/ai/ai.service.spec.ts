@@ -285,6 +285,52 @@ describe('AiService', () => {
       );
     });
 
+    it('adds retry feedback only when a prior plan attempt was rejected', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Retry plan',
+          steps: ['Rename AuthService to AuthSessionService in repo-a/src/auth.ts.'],
+          estimatedComplexity: 'low',
+          affectedFiles: ['repo-a/src/auth.ts'],
+          affectedRepositories: ['repo-a'],
+        }),
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generatePlan('fix', '# WBP-127: Retry invalid plan', {
+        affectedRepositories: ['repo-a'],
+        planQualityFeedback: ['[rename-target-required] Step 1 must name the replacement target.'],
+      });
+
+      const executeCall = (adapter.execute as jest.Mock).mock.calls[0]?.[0];
+      expect(executeCall.prompt).toContain('Previous plan attempt was rejected for these exact reasons:');
+      expect(executeCall.prompt).toContain('[rename-target-required] Step 1 must name the replacement target.');
+    });
+
+    it('omits retry feedback when no prior quality failures are provided', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Fresh plan',
+          steps: ['Inspect auth flow.'],
+          estimatedComplexity: 'low',
+          affectedFiles: ['repo-a/src/auth.ts'],
+          affectedRepositories: ['repo-a'],
+        }),
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generatePlan('fix', '# WBP-128: Fresh plan', {
+        affectedRepositories: ['repo-a'],
+      });
+
+      const executeCall = (adapter.execute as jest.Mock).mock.calls[0]?.[0];
+      expect(executeCall.prompt).not.toContain('Previous plan attempt was rejected for these exact reasons:');
+    });
+
     it('includes prior plan context in the plan prompt when provided', async () => {
       const adapter = createAdapter();
       adapter.execute.mockResolvedValueOnce({

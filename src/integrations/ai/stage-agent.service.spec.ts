@@ -262,6 +262,56 @@ describe('StageAgentService', () => {
     );
   });
 
+  it('adds retry feedback only when a prior plan attempt was rejected', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix',
+        summary: 'Retry plan',
+        steps: ['Rename AuthService to AuthSessionService in repo-a/src/auth.ts.'],
+        estimatedComplexity: 'low',
+        affectedFiles: ['repo-a/src/auth.ts'],
+        affectedRepositories: ['repo-a'],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: 'Fix callback handling',
+      affectedRepositories: ['repo-a'],
+      planQualityFeedback: ['[rename-target-required] Step 1 must name the replacement target.'],
+    });
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
+    expect(prompt).toContain('Previous plan attempt was rejected for these exact reasons:');
+    expect(prompt).toContain('[rename-target-required] Step 1 must name the replacement target.');
+  });
+
+  it('omits retry feedback when no prior plan rejection exists', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix',
+        summary: 'Fresh plan',
+        steps: ['Inspect auth flow.'],
+        estimatedComplexity: 'low',
+        affectedFiles: ['repo-a/src/auth.ts'],
+        affectedRepositories: ['repo-a'],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: 'Fix callback handling',
+      affectedRepositories: ['repo-a'],
+    });
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
+    expect(prompt).not.toContain('Previous plan attempt was rejected for these exact reasons:');
+  });
+
   it('places the JSON minification instruction after the plan example block', async () => {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = jest.fn().mockResolvedValue({
@@ -801,7 +851,7 @@ describe('StageAgentService', () => {
           sessionId: 'claude-review-session-42',
           cwd: '/tmp/repo',
           permissionMode: 'plan',
-          tools: ['Read', 'Glob', 'Grep', 'Bash'],
+          tools: ['Read', 'Glob', 'Grep', 'Bash', 'Skill'],
           jsonSchema: undefined,
         })
       );
