@@ -345,6 +345,15 @@ export class ClaudeCliAdapter implements ImplementerBackend {
           const shortTarget = target.length > 60 ? `${target.slice(0, 57)}...` : target;
           console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] ${toolName}: ${shortTarget}`));
         }
+        continue;
+      }
+
+      if (toolName === 'Skill') {
+        const skillName = typeof input['skill'] === 'string' ? input['skill'] : '';
+        if (skillName) {
+          console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] Skill: ${skillName}`));
+        }
+        continue;
       }
     }
   }

@@ -271,4 +271,118 @@ describe('ClaudeCliAdapter', () => {
       })
     ).rejects.toThrow(/Claude CLI failed/);
   });
+
+  it('logs Skill tool usage from CLI assistant messages', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    mockSpawnCli.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'assistant',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                name: 'Skill',
+                input: { skill: 'plan-quality' },
+              },
+            ],
+          },
+        };
+        yield {
+          type: 'result',
+          result: 'done',
+          session_id: 's1',
+          num_turns: 1,
+          total_cost_usd: 0.01,
+        };
+      })()
+    );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature',
+          summary: 'test',
+          steps: ['step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: [],
+          risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [],
+      ticketContext: 'context',
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+    });
+
+    const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+    expect(logCalls.some(l => /Skill:.*plan-quality/.test(l))).toBe(true);
+
+    consoleSpy.mockRestore();
+  });
+
+  it('does not log Skill when skill name is missing', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    mockSpawnCli.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'assistant',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                name: 'Skill',
+                input: {},
+              },
+            ],
+          },
+        };
+        yield {
+          type: 'result',
+          result: 'done',
+          session_id: 's1',
+          num_turns: 1,
+          total_cost_usd: 0.01,
+        };
+      })()
+    );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature',
+          summary: 'test',
+          steps: ['step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: [],
+          risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [],
+      ticketContext: 'context',
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+    });
+
+    const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+    expect(logCalls.some(l => /Skill:/.test(l))).toBe(false);
+
+    consoleSpy.mockRestore();
+  });
 });
