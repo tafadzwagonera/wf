@@ -68,7 +68,7 @@ interface IssueImplementOptions {
     'Blank AI findings responses fail fast with provider-aware diagnostics instead of generic parse errors. ' +
     'Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. ' +
     'When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. ' +
-    'Before implementation, the command runs an interactive branch creation workflow: checks the working tree for uncommitted changes (stashing if needed), detects and pulls the source branch (dev or main), then prompts for branch name confirmation. ' +
+    'Before implementation, the command runs an interactive branch creation workflow: checks the working tree for uncommitted changes (offering to stash, continue without stashing, or abort), detects and pulls the source branch (dev or main), then prompts for branch name confirmation. ' +
     'Use --silent to auto-stash without prompting; branch selection and naming still prompt when a TTY is available. Use --no-branch to skip branch creation and work directly on the current branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. ' +
     'Examples: wf issue:implement PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | ' +
     'wf issue:implement PROJ-123 --repos my-repo | ' +

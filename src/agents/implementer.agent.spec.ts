@@ -515,6 +515,36 @@ describe('ImplementerAgent', () => {
       expect(gitService.stashPop).not.toHaveBeenCalled();
     });
 
+    it('continues without stashing when user selects continue in interactive mode', async () => {
+      jest.spyOn(agent as any, 'isInteractiveSession').mockReturnValue(true);
+      gitService.getStatus.mockResolvedValueOnce({
+        isClean: () => false,
+        modified: ['src/example.ts'],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: [],
+      } as any);
+
+      const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+      mockPrompt
+        .mockResolvedValueOnce({ dirtyTreeAction: 'continue' } as any)
+        .mockResolvedValueOnce({ branchAction: 'create' } as any)
+        .mockResolvedValueOnce({ choice: 'accept' } as any);
+
+      gitService.detectDevelopmentBranches.mockReturnValue(['develop']);
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: false,
+      });
+
+      expect(gitService.stashChanges).not.toHaveBeenCalled();
+      expect(gitService.stashPop).not.toHaveBeenCalled();
+    });
+
     it('auto-selects dev branch in silent mode', async () => {
       gitService.detectDevelopmentBranches.mockReturnValue(['develop']);
 

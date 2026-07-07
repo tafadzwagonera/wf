@@ -269,7 +269,11 @@ export const getCommandHelpCatalog = (commandsDir: string): Record<string, Comma
         flags: formatFlagForHelp(properties.get('flags')),
         description: evaluateStringExpression(properties.get('description')),
       }))
-      .filter((option): option is CommandHelpOption => Boolean(option.flags && option.description));
+      .filter((option): option is CommandHelpOption => Boolean(option.flags && option.description))
+      .sort((a, b) => {
+        const longFlag = (f: string): string => (f.match(/--([a-z][\w-]*)/)?.[1] ?? f).toLowerCase();
+        return longFlag(a.flags).localeCompare(longFlag(b.flags));
+      });
 
     const examples = extractExamples(source);
 

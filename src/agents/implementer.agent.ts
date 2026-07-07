@@ -750,19 +750,27 @@ export class ImplementerAgent {
     const stashMessage = path.basename(planArtifact.path) || 'wf-auto-stash';
 
     if (interactive) {
-      const { shouldStash } = await inquirer.prompt<{
-        shouldStash: boolean;
+      const { dirtyTreeAction } = await inquirer.prompt<{
+        dirtyTreeAction: 'stash' | 'continue' | 'abort';
       }>([
         {
-          type: 'confirm',
-          name: 'shouldStash',
-          message: 'Working tree has uncommitted changes. Stash and continue?',
+          type: 'list',
+          name: 'dirtyTreeAction',
+          message: 'Working tree has uncommitted changes.',
           prefix: ' ',
-          default: true,
+          choices: [
+            { name: 'Stash and continue', value: 'stash' },
+            { name: 'Continue without stashing', value: 'continue' },
+            { name: 'Abort', value: 'abort' },
+          ],
         },
       ]);
-      if (!shouldStash) {
+      if (dirtyTreeAction === 'abort') {
         throw new GitError('Aborted: working tree has uncommitted changes. Commit or stash them first.');
+      }
+      if (dirtyTreeAction === 'continue') {
+        console.log(chalk.yellow('  Continuing with uncommitted changes in working tree'));
+        return { didStash: false };
       }
     }
 
@@ -834,7 +842,16 @@ export class ImplementerAgent {
     }
 
     if (branchInfo.current !== sourceBranch) {
-      await this.gitService.checkoutBranch(sourceBranch, cwd);
+      try {
+        await this.gitService.checkoutBranch(sourceBranch, cwd);
+      } catch {
+        console.log(
+          chalk.yellow(
+            `  Could not switch to ${sourceBranch} — working tree has conflicting changes. Continuing on current branch`
+          )
+        );
+        return;
+      }
     }
     try {
       console.log(chalk.gray(`  Pulling latest from origin/${sourceBranch}...`));
