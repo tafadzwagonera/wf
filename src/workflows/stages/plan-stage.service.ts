@@ -15,7 +15,7 @@ import {
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
 import { AIError, isAIErrorLike } from '../../shared/utils/errors';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
-import { createPlanQualityError, validatePlanQuality } from '../../shared/utils/plan-quality';
+import { validatePlanQuality } from '../../shared/utils/plan-quality';
 import type { RepoConventionsContext } from '../../shared/utils/detect-repo-conventions';
 import type { PriorPlanContext, PlanCorrelationResult } from '../../shared/utils/detect-prior-plans';
 import type { CrossRepoContext } from '../../shared/utils/detect-cross-repo-patterns';
@@ -146,13 +146,19 @@ export class PlanStageService {
     const retryViolations = validatePlan(retryAttempt.plan);
 
     if (retryViolations.length > 0) {
-      throw createPlanQualityError(
-        validatePlanQuality({
-          plan: retryAttempt.plan,
-          affectedRepositories: options.affectedRepositories,
-          testInfra,
-        })
+      console.log(
+        chalk.yellow(
+          `  ⚠️ Plan quality violations persisted after retry:\n${retryViolations.map(v => `    • ${v}`).join('\n')}`
+        )
       );
+      const existingRisks = retryAttempt.plan.risks ?? [];
+      return {
+        ...retryAttempt,
+        plan: {
+          ...retryAttempt.plan,
+          risks: [...existingRisks, ...retryViolations.map(v => `[plan-quality] ${v}`)],
+        },
+      };
     }
 
     return retryAttempt;

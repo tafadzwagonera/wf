@@ -353,7 +353,7 @@ describe('PlanStageService', () => {
     );
   });
 
-  it('throws a quality error when the retried plan is still semantically invalid', async () => {
+  it('logs and surfaces violations in the risk section when the retried plan is still semantically invalid', async () => {
     const { service, aiService } = await buildService();
     (aiService.generatePlan as jest.Mock)
       .mockResolvedValueOnce({
@@ -367,13 +367,18 @@ describe('PlanStageService', () => {
         affectedRepositories: ['repo-a'],
       });
 
-    await expect(
-      service.generatePlan('Ticket body', {
-        action: 'fix',
-        ticketKey: 'WBP-405',
-        affectedRepositories: ['repo-a'],
-      })
-    ).rejects.toThrow('Generated plan failed quality checks');
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    const result = await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-405',
+      affectedRepositories: ['repo-a'],
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Plan quality violations persisted after retry'));
+
+    expect(result.plan.risks).toBeDefined();
+    expect(result.plan.risks!.some(r => r.includes('[plan-quality]'))).toBe(true);
   });
 
   it('accepts repo-local verification commands without triggering a corrective retry', async () => {
