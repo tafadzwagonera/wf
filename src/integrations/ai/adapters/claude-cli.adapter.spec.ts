@@ -438,6 +438,65 @@ describe('ClaudeCliAdapter', () => {
     consoleSpy.mockRestore();
   });
 
+  it('suppresses non-Skill task_progress messages', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    mockSpawnCli.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'system',
+          subtype: 'task_progress',
+          summary: 'Reading src/commands/issue-plan.command.ts',
+          description: 'Reading src/commands/issue-plan.command.ts',
+          last_tool_name: 'Read',
+        };
+        yield {
+          type: 'system',
+          subtype: 'task_progress',
+          summary: 'Searching for ticket-key',
+          description: 'Searching for ticket-key',
+          last_tool_name: 'Grep',
+        };
+        yield {
+          type: 'result',
+          result: 'done',
+          session_id: 's1',
+          num_turns: 1,
+          total_cost_usd: 0.01,
+        };
+      })()
+    );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature',
+          summary: 'test',
+          steps: ['step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: [],
+          risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [],
+      ticketContext: 'context',
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+    });
+
+    const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+    expect(logCalls.some(l => /Task progress/.test(l))).toBe(false);
+
+    consoleSpy.mockRestore();
+  });
+
   it('does not log Skill when summary is empty', async () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 

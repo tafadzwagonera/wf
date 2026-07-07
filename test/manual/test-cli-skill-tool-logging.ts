@@ -9,6 +9,7 @@
  *   3. Skill tool_use with empty-string skill name emits nothing.
  *   4. task_progress with last_tool_name === 'Skill' and non-empty summary logs a Skill line.
  *   5. task_progress with empty summary/description does NOT log a Skill line.
+ *   6. task_progress with non-Skill last_tool_name is suppressed entirely.
  *
  * @returns Promise that resolves when the smoke test completes
  */
@@ -157,6 +158,24 @@ async function main(): Promise<void> {
       !skillLine,
       `captured: ${JSON.stringify(logs)}`
     );
+  }
+
+  // Test 6: task_progress with non-Skill last_tool_name is suppressed
+  console.log(chalk.bold('\nTest 6: task_progress with non-Skill tool emits nothing'));
+  {
+    const message: ClaudeCliMessage = {
+      type: 'system',
+      subtype: 'task_progress',
+      last_tool_name: 'Read',
+      summary: 'Reading src/commands/issue-plan.command.ts',
+      description: 'Reading src/commands/issue-plan.command.ts',
+    };
+
+    const logs = captureConsoleLog(() => {
+      (adapter as any).logCliMessage(message, '/repo', activityState);
+    });
+
+    assert('no output emitted for non-Skill task_progress', logs.length === 0, `captured: ${JSON.stringify(logs)}`);
   }
 
   console.log(chalk.bold('\nSummary'));
