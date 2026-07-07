@@ -184,9 +184,14 @@ describe('IssuePlanCommand', () => {
     });
   });
 
-  it('stores custom-mode plans under the cwd custom namespace when --repos is absent', async () => {
+  it('stores custom-mode plans under the artifact repo namespace when --repos is absent', async () => {
     const { command } = await buildCommand();
     const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const artifactPath = path.join(os.homedir(), '.wf', 'consumer-app', 'bar.md');
+    const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
+      return String(input) === artifactPath;
+    });
+    const statSyncSpy = jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 1024 });
 
     await command.run([], {
       action: 'fix',
@@ -197,13 +202,21 @@ describe('IssuePlanCommand', () => {
     const readPreview = dryRunPreview.previewFileRead.mock.calls[0][0];
     const writePreview = dryRunPreview.previewFileWrite.mock.calls[0][0];
 
-    expect(readPreview.filePath).toBe(path.join(os.homedir(), '.wf', 'consumer-app', 'bar.md'));
+    expect(readPreview.filePath).toBe(artifactPath);
     expect(path.dirname(writePreview.filePath)).toBe(path.join(os.homedir(), '.wf', 'consumer-app'));
+
+    existsSyncSpy.mockRestore();
+    statSyncSpy.mockRestore();
   });
 
-  it('stores custom-mode plans under the targeted repo custom namespace when --repos is provided', async () => {
+  it('stores custom-mode plans under the targeted repo artifact namespace when --repos is provided', async () => {
     const { command } = await buildCommand();
     const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const artifactPath = path.join(os.homedir(), '.wf', 'repo-a', 'bar.md');
+    const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
+      return String(input) === artifactPath;
+    });
+    const statSyncSpy = jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 1024 });
 
     await command.run([], {
       action: 'fix',
@@ -215,25 +228,57 @@ describe('IssuePlanCommand', () => {
     const readPreview = dryRunPreview.previewFileRead.mock.calls[0][0];
     const writePreview = dryRunPreview.previewFileWrite.mock.calls[0][0];
 
-    expect(readPreview.filePath).toBe(path.join(os.homedir(), '.wf', 'repo-a', 'bar.md'));
+    expect(readPreview.filePath).toBe(artifactPath);
     expect(path.dirname(writePreview.filePath)).toBe(path.join(os.homedir(), '.wf', 'repo-a'));
+
+    existsSyncSpy.mockRestore();
+    statSyncSpy.mockRestore();
   });
 
-  it('prefers the targeted repo custom namespace over cwd when --repos is provided', async () => {
+  it('resolves from the targeted repo artifact namespace when --repos is provided', async () => {
     await buildCommand();
     const { resolveCustomSourcePath } = require('../shared/utils/custom-source');
     const repoName = 'repo-a';
     const sourceName = 'bar.md';
-    const cwdCandidate = path.join('/tmp/consumer-app', sourceName);
     const repoCandidate = path.join(os.homedir(), '.wf', repoName, sourceName);
     const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
-      const filePath = String(input);
-      return filePath === cwdCandidate || filePath === repoCandidate;
+      return String(input) === repoCandidate;
     });
 
     const resolvedPath = resolveCustomSourcePath(sourceName, '/tmp/consumer-app', [repoName]);
 
     expect(resolvedPath).toBe(repoCandidate);
+
+    existsSyncSpy.mockRestore();
+  });
+
+  it('throws when custom source is not found in the artifact repository', async () => {
+    await buildCommand();
+    const { resolveCustomSourcePath } = require('../shared/utils/custom-source');
+    const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+
+    expect(() => resolveCustomSourcePath('missing.md', '/tmp/consumer-app')).toThrow(
+      expect.objectContaining({
+        name: 'AppError',
+        code: 'FILE_SYSTEM_ERROR',
+        message: expect.stringContaining('not found in artifact repository'),
+      })
+    );
+
+    existsSyncSpy.mockRestore();
+  });
+
+  it('resolves subdirectory-prefixed sources from the artifact repository', async () => {
+    await buildCommand();
+    const { resolveCustomSourcePath } = require('../shared/utils/custom-source');
+    const artifactCandidate = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'ticket.md');
+    const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
+      return String(input) === artifactCandidate;
+    });
+
+    const resolvedPath = resolveCustomSourcePath('jira/ticket.md', '/tmp/consumer-app');
+
+    expect(resolvedPath).toBe(artifactCandidate);
 
     existsSyncSpy.mockRestore();
   });
@@ -1131,6 +1176,11 @@ describe('IssuePlanCommand', () => {
   it('produces deterministic hash for same custom source across runs', async () => {
     const { command } = await buildCommand();
     const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const artifactPath = path.join(os.homedir(), '.wf', 'consumer-app', 'foo.md');
+    const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
+      return String(input) === artifactPath;
+    });
+    const statSyncSpy = jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 512 });
 
     await command.run([], { action: 'fix', customPlan: 'foo.md', dryRun: true });
     const firstFilename = path.basename(dryRunPreview.previewFileWrite.mock.calls[0][0].filePath);
@@ -1142,6 +1192,9 @@ describe('IssuePlanCommand', () => {
 
     expect(firstFilename).toBe(secondFilename);
     expect(firstFilename).toContain(hashPlanArtifactSources(['foo']));
+
+    existsSyncSpy.mockRestore();
+    statSyncSpy.mockRestore();
   });
 
   it('accepts --ticket-key and passes it through to fetch and plan stages', async () => {

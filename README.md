@@ -384,7 +384,7 @@ Before a plan artifact is written, `issue:plan` now runs a semantic quality gate
 
 When the selected backend returns structured JSON for planning, wf now explicitly asks for minified single-line JSON in both the primary prompt and any CLI retry turn. This reduces token overhead and avoids downstream parsing drift caused by prettified responses.
 
-When `--repos` is present, filename-only custom sources are resolved against the repo-scoped `~/.wf/<repo>/` artifact directory before cwd-relative paths.
+Custom sources (both filename-only and subdirectory-prefixed) are always resolved from the artifact repository (`~/.wf/<app>/`). When `--repos` is present, filename-only sources prefer the repo-scoped `~/.wf/<repo>/` namespace. The command never falls back to the caller's working directory — if the artifact is absent, it fails with a clear error.
 
 When `--repos` points at a local checkout, `issue:plan` inspects `~/.wf/<repo>/**/*` for prior plan artifacts and correlates them by Jaccard keyword similarity. Matched plans — along with their affected files and source snippets — are forwarded to the planning prompt so it can build on earlier implementation context.
 

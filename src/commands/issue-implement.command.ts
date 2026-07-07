@@ -11,6 +11,7 @@ import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { AppError } from '../shared/errors/app.error';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { isAIErrorLike } from '../shared/utils/errors';
 import {
@@ -727,11 +728,16 @@ Return ONLY a valid JSON object:
       return identifier;
     }
 
-    if (path.dirname(identifier) === '.') {
-      return path.join(resolveCustomArtifactDir(baseDir), identifier);
+    const artifactDir = resolveCustomArtifactDir(baseDir);
+    const artifactCandidate = path.join(artifactDir, identifier);
+    if (fs.existsSync(artifactCandidate)) {
+      return artifactCandidate;
     }
 
-    return path.resolve(baseDir, identifier);
+    throw new AppError(
+      'FILE_SYSTEM_ERROR',
+      `Custom plan artifact "${identifier}" not found in artifact repository: ${artifactCandidate}`
+    );
   }
 
   /**
@@ -759,8 +765,8 @@ Return ONLY a valid JSON object:
     }
 
     if (!/^[A-Z]+-\d+$/i.test(identifier)) {
-      const directPlanPath = this.resolveCustomPlanPath(identifier, baseDir);
-      if (fs.existsSync(directPlanPath)) {
+      try {
+        const directPlanPath = this.resolveCustomPlanPath(identifier, baseDir);
         const artifactStem = path.basename(directPlanPath, path.extname(directPlanPath));
         const actionMatch = artifactStem.match(/-(feature|fix|investigate)$/i);
         return {
@@ -772,6 +778,12 @@ Return ONLY a valid JSON object:
           sourceName: artifactStem.replace(/-(feature|fix|investigate)$/i, ''),
           isLegacy: true,
         };
+      } catch (error) {
+        if (error instanceof AppError) {
+          // Artifact not found in the repository — fall through to return null.
+        } else {
+          throw error;
+        }
       }
     }
 
@@ -788,9 +800,7 @@ Return ONLY a valid JSON object:
   private resolveCustomPlanStem(identifier: string, baseDir: string): string {
     const basePath = path.isAbsolute(identifier)
       ? identifier
-      : path.dirname(identifier) === '.'
-        ? path.join(resolveCustomArtifactDir(baseDir), identifier)
-        : path.resolve(baseDir, identifier);
+      : path.join(resolveCustomArtifactDir(baseDir), identifier);
     const candidatePaths = SUPPORTED_PLAN_EXTENSIONS.map(candidateExtension => `${basePath}.${candidateExtension}`);
     const matches = candidatePaths.filter(candidatePath => fs.existsSync(candidatePath));
 

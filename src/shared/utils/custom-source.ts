@@ -1,11 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { resolveCustomArtifactDir, resolveRepoBasePath } from '../../agents/utils';
-
-const artifactBasePathForSourceFallback = (repos?: string[]): string => resolveRepoBasePath(repos?.[0]);
+import { AppError } from '../errors/app.error';
 
 /**
- * Resolve a custom markdown source using repo-aware local file rules.
+ * Resolve a custom markdown source from the artifact repository (`~/.wf/<app>/`).
  *
  * Filename-only sources prefer the targeted repo's `~/.wf/<repo>/` custom
  * artifact namespace when `--repos` is supplied.
@@ -13,7 +12,7 @@ const artifactBasePathForSourceFallback = (repos?: string[]): string => resolveR
  * @param source - Raw `--custom-plan` CLI value
  * @param baseDir - Repo-aware base directory
  * @param repos - Optional repo list supplied via `--repos`
- * @returns Absolute or cwd-relative source path
+ * @returns Absolute path within the artifact repository
  */
 export const resolveCustomSourcePath = (source: string, baseDir: string, repos?: string[]): string => {
   if (path.isAbsolute(source)) {
@@ -26,7 +25,10 @@ export const resolveCustomSourcePath = (source: string, baseDir: string, repos?:
       .filter(candidate => fs.existsSync(candidate));
 
     if (matches.length > 1) {
-      throw new Error(`Custom source "${source}" matches multiple repositories: ${matches.join(', ')}`);
+      throw new AppError(
+        'FILE_SYSTEM_ERROR',
+        `Custom source "${source}" matches multiple repositories: ${matches.join(', ')}`
+      );
     }
 
     if (matches.length === 1) {
@@ -34,14 +36,14 @@ export const resolveCustomSourcePath = (source: string, baseDir: string, repos?:
     }
   }
 
-  const cwdCandidate = path.resolve(source);
-  if (fs.existsSync(cwdCandidate)) {
-    return cwdCandidate;
+  const artifactDir = resolveCustomArtifactDir(baseDir);
+  const artifactCandidate = path.join(artifactDir, source);
+  if (fs.existsSync(artifactCandidate)) {
+    return artifactCandidate;
   }
 
-  if (path.dirname(source) === '.') {
-    return path.join(resolveCustomArtifactDir(baseDir), source);
-  }
-
-  return path.resolve(artifactBasePathForSourceFallback(repos), source);
+  throw new AppError(
+    'FILE_SYSTEM_ERROR',
+    `Custom source "${source}" not found in artifact repository: ${artifactCandidate}`
+  );
 };
