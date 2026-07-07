@@ -529,8 +529,8 @@ describe('ImplementerAgent', () => {
 
       const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
       mockPrompt
-        .mockResolvedValueOnce({ dirtyTreeAction: 'continue' } as any)
         .mockResolvedValueOnce({ branchAction: 'create' } as any)
+        .mockResolvedValueOnce({ dirtyTreeAction: 'continue' } as any)
         .mockResolvedValueOnce({ choice: 'accept' } as any);
 
       gitService.detectDevelopmentBranches.mockReturnValue(['develop']);
@@ -693,6 +693,7 @@ describe('ImplementerAgent', () => {
       });
 
       expect(gitService.pull).not.toHaveBeenCalled();
+      expect(gitService.stashChanges).not.toHaveBeenCalled();
     });
 
     it('warns and continues when current-branch pull fails in --no-branch mode', async () => {
@@ -711,7 +712,32 @@ describe('ImplementerAgent', () => {
       expect(result).toEqual({ type: 'implementation', branchName: 'main' });
     });
 
-    it('restores stash before offering pull when staying on current branch', async () => {
+    it('skips stash when user declines pull in stay path', async () => {
+      jest.spyOn(agent as any, 'isInteractiveSession').mockReturnValue(true);
+      gitService.getStatus.mockResolvedValue({
+        isClean: () => false,
+        modified: ['src/example.ts'],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: [],
+      } as any);
+      const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+      mockPrompt.mockResolvedValueOnce({ shouldPull: false } as any);
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        noBranch: true,
+      });
+
+      expect(gitService.stashChanges).not.toHaveBeenCalled();
+      expect(gitService.pull).not.toHaveBeenCalled();
+    });
+
+    it('stashes before pull and restores after in stay path', async () => {
       jest.spyOn(agent as any, 'isInteractiveSession').mockReturnValue(true);
       gitService.getStatus.mockResolvedValue({
         isClean: () => false,
@@ -732,9 +758,48 @@ describe('ImplementerAgent', () => {
         noBranch: true,
       });
 
-      expect(gitService.stashPop).toHaveBeenCalledWith('/tmp/repo-a');
+      expect(gitService.stashChanges).toHaveBeenCalled();
       expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
-      expect(gitService.stashPop.mock.invocationCallOrder[0]).toBeLessThan(gitService.pull.mock.invocationCallOrder[0]);
+      expect(gitService.stashPop).toHaveBeenCalled();
+      expect(gitService.stashChanges.mock.invocationCallOrder[0]).toBeLessThan(
+        gitService.pull.mock.invocationCallOrder[0]
+      );
+      expect(gitService.pull.mock.invocationCallOrder[0]).toBeLessThan(gitService.stashPop.mock.invocationCallOrder[0]);
+    });
+
+    it('truncates branch name at word boundary when exceeding max length', async () => {
+      // 9 words × 10 chars + 8 hyphens = 98-char slug; prefix 'feature/WBP-1000__' = 18 chars; total 116 > 100
+      const longSummary = Array.from({ length: 9 }, (_, i) => String.fromCharCode(65 + i).repeat(10)).join(' ');
+      const longTicket = { ...ticketArtifact, content: `# WBP-1000: ${longSummary}` };
+      const consoleSpy = jest.spyOn(console, 'log');
+
+      await agent.execute(longTicket, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      const [branchName] = gitService.createBranch.mock.calls[0];
+      expect(branchName.length).toBeLessThanOrEqual(100);
+      expect(branchName).not.toMatch(/-$/);
+      expect(
+        consoleSpy.mock.calls.some(args => typeof args[0] === 'string' && args[0].includes('truncated to fit'))
+      ).toBe(true);
+    });
+
+    it('does not truncate branch name within limit', async () => {
+      const consoleSpy = jest.spyOn(console, 'log');
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      const truncatedLog = consoleSpy.mock.calls.find(
+        args => typeof args[0] === 'string' && args[0].includes('truncated to fit')
+      );
+      expect(truncatedLog).toBeUndefined();
     });
 
     it('warns and continues when pull fails (no upstream)', async () => {

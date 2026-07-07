@@ -103,3 +103,23 @@ export const slugify = (text: string): string =>
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '');
+
+export const MAX_BRANCH_NAME_LENGTH = 100;
+
+/**
+ * Truncate a slug to fit within a max total branch name length.
+ * Cuts at the last word boundary (hyphen) before the limit.
+ *
+ * @param slug - The slugified summary portion
+ * @param prefixLength - Characters already consumed by prefix + ticket key + separators
+ * @returns Truncated slug; empty string when prefixLength >= MAX_BRANCH_NAME_LENGTH
+ */
+export const truncateSlug = (slug: string, prefixLength: number): string => {
+  const maxSlugLength = MAX_BRANCH_NAME_LENGTH - prefixLength;
+  if (slug.length <= maxSlugLength) return slug;
+  if (maxSlugLength <= 0) return '';
+
+  const truncated = slug.substring(0, maxSlugLength);
+  const lastHyphen = truncated.lastIndexOf('-');
+  return lastHyphen > 0 ? truncated.substring(0, lastHyphen) : truncated;
+};

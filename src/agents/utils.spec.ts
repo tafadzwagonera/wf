@@ -1,6 +1,6 @@
 import * as path from 'path';
 import chalk from 'chalk';
-import { extractSummary, resolveRepoBasePath, slugify } from './utils';
+import { extractSummary, resolveRepoBasePath, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
 
 jest.mock('fs', () => ({
   existsSync: jest.fn(),
@@ -99,5 +99,28 @@ describe('slugify', () => {
     const summary = 'Trip.com Content Mapping: Align Contentful Fields to Trip.com Preview Structure';
 
     expect(slugify(summary)).toBe('tripcom-content-mapping-align-contentful-fields-to-tripcom-preview-structure');
+  });
+});
+
+describe('truncateSlug', () => {
+  it('returns slug unchanged when within limit', () => {
+    const slug = 'short-slug';
+    expect(truncateSlug(slug, 10)).toBe('short-slug');
+  });
+
+  it('truncates at last hyphen when slug exceeds available length', () => {
+    const slug = 'word-one-word-two-word-three';
+    // prefixLength=85 → maxSlugLength=15 → truncated='word-one-word-t' → lastHyphen at 13 → 'word-one-word'
+    expect(truncateSlug(slug, MAX_BRANCH_NAME_LENGTH - 15)).toBe('word-one-word');
+  });
+
+  it('hard-cuts when slug has no hyphens and exceeds limit', () => {
+    const slug = 'averylongsingleword';
+    expect(truncateSlug(slug, MAX_BRANCH_NAME_LENGTH - 5)).toBe('avery');
+  });
+
+  it('returns empty string when prefixLength equals or exceeds MAX_BRANCH_NAME_LENGTH', () => {
+    expect(truncateSlug('any-slug', MAX_BRANCH_NAME_LENGTH)).toBe('');
+    expect(truncateSlug('any-slug', MAX_BRANCH_NAME_LENGTH + 5)).toBe('');
   });
 });

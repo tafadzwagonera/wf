@@ -16,7 +16,7 @@ import {
   ImplementerResult,
   VerificationScript,
 } from './interfaces';
-import { extractSummary, slugify } from './utils';
+import { extractSummary, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
 import { ConfigurationError, GitError, ValidationError } from '../shared/utils/errors';
 import { formatBackendSelection, writeImplementVerificationRunFile } from '../shared/utils/implement-verification';
 import { getWfStateDir } from '../shared/utils/wf-paths';
@@ -662,18 +662,13 @@ export class ImplementerAgent {
     const stashInteractive = !options.silent && isTTY;
     const branchInteractive = isTTY;
 
-    const { didStash } = await this.ensureCleanWorkingTree(planArtifact, options, stashInteractive, cwd);
+    const current = await this.gitService.getCurrentBranch(cwd).catch(() => '');
 
     if (options.noBranch) {
-      await this.restoreStash(didStash, cwd);
-      const current = await this.gitService.getCurrentBranch(cwd).catch(() => '');
-      await this.offerPullOnCurrentBranch(current, branchInteractive, cwd);
-      console.log(chalk.cyan(`  Staying on ${current} (--no-branch)`));
-      return current;
+      return this.handleStayPath(current, planArtifact, options, branchInteractive, stashInteractive, cwd);
     }
 
     if (branchInteractive) {
-      const current = await this.gitService.getCurrentBranch(cwd).catch(() => '');
       const { branchAction } = await inquirer.prompt<{ branchAction: string }>([
         {
           type: 'list',
@@ -688,12 +683,11 @@ export class ImplementerAgent {
         },
       ]);
       if (branchAction === 'stay') {
-        await this.restoreStash(didStash, cwd);
-        await this.offerPullOnCurrentBranch(current, branchInteractive, cwd);
-        console.log(chalk.cyan(`  Staying on ${current}`));
-        return current;
+        return this.handleStayPath(current, planArtifact, options, branchInteractive, stashInteractive, cwd);
       }
     }
+
+    const { didStash } = await this.ensureCleanWorkingTree(planArtifact, options, stashInteractive, cwd);
 
     console.log(chalk.gray('  Detecting source branches...'));
     const branchInfo = await this.gitService.getBranchInfo(cwd);
@@ -879,10 +873,8 @@ export class ImplementerAgent {
     }
   }
 
-  private async offerPullOnCurrentBranch(branch: string, interactive: boolean, cwd: string | undefined): Promise<void> {
-    if (!branch) {
-      return;
-    }
+  private async resolveShouldPull(branch: string, interactive: boolean): Promise<boolean> {
+    if (!branch) return false;
 
     if (interactive) {
       const { shouldPull } = await inquirer.prompt<{ shouldPull: boolean }>([
@@ -894,11 +886,13 @@ export class ImplementerAgent {
           default: true,
         },
       ]);
-      if (!shouldPull) {
-        return;
-      }
+      return shouldPull;
     }
 
+    return true;
+  }
+
+  private async pullOnCurrentBranch(branch: string, cwd: string | undefined): Promise<void> {
     try {
       console.log(chalk.gray(`  Pulling latest from origin/${branch}...`));
       await this.gitService.pull('origin', branch, cwd);
@@ -907,6 +901,27 @@ export class ImplementerAgent {
         chalk.yellow(`  Could not pull ${branch} (no upstream or network issue) — continuing with local state`)
       );
     }
+  }
+
+  private async handleStayPath(
+    branch: string,
+    planArtifact: PlanArtifact,
+    options: ImplementerOptions,
+    branchInteractive: boolean,
+    stashInteractive: boolean,
+    cwd: string | undefined
+  ): Promise<string> {
+    const shouldPull = await this.resolveShouldPull(branch, branchInteractive);
+
+    if (shouldPull) {
+      const { didStash } = await this.ensureCleanWorkingTree(planArtifact, options, stashInteractive, cwd);
+      await this.pullOnCurrentBranch(branch, cwd);
+      await this.restoreStash(didStash, cwd);
+    }
+
+    const label = options.noBranch ? `${branch} (--no-branch)` : branch;
+    console.log(chalk.cyan(`  Staying on ${label}`));
+    return branch;
   }
 
   /**
@@ -993,7 +1008,14 @@ export class ImplementerAgent {
     const isAtlassian = trackerName === 'jira' || trackerName === 'bitbucket';
     const formattedKey = isAtlassian ? ticketKey.toUpperCase() : ticketKey;
 
-    const branchName = `${prefix}/${formattedKey}__${slugify(summary)}`;
+    const slug = slugify(summary);
+    const prefixPart = `${prefix}/${formattedKey}__`;
+    const truncatedSlug = truncateSlug(slug, prefixPart.length);
+    const branchName = `${prefixPart}${truncatedSlug}`;
+
+    if (truncatedSlug !== slug) {
+      console.log(chalk.yellow(`  Branch name truncated to fit ${MAX_BRANCH_NAME_LENGTH} char limit`));
+    }
 
     // Validate against branch pattern
     const pattern = patternOverride ?? this.configService.get<string>('git.branchNamePattern');
@@ -1017,6 +1039,14 @@ export class ImplementerAgent {
     );
     const prefix = prefixMapping[action] || 'feature';
 
-    return `${prefix}/${slugify(artifactStem)}`;
+    const slug = slugify(artifactStem);
+    const prefixPart = `${prefix}/`;
+    const truncatedSlug = truncateSlug(slug, prefixPart.length);
+
+    if (truncatedSlug !== slug) {
+      console.log(chalk.yellow(`  Branch name truncated to fit ${MAX_BRANCH_NAME_LENGTH} char limit`));
+    }
+
+    return `${prefixPart}${truncatedSlug}`;
   }
 }
