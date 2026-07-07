@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ChatUIService } from './chat-ui.service';
 import { ConversationMessage } from './interfaces';
-import { AiService } from '../ai.service';
+import { AiService, REVIEW_VERDICT_APPROVED } from '../ai.service';
 
 // Mock chalk before any imports
 jest.mock('chalk', () => {
@@ -114,7 +114,7 @@ describe('ChatUIService', () => {
       service.displayChatIntro('review', context);
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Review Summary: Code looks good'));
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Approved'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining(REVIEW_VERDICT_APPROVED));
     });
   });
 

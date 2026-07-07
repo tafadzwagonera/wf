@@ -22,3 +22,6 @@ export type ProcessedCodeReview = z.infer<typeof processedCodeReviewSchema>;
 export type ReviewPresentationIssueRow = z.infer<typeof reviewPresentationIssueRowSchema>;
 export type ReviewTraceStateTransition = z.infer<typeof reviewTraceStateTransitionSchema>;
 export type ReviewTraceValueChange = z.infer<typeof reviewTraceValueChangeSchema>;
+
+export const REVIEW_VERDICT_APPROVED = 'Approved' as const;
+export const REVIEW_VERDICT_CHANGES_REQUESTED = 'Changes requested' as const;

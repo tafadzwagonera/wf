@@ -3,7 +3,13 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import inquirer from 'inquirer';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
-import { AiService, CodeIssue, CodeReview } from '../integrations/ai/ai.service';
+import {
+  AiService,
+  CodeIssue,
+  CodeReview,
+  REVIEW_VERDICT_APPROVED,
+  REVIEW_VERDICT_CHANGES_REQUESTED,
+} from '../integrations/ai/ai.service';
 import { buildCodeReviewPresentation } from '../review/code-review-post-processing';
 import { formatReviewCallStack, formatReviewStateTransition } from '../integrations/ai/review-trace';
 import { GitService } from '../integrations/git/git.service';
@@ -361,7 +367,7 @@ export class IssueReviewCommand extends CommandRunner {
             'Call Stack: code-path trace or unavailable',
             'State Transition: code-path trace or unavailable',
             '',
-            'Approval Status: ✓ APPROVED',
+            `Approval Status: ✓ ${REVIEW_VERDICT_APPROVED}`,
           ],
         });
 
@@ -937,7 +943,9 @@ export class IssueReviewCommand extends CommandRunner {
       lines.push('');
     }
 
-    lines.push(`**Approval Status:** ${review.approved ? '✓ Approved' : '✗ Changes needed'}`);
+    lines.push(
+      `**Approval Status:** ${review.approved ? `✓ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`}`
+    );
 
     return lines.join('\n');
   }
@@ -1233,7 +1241,7 @@ export class IssueReviewCommand extends CommandRunner {
 Review Context:
 ${reviewContext}
 
-Review Verdict: ${review.approved ? 'APPROVED' : 'NEEDS WORK'}
+Review Verdict: ${review.approved ? REVIEW_VERDICT_APPROVED : REVIEW_VERDICT_CHANGES_REQUESTED}
 
 Summary:
 ${review.summary}
@@ -1582,7 +1590,7 @@ Answer questions about the review, explain why specific issues were raised, sugg
 
     console.log(
       chalk.bold('\nApproval Status:'),
-      review.approved ? chalk.green('✓ APPROVED') : chalk.red('✗ NOT APPROVED')
+      review.approved ? chalk.green(`✓ ${REVIEW_VERDICT_APPROVED}`) : chalk.red(`✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`)
     );
 
     if (!review.approved) {
@@ -1674,7 +1682,7 @@ Answer questions about the review, explain why specific issues were raised, sugg
       text += 'SUGGESTIONS: None\n\n';
     }
 
-    text += `APPROVAL STATUS: ${review.approved ? 'APPROVED' : 'NOT APPROVED'}\n`;
+    text += `APPROVAL STATUS: ${review.approved ? REVIEW_VERDICT_APPROVED : REVIEW_VERDICT_CHANGES_REQUESTED}\n`;
 
     return text;
   }

@@ -55,7 +55,12 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import inquirer from 'inquirer';
 import { IssueReviewCommand } from './issue-review.command';
-import { AiService, CodeReview } from '../integrations/ai/ai.service';
+import {
+  AiService,
+  CodeReview,
+  REVIEW_VERDICT_APPROVED,
+  REVIEW_VERDICT_CHANGES_REQUESTED,
+} from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -867,7 +872,7 @@ describe('IssueReviewCommand', () => {
       const output = writeFileSyncSpy.mock.calls[0][1] as string;
       expect(output).toContain('CALL STACK:');
       expect(output).toContain('STATE TRANSITION:');
-      expect(output).toContain('APPROVAL STATUS: APPROVED');
+      expect(output).toContain(`APPROVAL STATUS: ${REVIEW_VERDICT_APPROVED}`);
       expect(output).toContain('Provenance: best-effort (code-path trace inferred from the diff and AI output)');
       expect(output).toContain('Execution mode: standard');
       expect(output).toContain('Best effort: call stack is inferred from the changed code and AI output.');
@@ -881,6 +886,19 @@ describe('IssueReviewCommand', () => {
       expect(output).toContain('Suggestion: Add a regression test');
       expect(output.indexOf('STATE TRANSITION:')).toBeLessThan(output.indexOf('APPROVAL STATUS'));
       expect(output).not.toContain('SUGGESTIONS (1):');
+    });
+
+    it('writes the changes-requested verdict for unapproved reviews', async () => {
+      const { command, reviewStageService } = await buildCommand();
+      jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('diff content');
+      const writeFileSyncSpy = jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => {});
+
+      reviewStageService.reviewDiff.mockResolvedValue({ ...mockReview, approved: false });
+
+      await command.run([], { output: 'review.txt' });
+
+      const output = writeFileSyncSpy.mock.calls[0][1] as string;
+      expect(output).toContain(`APPROVAL STATUS: ${REVIEW_VERDICT_CHANGES_REQUESTED}`);
     });
 
     it('renders unavailable trace sections when no code-path trace can be inferred', async () => {

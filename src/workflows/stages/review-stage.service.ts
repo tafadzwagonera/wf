@@ -2,7 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
-import { AiService, CodeReview, requireAiResponseContent } from '../../integrations/ai/ai.service';
+import {
+  AiService,
+  CodeReview,
+  REVIEW_VERDICT_APPROVED,
+  REVIEW_VERDICT_CHANGES_REQUESTED,
+  requireAiResponseContent,
+} from '../../integrations/ai/ai.service';
 import { formatReviewCallStack, formatReviewStateTransition } from '../../integrations/ai/review-trace';
 import { ReviewArtifact, TicketArtifact } from '../../agents/interfaces';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
@@ -150,7 +156,7 @@ ${stateTransitionSection}
 ${trailingSuggestionsSection}
 
 ## Approval Status
-${review.approved ? '✓ Approved' : '✗ Changes needed'}
+${review.approved ? `✓ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`}
 `;
   }
 

@@ -14,7 +14,7 @@
 
 import { Test } from '@nestjs/testing';
 import { IssueReviewCommand } from '../../src/commands/issue-review.command';
-import { AiService } from '../../src/integrations/ai/ai.service';
+import { AiService, REVIEW_VERDICT_APPROVED } from '../../src/integrations/ai/ai.service';
 import { GitService } from '../../src/integrations/git/git.service';
 import { IssueTrackerService } from '../../src/integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../../src/shared/logger/logger.service';
@@ -269,7 +269,7 @@ async function run(): Promise<void> {
     if (!prompt.includes('code reviewer')) {
       throw new Error('Expected system prompt to include "code reviewer"');
     }
-    if (!prompt.includes('APPROVED')) {
+    if (!prompt.includes(`Review Verdict: ${REVIEW_VERDICT_APPROVED}`)) {
       throw new Error('Expected system prompt to include review verdict');
     }
     if (!prompt.includes('Consider narrowing the type guard')) {

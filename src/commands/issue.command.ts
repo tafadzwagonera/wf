@@ -19,7 +19,7 @@ import {
 import { resolveCustomSourcePath } from '../shared/utils/custom-source';
 import { parseReposOption } from './utils/repos-option';
 import { ConfigService } from '@nestjs/config';
-import { AiService } from '../integrations/ai/ai.service';
+import { AiService, REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../integrations/ai/ai.service';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
@@ -1220,7 +1220,7 @@ Help the developer refine the implementation plan, discuss the approach, or addr
 
 Code Review Results:
 - Summary: ${workflowState.review.summary}
-- Status: ${workflowState.review.approved ? 'APPROVED' : 'NEEDS WORK'}
+- Status: ${workflowState.review.approved ? REVIEW_VERDICT_APPROVED : REVIEW_VERDICT_CHANGES_REQUESTED}
 
 Issues Found:
 ${issuesText}

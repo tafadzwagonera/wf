@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { createPromptModule } from 'inquirer';
 import chalk from 'chalk';
 import { ConversationMessage, ConversationContext, WorkflowStage } from './interfaces';
-import { AiService } from '../ai.service';
+import { AiService, REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../ai.service';
 
 /**
  * Service for handling CLI UI for interactive chat sessions
@@ -59,8 +59,8 @@ export class ChatUIService {
     } else if (stage === 'review' && output.summary) {
       console.log(chalk.dim(`Review Summary: ${output.summary}`));
       if (output.approved !== undefined) {
-        const status = output.approved ? '✓ Approved' : '⚠️ Needs Work';
-        const color = output.approved ? chalk.green : chalk.yellow;
+        const status = output.approved ? `✓ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`;
+        const color = output.approved ? chalk.green : chalk.red;
         console.log(color(status));
       }
     }

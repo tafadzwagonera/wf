@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
 import chalk from 'chalk';
 import type { CodeReview } from '../integrations/ai/ai.service';
+import { REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
@@ -103,7 +104,9 @@ export class ReviewerAgent {
 
       console.log(
         chalk.bold('\n  Status:'),
-        review.approved ? chalk.green('✓ Approved') : chalk.red('✗ Changes needed')
+        review.approved
+          ? chalk.green(`✓ ${REVIEW_VERDICT_APPROVED}`)
+          : chalk.red(`✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`)
       );
     }
 

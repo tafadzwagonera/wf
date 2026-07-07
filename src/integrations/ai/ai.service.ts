@@ -41,6 +41,7 @@ export type {
   ResolutionPlan,
 } from '../../shared/types/ai.types';
 export type { CodeIssue, CodeReview } from '../../shared/types/review.types';
+export { REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../../shared/types/review.types';
 
 /**
  * Strips a single wrapping markdown code fence from LLM output.
