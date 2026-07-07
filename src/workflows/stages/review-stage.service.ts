@@ -60,10 +60,8 @@ export class ReviewStageService {
         `Return ONLY a Markdown bullet list (- item).\n\n` +
         `\`\`\`diff\n${patch}\n\`\`\``;
 
-      if (this.stageAgentService.isEnabledForStage('review')) {
-        return (await this.stageAgentService.generateFromPrompt(prompt)).trim();
-      }
-
+      // Always use the direct API for summarisation — no tools needed,
+      // and spawning a CLI process per file segment is prohibitively slow.
       const response = await this.aiService.execute({
         prompt,
         maxTokens: 2048,
