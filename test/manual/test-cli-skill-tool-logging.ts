@@ -7,6 +7,8 @@
  *   1. Skill tool_use with a valid skill name emits a gray diagnostic log line.
  *   2. Skill tool_use with missing skill name emits nothing.
  *   3. Skill tool_use with empty-string skill name emits nothing.
+ *   4. task_progress with last_tool_name === 'Skill' and non-empty summary logs a Skill line.
+ *   5. task_progress with empty summary/description does NOT log a Skill line.
  *
  * @returns Promise that resolves when the smoke test completes
  */
@@ -110,6 +112,51 @@ async function main(): Promise<void> {
 
     const skillLine = logs.find(l => /Skill:/.test(l));
     assert('no Skill line emitted when skill name is empty string', !skillLine, `captured: ${JSON.stringify(logs)}`);
+  }
+
+  // Test 4: task_progress with last_tool_name === 'Skill' and non-empty summary
+  console.log(chalk.bold('\nTest 4: task_progress with Skill last_tool_name logs Skill line'));
+  {
+    const message: ClaudeCliMessage = {
+      type: 'system',
+      subtype: 'task_progress',
+      last_tool_name: 'Skill',
+      summary: 'executing plan-quality skill',
+    };
+
+    const logs = captureConsoleLog(() => {
+      (adapter as any).logCliMessage(message, '/repo', activityState);
+    });
+
+    const skillLine = logs.find(l => /Skill:.*executing plan-quality skill/.test(l));
+    assert(
+      'emits a line containing "Skill: executing plan-quality skill"',
+      !!skillLine,
+      `captured: ${JSON.stringify(logs)}`
+    );
+  }
+
+  // Test 5: task_progress with empty summary/description does NOT log a Skill line
+  console.log(chalk.bold('\nTest 5: task_progress with empty summary/description emits nothing'));
+  {
+    const message: ClaudeCliMessage = {
+      type: 'system',
+      subtype: 'task_progress',
+      last_tool_name: 'Skill',
+      summary: '',
+      description: '',
+    };
+
+    const logs = captureConsoleLog(() => {
+      (adapter as any).logCliMessage(message, '/repo', activityState);
+    });
+
+    const skillLine = logs.find(l => /Skill:/.test(l));
+    assert(
+      'no Skill line emitted when summary and description are empty',
+      !skillLine,
+      `captured: ${JSON.stringify(logs)}`
+    );
   }
 
   console.log(chalk.bold('\nSummary'));

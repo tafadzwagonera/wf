@@ -256,6 +256,16 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     activityState: ActivityState,
     touchedFiles?: Set<string>
   ): void {
+    // Skill tool invocations surface via task_progress with last_tool_name
+    if (message.type === 'system' && message.subtype === 'task_progress' && message.last_tool_name === 'Skill') {
+      const raw = message.summary ?? message.description;
+      const summary = (typeof raw === 'string' ? raw : '').trim();
+      if (summary) {
+        console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] Skill: ${summary}`));
+      }
+      return;
+    }
+
     // SDK-compatible progress events (rate_limit_event, system:status, etc.)
     const progressLine = formatProgressMessage(message as never);
     if (progressLine) {

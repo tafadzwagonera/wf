@@ -15,8 +15,10 @@ export interface ClaudeCliMessage {
     cache_read_input_tokens?: number;
   };
   tool_name?: string;
+  last_tool_name?: string;
   files?: Array<{ filename: string }>;
   summary?: string;
+  description?: string;
   rate_limit_info?: { status?: string; resetsAt?: number };
   structured_output?: Record<string, unknown>;
   [key: string]: unknown;
