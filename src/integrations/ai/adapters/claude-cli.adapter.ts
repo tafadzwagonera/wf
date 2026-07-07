@@ -256,16 +256,12 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     activityState: ActivityState,
     touchedFiles?: Set<string>
   ): void {
-    // task_progress events duplicate the tool_use activity already parsed from
-    // assistant messages — suppress them to avoid noisy per-tool lines.
-    // Only surface Skill invocations, which have no assistant-message equivalent.
-    if (message.type === 'system' && message.subtype === 'task_progress') {
-      if (message.last_tool_name === 'Skill') {
-        const raw = message.summary ?? message.description;
-        const summary = (typeof raw === 'string' ? raw : '').trim();
-        if (summary) {
-          console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] Skill: ${summary}`));
-        }
+    // Skill tool invocations surface via task_progress with last_tool_name
+    if (message.type === 'system' && message.subtype === 'task_progress' && message.last_tool_name === 'Skill') {
+      const raw = message.summary ?? message.description;
+      const summary = (typeof raw === 'string' ? raw : '').trim();
+      if (summary) {
+        console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] Skill: ${summary}`));
       }
       return;
     }
