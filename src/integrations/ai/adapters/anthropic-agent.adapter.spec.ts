@@ -954,5 +954,10 @@ describe('AnthropicAgentAdapter', () => {
       const result = buildSystemPrompt(baseArgs);
       expect(result).not.toContain('Files for context');
     });
+
+    it('lists the Skill tool in the Available tools section', () => {
+      const result = buildSystemPrompt(baseArgs);
+      expect(result).toContain('- Skill(skill, args?): invoke a specialized skill');
+    });
   });
 });

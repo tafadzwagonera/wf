@@ -252,6 +252,7 @@ Available tools:
 - Glob(pattern, path?): find files by glob pattern
 - Grep(pattern, path?, glob?): search file contents by regex
 - Bash(command): run a verification command only if it is on the whitelist
+- Skill(skill, args?): invoke a specialized skill (e.g. plan-quality, executing-plans) when one applies to the current task
 
 Rules:
 - NEVER output free-form text, commentary, or planning at any point during the run. Every response you produce MUST contain at least one tool call. The ONLY exception is the final summary (using the exact template below) which you output after ALL work is done and ALL verification passes. If you feel the urge to describe what you will do next, call a tool instead. Text output without a tool call terminates the run immediately.
