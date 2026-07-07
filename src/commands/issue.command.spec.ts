@@ -175,13 +175,50 @@ describe('IssueCommand', () => {
     expect(metadata.name).toBe('issue');
   });
 
+  it('rejects plan-token + --custom-plan together', async () => {
+    const command = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run(['dark-plan.json'], {
+      customPlan: 'bar.md',
+      from: 'plan',
+      action: 'fix',
+    } as any);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--custom-plan');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('rejects --custom-plan with non-.md extension', async () => {
+    const command = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run([], {
+      customPlan: 'bar.yaml',
+      from: 'plan',
+      action: 'fix',
+    } as any);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('.md');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
   it('stores default artifacts under the cwd namespace in dry-run mode', async () => {
     const command = await buildCommand();
     const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
     jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
     jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
 
-    await command.run(['WBP-1'], {
+    await command.run([], {
+      ticketKey: 'WBP-1',
       from: 'fetch',
       to: 'plan',
       action: 'fix',
@@ -202,7 +239,8 @@ describe('IssueCommand', () => {
     jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
     jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
 
-    await command.run(['WBP-1'], {
+    await command.run([], {
+      ticketKey: 'WBP-1',
       from: 'fetch',
       to: 'plan',
       action: 'fix',

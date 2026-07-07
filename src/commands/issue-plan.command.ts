@@ -9,6 +9,7 @@ import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { getPlanArtifactExtension } from '../shared/utils/plan-artifact';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { resolveCustomSourcePath } from '../shared/utils/custom-source';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import type { ResolutionAction } from '../agents/interfaces';
@@ -35,23 +36,23 @@ import {
 const ISSUE_PLAN_EXAMPLES: CliExample[] = [
   {
     comment: 'Create a custom feature plan from a markdown artifact',
-    command: 'wf issue:plan --action feature --custom bar.md',
+    command: 'wf issue:plan --action feature --custom-plan bar.md',
   },
   {
     comment: 'Prefer the repo-scoped custom artifact when a repo is supplied',
-    command: 'wf issue:plan --action feature --custom bar.md --repos repo-a',
+    command: 'wf issue:plan --action feature --custom-plan bar.md --repos repo-a',
   },
   {
     comment: 'Plan a fix for a ticket',
-    command: 'wf issue:plan WBP-2971 --action fix',
+    command: 'wf issue:plan -k WBP-2971 --action fix',
   },
   {
     comment: 'Plan against a repo so prior plan artifacts feed plan correlation',
-    command: 'wf issue:plan WBP-2971 --action fix --repos repo-a',
+    command: 'wf issue:plan -k WBP-2971 --action fix --repos repo-a',
   },
   {
     comment: 'Force re-fetch before planning',
-    command: 'wf issue:plan WBP-2971 --action fix --force --tracker jira',
+    command: 'wf issue:plan -k WBP-2971 --action fix --force --tracker jira',
   },
 ];
 
@@ -59,7 +60,8 @@ type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 interface IssuePlanOptions {
   action: ResolutionAction;
-  custom?: string;
+  customPlan?: string;
+  ticketKey?: string;
   tracker?: string;
   force?: boolean;
   format?: OutputFormat;
@@ -175,7 +177,7 @@ const extractScriptName = (command: string): string | undefined => {
     'Targeted verification commands are interpreted as repo-root-relative: redundant ' +
     '`cd <repo>` prefixes are normalized away, while commands that change directories ' +
     'outside the selected repository are rejected.',
-  arguments: '[ticket-key]',
+  arguments: '',
 })
 export class IssuePlanCommand extends CommandRunner {
   constructor(
@@ -204,11 +206,11 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-c, --custom <source.md>',
+    flags: '-c, --custom-plan <source.md>',
     description:
-      'Custom markdown source artifact to synthesize into a canonical plan (mutually exclusive with <ticket-key>)',
+      'Custom markdown source artifact to synthesize into a canonical plan (mutually exclusive with --ticket-key)',
   })
-  parseCustom(val: string): string {
+  parseCustomPlan(val: string): string {
     return val;
   }
 
@@ -250,11 +252,27 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--session-id <id>',
+    description: 'Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)',
+  })
+  parseSessionId(val: string): string {
+    return val;
+  }
+
+  @Option({
     flags: '-s, --silent',
     description: 'Suppress decorative output and interactive prompts. Emits only the plan path for piping',
   })
   parseSilent(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '-k, --ticket-key <key>',
+    description: 'Ticket key to fetch and plan (e.g. WBP-2971)',
+  })
+  parseTicketKey(val: string): string {
+    return val;
   }
 
   @Option({
@@ -269,15 +287,8 @@ export class IssuePlanCommand extends CommandRunner {
     return tracker;
   }
 
-  @Option({
-    flags: '--session-id <id>',
-    description: 'Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)',
-  })
-  parseSessionId(val: string): string {
-    return val;
-  }
-
-  async run([ticketKey]: string[], options?: IssuePlanOptions): Promise<void> {
+  async run(_: string[], options?: IssuePlanOptions): Promise<void> {
+    const ticketKey = options?.ticketKey;
     if (!options?.silent) {
       printExamples(ISSUE_PLAN_EXAMPLES);
     }
@@ -285,14 +296,14 @@ export class IssuePlanCommand extends CommandRunner {
     try {
       await ensureWfHome();
 
-      if (ticketKey && options?.custom) {
-        console.error(chalk.red('Error: --custom cannot be used together with <ticket-key>'));
+      if (options?.ticketKey && options?.customPlan) {
+        console.error(chalk.red('Error: --custom-plan cannot be used together with --ticket-key'));
         process.exit(1);
         return;
       }
 
-      if (!ticketKey && !options?.custom) {
-        console.error(chalk.red('Error: Provide a <ticket-key> or use --custom <source.md> for a custom plan'));
+      if (!options?.ticketKey && !options?.customPlan) {
+        console.error(chalk.red('Error: Provide --ticket-key <key> or --custom-plan <source.md> for a custom plan'));
         process.exit(1);
         return;
       }
@@ -305,7 +316,7 @@ export class IssuePlanCommand extends CommandRunner {
         process.exit(1);
       }
 
-      const action = options!.action;
+      const action = options.action;
       const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
       // Output format: CLI flag > per-stage config > hardcoded default
       const format =
@@ -314,17 +325,16 @@ export class IssuePlanCommand extends CommandRunner {
         'json';
       const extension = getPlanArtifactExtension(format);
 
-      // ── CUSTOM MODE ──────────────────────────────────────────────────────
-      if (options?.custom) {
+      if (options?.customPlan) {
         const customArtifactDir = resolveCustomArtifactDir(artifactBaseDir);
-        if (!options.custom.toLowerCase().endsWith('.md')) {
-          console.error(chalk.red('Error: --custom only accepts Markdown (.md) sources'));
+        if (!options.customPlan.toLowerCase().endsWith('.md')) {
+          console.error(chalk.red('Error: --custom-plan only accepts Markdown (.md) sources'));
           process.exit(1);
           return;
         }
 
-        const customSourcePath = this.resolveCustomSourcePath(options.custom, artifactBaseDir, options?.repos);
-        const customSourceStem = path.basename(options.custom, '.md');
+        const customSourcePath = resolveCustomSourcePath(options.customPlan, artifactBaseDir, options?.repos);
+        const customSourceStem = path.basename(options.customPlan, '.md');
         const planFilename = buildPlanArtifactFilename({
           hash: hashPlanArtifactSources([customSourceStem]),
           action,
@@ -470,11 +480,12 @@ export class IssuePlanCommand extends CommandRunner {
         return;
       }
 
-      // ── TICKET-KEY MODE (existing behaviour) ─────────────────────────────
+      // Guard at line 305 ensures ticketKey is defined when customPlan is absent
+      const resolvedTicketKey = ticketKey!;
       // Check for local artifact or fetch
       const trackerDir = resolveArtifactDir(artifactBaseDir, trackerName);
-      const ticketPath = path.join(trackerDir, `${ticketKey}.md`);
-      const planSourceName = ticketKey;
+      const ticketPath = path.join(trackerDir, `${resolvedTicketKey}.md`);
+      const planSourceName = resolvedTicketKey;
       const planPath = path.join(
         trackerDir,
         buildPlanArtifactFilename({
@@ -487,14 +498,14 @@ export class IssuePlanCommand extends CommandRunner {
       const needsFetch = options?.force || !ticketExists;
 
       if (options?.dryRun) {
-        this.dryRunPreview.showHeader('issue:plan', ticketKey);
+        this.dryRunPreview.showHeader('issue:plan', resolvedTicketKey);
 
         if (needsFetch) {
           this.dryRunPreview.previewApiCall({
             method: 'GET',
-            endpoint: `/${trackerName}/issues/${ticketKey}`,
+            endpoint: `/${trackerName}/issues/${resolvedTicketKey}`,
             platform: trackerName,
-            description: `Fetch ticket ${ticketKey} from ${trackerName}`,
+            description: `Fetch ticket ${resolvedTicketKey} from ${trackerName}`,
             estimatedResponse: '200 OK — ticket data returned',
           });
           this.dryRunPreview.previewFileWrite({
@@ -502,7 +513,7 @@ export class IssuePlanCommand extends CommandRunner {
             operation: ticketExists ? 'overwrite' : 'create',
             sizeEstimate: '1–5 KB',
             format: 'markdown',
-            contentPreview: buildTicketMarkdownPreview(ticketKey),
+            contentPreview: buildTicketMarkdownPreview(resolvedTicketKey),
           });
         } else {
           this.dryRunPreview.previewFileRead({
@@ -582,7 +593,7 @@ export class IssuePlanCommand extends CommandRunner {
       }
 
       if (!options?.silent) {
-        this.logger.info(`Planning ticket ${ticketKey} (action: ${action})...`);
+        this.logger.info(`Planning ticket ${resolvedTicketKey} (action: ${action})...`);
       }
 
       let ticketContent: string;
@@ -596,7 +607,7 @@ export class IssuePlanCommand extends CommandRunner {
           }
         }
 
-        const artifact = await this.fetchStageService.fetchArtifact(ticketKey, {
+        const artifact = await this.fetchStageService.fetchArtifact(resolvedTicketKey, {
           trackerName,
           repo: options?.repos?.[0],
           baseDir: artifactBaseDir,
@@ -606,7 +617,7 @@ export class IssuePlanCommand extends CommandRunner {
           this.logger.success(`✓ Ticket saved to: ${artifact.path}`);
         }
       } else {
-        const artifact = this.fetchStageService.loadArtifact(ticketKey, trackerName, artifactBaseDir);
+        const artifact = this.fetchStageService.loadArtifact(resolvedTicketKey, trackerName, artifactBaseDir);
         if (!options?.silent) {
           this.logger.info(`Using local artifact: ${artifact.path}`);
         }
@@ -648,7 +659,7 @@ export class IssuePlanCommand extends CommandRunner {
 
       const { plan } = await this.planStageService.generatePlan(ticketContent, {
         action,
-        ticketKey,
+        ticketKey: resolvedTicketKey,
         affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
         repoDir: artifactBaseDir,
         conventions,
@@ -835,48 +846,6 @@ export class IssuePlanCommand extends CommandRunner {
         }
       }
     }
-  }
-
-  /**
-   * Resolve a custom markdown source using repo-aware local file rules.
-   *
-   * Filename-only sources prefer the targeted repo's `~/.wf/<repo>/` custom
-   * artifact namespace when `--repos` is supplied.
-   *
-   * @param source - Raw `--custom` CLI value
-   * @param baseDir - Repo-aware base directory
-   * @param repos - Optional repo list supplied via `--repos`
-   * @returns Absolute or cwd-relative source path
-   */
-  private resolveCustomSourcePath(source: string, baseDir: string, repos?: string[]): string {
-    if (path.isAbsolute(source)) {
-      return source;
-    }
-
-    if (repos?.length && path.dirname(source) === '.') {
-      const matches = (repos ?? [])
-        .map(repo => path.join(resolveCustomArtifactDir(resolveRepoBasePath(repo)), source))
-        .filter(candidate => fs.existsSync(candidate));
-
-      if (matches.length > 1) {
-        throw new Error(`Custom source "${source}" matches multiple repositories: ${matches.join(', ')}`);
-      }
-
-      if (matches.length === 1) {
-        return matches[0];
-      }
-    }
-
-    const cwdCandidate = path.resolve(source);
-    if (fs.existsSync(cwdCandidate)) {
-      return cwdCandidate;
-    }
-
-    if (path.dirname(source) === '.') {
-      return path.join(resolveCustomArtifactDir(baseDir), source);
-    }
-
-    return path.resolve(artifactBasePathForSourceFallback(repos), source);
   }
 
   /**
@@ -1138,5 +1107,3 @@ export class IssuePlanCommand extends CommandRunner {
     }
   }
 }
-
-const artifactBasePathForSourceFallback = (repos?: string[]): string => resolveRepoBasePath(repos?.[0]);

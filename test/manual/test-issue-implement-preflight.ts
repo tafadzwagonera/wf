@@ -79,7 +79,7 @@ async function main() {
     const exitCapture = captureExit();
     const errCapture = captureConsoleError();
     // WBP-9999 will not exist in .wf/ of the current working directory
-    await command.run(['WBP-9999'], {});
+    await command.run([], { ticketKey: 'WBP-9999' });
     const exitCode = exitCapture.restore();
     const errorOutput = errCapture.restore();
 
@@ -110,7 +110,7 @@ async function main() {
 
     const exitCapture = captureExit();
     const errCapture = captureConsoleError();
-    await command.run(['WBP-1001'], {});
+    await command.run([], { ticketKey: 'WBP-1001' });
     const exitCode = exitCapture.restore();
     const errorOutput = errCapture.restore();
     (process as any).cwd = origCwd;

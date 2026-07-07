@@ -167,7 +167,8 @@ async function main() {
     process.env.HOME = homeDir;
     try {
       const output = await captureStdout(() =>
-        command.run(['TEST-5'], {
+        command.run([], {
+          ticketKey: 'TEST-5',
           from: 'fetch',
           to: 'fetch',
           repos: ['test-repo'],
@@ -198,7 +199,8 @@ async function main() {
     process.env.HOME = homeDir;
     try {
       const output = await captureStdout(() =>
-        command.run(['TEST-6'], {
+        command.run([], {
+          ticketKey: 'TEST-6',
           from: 'fetch',
           to: 'fetch',
           repos: ['test-repo'],

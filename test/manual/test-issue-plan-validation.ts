@@ -251,7 +251,8 @@ const main = async (): Promise<void> => {
     } as never);
 
     const { artifactWriteCallCount, manifestWriteCallCount } = await captureArtifactWrites(() =>
-      command.run(['PLAN-1'], {
+      command.run([], {
+        ticketKey: 'PLAN-1',
         action: 'fix',
         repos: [repoName],
       })
@@ -292,7 +293,8 @@ const main = async (): Promise<void> => {
 
     const { output, exitCodes } = await captureCommandOutput(async () => {
       const { artifactWriteCallCount, manifestWriteCallCount } = await captureArtifactWrites(() =>
-        command.run(['PLAN-2'], {
+        command.run([], {
+          ticketKey: 'PLAN-2',
           action: 'fix',
           repos: [repoName],
         })
@@ -344,7 +346,8 @@ const main = async (): Promise<void> => {
 
     const { output, exitCodes } = await captureCommandOutput(async () => {
       const { artifactWriteCallCount, manifestWriteCallCount } = await captureArtifactWrites(() =>
-        command.run(['PLAN-3'], {
+        command.run([], {
+          ticketKey: 'PLAN-3',
           action: 'fix',
           repos: [repoName],
         })
@@ -435,7 +438,8 @@ const main = async (): Promise<void> => {
     } as never);
 
     try {
-      await command.run(['PLAN-5'], {
+      await command.run([], {
+        ticketKey: 'PLAN-5',
         action: 'fix',
         repos: [repoName],
       });
@@ -465,7 +469,8 @@ const main = async (): Promise<void> => {
     let invalidManifestWriteCallCount = -1;
     const { output, exitCodes } = await captureCommandOutput(async () => {
       const writes = await captureArtifactWrites(() =>
-        command.run(['PLAN-5'], {
+        command.run([], {
+          ticketKey: 'PLAN-5',
           action: 'fix',
           repos: [repoName],
         })

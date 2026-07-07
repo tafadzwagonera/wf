@@ -190,7 +190,7 @@ describe('IssuePlanCommand', () => {
 
     await command.run([], {
       action: 'fix',
-      custom: 'bar.md',
+      customPlan: 'bar.md',
       dryRun: true,
     });
 
@@ -207,7 +207,7 @@ describe('IssuePlanCommand', () => {
 
     await command.run([], {
       action: 'fix',
-      custom: 'bar.md',
+      customPlan: 'bar.md',
       repos: ['repo-a'],
       dryRun: true,
     });
@@ -220,7 +220,8 @@ describe('IssuePlanCommand', () => {
   });
 
   it('prefers the targeted repo custom namespace over cwd when --repos is provided', async () => {
-    const { command } = await buildCommand();
+    await buildCommand();
+    const { resolveCustomSourcePath } = require('../shared/utils/custom-source');
     const repoName = 'repo-a';
     const sourceName = 'bar.md';
     const cwdCandidate = path.join('/tmp/consumer-app', sourceName);
@@ -230,25 +231,26 @@ describe('IssuePlanCommand', () => {
       return filePath === cwdCandidate || filePath === repoCandidate;
     });
 
-    const resolvedPath = (command as any).resolveCustomSourcePath(sourceName, '/tmp/consumer-app', [repoName]);
+    const resolvedPath = resolveCustomSourcePath(sourceName, '/tmp/consumer-app', [repoName]);
 
     expect(resolvedPath).toBe(repoCandidate);
 
     existsSyncSpy.mockRestore();
   });
 
-  it('rejects ticket-key + --custom together', async () => {
+  it('rejects --ticket-key + --custom-plan together', async () => {
     const { command } = await buildCommand();
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
-    await command.run(['WBP-1'], {
+    await command.run([], {
       action: 'feature',
-      custom: 'bar.md',
+      ticketKey: 'WBP-1',
+      customPlan: 'bar.md',
     } as any);
 
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--custom');
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--custom-plan');
 
     exitSpy.mockRestore();
     consoleErrorSpy.mockRestore();
@@ -261,7 +263,7 @@ describe('IssuePlanCommand', () => {
 
     await command.run([], {
       action: 'feature',
-      custom: 'jira/bar.yaml',
+      customPlan: 'jira/bar.yaml',
     } as any);
 
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -275,8 +277,9 @@ describe('IssuePlanCommand', () => {
     const { command } = await buildCommand();
     const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
-    await command.run(['WBP-1'], {
+    await command.run([], {
       action: 'fix',
+      ticketKey: 'WBP-1',
       repos: ['repo-a'],
       dryRun: true,
     });
@@ -293,8 +296,9 @@ describe('IssuePlanCommand', () => {
     const { command } = await buildCommand();
     const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
-    await command.run(['WBP-1'], {
+    await command.run([], {
       action: 'fix',
+      ticketKey: 'WBP-1',
       repos: ['repo-a'],
       dryRun: true,
     });
@@ -309,8 +313,9 @@ describe('IssuePlanCommand', () => {
     const { command } = await buildCommand();
     const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
-    await command.run(['WBP-1'], {
+    await command.run([], {
       action: 'fix',
+      ticketKey: 'WBP-1',
       repos: ['workspace/repo-a'],
       dryRun: true,
     });
@@ -362,7 +367,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(fetchStageService.fetchArtifact).toHaveBeenCalledWith('WBP-1', {
       trackerName: 'jira',
@@ -434,7 +439,7 @@ describe('IssuePlanCommand', () => {
 
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(planStageService.generatePlan).toHaveBeenCalledWith(
       expect.any(String),
@@ -494,7 +499,7 @@ describe('IssuePlanCommand', () => {
       },
     } as any);
 
-    await command.run([], { action: 'fix', custom: 'bar.md' });
+    await command.run([], { action: 'fix', customPlan: 'bar.md' });
 
     expect(planStageService.generatePlan).toHaveBeenCalledWith(
       '# Custom issue\n\nRestore auth flow',
@@ -534,7 +539,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -570,7 +575,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -606,7 +611,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -642,7 +647,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -687,7 +692,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -722,7 +727,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -764,7 +769,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -810,7 +815,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -859,7 +864,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     const writtenPlan = JSON.parse(String(writeFileSpy.mock.calls[0][1]));
     expect(writtenPlan.verification.targeted).toEqual([
@@ -906,7 +911,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -958,7 +963,7 @@ describe('IssuePlanCommand', () => {
       },
     } as any);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
@@ -1017,7 +1022,7 @@ describe('IssuePlanCommand', () => {
 
     const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     // Validation passed — the plan was written (script exists in package.json)
     expect(writeFileSpy).toHaveBeenCalled();
@@ -1059,7 +1064,7 @@ describe('IssuePlanCommand', () => {
     const unlinkSyncSpy = jest.spyOn(require('fs'), 'unlinkSync').mockImplementation(() => {});
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(unlinkSyncSpy).toHaveBeenCalledWith(
       path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-1-plan-feature.json')
@@ -1088,7 +1093,7 @@ describe('IssuePlanCommand', () => {
     } as any);
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(planStageService.generatePlan).toHaveBeenCalledWith(
       expect.any(String),
@@ -1115,7 +1120,7 @@ describe('IssuePlanCommand', () => {
     } as any);
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run(['WBP-1'], { action: 'fix', repos: ['repo-a'], silent: true });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'], silent: true });
 
     expect(planStageService.generatePlan).toHaveBeenCalledWith(
       expect.any(String),
@@ -1127,15 +1132,58 @@ describe('IssuePlanCommand', () => {
     const { command } = await buildCommand();
     const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
 
-    await command.run([], { action: 'fix', custom: 'foo.md', dryRun: true });
+    await command.run([], { action: 'fix', customPlan: 'foo.md', dryRun: true });
     const firstFilename = path.basename(dryRunPreview.previewFileWrite.mock.calls[0][0].filePath);
 
     dryRunPreview.previewFileWrite.mockClear();
 
-    await command.run([], { action: 'fix', custom: 'foo.md', dryRun: true });
+    await command.run([], { action: 'fix', customPlan: 'foo.md', dryRun: true });
     const secondFilename = path.basename(dryRunPreview.previewFileWrite.mock.calls[0][0].filePath);
 
     expect(firstFilename).toBe(secondFilename);
     expect(firstFilename).toContain(hashPlanArtifactSources(['foo']));
+  });
+
+  it('accepts --ticket-key and passes it through to fetch and plan stages', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-99',
+      content: '# WBP-99\n\nDescription',
+      path: '/tmp/.wf/repo-a/jira/WBP-99.md',
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-99',
+      content: '# WBP-99\n\nDescription',
+      path: '/tmp/.wf/repo-a/jira/WBP-99.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix',
+        summary: 'Fix',
+        estimatedComplexity: 'low',
+        steps: ['Step 1'],
+        affectedFiles: ['repo-a/src/a.ts'],
+        affectedRepositories: ['repo-a'],
+      },
+    } as any);
+    jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run([], { action: 'fix', ticketKey: 'WBP-99', repos: ['repo-a'] });
+
+    expect(fetchStageService.fetchArtifact).toHaveBeenCalledWith('WBP-99', expect.anything());
+  });
+
+  it('rejects empty input when neither --ticket-key nor --custom-plan is provided', async () => {
+    const { command } = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run([], { action: 'fix' });
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--ticket-key');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
   });
 });

@@ -7,7 +7,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { ValidationError } from '../shared/utils/errors';
-import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import {
   buildPlanArtifactFilename,
   buildSyntheticTicketArtifact,
@@ -16,6 +16,7 @@ import {
   resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
   resolvePlanToken,
 } from '../shared/utils/plan-artifact';
+import { resolveCustomSourcePath } from '../shared/utils/custom-source';
 import { parseReposOption } from './utils/repos-option';
 import { ConfigService } from '@nestjs/config';
 import { AiService } from '../integrations/ai/ai.service';
@@ -45,18 +46,22 @@ const VALID_MODEL_ROUTINGS: ModelRouting[] = ['auto', 'default', 'mechanical'];
 const ISSUE_EXAMPLES: CliExample[] = [
   {
     comment: 'Run full workflow from fetch',
-    command: 'wf issue WBP-2971 --from fetch --action fix',
+    command: 'wf issue -k WBP-2971 --from fetch --action fix',
   },
   {
     comment: 'Resume from implement stage',
-    command: 'wf issue WBP-2971 --from implement --action fix --tracker jira',
+    command: 'wf issue -k WBP-2971 --from implement --action fix --tracker jira',
+  },
+  {
+    comment: 'Run the workflow from a custom markdown plan source',
+    command: 'wf issue -c bar.md --from plan --action fix',
   },
   {
     comment: 'Resume from a hashed plan artifact without --action',
     command: 'wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement',
   },
   {
-    comment: 'Resume from a custom plan artifact created with --custom',
+    comment: 'Resume from a pre-generated custom plan artifact (JSON token)',
     command: 'wf issue dark-building-creek-fix-plan.json --from implement',
   },
 ];
@@ -83,6 +88,8 @@ interface IssueOptions {
   action?: string;
   branch?: boolean;
   branchNamePattern?: string;
+  customPlan?: string;
+  ticketKey?: string;
   tracker?: string;
   silent?: boolean;
   force?: boolean;
@@ -99,8 +106,8 @@ interface IssueOptions {
   description:
     'Complete workflow: fetch, plan, implement, review, and commit. Use --from and --to to control stage range. ' +
     'Pass --repos to specify repositories: the first repo anchors artifact storage; all repos are available as ' +
-    'cross-repo read context during implementation (writes stay scoped to the primary repo). Resuming from `--from implement` can accept a ticket key, a hashed plan token, or a hashed plan filename; if `--action` is provided, it is validated against the resolved artifact.',
-  arguments: '<ticket-key-or-plan-token>',
+    'cross-repo read context during implementation (writes stay scoped to the primary repo). Resuming from `--from implement` can accept a hashed plan token or a hashed plan filename; if `--action` is provided, it is validated against the resolved artifact.',
+  arguments: '[plan-token]',
   options: { isDefault: false },
 })
 export class IssueCommand extends CommandRunner {
@@ -131,6 +138,14 @@ export class IssueCommand extends CommandRunner {
     description: 'Override branch name validation pattern from git.branchNamePattern config',
   })
   parseBranchNamePattern(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '-c, --custom-plan <source.md>',
+    description: 'Path to a custom markdown plan source; skips the fetch stage',
+  })
+  parseCustomPlan(val: string): string {
     return val;
   }
 
@@ -201,11 +216,27 @@ export class IssueCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--session-id <id>',
+    description: 'Resume a wf session by UUID (persisted to ~/.wf/state/sessions/); omit to auto-generate a new one',
+  })
+  parseSessionId(val: string): string {
+    return val;
+  }
+
+  @Option({
     flags: '-s, --silent',
     description: 'Suppress decorative output and interactive prompts. Emits only artifact paths (per stage) for piping',
   })
   parseSilent(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '-k, --ticket-key <key>',
+    description: 'Ticket key to run the full workflow for (e.g. WBP-2971)',
+  })
+  parseTicketKey(val: string): string {
+    return val;
   }
 
   @Option({
@@ -221,14 +252,6 @@ export class IssueCommand extends CommandRunner {
     description: 'Tracker to use (jira|github|bitbucket)',
   })
   parseTracker(val: string): string {
-    return val;
-  }
-
-  @Option({
-    flags: '--session-id <id>',
-    description: 'Resume a wf session by UUID (persisted to ~/.wf/state/sessions/); omit to auto-generate a new one',
-  })
-  parseSessionId(val: string): string {
     return val;
   }
 
@@ -256,31 +279,47 @@ export class IssueCommand extends CommandRunner {
       printExamples(ISSUE_EXAMPLES);
     }
 
-    let ticketKey = passedParams[0];
+    const planToken = passedParams[0];
+    let ticketKey = options?.ticketKey ?? planToken;
 
-    if (!ticketKey) {
-      console.error(chalk.red('Error: Ticket key is required'));
-      console.log(chalk.gray('Usage: wf issue <ticket-key> --from <stage> [--to <stage>] [options]'));
-      console.log(chalk.gray('Example: wf issue WBP-2971 --from fetch --to review --action fix\n'));
+    if (options?.ticketKey && options?.customPlan) {
+      console.error(chalk.red('Error: provide either --ticket-key or --custom-plan, not both'));
+      process.exit(1);
+    }
+
+    if (planToken && options?.customPlan) {
+      console.error(chalk.red('Error: provide either a plan token or --custom-plan, not both'));
+      process.exit(1);
+    }
+
+    if (!options?.ticketKey && !options?.customPlan && !planToken) {
+      console.error(chalk.red('Error: Provide --ticket-key <key>, --custom-plan <source.md>, or a plan token'));
+      console.log(chalk.gray('Usage: wf issue [plan-token] --from <stage> [--to <stage>] [options]'));
+      console.log(chalk.gray('Example: wf issue -k WBP-2971 --from fetch --to review --action fix\n'));
       process.exit(1);
     }
 
     if (!options?.from) {
       console.error(chalk.red('Error: --from option is required'));
-      console.log(chalk.gray('Usage: wf issue <ticket-key> --from <stage> [--to <stage>] [options]'));
+      console.log(chalk.gray('Usage: wf issue [plan-token] --from <stage> [--to <stage>] [options]'));
       console.log(chalk.gray('Stages: fetch|plan|implement|review|commit'));
-      console.log(chalk.gray('Example: wf issue WBP-2971 --from fetch --to review --action fix\n'));
+      console.log(chalk.gray('Example: wf issue -k WBP-2971 --from fetch --to review --action fix\n'));
       process.exit(1);
     }
 
     try {
       const skipExisting = !options?.force;
 
-      const fromStage = this.parseStage(options.from);
+      let fromStage = this.parseStage(options.from);
       const toStage = options.to ? this.parseStage(options.to) : WorkflowStage.COMMIT;
       const trackerName = options?.tracker || this.configService.get<string>('tracker') || 'jira';
       const repoBaseDir = resolveRepoBasePath(options.repos?.[0]);
       const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
+
+      if (options?.customPlan && fromStage === WorkflowStage.FETCH) {
+        console.log(chalk.yellow('⚠️  Custom plans skip the fetch stage; starting from plan.'));
+        fromStage = WorkflowStage.PLAN;
+      }
 
       const fromIndex = STAGE_ORDER.indexOf(fromStage);
       const toIndex = STAGE_ORDER.indexOf(toStage);
@@ -293,11 +332,24 @@ export class IssueCommand extends CommandRunner {
 
       const stagesToRun = this.getStagesToRun(fromStage, toStage);
 
+      let customSourcePath: string | undefined;
+      if (options?.customPlan) {
+        if (!options.customPlan.toLowerCase().endsWith('.md')) {
+          console.error(chalk.red('Error: --custom-plan only accepts Markdown (.md) sources'));
+          process.exit(1);
+        }
+        customSourcePath = resolveCustomSourcePath(options.customPlan, repoBaseDir, options?.repos);
+        ticketKey = path.basename(options.customPlan, '.md');
+      }
+
       let planTokenResolution: PlanTokenResolution | undefined;
       if (
+        planToken &&
+        !options?.ticketKey &&
+        !options?.customPlan &&
         stagesToRun.some(stage => [WorkflowStage.IMPLEMENT, WorkflowStage.REVIEW, WorkflowStage.COMMIT].includes(stage))
       ) {
-        planTokenResolution = resolvePlanToken(ticketKey, trackerDir, repoBaseDir);
+        planTokenResolution = resolvePlanToken(planToken, trackerDir, repoBaseDir);
         if (planTokenResolution?.kind === 'ticket') {
           ticketKey = planTokenResolution.ticketKey;
         }
@@ -695,7 +747,14 @@ export class IssueCommand extends CommandRunner {
         }
       }
 
-      if (!planArtifact && stagesToRun.includes(WorkflowStage.FETCH)) {
+      if (!planArtifact && customSourcePath) {
+        const customArtifactDir = resolveCustomArtifactDir(repoBaseDir);
+        ticketArtifact = {
+          ticketKey,
+          content: fs.readFileSync(customSourcePath, 'utf-8'),
+          path: path.join(customArtifactDir, `${ticketKey}.md`),
+        };
+      } else if (!planArtifact && stagesToRun.includes(WorkflowStage.FETCH)) {
         ticketArtifact = await this.agents.fetcher.execute(ticketKey, {
           trackerName,
           repo: options?.repos?.[0],

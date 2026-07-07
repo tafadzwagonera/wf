@@ -143,7 +143,8 @@ async function testIssueAffectedRepos() {
     process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
-        command.run(['TEST-1'], {
+        command.run([], {
+          ticketKey: 'TEST-1',
           from: 'implement',
           to: 'implement',
           action: 'fix',
@@ -176,7 +177,8 @@ async function testIssueAffectedRepos() {
     process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
-        command.run(['TEST-2'], {
+        command.run([], {
+          ticketKey: 'TEST-2',
           from: 'implement',
           to: 'implement',
           action: 'fix',
@@ -213,7 +215,8 @@ async function testIssueAffectedRepos() {
     process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
-        command.run(['TEST-3'], {
+        command.run([], {
+          ticketKey: 'TEST-3',
           from: 'implement',
           to: 'implement',
           action: 'fix',
@@ -243,7 +246,8 @@ async function testIssueAffectedRepos() {
     process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
-        command.run(['TEST-4'], {
+        command.run([], {
+          ticketKey: 'TEST-4',
           from: 'implement',
           to: 'implement',
           action: 'fix',
@@ -276,7 +280,8 @@ async function testIssueAffectedRepos() {
     process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
-        command.run(['TEST-5'], {
+        command.run([], {
+          ticketKey: 'TEST-5',
           from: 'review',
           to: 'review',
           action: 'fix',
@@ -308,7 +313,8 @@ async function testIssueAffectedRepos() {
     process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
-        command.run(['TEST-6'], {
+        command.run([], {
+          ticketKey: 'TEST-6',
           from: 'implement',
           to: 'implement',
           action: 'fix',
@@ -341,7 +347,8 @@ async function testIssueAffectedRepos() {
     process.env.HOME = homeDir;
     try {
       const { output } = await captureOutput(() =>
-        command.run(['TEST-7'], {
+        command.run([], {
+          ticketKey: 'TEST-7',
           from: 'implement',
           to: 'implement',
           action: 'fix',

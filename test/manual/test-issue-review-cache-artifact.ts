@@ -124,14 +124,15 @@ async function run(): Promise<void> {
   };
 
   try {
-    await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+    await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
     if (!capturedLogs.includes(`  Review artifact exists: ${mockCachedReviewPath}`)) {
       throw new Error('Expected cache-hit notice to be logged for a ticket review.');
     }
 
     capturedLogs = [];
-    await command.run(['TAD-575'], {
+    await command.run([], {
+      ticketKey: 'TAD-575',
       repos: ['service-tourv3'],
       output: 'review.txt',
       silent: true,

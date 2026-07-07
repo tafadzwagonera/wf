@@ -53,7 +53,7 @@ async function main() {
   // First run: capture the previewed write path
   const capture1 = captureConsoleLog();
   try {
-    await command.run([], { action: 'fix', custom: 'smoke-test-source.md', dryRun: true });
+    await command.run([], { action: 'fix', customPlan: 'smoke-test-source.md', dryRun: true });
   } catch {
     // dry-run may throw — that's fine
   }
@@ -63,7 +63,7 @@ async function main() {
   // Second run: capture again
   const capture2 = captureConsoleLog();
   try {
-    await command.run([], { action: 'fix', custom: 'smoke-test-source.md', dryRun: true });
+    await command.run([], { action: 'fix', customPlan: 'smoke-test-source.md', dryRun: true });
   } catch {
     // dry-run may throw — that's fine
   }

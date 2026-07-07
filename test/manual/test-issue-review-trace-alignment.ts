@@ -168,8 +168,8 @@ async function run(): Promise<void> {
   };
 
   setNonInteractiveSession();
-  await command.run(['TAD-575'], {});
-  await command.run(['TAD-575'], { repos: [repoName] });
+  await command.run([], { ticketKey: 'TAD-575' });
+  await command.run([], { ticketKey: 'TAD-575', repos: [repoName] });
 
   console.log = originalConsoleLog;
 

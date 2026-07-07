@@ -15,7 +15,6 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import { isAIErrorLike } from '../shared/utils/errors';
 import {
   buildSyntheticTicketArtifact,
-  isTicketKey,
   parsePlanArtifact,
   buildPlanArtifactResolutionNotice,
   resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
@@ -51,6 +50,7 @@ interface IssueImplementOptions {
   noBranch?: boolean;
   repos?: string[];
   silent?: boolean;
+  ticketKey?: string;
   tracker?: string;
   sessionId?: string;
 }
@@ -70,11 +70,11 @@ interface IssueImplementOptions {
     'When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. ' +
     'Before implementation, the command runs an interactive branch creation workflow: checks the working tree for uncommitted changes (offering to stash, continue without stashing, or abort), detects and pulls the source branch (dev or main), then prompts for branch name confirmation. ' +
     'Use --silent to auto-stash without prompting; branch selection and naming still prompt when a TTY is available. Use --no-branch to skip branch creation and work directly on the current branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. ' +
-    'Examples: wf issue:implement PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | ' +
-    'wf issue:implement PROJ-123 --repos my-repo | ' +
-    'wf issue:implement PROJ-123 --silent | wf issue:implement PROJ-123 --no-branch | ' +
-    'wf issue:implement PROJ-123 --dry-run',
-  arguments: '[ticket-key-or-plan-token]',
+    'Examples: wf issue:implement -k PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | ' +
+    'wf issue:implement -k PROJ-123 --repos my-repo | ' +
+    'wf issue:implement -k PROJ-123 --silent | wf issue:implement -k PROJ-123 --no-branch | ' +
+    'wf issue:implement -k PROJ-123 --dry-run',
+  arguments: '[plan-token]',
 })
 export class IssueImplementCommand extends CommandRunner {
   constructor(
@@ -137,11 +137,27 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--session-id <id>',
+    description: 'Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)',
+  })
+  parseSessionId(val: string): string {
+    return val;
+  }
+
+  @Option({
     flags: '-s, --silent',
     description: 'Auto-stash without prompting; branch selection and naming still prompt when a TTY is available',
   })
   parseSilent(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '-k, --ticket-key <key>',
+    description: 'Ticket key to implement (e.g. WBP-2971)',
+  })
+  parseTicketKey(val: string): string {
+    return val;
   }
 
   @Option({
@@ -154,14 +170,6 @@ export class IssueImplementCommand extends CommandRunner {
       throw new Error(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
     }
     return tracker;
-  }
-
-  @Option({
-    flags: '--session-id <id>',
-    description: 'Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)',
-  })
-  parseSessionId(val: string): string {
-    return val;
   }
 
   async run([identifier]: string[], options?: IssueImplementOptions): Promise<void> {
@@ -188,13 +196,21 @@ export class IssueImplementCommand extends CommandRunner {
       // Guard: ticketKey + Bitbucket requires --repos
       const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
 
-      if (identifier && isTicketKey(identifier) && trackerName === 'bitbucket' && !options?.repos?.length) {
+      if (options?.ticketKey && trackerName === 'bitbucket' && !options?.repos?.length) {
         console.error(chalk.red('Error: --repos is required for Bitbucket ticket fetching'));
         process.exit(1);
       }
 
-      if (!identifier) {
-        console.error(chalk.red('Error: Provide a <ticket-key> or a custom plan artifact filename'));
+      if (!options?.ticketKey && !identifier) {
+        console.error(chalk.red('Error: Provide --ticket-key <key> or a custom plan artifact filename'));
+        process.exit(1);
+        return;
+      }
+
+      if (identifier && /^[A-Z]+-\d+$/i.test(identifier) && !options?.ticketKey) {
+        console.error(
+          chalk.red(`Ticket keys must now be passed via -k/--ticket-key. Use: wf issue:implement -k ${identifier}`)
+        );
         process.exit(1);
         return;
       }
@@ -205,7 +221,7 @@ export class IssueImplementCommand extends CommandRunner {
       const baseDir = resolveRepoBasePath(options?.repos?.[0]);
       const trackerDir = resolveArtifactDir(baseDir, trackerName);
       const customArtifactDir = resolveCustomArtifactDir(baseDir);
-      const ticketKey = isTicketKey(identifier) ? identifier : undefined;
+      const ticketKey = options?.ticketKey;
       let resolvedPlanReference: PlanArtifactReference | null = null;
       let plan: ResolutionPlan | undefined;
 
@@ -482,12 +498,12 @@ Return ONLY a valid JSON object:
         console.error(chalk.red(`Error: No plan artifact found for ${resolvedTicketKey}.`));
         console.error(
           chalk.yellow(
-            `Run:   wf issue:plan ${resolvedTicketKey} --action <feature|fix|investigate>${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`
+            `Run:   wf issue:plan -k ${resolvedTicketKey} --action <feature|fix|investigate>${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`
           )
         );
         console.error(
           chalk.yellow(
-            `Then:  wf issue:implement ${resolvedTicketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`
+            `Then:  wf issue:implement -k ${resolvedTicketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`
           )
         );
         process.exit(1);
@@ -732,7 +748,7 @@ Return ONLY a valid JSON object:
     customArtifactDir: string,
     baseDir: string
   ): PlanArtifactReference | null {
-    const candidateDirs = isTicketKey(identifier) ? [trackerDir] : [trackerDir, customArtifactDir];
+    const candidateDirs = [trackerDir, customArtifactDir];
 
     for (const artifactDir of candidateDirs) {
       try {
@@ -742,7 +758,7 @@ Return ONLY a valid JSON object:
       }
     }
 
-    if (!isTicketKey(identifier)) {
+    if (!/^[A-Z]+-\d+$/i.test(identifier)) {
       const directPlanPath = this.resolveCustomPlanPath(identifier, baseDir);
       if (fs.existsSync(directPlanPath)) {
         const artifactStem = path.basename(directPlanPath, path.extname(directPlanPath));

@@ -121,7 +121,7 @@ async function run(): Promise<void> {
     capturedLogs += `${args.map(String).join(' ')}\n`;
   };
 
-  await command.run(['WBP-3087'], {});
+  await command.run([], { ticketKey: 'WBP-3087' });
 
   console.log = originalConsoleLog;
 

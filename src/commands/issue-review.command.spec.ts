@@ -462,7 +462,7 @@ describe('IssueReviewCommand', () => {
       ]);
       adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 160');
 
-      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
       expect(existsSyncSpy).toHaveBeenCalledWith('/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md');
       expect(readFileSyncSpy).not.toHaveBeenCalled();
@@ -489,7 +489,7 @@ describe('IssueReviewCommand', () => {
       adapters.jiraAdapter.getTicket.mockRejectedValue(new Error('ticket lookup should be skipped'));
       const handleSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
 
-      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
       expect(adapters.jiraAdapter.getTicket).not.toHaveBeenCalled();
       expect(reviewStageService.reviewDiff).not.toHaveBeenCalled();
@@ -512,7 +512,7 @@ describe('IssueReviewCommand', () => {
       ]);
       adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 160');
 
-      await command.run(['TAD-575'], { repos: ['service-tourv3'], force: true });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'], force: true });
 
       expect(loggerInfoSpy).toHaveBeenCalledWith('Forcing recreation of review artifact...');
       expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
@@ -535,7 +535,7 @@ describe('IssueReviewCommand', () => {
         url.includes('/160') ? 'diff 160' : 'diff 161'
       );
 
-      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
       expect(reviewRepoSetSpy).not.toHaveBeenCalled();
       expect(reviewStageService.reviewDiff).toHaveBeenNthCalledWith(
@@ -562,7 +562,7 @@ describe('IssueReviewCommand', () => {
       adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       setNonInteractiveSession();
 
-      await command.run(['TAD-575'], {});
+      await command.run([], { ticketKey: 'TAD-575' });
 
       expect(adapters.bitbucketAdapter.findPullRequestsByTicketKey).toHaveBeenCalledWith(
         'TAD-575',
@@ -584,7 +584,7 @@ describe('IssueReviewCommand', () => {
       ]);
       adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 43');
 
-      await command.run(['TAD-575'], { repos: ['api-gateway-v1'] });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['api-gateway-v1'] });
 
       expect(resolveRepoBasePathMock).not.toHaveBeenCalledWith('api-gateway-v1');
     });
@@ -595,7 +595,7 @@ describe('IssueReviewCommand', () => {
 
       adapters.jiraAdapter.getTicket.mockRejectedValue(new Error('boom'));
 
-      await command.run(['TAD-575'], {});
+      await command.run([], { ticketKey: 'TAD-575' });
 
       expect(handleSpy).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom' }));
     });
@@ -610,7 +610,7 @@ describe('IssueReviewCommand', () => {
       promptMock.mockResolvedValue({ decision: 'local' } as any);
       setInteractiveSession();
 
-      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
       expect(promptMock).toHaveBeenCalled();
       expect(reviewRepoSetSpy).toHaveBeenCalled();
@@ -636,7 +636,7 @@ describe('IssueReviewCommand', () => {
       adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       setInteractiveSession();
 
-      await command.run(['TAD-575'], { repos: ['api-gateway-v1'] });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['api-gateway-v1'] });
 
       expect(handleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -665,7 +665,7 @@ describe('IssueReviewCommand', () => {
       );
       setInteractiveSession();
 
-      await command.run(['TAD-575'], {});
+      await command.run([], { ticketKey: 'TAD-575' });
 
       expect(handleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -687,7 +687,7 @@ describe('IssueReviewCommand', () => {
       promptMock.mockResolvedValue({ decision: 'local' } as any);
       setInteractiveSession();
 
-      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
       expect(reviewRepoSetSpy).toHaveBeenCalled();
       expect(adapters.githubAdapter.findPullRequestsByTicketKey).toHaveBeenCalled();
@@ -710,7 +710,7 @@ describe('IssueReviewCommand', () => {
       promptMock.mockResolvedValue({ decision: 'return' } as any);
       setInteractiveSession();
 
-      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
       expect(promptMock).toHaveBeenCalled();
       expect(reviewRepoSetSpy).not.toHaveBeenCalled();
@@ -727,7 +727,7 @@ describe('IssueReviewCommand', () => {
       adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       setNonInteractiveSession();
 
-      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
       expect(consoleLogSpy).toHaveBeenCalledWith('⚠️ Non-interactive session; returning without local review');
       expect(promptMock).not.toHaveBeenCalled();
@@ -746,7 +746,8 @@ describe('IssueReviewCommand', () => {
         url.includes('/160') ? 'diff 160' : 'diff 161'
       );
 
-      await command.run(['TAD-575'], {
+      await command.run([], {
+        ticketKey: 'TAD-575',
         repos: ['service-tourv3'],
         comment: true,
       });
@@ -774,7 +775,7 @@ describe('IssueReviewCommand', () => {
       ]);
       adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 160');
 
-      await command.run(['TAD-575'], { repos: ['service-tourv3'] });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
       expect(mkdirSyncSpy).toHaveBeenCalledWith('/Users/tafadzwagonera/.wf/wf/jira', { recursive: true });
       expect(writeFileSyncSpy).toHaveBeenCalledWith(
@@ -821,7 +822,7 @@ describe('IssueReviewCommand', () => {
       });
       jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048 } as any);
 
-      await command.run(['TAD-575'], { dryRun: true, repos: ['service-tourv3'] });
+      await command.run([], { ticketKey: 'TAD-575', dryRun: true, repos: ['service-tourv3'] });
 
       expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith({
         filePath: '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md',
@@ -849,7 +850,7 @@ describe('IssueReviewCommand', () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
       adapters.jiraAdapter.getTicket.mockRejectedValue(new Error('ticket lookup should be skipped'));
 
-      await command.run(['TAD-575'], { repos: ['service-tourv3'], output: 'review.txt', silent: true });
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'], output: 'review.txt', silent: true });
 
       expect(consoleLogSpy).toHaveBeenCalledTimes(1);
       expect(consoleLogSpy).toHaveBeenCalledWith('/Users/tafadzwagonera/.wf/wf/review.txt');

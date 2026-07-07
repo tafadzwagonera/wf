@@ -32,6 +32,7 @@ interface IssueReviewOptions {
   output?: string;
   dryRun?: boolean;
   comment?: boolean;
+  ticketKey?: string;
   tracker?: string;
   repos?: string[];
   criteria?: string;
@@ -76,19 +77,19 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   },
   {
     comment: 'Review a ticket and associated pull requests from credentialed adapters using a remote repo hint',
-    command: 'yarn start issue:review WBP-3057 -r service-bookingv3',
+    command: 'yarn start issue:review --ticket-key WBP-3057 -r service-bookingv3',
   },
   {
     comment: 'Review a ticket and its associated pull requests across credentialed repos',
-    command: 'wf issue:review WBP-2971 --tracker jira --repos service-tourv3',
+    command: 'wf issue:review --ticket-key WBP-2971 --tracker jira --repos service-tourv3',
   },
   {
     comment: 'Force re-review a ticket, ignoring cached artifacts',
-    command: 'wf issue:review WBP-2971 --force --tracker jira -r service-bookingv3',
+    command: 'wf issue:review --ticket-key WBP-2971 --force --tracker jira -r service-bookingv3',
   },
   {
     comment: 'Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd',
-    command: 'yarn start issue:review CTRL-280 -r api-gateway-v1',
+    command: 'yarn start issue:review --ticket-key CTRL-280 -r api-gateway-v1',
   },
   {
     comment: 'Review a pull request and post review comments with diff-aligned inline anchors',
@@ -97,7 +98,7 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   {
     comment:
       'Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail',
-    command: 'wf issue:review WBP-2971 --session-id review-session-42 -r service-bookingv3',
+    command: 'wf issue:review --ticket-key WBP-2971 --session-id review-session-42 -r service-bookingv3',
   },
 ];
 
@@ -140,7 +141,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
   name: 'issue:review',
   description:
     'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
-  arguments: '[source]',
+  arguments: '[pr-url]',
   options: { isDefault: false },
 })
 export class IssueReviewCommand extends CommandRunner {
@@ -165,6 +166,16 @@ export class IssueReviewCommand extends CommandRunner {
     const source = passedParams[0];
     const repoInputs = options?.repos?.length ? options.repos : [];
 
+    if (source && options?.ticketKey) {
+      console.error(chalk.red('Error: provide either a PR URL or --ticket-key, not both'));
+      process.exit(1);
+    }
+
+    if (source && !source.startsWith('http://') && !source.startsWith('https://')) {
+      console.error(chalk.red('Invalid source. Expected a PR URL. For ticket reviews, use --ticket-key <key>.'));
+      process.exit(1);
+    }
+
     try {
       await ensureWfHome();
 
@@ -186,21 +197,19 @@ export class IssueReviewCommand extends CommandRunner {
           options?.format ??
           (this.configService.get<string>('stages.review.outputFormat') as OutputFormat | undefined) ??
           'md';
-        const ticketAdapter =
-          source && this.isTicketKey(source)
-            ? options?.tracker
-              ? this.issueTrackerService.getAdapter(options.tracker)
-              : this.issueTrackerService.getDefaultAdapter()
-            : null;
-        const reviewPath =
-          source && ticketAdapter
-            ? this.resolveTicketReviewArtifactPath(source, repoInputs, ticketAdapter.getTrackerName())
-            : undefined;
+        const ticketAdapter = options?.ticketKey
+          ? options?.tracker
+            ? this.issueTrackerService.getAdapter(options.tracker)
+            : this.issueTrackerService.getDefaultAdapter()
+          : null;
+        const reviewPath = ticketAdapter
+          ? this.resolveTicketReviewArtifactPath(options.ticketKey!, repoInputs, ticketAdapter.getTrackerName())
+          : undefined;
         const reviewArtifactExists = reviewPath ? fs.existsSync(reviewPath) : false;
 
-        if (!source) {
+        if (!source && !options?.ticketKey) {
           console.log(chalk.gray(`   Repository: ${this.formatRepoScope(repoDirs)}\n`));
-        } else if (this.isTicketKey(source)) {
+        } else if (options?.ticketKey) {
           if (!options?.force && reviewPath && reviewArtifactExists) {
             this.dryRunPreview.previewFileRead({
               filePath: reviewPath,
@@ -213,7 +222,7 @@ export class IssueReviewCommand extends CommandRunner {
           if (options?.force || !reviewPath || !reviewArtifactExists) {
             this.dryRunPreview.previewApiCall({
               method: 'GET',
-              endpoint: `/rest/api/3/issue/${source}`,
+              endpoint: `/rest/api/3/issue/${options.ticketKey}`,
               platform: 'Jira',
               description: 'Fetch ticket details for review context',
               estimatedResponse: '200 OK — ticket title and description',
@@ -226,7 +235,7 @@ export class IssueReviewCommand extends CommandRunner {
               estimatedResponse: '200 OK — 0..n pull request URLs',
             });
           }
-        } else if (this.isUrl(source)) {
+        } else if (source && this.isUrl(source)) {
           this.dryRunPreview.previewApiCall({
             method: 'GET',
             endpoint: source,
@@ -234,17 +243,9 @@ export class IssueReviewCommand extends CommandRunner {
             description: 'Fetch pull request diff',
             estimatedResponse: '200 OK — diff content',
           });
-        } else {
-          throw new Error(`Invalid source: ${source}. Expected: ticket key (ABC-123) or PR URL.`);
         }
 
-        const shouldPreviewAiReview =
-          !source ||
-          this.isUrl(source) ||
-          !this.isTicketKey(source) ||
-          options?.force ||
-          !reviewPath ||
-          !reviewArtifactExists;
+        const shouldPreviewAiReview = !options?.ticketKey || options?.force || !reviewPath || !reviewArtifactExists;
 
         if (shouldPreviewAiReview) {
           this.dryRunPreview.previewApiCall({
@@ -287,7 +288,7 @@ export class IssueReviewCommand extends CommandRunner {
         }
 
         let fileCreatedCount = 0;
-        if (source && this.isTicketKey(source) && reviewPath && shouldPreviewAiReview) {
+        if (!!options?.ticketKey && reviewPath && shouldPreviewAiReview) {
           this.dryRunPreview.previewFileWrite({
             filePath: reviewPath,
             operation: reviewArtifactExists ? 'overwrite' : 'create',
@@ -301,7 +302,10 @@ export class IssueReviewCommand extends CommandRunner {
         }
 
         if (options?.output) {
-          const outputPath = this.resolveOutputPath(options.output, this.resolveOutputBaseDir(source, repoInputs));
+          const outputPath = this.resolveOutputPath(
+            options.output,
+            this.resolveOutputBaseDir(!!options?.ticketKey, repoInputs)
+          );
           this.dryRunPreview.previewFileWrite({
             filePath: outputPath,
             operation: 'create',
@@ -339,10 +343,10 @@ export class IssueReviewCommand extends CommandRunner {
           fileCreatedCount++;
         }
 
-        const isTicketKey = source && this.isTicketKey(source);
+        const isTicketKeyMode = !!options?.ticketKey;
         const isPrUrl = source && this.isUrl(source);
         this.dryRunPreview.showSummary({
-          apiCallCount: shouldPreviewAiReview ? (isTicketKey ? 2 : isPrUrl ? 2 : 1) + (willPostComment ? 1 : 0) : 0,
+          apiCallCount: shouldPreviewAiReview ? (isTicketKeyMode ? 2 : isPrUrl ? 2 : 1) + (willPostComment ? 1 : 0) : 0,
           fileCreatedCount,
           fileModifiedCount: 0,
           gitOperationCount: 0,
@@ -368,7 +372,7 @@ export class IssueReviewCommand extends CommandRunner {
       const reviewTargets: ReviewTarget[] = [];
       let reviewPath: string | undefined;
 
-      if (!source) {
+      if (!source && !options?.ticketKey) {
         const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
         // Mode 1: No argument - review current repo changes
         if (!options?.silent) {
@@ -381,7 +385,7 @@ export class IssueReviewCommand extends CommandRunner {
           diff,
           context: this.buildRepoContext(repoDirs, 'current repository changes'),
         });
-      } else if (this.isUrl(source)) {
+      } else if (source && this.isUrl(source)) {
         // Mode 2: PR URL - review GitHub/BitBucket PR
         if (!options?.silent) {
           console.log(chalk.bold.cyan(`\n🔍 Reviewing Pull Request\n`));
@@ -395,17 +399,21 @@ export class IssueReviewCommand extends CommandRunner {
           adapterName: this.resolveAdapterNameForPullRequestUrl(source),
           commentRef: source,
         });
-      } else if (this.isTicketKey(source)) {
+      } else if (options?.ticketKey) {
         // Mode 3: Ticket key - fetch ticket context, then review associated PRs or local changes
         if (!options?.silent) {
-          console.log(chalk.bold.cyan(`\n🔍 Reviewing Changes for Ticket: ${source}\n`));
+          console.log(chalk.bold.cyan(`\n🔍 Reviewing Changes for Ticket: ${options.ticketKey}\n`));
         }
 
         const ticketAdapter = options?.tracker
           ? this.issueTrackerService.getAdapter(options.tracker)
           : this.issueTrackerService.getDefaultAdapter();
 
-        reviewPath = this.resolveTicketReviewArtifactPath(source, repoInputs, ticketAdapter.getTrackerName());
+        reviewPath = this.resolveTicketReviewArtifactPath(
+          options.ticketKey,
+          repoInputs,
+          ticketAdapter.getTrackerName()
+        );
         const reviewArtifactExists = fs.existsSync(reviewPath);
         if (!options?.force && reviewArtifactExists) {
           if (!options?.silent) {
@@ -414,7 +422,10 @@ export class IssueReviewCommand extends CommandRunner {
           }
 
           if (options?.output) {
-            const outputPath = this.resolveOutputPath(options.output, this.resolveOutputBaseDir(source, repoInputs));
+            const outputPath = this.resolveOutputPath(
+              options.output,
+              this.resolveOutputBaseDir(!!options?.ticketKey, repoInputs)
+            );
             const cachedReviewOutput = fs.readFileSync(reviewPath, 'utf-8');
             fs.writeFileSync(outputPath, cachedReviewOutput);
             if (options?.silent) {
@@ -436,15 +447,15 @@ export class IssueReviewCommand extends CommandRunner {
         }
 
         if (!options?.silent) {
-          console.log(chalk.gray(`  Fetching ticket ${source} from ${ticketAdapter.getTrackerName()}...\n`));
+          console.log(chalk.gray(`  Fetching ticket ${options.ticketKey} from ${ticketAdapter.getTrackerName()}...\n`));
         }
-        const ticket = await ticketAdapter.getTicket(source);
+        const ticket = await ticketAdapter.getTicket(options.ticketKey);
         if (!ticket) {
-          throw new Error(`Ticket lookup failed for ${source}`);
+          throw new Error(`Ticket lookup failed for ${options.ticketKey}`);
         }
 
         const ticketReviewContext = this.buildTicketContext(ticket);
-        const discoveryResult = await this.discoverTicketPullRequests(source, repoInputs);
+        const discoveryResult = await this.discoverTicketPullRequests(options.ticketKey, repoInputs);
         const discoveredPullRequests = discoveryResult.pullRequests;
 
         if (
@@ -454,13 +465,15 @@ export class IssueReviewCommand extends CommandRunner {
           repoInputs.length === 0
         ) {
           throw new Error(
-            `Pull request discovery for ticket ${source} requires a repository. Pass --repos <repo> so wf can search the correct remote repository instead of guessing from the current directory.`
+            `Pull request discovery for ticket ${options.ticketKey} requires a repository. Pass --repos <repo> so wf can search the correct remote repository instead of guessing from the current directory.`
           );
         }
 
         if (discoveredPullRequests.length > 0) {
           if (!options?.silent) {
-            console.log(chalk.gray(`  Found ${discoveredPullRequests.length} open pull request(s) for ${source}\n`));
+            console.log(
+              chalk.gray(`  Found ${discoveredPullRequests.length} open pull request(s) for ${options.ticketKey}\n`)
+            );
           }
 
           for (const pullRequest of discoveredPullRequests) {
@@ -488,7 +501,7 @@ export class IssueReviewCommand extends CommandRunner {
           }
 
           if (!options?.silent) {
-            console.log(chalk.yellow(`⚠️ No open pull requests were found for ticket ${source}`));
+            console.log(chalk.yellow(`⚠️ No open pull requests were found for ticket ${options.ticketKey}`));
           }
 
           if (!options?.silent) {
@@ -548,7 +561,7 @@ export class IssueReviewCommand extends CommandRunner {
         }
       }
 
-      if (source && this.isTicketKey(source) && reviewPath && reviewedTargets.length > 0) {
+      if (!!options?.ticketKey && reviewPath && reviewedTargets.length > 0) {
         const reviewOutput = this.formatReviewOutput(reviewedTargets, 'md');
         fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
         fs.writeFileSync(reviewPath, reviewOutput);
@@ -585,7 +598,10 @@ export class IssueReviewCommand extends CommandRunner {
           options?.format ??
           (this.configService.get<string>('stages.review.outputFormat') as OutputFormat | undefined) ??
           'md';
-        const outputPath = this.resolveOutputPath(options.output, this.resolveOutputBaseDir(source, repoInputs));
+        const outputPath = this.resolveOutputPath(
+          options.output,
+          this.resolveOutputBaseDir(!!options?.ticketKey, repoInputs)
+        );
         const reviewOutput = this.formatReviewOutput(reviewedTargets, outputFormat);
         fs.writeFileSync(outputPath, reviewOutput);
         if (options?.silent) {
@@ -624,6 +640,14 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--force',
+    description: 'Force recreate review artifacts, ignoring any cached files',
+  })
+  parseForce(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-f, --format <format>',
     description: 'Output format (json|md|yaml|yml) - default: md',
   })
@@ -633,14 +657,6 @@ export class IssueReviewCommand extends CommandRunner {
       throw new Error(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
     }
     return format as OutputFormat;
-  }
-
-  @Option({
-    flags: '--force',
-    description: 'Force recreate review artifacts, ignoring any cached files',
-  })
-  parseForce(): boolean {
-    return true;
   }
 
   @Option({
@@ -683,6 +699,14 @@ export class IssueReviewCommand extends CommandRunner {
   })
   parseSilent(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '-k, --ticket-key <key>',
+    description: 'Ticket key to review (e.g. WBP-2971)',
+  })
+  parseTicketKey(val: string): string {
+    return val;
   }
 
   @Option({
@@ -1258,12 +1282,12 @@ Answer questions about the review, explain why specific issues were raised, sugg
    * Resolve the base directory used for relative output paths.
    * Ticket review prefers an existing local repo when one is available, but
    * falls back silently to cwd for remote-only review flows.
-   * @param source Review source
+   * @param isTicketKeyMode Whether the review targets a ticket key
    * @param repoInputs Raw `--repos` values
    * @returns Base directory for relative output files
    */
-  private resolveOutputBaseDir(source: string | undefined, repoInputs: string[]): string {
-    if (source && this.isTicketKey(source)) {
+  private resolveOutputBaseDir(isTicketKeyMode: boolean, repoInputs: string[]): string {
+    if (isTicketKeyMode) {
       const firstLocalRepoDir = repoInputs
         .map(repo => this.resolveExistingLocalRepoDir(repo))
         .find(repoDir => repoDir != null);
@@ -1371,13 +1395,6 @@ Answer questions about the review, explain why specific issues were raised, sugg
    */
   private isUrl(str: string): boolean {
     return str.startsWith('http://') || str.startsWith('https://');
-  }
-
-  /**
-   * Check if string is a ticket key (format: ABC-123)
-   */
-  private isTicketKey(str: string): boolean {
-    return /^[A-Z]+-\d+$/i.test(str);
   }
 
   /**

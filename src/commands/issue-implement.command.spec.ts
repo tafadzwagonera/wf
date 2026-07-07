@@ -266,7 +266,7 @@ describe('IssueImplementCommand', () => {
     it('exits with code 1 and prints fetch hint when ticket artifact is missing', async () => {
       existsSyncSpy.mockReturnValue(false);
 
-      await command.run(['WBP-0001'], { repos: ['repo-a'] });
+      await command.run([], { ticketKey: 'WBP-0001', repos: ['repo-a'] });
 
       expect(exitSpy).toHaveBeenCalledWith(1);
       const errorOutput = consoleErrorSpy.mock.calls.map(c => c.join(' ')).join('\n');
@@ -278,9 +278,9 @@ describe('IssueImplementCommand', () => {
     });
 
     it('exits with code 1 and prints plan hint when ticket exists but plan is missing', async () => {
-      existsSyncSpy.mockImplementation((p: string) => String(p).endsWith('WBP-0001.md'));
+      existsSyncSpy.mockImplementation((p: string) => String(p).endsWith(path.join('jira', 'WBP-0001.md')));
 
-      await command.run(['WBP-0001'], { repos: ['repo-a'] });
+      await command.run([], { ticketKey: 'WBP-0001', repos: ['repo-a'] });
 
       expect(exitSpy).toHaveBeenCalledWith(1);
       const errorOutput = consoleErrorSpy.mock.calls.map(c => c.join(' ')).join('\n');
@@ -316,7 +316,7 @@ describe('IssueImplementCommand', () => {
     it('exits with code 1 and does not render preview when ticket artifact is missing', async () => {
       existsSyncSpy.mockReturnValue(false);
 
-      await command.run(['WBP-0001'], { dryRun: true, repos: ['repo-a'] });
+      await command.run([], { ticketKey: 'WBP-0001', dryRun: true, repos: ['repo-a'] });
 
       expect(exitSpy).toHaveBeenCalledWith(1);
       expect(dryRunPreview.showHeader).not.toHaveBeenCalled();
@@ -325,7 +325,7 @@ describe('IssueImplementCommand', () => {
     it('exits with code 1 and does not render preview when plan artifact is missing', async () => {
       existsSyncSpy.mockImplementation((p: string) => String(p).endsWith('.md'));
 
-      await command.run(['WBP-0001'], { dryRun: true, repos: ['repo-a'] });
+      await command.run([], { ticketKey: 'WBP-0001', dryRun: true, repos: ['repo-a'] });
 
       expect(exitSpy).toHaveBeenCalledWith(1);
       expect(dryRunPreview.showHeader).not.toHaveBeenCalled();
@@ -369,7 +369,7 @@ describe('IssueImplementCommand', () => {
         return JSON.stringify({ action: 'feature' });
       });
 
-      await command.run(['WBP-0001'], { dryRun: true, repos: ['repo-a'] });
+      await command.run([], { ticketKey: 'WBP-0001', dryRun: true, repos: ['repo-a'] });
 
       expect(exitSpy).not.toHaveBeenCalled();
       expect(dryRunPreview.previewFileRead).toHaveBeenCalledTimes(2);
@@ -413,7 +413,7 @@ describe('IssueImplementCommand', () => {
         return JSON.stringify({ action: 'investigate' });
       });
 
-      await command.run(['WBP-0001'], { dryRun: true, repos: ['repo-a'] });
+      await command.run([], { ticketKey: 'WBP-0001', dryRun: true, repos: ['repo-a'] });
 
       expect(exitSpy).not.toHaveBeenCalled();
       expect(dryRunPreview.showSummary).toHaveBeenCalledWith(
@@ -628,7 +628,7 @@ describe('IssueImplementCommand', () => {
         ].join('\n');
       });
 
-      await command.run(['WBP-0001'], { repos: ['repo-a'] });
+      await command.run([], { ticketKey: 'WBP-0001', repos: ['repo-a'] });
 
       expect(mockOrchestrator.implementer.execute).toHaveBeenCalledTimes(1);
       const [, planArg] = mockOrchestrator.implementer.execute.mock.calls[0];
@@ -735,7 +735,7 @@ describe('IssueImplementCommand', () => {
       }).compile();
       const cmd = module.get(IssueImplementCommand);
 
-      await cmd.run(['WBP-0001'], { repos: ['repo-a'] });
+      await cmd.run([], { ticketKey: 'WBP-0001', repos: ['repo-a'] });
 
       expect(mockOrchestrator.implementer.execute).toHaveBeenCalledTimes(1);
       const [ticketArg, planArg] = mockOrchestrator.implementer.execute.mock.calls[0];
@@ -832,7 +832,7 @@ describe('IssueImplementCommand', () => {
     it('calls implementer.execute per-repo with allowMultiRepoScope when multiple repos are passed', async () => {
       const { command, orchestrator, existsSyncSpy, consoleSpy } = await setupMultiRepoTest();
 
-      await command.run(['WBP-0001'], { repos: ['repo-a', 'repo-b'] });
+      await command.run([], { ticketKey: 'WBP-0001', repos: ['repo-a', 'repo-b'] });
 
       expect(orchestrator.implementer.execute).toHaveBeenCalledTimes(2);
       expect(orchestrator.implementer.execute).toHaveBeenCalledWith(
@@ -863,7 +863,7 @@ describe('IssueImplementCommand', () => {
     it('calls implementer.execute once without allowMultiRepoScope for single repo', async () => {
       const { command, orchestrator, existsSyncSpy, consoleSpy } = await setupMultiRepoTest();
 
-      await command.run(['WBP-0001'], { repos: ['repo-a'] });
+      await command.run([], { ticketKey: 'WBP-0001', repos: ['repo-a'] });
 
       expect(orchestrator.implementer.execute).toHaveBeenCalledTimes(1);
       expect(orchestrator.implementer.execute).toHaveBeenCalledWith(
@@ -884,12 +884,73 @@ describe('IssueImplementCommand', () => {
       const { command, orchestrator, existsSyncSpy, consoleSpy } = await setupMultiRepoTest();
       (orchestrator.implementer.execute as jest.Mock).mockResolvedValueOnce({ type: 'investigation' });
 
-      await command.run(['WBP-0001'], { repos: ['repo-a', 'repo-b'] });
+      await command.run([], { ticketKey: 'WBP-0001', repos: ['repo-a', 'repo-b'] });
 
       expect(orchestrator.implementer.execute).toHaveBeenCalledTimes(1);
 
       existsSyncSpy.mockRestore();
       consoleSpy.mockRestore();
     });
+  });
+
+  it('rejects empty input when neither --ticket-key nor plan-token is provided', async () => {
+    const command = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run([], {});
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--ticket-key');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('rejects a ticket-key-shaped positional with a migration hint', async () => {
+    const command = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run(['WBP-123'], {});
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const output = consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n');
+    expect(output).toContain('-k');
+    expect(output).toContain('WBP-123');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('accepts a bare plan-token positional without --ticket-key', async () => {
+    const command = await buildCommand();
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    jest
+      .spyOn(require('fs'), 'existsSync')
+      .mockImplementation((input: string) =>
+        String(input).endsWith(path.join('.wf', 'repo-a', 'dark-building-creek-fix.json'))
+      );
+    jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
+    jest.spyOn(require('fs'), 'readFileSync').mockReturnValue(
+      JSON.stringify({
+        action: 'fix',
+        summary: 'Fix',
+        steps: ['Step 1'],
+        affectedFiles: ['repo-a/src/a.ts'],
+        affectedRepositories: ['repo-a'],
+      })
+    );
+
+    await command.run(['dark-building-creek-fix.json'], {
+      repos: ['repo-a'],
+      dryRun: true,
+    });
+
+    expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePath: path.join(os.homedir(), '.wf', 'repo-a', 'dark-building-creek-fix.json'),
+      })
+    );
   });
 });

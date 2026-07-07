@@ -112,7 +112,7 @@ describe('getHelpText', () => {
     expect(plainGenerateHelpText).toContain(
       'accepts either module.exports or export default in wf.config.js, including ESM repos'
     );
-    expect(planHelpText).toContain('--custom <source.md>');
+    expect(planHelpText).toContain('--custom-plan <source.md>');
     expect(planHelpText).toContain('--repos <repos...>');
     expect(reviewHelpText).toContain('--criteria <path>');
     expect(reviewHelpText).toContain('--replace-criteria <path>');

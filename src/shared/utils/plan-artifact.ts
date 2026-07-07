@@ -92,7 +92,7 @@ export const SUPPORTED_PLAN_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
  * @param value - Raw command argument
  * @returns True when the value matches `ABC-123`
  */
-export const isTicketKey = (value: string): boolean => /^[A-Z]+-\d+$/i.test(value);
+const looksLikeTicketKey = (value: string): boolean => /^[A-Z]+-\d+$/i.test(value);
 
 /**
  * Build the deterministic source hash used in plan filenames.
@@ -415,7 +415,7 @@ export const resolvePlanArtifactReference = (
   }
 
   const candidateList =
-    requestedAction && isTicketKey(identifierStem)
+    requestedAction && looksLikeTicketKey(identifierStem)
       ? PLAN_ARTIFACT_EXTENSIONS.map(
           extension => `YYYY-MM-DD-${hashPlanArtifactSources([identifierStem])}-${requestedAction}-plan.${extension}`
         )

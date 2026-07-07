@@ -298,10 +298,10 @@ yarn start run test-workflow
 
 # Fetch a ticket and generate a plan
 wf issue:fetch WBP-2971 --tracker jira
-wf issue:plan WBP-2971 --action fix
+wf issue:plan -k WBP-2971 --action fix
 
 # Run the complete issue workflow in one command
-wf issue WBP-2971 --from fetch --to commit --action fix
+wf issue -k WBP-2971 --from fetch --to commit --action fix
 ```
 
 ## Commands
@@ -340,26 +340,26 @@ wf issue:fetch WBP-2971 --tracker jira --format md
 
 ---
 
-#### `wf issue:plan <ticket-key>`
+#### `wf issue:plan`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:plan -->
 Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary tracker. Use --force to fetch and recreate artifacts. Repo-scoped planning inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so planning prompts can reuse earlier implementation context. Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.
 
 ```bash
 # Create a custom feature plan from a markdown artifact
-wf issue:plan --action feature --custom bar.md
+wf issue:plan --action feature --custom-plan bar.md
 
 # Prefer the repo-scoped custom artifact when a repo is supplied
-wf issue:plan --action feature --custom bar.md --repos repo-a
+wf issue:plan --action feature --custom-plan bar.md --repos repo-a
 
 # Plan a fix for a ticket
-wf issue:plan WBP-2971 --action fix
+wf issue:plan -k WBP-2971 --action fix
 
 # Plan against a repo so prior plan artifacts feed plan correlation
-wf issue:plan WBP-2971 --action fix --repos repo-a
+wf issue:plan -k WBP-2971 --action fix --repos repo-a
 
 # Force re-fetch before planning
-wf issue:plan WBP-2971 --action fix --force --tracker jira
+wf issue:plan -k WBP-2971 --action fix --force --tracker jira
 ```
 
 **Options:**
@@ -367,13 +367,14 @@ wf issue:plan WBP-2971 --action fix --force --tracker jira
 | Flag | Description |
 | ---- | ----------- |
 | `-a, --action <action>` | Resolution action (feature\|fix\|investigate) |
-| `-c, --custom <source.md>` | Custom markdown source artifact to synthesize into a canonical plan (mutually exclusive with <ticket-key>) |
+| `-c, --custom-plan <source.md>` | Custom markdown source artifact to synthesize into a canonical plan (mutually exclusive with --ticket-key) |
 | `--dry-run` | Preview the plan operation without making changes |
 | `--force` | Force fetch and recreate ticket artifact before planning |
 | `-f, --format <format>` | Output format for plan (json\|md\|yaml\|yml) - default: json |
 | `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
 | `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the plan path for piping |
+| `-k, --ticket-key <key>` | Ticket key to fetch and plan (e.g. WBP-2971) |
 | `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
 <!-- END GENERATED COMMAND DOCS: issue:plan -->
 
@@ -391,7 +392,7 @@ When `--repos` points at a local checkout, `issue:plan` inspects `~/.wf/<repo>/*
 
 ---
 
-#### `wf issue:review [source]`
+#### `wf issue:review [pr-url]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:review -->
 AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
@@ -401,22 +402,22 @@ AI-powered code review of local repository changes, ticket-associated pull reque
 wf issue:review
 
 # Review a ticket and associated pull requests from credentialed adapters using a remote repo hint
-yarn start issue:review WBP-3057 -r service-bookingv3
+yarn start issue:review --ticket-key WBP-3057 -r service-bookingv3
 
 # Review a ticket and its associated pull requests across credentialed repos
-wf issue:review WBP-2971 --tracker jira --repos service-tourv3
+wf issue:review --ticket-key WBP-2971 --tracker jira --repos service-tourv3
 
 # Force re-review a ticket, ignoring cached artifacts
-wf issue:review WBP-2971 --force --tracker jira -r service-bookingv3
+wf issue:review --ticket-key WBP-2971 --force --tracker jira -r service-bookingv3
 
 # Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd
-yarn start issue:review CTRL-280 -r api-gateway-v1
+yarn start issue:review --ticket-key CTRL-280 -r api-gateway-v1
 
 # Review a pull request and post review comments with diff-aligned inline anchors
 wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 
 # Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail
-wf issue:review WBP-2971 --session-id review-session-42 -r service-bookingv3
+wf issue:review --ticket-key WBP-2971 --session-id review-session-42 -r service-bookingv3
 ```
 
 **Options:**
@@ -433,6 +434,7 @@ wf issue:review WBP-2971 --session-id review-session-42 -r service-bookingv3
 | `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
 | `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
+| `-k, --ticket-key <key>` | Ticket key to review (e.g. WBP-2971) |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker |
 <!-- END GENERATED COMMAND DOCS: issue:review -->
 
@@ -441,10 +443,10 @@ Accepts three source modes:
 | Source                 | Description                                                                                                                     |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | _(none)_               | Review staged/unstaged changes in the current repo, or all repos listed in `--repos`                                            |
-| `ABC-123`              | Fetch ticket context and review associated pull requests; `--repos` provides remote PR-discovery hints and local fallback roots |
+| `--ticket-key ABC-123` | Fetch ticket context and review associated pull requests; `--repos` provides remote PR-discovery hints and local fallback roots |
 | `https://github.com/…` | Fetch and review a GitHub or Bitbucket pull request                                                                             |
 
-When a ticket key is supplied, `issue:review` fetches ticket context from the configured tracker, then fans out PR discovery across registered adapters that have explicit credentials in `wf.config.*`. It reviews matching PR diffs first, in deterministic order, and the trace output uses nested call stacks plus frame-aligned state transitions so downstream dependencies and variable changes stay visible together.
+When `--ticket-key` is supplied, `issue:review` fetches ticket context from the configured tracker, then fans out PR discovery across registered adapters that have explicit credentials in `wf.config.*`. It reviews matching PR diffs first, in deterministic order, and the trace output uses nested call stacks plus frame-aligned state transitions so downstream dependencies and variable changes stay visible together.
 
 **Staged file exclusions:** before computing the diff for review, `issue:review` stages all local changes while automatically excluding wf tooling artifacts: `.wf/**` runtime directories, `wf.config.{js,mjs,ts,mts,yaml,yml}` files, and `dist/` build output. These files are created by wf itself inside target repos and are not part of the ticket's code changes.
 
@@ -629,41 +631,41 @@ wf issue:pr WBP-2971 --dry-run
 
 ---
 
-#### `wf issue <ticket-key-or-plan-token>`
+#### `wf issue [plan-token]`
 
 Orchestrate the full issue workflow in a single command. Runs any contiguous range of stages: `fetch → plan → implement → review → commit`.
 
 ```bash
 # Full workflow from scratch
-wf issue WBP-2971 --from fetch --action fix
+wf issue -k WBP-2971 --from fetch --action fix
 
 # Resume from plan and run through review
-wf issue WBP-2971 --from plan --to review --action fix
+wf issue -k WBP-2971 --from plan --to review --action fix
 
 # Resume from implement (auto-discovers existing plan)
-wf issue WBP-2971 --from implement
+wf issue -k WBP-2971 --from implement
 
 # Resume from a canonical hashed plan artifact without --action
 wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement
 
-# Resume from a custom plan artifact created with --custom
-wf issue dark-building-creek-fix-plan.json --from implement
+# Resume from a custom plan artifact created with --custom-plan
+wf issue --custom-plan dark-building-creek-fix.md --from plan
 
 # Force refresh even when local artifacts already exist
-wf issue WBP-2971 --from fetch --action fix --force
+wf issue -k WBP-2971 --from fetch --action fix --force
 
 # Interactive chat mode after plan and review stages
-wf issue WBP-2971 --from fetch --action investigate --chat-mode
+wf issue -k WBP-2971 --from fetch --action investigate --chat-mode
 
 # Bitbucket with repos override
-wf issue 123 --from fetch --to review --action fix \
+wf issue -k 123 --from fetch --to review --action fix \
   --tracker bitbucket --repos myworkspace/myrepo
 
 # Multi-repo: implement stage runs once per repo in sequence
-wf issue WBP-3070 --from implement --action feature -r terraform-aws service-document-v1
+wf issue -k WBP-3070 --from implement --action feature -r terraform-aws service-document-v1
 
 # Preview the full workflow without making changes
-wf issue WBP-2971 --from fetch --action fix --dry-run
+wf issue -k WBP-2971 --from fetch --action fix --dry-run
 ```
 
 **Options:**
@@ -677,8 +679,10 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 | `--pr`                      | Create PR after commit stage                                                                                                                       | false              |
 | `--chat-mode`               | Open AI chat after `plan` and `review` stages                                                                                                      | —                  |
 | `--force`                   | Recreate artifacts instead of using the default skip-existing behavior                                                                             | false              |
+| `-c, --custom-plan <source.md>` | Path to a custom markdown plan source; skips the fetch stage. When `--from fetch` is set, warns and normalizes to `--from plan` | —                  |
 | `--dry-run`                 | Preview every stage without making changes, including branch and file work                                                                         | —                  |
 | `-r, --repos <repos...>`    | First repo anchors artifact storage; when multiple repos are given, the implement stage runs once per repo in sequence                             | current repo       |
+| `-k, --ticket-key <key>`    | Ticket key to run the full workflow for (e.g. WBP-2971)                                                                                            | —                  |
 
 **Stage order and artifacts:**
 
@@ -690,16 +694,16 @@ wf issue WBP-2971 --from fetch --action fix --dry-run
 | `review`    | `./<tracker>/<ticket-key>-review.md`                                                       |
 | `commit`    | _(display only — commit commands printed for confirmation)_                                 |
 
-**Plan token resolution:** When a non-ticket-key argument is passed and the workflow includes `implement`, `review`, or `commit`, the command searches for a matching plan artifact in two directories: `~/.wf/<app>/<tracker>/` (ticket-backed plans) then `~/.wf/<app>/` (custom plans created with `issue:plan --custom`). It tries manifest-based resolution first, then falls back to a direct file-path lookup with sidecar manifest reading.
+**Plan token resolution:** When a `[plan-token]` positional argument is passed (and neither `--ticket-key` nor `--custom-plan` is set), the command searches for a matching plan artifact in two directories: `~/.wf/<app>/<tracker>/` (ticket-backed plans) then `~/.wf/<app>/` (custom plans created with `issue:plan --custom-plan`). It tries manifest-based resolution first, then falls back to a direct file-path lookup with sidecar manifest reading.
 
 **Branch naming:** `issue` generates a branch name in the format `<prefix>/<TICKET-KEY>__<slug>`, where prefix is controlled by `BRANCH_PREFIX_*` env vars (`feature`, `bugfix`, `chore`).
 
 ---
 
-#### `wf issue:implement <ticket-key-or-plan-token>`
+#### `wf issue:implement [plan-token]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:implement -->
-Carry out an implementation plan from a ticket-backed, hashed, or custom plan artifact. Delegates the generate-and-verify loop to the configured backend (Anthropic Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode) based on stages.implement.provider and stages.implement.backend. Progress events are streamed to the terminal so you can follow task and tool activity while edits are being generated. All backends emit stable task and tool progress lines plus explicit file mutation logs and verification logs so terminal output stays human-readable while the agent works. Verification commands are expected to be repo-root-relative; stale plan artifacts that still embed redundant repo-selection `cd` prefixes are normalized, while cross-repo directory jumps are treated as setup errors. Set stages.implement.provider and stages.implement.backend in wf.config to select the backend. Use backend: agent with provider anthropic or openai for the Agent SDK path, or backend: cli with provider anthropic or openai for the CLI headless mode (Claude CLI or Codex CLI respectively). The Anthropic backend explicitly loads ~/.claude/CLAUDE.md and the repository-root CLAUDE.md, warning when either file is missing. The OpenAI backend loads ~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md with the same warning behavior and only exposes an exact-match verify_command tool for whitelisted verification commands. When running from source, use `yarn start issue:implement ...` for the implementation stage and `yarn start issue:commit -c` to stage the final conventional commit once the work is accepted. Unsupported providers (google, deepseek) fail fast with a clear error listing supported providers. backend: standard is rejected at runtime because the implement stage requires an agent-capable backend. Blank AI findings responses fail fast with provider-aware diagnostics instead of generic parse errors. Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. Before implementation, the command runs an interactive branch creation workflow: checks the working tree for uncommitted changes (offering to stash, continue without stashing, or abort), detects and pulls the source branch (dev or main), then prompts for branch name confirmation. Use --silent to auto-stash without prompting; branch selection and naming still prompt when a TTY is available. Use --no-branch to skip branch creation and work directly on the current branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. Examples: wf issue:implement PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | wf issue:implement PROJ-123 --repos my-repo | wf issue:implement PROJ-123 --silent | wf issue:implement PROJ-123 --no-branch | wf issue:implement PROJ-123 --dry-run
+Carry out an implementation plan from a ticket-backed, hashed, or custom plan artifact. Delegates the generate-and-verify loop to the configured backend (Anthropic Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode) based on stages.implement.provider and stages.implement.backend. Progress events are streamed to the terminal so you can follow task and tool activity while edits are being generated. All backends emit stable task and tool progress lines plus explicit file mutation logs and verification logs so terminal output stays human-readable while the agent works. Verification commands are expected to be repo-root-relative; stale plan artifacts that still embed redundant repo-selection `cd` prefixes are normalized, while cross-repo directory jumps are treated as setup errors. Set stages.implement.provider and stages.implement.backend in wf.config to select the backend. Use backend: agent with provider anthropic or openai for the Agent SDK path, or backend: cli with provider anthropic or openai for the CLI headless mode (Claude CLI or Codex CLI respectively). The Anthropic backend explicitly loads ~/.claude/CLAUDE.md and the repository-root CLAUDE.md, warning when either file is missing. The OpenAI backend loads ~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md with the same warning behavior and only exposes an exact-match verify_command tool for whitelisted verification commands. When running from source, use `yarn start issue:implement ...` for the implementation stage and `yarn start issue:commit -c` to stage the final conventional commit once the work is accepted. Unsupported providers (google, deepseek) fail fast with a clear error listing supported providers. backend: standard is rejected at runtime because the implement stage requires an agent-capable backend. Blank AI findings responses fail fast with provider-aware diagnostics instead of generic parse errors. Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. Before implementation, the command runs an interactive branch creation workflow: checks the working tree for uncommitted changes (offering to stash, continue without stashing, or abort), detects and pulls the source branch (dev or main), then prompts for branch name confirmation. Use --silent to auto-stash without prompting; branch selection and naming still prompt when a TTY is available. Use --no-branch to skip branch creation and work directly on the current branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. Examples: wf issue:implement -k PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | wf issue:implement -k PROJ-123 --repos my-repo | wf issue:implement -k PROJ-123 --silent | wf issue:implement -k PROJ-123 --no-branch | wf issue:implement -k PROJ-123 --dry-run
 
 **Options:**
 
@@ -712,6 +716,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 | `-r, --repos <repos...>` | Space-separated repositories; first repo anchors artifact lookup. When multiple repos are passed, implementation runs per-repo with cross-repo context |
 | `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 | `-s, --silent` | Auto-stash without prompting; branch selection and naming still prompt when a TTY is available |
+| `-k, --ticket-key <key>` | Ticket key to implement (e.g. WBP-2971) |
 | `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
 <!-- END GENERATED COMMAND DOCS: issue:implement -->
 
@@ -807,7 +812,7 @@ Verification commands are expected to run from the selected repository root. Rec
 
 ```bash
 # Implement a ticket-backed plan
-wf issue:implement WBP-2971 --repos repo-a
+wf issue:implement -k WBP-2971 --repos repo-a
 
 # Execute a custom plan artifact
 wf issue:implement dark-building-creek-fix.json --repos service-tourv3
@@ -881,7 +886,7 @@ wf config clean --expired --dry-run
 When running multi-stage workflows (`wf issue --from plan --to review`), a session state file is persisted at `~/.wf/state/sessions/` to track session IDs and AI-generated summaries across stages. This enables:
 
 - **Automatic handoff**: within a single `wf issue` run, the plan summary is injected into the implement stage prompt
-- **Manual resumption**: run `wf issue:plan PROJ-123`, note the provider session ID logged to the terminal, then `wf issue:implement PROJ-123 --session-id <provider-session-id>` in a separate invocation
+- **Manual resumption**: run `wf issue:plan -k PROJ-123`, note the provider session ID logged to the terminal, then `wf issue:implement -k PROJ-123 --session-id <provider-session-id>` in a separate invocation
 - **Provider session ID prompt**: when the plan was not freshly generated in this invocation, an interactive prompt asks for the provider session ID from a prior conversation. This covers three scenarios: (1) custom plan tokens (`wf issue <plan-token> --from implement`), (2) plan served from cache (`planner.execute` returns `fromCache: true`), and (3) plan stage skipped (`--from implement` with plan already on disk). Leave blank to skip. The prompt is suppressed in non-TTY environments (CI/pipes)
 - **Provider-switch detection**: when a stage uses a different AI provider or backend than the prior stage, a warning is emitted and conversation resumption is skipped (summaries still flow through)
 
@@ -1011,7 +1016,7 @@ The `--session-id` flag means different things depending on the command:
 
 #### Orchestrated workflow
 
-`wf issue <ticket> --session-id <wf-id>` manages a wf session across stages. A new UUID is generated via `crypto.randomUUID()` if `--session-id` is omitted.
+`wf issue -k <ticket> --session-id <wf-id>` manages a wf session across stages. A new UUID is generated via `crypto.randomUUID()` if `--session-id` is omitted.
 
 ```
 IssueCommand.run(options.sessionId)                            # wf session ID (or auto-generated)
@@ -1064,7 +1069,7 @@ IssueCommand.run(options.sessionId)                            # wf session ID (
 
 #### Standalone commands
 
-`wf issue:plan <ticket> --session-id <provider-id>` passes the provider session ID straight to the backend. No wf session, no `SessionService`, no drift detection.
+`wf issue:plan -k <ticket> --session-id <provider-id>` passes the provider session ID straight to the backend. No wf session, no `SessionService`, no drift detection.
 
 ```
 IssuePlanCommand.run(options.sessionId)                        # provider session ID
