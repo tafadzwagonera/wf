@@ -206,7 +206,7 @@ export class IssueCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated repositories; the first repo anchors artifact storage and remaining repos expand execution context',
+      'Space-separated repositories; the first repository reference acts as both the artefact repository and execution context. The remaining repository references are strictly execution contexts for a multi-repository issue',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
