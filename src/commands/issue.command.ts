@@ -102,8 +102,8 @@ interface IssueOptions {
   name: 'issue',
   description:
     'Complete workflow: fetch, plan, implement, review, and commit. Use --from and --to to control stage range. ' +
-    'Pass --repos to specify repositories: the first repo anchors artifact storage; all repos are available as ' +
-    'cross-repo read context during implementation (writes stay scoped to the primary repo). Resuming from `--from implement` can accept a hashed plan token or a hashed plan filename; if `--action` is provided, it is validated against the resolved artifact.',
+    'Pass --repos to specify repositories: the first repo anchors artifact storage; remaining repos expand execution context. ' +
+    'Resuming from `--from implement` can accept a hashed plan token or a hashed plan filename; if `--action` is provided, it is validated against the resolved artifact.',
   arguments: '[plan-token]',
   options: { isDefault: false },
 })
@@ -206,7 +206,7 @@ export class IssueCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated repositories; the first repo anchors artifact storage and all repos are used as workflow context',
+      'Space-separated repositories; the first repo anchors artifact storage and remaining repos expand execution context',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
