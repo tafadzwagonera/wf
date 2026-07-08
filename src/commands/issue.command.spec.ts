@@ -193,6 +193,59 @@ describe('IssueCommand', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it('rejects plan-token with --from fetch', async () => {
+    const command = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run(['2026-05-04-abc123-fix-plan.json'], {
+      from: 'fetch',
+      action: 'fix',
+    } as any);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--from implement');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('rejects plan-token with --from plan', async () => {
+    const command = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run(['2026-05-04-def456-fix-plan.json'], {
+      from: 'plan',
+      action: 'fix',
+    } as any);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--from implement');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('defaults --from to implement when a plan token is provided', async () => {
+    const command = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await command.run(['2026-05-04-abc123-fix-plan.json'], {} as any);
+
+    const errorOutput = consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n');
+    expect(errorOutput).not.toContain('--from option is required');
+
+    const logOutput = consoleLogSpy.mock.calls.map(call => call.join(' ')).join('\n');
+    expect(logOutput).toContain('Stages:');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
+  });
+
   it('rejects --custom-plan with non-.md extension', async () => {
     const command = await buildCommand();
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);

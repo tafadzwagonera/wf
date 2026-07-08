@@ -515,7 +515,7 @@
       },
       {
         "flags": "--from <stage>",
-        "description": "Start from stage (fetch|plan|implement|review|commit) [REQUIRED]"
+        "description": "Start from stage (fetch|plan|implement|review|commit) — defaults to implement when a plan token is provided"
       },
       {
         "flags": "--model-routing <mode>",
@@ -570,10 +570,6 @@
       {
         "comment": "Resume from a hashed plan artifact without --action",
         "command": "wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement"
-      },
-      {
-        "comment": "Resume from a pre-generated custom plan artifact (JSON token)",
-        "command": "wf issue dark-building-creek-fix-plan.json --from implement"
       }
     ]
   }

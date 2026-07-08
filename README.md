@@ -673,7 +673,7 @@ wf issue -k WBP-2971 --from fetch --action fix --dry-run
 
 | Flag                        | Description                                                                                                                                        | Default            |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `--from <stage>`            | **(Required)** Start stage: `fetch \| plan \| implement \| review \| commit`                                                                       | —                  |
+| `--from <stage>`            | Start stage: `fetch \| plan \| implement \| review \| commit` — defaults to `implement` when a plan token is provided                              | —                  |
 | `--to <stage>`              | Stop stage (inclusive)                                                                                                                             | `commit`           |
 | `--action <action>`         | Resolution action: `feature \| fix \| investigate` — required when `plan` stage runs, optional when resuming from a canonical hashed plan artifact | —                  |
 | `-t, --tracker <tracker>` | Tracker: `jira \| github \| bitbucket`                                                                                                            | `TRACKER` |

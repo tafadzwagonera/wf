@@ -12,6 +12,7 @@ import {
   buildPlanArtifactFilename,
   buildSyntheticTicketArtifact,
   hashPlanArtifactSources,
+  isPlanToken,
   parsePlanArtifact,
   resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
   resolvePlanToken,
@@ -59,10 +60,6 @@ const ISSUE_EXAMPLES: CliExample[] = [
   {
     comment: 'Resume from a hashed plan artifact without --action',
     command: 'wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement',
-  },
-  {
-    comment: 'Resume from a pre-generated custom plan artifact (JSON token)',
-    command: 'wf issue dark-building-creek-fix-plan.json --from implement',
   },
 ];
 
@@ -167,8 +164,8 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--from <stage>',
-    description: 'Start from stage (fetch|plan|implement|review|commit) [REQUIRED]',
-    required: true,
+    description:
+      'Start from stage (fetch|plan|implement|review|commit) — defaults to implement when a plan token is provided',
   })
   parseFrom(val: string): string {
     return val;
@@ -299,6 +296,10 @@ export class IssueCommand extends CommandRunner {
       process.exit(1);
     }
 
+    if (planToken && isPlanToken(planToken) && !options?.from) {
+      options = { ...options!, from: 'implement' };
+    }
+
     if (!options?.from) {
       console.error(chalk.red('Error: --from option is required'));
       console.log(chalk.gray('Usage: wf issue [plan-token] --from <stage> [--to <stage>] [options]'));
@@ -309,6 +310,14 @@ export class IssueCommand extends CommandRunner {
 
     try {
       const skipExisting = !options?.force;
+
+      if (planToken && isPlanToken(planToken) && ['fetch', 'plan'].includes(options.from.toLowerCase())) {
+        throw new ValidationError(
+          'A plan token is only valid when resuming from --from implement or later.\n' +
+            'A plan token references a plan artifact that already exists.\n' +
+            'Use --ticket-key instead when running from the fetch or plan stage.'
+        );
+      }
 
       let fromStage = this.parseStage(options.from);
       const toStage = options.to ? this.parseStage(options.to) : WorkflowStage.COMMIT;

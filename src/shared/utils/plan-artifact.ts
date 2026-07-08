@@ -30,6 +30,14 @@ const PLAN_ARTIFACT_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
 export const CANONICAL_PLAN_STEM = /^(\d{4}-\d{2}-\d{2})-([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 const SHORT_HASHED_PLAN_STEM = /^([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 
+/**
+ * Check whether a CLI positional argument is a canonical plan-token reference.
+ *
+ * @param value - Raw command argument
+ * @returns True when the value matches the canonical plan artifact naming convention
+ */
+export const isPlanToken = (value: string): boolean => CANONICAL_PLAN_STEM.test(value.replace(/\.[^.]+$/, ''));
+
 type PlanComplexity = (typeof VALID_COMPLEXITIES)[number];
 type PlanArtifactFormat = 'json' | 'md' | 'yaml' | 'yml';
 
