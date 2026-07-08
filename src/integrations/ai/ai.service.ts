@@ -43,6 +43,10 @@ export type {
 export type { CodeIssue, CodeReview } from '../../shared/types/review.types';
 export { REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../../shared/types/review.types';
 
+const DEFAULT_PLAN_MAX_TOKENS = 16384 as const;
+const DEFAULT_FINDINGS_MAX_TOKENS = 16384 as const;
+const DEFAULT_REVIEW_MAX_TOKENS = 16384 as const;
+
 /**
  * Strips a single wrapping markdown code fence from LLM output.
  * Handles ```typescript, ```ts, ```js, ```json, and plain ``` fences.
@@ -608,18 +612,32 @@ Return ONLY a valid JSON object with these fields:
   }
 }`;
 
+    // Configurable via stages.plan.maxTokens in wf.config.ts; defaults to DEFAULT_PLAN_MAX_TOKENS to accommodate verbose Opus output
+    const planMaxTokens = this.configService.get<number>('stages.plan.maxTokens', DEFAULT_PLAN_MAX_TOKENS);
+
     const response = await this.execute({
       prompt,
       systemPrompt,
       temperature: 0.5,
+      maxTokens: planMaxTokens,
       stage: 'plan',
     });
 
+    if (
+      response.stopReason === 'max_tokens' ||
+      response.finishReason === 'length' ||
+      response.finishReason === 'MAX_TOKENS'
+    ) {
+      throw new AIError(
+        'Plan response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.plan.maxTokens in wf.config.ts.',
+        { stopReason: response.stopReason, finishReason: response.finishReason, usage: response.usage }
+      );
+    }
+
     try {
-      const stripped = stripCodeFences(
+      const plan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
         requireAiResponseContent(response, 'AI provider returned an empty plan response')
       );
-      const plan = JSON.parse(stripped) as ResolutionPlan & { repositoriesAffected?: string[] };
       // Backward-compat: AI may still return the old key name during the transition period
       if (!plan.affectedRepositories && plan.repositoriesAffected) {
         plan.affectedRepositories = plan.repositoriesAffected;
@@ -693,18 +711,32 @@ Return ONLY a valid JSON object:
   "conclusion": "Overall conclusion and suggested next steps"
 }`;
 
+    // Configurable via stages.implement.maxTokens in wf.config.ts; defaults to DEFAULT_FINDINGS_MAX_TOKENS
+    const findingsMaxTokens = this.configService.get<number>('stages.implement.maxTokens', DEFAULT_FINDINGS_MAX_TOKENS);
+
     const response = await this.execute({
       prompt,
       systemPrompt,
       temperature: 0.4,
+      maxTokens: findingsMaxTokens,
       stage: 'implement',
     });
 
+    if (
+      response.stopReason === 'max_tokens' ||
+      response.finishReason === 'length' ||
+      response.finishReason === 'MAX_TOKENS'
+    ) {
+      throw new AIError(
+        'Findings response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.implement.maxTokens in wf.config.ts.',
+        { stopReason: response.stopReason, finishReason: response.finishReason, usage: response.usage }
+      );
+    }
+
     try {
-      const stripped = stripCodeFences(
+      return parseJsonResponse<FindingsDocument>(
         requireAiResponseContent(response, 'AI provider returned an empty investigation findings response')
       );
-      return JSON.parse(stripped) as FindingsDocument;
     } catch (error) {
       if (isAIErrorLike(error)) {
         throw error;
@@ -860,10 +892,14 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
       "approved": true|false
     }`;
 
+    // Configurable via stages.review.maxTokens in wf.config.ts; defaults to DEFAULT_REVIEW_MAX_TOKENS
+    const reviewMaxTokens = this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
+
     let response = await this.execute({
       prompt,
       systemPrompt,
       temperature: 0.3,
+      maxTokens: reviewMaxTokens,
       stage: 'review',
     });
 
@@ -882,9 +918,21 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
           prompt,
           systemPrompt,
           temperature: 0.3,
+          maxTokens: reviewMaxTokens,
           stage: 'review',
         });
       }
+    }
+
+    if (
+      response.stopReason === 'max_tokens' ||
+      response.finishReason === 'length' ||
+      response.finishReason === 'MAX_TOKENS'
+    ) {
+      throw new AIError(
+        'Review response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.review.maxTokens in wf.config.ts.',
+        { stopReason: response.stopReason, finishReason: response.finishReason, usage: response.usage }
+      );
     }
 
     try {

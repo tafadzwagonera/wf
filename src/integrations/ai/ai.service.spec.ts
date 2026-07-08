@@ -158,6 +158,7 @@ describe('AiService', () => {
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining('"verification": {'),
+          maxTokens: 16384,
         })
       );
       expect(plan.verification).toEqual({
@@ -422,6 +423,38 @@ describe('AiService', () => {
           provider: 'openai',
           model: 'gpt-5.4',
         }),
+      });
+    });
+
+    it('throws an actionable AIError when the plan response is truncated', async () => {
+      const adapter = {
+        execute: jest.fn().mockResolvedValue({
+          content: '{"action":"fix","summary":"Truncated',
+          stopReason: 'max_tokens',
+          usage: { inputTokens: 1000, outputTokens: 4096 },
+        }),
+        executeWithHistory: jest.fn().mockResolvedValue({ content: 'ok' }),
+      } as unknown as jest.Mocked<LlmAdapter>;
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(service.generatePlan('fix', '# WBP-999: Truncation test')).rejects.toMatchObject({
+        message: expect.stringContaining('stages.plan.maxTokens'),
+      });
+    });
+
+    it('detects truncation via finishReason for non-Anthropic providers', async () => {
+      const adapter = {
+        execute: jest.fn().mockResolvedValue({
+          content: '{"action":"fix","summary":"Truncated',
+          finishReason: 'length',
+          usage: { inputTokens: 1000, outputTokens: 4096 },
+        }),
+        executeWithHistory: jest.fn().mockResolvedValue({ content: 'ok' }),
+      } as unknown as jest.Mocked<LlmAdapter>;
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(service.generatePlan('fix', '# WBP-1000: OpenAI truncation')).rejects.toMatchObject({
+        message: expect.stringContaining('stages.plan.maxTokens'),
       });
     });
   });
