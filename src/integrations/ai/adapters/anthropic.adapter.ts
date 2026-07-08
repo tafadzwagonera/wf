@@ -65,6 +65,15 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     return this.contextConfig + (systemPrompt ?? '');
   }
 
+  /**
+   * Anthropic adaptive-thinking-only models (Opus 4.7+, Sonnet 5+, Fable,
+   * Mythos) reject non-default sampling parameters (temperature, top_p, top_k).
+   * Passing any value causes a 400 error.
+   */
+  private isTemperatureRestricted(model: string): boolean {
+    return /^claude-(opus-4-[7-9]|opus-[5-9]|sonnet-[5-9]|fable-|mythos-)/.test(model);
+  }
+
   private extractContent(response: Anthropic.Messages.Message, model: string): AIResponse {
     const textBlocks = response.content.filter((block): block is Anthropic.TextBlock => block.type === 'text');
     const content = textBlocks.map(block => block.text).join('');
@@ -100,7 +109,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
       const response = await this.client.messages.create({
         model,
         max_tokens: request.maxTokens || this.maxTokens,
-        temperature: request.temperature || 0.7,
+        ...(this.isTemperatureRestricted(model) ? {} : { temperature: request.temperature ?? 0.7 }),
         system: this.prependConfig(request.systemPrompt),
         messages: [{ role: 'user', content: request.prompt }],
       });
@@ -138,7 +147,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
       const response = await this.client.messages.create({
         model,
         max_tokens: request.maxTokens || this.maxTokens,
-        temperature: request.temperature || 0.7,
+        ...(this.isTemperatureRestricted(model) ? {} : { temperature: request.temperature ?? 0.7 }),
         system: this.prependConfig(request.systemPrompt),
         messages: request.messages,
       });

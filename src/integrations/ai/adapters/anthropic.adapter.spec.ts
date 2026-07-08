@@ -46,6 +46,10 @@ describe('AnthropicAdapter', () => {
   });
 
   describe('execute', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
     it('prepends loaded context config to the system prompt', async () => {
       const adapter = createAdapter();
       const mockCreate = jest.fn().mockResolvedValue({
@@ -93,6 +97,115 @@ describe('AnthropicAdapter', () => {
         stopReason: 'end_turn',
         contentTypes: ['tool_use'],
       });
+    });
+
+    it('omits temperature for adaptive-thinking-only models', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model = 'claude-opus-4-8';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'hello' });
+
+      const args = mockCreate.mock.calls[0]?.[0];
+      expect(args?.model).toBe('claude-opus-4-8');
+      expect(args?.temperature).toBeUndefined();
+    });
+
+    it('omits temperature for Sonnet 5', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model = 'claude-sonnet-5';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'hello', temperature: 0.5 });
+
+      const args = mockCreate.mock.calls[0]?.[0];
+      expect(args?.model).toBe('claude-sonnet-5');
+      expect(args?.temperature).toBeUndefined();
+    });
+
+    it.each(['claude-fable-5', 'claude-mythos-preview'])('omits temperature for %s', async restrictedModel => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model = restrictedModel;
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'hello' });
+
+      const args = mockCreate.mock.calls[0]?.[0];
+      expect(args?.model).toBe(restrictedModel);
+      expect(args?.temperature).toBeUndefined();
+    });
+
+    it('includes temperature for non-restricted models', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model = 'claude-sonnet-4-6';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'hello' });
+
+      const args = mockCreate.mock.calls[0]?.[0];
+      expect(args?.model).toBe('claude-sonnet-4-6');
+      expect(args?.temperature).toBe(0.7);
+    });
+  });
+
+  describe('executeWithHistory', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('omits temperature for adaptive-thinking-only models', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model = 'claude-opus-4-7';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.executeWithHistory({
+        messages: [{ role: 'user', content: 'hello' }],
+        temperature: 0.5,
+      });
+
+      const args = mockCreate.mock.calls[0]?.[0];
+      expect(args?.model).toBe('claude-opus-4-7');
+      expect(args?.temperature).toBeUndefined();
     });
   });
 
