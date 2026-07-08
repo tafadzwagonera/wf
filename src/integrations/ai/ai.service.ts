@@ -518,6 +518,30 @@ ${repoHint}${retryFeedbackBlock}${discoveryBlock}Create a detailed resolution pl
    is already present, the step should be marked as "already implemented" and skipped.
    Do NOT conclude that prescribed text is present based on thematic similarity to
    nearby content — perform an exact substring check.
+
+   When a plan changes the semantics of a CLI option (e.g., making an option optional,
+   changing its default, renaming it, or restricting its values), the plan MUST trace
+   every user-facing surface that references that option — help text, command
+   documentation, README examples, man pages — and include update steps for each.
+   Restricting the affected-files list to only the implementation and its test misses
+   help/doc text drift.
+
+   When the implementation stage involves iterative fix-and-retry cycles, the plan
+   MUST require verification of both working-tree and staged/index state before
+   handoff (e.g., before commit). A file with both staged and unstaged changes can
+   cause the commit to ship a stale version. The plan should prescribe an explicit
+   clean-state check before the handoff step.
+
+   When a plan includes a manual smoke test as an acceptance check, the implementation
+   stage MUST either run it or explicitly mark it as incomplete with a reason. A plan
+   that lists a smoke test but never executes it appears complete when one of its
+   acceptance criteria was silently skipped.
+
+   When new code intentionally swallows or downgrades errors (e.g., "log a warning
+   and continue" instead of throwing), the plan MUST include failure-path test
+   coverage for that behaviour. Verify that the warning is emitted, the return value
+   is correct on the failure path, and downstream code handles the degraded state.
+   Silent error swallowing without coverage is a latent bug.
 3. Estimated complexity (low/medium/high)
 4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name (e.g., "service-tourv3/src/pricing/pricing.service.ts").

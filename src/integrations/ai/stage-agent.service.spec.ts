@@ -260,6 +260,41 @@ describe('StageAgentService', () => {
         prompt: expect.stringContaining('Generated-doc workflows (e.g., auto-generated README sections, API docs from'),
       })
     );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Mock isolation: always prescribe'),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('testing-module'),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('process.exit'),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('help/doc text drift'),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('verification of both working-tree and staged/index state'),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('explicitly mark it as incomplete with a reason'),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Silent error swallowing without coverage is a latent bug'),
+      })
+    );
   });
 
   it('adds retry feedback only when a prior plan attempt was rejected', async () => {
