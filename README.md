@@ -403,16 +403,13 @@ AI-powered code review of local repository changes, ticket-associated pull reque
 wf issue:review
 
 # Review a ticket and associated pull requests from credentialed adapters using a remote repo hint
-yarn start issue:review --ticket-key WBP-3057 -r service-bookingv3
+wf issue:review --ticket-key WBP-3057 -r service-bookingv3
 
 # Review a ticket and its associated pull requests across credentialed repos
 wf issue:review --ticket-key WBP-2971 --tracker jira --repos service-tourv3
 
 # Force re-review a ticket, ignoring cached artifacts
 wf issue:review --ticket-key WBP-2971 --force --tracker jira -r service-bookingv3
-
-# Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd
-yarn start issue:review --ticket-key CTRL-280 -r api-gateway-v1
 
 # Review a pull request and post review comments with diff-aligned inline anchors
 wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment

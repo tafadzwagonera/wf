@@ -83,7 +83,7 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   },
   {
     comment: 'Review a ticket and associated pull requests from credentialed adapters using a remote repo hint',
-    command: 'yarn start issue:review --ticket-key WBP-3057 -r service-bookingv3',
+    command: 'wf issue:review --ticket-key WBP-3057 -r service-bookingv3',
   },
   {
     comment: 'Review a ticket and its associated pull requests across credentialed repos',
@@ -92,10 +92,6 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   {
     comment: 'Force re-review a ticket, ignoring cached artifacts',
     command: 'wf issue:review --ticket-key WBP-2971 --force --tracker jira -r service-bookingv3',
-  },
-  {
-    comment: 'Review a ticket PR remotely without a local checkout; fails fast if local fallback would target cwd',
-    command: 'yarn start issue:review --ticket-key CTRL-280 -r api-gateway-v1',
   },
   {
     comment: 'Review a pull request and post review comments with diff-aligned inline anchors',
