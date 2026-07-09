@@ -513,7 +513,7 @@ For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF 
 #### `wf issue:generate <sources...>`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->
-Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g. https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. When --repos points to a local checkout, wf bootstraps config from that repo and accepts either module.exports or export default in wf.config.js, including ESM repos. Repo-scoped generation now inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. AI synthesis always runs on every source to enrich and standardise the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent
+Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g. https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. AI synthesis always runs on every source to enrich and standardise the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent
 
 ```bash
 # Generate ticket from a URL
@@ -549,7 +549,7 @@ wf issue:generate ./spec.md --save --silent | xargs wf issue:create
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
 | `-o, --output <path>` | Output file path - default: stdout |
 | `--priority <priority>` | Override ticket priority (highest\|high\|medium\|low\|lowest) |
-| `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
+| `-r, --repos <repos...>` | Space-separated repositories; the first repo anchors artifact storage and read context, remaining repos provide additional read context for the AI |
 | `--save` | Save generated ticket to tracker directory |
 | `-s, --silent` | Suppress decorative output and interactive prompts (clarification, disambiguation). Emits only file paths (with --save/--output) or raw ticket content for piping |
 | `-t, --title <title>` | Override generated title with custom title |
@@ -569,20 +569,20 @@ In interactive mode (TTY, no `--silent`), the command performs a pre-synthesis c
 
 ---
 
-#### `wf issue:commit [ticket-key]`
+#### `wf issue:commit [options]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:commit -->
-Create git commit with AI-generated message (auto-detects ticket from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics)
+Create git commit with AI-generated message (use -k for ticket key or auto-detects from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics)
 
 ```bash
 # AI-generated commit message
-wf issue:commit WBP-2971
+wf issue:commit -k WBP-2971
 
 # Run the commit stage from source with conventional commits enabled
 yarn start issue:commit -c
 
 # Force conventional format
-wf issue:commit WBP-2971 --conventional --tracker jira
+wf issue:commit -k WBP-2971 --conventional --tracker jira
 ```
 
 **Options:**
@@ -595,6 +595,7 @@ wf issue:commit WBP-2971 --conventional --tracker jira
 | `--no-ai` | Disable AI generation and require manual message |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 | `--session-id <id>` | Resume a wf session by UUID (persisted to ~/.wf/state/sessions/) |
+| `-k, --ticket-key <key>` | Ticket key for the commit (e.g. WBP-2971) |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
 <!-- END GENERATED COMMAND DOCS: issue:commit -->
 
@@ -714,7 +715,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 | `--dry-run` | Preview branch, file, and investigation work without making changes |
 | `--model-routing <mode>` | Model selection strategy: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto. |
 | `--no-branch` | Suppress branch creation; work directly on the current branch |
-| `-r, --repos <repos...>` | Space-separated repositories; first repo anchors artifact lookup. When multiple repos are passed, implementation runs per-repo with cross-repo context |
+| `-r, --repos <repos...>` | Space-separated repositories; the first repository reference anchors artifact lookup and is an execution context. The remaining repository references are execution contexts for a multi-repository issue. Implementation runs per-repo with cross-repo read context from all other repos |
 | `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 | `-s, --silent` | Auto-stash without prompting; branch selection and naming still prompt when a TTY is available |
 | `-k, --ticket-key <key>` | Ticket key to implement (e.g. WBP-2971) |

@@ -4,8 +4,8 @@
     "usage": "wf config <get|set|list> [args]"
   },
   "issue:commit": {
-    "description": "Create git commit with AI-generated message (auto-detects ticket from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics)",
-    "usage": "wf issue:commit [ticket-key] [options]",
+    "description": "Create git commit with AI-generated message (use -k for ticket key or auto-detects from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics)",
+    "usage": "wf issue:commit [options]",
     "options": [
       {
         "flags": "-c, --conventional",
@@ -32,6 +32,10 @@
         "description": "Resume a wf session by UUID (persisted to ~/.wf/state/sessions/)"
       },
       {
+        "flags": "-k, --ticket-key <key>",
+        "description": "Ticket key for the commit (e.g. WBP-2971)"
+      },
+      {
         "flags": "-t, --tracker <tracker>",
         "description": "Tracker (jira|github|bitbucket)"
       }
@@ -39,7 +43,7 @@
     "examples": [
       {
         "comment": "AI-generated commit message",
-        "command": "wf issue:commit WBP-2971"
+        "command": "wf issue:commit -k WBP-2971"
       },
       {
         "comment": "Run the commit stage from source with conventional commits enabled",
@@ -47,7 +51,7 @@
       },
       {
         "comment": "Force conventional format",
-        "command": "wf issue:commit WBP-2971 --conventional --tracker jira"
+        "command": "wf issue:commit -k WBP-2971 --conventional --tracker jira"
       }
     ]
   },

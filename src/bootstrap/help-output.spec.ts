@@ -78,8 +78,10 @@ describe('getHelpText', () => {
   it('returns stage-specific help for issue:commit', () => {
     const helpText = getHelpText(['issue:commit', '-h'], catalog);
 
-    expect(helpText).toContain('<bold-cyan>Usage:</bold-cyan> <cyan>wf</cyan> issue:commit [ticket-key] [options]');
+    expect(helpText).toContain('<bold-cyan>Usage:</bold-cyan> <cyan>wf</cyan> issue:commit [options]');
     expect(helpText).toContain('--no-ai');
+    expect(helpText).toContain('--ticket-key <key>');
+    expect(helpText).not.toContain('[ticket-key]');
   });
 
   it('reflects current issue command flags', () => {

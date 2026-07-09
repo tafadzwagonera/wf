@@ -16,6 +16,7 @@ interface IssueCommitOptions {
   noAi?: boolean;
   conventional?: boolean;
   dryRun?: boolean;
+  ticketKey?: string;
   tracker?: string;
   repos?: string[];
   sessionId?: string;
@@ -24,7 +25,7 @@ interface IssueCommitOptions {
 const ISSUE_COMMIT_EXAMPLES: CliExample[] = [
   {
     comment: 'AI-generated commit message',
-    command: 'wf issue:commit WBP-2971',
+    command: 'wf issue:commit -k WBP-2971',
   },
   {
     comment: 'Run the commit stage from source with conventional commits enabled',
@@ -32,7 +33,7 @@ const ISSUE_COMMIT_EXAMPLES: CliExample[] = [
   },
   {
     comment: 'Force conventional format',
-    command: 'wf issue:commit WBP-2971 --conventional --tracker jira',
+    command: 'wf issue:commit -k WBP-2971 --conventional --tracker jira',
   },
 ];
 
@@ -53,8 +54,7 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
 @Command({
   name: 'issue:commit',
   description:
-    'Create git commit with AI-generated message (auto-detects ticket from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics)',
-  arguments: '[ticket-key]',
+    'Create git commit with AI-generated message (use -k for ticket key or auto-detects from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics)',
   options: { isDefault: false },
 })
 export class IssueCommitCommand extends CommandRunner {
@@ -76,8 +76,8 @@ export class IssueCommitCommand extends CommandRunner {
       const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
       warnOnIgnoredRepos(options?.repos);
 
-      // Get ticket key (from param or branch) — needed for both dry-run and live
-      let ticketKey: string | null = passedParams[0] || null;
+      // Get ticket key (from --ticket-key or branch) — needed for both dry-run and live
+      let ticketKey: string | null = options?.ticketKey ?? null;
 
       if (options?.dryRun) {
         if (!ticketKey) {
@@ -244,18 +244,26 @@ export class IssueCommitCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
-    description: 'Tracker (jira|github|bitbucket)',
-  })
-  parseTracker(val: string): string {
-    return val;
-  }
-
-  @Option({
     flags: '--session-id <id>',
     description: 'Resume a wf session by UUID (persisted to ~/.wf/state/sessions/)',
   })
   parseSessionId(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '-k, --ticket-key <key>',
+    description: 'Ticket key for the commit (e.g. WBP-2971)',
+  })
+  parseTicketKey(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '-t, --tracker <tracker>',
+    description: 'Tracker (jira|github|bitbucket)',
+  })
+  parseTracker(val: string): string {
     return val;
   }
 

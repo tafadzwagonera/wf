@@ -120,7 +120,7 @@ describe('IssueCommitCommand', () => {
   it('uses process.cwd() as the git base when --repos is absent', async () => {
     const { command } = await buildCommand();
 
-    await command.run(['WBP-123'], { message: 'ship it' });
+    await command.run([], { ticketKey: 'WBP-123', message: 'ship it' });
 
     expect(mockGitService.isGitRepository).toHaveBeenCalledWith('/tmp/current-app');
     expect(mockGitService.getDiff).toHaveBeenCalledWith(true, '/tmp/current-app');
@@ -134,7 +134,8 @@ describe('IssueCommitCommand', () => {
     const { command } = await buildCommand();
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-    await command.run(['WBP-123'], {
+    await command.run([], {
+      ticketKey: 'WBP-123',
       message: 'ship it',
       repos: ['repo-a', 'repo-b'],
     });
@@ -153,7 +154,7 @@ describe('IssueCommitCommand', () => {
   it('delegates AI commit message generation to CommitStageService', async () => {
     const { command, commitStageService } = await buildCommand();
 
-    await command.run(['WBP-123'], {});
+    await command.run([], { ticketKey: 'WBP-123' });
 
     expect(commitStageService.generateCommitMessage).toHaveBeenCalledWith({
       diff: 'diff --git a/file b/file',
