@@ -553,6 +553,33 @@ describe('StageAgentService', () => {
 
       logSpy.mockRestore();
     });
+
+    it('throws AIError when CLI result has stop_reason max_tokens', async () => {
+      async function* fakeSpawn() {
+        yield { type: 'result', result: '{"action":"fix"}', stop_reason: 'max_tokens' };
+      }
+      spawnCli.mockReturnValue(fakeSpawn());
+
+      const service = new StageAgentService(createCliConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      await expect(runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' })).rejects.toThrow(/truncated/i);
+    });
+
+    it('does not throw when stop_reason is absent', async () => {
+      async function* fakeSpawn() {
+        yield { type: 'result', result: '{"action":"fix"}' };
+      }
+      spawnCli.mockReturnValue(fakeSpawn());
+
+      const service = new StageAgentService(createCliConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
+      expect(result).toMatchObject({ content: expect.any(String) });
+    });
   });
 
   it('sets executionMode to cli when review backend is cli', async () => {

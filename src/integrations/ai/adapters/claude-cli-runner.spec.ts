@@ -275,7 +275,7 @@ describe('claude-cli-runner', () => {
       const timeoutMsg = messages.find(m => m.type === 'error' && m.subtype === 'timeout');
       expect(timeoutMsg).toBeDefined();
       expect(timeoutMsg!.is_error).toBe(true);
-      expect(timeoutMsg!.result).toMatch(/timed out/i);
+      expect(timeoutMsg!.result).toMatch(/wall-clock limit/i);
     });
 
     it('yields parsed NDJSON messages from stdout', async () => {
@@ -321,6 +321,53 @@ describe('claude-cli-runner', () => {
       };
 
       await expect(collect()).rejects.toThrow(/fatal error/);
+    });
+
+    it('resets inactivity timer on each yielded message', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      // timeoutMs=0 disables wall-clock; inactivityTimeoutMs=200ms
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 0, 200);
+
+      const messages: Array<{ type: string; subtype?: string }> = [];
+      const collect = (async () => {
+        for await (const msg of gen) {
+          messages.push(msg);
+        }
+      })();
+
+      // Push messages within the 200ms inactivity window, then close
+      child.stdout.push('{"type":"system","subtype":"init"}\n');
+      await new Promise(resolve => setImmediate(resolve));
+      child.stdout.push('{"type":"assistant","result":"working"}\n');
+      await new Promise(resolve => setImmediate(resolve));
+      child.stdout.push(null);
+
+      await collect;
+
+      const timeoutMsg = messages.find(m => m.type === 'error' && m.subtype === 'timeout');
+      expect(timeoutMsg).toBeUndefined();
+      expect(messages.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('yields inactivity timeout when no messages arrive within the inactivity window', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      // timeoutMs=0 disables wall-clock; inactivityTimeoutMs=50ms
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 0, 50);
+
+      const messages: Array<{ type: string; subtype?: string; is_error?: boolean; result?: string }> = [];
+      for await (const msg of gen) {
+        messages.push(msg);
+      }
+
+      const timeoutMsg = messages.find(m => m.type === 'error' && m.subtype === 'timeout');
+      expect(timeoutMsg).toBeDefined();
+      expect(timeoutMsg!.is_error).toBe(true);
+      expect(timeoutMsg!.result).toMatch(/stalled/i);
+      expect(timeoutMsg!.result).toMatch(/no output/i);
     });
   });
 });

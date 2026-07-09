@@ -39,6 +39,7 @@ export interface CliRunnerParams {
 
 const CLI_TIMEOUT_MS = 10 * 60 * 1000;
 const SIGKILL_GRACE_MS = 5000;
+const CLI_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000;
 const REQUIRED_CLAUDE_CLI_MAJOR = 2;
 const REQUIRED_CLAUDE_CLI_MIN_MINOR = 1;
 const SKIP_VERSION_CHECK_ENV = 'WF_SKIP_CLI_VERSION_CHECK';
@@ -172,7 +173,8 @@ export const parseNdjsonLine = (line: string): ClaudeCliMessage | null => {
  * @param cwd - Working directory for the subprocess
  * @param prompt - Prompt text piped to the subprocess via stdin
  * @param env - Optional environment variable overrides
- * @param timeoutMs - Subprocess timeout in milliseconds (default: 10 minutes)
+ * @param timeoutMs - Wall-clock timeout in milliseconds (default: 10 minutes)
+ * @param inactivityTimeoutMs - Inactivity timeout in milliseconds; reset on each yielded message (default: 2 minutes)
  * @returns Async generator yielding `ClaudeCliMessage` objects
  */
 export async function* spawnCli(
@@ -180,7 +182,8 @@ export async function* spawnCli(
   cwd: string,
   prompt?: string,
   env?: Record<string, string>,
-  timeoutMs: number = CLI_TIMEOUT_MS
+  timeoutMs: number = CLI_TIMEOUT_MS,
+  inactivityTimeoutMs: number = CLI_INACTIVITY_TIMEOUT_MS
 ): AsyncGenerator<ClaudeCliMessage, void, undefined> {
   const child = spawn('claude', args, {
     cwd,
@@ -198,9 +201,11 @@ export async function* spawnCli(
   child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let inactivityHandle: ReturnType<typeof setTimeout> | undefined;
   let killed = false;
   let yieldedAny = false;
-  let timedOut = false;
+  let wallClockTimedOut = false;
+  let inactivityTimedOut = false;
 
   const killChild = () => {
     if (killed) return;
@@ -215,10 +220,22 @@ export async function* spawnCli(
 
   if (timeoutMs > 0) {
     timeoutHandle = setTimeout(() => {
-      timedOut = true;
+      wallClockTimedOut = true;
       killChild();
     }, timeoutMs);
   }
+
+  // Inactivity timer — reset on each yielded message
+  const resetInactivityTimer = () => {
+    if (inactivityHandle) clearTimeout(inactivityHandle);
+    if (inactivityTimeoutMs > 0) {
+      inactivityHandle = setTimeout(() => {
+        inactivityTimedOut = true;
+        killChild();
+      }, inactivityTimeoutMs);
+    }
+  };
+  resetInactivityTimer();
 
   try {
     for await (const line of rl) {
@@ -226,20 +243,32 @@ export async function* spawnCli(
       if (message) {
         yieldedAny = true;
         yield message;
+        resetInactivityTimer();
       }
     }
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
+    if (inactivityHandle) clearTimeout(inactivityHandle);
     rl.close();
     killChild();
   }
 
-  if (timedOut) {
+  if (inactivityTimedOut) {
     yield {
       type: 'error',
       subtype: 'timeout',
       is_error: true,
-      result: `Claude CLI timed out after ${Math.round(timeoutMs / 1000)}s without returning a result.`,
+      result: `Claude CLI stalled — no output for ${Math.ceil(inactivityTimeoutMs / 1000)}s.`,
+    };
+    return;
+  }
+
+  if (wallClockTimedOut) {
+    yield {
+      type: 'error',
+      subtype: 'timeout',
+      is_error: true,
+      result: `Claude CLI exceeded the ${Math.round(timeoutMs / 1000)}s wall-clock limit. Increase stages.<stage>.timeoutMs in wf.config.ts.`,
     };
     return;
   }

@@ -86,6 +86,7 @@ const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => 
 const CLI_STAGE_LABEL = 'claude-cli';
 const CLI_STALL_THRESHOLD = 2;
 const CLI_REVIEW_EPILOGUE_TIMEOUT_MS = 5000;
+const DEFAULT_CLI_WALL_CLOCK_TIMEOUT_MS = 30 * 60 * 1000;
 
 const CODEX_STAGE_LABEL = 'codex-cli';
 
@@ -636,6 +637,10 @@ Return only the requested ticket markdown and preserve the required heading stru
       this.configService.get<string>('ai.model') ??
       (this.resolveStageProvider(stage) === 'openai' ? READ_ONLY_OPENAI_MODEL : READ_ONLY_ANTHROPIC_MODEL)
     );
+  }
+
+  private resolveStageTimeoutMs(stage: AgentStageName): number {
+    return this.configService.get<number>(`stages.${stage}.timeoutMs`, DEFAULT_CLI_WALL_CLOCK_TIMEOUT_MS);
   }
 
   private async runStagePrompt(params: {
@@ -1304,10 +1309,12 @@ Return only the requested ticket markdown and preserve the required heading stru
 
       let result = '';
       let resultSource: 'structured_output' | 'result' | 'assistant_text' | undefined;
+      let resultStopReason: string | undefined;
       let lastAssistantText = '';
       const cliDiagnostics: string[] = [];
 
-      for await (const message of spawnCli(args, resolvedRepoDir, prompt)) {
+      const wallClockTimeoutMs = this.resolveStageTimeoutMs(params.stage);
+      for await (const message of spawnCli(args, resolvedRepoDir, prompt, undefined, wallClockTimeoutMs)) {
         if (message.session_id) sessionId = message.session_id;
 
         if (params.onProgress) {
@@ -1319,6 +1326,7 @@ Return only the requested ticket markdown and preserve the required heading stru
         if (assistantText) lastAssistantText = assistantText;
 
         if (message.type === 'result' && !message.is_error) {
+          resultStopReason = message.stop_reason as string | undefined;
           if (message.structured_output && typeof message.structured_output === 'object') {
             result = JSON.stringify(message.structured_output);
             resultSource = 'structured_output';
@@ -1337,6 +1345,14 @@ Return only the requested ticket markdown and preserve the required heading stru
       }
 
       if (result) {
+        if (resultStopReason === 'max_tokens') {
+          throw new AIError(
+            `CLI response was truncated due to output token limit — the model ran out of space before ` +
+              `completing the response. Consider using the standard (non-CLI) backend for stage '${params.stage}'.`,
+            { stopReason: resultStopReason, stage: params.stage },
+            true
+          );
+        }
         console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${resultSource} (pass ${passNumber})`));
         if (sessionId) {
           console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Provider session: ${sessionId}`));
@@ -1532,16 +1548,19 @@ Return only the requested ticket markdown and preserve the required heading stru
 
       let result = '';
       let resultSource: 'structured_output' | 'result' | 'assistant_text' | undefined;
+      let resultStopReason: string | undefined;
       let lastAssistantText = '';
       const cliDiagnostics: string[] = [];
 
-      for await (const message of spawnCli(args, resolvedRepoDir, prompt)) {
+      const wallClockTimeoutMs = this.resolveStageTimeoutMs(params.stage);
+      for await (const message of spawnCli(args, resolvedRepoDir, prompt, undefined, wallClockTimeoutMs)) {
         if (message.session_id) sessionId = message.session_id;
 
         const assistantText = extractAssistantText(message);
         if (assistantText) lastAssistantText = assistantText;
 
         if (message.type === 'result' && !message.is_error) {
+          resultStopReason = message.stop_reason as string | undefined;
           if (message.structured_output && typeof message.structured_output === 'object') {
             result = JSON.stringify(message.structured_output);
             resultSource = 'structured_output';
@@ -1560,6 +1579,14 @@ Return only the requested ticket markdown and preserve the required heading stru
       }
 
       if (result) {
+        if (resultStopReason === 'max_tokens') {
+          throw new AIError(
+            `CLI response was truncated due to output token limit — the model ran out of space before ` +
+              `completing the response. Consider using the standard (non-CLI) backend for stage '${params.stage}'.`,
+            { stopReason: resultStopReason, stage: params.stage },
+            true
+          );
+        }
         console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${resultSource} (pass ${passNumber})`));
         return {
           content: result.trim(),
