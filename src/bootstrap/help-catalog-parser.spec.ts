@@ -15,7 +15,8 @@ describe('getCommandHelpCatalog', () => {
         }),
         expect.objectContaining({
           flags: '-r, --repos <repos...>',
-          description: 'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+          description:
+            'Space-separated repositories; the first repo anchors artifact storage and read context, remaining repos provide additional read context for the AI',
         }),
       ])
     );

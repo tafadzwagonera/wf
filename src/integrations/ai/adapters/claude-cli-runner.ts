@@ -210,7 +210,7 @@ export async function* spawnCli(
       if (!child.killed) {
         child.kill('SIGKILL');
       }
-    }, SIGKILL_GRACE_MS);
+    }, SIGKILL_GRACE_MS).unref();
   };
 
   if (timeoutMs > 0) {
