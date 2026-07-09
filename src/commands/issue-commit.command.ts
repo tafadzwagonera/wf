@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { GitError } from '../shared/utils/errors';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveRepoBasePath } from '../agents/utils';
@@ -133,7 +134,7 @@ export class IssueCommitCommand extends CommandRunner {
       // Check if we're in a git repository
       const isRepo = await this.gitService.isGitRepository(repoBaseDir);
       if (!isRepo) {
-        throw new Error(`Not a git repository. Run this command from a git repository: ${repoBaseDir}`);
+        throw new GitError(`Not a git repository. Run this command from within a git repository: ${repoBaseDir}`);
       }
 
       let autoDetected = false;
@@ -161,7 +162,7 @@ export class IssueCommitCommand extends CommandRunner {
       // Get git diff to understand changes
       const diff = await this.gitService.getDiff(true, repoBaseDir); // Get staged changes
       if (!diff || diff.trim().length === 0) {
-        throw new Error('No staged changes to commit. Use "git add" to stage changes first.');
+        throw new GitError('No staged changes to commit. Stage files with git add before running this command.');
       }
 
       const fileCount = this.countChangedFiles(diff);

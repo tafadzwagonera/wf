@@ -4,6 +4,8 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { getWfLogDir, getWfStateDir } from '../shared/utils/wf-paths';
 import { ConfigCleanCommand } from './config-clean.command';
 import { createRequire } from 'module';
+import { ErrorHandler } from '../shared/utils/error-handler';
+import { ValidationError } from '../shared/utils/errors';
 import chalk from 'chalk';
 
 const moduleRequire = createRequire(__filename);
@@ -31,19 +33,22 @@ export class ConfigGetCommand extends CommandRunner {
   }
 
   async run(passedParams: string[]): Promise<void> {
-    const key = passedParams[0];
+    try {
+      const key = passedParams[0];
 
-    if (!key) {
-      console.error(chalk.red('Error: Configuration key is required'));
-      process.exit(1);
-    }
+      if (!key) {
+        throw new ValidationError('Configuration key is required');
+      }
 
-    const value = this.configService.get(key);
+      const value = this.configService.get(key);
 
-    if (value === undefined) {
-      console.log(chalk.yellow(`Configuration key "${key}" not found`));
-    } else {
-      console.log(chalk.bold(key + ':'), chalk.cyan(value));
+      if (value === undefined) {
+        console.log(chalk.yellow(`Configuration key "${key}" not found`));
+      } else {
+        console.log(chalk.bold(key + ':'), chalk.cyan(value));
+      }
+    } catch (error) {
+      ErrorHandler.handle(error as Error);
     }
   }
 }
@@ -55,23 +60,26 @@ export class ConfigGetCommand extends CommandRunner {
 })
 export class ConfigSetCommand extends CommandRunner {
   async run(passedParams: string[]): Promise<void> {
-    const [key, value] = passedParams;
+    try {
+      const [key, value] = passedParams;
 
-    if (!key || !value) {
-      console.error(chalk.red('Error: Both key and value are required'));
-      process.exit(1);
+      if (!key || !value) {
+        throw new ValidationError('Both key and value are required');
+      }
+
+      const configPath = discoverConfigPath(process.cwd());
+
+      console.log(chalk.yellow('\n⚠️  wf config set is advisory. Update your wf.config.* file manually.\n'));
+      console.log(
+        chalk.gray(
+          `Resolved config file: ${configPath ?? 'none found. Create wf.config.js, wf.config.mjs, wf.config.ts, wf.config.mts, wf.config.yaml, or wf.config.yml.'}`
+        )
+      );
+      console.log(chalk.gray('Suggested update:'));
+      console.log(chalk.cyan(`${key}: ${value}\n`));
+    } catch (error) {
+      ErrorHandler.handle(error as Error);
     }
-
-    const configPath = discoverConfigPath(process.cwd());
-
-    console.log(chalk.yellow('\n⚠️  wf config set is advisory. Update your wf.config.* file manually.\n'));
-    console.log(
-      chalk.gray(
-        `Resolved config file: ${configPath ?? 'none found. Create wf.config.js, wf.config.mjs, wf.config.ts, wf.config.mts, wf.config.yaml, or wf.config.yml.'}`
-      )
-    );
-    console.log(chalk.gray('Suggested update:'));
-    console.log(chalk.cyan(`${key}: ${value}\n`));
   }
 }
 

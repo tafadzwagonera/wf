@@ -17,6 +17,7 @@ import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracke
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { ValidationError, ExecutionError, FileSystemError, GitError } from '../shared/utils/errors';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
@@ -114,11 +115,11 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
   const resolved = path.resolve(filePath);
 
   if (path.extname(resolved).toLowerCase() !== '.md') {
-    throw new Error(`Criteria file must be a Markdown (.md) file: ${filePath}`);
+    throw new ValidationError(`Criteria file must be a Markdown (.md) file: ${filePath}`);
   }
 
   if (!fs.existsSync(resolved)) {
-    throw new Error(`Criteria file not found: ${resolved}`);
+    throw new FileSystemError(`Criteria file not found: ${resolved}`);
   }
 
   return fs
@@ -168,21 +169,19 @@ export class IssueReviewCommand extends CommandRunner {
     const source = passedParams[0];
     const repoInputs = options?.repos?.length ? options.repos : [];
 
-    if (source && options?.ticketKey) {
-      console.error(chalk.red('Error: provide either a PR URL or --ticket-key, not both'));
-      process.exit(1);
-    }
-
-    if (source && !source.startsWith('http://') && !source.startsWith('https://')) {
-      console.error(chalk.red('Invalid source. Expected a PR URL. For ticket reviews, use --ticket-key <key>.'));
-      process.exit(1);
-    }
-
     try {
+      if (source && options?.ticketKey) {
+        throw new ValidationError('Provide either a PR URL or --ticket-key, not both');
+      }
+
+      if (source && !source.startsWith('http://') && !source.startsWith('https://')) {
+        throw new ValidationError('Invalid source. Expected a PR URL. For ticket reviews, use --ticket-key <key>.');
+      }
+
       await ensureWfHome();
 
       if (options?.criteria && options?.replaceCriteria) {
-        throw new Error('Cannot use --criteria and --replace-criteria together. Use one or the other.');
+        throw new ValidationError('Cannot use --criteria and --replace-criteria together. Use one or the other.');
       }
 
       const extraCriteria: string[] | null = options?.replaceCriteria
@@ -453,7 +452,7 @@ export class IssueReviewCommand extends CommandRunner {
         }
         const ticket = await ticketAdapter.getTicket(options.ticketKey);
         if (!ticket) {
-          throw new Error(`Ticket lookup failed for ${options.ticketKey}`);
+          throw new ExecutionError(`Ticket lookup failed for ${options.ticketKey}`);
         }
 
         const ticketReviewContext = this.buildTicketContext(ticket);
@@ -466,7 +465,7 @@ export class IssueReviewCommand extends CommandRunner {
           discoveryResult.missingRepoScopeErrors.length > 0 &&
           repoInputs.length === 0
         ) {
-          throw new Error(
+          throw new ValidationError(
             `Pull request discovery for ticket ${options.ticketKey} requires a repository. Pass --repos <repo> so wf can search the correct remote repository instead of guessing from the current directory.`
           );
         }
@@ -497,7 +496,7 @@ export class IssueReviewCommand extends CommandRunner {
           const unresolvedRepoInputs = repoInputs.length > 0 ? this.findUnresolvedLocalRepoInputs(repoInputs) : [];
           if (unresolvedRepoInputs.length > 0) {
             const unresolvedRepoList = unresolvedRepoInputs.map(repo => `'${repo}'`).join(', ');
-            throw new Error(
+            throw new ValidationError(
               `Repository ${unresolvedRepoList} was provided for ticket review but was not found as a local path or sibling directory. Check out the repository locally before falling back to local review.`
             );
           }
@@ -526,7 +525,7 @@ export class IssueReviewCommand extends CommandRunner {
           });
         }
       } else {
-        throw new Error(`Invalid source: ${source}. Expected: ticket key (ABC-123) or PR URL.`);
+        throw new ValidationError(`Invalid source: ${source}. Expected: ticket key (ABC-123) or PR URL.`);
       }
 
       const reviewableTargets = reviewTargets.filter(target => target.diff.trim().length > 0);
@@ -656,7 +655,7 @@ export class IssueReviewCommand extends CommandRunner {
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
     if (!validFormats.includes(format as OutputFormat)) {
-      throw new Error(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
+      throw new ValidationError(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
     }
     return format as OutputFormat;
   }
@@ -952,7 +951,7 @@ export class IssueReviewCommand extends CommandRunner {
   private async reviewCurrentRepo(repoDir: string): Promise<string> {
     const isRepo = await this.gitService.isGitRepository(repoDir);
     if (!isRepo) {
-      throw new Error(`Not a git repository: ${repoDir}`);
+      throw new GitError(`Not a git repository: ${repoDir}`);
     }
 
     // Try to get diff (staged or unstaged)
@@ -991,7 +990,7 @@ export class IssueReviewCommand extends CommandRunner {
       const adapter = this.issueTrackerService.getAdapter('bitbucket');
       return await adapter.getPullRequestDiff!(url);
     } else {
-      throw new Error('Unsupported PR URL. Only GitHub and BitBucket are supported.');
+      throw new ValidationError('Unsupported PR URL. Only GitHub and BitBucket are supported.');
     }
   }
 

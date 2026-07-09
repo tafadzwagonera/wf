@@ -1,5 +1,6 @@
 import type { ResolutionPlan } from '../types/ai.types';
 import type { NodeInfra, TestInfraContext } from '../types/detection.types';
+import { ValidationError } from '../errors/app.error';
 
 export interface PlanQualityViolation {
   ruleId:
@@ -236,9 +237,9 @@ const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViol
   ]);
 };
 
-const createPlanQualityError = (violations: PlanQualityViolation[]): Error => {
+const createPlanQualityError = (violations: PlanQualityViolation[]): ValidationError => {
   const details = violations.map(violation => `[${violation.ruleId}] ${violation.message}`).join('\n');
-  return new Error(`Generated plan failed quality checks:\n${details}`);
+  return new ValidationError(`Generated plan failed quality checks:\n${details}`);
 };
 
 export { createPlanQualityError, validatePlanQuality };

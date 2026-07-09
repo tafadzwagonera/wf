@@ -2,6 +2,8 @@ import { SubCommand, CommandRunner, Option } from 'nest-commander';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { SessionService } from '../shared/session/session.service';
+import { ErrorHandler } from '../shared/utils/error-handler';
+import { ValidationError } from '../shared/utils/errors';
 
 interface ConfigCleanOptions {
   sessionId?: string;
@@ -88,102 +90,106 @@ export class ConfigCleanCommand extends CommandRunner {
   }
 
   async run(_passedParams: string[], options?: ConfigCleanOptions): Promise<void> {
-    const hasFilter =
-      options?.sessionId ||
-      options?.ticket ||
-      options?.before ||
-      options?.after ||
-      options?.pattern ||
-      options?.expired;
+    try {
+      const hasFilter =
+        options?.sessionId ||
+        options?.ticket ||
+        options?.before ||
+        options?.after ||
+        options?.pattern ||
+        options?.expired;
 
-    if (!hasFilter) {
-      console.error(
-        chalk.red(
-          'Error: At least one filter is required (--session-id, --ticket, --before, --after, --pattern, or --expired)'
-        )
-      );
-      process.exit(1);
-    }
+      if (!hasFilter) {
+        throw new ValidationError(
+          'At least one filter is required (--session-id, --ticket, --before, --after, --pattern, or --expired)'
+        );
+      }
 
-    let sessions = await this.sessionService.listSessions();
+      let sessions = await this.sessionService.listSessions();
 
-    if (options?.sessionId) {
-      sessions = sessions.filter(s => s.sessionId === options.sessionId);
-    }
+      if (options?.sessionId) {
+        sessions = sessions.filter(s => s.sessionId === options.sessionId);
+      }
 
-    if (options?.ticket) {
-      sessions = sessions.filter(s => s.ticketKey === options.ticket);
-    }
+      if (options?.ticket) {
+        sessions = sessions.filter(s => s.ticketKey === options.ticket);
+      }
 
-    if (options?.before) {
-      const beforeDate = new Date(options.before);
-      sessions = sessions.filter(s => new Date(s.createdAt) < beforeDate);
-    }
+      if (options?.before) {
+        const beforeDate = new Date(options.before);
+        sessions = sessions.filter(s => new Date(s.createdAt) < beforeDate);
+      }
 
-    if (options?.after) {
-      const afterDate = new Date(options.after);
-      sessions = sessions.filter(s => new Date(s.createdAt) > afterDate);
-    }
+      if (options?.after) {
+        const afterDate = new Date(options.after);
+        sessions = sessions.filter(s => new Date(s.createdAt) > afterDate);
+      }
 
-    if (options?.pattern) {
-      const regex = new RegExp(options.pattern);
-      sessions = sessions.filter(s => regex.test(s.ticketKey));
-    }
+      if (options?.pattern) {
+        const regex = new RegExp(options.pattern);
+        sessions = sessions.filter(s => regex.test(s.ticketKey));
+      }
 
-    if (options?.expired) {
-      sessions = sessions.filter(s => this.sessionService.isExpired(s));
-    }
+      if (options?.expired) {
+        sessions = sessions.filter(s => this.sessionService.isExpired(s));
+      }
 
-    if (sessions.length === 0) {
-      console.log(chalk.yellow('No matching sessions found.'));
-      return;
-    }
-
-    console.log(chalk.bold.cyan(`\nMatched ${sessions.length} session(s):\n`));
-    for (const session of sessions) {
-      const stageCount = Object.keys(session.stages).length;
-      const status = session.completedAt ? 'completed' : this.sessionService.isExpired(session) ? 'expired' : 'active';
-      console.log(
-        chalk.gray(
-          `  ${session.ticketKey}  ${session.sessionId}  created: ${session.createdAt}  stages: ${stageCount}  status: ${status}`
-        )
-      );
-    }
-    console.log();
-
-    if (options?.dryRun) {
-      console.log(chalk.yellow('Dry run — no sessions deleted.'));
-      return;
-    }
-
-    const isInteractive = process.stdout.isTTY && process.stdin.isTTY;
-    if (!options?.force && isInteractive) {
-      const { confirm } = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'confirm',
-          message: `Delete ${sessions.length} session(s)?`,
-          prefix: ' ',
-          default: false,
-        },
-      ]);
-      if (!confirm) {
-        console.log(chalk.yellow('Aborted.'));
+      if (sessions.length === 0) {
+        console.log(chalk.yellow('No matching sessions found.'));
         return;
       }
-    }
 
-    if (!options?.force && !isInteractive) {
-      console.error(chalk.red('Non-interactive mode requires --force to delete sessions.'));
-      process.exit(1);
-    }
+      console.log(chalk.bold.cyan(`\nMatched ${sessions.length} session(s):\n`));
+      for (const session of sessions) {
+        const stageCount = Object.keys(session.stages).length;
+        const status = session.completedAt
+          ? 'completed'
+          : this.sessionService.isExpired(session)
+            ? 'expired'
+            : 'active';
+        console.log(
+          chalk.gray(
+            `  ${session.ticketKey}  ${session.sessionId}  created: ${session.createdAt}  stages: ${stageCount}  status: ${status}`
+          )
+        );
+      }
+      console.log();
 
-    let deletedCount = 0;
-    for (const session of sessions) {
-      const deleted = await this.sessionService.deleteBySessionId(session.sessionId);
-      if (deleted) deletedCount++;
-    }
+      if (options?.dryRun) {
+        console.log(chalk.yellow('Dry run — no sessions deleted.'));
+        return;
+      }
 
-    console.log(chalk.green(`Deleted ${deletedCount} session(s).`));
+      const isInteractive = process.stdout.isTTY && process.stdin.isTTY;
+      if (!options?.force && isInteractive) {
+        const { confirm } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'confirm',
+            message: `Delete ${sessions.length} session(s)?`,
+            prefix: ' ',
+            default: false,
+          },
+        ]);
+        if (!confirm) {
+          console.log(chalk.yellow('Aborted.'));
+          return;
+        }
+      }
+
+      if (!options?.force && !isInteractive) {
+        throw new ValidationError('Non-interactive mode requires --force to delete sessions.');
+      }
+
+      let deletedCount = 0;
+      for (const session of sessions) {
+        const deleted = await this.sessionService.deleteBySessionId(session.sessionId);
+        if (deleted) deletedCount++;
+      }
+
+      console.log(chalk.green(`Deleted ${deletedCount} session(s).`));
+    } catch (error) {
+      ErrorHandler.handle(error as Error);
+    }
   }
 }

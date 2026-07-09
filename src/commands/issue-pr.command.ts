@@ -7,6 +7,7 @@ import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerFeature } from '../integrations/issue-trackers/issue-tracker-adapter.interface';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { ValidationError, FileSystemError } from '../shared/utils/errors';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
@@ -103,10 +104,9 @@ export class IssuePrCommand extends CommandRunner {
       }
 
       if (!ticketKey) {
-        console.error(
-          chalk.red('Error: Could not determine ticket key. Pass it as an argument or run from a ticket branch.')
+        throw new ValidationError(
+          'Could not determine ticket key. Pass it as an argument or run from a ticket branch.'
         );
-        process.exit(1);
       }
 
       const trackerName = options?.tracker || this.configService.get<string>('tracker') || 'github';
@@ -114,9 +114,9 @@ export class IssuePrCommand extends CommandRunner {
       const adapter = this.issueTrackerService.getAdapter(trackerName);
 
       if (!adapter.supports(IssueTrackerFeature.CREATE_PULL_REQUEST)) {
-        console.error(chalk.red(`Error: PR creation is not supported for platform '${trackerName}'.`));
-        console.log(chalk.gray('Supported trackers: github'));
-        process.exit(1);
+        throw new ValidationError(
+          `PR creation is not supported for platform '${trackerName}'. Supported trackers: github`
+        );
       }
 
       // Locate plan artifact
@@ -126,9 +126,10 @@ export class IssuePrCommand extends CommandRunner {
       const planPath = this.findPlanArtifact(trackerDir, ticketKey, options?.action);
 
       if (!planPath) {
-        console.error(chalk.red(`Error: No plan artifact found for ticket '${ticketKey}' under ${trackerDir}.`));
-        console.log(chalk.gray(`Run 'wf issue:plan ${ticketKey} --action <feature|fix|investigate>' first.`));
-        process.exit(1);
+        throw new FileSystemError(
+          `No plan artifact found for ticket '${ticketKey}' under ${trackerDir}.\n` +
+            `Run 'wf issue:plan ${ticketKey} --action <feature|fix|investigate>' first.`
+        );
       }
 
       // Parse plan artifact

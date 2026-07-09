@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
-import { isAIErrorLike } from '../shared/utils/errors';
+import { isAIErrorLike, ValidationError, ExecutionError, ConfigurationError } from '../shared/utils/errors';
 import { SlackService } from '../integrations/slack/slack.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
@@ -220,14 +220,11 @@ export class IssueGenerateCommand extends CommandRunner {
 
     await ensureWfHome();
 
-    if (!passedParams || passedParams.length === 0) {
-      console.error(chalk.red('Error: At least one source is required'));
-      console.log(chalk.gray('Usage: wf issue:generate <sources...> [options]'));
-      console.log(chalk.gray('Example: wf issue:generate https://example.com/spec ./notes.md WBP-2971'));
-      process.exit(1);
-    }
-
     try {
+      if (!passedParams || passedParams.length === 0) {
+        throw new ValidationError('At least one source is required. Use --ticket, --file, or --url.');
+      }
+
       if (options?.dryRun) {
         const format = options?.format || this.configService.get<string>('stages.generate.outputFormat') || 'md';
         const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
@@ -516,7 +513,7 @@ export class IssueGenerateCommand extends CommandRunner {
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
     if (!validFormats.includes(format as OutputFormat)) {
-      throw new Error(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
+      throw new ValidationError(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
     }
     return format as OutputFormat;
   }
@@ -647,7 +644,7 @@ export class IssueGenerateCommand extends CommandRunner {
       return;
     }
 
-    throw new Error(
+    throw new ExecutionError(
       `Failed to fetch usable content from ${sources.length} source(s). ` + 'Resolve the source access issue and retry.'
     );
   }
@@ -687,7 +684,7 @@ export class IssueGenerateCommand extends CommandRunner {
       return await this.fetchFromTracker(source, tracker, repo);
     }
 
-    throw new Error(
+    throw new ValidationError(
       `Unknown source type: ${source}. Supported: URL, local file path, ticket key (ABC-123), Slack thread URL`
     );
   }
@@ -791,7 +788,7 @@ export class IssueGenerateCommand extends CommandRunner {
         ticket: ticket,
       };
     } catch (error) {
-      throw new Error(`Failed to fetch ticket ${ticketKey} from platform: ${error.message}`);
+      throw new ExecutionError(`Failed to fetch ticket ${ticketKey} from platform: ${(error as Error).message}`);
     }
   }
 
@@ -1068,7 +1065,7 @@ export class IssueGenerateCommand extends CommandRunner {
     }
 
     if (!this.isInteractiveSession()) {
-      throw new Error(
+      throw new ValidationError(
         `Source "${source}" matches multiple repositories: ${matches
           .map(({ repoInput }) => repoInput)
           .join(', ')}. Re-run in an interactive terminal or pass a single unambiguous --repos value.`
@@ -1076,7 +1073,7 @@ export class IssueGenerateCommand extends CommandRunner {
     }
 
     if (silent) {
-      throw new Error(
+      throw new ValidationError(
         `Source "${source}" matches multiple repositories: ${matches
           .map(({ repoInput }) => repoInput)
           .join(', ')}. Pass a single unambiguous --repos value in silent mode.`
@@ -1206,7 +1203,7 @@ export class IssueGenerateCommand extends CommandRunner {
     }
 
     if (!this.isInteractiveSession()) {
-      throw new Error(
+      throw new ValidationError(
         `Cannot save to multiple repositories in a non-interactive session. Matching repositories: ${resolvedRepos
           .map(({ input }) => input)
           .join(', ')}.`
@@ -1214,7 +1211,7 @@ export class IssueGenerateCommand extends CommandRunner {
     }
 
     if (silent) {
-      throw new Error(
+      throw new ValidationError(
         `Cannot save to multiple repositories in silent mode. Matching repositories: ${resolvedRepos
           .map(({ input }) => input)
           .join(', ')}.`
@@ -1800,7 +1797,7 @@ export class IssueGenerateCommand extends CommandRunner {
     }
 
     const examples = matches.slice(0, 3).join(', ');
-    throw new Error(
+    throw new ValidationError(
       `issue:generate produced contractions in ${targetDescription}: ${examples}. Use formal equivalents instead.`
     );
   }
@@ -1820,7 +1817,7 @@ export class IssueGenerateCommand extends CommandRunner {
     // Get workspace from config and combine
     const workspace = configService.get<string>('atlassian.bitbucket.workspace');
     if (!workspace) {
-      throw new Error(
+      throw new ConfigurationError(
         'Workspace required. Provide as workspace/repo or set atlassian.bitbucket.workspace in wf.config.*'
       );
     }

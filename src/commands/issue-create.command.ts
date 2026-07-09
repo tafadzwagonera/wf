@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { ValidationError, FileSystemError } from '../shared/utils/errors';
 import { TicketPriority, TicketType } from '../common/dto/universal-ticket.dto';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
@@ -256,15 +257,11 @@ export class IssueCreateCommand extends CommandRunner {
     const inputPath = passedParams[0];
     const stdinAvailable = !inputPath && !process.stdin.isTTY;
 
-    if (!inputPath && !stdinAvailable) {
-      console.error(chalk.red('Error: Input file path is required'));
-      console.log(chalk.gray('Usage: wf issue:create [input] [options]  (or pipe content to stdin)'));
-      console.log(chalk.gray('Example: wf issue:create ticket.json --tracker github --type bug'));
-      console.log(chalk.gray('         wf issue:generate ./spec.md -s | wf issue:create'));
-      process.exit(1);
-    }
-
     try {
+      if (!inputPath && !stdinAvailable) {
+        throw new ValidationError('Input file path is required when using --file source');
+      }
+
       const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
       if (!options?.silent) {
         warnOnIgnoredRepos(options?.repos);
@@ -276,7 +273,9 @@ export class IssueCreateCommand extends CommandRunner {
       if (stdinAvailable) {
         content = await readStdin();
         if (!content.trim()) {
-          throw new Error('No content received from stdin');
+          throw new ValidationError(
+            'No content received from stdin. Pipe content to stdin or pass an input file path as the first argument.'
+          );
         }
         format = options?.format ?? 'md';
         if (!options?.silent) {
@@ -294,7 +293,7 @@ export class IssueCreateCommand extends CommandRunner {
             : resolved;
 
         if (!fs.existsSync(inputFilePath)) {
-          throw new Error(`Input file not found: ${inputFilePath}`);
+          throw new FileSystemError(`Input file not found: ${inputFilePath}. Verify the file path and try again.`);
         }
 
         if (!options?.silent) {
@@ -306,7 +305,9 @@ export class IssueCreateCommand extends CommandRunner {
         const detected = options?.format ?? this.formatConverterService.detectFormat(inputFilePath);
 
         if (!detected) {
-          throw new Error(`Unable to detect format from file: ${inputFilePath}. Supported: .json, .yaml, .md, .xml`);
+          throw new ValidationError(
+            `Unable to detect format from file extension in '${inputFilePath}'. Use --format to specify explicitly.`
+          );
         }
         format = detected;
 
@@ -421,7 +422,7 @@ export class IssueCreateCommand extends CommandRunner {
   parseFormat(val: string): string {
     const validFormats = ['json', 'md', 'yaml', 'yml'];
     if (!validFormats.includes(val)) {
-      throw new Error(`Invalid format: ${val}. Valid formats: ${validFormats.join(', ')}`);
+      throw new ValidationError(`Invalid format: ${val}. Valid formats: ${validFormats.join(', ')}`);
     }
     return val;
   }

@@ -260,55 +260,52 @@ export class IssueCommand extends CommandRunner {
       options.noBranch = true;
     }
 
-    // Mutual exclusion: --no-branch + --branch-name-pattern
-    if (options?.noBranch && options?.branchNamePattern) {
-      console.error(
-        chalk.red(
-          'Error: --no-branch and --branch-name-pattern are mutually exclusive.\n' +
+    try {
+      // Mutual exclusion: --no-branch + --branch-name-pattern
+      if (options?.noBranch && options?.branchNamePattern) {
+        throw new ValidationError(
+          '--no-branch and --branch-name-pattern are mutually exclusive.\n' +
             '  Use --no-branch to stay on the current branch, or\n' +
             '  Use --branch-name-pattern <pattern> to validate a generated branch name.'
-        )
-      );
-      process.exit(1);
-    }
+        );
+      }
 
-    if (!options?.silent) {
-      printExamples(ISSUE_EXAMPLES);
-    }
+      if (!options?.silent) {
+        printExamples(ISSUE_EXAMPLES);
+      }
 
-    const planToken = passedParams[0];
-    let ticketKey = options?.ticketKey ?? planToken;
+      const planToken = passedParams[0];
+      let ticketKey = options?.ticketKey ?? planToken;
 
-    if (options?.ticketKey && options?.customPlan) {
-      console.error(chalk.red('Error: provide either --ticket-key or --custom-plan, not both'));
-      process.exit(1);
-    }
+      if (options?.ticketKey && options?.customPlan) {
+        throw new ValidationError('Provide either --ticket-key or --custom-plan, not both');
+      }
 
-    if (planToken && options?.customPlan) {
-      console.error(chalk.red('Error: provide either a plan token or --custom-plan, not both'));
-      process.exit(1);
-    }
+      if (planToken && options?.customPlan) {
+        throw new ValidationError('Provide either a plan token or --custom-plan, not both');
+      }
 
-    if (!options?.ticketKey && !options?.customPlan && !planToken) {
-      console.error(chalk.red('Error: Provide --ticket-key <key>, --custom-plan <source.md>, or a plan token'));
-      console.log(chalk.gray('Usage: wf issue [plan-token] --from <stage> [--to <stage>] [options]'));
-      console.log(chalk.gray('Example: wf issue -k WBP-2971 --from fetch --to review --action fix\n'));
-      process.exit(1);
-    }
+      if (!options?.ticketKey && !options?.customPlan && !planToken) {
+        throw new ValidationError(
+          'Provide --ticket-key <key>, --custom-plan <source.md>, or a plan token\n' +
+            'Usage: wf issue [plan-token] --from <stage> [--to <stage>] [options]\n' +
+            'Example: wf issue -k WBP-2971 --from fetch --to review --action fix'
+        );
+      }
 
-    if (planToken && isPlanToken(planToken) && !options?.from) {
-      options = { ...options!, from: 'implement' };
-    }
+      if (planToken && isPlanToken(planToken) && !options?.from) {
+        options = { ...options!, from: 'implement' };
+      }
 
-    if (!options?.from) {
-      console.error(chalk.red('Error: --from option is required'));
-      console.log(chalk.gray('Usage: wf issue [plan-token] --from <stage> [--to <stage>] [options]'));
-      console.log(chalk.gray('Stages: fetch|plan|implement|review|commit'));
-      console.log(chalk.gray('Example: wf issue -k WBP-2971 --from fetch --to review --action fix\n'));
-      process.exit(1);
-    }
+      if (!options?.from) {
+        throw new ValidationError(
+          '--from option is required\n' +
+            'Usage: wf issue [plan-token] --from <stage> [--to <stage>] [options]\n' +
+            'Stages: fetch|plan|implement|review|commit\n' +
+            'Example: wf issue -k WBP-2971 --from fetch --to review --action fix'
+        );
+      }
 
-    try {
       const skipExisting = !options?.force;
 
       if (planToken && isPlanToken(planToken) && ['fetch', 'plan'].includes(options.from.toLowerCase())) {
@@ -344,8 +341,7 @@ export class IssueCommand extends CommandRunner {
       let customSourcePath: string | undefined;
       if (options?.customPlan) {
         if (!options.customPlan.toLowerCase().endsWith('.md')) {
-          console.error(chalk.red('Error: --custom-plan only accepts Markdown (.md) sources'));
-          process.exit(1);
+          throw new ValidationError('--custom-plan only accepts Markdown (.md) sources');
         }
         customSourcePath = resolveCustomSourcePath(options.customPlan, repoBaseDir, options?.repos);
         ticketKey = path.basename(options.customPlan, '.md');
@@ -667,16 +663,16 @@ export class IssueCommand extends CommandRunner {
             },
           ]);
           if (!proceed) {
-            throw new Error(`Session ${wfSessionId} not found — aborting`);
+            throw new ValidationError(`Session ${wfSessionId} not found — aborting`);
           }
         } else {
-          throw new Error(`Session ${wfSessionId} not found. Omit --session-id to start a new session.`);
+          throw new ValidationError(`Session ${wfSessionId} not found. Omit --session-id to start a new session.`);
         }
         wfSessionId = undefined;
       }
 
       if (sessionState && sessionState.ticketKey !== ticketKey) {
-        throw new Error(`Session ${wfSessionId} belongs to ${sessionState.ticketKey}, not ${ticketKey}`);
+        throw new ValidationError(`Session ${wfSessionId} belongs to ${sessionState.ticketKey}, not ${ticketKey}`);
       }
 
       if (sessionState && this.sessionService.isExpired(sessionState)) {

@@ -13,7 +13,13 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { AppError } from '../shared/errors/app.error';
 import { ErrorHandler } from '../shared/utils/error-handler';
-import { isAIErrorLike } from '../shared/utils/errors';
+import {
+  isAIErrorLike,
+  ValidationError,
+  ExecutionError,
+  FileSystemError,
+  ConfigurationError,
+} from '../shared/utils/errors';
 import {
   buildSyntheticTicketArtifact,
   parsePlanArtifact,
@@ -34,12 +40,12 @@ import type { PlanArtifactReference } from '../shared/utils/plan-artifact';
 
 const loadPlanFile = (filePath: string): ResolutionPlan => {
   if (!fs.existsSync(filePath)) {
-    throw new Error(`Plan file not found: ${filePath}`);
+    throw new FileSystemError(`Plan file not found: ${filePath}`);
   }
   try {
     return parsePlanArtifact(fs.readFileSync(filePath, 'utf-8'), filePath);
   } catch (error) {
-    throw new Error(error instanceof Error ? error.message : `Plan file is not valid: ${filePath}`);
+    throw new ExecutionError(error instanceof Error ? error.message : `Plan file is not valid: ${filePath}`);
   }
 };
 
@@ -114,7 +120,9 @@ export class IssueImplementCommand extends CommandRunner {
   })
   parseModelRouting(val: string): string {
     if (!VALID_MODEL_ROUTINGS.includes(val as ModelRouting)) {
-      throw new Error(`Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTINGS.join(', ')}`);
+      throw new ValidationError(
+        `Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTINGS.join(', ')}`
+      );
     }
     return val;
   }
@@ -170,7 +178,7 @@ export class IssueImplementCommand extends CommandRunner {
   parseTracker(tracker: string): string {
     const validTrackers = ['jira', 'github', 'bitbucket'];
     if (!validTrackers.includes(tracker)) {
-      throw new Error(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
+      throw new ValidationError(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
     }
     return tracker;
   }
@@ -186,36 +194,28 @@ export class IssueImplementCommand extends CommandRunner {
 
       // Mutual exclusion: --no-branch + --branch-name-pattern
       if (options?.noBranch && options?.branchNamePattern) {
-        console.error(
-          chalk.red(
-            'Error: --no-branch and --branch-name-pattern are mutually exclusive.\n' +
-              '  Use --no-branch to stay on the current branch, or\n' +
-              '  Use --branch-name-pattern <pattern> to validate a generated branch name.'
-          )
+        throw new ValidationError(
+          '--no-branch and --branch-name-pattern are mutually exclusive.\n' +
+            '  Use --no-branch to stay on the current branch, or\n' +
+            '  Use --branch-name-pattern <pattern> to validate a generated branch name.'
         );
-        process.exit(1);
       }
 
       // Guard: ticketKey + Bitbucket requires --repos
       const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
 
       if (options?.ticketKey && trackerName === 'bitbucket' && !options?.repos?.length) {
-        console.error(chalk.red('Error: --repos is required for Bitbucket ticket fetching'));
-        process.exit(1);
+        throw new ValidationError('--repos is required for Bitbucket ticket fetching');
       }
 
       if (!options?.ticketKey && !identifier) {
-        console.error(chalk.red('Error: Provide --ticket-key <key> or a custom plan artifact filename'));
-        process.exit(1);
-        return;
+        throw new ValidationError('Provide --ticket-key <key> or a custom plan artifact filename');
       }
 
       if (identifier && /^[A-Z]+-\d+$/i.test(identifier) && !options?.ticketKey) {
-        console.error(
-          chalk.red(`Ticket keys must now be passed via -k/--ticket-key. Use: wf issue:implement -k ${identifier}`)
+        throw new ValidationError(
+          `Ticket keys must now be passed via -k/--ticket-key. Use: wf issue:implement -k ${identifier}`
         );
-        process.exit(1);
-        return;
       }
 
       const repoList: (string | undefined)[] = options?.repos?.length ? options.repos : [undefined];
@@ -238,7 +238,7 @@ export class IssueImplementCommand extends CommandRunner {
         );
 
         if (!resolvedPlanReference) {
-          throw new Error(
+          throw new FileSystemError(
             `Plan artifact not found for ${identifier}. Run wf issue:plan first or provide a supported plan filename.`
           );
         }
@@ -408,14 +408,14 @@ Return ONLY a valid JSON object:
           try {
             const jsonMatch =
               findingsContent.match(/```json\s*([\s\S]*?)\s*```/) || findingsContent.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) throw new Error('No JSON found in response');
+            if (!jsonMatch) throw new ExecutionError('No JSON found in response');
             findings = JSON.parse(jsonMatch[1] ?? jsonMatch[0]);
           } catch (error) {
             if (isAIErrorLike(error)) {
               throw error;
             }
 
-            throw new Error('Failed to parse investigation findings from AI response');
+            throw new ExecutionError('Failed to parse investigation findings from AI response');
           }
 
           await fs.promises.writeFile(findingsPath, JSON.stringify(findings, null, 2), 'utf-8');
@@ -483,14 +483,10 @@ Return ONLY a valid JSON object:
       const ticketPath = path.join(trackerDir, `${resolvedTicketKey}.md`);
       // Preflight Check 1: ticket artifact must exist (gates both live + dry-run)
       if (!fs.existsSync(ticketPath)) {
-        console.error(chalk.red(`Error: Ticket artifact not found: ${ticketPath}`));
-        console.error(
-          chalk.yellow(
+        throw new FileSystemError(
+          `Ticket artifact not found: ${ticketPath}\n` +
             `Run:   wf issue:fetch ${ticketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`
-          )
         );
-        process.exit(1);
-        return;
       }
 
       resolvedPlanReference =
@@ -498,19 +494,11 @@ Return ONLY a valid JSON object:
         this.resolvePlanArtifactReferenceAcrossDirs(resolvedTicketKey, trackerDir, customArtifactDir, baseDir);
 
       if (!resolvedPlanReference) {
-        console.error(chalk.red(`Error: No plan artifact found for ${resolvedTicketKey}.`));
-        console.error(
-          chalk.yellow(
-            `Run:   wf issue:plan -k ${resolvedTicketKey} --action <feature|fix|investigate>${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`
-          )
-        );
-        console.error(
-          chalk.yellow(
+        throw new FileSystemError(
+          `No plan artifact found for ${resolvedTicketKey}.\n` +
+            `Run:   wf issue:plan -k ${resolvedTicketKey} --action <feature|fix|investigate>${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}\n` +
             `Then:  wf issue:implement -k ${resolvedTicketKey}${options?.repos?.length ? ` --repos ${options.repos.join(' ')}` : ''}`
-          )
         );
-        process.exit(1);
-        return;
       }
 
       const notice = buildPlanArtifactResolutionNotice({
@@ -688,7 +676,7 @@ Return ONLY a valid JSON object:
 
     const workspace = configService.get<string>('atlassian.bitbucket.workspace');
     if (!workspace) {
-      throw new Error(
+      throw new ConfigurationError(
         'Workspace required. Provide as workspace/repo or set atlassian.bitbucket.workspace in wf.config.*'
       );
     }
@@ -719,7 +707,9 @@ Return ONLY a valid JSON object:
     const extension = path.extname(identifier).slice(1).toLowerCase();
     const supportedExtension = extension as (typeof SUPPORTED_PLAN_EXTENSIONS)[number];
     if (extension && !SUPPORTED_PLAN_EXTENSIONS.includes(supportedExtension)) {
-      throw new Error('Custom plan artifacts must include a supported file extension: .json, .md, .yaml, or .yml');
+      throw new ValidationError(
+        'Custom plan artifacts must include a supported file extension: .json, .md, .yaml, or .yml'
+      );
     }
 
     if (!extension) {
@@ -781,7 +771,7 @@ Return ONLY a valid JSON object:
           isLegacy: true,
         };
       } catch (error) {
-        if (error instanceof AppError) {
+        if (error instanceof FileSystemError) {
           // Artifact not found in the repository — fall through to return null.
         } else {
           throw error;
@@ -811,14 +801,16 @@ Return ONLY a valid JSON object:
     }
 
     if (matches.length > 1) {
-      throw new Error(
+      throw new ValidationError(
         `Multiple custom plan artifacts found for ${identifier}: ${matches
           .map(candidatePath => path.basename(candidatePath))
           .join(', ')}. Use the explicit filename including extension.`
       );
     }
 
-    throw new Error(`Custom plan artifact not found for ${identifier}. Checked: ${candidatePaths.join(', ')}`);
+    throw new FileSystemError(
+      `Custom plan artifact not found for ${identifier}. Checked: ${candidatePaths.join(', ')}`
+    );
   }
 
   /**

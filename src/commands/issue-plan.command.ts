@@ -7,6 +7,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ErrorHandler } from '../shared/utils/error-handler';
+import { ValidationError } from '../shared/utils/errors';
 import { getPlanArtifactExtension } from '../shared/utils/plan-artifact';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { resolveCustomSourcePath } from '../shared/utils/custom-source';
@@ -91,7 +92,8 @@ interface RepoAwarePlan {
  * @param message - Validation failure detail
  * @returns Error with consistent command-facing wording
  */
-const createPlanValidationError = (message: string): Error => new Error(`Generated plan is invalid: ${message}`);
+const createPlanValidationError = (message: string): ValidationError =>
+  new ValidationError(`Generated plan is invalid: ${message}`);
 
 /**
  * Detect whether a verification reason describes an expected failure case.
@@ -200,7 +202,7 @@ export class IssuePlanCommand extends CommandRunner {
   parseAction(action: string): ResolutionAction {
     const validActions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
     if (!validActions.includes(action as ResolutionAction)) {
-      throw new Error(`Invalid action: ${action}. Valid actions: ${validActions.join(', ')}`);
+      throw new ValidationError(`Invalid action: ${action}. Valid actions: ${validActions.join(', ')}`);
     }
     return action as ResolutionAction;
   }
@@ -237,7 +239,7 @@ export class IssuePlanCommand extends CommandRunner {
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
     if (!validFormats.includes(format as OutputFormat)) {
-      throw new Error(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
+      throw new ValidationError(`Invalid format: ${format}. Valid formats: ${validFormats.join(', ')}`);
     }
     return format as OutputFormat;
   }
@@ -282,7 +284,7 @@ export class IssuePlanCommand extends CommandRunner {
   parseTracker(tracker: string): string {
     const validTrackers = ['jira', 'github', 'bitbucket'];
     if (!validTrackers.includes(tracker)) {
-      throw new Error(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
+      throw new ValidationError(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
     }
     return tracker;
   }
@@ -297,23 +299,18 @@ export class IssuePlanCommand extends CommandRunner {
       await ensureWfHome();
 
       if (options?.ticketKey && options?.customPlan) {
-        console.error(chalk.red('Error: --custom-plan cannot be used together with --ticket-key'));
-        process.exit(1);
-        return;
+        throw new ValidationError('--custom-plan cannot be used together with --ticket-key');
       }
 
       if (!options?.ticketKey && !options?.customPlan) {
-        console.error(chalk.red('Error: Provide --ticket-key <key> or --custom-plan <source.md> for a custom plan'));
-        process.exit(1);
-        return;
+        throw new ValidationError('Provide --ticket-key <key> or --custom-plan <source.md> for a custom plan');
       }
 
       const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
 
       // Bitbucket + ticket-key requires --repos
       if (ticketKey && trackerName === 'bitbucket' && !options?.repos?.length) {
-        console.error(chalk.red('Error: --repos is required for Bitbucket ticket fetching'));
-        process.exit(1);
+        throw new ValidationError('--repos is required for Bitbucket ticket fetching');
       }
 
       const action = options.action;
@@ -328,9 +325,7 @@ export class IssuePlanCommand extends CommandRunner {
       if (options?.customPlan) {
         const customArtifactDir = resolveCustomArtifactDir(artifactBaseDir);
         if (!options.customPlan.toLowerCase().endsWith('.md')) {
-          console.error(chalk.red('Error: --custom-plan only accepts Markdown (.md) sources'));
-          process.exit(1);
-          return;
+          throw new ValidationError('--custom-plan only accepts Markdown (.md) sources');
         }
 
         const customSourcePath = resolveCustomSourcePath(options.customPlan, artifactBaseDir, options?.repos);

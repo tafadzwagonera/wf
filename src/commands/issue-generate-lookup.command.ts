@@ -5,6 +5,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { ErrorHandler } from '../shared/utils/error-handler';
+import { ValidationError, FileSystemError } from '../shared/utils/errors';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
@@ -46,32 +48,32 @@ export class IssueGenerateLookupCommand extends CommandRunner {
   async run(passedParams: string[], options?: IssueGenerateLookupOptions): Promise<void> {
     printExamples(ISSUE_GENERATE_LOOKUP_EXAMPLES);
 
-    const token = passedParams[0]?.trim();
-    if (!token) {
-      console.error(chalk.red('Error: A token or hash is required'));
-      console.log(chalk.gray('Usage: wf issue:generate:lookup <token> [--repos <repo>]'));
-      process.exit(1);
+    try {
+      const token = passedParams[0]?.trim();
+      if (!token) {
+        throw new ValidationError('A token or hash is required');
+      }
+
+      const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+      const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
+      const artifactDir = resolveArtifactDir(artifactBaseDir, trackerName);
+
+      if (!fs.existsSync(artifactDir)) {
+        throw new FileSystemError(`No generated artifacts found under ${artifactDir}.`);
+      }
+
+      const manifests = this.findMatchingManifests(artifactDir, token);
+
+      if (manifests.length === 0) {
+        throw new FileSystemError(
+          `No generated ticket source manifest found for token '${token}' under ${artifactDir}.`
+        );
+      }
+
+      this.renderLookupResults(token, artifactDir, manifests);
+    } catch (error) {
+      ErrorHandler.handle(error as Error);
     }
-
-    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
-    const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-    const artifactDir = resolveArtifactDir(artifactBaseDir, trackerName);
-
-    if (!fs.existsSync(artifactDir)) {
-      console.error(chalk.red(`Error: No generated artifacts found under ${artifactDir}.`));
-      process.exit(1);
-    }
-
-    const manifests = this.findMatchingManifests(artifactDir, token);
-
-    if (manifests.length === 0) {
-      console.error(
-        chalk.red(`Error: No generated ticket source manifest found for token '${token}' under ${artifactDir}.`)
-      );
-      process.exit(1);
-    }
-
-    this.renderLookupResults(token, artifactDir, manifests);
   }
 
   @Option({
