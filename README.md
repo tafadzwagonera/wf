@@ -592,7 +592,6 @@ wf issue:commit -k WBP-2971 --conventional --tracker jira
 | `-c, --conventional` | Force conventional commits format |
 | `--dry-run` | Preview the commit operation without making changes |
 | `-m, --message <message>` | Manual commit message (bypasses AI generation) |
-| `--no-ai` | Disable AI generation and require manual message |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 | `--session-id <id>` | Resume a wf session by UUID (persisted to ~/.wf/state/sessions/) |
 | `-k, --ticket-key <key>` | Ticket key for the commit (e.g. WBP-2971) |

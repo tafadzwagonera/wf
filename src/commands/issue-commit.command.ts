@@ -13,7 +13,6 @@ import chalk from 'chalk';
 
 interface IssueCommitOptions {
   message?: string;
-  noAi?: boolean;
   conventional?: boolean;
   dryRun?: boolean;
   ticketKey?: string;
@@ -89,7 +88,7 @@ export class IssueCommitCommand extends CommandRunner {
 
         this.dryRunPreview.showHeader('issue:commit', ticketKey ?? undefined);
 
-        if (!options?.message && !options?.noAi) {
+        if (!options?.message) {
           this.dryRunPreview.previewApiCall({
             method: 'POST',
             endpoint: '/v1/messages',
@@ -113,7 +112,7 @@ export class IssueCommitCommand extends CommandRunner {
         });
 
         this.dryRunPreview.showSummary({
-          apiCallCount: options?.message || options?.noAi ? 0 : 1,
+          apiCallCount: options?.message ? 0 : 1,
           fileCreatedCount: 0,
           fileModifiedCount: 0,
           gitOperationCount: 1,
@@ -137,15 +136,27 @@ export class IssueCommitCommand extends CommandRunner {
         throw new Error(`Not a git repository. Run this command from a git repository: ${repoBaseDir}`);
       }
 
-      console.log(chalk.bold.cyan('\n📝 Creating Git Commit\n'));
-
+      let autoDetected = false;
       if (!ticketKey) {
         const detected = await this.detectTicketFromBranch(repoBaseDir);
         if (detected) {
           ticketKey = detected;
-          console.log(chalk.gray(`  Auto-detected ticket: ${ticketKey}`));
+          autoDetected = true;
         }
       }
+
+      const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+
+      console.log(chalk.bold.cyan('\n📝 Commit'));
+      console.log(chalk.gray('─'.repeat(70)));
+      if (ticketKey) {
+        console.log(chalk.gray(`Ticket: ${ticketKey}${autoDetected ? ' (auto-detected)' : ''}`));
+      }
+      console.log(chalk.gray(`Platform: ${trackerName}`));
+      if (options?.repos?.length) {
+        console.log(chalk.gray(`Repository: ${options.repos[0]}`));
+      }
+      console.log();
 
       // Get git diff to understand changes
       const diff = await this.gitService.getDiff(true, repoBaseDir); // Get staged changes
@@ -163,11 +174,6 @@ export class IssueCommitCommand extends CommandRunner {
         // Manual message provided via --message flag
         commitMessage = options.message;
         console.log(chalk.gray('  Using provided commit message\n'));
-      } else if (options?.noAi) {
-        // User wants to provide manual message
-        throw new Error(
-          'Manual commit message required. Use --message "your message" or omit --no-ai for AI generation.'
-        );
       } else {
         // Generate with AI (default behavior)
         console.log(chalk.cyan('🤖 Generating commit message with AI...\n'));
@@ -224,14 +230,6 @@ export class IssueCommitCommand extends CommandRunner {
   })
   parseMessage(val: string): string {
     return val;
-  }
-
-  @Option({
-    flags: '--no-ai',
-    description: 'Disable AI generation and require manual message',
-  })
-  parseNoAi(): boolean {
-    return true;
   }
 
   @Option({

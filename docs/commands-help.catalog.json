@@ -20,10 +20,6 @@
         "description": "Manual commit message (bypasses AI generation)"
       },
       {
-        "flags": "--no-ai",
-        "description": "Disable AI generation and require manual message"
-      },
-      {
         "flags": "-r, --repos <repos...>",
         "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning"
       },
