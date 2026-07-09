@@ -409,6 +409,11 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
 }
 
 describe('IssueReviewCommand', () => {
+  const wfHome = path.join(os.homedir(), '.wf');
+  const cwdBase = path.basename(path.resolve(process.cwd()));
+  const reviewArtifactPath = path.join(wfHome, cwdBase, 'jira', 'TAD-575-review.md');
+  const trackerDir = path.join(wfHome, cwdBase, 'jira');
+
   afterEach(() => {
     setNonInteractiveSession();
     jest.restoreAllMocks();
@@ -451,7 +456,7 @@ describe('IssueReviewCommand', () => {
     it('skips AI review when cached review artifact exists for ticket key', async () => {
       const { command, reviewStageService, adapters } = await buildCommand();
       const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
-        if (targetPath === '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md') {
+        if (targetPath === reviewArtifactPath) {
           return true;
         }
 
@@ -469,14 +474,12 @@ describe('IssueReviewCommand', () => {
 
       await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
-      expect(existsSyncSpy).toHaveBeenCalledWith('/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md');
+      expect(existsSyncSpy).toHaveBeenCalledWith(reviewArtifactPath);
       expect(readFileSyncSpy).not.toHaveBeenCalled();
       expect(adapters.bitbucketAdapter.findPullRequestsByTicketKey).not.toHaveBeenCalled();
       expect(reviewPullRequestSpy).not.toHaveBeenCalled();
       expect(reviewStageService.reviewDiff).not.toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        '  Review artifact exists: /Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md'
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(`  Review artifact exists: ${reviewArtifactPath}`);
       expect(consoleLogSpy).toHaveBeenCalledWith('  Use --force to regenerate.\n');
     });
 
@@ -484,7 +487,7 @@ describe('IssueReviewCommand', () => {
       const { command, reviewStageService, adapters } = await buildCommand();
 
       jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
-        if (targetPath === '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md') {
+        if (targetPath === reviewArtifactPath) {
           return true;
         }
 
@@ -505,7 +508,7 @@ describe('IssueReviewCommand', () => {
       const { command, reviewStageService, adapters } = await buildCommand();
 
       jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
-        if (targetPath === '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md') {
+        if (targetPath === reviewArtifactPath) {
           return true;
         }
 
@@ -782,11 +785,8 @@ describe('IssueReviewCommand', () => {
 
       await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
-      expect(mkdirSyncSpy).toHaveBeenCalledWith('/Users/tafadzwagonera/.wf/wf/jira', { recursive: true });
-      expect(writeFileSyncSpy).toHaveBeenCalledWith(
-        '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md',
-        expect.stringContaining('Code Review Report')
-      );
+      expect(mkdirSyncSpy).toHaveBeenCalledWith(trackerDir, { recursive: true });
+      expect(writeFileSyncSpy).toHaveBeenCalledWith(reviewArtifactPath, expect.stringContaining('Code Review Report'));
     });
   });
 
@@ -819,7 +819,7 @@ describe('IssueReviewCommand', () => {
       const { command, dryRunPreview } = await buildCommand();
 
       jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
-        if (targetPath === '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md') {
+        if (targetPath === reviewArtifactPath) {
           return true;
         }
 
@@ -830,7 +830,7 @@ describe('IssueReviewCommand', () => {
       await command.run([], { ticketKey: 'TAD-575', dryRun: true, repos: ['service-tourv3'] });
 
       expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith({
-        filePath: '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md',
+        filePath: reviewArtifactPath,
         exists: true,
         sizeInKb: '2.00',
       });
@@ -845,20 +845,21 @@ describe('IssueReviewCommand', () => {
       const { command, adapters } = await buildCommand();
 
       jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
-        if (targetPath === '/Users/tafadzwagonera/.wf/wf/jira/TAD-575-review.md') {
+        if (targetPath === reviewArtifactPath) {
           return true;
         }
 
         return false;
       });
       jest.spyOn(require('fs'), 'readFileSync').mockReturnValue('# Cached review\n\nAlready reviewed.');
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
       adapters.jiraAdapter.getTicket.mockRejectedValue(new Error('ticket lookup should be skipped'));
 
       await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'], output: 'review.txt', silent: true });
 
       expect(consoleLogSpy).toHaveBeenCalledTimes(1);
-      expect(consoleLogSpy).toHaveBeenCalledWith('/Users/tafadzwagonera/.wf/wf/review.txt');
+      expect(consoleLogSpy).toHaveBeenCalledWith(path.join(wfHome, cwdBase, 'review.txt'));
     });
 
     it('writes the new review sections in the expected order', async () => {
