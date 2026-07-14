@@ -4,10 +4,10 @@
  * Run: yarn test:manual test-ai-context-config
  *
  * Verifies that:
- *   1. Providers with both apiKey and model warn when global and project
- *      context files are missing during app initialization
- *   2. Providers without full usage intent do not warn
- *   3. DeepSeek uses ~/.deepseek/DEEPSEEK.md as its global path
+ *   1. The default provider warns when global and project context files are
+ *      missing during app initialization
+ *   2. Non-default providers without stage overrides do not warn
+ *   3. Providers without full config (no model) do not warn
  */
 
 import * as fs from 'fs';
@@ -159,10 +159,10 @@ async function run() {
       fail('Anthropic warning missing', output || '(no warnings captured)');
     }
 
-    if (output.includes('No global or project-level configuration found for deepseek')) {
-      pass('DeepSeek warns when usage intent exists and both DeepSeek context files are missing');
+    if (!output.includes('No global or project-level configuration found for deepseek')) {
+      pass('DeepSeek does not warn when it is a non-default provider without stage overrides');
     } else {
-      fail('DeepSeek warning missing', output || '(no warnings captured)');
+      fail('DeepSeek warning should be suppressed for non-default provider without stage overrides', output || '(no warnings captured)');
     }
 
     if (!output.includes('No global or project-level configuration found for openai')) {

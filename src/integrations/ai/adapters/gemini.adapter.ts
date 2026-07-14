@@ -8,8 +8,9 @@ import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
-import { hasProviderUsageIntent } from './provider-intent';
+import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
 import type { WfAiProviderConfig } from '../../../config/public-config';
+import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
 
 const DEFAULT_MODEL = 'gemini-2.5-pro';
 
@@ -36,12 +37,14 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     const providers = this.configService.get<WfAiProviderConfig[]>('ai.providers') ?? [];
+    const stages = this.configService.get<NormalizedWfConfig['stages']>('stages');
+    const stageProviders = extractStageProviders(stages);
 
     this.contextConfig = await loadAiContextConfig(
       path.join(os.homedir(), '.gemini', 'GEMINI.md'),
       'GEMINI.md',
       'gemini',
-      hasProviderUsageIntent(providers, 'google')
+      hasProviderUsageIntent(providers, 'google', stageProviders)
     );
   }
 

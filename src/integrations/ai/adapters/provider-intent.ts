@@ -1,19 +1,39 @@
 import type { WfAiProviderConfig, WfAiProviderName } from '../../../config/public-config';
 
 /**
- * Returns whether a provider entry in normalized wf config clearly indicates
- * that the provider is intended for use and should warn when context files are
- * missing.
- *
- * @param providers - Normalized provider entries from config
- * @param providerName - Provider to inspect
- * @returns True when the matching provider has both apiKey and model
+ * Determines whether a provider is actively in use — either as the default,
+ * as an implicit first-entry default, or via a stage-level override.
+ * @param providers - The full list of configured AI providers.
+ * @param providerName - The provider name to check.
+ * @param stageProviders - Provider names referenced by stage-level overrides.
+ * @returns `true` if the provider is active and context config warnings are relevant.
  */
 export const hasProviderUsageIntent = (
   providers: WfAiProviderConfig[] | undefined,
-  providerName: WfAiProviderName
+  providerName: WfAiProviderName,
+  stageProviders: (WfAiProviderName | undefined)[] = [],
 ): boolean => {
   const matchingProvider = providers?.find(provider => provider.provider === providerName);
+  if (!matchingProvider?.apiKey || !matchingProvider?.model) return false;
 
-  return Boolean(matchingProvider?.apiKey && matchingProvider?.model);
+  if (matchingProvider.default) return true;
+
+  if (stageProviders.includes(providerName)) return true;
+
+  const hasExplicitDefault = providers?.some(p => p.default);
+  if (!hasExplicitDefault && providers?.[0]?.provider === providerName) return true;
+
+  return false;
+};
+
+/**
+ * Extracts provider names from stage-level configuration overrides.
+ * @param stages - The stages configuration object from wf.config.ts.
+ * @returns An array of provider names (may include `undefined` for stages without a provider override).
+ */
+export const extractStageProviders = (
+  stages: Record<string, { provider?: WfAiProviderName } | undefined> | undefined,
+): (WfAiProviderName | undefined)[] => {
+  if (!stages) return [];
+  return Object.values(stages).map(stage => stage?.provider);
 };
