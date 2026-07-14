@@ -47,8 +47,8 @@ const TEST_RUNTIME_PATTERNS: Array<RegExp> = [
   /\bassert(ion)? failed\b/i,
 ];
 
-const DIAGNOSTIC_FILE_PATTERN =
-  /(?:[A-Za-z]:)?(?:\.{0,2}\/)?[A-Za-z0-9_./-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|yml|yaml|txt)/g;
+const DIAGNOSTIC_FILE_PATTERN
+  = /(?:[A-Za-z]:)?(?:\.{0,2}\/)?[A-Za-z0-9_./-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|yml|yaml|txt)/g;
 const ERROR_CLASS_SEVERITY: Record<string, number> = {
   syntax: 6,
   module: 5,
@@ -231,11 +231,11 @@ export const buildVerificationProgressSignal = (params: {
     const previousSeverity = getHighestErrorSeverity(previousErrorClasses);
     const currentSeverity = getHighestErrorSeverity(currentErrorClasses);
     const severityImproved = currentSeverity < previousSeverity;
-    const repeatedFailurePattern =
-      params.changedFilesSinceLastVerification.length === 0 &&
-      params.currentSnapshot.commandIndex === previousSnapshot.commandIndex &&
-      currentSeverity >= previousSeverity &&
-      params.currentSnapshot.diagnosticLineCount >= previousSnapshot.diagnosticLineCount;
+    const repeatedFailurePattern
+      = params.changedFilesSinceLastVerification.length === 0
+        && params.currentSnapshot.commandIndex === previousSnapshot.commandIndex
+        && currentSeverity >= previousSeverity
+        && params.currentSnapshot.diagnosticLineCount >= previousSnapshot.diagnosticLineCount;
 
     if (stageAdvanced) {
       score += 3;
@@ -280,18 +280,19 @@ export const buildVerificationProgressSignal = (params: {
 
   score = Math.max(0, Math.min(10, score));
 
-  const verdict: ImplementProgressVerdict = score >= 5 ? 'continue' : score >= 2 ? 'revisit' : 'regress';
+  let verdict: ImplementProgressVerdict = 'regress';
+  if (score >= 5) verdict = 'continue';
+  else if (score >= 2) verdict = 'revisit';
 
   return {
     score,
     verdict,
     reasons: reasons.length > 0 ? reasons : ['no meaningful convergence signal'],
-    nextAction:
-      verdict === 'continue'
-        ? 'Keep editing the most recently changed files and rerun verification.'
-        : verdict === 'revisit'
-          ? 'Narrow the next pass to the latest changed files before verifying again.'
-          : 'Inspect the latest verification failure before broadening scope.',
+    nextAction: (() => {
+      if (verdict === 'continue') return 'Keep editing the most recently changed files and rerun verification.';
+      if (verdict === 'revisit') return 'Narrow the next pass to the latest changed files before verifying again.';
+      return 'Inspect the latest verification failure before broadening scope.';
+    })(),
   };
 };
 

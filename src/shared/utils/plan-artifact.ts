@@ -77,11 +77,9 @@ export const buildPlanArtifactResolutionNotice = (
     return null;
   }
 
-  const sourceLabel = reference.ticketKey
-    ? `ticket ${reference.ticketKey}`
-    : reference.customArtifactName
-      ? `custom plan ${reference.customArtifactName}`
-      : `source ${reference.sourceName ?? path.basename(reference.artifactPath)}`;
+  let sourceLabel = `source ${reference.sourceName ?? path.basename(reference.artifactPath)}`;
+  if (reference.ticketKey) sourceLabel = `ticket ${reference.ticketKey}`;
+  else if (reference.customArtifactName) sourceLabel = `custom plan ${reference.customArtifactName}`;
 
   return `Detected plan artifact ${path.basename(reference.artifactPath)} for ${sourceLabel}; using action ${reference.action}.`;
 };
@@ -154,6 +152,8 @@ export const buildPlanArtifactManifestPath = (artifactPath: string): string =>
  * @param trackerName - Optional platform namespace for traceability
  * @returns Manifest payload used for lookup and migration
  */
+
+/* eslint-disable max-params */
 export const buildPlanArtifactManifest = (
   artifactPath: string,
   action: ResolutionAction,
@@ -175,6 +175,7 @@ export const buildPlanArtifactManifest = (
   customArtifactName: sourceKind === 'custom' ? sourceName : undefined,
   trackerName,
 });
+/* eslint-enable max-params */
 
 /**
  * Persist a plan artifact manifest alongside the artifact.
@@ -202,13 +203,13 @@ export const readPlanArtifactManifest = (manifestPath: string): PlanArtifactMani
   try {
     const value = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as Partial<PlanArtifactManifest>;
     if (
-      typeof value.artifactPath !== 'string' ||
-      typeof value.action !== 'string' ||
-      typeof value.createdAt !== 'string' ||
-      typeof value.format !== 'string' ||
-      typeof value.hash !== 'string' ||
-      typeof value.sourceKind !== 'string' ||
-      typeof value.sourceName !== 'string'
+      typeof value.artifactPath !== 'string'
+      || typeof value.action !== 'string'
+      || typeof value.createdAt !== 'string'
+      || typeof value.format !== 'string'
+      || typeof value.hash !== 'string'
+      || typeof value.sourceKind !== 'string'
+      || typeof value.sourceName !== 'string'
     ) {
       return null;
     }
@@ -332,10 +333,10 @@ const matchesManifestIdentifier = (
     sourceTokens.some(token => {
       const candidate = token.trim().toLowerCase();
       return (
-        candidate === normalizedIdentifier ||
-        candidate === identifierStem.toLowerCase() ||
-        matchesGeneratedTicketToken(normalizedIdentifier, candidate) ||
-        matchesGeneratedTicketToken(identifierStem, candidate)
+        candidate === normalizedIdentifier
+        || candidate === identifierStem.toLowerCase()
+        || matchesGeneratedTicketToken(normalizedIdentifier, candidate)
+        || matchesGeneratedTicketToken(identifierStem, candidate)
       );
     })
   ) {
@@ -368,8 +369,8 @@ const resolveManifestMatch = (
   const normalizedIdentifier = identifierStem.trim().toLowerCase();
   const candidates = readManifestCandidates(artifactDir).filter(
     manifest =>
-      isCanonicalArtifactPath(manifest.artifactPath) &&
-      matchesManifestIdentifier(manifest, identifierStem, normalizedIdentifier, requestedAction)
+      isCanonicalArtifactPath(manifest.artifactPath)
+      && matchesManifestIdentifier(manifest, identifierStem, normalizedIdentifier, requestedAction)
   );
 
   if (candidates.length === 0) {
@@ -422,8 +423,8 @@ export const resolvePlanArtifactReference = (
     return manifestMatch;
   }
 
-  const candidateList =
-    requestedAction && looksLikeTicketKey(identifierStem)
+  const candidateList
+    = requestedAction && looksLikeTicketKey(identifierStem)
       ? PLAN_ARTIFACT_EXTENSIONS.map(
           extension => `YYYY-MM-DD-${hashPlanArtifactSources([identifierStem])}-${requestedAction}-plan.${extension}`
         )
@@ -434,7 +435,9 @@ export const resolvePlanArtifactReference = (
 };
 
 const resolveDatePrefix = (createdAt?: Date | string): string => {
-  const date = createdAt instanceof Date ? createdAt : typeof createdAt === 'string' ? new Date(createdAt) : new Date();
+  let date = new Date();
+  if (createdAt instanceof Date) date = createdAt;
+  else if (typeof createdAt === 'string') date = new Date(createdAt);
   if (Number.isNaN(date.getTime())) {
     throw new Error(`Invalid createdAt value for plan artifact: ${createdAt}`);
   }

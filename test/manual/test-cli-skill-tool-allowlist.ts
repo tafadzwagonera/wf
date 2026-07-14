@@ -51,7 +51,7 @@ function main(): void {
   const implementToolsValue = implementToolsMatch?.[1] ?? '';
   assert(
     'IMPLEMENT_TOOLS constant includes Skill',
-    implementToolsValue.includes("'Skill'"),
+    implementToolsValue.includes('\'Skill\''),
     `Got: [${implementToolsValue}]`
   );
 
@@ -96,7 +96,7 @@ function main(): void {
   const stageToolsValue = stageToolsMatch?.[1] ?? '';
   assert(
     'ANTHROPIC_STAGE_TOOLS does not include Skill (agent baseline unchanged)',
-    !stageToolsValue.includes("'Skill'"),
+    !stageToolsValue.includes('\'Skill\''),
     `Got: [${stageToolsValue}]`
   );
 

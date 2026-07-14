@@ -1,12 +1,12 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { ErrorHandler } from '../shared/utils/error-handler';
 import { ValidationError, FileSystemError } from '../shared/utils/errors';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
@@ -48,20 +48,8 @@ export class IssueGenerateLookupCommand extends CommandRunner {
   async run(passedParams: string[], options?: IssueGenerateLookupOptions): Promise<void> {
     printExamples(ISSUE_GENERATE_LOOKUP_EXAMPLES);
 
-    try {
-      const token = passedParams[0]?.trim();
-      if (!token) {
-        throw new ValidationError('A token or hash is required');
-      }
-
-      const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
-      const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-      const artifactDir = resolveArtifactDir(artifactBaseDir, trackerName);
-
-      if (!fs.existsSync(artifactDir)) {
-        throw new FileSystemError(`No generated artifacts found under ${artifactDir}.`);
-      }
-
+    await executeAsyncWithCatch({ fn: async () => {
+      const { token, artifactDir } = this.resolveInputs(passedParams, options);
       const manifests = this.findMatchingManifests(artifactDir, token);
 
       if (manifests.length === 0) {
@@ -71,9 +59,27 @@ export class IssueGenerateLookupCommand extends CommandRunner {
       }
 
       this.renderLookupResults(token, artifactDir, manifests);
-    } catch (error) {
-      ErrorHandler.handle(error as Error);
+    } });
+  }
+
+  private resolveInputs(
+    passedParams: string[],
+    options?: IssueGenerateLookupOptions
+  ): { token: string; artifactDir: string } {
+    const token = passedParams[0]?.trim();
+    if (!token) {
+      throw new ValidationError('A token or hash is required');
     }
+
+    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
+    const artifactDir = resolveArtifactDir(artifactBaseDir, trackerName);
+
+    if (!fs.existsSync(artifactDir)) {
+      throw new FileSystemError(`No generated artifacts found under ${artifactDir}.`);
+    }
+
+    return { token, artifactDir };
   }
 
   @Option({
@@ -93,27 +99,39 @@ export class IssueGenerateLookupCommand extends CommandRunner {
   }
 
   private findMatchingManifests(artifactDir: string, token: string): GeneratedTicketSourceManifest[] {
-    return fs
+    const manifestPaths = fs
       .readdirSync(artifactDir)
       .filter(name => name.endsWith('.sources.json'))
-      .map(name => path.join(artifactDir, name))
-      .flatMap(manifestPath => {
-        try {
-          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as GeneratedTicketSourceManifest;
-          if (matchesGeneratedTicketToken(token, manifest.hash)) {
-            return [manifest];
-          }
+      .map(name => path.join(artifactDir, name));
 
-          const artifactStem = path.basename(manifest.artifactPath, path.extname(manifest.artifactPath));
-          if (artifactStem.includes(token.trim().toLowerCase())) {
-            return [manifest];
-          }
+    const results: GeneratedTicketSourceManifest[] = [];
+    for (const manifestPath of manifestPaths) {
+      const manifest = this.safeReadManifest(manifestPath);
+      if (!manifest) continue;
 
-          return [];
-        } catch {
-          return [];
-        }
-      });
+      const matchesByHash = matchesGeneratedTicketToken(token, manifest.hash);
+      const artifactStem = path.basename(manifest.artifactPath, path.extname(manifest.artifactPath));
+      const matchesByStem = artifactStem.includes(token.trim().toLowerCase());
+
+      if (matchesByHash || matchesByStem) {
+        results.push(manifest);
+      }
+    }
+    return results;
+  }
+
+  private safeReadManifest(manifestPath: string): GeneratedTicketSourceManifest | null {
+    if (!fs.existsSync(manifestPath)) return null;
+
+    const raw = fs.readFileSync(manifestPath, 'utf-8');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+    if (!parsed || typeof parsed !== 'object' || !('hash' in parsed)) return null;
+    return parsed as GeneratedTicketSourceManifest;
   }
 
   private renderLookupResults(token: string, artifactDir: string, manifests: GeneratedTicketSourceManifest[]): void {
@@ -121,24 +139,28 @@ export class IssueGenerateLookupCommand extends CommandRunner {
     console.log(chalk.gray(`  Scope   : ${artifactDir}`));
     console.log(chalk.gray(`  Matches : ${manifests.length}`));
 
-    manifests.forEach((manifest, index) => {
-      const artifactName = path.basename(manifest.artifactPath);
-      console.log(chalk.blue(`\n  [${index + 1}] ${artifactName}`));
-      console.log(chalk.gray(`     Hash    : ${manifest.hash}`));
-      console.log(chalk.gray(`     Created : ${manifest.createdAt}`));
-      console.log(chalk.gray(`     Format  : ${manifest.format}`));
-      console.log(chalk.gray('     Sources :'));
-
-      if (manifest.sources.length === 0) {
-        console.log(chalk.cyan('       1. <none recorded>'));
-        return;
-      }
-
-      manifest.sources.forEach((source, sourceIndex) => {
-        console.log(chalk.cyan(`       ${sourceIndex + 1}. ${source}`));
-      });
-    });
-
+    for (const [index, manifest] of manifests.entries()) {
+      this.renderManifestEntry(index, manifest);
+    }
     this.logger.success(`Resolved ${manifests.length} generated artifact(s)`);
+  }
+
+  private renderManifestEntry(index: number, manifest: GeneratedTicketSourceManifest): void {
+    console.log(chalk.blue(`\n  [${index + 1}] ${path.basename(manifest.artifactPath)}`));
+    console.log(chalk.gray(`     Hash    : ${manifest.hash}`));
+    console.log(chalk.gray(`     Created : ${manifest.createdAt}`));
+    console.log(chalk.gray(`     Format  : ${manifest.format}`));
+    this.renderManifestSources(manifest.sources);
+  }
+
+  private renderManifestSources(sources: string[]): void {
+    console.log(chalk.gray('     Sources :'));
+    if (sources.length === 0) {
+      console.log(chalk.cyan('       1. <none recorded>'));
+      return;
+    }
+    for (const [i, source] of sources.entries()) {
+      console.log(chalk.cyan(`       ${i + 1}. ${source}`));
+    }
   }
 }

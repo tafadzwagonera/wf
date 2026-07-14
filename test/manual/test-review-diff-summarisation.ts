@@ -59,10 +59,10 @@ async function testReviewDiffSummarisation() {
 
     const segments = splitDiffByFile(diff);
     if (
-      segments.length === 3 &&
-      segments[0].file === 'src/foo.ts' &&
-      segments[1].file === 'src/bar.ts' &&
-      segments[2].file === 'README.md'
+      segments.length === 3
+      && segments[0].file === 'src/foo.ts'
+      && segments[1].file === 'src/bar.ts'
+      && segments[2].file === 'README.md'
     ) {
       pass('Test 1: splitDiffByFile splits 3-file diff correctly');
     } else {
@@ -193,7 +193,7 @@ async function testReviewDiffSummarisation() {
     const reviewStagePath = path.resolve(__dirname, '../../src/workflows/stages/review-stage.service.ts');
     const reviewStageSource = fs.readFileSync(reviewStagePath, 'utf-8');
 
-    const hasSummariseDiffImport = reviewStageSource.includes("from '../../review/summarise-diff'");
+    const hasSummariseDiffImport = reviewStageSource.includes('from \'../../review/summarise-diff\'');
     const hasSummariseDiffCall = reviewStageSource.includes('summariseDiff(');
     const hasSplitDiffCall = reviewStageSource.includes('splitDiffByFile(');
 

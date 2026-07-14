@@ -84,24 +84,24 @@ const specSource = fs.readFileSync(specPath, 'utf-8');
 
 assert(
   'spec tests adaptive-thinking-only models in execute()',
-  specSource.includes("'omits temperature for adaptive-thinking-only models'")
+  specSource.includes('\'omits temperature for adaptive-thinking-only models\'')
 );
 
-assert('spec tests Sonnet 5 in execute()', specSource.includes("'omits temperature for Sonnet 5'"));
+assert('spec tests Sonnet 5 in execute()', specSource.includes('\'omits temperature for Sonnet 5\''));
 
 assert(
   'spec tests non-restricted models in execute()',
-  specSource.includes("'includes temperature for non-restricted models'")
+  specSource.includes('\'includes temperature for non-restricted models\'')
 );
 
 assert(
   'spec tests fable and mythos branches',
-  specSource.includes("'claude-fable-5'") && specSource.includes("'claude-mythos-preview'")
+  specSource.includes('\'claude-fable-5\'') && specSource.includes('\'claude-mythos-preview\'')
 );
 
 assert(
   'spec tests adaptive-thinking-only models in executeWithHistory()',
-  specSource.includes('executeWithHistory') && specSource.includes("'claude-opus-4-7'")
+  specSource.includes('executeWithHistory') && specSource.includes('\'claude-opus-4-7\'')
 );
 
 console.log(

@@ -427,8 +427,8 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     const repoHint = context?.affectedRepositories?.length
       ? `Affected repositories (hint): ${(context.affectedRepositories as string[]).join(', ')}\n\n`
       : '';
-    const retryFeedbackBlock =
-      Array.isArray(context?.planQualityFeedback) && context.planQualityFeedback.length > 0
+    const retryFeedbackBlock
+      = Array.isArray(context?.planQualityFeedback) && context.planQualityFeedback.length > 0
         ? `Previous plan attempt was rejected for these exact reasons:\n${(context.planQualityFeedback as string[]).join('\n')}\n\nRegenerate the full plan and fix every listed problem. Do not repeat any rejected step wording.\n\n`
         : '';
     const repoExample = resolvePlanPromptRepoExample(context?.affectedRepositories as string[] | undefined);
@@ -457,14 +457,14 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
     const agentAnalysisBlock = context?.agentAnalysis
       ? `Prior analysis (from agent codebase exploration — use as structured input, output JSON only):\n${(context.agentAnalysis as string).slice(0, 8000)}\n\n`
       : '';
-    const hasNodeTestInfra =
-      context?.testInfra &&
-      typeof context.testInfra === 'object' &&
-      'ecosystems' in context.testInfra &&
-      Array.isArray((context.testInfra as { ecosystems?: Array<{ ecosystem?: string }> }).ecosystems) &&
-      (context.testInfra as { ecosystems: Array<{ ecosystem?: string }> }).ecosystems.some(
-        ecosystem => ecosystem.ecosystem === 'node'
-      );
+    const hasNodeTestInfra
+      = context?.testInfra
+        && typeof context.testInfra === 'object'
+        && 'ecosystems' in context.testInfra
+        && Array.isArray((context.testInfra as { ecosystems?: Array<{ ecosystem?: string }> }).ecosystems)
+        && (context.testInfra as { ecosystems: Array<{ ecosystem?: string }> }).ecosystems.some(
+          ecosystem => ecosystem.ecosystem === 'node'
+        );
 
     const prompt = `${agentAnalysisBlock}
 Action: ${action}
@@ -636,7 +636,8 @@ Return ONLY a valid JSON object with these fields:
   }
 }`;
 
-    // Configurable via stages.plan.maxTokens in wf.config.ts; defaults to DEFAULT_PLAN_MAX_TOKENS to accommodate verbose Opus output
+    // Configurable via stages.plan.maxTokens in wf.config.ts;
+    // defaults to DEFAULT_PLAN_MAX_TOKENS to accommodate verbose Opus output
     const planMaxTokens = this.configService.get<number>('stages.plan.maxTokens', DEFAULT_PLAN_MAX_TOKENS);
 
     const response = await this.execute({
@@ -648,9 +649,9 @@ Return ONLY a valid JSON object with these fields:
     });
 
     if (
-      response.stopReason === 'max_tokens' ||
-      response.finishReason === 'length' ||
-      response.finishReason === 'MAX_TOKENS'
+      response.stopReason === 'max_tokens'
+      || response.finishReason === 'length'
+      || response.finishReason === 'MAX_TOKENS'
     ) {
       throw new AIError(
         'Plan response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.plan.maxTokens in wf.config.ts.',
@@ -747,9 +748,9 @@ Return ONLY a valid JSON object:
     });
 
     if (
-      response.stopReason === 'max_tokens' ||
-      response.finishReason === 'length' ||
-      response.finishReason === 'MAX_TOKENS'
+      response.stopReason === 'max_tokens'
+      || response.finishReason === 'length'
+      || response.finishReason === 'MAX_TOKENS'
     ) {
       throw new AIError(
         'Findings response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.implement.maxTokens in wf.config.ts.',
@@ -789,8 +790,8 @@ Analyze the diff and commit history to generate an appropriate commit message.`;
       detectedFormat = this.detectCommitFormat(commitHistory);
     }
 
-    const formatInstructions =
-      detectedFormat === 'conventional'
+    const formatInstructions
+      = detectedFormat === 'conventional'
         ? `Use conventional commits format: <type>(<scope>): <subject>
 Types: feat, fix, docs, style, refactor, test, chore
 Example: "feat(auth): add JWT token validation"`
@@ -949,9 +950,9 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     }
 
     if (
-      response.stopReason === 'max_tokens' ||
-      response.finishReason === 'length' ||
-      response.finishReason === 'MAX_TOKENS'
+      response.stopReason === 'max_tokens'
+      || response.finishReason === 'length'
+      || response.finishReason === 'MAX_TOKENS'
     ) {
       throw new AIError(
         'Review response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.review.maxTokens in wf.config.ts.',
@@ -1030,12 +1031,12 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
       return { provider, model };
     }
 
-    const stageProvider =
-      this.configService.get<string>(`stages.${stage}.provider`) ??
-      this.configService.get<string>(`ai.stages.${stage}.provider`);
-    const stageModel =
-      this.configService.get<string>(`stages.${stage}.model`) ??
-      this.configService.get<string>(`ai.stages.${stage}.model`);
+    const stageProvider
+      = this.configService.get<string>(`stages.${stage}.provider`)
+        ?? this.configService.get<string>(`ai.stages.${stage}.provider`);
+    const stageModel
+      = this.configService.get<string>(`stages.${stage}.model`)
+        ?? this.configService.get<string>(`ai.stages.${stage}.model`);
 
     if (!stageProvider && !stageModel) {
       return { provider, model };

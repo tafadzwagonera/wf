@@ -200,9 +200,9 @@ async function main() {
     }
 
     if (
-      executedProvider === 'openai' &&
-      capturedStdout.includes('Repo Scoped Title') &&
-      capturedStdout.includes('Repo-scoped config loaded successfully.')
+      executedProvider === 'openai'
+      && capturedStdout.includes('Repo Scoped Title')
+      && capturedStdout.includes('Repo-scoped config loaded successfully.')
     ) {
       pass('generated output used the mocked synthesized ticket content');
       passed += 1;

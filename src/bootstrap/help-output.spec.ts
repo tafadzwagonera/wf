@@ -1,8 +1,8 @@
 jest.mock('chalk', () => {
-  const wrap =
-    (label: string) =>
-    (value: string): string =>
-      `<${label}>${value}</${label}>`;
+  const wrap
+    = (label: string) =>
+      (value: string): string =>
+        `<${label}>${value}</${label}>`;
 
   return {
     __esModule: true,
@@ -57,8 +57,8 @@ describe('getHelpText', () => {
     const helpText = getHelpText(['issue:generate', '--help'], catalog);
     const plainLines = helpText.split('\n').map(stripStyleTags);
     const issueGenerateEntry = catalog['issue:generate'];
-    const descriptionColumns =
-      issueGenerateEntry.options?.map(option => {
+    const descriptionColumns
+      = issueGenerateEntry.options?.map(option => {
         const line = plainLines.find(candidate => candidate.startsWith(`  ${option.flags}`));
         if (!line) {
           return -1;

@@ -191,10 +191,10 @@ async function main(): Promise<void> {
   const usage = extractUsageFromEvent(usageEvent);
   assert(
     'extractUsageFromEvent returns correct tokens',
-    usage?.inputTokens === 1000 &&
-      usage?.outputTokens === 500 &&
-      usage?.totalTokens === 1500 &&
-      usage?.compacted === false,
+    usage?.inputTokens === 1000
+    && usage?.outputTokens === 500
+    && usage?.totalTokens === 1500
+    && usage?.compacted === false,
     JSON.stringify(usage)
   );
 

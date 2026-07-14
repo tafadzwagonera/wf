@@ -26,6 +26,21 @@ const assert = (label: string, condition: boolean): void => {
 };
 
 /**
+ * Check whether a question object contains a `prefix:` property within ~10 lines.
+ *
+ * @param lines - All source lines of the file
+ * @param startIndex - Index of the `type:` line that opens the question object
+ * @returns True when `prefix:` appears before the closing brace
+ */
+const hasNearbyPrefix = (lines: string[], startIndex: number): boolean => {
+  for (let k = startIndex; k < Math.min(startIndex + 10, lines.length); k++) {
+    if (/prefix:/.test(lines[k])) return true;
+    if (/^\s*\}/.test(lines[k]) && k > startIndex) return false;
+  }
+  return false;
+};
+
+/**
  * Finds inquirer prompt objects that are missing `prefix: ''`.
  *
  * Scans for `inquirer.prompt(` or `this.inquirer(` call sites, then checks
@@ -38,25 +53,13 @@ const findMissingPrefix = (file: string, content: string): { line: number; text:
   for (let i = 0; i < lines.length; i++) {
     // Detect inquirer prompt call with array argument
     if (
-      /inquirer\.prompt\s*[(<]|this\.inquirer\s*\(/.test(lines[i]) ||
-      /inquirer\.prompt\s*[(<]|this\.inquirer\s*\(/.test(lines[i - 1] ?? '')
+      /inquirer\.prompt\s*[(<]|this\.inquirer\s*\(/.test(lines[i])
+      || /inquirer\.prompt\s*[(<]|this\.inquirer\s*\(/.test(lines[i - 1] ?? '')
     ) {
       // Walk forward to find each `type:` property (marks start of a question object)
       for (let j = i; j < Math.min(i + 30, lines.length); j++) {
-        if (/^\s*type:\s*['"]/.test(lines[j])) {
-          // Check the next ~10 lines for `prefix:`
-          let hasPrefix = false;
-          for (let k = j; k < Math.min(j + 10, lines.length); k++) {
-            if (/prefix:/.test(lines[k])) {
-              hasPrefix = true;
-              break;
-            }
-            // Stop at closing brace of the object
-            if (/^\s*\}/.test(lines[k]) && k > j) break;
-          }
-          if (!hasPrefix) {
-            violations.push({ line: j + 1, text: lines[j].trim() });
-          }
+        if (/^\s*type:\s*['"]/.test(lines[j]) && !hasNearbyPrefix(lines, j)) {
+          violations.push({ line: j + 1, text: lines[j].trim() });
         }
         // Stop scanning if we leave the prompt call
         if (/^\s*\]\s*\)/.test(lines[j]) && j > i + 1) break;
@@ -102,7 +105,7 @@ const run = async (): Promise<void> => {
   assert('All inquirer prompt objects set prefix to suppress the default `?`', allViolations.length === 0);
 
   if (allViolations.length > 0) {
-    console.log(chalk.yellow("\n  Missing `prefix: ''` in:"));
+    console.log(chalk.yellow('\n  Missing `prefix: \'\'` in:'));
     for (const v of allViolations) {
       console.log(chalk.yellow(`    ${v}`));
     }

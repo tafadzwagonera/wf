@@ -5,8 +5,8 @@ import { FormatConverterService } from '../common/converters/format-converter.se
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { ErrorHandler } from '../shared/utils/error-handler';
 import { ValidationError, FileSystemError } from '../shared/utils/errors';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { TicketPriority, TicketType } from '../common/dto/universal-ticket.dto';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
@@ -14,8 +14,8 @@ import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { JiraAdapter } from '../integrations/issue-trackers/jira/jira-adapter';
 import { stripRedundantSections } from '../common/utils/markdown-text';
 import chalk from 'chalk';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 interface IssueCreateOptions {
   format?: string;
@@ -37,62 +37,49 @@ interface DescriptionFormattingStats {
   suspiciousMarkers: string[];
 }
 
+const createEmptyFormattingStats = (): DescriptionFormattingStats => ({
+  headingCount: 0,
+  paragraphCount: 0,
+  codeBlockCount: 0,
+  bulletListCount: 0,
+  orderedListCount: 0,
+  suspiciousMarkers: [],
+});
+
+const NODE_TYPE_COUNTERS: Record<string, keyof DescriptionFormattingStats> = {
+  heading: 'headingCount',
+  paragraph: 'paragraphCount',
+  codeBlock: 'codeBlockCount',
+  bulletList: 'bulletListCount',
+  orderedList: 'orderedListCount',
+};
+
+const detectSuspiciousMarkers = (text: string): string[] => {
+  const markers: string[] = [];
+  if (text.includes('{code')) markers.push('raw {code} marker found in text node');
+  if (text.includes('{noformat}')) markers.push('raw {noformat} marker found in text node');
+  if (text.includes('{{') || text.includes('}}')) markers.push('raw "{{...}}" inline code marker found in text node');
+  if (/^\*\s+/m.test(text)) markers.push('raw "*" bullet marker found in paragraph text');
+  return markers;
+};
+
 const buildDescriptionFormattingStats = (
   node: unknown,
-  stats: DescriptionFormattingStats = {
-    headingCount: 0,
-    paragraphCount: 0,
-    codeBlockCount: 0,
-    bulletListCount: 0,
-    orderedListCount: 0,
-    suspiciousMarkers: [],
-  }
+  stats: DescriptionFormattingStats = createEmptyFormattingStats()
 ): DescriptionFormattingStats => {
-  if (!node || typeof node !== 'object') {
-    return stats;
+  if (!node || typeof node !== 'object') return stats;
+
+  const adfNode = node as { type?: string; text?: string; content?: unknown[] };
+  const counterKey = adfNode.type ? NODE_TYPE_COUNTERS[adfNode.type] : undefined;
+
+  if (counterKey) (stats[counterKey] as number)++;
+  if (adfNode.type === 'text' && typeof adfNode.text === 'string') {
+    stats.suspiciousMarkers.push(...detectSuspiciousMarkers(adfNode.text));
   }
 
-  const adfNode = node as {
-    type?: string;
-    text?: string;
-    content?: unknown[];
-  };
-
-  switch (adfNode.type) {
-    case 'heading':
-      stats.headingCount++;
-      break;
-    case 'paragraph':
-      stats.paragraphCount++;
-      break;
-    case 'codeBlock':
-      stats.codeBlockCount++;
-      break;
-    case 'bulletList':
-      stats.bulletListCount++;
-      break;
-    case 'orderedList':
-      stats.orderedListCount++;
-      break;
-    case 'text':
-      if (typeof adfNode.text === 'string') {
-        if (adfNode.text.includes('{code')) {
-          stats.suspiciousMarkers.push('raw {code} marker found in text node');
-        }
-        if (adfNode.text.includes('{noformat}')) {
-          stats.suspiciousMarkers.push('raw {noformat} marker found in text node');
-        }
-        if (adfNode.text.includes('{{') || adfNode.text.includes('}}')) {
-          stats.suspiciousMarkers.push('raw "{{...}}" inline code marker found in text node');
-        }
-        if (/^\*\s+/m.test(adfNode.text)) {
-          stats.suspiciousMarkers.push('raw "*" bullet marker found in paragraph text');
-        }
-      }
-      break;
+  for (const child of adfNode.content ?? []) {
+    buildDescriptionFormattingStats(child, stats);
   }
-
-  adfNode.content?.forEach(child => buildDescriptionFormattingStats(child, stats));
   return stats;
 };
 
@@ -100,8 +87,8 @@ const buildJiraPayloadPreviewLines = (payload: Record<string, unknown>): string[
   const description = (payload.fields as { description?: unknown } | undefined)?.description;
   const stats = buildDescriptionFormattingStats(description);
   const suspiciousMarkers = stats.suspiciousMarkers.length > 0 ? stats.suspiciousMarkers.join('; ') : 'none';
-  const looksJiraSafe =
-    stats.suspiciousMarkers.length === 0 && stats.headingCount + stats.codeBlockCount + stats.bulletListCount > 0;
+  const looksJiraSafe
+    = stats.suspiciousMarkers.length === 0 && stats.headingCount + stats.codeBlockCount + stats.bulletListCount > 0;
 
   return [
     'Formatting Summary',
@@ -115,52 +102,46 @@ const buildJiraPayloadPreviewLines = (payload: Record<string, unknown>): string[
   ];
 };
 
-const buildTicketPreviewLines = (description: string): string[] => {
-  const trimmedDescription = description.trim();
-  if (!trimmedDescription) {
-    return ['Ticket Preview', '  No description content found'];
-  }
-
-  const lines = trimmedDescription.split('\n').map(line => line.trimEnd());
+const splitIntoSectionBlocks = (lines: string[]): string[][] => {
   const blocks: string[][] = [];
-  let currentBlock: string[] = [];
+  let current: string[] = [];
 
   for (const line of lines) {
-    const startsNewSection =
-      currentBlock.length > 0 &&
-      /^#{3,4}\s+/.test(line) &&
-      currentBlock.some(existingLine => existingLine.trim().length > 0);
+    const isNewSection = current.length > 0
+      && /^#{3,4}\s+/.test(line)
+      && current.some(l => l.trim().length > 0);
 
-    if (startsNewSection) {
-      blocks.push(currentBlock);
-      currentBlock = [line];
+    if (isNewSection) {
+      blocks.push(current);
+      current = [line];
       continue;
     }
-
-    currentBlock.push(line);
+    current.push(line);
   }
+  if (current.length > 0) blocks.push(current);
+  return blocks;
+};
 
-  if (currentBlock.length > 0) {
-    blocks.push(currentBlock);
-  }
-
-  const previewLines: string[] = [];
-  let usedBlockCount = 0;
+const selectPreviewBlocks = (blocks: string[][]): string[] => {
+  const preview: string[] = [];
+  let used = 0;
 
   for (const block of blocks) {
-    const nextLength = previewLines.length + block.length;
-    if (usedBlockCount >= 3 || (previewLines.length > 0 && nextLength > 24)) {
-      break;
-    }
-    previewLines.push(...block);
-    usedBlockCount++;
+    if (used >= 3 || (preview.length > 0 && preview.length + block.length > 24)) break;
+    preview.push(...block);
+    used++;
   }
+  return preview;
+};
 
-  if (previewLines.length < lines.length) {
-    previewLines.push('...');
-  }
+const buildTicketPreviewLines = (description: string): string[] => {
+  const trimmed = description.trim();
+  if (!trimmed) return ['Ticket Preview', '  No description content found'];
 
-  return ['Ticket Preview', ...previewLines.map(line => `  ${line}`)];
+  const lines = trimmed.split('\n').map(line => line.trimEnd());
+  const preview = selectPreviewBlocks(splitIntoSectionBlocks(lines));
+  if (preview.length < lines.length) preview.push('...');
+  return ['Ticket Preview', ...preview.map(line => '  ' + line)];
 };
 
 const STDIN_TIMEOUT_IN_MS = 30_000;
@@ -252,158 +233,117 @@ export class IssueCreateCommand extends CommandRunner {
   async run(passedParams: string[], options?: IssueCreateOptions): Promise<void> {
     if (!options?.silent) {
       printExamples(ISSUE_CREATE_EXAMPLES);
+      warnOnIgnoredRepos(options?.repos);
     }
 
-    const inputPath = passedParams[0];
+    await executeAsyncWithCatch({ fn: async () => {
+      const { ticket, trackerName } = await this.resolveTicketInput(passedParams[0], options);
+
+      if (options?.dryRun) return this.previewDryRun(ticket, trackerName);
+
+      await this.executeCreate(ticket, trackerName, options);
+    } });
+  }
+
+  private async resolveTicketInput(inputPath: string | undefined, options?: IssueCreateOptions) {
     const stdinAvailable = !inputPath && !process.stdin.isTTY;
-
-    try {
-      if (!inputPath && !stdinAvailable) {
-        throw new ValidationError('Input file path is required when using --file source');
-      }
-
-      const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
-      if (!options?.silent) {
-        warnOnIgnoredRepos(options?.repos);
-      }
-
-      let content: string;
-      let format: string;
-
-      if (stdinAvailable) {
-        content = await readStdin();
-        if (!content.trim()) {
-          throw new ValidationError(
-            'No content received from stdin. Pipe content to stdin or pass an input file path as the first argument.'
-          );
-        }
-        format = options?.format ?? 'md';
-        if (!options?.silent) {
-          console.log(chalk.bold.cyan(`\n📋 Creating Ticket from stdin\n`));
-          console.log(chalk.gray(`  Detected format: ${format}`));
-        }
-      } else {
-        const resolved = path.resolve(inputPath);
-        const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-        const artifactPath = path.join(resolveArtifactDir(repoBaseDir, trackerName), path.basename(inputPath));
-        const inputFilePath = fs.existsSync(resolved)
-          ? resolved
-          : fs.existsSync(artifactPath)
-            ? artifactPath
-            : resolved;
-
-        if (!fs.existsSync(inputFilePath)) {
-          throw new FileSystemError(`Input file not found: ${inputFilePath}. Verify the file path and try again.`);
-        }
-
-        if (!options?.silent) {
-          console.log(chalk.bold.cyan(`\n📋 Creating Ticket from Input\n`));
-          console.log(chalk.gray(`  Input file: ${inputFilePath}`));
-        }
-
-        content = fs.readFileSync(inputFilePath, 'utf-8');
-        const detected = options?.format ?? this.formatConverterService.detectFormat(inputFilePath);
-
-        if (!detected) {
-          throw new ValidationError(
-            `Unable to detect format from file extension in '${inputFilePath}'. Use --format to specify explicitly.`
-          );
-        }
-        format = detected;
-
-        if (!options?.silent) {
-          console.log(chalk.gray(`  Detected format: ${format}`));
-        }
-      }
-
-      const converter = this.formatConverterService.getConverter(format);
-      const ticket = converter.parse(content);
-
-      // Apply command-line overrides
-      if (options?.ticketProject) {
-        ticket.project = options.ticketProject;
-      }
-      if (options?.type) {
-        ticket.type = options.type as TicketType;
-      }
-      if (options?.priority) {
-        ticket.priority = options.priority as TicketPriority;
-      }
-
-      ticket.description = stripRedundantSections(ticket.description);
-
-      // Get tracker adapter
-      if (!options?.silent) {
-        console.log(chalk.gray(`  Target tracker: ${trackerName}\n`));
-      }
-
-      // Dry run mode - just validate
-      if (options?.dryRun) {
-        this.dryRunPreview.showHeader('issue:create', ticket.title?.substring(0, 40));
-
-        const payload =
-          trackerName === 'jira'
-            ? this.jiraAdapter.buildCreatePayload(ticket)
-            : {
-                title: ticket.title,
-                type: ticket.type || 'task',
-                priority: ticket.priority || 'medium',
-                project: ticket.project || '<from config>',
-              };
-
-        this.dryRunPreview.previewApiCall({
-          method: 'POST',
-          endpoint: `/${trackerName}/issues`,
-          platform: trackerName,
-          description: `Create ticket on ${trackerName}`,
-          estimatedResponse: '201 Created — ticket key and URL returned',
-          payloadPreviewLines:
-            trackerName === 'jira'
-              ? [...buildJiraPayloadPreviewLines(payload), '', ...buildTicketPreviewLines(ticket.description)]
-              : [],
-        });
-
-        this.dryRunPreview.showSummary({
-          apiCallCount: 1,
-          fileCreatedCount: 0,
-          fileModifiedCount: 0,
-          gitOperationCount: 0,
-          terminalOutputLines: [
-            '✅ Ticket created successfully!',
-            '',
-            `Platform: ${trackerName}`,
-            'Key: <tracker-assigned-key>',
-            'ID: <tracker-assigned-id>',
-            'URL: <tracker-ticket-url>',
-          ],
-        });
-
-        this.dryRunPreview.showValidationResult();
-        return;
-      }
-
-      // Create ticket on tracker
-      const adapter = this.issueTrackerService.getAdapter(trackerName);
-      if (!options?.silent) {
-        console.log(chalk.cyan('🚀 Creating ticket on tracker...\n'));
-      }
-      const reference = await adapter.createTicket(ticket);
-
-      if (options?.silent) {
-        console.log(reference.key);
-      } else {
-        console.log(chalk.green('✅ Ticket created successfully!\n'));
-        console.log(chalk.bold('Tracker:'), chalk.cyan(reference.tracker));
-        console.log(chalk.bold('Key:'), chalk.bold.cyan(reference.key));
-        console.log(chalk.bold('ID:'), chalk.cyan(reference.id));
-        if (reference.url) {
-          console.log(chalk.bold('URL:'), chalk.cyan(reference.url));
-        }
-        console.log();
-      }
-    } catch (error) {
-      ErrorHandler.handle(error as Error);
+    if (!inputPath && !stdinAvailable) {
+      throw new ValidationError('Input file path is required when using --file source');
     }
+
+    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    const { content, format } = stdinAvailable
+      ? await this.readFromStdin(options)
+      : this.readFromFile(inputPath!, trackerName, options);
+
+    const converter = this.formatConverterService.getConverter(format);
+    const ticket = converter.parse(content);
+
+    if (options?.ticketProject) ticket.project = options.ticketProject;
+    if (options?.type) ticket.type = options.type as TicketType;
+    if (options?.priority) ticket.priority = options.priority as TicketPriority;
+    ticket.description = stripRedundantSections(ticket.description);
+
+    if (!options?.silent) console.log(chalk.gray(`  Target tracker: ${trackerName}\n`));
+    return { ticket, trackerName };
+  }
+
+  private async readFromStdin(options?: IssueCreateOptions): Promise<{ content: string; format: string }> {
+    const content = await readStdin();
+    if (!content.trim()) {
+      throw new ValidationError('No content received from stdin. Pipe content to stdin or pass an input file path as the first argument.');
+    }
+    const format = options?.format ?? 'md';
+    if (!options?.silent) {
+      console.log(chalk.bold.cyan(`\n📋 Creating Ticket from stdin\n`));
+      console.log(chalk.gray(`  Detected format: ${format}`));
+    }
+    return { content, format };
+  }
+
+  private readFromFile(
+    inputPath: string, trackerName: string, options?: IssueCreateOptions,
+  ): { content: string; format: string } {
+    const resolved = path.resolve(inputPath);
+    const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
+    const artifactPath = path.join(resolveArtifactDir(repoBaseDir, trackerName), path.basename(inputPath));
+    let inputFilePath = resolved;
+    if (!fs.existsSync(resolved) && fs.existsSync(artifactPath)) inputFilePath = artifactPath;
+
+    if (!fs.existsSync(inputFilePath)) {
+      throw new FileSystemError(`Input file not found: ${inputFilePath}. Verify the file path and try again.`);
+    }
+
+    if (!options?.silent) {
+      console.log(chalk.bold.cyan(`\n📋 Creating Ticket from Input\n`));
+      console.log(chalk.gray(`  Input file: ${inputFilePath}`));
+    }
+
+    const content = fs.readFileSync(inputFilePath, 'utf-8');
+    const format = options?.format ?? this.formatConverterService.detectFormat(inputFilePath);
+    if (!format) {
+      throw new ValidationError(`Unable to detect format from file extension in '${inputFilePath}'. Use --format to specify explicitly.`);
+    }
+
+    if (!options?.silent) console.log(chalk.gray(`  Detected format: ${format}`));
+    return { content, format };
+  }
+
+  private previewDryRun(ticket: any, trackerName: string): void {
+    this.dryRunPreview.showHeader('issue:create', ticket.title?.substring(0, 40));
+    const payload = trackerName === 'jira'
+      ? this.jiraAdapter.buildCreatePayload(ticket)
+      : { title: ticket.title, type: ticket.type || 'task', priority: ticket.priority || 'medium', project: ticket.project || '<from config>' };
+    this.dryRunPreview.previewApiCall({
+      method: 'POST', endpoint: `/${trackerName}/issues`, platform: trackerName,
+      description: `Create ticket on ${trackerName}`, estimatedResponse: '201 Created — ticket key and URL returned',
+      payloadPreviewLines: trackerName === 'jira'
+        ? [...buildJiraPayloadPreviewLines(payload), '', ...buildTicketPreviewLines(ticket.description)]
+        : [],
+    });
+    this.dryRunPreview.showSummary({
+      apiCallCount: 1, fileCreatedCount: 0, fileModifiedCount: 0, gitOperationCount: 0,
+      terminalOutputLines: ['✅ Ticket created successfully!', '', `Platform: ${trackerName}`,
+        'Key: <tracker-assigned-key>', 'ID: <tracker-assigned-id>', 'URL: <tracker-ticket-url>'],
+    });
+    this.dryRunPreview.showValidationResult();
+  }
+
+  private async executeCreate(ticket: any, trackerName: string, options?: IssueCreateOptions): Promise<void> {
+    const adapter = this.issueTrackerService.getAdapter(trackerName);
+    if (!options?.silent) console.log(chalk.cyan('🚀 Creating ticket on tracker...\n'));
+    const reference = await adapter.createTicket(ticket);
+
+    if (options?.silent) {
+      console.log(reference.key);
+      return;
+    }
+    console.log(chalk.green('✅ Ticket created successfully!\n'));
+    console.log(chalk.bold('Tracker:'), chalk.cyan(reference.tracker));
+    console.log(chalk.bold('Key:'), chalk.bold.cyan(reference.key));
+    console.log(chalk.bold('ID:'), chalk.cyan(reference.id));
+    if (reference.url) console.log(chalk.bold('URL:'), chalk.cyan(reference.url));
+    console.log();
   }
 
   @Option({

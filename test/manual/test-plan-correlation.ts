@@ -101,8 +101,8 @@ const run = async (): Promise<void> => {
   // 3. Source files read from repoDir
   assert(
     '3. correlatePlans reads source files from repoDir for matched plans',
-    withOverlap.matches[0].sourceSnippets.length >= 1 &&
-      withOverlap.matches[0].sourceSnippets[0].content.includes('PricingService')
+    withOverlap.matches[0].sourceSnippets.length >= 1
+    && withOverlap.matches[0].sourceSnippets[0].content.includes('PricingService')
   );
 
   // 4. Missing files skipped
@@ -125,10 +125,10 @@ const run = async (): Promise<void> => {
   const formatted = formatPlanCorrelationPromptSection(withOverlap);
   assert(
     '6. formatPlanCorrelationPromptSection formats keyword matches with overlap and shared keywords',
-    formatted.includes('Prior plan correlation') &&
-      formatted.includes('[fix]') &&
-      formatted.includes('overlap:') &&
-      formatted.includes('shared:')
+    formatted.includes('Prior plan correlation')
+    && formatted.includes('[fix]')
+    && formatted.includes('overlap:')
+    && formatted.includes('shared:')
   );
 
   // 7. Empty matches

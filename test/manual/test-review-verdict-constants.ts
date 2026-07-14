@@ -81,7 +81,7 @@ async function run(): Promise<void> {
   // 4. Verify no raw verdict string literals remain in call-site files
   for (const file of CALL_SITE_FILES) {
     const source = readSource(file);
-    const rawLiterals = ["'Approved'", "'Changes requested'", '"Approved"', '"Changes requested"'];
+    const rawLiterals = ['\'Approved\'', '\'Changes requested\'', '"Approved"', '"Changes requested"'];
     for (const raw of rawLiterals) {
       if (source.includes(raw)) {
         throw new Error(`Raw string literal ${raw} found in ${file} — should use constant instead`);
@@ -121,13 +121,13 @@ async function run(): Promise<void> {
   const typesSource = readSource('shared/types/review.types.ts');
   assertIncludes(
     typesSource,
-    "export const REVIEW_VERDICT_APPROVED = 'Approved' as const",
+    'export const REVIEW_VERDICT_APPROVED = \'Approved\' as const',
     'shared/types/review.types.ts',
     'Constants must be defined in review.types.ts'
   );
   assertIncludes(
     typesSource,
-    "export const REVIEW_VERDICT_CHANGES_REQUESTED = 'Changes requested' as const",
+    'export const REVIEW_VERDICT_CHANGES_REQUESTED = \'Changes requested\' as const',
     'shared/types/review.types.ts',
     'Constants must be defined in review.types.ts'
   );

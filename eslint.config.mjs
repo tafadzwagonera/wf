@@ -1,6 +1,6 @@
 // @ts-check
 import eslint from '@eslint/js';
-import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
+import stylistic from '@stylistic/eslint-plugin';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
@@ -10,7 +10,17 @@ export default tseslint.config(
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
-  eslintPluginPrettierRecommended,
+
+  // Settings mirror the former .prettierrc
+  stylistic.configs.customize({
+    arrowParens: false,
+    braceStyle: '1tbs',
+    commaDangle: 'only-multiline',
+    indent: 2,
+    quoteProps: 'as-needed',
+    quotes: 'single',
+    semi: true,
+  }),
   {
     languageOptions: {
       globals: {
@@ -36,7 +46,23 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-enum-comparison': 'off',
       '@typescript-eslint/require-await': 'off',
       '@typescript-eslint/restrict-template-expressions': 'off',
-      "prettier/prettier": ["error", { endOfLine: "auto" }],
+
+      // arrowParens: "avoid" — never add parens for a single parameter
+      '@stylistic/arrow-parens': ['error', 'as-needed', { requireForBlockBody: false }],
+      // singleQuote: true — use double quotes to avoid escaping
+      '@stylistic/quotes': ['error', 'single', { allowTemplateLiterals: 'always', avoidEscape: true }],
+      // printWidth: 120
+      'max-len': ['error', { code: 120, ignoreUrls: true, ignoreStrings: true, ignoreTemplateLiterals: true, ignoreRegExpLiterals: true }],
+      'max-depth': ['error', 4],
+      'no-nested-ternary': 'error',
+      'max-params': ['error', 7],
+      'max-lines-per-function': ['warn', { max: 15, skipBlankLines: true, skipComments: true }],
+    },
+  },
+  {
+    files: ['src/commands/*.command.ts'],
+    rules: {
+      'max-lines-per-function': ['warn', { max: 20, skipBlankLines: true, skipComments: true }],
     },
   },
   {
@@ -47,6 +73,8 @@ export default tseslint.config(
       '@typescript-eslint/no-require-imports': 'off',
       '@typescript-eslint/no-unused-vars': 'off',
       '@typescript-eslint/unbound-method': 'off',
+      'max-lines-per-function': 'off',
+      'max-params': 'off',
     },
   },
 );

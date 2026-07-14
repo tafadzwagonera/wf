@@ -6,6 +6,7 @@ import { LoggerService } from '../../../shared/logger/logger.service';
 import { ConversationContext } from './interfaces';
 import { StageAgentService } from '../stage-agent.service';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 describe('ConversationService Integration Tests', () => {
@@ -14,7 +15,8 @@ describe('ConversationService Integration Tests', () => {
   let chatUIService: jest.Mocked<ChatUIService>;
   let loggerService: jest.Mocked<LoggerService>;
   const testTicketKey = 'TEST-INTEGRATION-999';
-  const testDir = path.join(process.cwd(), 'jira');
+  const testRepoDir = path.join(os.tmpdir(), 'wf-conv-integration-test-repo');
+  const testDir = path.join(os.homedir(), '.wf', path.basename(testRepoDir));
   const testFilePath = path.join(testDir, `${testTicketKey}-conversation.json`);
 
   beforeEach(async () => {
@@ -76,11 +78,18 @@ describe('ConversationService Integration Tests', () => {
     jest.clearAllMocks();
   });
 
+  afterAll(() => {
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true });
+    }
+  });
+
   describe('File Persistence', () => {
     it('should save conversation to disk', async () => {
       const context: ConversationContext = {
         ticketKey: testTicketKey,
         stage: 'plan',
+        repoDir: testRepoDir,
         workflowState: { ticketContent: 'Test ticket' },
       };
 
@@ -104,6 +113,7 @@ describe('ConversationService Integration Tests', () => {
       const context: ConversationContext = {
         ticketKey: testTicketKey,
         stage: 'plan',
+        repoDir: testRepoDir,
         workflowState: { ticketContent: 'Test ticket' },
       };
 
@@ -127,7 +137,7 @@ describe('ConversationService Integration Tests', () => {
       }).compile();
 
       const newService = module.get<ConversationService>(ConversationService);
-      const loaded = await newService.loadConversation(testTicketKey);
+      const loaded = await newService.loadConversation(testTicketKey, testRepoDir);
 
       expect(loaded).toBeDefined();
       expect(loaded?.conversationId).toBe(original.conversationId);
@@ -146,7 +156,7 @@ describe('ConversationService Integration Tests', () => {
       // Write invalid JSON to file
       fs.writeFileSync(testFilePath, 'invalid json content');
 
-      const loaded = await service.loadConversation(testTicketKey);
+      const loaded = await service.loadConversation(testTicketKey, testRepoDir);
 
       expect(loaded).toBeNull();
       expect(loggerService.error).toHaveBeenCalledWith(expect.stringContaining('Failed to load conversation'));
@@ -156,6 +166,7 @@ describe('ConversationService Integration Tests', () => {
       const context: ConversationContext = {
         ticketKey: testTicketKey,
         stage: 'plan',
+        repoDir: testRepoDir,
         workflowState: { ticketContent: 'Test ticket' },
       };
 
@@ -180,6 +191,7 @@ describe('ConversationService Integration Tests', () => {
       const context: ConversationContext = {
         ticketKey: testTicketKey,
         stage: 'plan',
+        repoDir: testRepoDir,
         workflowState: { ticketContent: 'Test ticket' },
       };
 
@@ -203,7 +215,7 @@ describe('ConversationService Integration Tests', () => {
       }).compile();
 
       const service2 = module2.get<ConversationService>(ConversationService);
-      const conv2 = await service2.loadConversation(testTicketKey);
+      const conv2 = await service2.loadConversation(testTicketKey, testRepoDir);
 
       expect(conv2).toBeDefined();
       await service2.addUserMessage(conv2!.conversationId, 'Second message');
@@ -231,7 +243,7 @@ describe('ConversationService Integration Tests', () => {
       }).compile();
 
       const service3 = module3.get<ConversationService>(ConversationService);
-      const conv3 = await service3.loadConversation(testTicketKey);
+      const conv3 = await service3.loadConversation(testTicketKey, testRepoDir);
 
       expect(conv3?.messages.length).toBe(3);
       expect(conv3?.messages[0].content).toBe('First message');
@@ -244,6 +256,7 @@ describe('ConversationService Integration Tests', () => {
       const context: ConversationContext = {
         ticketKey: testTicketKey,
         stage: 'plan',
+        repoDir: testRepoDir,
         workflowState: { ticketContent: 'Test ticket' },
       };
 
@@ -273,7 +286,7 @@ describe('ConversationService Integration Tests', () => {
       }).compile();
 
       const service2 = module2.get<ConversationService>(ConversationService);
-      const conv2 = await service2.loadConversation(testTicketKey);
+      const conv2 = await service2.loadConversation(testTicketKey, testRepoDir);
 
       expect(conv2?.totalTokensUsed).toEqual({ input: 100, output: 50 });
 
@@ -295,6 +308,7 @@ describe('ConversationService Integration Tests', () => {
       const context: ConversationContext = {
         ticketKey: testTicketKey,
         stage: 'plan',
+        repoDir: testRepoDir,
         workflowState: { ticketContent: 'Test ticket' },
       };
 
@@ -315,6 +329,7 @@ describe('ConversationService Integration Tests', () => {
       const context: ConversationContext = {
         ticketKey: testTicketKey,
         stage: 'plan',
+        repoDir: testRepoDir,
         workflowState: { ticketContent: 'Test ticket' },
       };
 
@@ -336,6 +351,7 @@ describe('ConversationService Integration Tests', () => {
       const context: ConversationContext = {
         ticketKey: testTicketKey,
         stage: 'plan',
+        repoDir: testRepoDir,
         workflowState: { ticketContent: 'Test ticket' },
       };
 
@@ -348,7 +364,7 @@ describe('ConversationService Integration Tests', () => {
       await service.saveConversation(original);
 
       // Load and verify dates
-      const loaded = await service.loadConversation(testTicketKey);
+      const loaded = await service.loadConversation(testTicketKey, testRepoDir);
 
       expect(loaded?.createdAt).toBeInstanceOf(Date);
       expect(loaded?.updatedAt).toBeInstanceOf(Date);

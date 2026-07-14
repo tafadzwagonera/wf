@@ -3,11 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { Agent, OpenAIProvider, Runner, setTracingExportApiKey, tool } from '@openai/agents';
 import type { StreamedRunResult } from '@openai/agents';
 import { z } from 'zod';
-import * as fs from 'fs/promises';
-import * as os from 'os';
-import * as path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import chalk from 'chalk';
 import dayjs from 'dayjs';
 import { formatProgressMessage as formatAnthropicProgressMessage } from './adapters/anthropic-agent.adapter';
@@ -106,12 +106,9 @@ const formatCodexProgressMessage = (message: CodexCliMessage): string | null => 
   }
 
   if (message.type === 'item.completed' && message.item?.type === 'command_execution') {
-    const status =
-      message.item.exit_code === 0
-        ? 'completed'
-        : message.item.exit_code == null
-          ? 'status unknown'
-          : `exit ${message.item.exit_code}`;
+    let status = `exit ${message.item.exit_code}`;
+    if (message.item.exit_code === 0) status = 'completed';
+    if (message.item.exit_code == null) status = 'status unknown';
     const cmd = message.item.command ?? 'unknown';
     const shortCmd = cmd.length > 60 ? `${cmd.slice(0, 57)}...` : cmd;
     return `  [${CODEX_STAGE_LABEL}] Command ${status}: ${shortCmd}`;
@@ -138,10 +135,10 @@ const extractAssistantText = (message: ClaudeCliMessage): string | undefined => 
   let turnText = '';
   for (const block of blocks) {
     if (
-      typeof block === 'object' &&
-      block !== null &&
-      (block as Record<string, unknown>).type === 'text' &&
-      typeof (block as Record<string, unknown>).text === 'string'
+      typeof block === 'object'
+      && block !== null
+      && (block as Record<string, unknown>).type === 'text'
+      && typeof (block as Record<string, unknown>).text === 'string'
     ) {
       turnText += (block as { text: string }).text;
     }
@@ -220,10 +217,10 @@ export class StageAgentService {
       if (section) discoveryParts.push(section);
     }
     const discoveryBlock = discoveryParts.length > 0 ? `\n${discoveryParts.join('\n\n')}\n` : '';
-    const hasNodeTestInfra =
-      params.testInfra && params.testInfra.ecosystems.some(ecosystem => ecosystem.ecosystem === 'node');
-    const retryFeedbackBlock =
-      params.planQualityFeedback && params.planQualityFeedback.length > 0
+    const hasNodeTestInfra
+      = params.testInfra && params.testInfra.ecosystems.some(ecosystem => ecosystem.ecosystem === 'node');
+    const retryFeedbackBlock
+      = params.planQualityFeedback && params.planQualityFeedback.length > 0
         ? `Previous plan attempt was rejected for these exact reasons:\n${params.planQualityFeedback.join('\n')}\n\nRegenerate the full plan and fix every listed problem. Do not repeat any rejected step wording.\n\n`
         : '';
 
@@ -620,9 +617,9 @@ Return only the requested ticket markdown and preserve the required heading stru
   }
 
   private resolveStageProvider(stage: AgentStageName): 'anthropic' | 'openai' {
-    const provider =
-      this.configService.get<string>(`stages.${stage}.provider`) ??
-      this.configService.get<string>('ai.provider', 'anthropic');
+    const provider
+      = this.configService.get<string>(`stages.${stage}.provider`)
+        ?? this.configService.get<string>('ai.provider', 'anthropic');
     if (provider !== 'anthropic' && provider !== 'openai') {
       throw new Error(
         `${stage} stage agent backend is unsupported for provider "${provider}". Configure ${stage}.provider as anthropic or openai, or set stages.${stage}.backend to "standard".`
@@ -633,10 +630,20 @@ Return only the requested ticket markdown and preserve the required heading stru
 
   private resolveStageModel(stage: AgentStageName): string {
     return (
-      this.configService.get<string>(`stages.${stage}.model`) ??
-      this.configService.get<string>('ai.model') ??
-      (this.resolveStageProvider(stage) === 'openai' ? READ_ONLY_OPENAI_MODEL : READ_ONLY_ANTHROPIC_MODEL)
+      this.configService.get<string>(`stages.${stage}.model`)
+      ?? this.configService.get<string>('ai.model')
+      ?? (this.resolveStageProvider(stage) === 'openai' ? READ_ONLY_OPENAI_MODEL : READ_ONLY_ANTHROPIC_MODEL)
     );
+  }
+
+  private extractStreamError(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+    try {
+      return JSON.stringify(error) ?? 'unknown error';
+    } catch {
+      return 'unknown error';
+    }
   }
 
   private resolveStageTimeoutMs(stage: AgentStageName): number {
@@ -763,16 +770,14 @@ Return only the requested ticket markdown and preserve the required heading stru
         }
 
         if (message.type !== 'result') {
-          if (params.onProgress) {
-            const line = formatAnthropicProgressMessage(message);
-            if (line) params.onProgress(line);
-          }
+          const line = params.onProgress ? formatAnthropicProgressMessage(message) : null;
+          if (line) params.onProgress?.(line);
           continue;
         }
 
         if (message.subtype !== 'success' || message.is_error) {
-          const errorSummary =
-            'errors' in message && message.errors.length > 0 ? message.errors.join('; ') : 'unknown error';
+          const errorSummary
+            = 'errors' in message && message.errors.length > 0 ? message.errors.join('; ') : 'unknown error';
           throw new Error(`Claude Agent SDK failed (${message.subtype}): ${errorSummary}`);
         }
 
@@ -953,18 +958,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     }
 
     if (streamedRun.error) {
-      const streamError =
-        streamedRun.error instanceof Error
-          ? streamedRun.error.message
-          : typeof streamedRun.error === 'string'
-            ? streamedRun.error
-            : (() => {
-                try {
-                  return JSON.stringify(streamedRun.error) ?? 'unknown error';
-                } catch {
-                  return 'unknown error';
-                }
-              })();
+      const streamError = this.extractStreamError(streamedRun.error);
       throw new Error(`OpenAI agent run failed: ${streamError}`);
     }
 
@@ -1085,8 +1079,8 @@ Return only the requested ticket markdown and preserve the required heading stru
         }
 
         if (message.subtype !== 'success' || message.is_error) {
-          const errorSummary =
-            'errors' in message && message.errors.length > 0 ? message.errors.join('; ') : 'unknown error';
+          const errorSummary
+            = 'errors' in message && message.errors.length > 0 ? message.errors.join('; ') : 'unknown error';
           throw new Error(`Claude Agent SDK failed (${message.subtype}): ${errorSummary}`);
         }
 
@@ -1207,17 +1201,17 @@ Return only the requested ticket markdown and preserve the required heading stru
     const reusableAgent = params.session?.agent as Agent<OpenAiStageContext> | undefined;
     const reusableRunner = params.session?.runner as Runner | undefined;
 
-    const agent =
-      reusableAgent ??
-      new Agent<OpenAiStageContext>({
-        name: `wf ${params.stage} openai agent backend`,
-        handoffDescription: 'Uses read-only tools to inspect the repository and answer the current stage prompt.',
-        instructions: [openAiContext, openAiSystemPrompt].filter(Boolean).join('\n\n'),
-        model,
-        tools: allowInspection ? [readFileTool, listFilesTool, searchFilesTool, runCommandTool] : [],
-        toolUseBehavior: 'run_llm_again',
-        resetToolChoice: true,
-      });
+    const agent
+      = reusableAgent
+        ?? new Agent<OpenAiStageContext>({
+          name: `wf ${params.stage} openai agent backend`,
+          handoffDescription: 'Uses read-only tools to inspect the repository and answer the current stage prompt.',
+          instructions: [openAiContext, openAiSystemPrompt].filter(Boolean).join('\n\n'),
+          model,
+          tools: allowInspection ? [readFileTool, listFilesTool, searchFilesTool, runCommandTool] : [],
+          toolUseBehavior: 'run_llm_again',
+          resetToolChoice: true,
+        });
 
     const runner = reusableRunner ?? new Runner({ modelProvider });
 
@@ -1233,18 +1227,7 @@ Return only the requested ticket markdown and preserve the required heading stru
     }
 
     if (streamedRun.error) {
-      const streamError =
-        streamedRun.error instanceof Error
-          ? streamedRun.error.message
-          : typeof streamedRun.error === 'string'
-            ? streamedRun.error
-            : (() => {
-                try {
-                  return JSON.stringify(streamedRun.error) ?? 'unknown error';
-                } catch {
-                  return 'unknown error';
-                }
-              })();
+      const streamError = this.extractStreamError(streamedRun.error);
       throw new Error(`OpenAI agent run failed: ${streamError}`);
     }
 
@@ -1288,8 +1271,8 @@ Return only the requested ticket markdown and preserve the required heading stru
       const isResume = (passNumber > 1 && sessionId) || (passNumber === 1 && params.resumeProviderSessionId);
 
       // Keep retry turns aligned with the parser contract: JSON-only and minified.
-      const prompt =
-        isResume && passNumber > 1
+      const prompt
+        = isResume && passNumber > 1
           ? 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines).'
           : params.prompt;
 
@@ -1347,8 +1330,8 @@ Return only the requested ticket markdown and preserve the required heading stru
       if (result) {
         if (resultStopReason === 'max_tokens') {
           throw new AIError(
-            `CLI response was truncated due to output token limit — the model ran out of space before ` +
-              `completing the response. Consider using the standard (non-CLI) backend for stage '${params.stage}'.`,
+            `CLI response was truncated due to output token limit — the model ran out of space before `
+            + `completing the response. Increase stages.${params.stage}.maxTokens in wf.config.ts.`,
             { stopReason: resultStopReason, stage: params.stage },
             true
           );
@@ -1456,10 +1439,10 @@ Return only the requested ticket markdown and preserve the required heading stru
     systemPrompt: string;
     priorStageSummary?: string;
   }): Promise<void> {
-    const epiloguePrompt =
-      'Summarize the code review you just completed in a brief, human-readable format. ' +
-      'Include: approval status, issue count by severity, and top suggestions. ' +
-      'IMPORTANT: Do NOT repeat the raw JSON.';
+    const epiloguePrompt
+      = 'Summarize the code review you just completed in a brief, human-readable format. '
+        + 'Include: approval status, issue count by severity, and top suggestions. '
+        + 'IMPORTANT: Do NOT repeat the raw JSON.';
 
     const model = this.resolveStageModel('review');
     const provider = this.resolveStageProvider('review');
@@ -1581,8 +1564,8 @@ Return only the requested ticket markdown and preserve the required heading stru
       if (result) {
         if (resultStopReason === 'max_tokens') {
           throw new AIError(
-            `CLI response was truncated due to output token limit — the model ran out of space before ` +
-              `completing the response. Consider using the standard (non-CLI) backend for stage '${params.stage}'.`,
+            `CLI response was truncated due to output token limit — the model ran out of space before `
+            + `completing the response. Increase stages.${params.stage}.maxTokens in wf.config.ts.`,
             { stopReason: resultStopReason, stage: params.stage },
             true
           );

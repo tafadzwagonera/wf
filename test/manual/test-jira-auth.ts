@@ -7,8 +7,8 @@ import axios from 'axios';
 async function testAuth() {
   const JIRA_BASE_URL = 'https://touraxis.atlassian.net';
   const JIRA_EMAIL = 'tafadzwa.gonera@touraxis.com';
-  const JIRA_API_TOKEN =
-    'ATATT3xFfGF0gZVbk6VPcjIrmOYx-KrEO9s5-9E9nMQuNafBRH8mA0n66yjAxLAvRlkXkVyDKnAFCouHjiu5wDut_IaEPa3APWPH5ft5m93_wDzyzCRcAq11ZsBiiiVvSyy6mYBFubuaQMfc-KMDap1y0Xke46sYr7Yr4iIBeXIqO9sddUKJfs4=EC6CC8E3';
+  const JIRA_API_TOKEN
+    = 'ATATT3xFfGF0gZVbk6VPcjIrmOYx-KrEO9s5-9E9nMQuNafBRH8mA0n66yjAxLAvRlkXkVyDKnAFCouHjiu5wDut_IaEPa3APWPH5ft5m93_wDzyzCRcAq11ZsBiiiVvSyy6mYBFubuaQMfc-KMDap1y0Xke46sYr7Yr4iIBeXIqO9sddUKJfs4=EC6CC8E3';
 
   console.log('Testing Jira API Authentication...\n');
 

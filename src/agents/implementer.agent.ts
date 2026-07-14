@@ -130,8 +130,8 @@ export class ImplementerAgent {
     const repoDir = options.repoDir ?? process.cwd();
     const phantomContextPaths: string[] = [];
     contextFiles = contextFiles.filter(filePath => {
-      const relativePath =
-        repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
+      const relativePath
+        = repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
       const fullPath = path.join(repoDir, relativePath);
       if (!fs.existsSync(fullPath)) {
         phantomContextPaths.push(filePath);
@@ -156,8 +156,8 @@ export class ImplementerAgent {
     repoFiles = repoFiles.filter(filePath => {
       const status = statusByPath.get(filePath) ?? 'found';
       if (status === 'to-create') return true;
-      const relativePath =
-        repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
+      const relativePath
+        = repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
       const fullPath = path.join(repoDir, relativePath);
       if (!fs.existsSync(fullPath)) {
         phantomPaths.push(filePath);
@@ -327,8 +327,8 @@ export class ImplementerAgent {
    */
   private resolveTrackedFilePaths(repoFiles: string[], repoName: string, repoDir?: string): string[] {
     return repoFiles.map(filePath => {
-      const relativePath =
-        repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
+      const relativePath
+        = repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
 
       return repoDir ? path.join(repoDir, relativePath) : path.resolve(relativePath);
     });
@@ -458,8 +458,8 @@ export class ImplementerAgent {
     const target = rawTarget.trim().replace(/^['"]|['"]$/g, '');
     const normalizedRepoDir = path.resolve(repoDir);
     const repoName = path.basename(normalizedRepoDir);
-    const normalizedRelativeTarget =
-      target === repoName || target === `./${repoName}` ? normalizedRepoDir : path.resolve(repoDir, target);
+    const normalizedRelativeTarget
+      = target === repoName || target === `./${repoName}` ? normalizedRepoDir : path.resolve(repoDir, target);
     const normalizedAbsoluteTarget = path.resolve(target);
 
     if (normalizedRelativeTarget === normalizedRepoDir || normalizedAbsoluteTarget === normalizedRepoDir) {
@@ -537,9 +537,9 @@ export class ImplementerAgent {
    * @returns Selected backend plus the provider
    */
   private resolveImplementBackendSelection(): ImplementBackendSelection {
-    const provider =
-      this.configService.get<string>('stages.implement.provider') ??
-      this.configService.get<string>('ai.provider', 'anthropic');
+    const provider
+      = this.configService.get<string>('stages.implement.provider')
+        ?? this.configService.get<string>('ai.provider', 'anthropic');
     const backend = this.configService.get<string>('stages.implement.backend', 'agent');
 
     if (backend === 'standard') {
@@ -733,8 +733,11 @@ export class ImplementerAgent {
       );
     }
 
-    const hasTrackedChanges =
-      status.modified.length > 0 || status.staged.length > 0 || status.deleted.length > 0 || status.renamed.length > 0;
+    const hasTrackedChanges
+      = status.modified.length > 0
+        || status.staged.length > 0
+        || status.deleted.length > 0
+        || status.renamed.length > 0;
 
     if (!hasTrackedChanges) {
       console.log(chalk.green('  Working tree is clean'));

@@ -89,22 +89,22 @@ const specSource = fs.readFileSync(specPath, 'utf-8');
 
 assert(
   'spec tests gpt-5 frontier model in execute()',
-  specSource.includes("'omits temperature for gpt-5 frontier models'")
+  specSource.includes('\'omits temperature for gpt-5 frontier models\'')
 );
 
 assert(
   'spec tests gpt-5 frontier model in executeWithHistory()',
-  specSource.includes("'omits temperature for gpt-5 frontier models in executeWithHistory'")
+  specSource.includes('\'omits temperature for gpt-5 frontier models in executeWithHistory\'')
 );
 
 assert(
   'spec tests reasoning model temperature omission',
-  specSource.includes("'omits temperature for reasoning models'")
+  specSource.includes('\'omits temperature for reasoning models\'')
 );
 
 assert(
   'spec tests unrestricted model temperature inclusion',
-  specSource.includes("'includes temperature for non-reasoning models'")
+  specSource.includes('\'includes temperature for non-reasoning models\'')
 );
 
 // ---------------------------------------------------------------------------

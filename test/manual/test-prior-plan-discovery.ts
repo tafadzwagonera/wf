@@ -89,10 +89,10 @@ const run = async (): Promise<void> => {
   const promptSection = formatPriorPlansPromptSection(priorPlans);
   assert(
     '2. formatPriorPlansPromptSection includes action, complexity, keywords, and step context',
-    promptSection.includes('Related prior plans') &&
-      promptSection.includes('[fix] Fix PricingService timeout') &&
-      promptSection.includes('complexity: medium') &&
-      promptSection.includes('Steps: 1. Inspect PricingService; 2. Patch BookingController timeout handling')
+    promptSection.includes('Related prior plans')
+    && promptSection.includes('[fix] Fix PricingService timeout')
+    && promptSection.includes('complexity: medium')
+    && promptSection.includes('Steps: 1. Inspect PricingService; 2. Patch BookingController timeout handling')
   );
 
   const emptyPlans = detectPriorPlans('nonexistent-repo-' + Date.now());

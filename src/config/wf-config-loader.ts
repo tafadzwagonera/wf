@@ -288,8 +288,8 @@ const hasNativeNodeTypeStripping = (nodeVersion: string, execArgv: string[]): bo
   isVersionGte(nodeVersion, 22, 13, 0) && execArgv.some(arg => arg.includes('--experimental-strip-types'));
 
 const unwrapModuleExport = (loaded: unknown): WfConfig => {
-  const candidate =
-    loaded && typeof loaded === 'object' && 'default' in loaded ? (loaded as { default: unknown }).default : loaded;
+  const candidate
+    = loaded && typeof loaded === 'object' && 'default' in loaded ? (loaded as { default: unknown }).default : loaded;
 
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
     throw new ValidationError('wf config files must export an object as the default export.');
@@ -397,9 +397,9 @@ const readJavaScriptConfigModule = async (filePath: string): Promise<WfConfig> =
       }
 
       if (
-        (message.includes('--experimental-vm-modules') || message.includes("Unexpected token 'export'")) &&
-        !hasImportSyntax(sourceText) &&
-        hasEsmDefaultExportSyntax(sourceText)
+        (message.includes('--experimental-vm-modules') || message.includes('Unexpected token \'export\''))
+        && !hasImportSyntax(sourceText)
+        && hasEsmDefaultExportSyntax(sourceText)
       ) {
         return evaluateEsmDefaultConfigSource(filePath, sourceText);
       }
@@ -670,12 +670,12 @@ export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig 
     );
   }
 
-  const activeProvider =
-    defaultProviders[0] ??
-    ({
-      ...providers[0],
-      default: true,
-    } as (typeof providers)[number]);
+  const activeProvider
+    = defaultProviders[0]
+      ?? ({
+        ...providers[0],
+        default: true,
+      } as (typeof providers)[number]);
   const loggingSource = validatedConfig.logging ?? validatedConfig.log ?? {};
 
   if ((validatedConfig.stages as { fetch?: string } | undefined)?.fetch) {
@@ -808,8 +808,8 @@ export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig 
     git: {
       commitFormat: validatedConfig.git?.commitFormat ?? 'auto',
       branchNamePattern:
-        validatedConfig.git?.branchNamePattern ??
-        '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$',
+        validatedConfig.git?.branchNamePattern
+        ?? '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$',
       branchPrefixMapping: {
         feature: validatedConfig.git?.branchPrefixMapping?.feature ?? 'feature',
         fix: validatedConfig.git?.branchPrefixMapping?.fix ?? 'bugfix',

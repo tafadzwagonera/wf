@@ -418,5 +418,23 @@ describe('ConversationService', () => {
       const expectedPath = path.join(os.homedir(), '.wf', 'my-app', 'jira', 'TAD-575-conversation.json');
       expect(fs.promises.rename).toHaveBeenCalledWith(`${expectedPath}.tmp`, expectedPath);
     });
+
+    it('resolves to ~/.wf/<cwd-basename>/ when repoDir is absent', async () => {
+      const context: ConversationContext = {
+        ticketKey: 'WBP-100',
+        stage: 'plan',
+        workflowState: { ticketContent: 'test' },
+      };
+
+      const conversation = await service.createConversation('WBP-100', context);
+
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      await service.saveConversation(conversation);
+
+      const cwdBaseName = path.basename(path.resolve(process.cwd()));
+      const expectedPath = path.join(os.homedir(), '.wf', cwdBaseName, 'WBP-100-conversation.json');
+      expect(fs.promises.rename).toHaveBeenCalledWith(`${expectedPath}.tmp`, expectedPath);
+    });
   });
 });

@@ -80,17 +80,17 @@ export class PlanStageService {
             resumeProviderSessionId: options.resumeProviderSessionId,
           });
         } catch (error) {
-          const isFallbackEligible =
-            isAIErrorLike(error) &&
-            (error.message.includes('Failed to parse resolution plan') ||
-              error.message.includes('CLI finished without returning a result'));
+          const isFallbackEligible
+            = isAIErrorLike(error)
+              && (error.message.includes('Failed to parse resolution plan')
+                || error.message.includes('CLI finished without returning a result'));
 
           if (!isFallbackEligible) {
             throw error;
           }
 
-          const agentProse =
-            typeof error.details?.response === 'string' && error.details.response.trim()
+          const agentProse
+            = typeof error.details?.response === 'string' && error.details.response.trim()
               ? error.details.response
               : undefined;
 

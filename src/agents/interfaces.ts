@@ -25,9 +25,9 @@ export type {
   FindingsArtifact,
 } from '../shared/types/agent.types';
 
-export type ImplementerResult =
-  | { type: 'implementation'; branchName: string | null; sessionId?: string }
-  | { type: 'investigation'; artifact: FindingsArtifact };
+export type ImplementerResult
+  = | { type: 'implementation'; branchName: string | null; sessionId?: string }
+    | { type: 'investigation'; artifact: FindingsArtifact };
 
 export interface FetcherOptions {
   trackerName: string;

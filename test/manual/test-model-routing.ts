@@ -172,10 +172,10 @@ async function main(): Promise<void> {
   const validValues: ModelRouting[] = ['auto', 'default', 'mechanical'];
   assert(
     'ModelRouting accepts auto, default, mechanical',
-    validValues.length === 3 &&
-      validValues.includes('auto') &&
-      validValues.includes('default') &&
-      validValues.includes('mechanical')
+    validValues.length === 3
+    && validValues.includes('auto')
+    && validValues.includes('default')
+    && validValues.includes('mechanical')
   );
 
   console.log(chalk.bold('\nTest 9: ImplementerOptions.modelRouting'));

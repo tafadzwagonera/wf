@@ -88,8 +88,9 @@ export class ReviewerAgent {
       if (review.issues.length > 0) {
         console.log(chalk.bold('\n  Issues found:'));
         review.issues.forEach(issue => {
-          const color =
-            issue.severity === 'error' ? chalk.red : issue.severity === 'warning' ? chalk.yellow : chalk.blue;
+          let color = chalk.blue;
+          if (issue.severity === 'error') color = chalk.red;
+          if (issue.severity === 'warning') color = chalk.yellow;
           console.log(color(`    [${issue.severity}] ${issue.message}`));
           if (issue.file) {
             console.log(chalk.gray(`      ${issue.file}${issue.line ? `:${issue.line}` : ''}`));

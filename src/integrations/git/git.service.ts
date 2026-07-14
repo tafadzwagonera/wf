@@ -252,8 +252,8 @@ export class GitService {
    *
    * Uses `[/\\]` so it handles both POSIX and Windows path separators.
    */
-  private static readonly EXCLUDED_PATHS =
-    /^\.wf[/\\]|^wf\.config\.(js|mjs|ts|mts|yaml|yml)$|^verification\.policy\.json$|^dist[/\\]|^\.gitignore$/;
+  private static readonly EXCLUDED_PATHS
+    = /^\.wf[/\\]|^wf\.config\.(js|mjs|ts|mts|yaml|yml)$|^verification\.policy\.json$|^dist[/\\]|^\.gitignore$/;
 
   /**
    * Filter a list of file paths, removing any that match {@link EXCLUDED_PATHS}.

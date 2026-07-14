@@ -104,8 +104,8 @@ const run = async (): Promise<void> => {
     'Anthropic adapter does not define local MECHANICAL_STEP_PATTERNS',
     !anthropicSource.includes('const MECHANICAL_STEP_PATTERNS')
   );
-  assert('OpenAI adapter imports from shared-routing', openaiSource.includes("from './shared-routing'"));
-  assert('Anthropic adapter imports from shared-routing', anthropicSource.includes("from './shared-routing'"));
+  assert('OpenAI adapter imports from shared-routing', openaiSource.includes('from \'./shared-routing\''));
+  assert('Anthropic adapter imports from shared-routing', anthropicSource.includes('from \'./shared-routing\''));
 
   // --- Incomplete-work loop uses workload reduction ---
 
@@ -115,17 +115,17 @@ const run = async (): Promise<void> => {
   );
   assert(
     'Anthropic adapter uses workload-reduction stall detection',
-    anthropicSource.includes('currentWorkload < previousWorkload') &&
-      !anthropicSource.includes('MAX_INCOMPLETE_WORK_PASSES')
+    anthropicSource.includes('currentWorkload < previousWorkload')
+    && !anthropicSource.includes('MAX_INCOMPLETE_WORK_PASSES')
   );
 
   // --- Context continuity ---
 
   assert(
     'OpenAI adapter reuses cached agent/runner/session across passes',
-    openaiSource.includes('continuationPrompt') &&
-      !openaiSource.includes('iterationAgent') &&
-      !openaiSource.includes('iterationRunner')
+    openaiSource.includes('continuationPrompt')
+    && !openaiSource.includes('iterationAgent')
+    && !openaiSource.includes('iterationRunner')
   );
   assert(
     'Anthropic adapter resumes session across passes',

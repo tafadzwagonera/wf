@@ -80,10 +80,10 @@ export class SessionService {
   ): Promise<SessionState> {
     const existing = session.stages[stage];
     if (
-      existing &&
-      existing.config.provider === fingerprint.provider &&
-      existing.config.backend === fingerprint.backend &&
-      !existing.completedAt
+      existing
+      && existing.config.provider === fingerprint.provider
+      && existing.config.backend === fingerprint.backend
+      && !existing.completedAt
     ) {
       return session;
     }
@@ -198,15 +198,15 @@ export class SessionService {
       } else {
         // 2b. Interrupted
         if (
-          existingRecord.config.provider === currentFingerprint.provider &&
-          existingRecord.config.backend === currentFingerprint.backend &&
-          existingRecord.providerSessionId
+          existingRecord.config.provider === currentFingerprint.provider
+          && existingRecord.config.backend === currentFingerprint.backend
+          && existingRecord.providerSessionId
         ) {
           canResume = true;
           resumableProviderSessionId = existingRecord.providerSessionId;
         } else if (
-          existingRecord.config.provider !== currentFingerprint.provider ||
-          existingRecord.config.backend !== currentFingerprint.backend
+          existingRecord.config.provider !== currentFingerprint.provider
+          || existingRecord.config.backend !== currentFingerprint.backend
         ) {
           warnings.push(
             `Config changed from ${existingRecord.config.provider}/${existingRecord.config.backend} to ${currentFingerprint.provider}/${currentFingerprint.backend} since stage ${nextStage} was started. Previous progress cannot be resumed — session IDs are not portable across backends. Falling back to default behavior.`
@@ -222,15 +222,15 @@ export class SessionService {
           if (!priorRecord?.completedAt) continue;
 
           if (
-            priorRecord.config.provider === currentFingerprint.provider &&
-            priorRecord.config.backend === currentFingerprint.backend &&
-            priorRecord.providerSessionId
+            priorRecord.config.provider === currentFingerprint.provider
+            && priorRecord.config.backend === currentFingerprint.backend
+            && priorRecord.providerSessionId
           ) {
             canResume = true;
             resumableProviderSessionId = priorRecord.providerSessionId;
           } else if (
-            priorRecord.config.provider !== currentFingerprint.provider ||
-            priorRecord.config.backend !== currentFingerprint.backend
+            priorRecord.config.provider !== currentFingerprint.provider
+            || priorRecord.config.backend !== currentFingerprint.backend
           ) {
             warnings.push(
               `Provider/backend for ${nextStage} (${currentFingerprint.provider}/${currentFingerprint.backend}) differs from ${priorStageName} (${priorRecord.config.provider}/${priorRecord.config.backend}). Prior stage summary will still be available as context.`

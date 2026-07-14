@@ -61,7 +61,7 @@ jest.mock('../agents/utils', () => {
   return {
     ...actual,
     resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
     ),
   };
 });
@@ -124,7 +124,7 @@ async function buildCommand(options?: { generateAgentEnabled?: boolean }): Promi
   };
   const mockStageAgentService = {
     isEnabledForStage: jest.fn((stage: string) =>
-      stage === 'generate' ? options?.generateAgentEnabled === true : false
+      stage === 'generate' ? options?.generateAgentEnabled === true : false,
     ),
     generateFromPrompt: jest
       .fn()
@@ -151,7 +151,7 @@ async function buildCommand(options?: { generateAgentEnabled?: boolean }): Promi
           '',
           '#### Out of Scope',
           '- None',
-        ].join('\n')
+        ].join('\n'),
       ),
   };
   const module = await Test.createTestingModule({
@@ -164,7 +164,7 @@ async function buildCommand(options?: { generateAgentEnabled?: boolean }): Promi
           detectFormat: jest.fn((filePath: string) => path.extname(filePath).slice(1)),
           getConverter: jest.fn(() => ({
             serialize: jest.fn(ticket =>
-              [`# ${ticket.title ?? 'Generated Title'}`, '', ticket.description ?? 'Generated summary'].join('\n')
+              [`# ${ticket.title ?? 'Generated Title'}`, '', ticket.description ?? 'Generated summary'].join('\n'),
             ),
             parse: jest.fn(() => ({
               title: 'Generated Title',
@@ -242,11 +242,11 @@ describe('IssueGenerateCommand', () => {
     (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockReset();
     (fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>).mockReset();
     (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(
-      jest.requireActual('fs').existsSync
+      jest.requireActual('fs').existsSync,
     );
     (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockImplementation(() => []);
     (fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>).mockImplementation(
-      jest.requireActual('fs').writeFileSync
+      jest.requireActual('fs').writeFileSync,
     );
   });
 
@@ -300,7 +300,7 @@ describe('IssueGenerateCommand', () => {
         expect.objectContaining({
           stage: 'generate',
           maxTokens: 4096,
-        })
+        }),
       );
     });
 
@@ -347,7 +347,7 @@ describe('IssueGenerateCommand', () => {
         expect.objectContaining({
           stage: 'generate',
           maxTokens: 4096,
-        })
+        }),
       );
       expect(ticket).toEqual(
         expect.objectContaining({
@@ -355,7 +355,7 @@ describe('IssueGenerateCommand', () => {
           description: 'Generated summary',
           type: 'task',
           priority: 'medium',
-        })
+        }),
       );
     });
 
@@ -371,7 +371,7 @@ describe('IssueGenerateCommand', () => {
       ]);
 
       expect(prompt).toContain(
-        'Use fenced Markdown code blocks (```lang) for code samples; never use Jira wiki {code} syntax.'
+        'Use fenced Markdown code blocks (```lang) for code samples; never use Jira wiki {code} syntax.',
       );
       expect(prompt).toContain('Use `- ` for every unordered bullet item; never use `* ` bullets.');
     });
@@ -389,20 +389,20 @@ describe('IssueGenerateCommand', () => {
 
       expect(prompt).toContain('Write in formal British English throughout.');
       expect(prompt).toContain(
-        'Do not use contractions (e.g., write "do not" instead of "don\'t", "cannot" instead of "can\'t").'
+        'Do not use contractions (e.g., write "do not" instead of "don\'t", "cannot" instead of "can\'t").',
       );
       expect(prompt).toContain(
-        'Use the active voice (e.g., "The system validates input" instead of "Input is validated by the system").'
+        'Use the active voice (e.g., "The system validates input" instead of "Input is validated by the system").',
       );
       expect(prompt).toContain(
-        'Do not use informal or colloquial language (e.g., avoid "basically", "just", "a lot of", "pretty much").'
+        'Do not use informal or colloquial language (e.g., avoid "basically", "just", "a lot of", "pretty much").',
       );
       expect(prompt).toContain('Use third-person perspective only (e.g., do not use "you", "we", "our").');
       expect(prompt).toContain(
-        'Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").'
+        'Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").',
       );
       expect(prompt).toContain(
-        'Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.'
+        'Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.',
       );
     });
 
@@ -447,7 +447,7 @@ describe('IssueGenerateCommand', () => {
 
       const prompt = (command as any).buildSynthesisPrompt(
         [{ type: 'file', source: './notes.md', content: 'Test content' }],
-        mockContext
+        mockContext,
       );
 
       expect(prompt).toContain('Repository conventions (test-repo):');
@@ -503,7 +503,7 @@ describe('IssueGenerateCommand', () => {
             source: tempSourcePath,
             content: '# Imported ticket',
             ticket,
-          })
+          }),
         );
       } finally {
         fs.unlinkSync(tempSourcePath);
@@ -532,12 +532,12 @@ describe('IssueGenerateCommand', () => {
               type: 'file',
               source: tempSourcePath,
               content: 'plain project notes',
-            })
+            }),
           );
         } finally {
           fs.unlinkSync(tempSourcePath);
         }
-      }
+      },
     );
 
     it('still processes local file sources in dry-run mode', async () => {
@@ -547,7 +547,7 @@ describe('IssueGenerateCommand', () => {
 
       fs.writeFileSync(tempSourcePath, 'plain project notes', 'utf-8');
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
-        jest.requireActual('fs').existsSync(String(input))
+        jest.requireActual('fs').existsSync(String(input)),
       );
 
       try {
@@ -562,13 +562,13 @@ describe('IssueGenerateCommand', () => {
         expect.objectContaining({
           filePath: tempSourcePath,
           exists: true,
-        })
+        }),
       );
       expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'POST',
           endpoint: '/v1/messages',
-        })
+        }),
       );
     });
   });
@@ -609,9 +609,9 @@ describe('IssueGenerateCommand', () => {
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
-          filePath === repoBasePath ||
-          filePath === path.join(repoBasePath, sourceName) ||
-          filePath === expectedSourcePath
+          filePath === repoBasePath
+          || filePath === path.join(repoBasePath, sourceName)
+          || filePath === expectedSourcePath
         );
       });
 
@@ -625,9 +625,9 @@ describe('IssueGenerateCommand', () => {
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
-          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
-          filePath === 'src/spec.md' ||
-          filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md')
+          filePath === path.join('/tmp/consumer-app', 'repo-a')
+          || filePath === 'src/spec.md'
+          || filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md')
         );
       });
 
@@ -642,10 +642,10 @@ describe('IssueGenerateCommand', () => {
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
-          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
-          filePath === path.join('/tmp/consumer-app', 'repo-b') ||
-          filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md') ||
-          filePath === path.join('/tmp/consumer-app/repo-b', 'src/spec.md')
+          filePath === path.join('/tmp/consumer-app', 'repo-a')
+          || filePath === path.join('/tmp/consumer-app', 'repo-b')
+          || filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md')
+          || filePath === path.join('/tmp/consumer-app/repo-b', 'src/spec.md')
         );
       });
 
@@ -678,15 +678,15 @@ describe('IssueGenerateCommand', () => {
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
-          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
-          filePath === path.join('/tmp/consumer-app', 'repo-b') ||
-          filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md') ||
-          filePath === path.join('/tmp/consumer-app/repo-b', 'src/spec.md')
+          filePath === path.join('/tmp/consumer-app', 'repo-a')
+          || filePath === path.join('/tmp/consumer-app', 'repo-b')
+          || filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md')
+          || filePath === path.join('/tmp/consumer-app/repo-b', 'src/spec.md')
         );
       });
 
       await expect((command as any).resolveSourceInputs('src/spec.md', ['repo-a', 'repo-b'], true)).rejects.toThrow(
-        'matches multiple repositories'
+        'matches multiple repositories',
       );
     });
 
@@ -705,19 +705,19 @@ describe('IssueGenerateCommand', () => {
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
-          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
-          filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md')
+          filePath === path.join('/tmp/consumer-app', 'repo-a')
+          || filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md')
         );
       });
 
       const resolvedSources = await (command as any).resolveSourceInputs(
         'src/spec.md',
         ['missing-repo', 'repo-a'],
-        false
+        false,
       );
 
       expect(resolvedSources).toEqual([path.join('/tmp/consumer-app/repo-a', 'src/spec.md')]);
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("Repository 'missing-repo'"));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Repository \'missing-repo\''));
     });
   });
 
@@ -735,12 +735,12 @@ describe('IssueGenerateCommand', () => {
       expect(errorHandlerSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('2026-04-05-broadened-ai-config-docs-cleanup-plan.md'),
-        })
+        }),
       );
       expect(errorHandlerSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('--repos'),
-        })
+        }),
       );
 
       errorHandlerSpy.mockRestore();
@@ -758,19 +758,19 @@ describe('IssueGenerateCommand', () => {
       await expect(
         command.run(['2026-04-05-broadened-ai-config-docs-cleanup-plan.md'], {
           dryRun: true,
-        })
+        }),
       ).rejects.toThrow('handled');
 
       expect(dryRunPreview.previewApiCall).not.toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'POST',
           endpoint: '/v1/messages',
-        })
+        }),
       );
       expect(errorHandlerSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('--repos'),
-        })
+        }),
       );
 
       errorHandlerSpy.mockRestore();
@@ -791,9 +791,9 @@ describe('IssueGenerateCommand', () => {
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
-          jest.requireActual('fs').existsSync(filePath) ||
-          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
-          filePath === path.join('/tmp/consumer-app', 'repo-b')
+          jest.requireActual('fs').existsSync(filePath)
+          || filePath === path.join('/tmp/consumer-app', 'repo-a')
+          || filePath === path.join('/tmp/consumer-app', 'repo-b')
         );
       });
 
@@ -833,9 +833,9 @@ describe('IssueGenerateCommand', () => {
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
-          jest.requireActual('fs').existsSync(filePath) ||
-          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
-          filePath === path.join('/tmp/consumer-app', 'repo-b')
+          jest.requireActual('fs').existsSync(filePath)
+          || filePath === path.join('/tmp/consumer-app', 'repo-a')
+          || filePath === path.join('/tmp/consumer-app', 'repo-b')
         );
       });
 
@@ -845,7 +845,7 @@ describe('IssueGenerateCommand', () => {
             save: true,
             repos: ['repo-a', 'repo-b'],
             silent: true,
-          } as any)
+          } as any),
         ).rejects.toThrow('handled');
       } finally {
         fs.unlinkSync(tempSourcePath);
@@ -854,7 +854,7 @@ describe('IssueGenerateCommand', () => {
       expect(errorHandlerSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('multiple repositories'),
-        })
+        }),
       );
 
       errorHandlerSpy.mockRestore();
@@ -880,7 +880,7 @@ describe('IssueGenerateCommand', () => {
     expect(path.basename(savedPath)).toMatch(/^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}-ticket-description\.md$/);
 
     const artifactWrite = writeFileSpy.mock.calls.find(
-      ([filePath]) => String(filePath).endsWith('ticket-description.md') && !String(filePath).endsWith('.sources.json')
+      ([filePath]) => String(filePath).endsWith('ticket-description.md') && !String(filePath).endsWith('.sources.json'),
     );
     const manifestWrite = writeFileSpy.mock.calls.find(([filePath]) => String(filePath).endsWith('.sources.json'));
 
@@ -901,7 +901,7 @@ describe('IssueGenerateCommand', () => {
 
       mockAiService.execute.mockResolvedValueOnce({
         content: [
-          "# Generated Title That Don't Work",
+          '# Generated Title That Don\'t Work',
           '',
           '**Type:** task',
           '**Priority:** medium',
@@ -909,15 +909,15 @@ describe('IssueGenerateCommand', () => {
           '## Description',
           '',
           '### Summary',
-          "It's a summary that can't be used as-is",
+          'It\'s a summary that can\'t be used as-is',
         ].join('\n'),
       });
       jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((format: string) => {
         if (format === 'md') {
           return {
             parse: jest.fn(() => ({
-              title: "Generated Title That Don't Work",
-              description: "It's a summary that can't be used as-is and shouldn't stay.",
+              title: 'Generated Title That Don\'t Work',
+              description: 'It\'s a summary that can\'t be used as-is and shouldn\'t stay.',
               type: 'task',
               priority: 'medium',
             })),
@@ -956,8 +956,8 @@ describe('IssueGenerateCommand', () => {
       const outputPath = path.join(os.tmpdir(), 'wf-generated-output.md');
       const tempSourcePath = path.join(os.tmpdir(), 'wf-imported-ticket-source.md');
       const importedTicket = {
-        title: "Imported ticket that don't comply",
-        description: "Imported description that can't be used and it's long enough to bypass synthesis. ".repeat(3),
+        title: 'Imported ticket that don\'t comply',
+        description: 'Imported description that can\'t be used and it\'s long enough to bypass synthesis. '.repeat(3),
         type: 'task',
         priority: 'medium',
       };
@@ -989,7 +989,7 @@ describe('IssueGenerateCommand', () => {
       }
 
       const outputWrite = (fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>).mock.calls.find(
-        ([filePath]) => String(filePath) === outputPath
+        ([filePath]) => String(filePath) === outputPath,
       );
 
       expect(outputWrite).toBeDefined();
@@ -1002,8 +1002,8 @@ describe('IssueGenerateCommand', () => {
       const { command } = await buildCommand();
       const formatConverterService = (command as any).formatConverterService as jest.Mocked<FormatConverterService>;
       const ticket = {
-        title: "Generated Title That Don't Comply",
-        description: "It's a summary that can't stay informal",
+        title: 'Generated Title That Don\'t Comply',
+        description: 'It\'s a summary that can\'t stay informal',
         type: 'task',
         priority: 'medium',
       } as any;
@@ -1027,7 +1027,7 @@ describe('IssueGenerateCommand', () => {
 
       const artifactWrite = writeFileSpy.mock.calls.find(
         ([filePath]) =>
-          String(filePath).endsWith('ticket-description.md') && !String(filePath).endsWith('.sources.json')
+          String(filePath).endsWith('ticket-description.md') && !String(filePath).endsWith('.sources.json'),
       );
 
       expect(artifactWrite).toBeDefined();
@@ -1069,12 +1069,12 @@ describe('IssueGenerateCommand', () => {
             '[1712345600.000001] U123: Initial MPDM context',
             '[1712345678.123456] U456: Latest follow-up',
           ].join('\n'),
-        })
+        }),
       );
       expect(writeFileSpy).toHaveBeenCalledWith(
         path.join(os.homedir(), '.wf', 'consumer-app', 'slack', 'slack-thread-C0AP5MMCP53-1712345600-000001.md'),
         ['[1712345600.000001] U123: Initial MPDM context', '[1712345678.123456] U456: Latest follow-up'].join('\n'),
-        'utf-8'
+        'utf-8',
       );
     });
 
@@ -1117,7 +1117,7 @@ describe('IssueGenerateCommand', () => {
       });
 
       await (command as any).fetchSource(
-        'https://touraxis.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53'
+        'https://touraxis.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53',
       );
 
       expect(slackService.fetchThread).toHaveBeenCalledWith('C0AP5MMCP53', '1775650646.860809');
@@ -1136,7 +1136,7 @@ describe('IssueGenerateCommand', () => {
         expect.objectContaining({
           endpoint: 'https://slack.com/api/conversations.history',
           platform: 'Slack',
-        })
+        }),
       );
       expect(dryRunPreview.previewFileWrite).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1145,10 +1145,10 @@ describe('IssueGenerateCommand', () => {
             '.wf',
             'consumer-app',
             'slack',
-            'slack-thread-C0AP5MMCP53-<oldest-message-ts>.md'
+            'slack-thread-C0AP5MMCP53-<oldest-message-ts>.md',
           ),
           format: 'md',
-        })
+        }),
       );
     });
 
@@ -1162,21 +1162,21 @@ describe('IssueGenerateCommand', () => {
         ],
         {
           dryRun: true,
-        }
+        },
       );
 
       expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
         expect.objectContaining({
           endpoint: 'https://slack.com/api/conversations.replies',
           platform: 'Slack',
-        })
+        }),
       );
       expect(dryRunPreview.previewApiCall).not.toHaveBeenCalledWith(
         expect.objectContaining({
           endpoint:
             'https://touraxis.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53',
           platform: 'Web',
-        })
+        }),
       );
       expect(dryRunPreview.previewFileWrite).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1185,10 +1185,10 @@ describe('IssueGenerateCommand', () => {
             '.wf',
             'consumer-app',
             'slack',
-            'slack-thread-C0AP5MMCP53-1775650646-860809.md'
+            'slack-thread-C0AP5MMCP53-1775650646-860809.md',
           ),
           format: 'md',
-        })
+        }),
       );
     });
 
@@ -1215,10 +1215,10 @@ describe('IssueGenerateCommand', () => {
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
         return (
-          filePath === path.join('/tmp/consumer-app', 'repo-a') ||
-          filePath === path.join('/tmp/consumer-app', 'repo-b') ||
-          filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md') ||
-          filePath === path.join('/tmp/consumer-app/repo-b', 'src/spec.md')
+          filePath === path.join('/tmp/consumer-app', 'repo-a')
+          || filePath === path.join('/tmp/consumer-app', 'repo-b')
+          || filePath === path.join('/tmp/consumer-app/repo-a', 'src/spec.md')
+          || filePath === path.join('/tmp/consumer-app/repo-b', 'src/spec.md')
         );
       });
     };
@@ -1257,7 +1257,7 @@ describe('IssueGenerateCommand', () => {
       });
 
       await expect(
-        (command as any).resolveRepoRelativeSources('src/spec.md', ['repo-a', 'repo-b'], false)
+        (command as any).resolveRepoRelativeSources('src/spec.md', ['repo-a', 'repo-b'], false),
       ).rejects.toThrow('interactive terminal');
     });
 
@@ -1274,7 +1274,7 @@ describe('IssueGenerateCommand', () => {
       });
 
       await expect(
-        (command as any).resolveRepoRelativeSources('src/spec.md', ['repo-a', 'repo-b'], true)
+        (command as any).resolveRepoRelativeSources('src/spec.md', ['repo-a', 'repo-b'], true),
       ).rejects.toThrow('silent mode');
     });
   });
@@ -1336,7 +1336,7 @@ describe('IssueGenerateCommand', () => {
       const tempSourcePath = path.join(os.tmpdir(), 'wf-clarify-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
-        jest.requireActual('fs').existsSync(String(input))
+        jest.requireActual('fs').existsSync(String(input)),
       );
 
       try {
@@ -1347,7 +1347,7 @@ describe('IssueGenerateCommand', () => {
 
       expect(promptMock).toHaveBeenCalledTimes(2);
       expect(promptMock).toHaveBeenCalledWith(
-        expect.arrayContaining([expect.objectContaining({ message: 'What is the target platform?' })])
+        expect.arrayContaining([expect.objectContaining({ message: 'What is the target platform?' })]),
       );
       // Clarification prompt should instruct AI to skip already-acknowledged issues
       const clarificationCall = mockAiService.execute.mock.calls[0];
@@ -1402,7 +1402,7 @@ describe('IssueGenerateCommand', () => {
       const tempSourcePath = path.join(os.tmpdir(), 'wf-no-clarify-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
-        jest.requireActual('fs').existsSync(String(input))
+        jest.requireActual('fs').existsSync(String(input)),
       );
 
       try {
@@ -1428,7 +1428,7 @@ describe('IssueGenerateCommand', () => {
       const tempSourcePath = path.join(os.tmpdir(), 'wf-silent-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
-        jest.requireActual('fs').existsSync(String(input))
+        jest.requireActual('fs').existsSync(String(input)),
       );
 
       try {
@@ -1456,7 +1456,7 @@ describe('IssueGenerateCommand', () => {
       const tempSourcePath = path.join(os.tmpdir(), 'wf-notty-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
-        jest.requireActual('fs').existsSync(String(input))
+        jest.requireActual('fs').existsSync(String(input)),
       );
 
       try {
@@ -1493,7 +1493,7 @@ describe('IssueGenerateCommand', () => {
       const tempSourcePath = path.join(os.tmpdir(), 'wf-empty-clarify-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
-        jest.requireActual('fs').existsSync(String(input))
+        jest.requireActual('fs').existsSync(String(input)),
       );
 
       try {
@@ -1509,7 +1509,7 @@ describe('IssueGenerateCommand', () => {
             provider: 'openai',
             model: 'gpt-5.4',
           }),
-        })
+        }),
       );
 
       errorHandlerSpy.mockRestore();
@@ -1527,7 +1527,7 @@ describe('IssueGenerateCommand', () => {
       const tempSourcePath = path.join(os.tmpdir(), 'wf-save-silent-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
-        jest.requireActual('fs').existsSync(String(input))
+        jest.requireActual('fs').existsSync(String(input)),
       );
 
       try {
@@ -1548,7 +1548,7 @@ describe('IssueGenerateCommand', () => {
       const outputPath = path.join(os.tmpdir(), 'wf-output-silent-out.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
-        jest.requireActual('fs').existsSync(String(input))
+        jest.requireActual('fs').existsSync(String(input)),
       );
       (fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>).mockImplementation(() => {});
 
@@ -1572,7 +1572,7 @@ describe('IssueGenerateCommand', () => {
       const tempSourcePath = path.join(os.tmpdir(), 'wf-raw-silent-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
-        jest.requireActual('fs').existsSync(String(input))
+        jest.requireActual('fs').existsSync(String(input)),
       );
 
       try {
@@ -1592,7 +1592,7 @@ describe('IssueGenerateCommand', () => {
       const tempSourcePath = path.join(os.tmpdir(), 'wf-suppress-silent-test.md');
       fs.writeFileSync(tempSourcePath, 'Some requirements content', 'utf-8');
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input =>
-        jest.requireActual('fs').existsSync(String(input))
+        jest.requireActual('fs').existsSync(String(input)),
       );
 
       try {
@@ -1622,7 +1622,7 @@ describe('IssueGenerateCommand', () => {
         ],
         false,
         undefined,
-        jest.fn()
+        jest.fn(),
       );
 
       expect(mockStageAgentService.generateFromPrompt).toHaveBeenCalledWith(expect.any(String), expect.any(Function));
@@ -1640,7 +1640,7 @@ describe('IssueGenerateCommand', () => {
         ],
         true,
         undefined,
-        undefined
+        undefined,
       );
 
       expect(mockStageAgentService.generateFromPrompt).toHaveBeenCalledWith(expect.any(String), undefined);
@@ -1709,7 +1709,7 @@ describe('IssueGenerateCommand', () => {
       const { command } = await buildCommand();
 
       const result = (command as any).parseTrackerSource(
-        'https://touraxis.atlassian.net/browse/WBP-3371?focusedId=123#comment-123'
+        'https://touraxis.atlassian.net/browse/WBP-3371?focusedId=123#comment-123',
       );
       expect(result).toEqual({ ticketKey: 'WBP-3371' });
     });
@@ -1725,7 +1725,7 @@ describe('IssueGenerateCommand', () => {
       const { command } = await buildCommand();
 
       const result = (command as any).parseTrackerSource(
-        'https://touraxis.atlassian.net/jira/software/projects/WBP/boards/1'
+        'https://touraxis.atlassian.net/jira/software/projects/WBP/boards/1',
       );
       expect(result).toBeNull();
     });

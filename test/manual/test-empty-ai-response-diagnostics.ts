@@ -64,10 +64,10 @@ async function testEmptyAiResponseDiagnostics() {
       await aiService.generatePlan('fix', '# TEST-1: Blank plan response');
       fail('AiService.generatePlan should reject blank output');
     } catch (error: any) {
-      const hasExpectedError =
-        error?.message === 'AI provider returned an empty plan response' &&
-        error?.details?.provider === 'openai' &&
-        error?.details?.model === 'gpt-5.4';
+      const hasExpectedError
+        = error?.message === 'AI provider returned an empty plan response'
+          && error?.details?.provider === 'openai'
+          && error?.details?.model === 'gpt-5.4';
       passWhen(
         hasExpectedError,
         'AiService.generatePlan reports provider-aware blank-plan errors',
@@ -83,10 +83,10 @@ async function testEmptyAiResponseDiagnostics() {
       await stageAgentService.generateFromPrompt('Summarise this source');
       fail('StageAgentService.generateFromPrompt should reject blank output');
     } catch (error: any) {
-      const hasExpectedError =
-        error?.message === 'AI provider returned an empty generated content response' &&
-        error?.details?.provider &&
-        error?.details?.model;
+      const hasExpectedError
+        = error?.message === 'AI provider returned an empty generated content response'
+          && error?.details?.provider
+          && error?.details?.model;
       passWhen(
         hasExpectedError,
         'StageAgentService.generateFromPrompt reports provider-aware blank generate errors',
@@ -116,10 +116,10 @@ async function testEmptyAiResponseDiagnostics() {
       await conversationService.getAssistantResponse(conversation.conversationId);
       fail('ConversationService.getAssistantResponse should reject blank output');
     } catch (error: any) {
-      const hasExpectedError =
-        error?.message === 'AI provider returned an empty chat response' &&
-        error?.details?.provider === 'openai' &&
-        error?.details?.model === 'gpt-5.4';
+      const hasExpectedError
+        = error?.message === 'AI provider returned an empty chat response'
+          && error?.details?.provider === 'openai'
+          && error?.details?.model === 'gpt-5.4';
       passWhen(
         hasExpectedError,
         'ConversationService.getAssistantResponse reports provider-aware blank chat errors',
@@ -149,7 +149,6 @@ async function testEmptyAiResponseDiagnostics() {
       mockClarificationConfigService as unknown as ConfigService,
       {} as any,
       {} as any,
-      {} as any,
       mockClarificationStageAgentService as unknown as StageAgentService
     );
 
@@ -163,10 +162,10 @@ async function testEmptyAiResponseDiagnostics() {
       ]);
       fail('issue:generate clarification stage should reject blank output');
     } catch (error: any) {
-      const hasExpectedError =
-        error?.message === 'AI provider returned an empty clarification response' &&
-        error?.details?.provider === 'openai' &&
-        error?.details?.model === 'gpt-5.4';
+      const hasExpectedError
+        = error?.message === 'AI provider returned an empty clarification response'
+          && error?.details?.provider === 'openai'
+          && error?.details?.model === 'gpt-5.4';
       passWhen(
         hasExpectedError,
         'issue:generate clarification stage surfaces provider-aware blank-output errors',

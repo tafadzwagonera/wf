@@ -79,11 +79,12 @@ export class SlackService {
   ): Promise<any> {
     const primaryToken = this.getSlackToken('bot');
     const userToken = this.getSlackToken('user');
-    const tokens = primaryToken
-      ? [primaryToken, ...(userToken && userToken !== primaryToken ? [userToken] : [])]
-      : userToken
-        ? [userToken]
-        : [];
+    let tokens: string[] = [];
+    if (primaryToken) {
+      tokens = [primaryToken, ...(userToken && userToken !== primaryToken ? [userToken] : [])];
+    } else if (userToken) {
+      tokens = [userToken];
+    }
 
     if (tokens.length === 0) {
       throw new ConfigurationError('Set slack.botToken or slack.userToken before using Slack sources');
@@ -104,8 +105,8 @@ export class SlackService {
         return response.data;
       }
 
-      const shouldRetry =
-        options.fallbackOnChannelNotFound && response.data?.error === 'channel_not_found' && index < tokens.length - 1;
+      const shouldRetry
+        = options.fallbackOnChannelNotFound && response.data?.error === 'channel_not_found' && index < tokens.length - 1;
 
       if (!shouldRetry) {
         this.ensureSlackResponseOk(response.data, channelId);
@@ -158,14 +159,14 @@ export class SlackService {
     const error = responseData.error as string;
     if (error === 'not_in_channel') {
       throw new ExecutionError(
-        `Slack bot is not a member of channel ${channelId}. ` +
-          `Invite it first: open the channel in Slack and run /invite @<your-bot-name>`
+        `Slack bot is not a member of channel ${channelId}. `
+        + `Invite it first: open the channel in Slack and run /invite @<your-bot-name>`
       );
     }
     if (error === 'channel_not_found') {
       throw new ExecutionError(
-        `Slack channel ${channelId} not found. ` +
-          `Check the permalink, ensure the token has access to the workspace, or configure slack.userToken for DM/MPDM conversations.`
+        `Slack channel ${channelId} not found. `
+        + `Check the permalink, ensure the token has access to the workspace, or configure slack.userToken for DM/MPDM conversations.`
       );
     }
     throw new ExecutionError(`Slack API error: ${error}`);

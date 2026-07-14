@@ -1,19 +1,17 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { ConfigService } from '@nestjs/config';
-import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
-import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerFeature } from '../integrations/issue-trackers/issue-tracker-adapter.interface';
-import { ErrorHandler } from '../shared/utils/error-handler';
 import { ValidationError, FileSystemError } from '../shared/utils/errors';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import chalk from 'chalk';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 interface IssuePrOptions {
   action?: string;
@@ -59,8 +57,6 @@ const VALID_ACTIONS = ['feature', 'fix', 'investigate'] as const;
 export class IssuePrCommand extends CommandRunner {
   constructor(
     private readonly issueTrackerService: IssueTrackerService,
-    private readonly aiService: AiService,
-    private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
     private readonly gitService: GitService,
     private readonly configService: ConfigService
@@ -71,116 +67,83 @@ export class IssuePrCommand extends CommandRunner {
   async run(passedParams: string[], options?: IssuePrOptions): Promise<void> {
     if (!options?.silent) {
       printExamples(ISSUE_PR_EXAMPLES);
+      warnOnIgnoredRepos(options?.repos);
     }
 
-    try {
-      if (!options?.silent) {
-        warnOnIgnoredRepos(options?.repos);
-      }
+    await executeAsyncWithCatch({ fn: async () => {
+      const ticketKey = passedParams[0] || await this.detectTicketFromBranch();
 
-      // Resolve ticket key from param or current branch
-      let ticketKey: string | null = passedParams[0] || null;
+      if (options?.dryRun) return this.previewDryRun(ticketKey, options);
 
-      if (!ticketKey) {
-        ticketKey = await this.detectTicketFromBranch();
-      }
+      await this.createPullRequest(ticketKey, options);
+    } });
+  }
 
-      if (options?.dryRun) {
-        this.dryRunPreview.showHeader('issue:pr', ticketKey ?? undefined);
-        console.log(
-          chalk.gray(
-            `   Would create PR for ticket: ${ticketKey ?? '<unknown>'}` + `  |  base: ${options?.base ?? 'main'}\n`
-          )
-        );
-        this.dryRunPreview.showSummary({
-          apiCallCount: 1,
-          fileCreatedCount: 0,
-          fileModifiedCount: 0,
-          gitOperationCount: 0,
-          terminalOutputLines: ['PR URL: <would be printed here>'],
-        });
-        this.dryRunPreview.showValidationResult();
-        return;
-      }
+  private previewDryRun(ticketKey: string | null, options?: IssuePrOptions): void {
+    this.dryRunPreview.showHeader('issue:pr', ticketKey ?? undefined);
+    console.log(chalk.gray(`   Would create PR for ticket: ${ticketKey ?? '<unknown>'}  |  base: ${options?.base ?? 'main'}\n`));
+    this.dryRunPreview.showSummary({
+      apiCallCount: 1, fileCreatedCount: 0, fileModifiedCount: 0, gitOperationCount: 0,
+      terminalOutputLines: ['PR URL: <would be printed here>'],
+    });
+    this.dryRunPreview.showValidationResult();
+  }
 
-      if (!ticketKey) {
-        throw new ValidationError(
-          'Could not determine ticket key. Pass it as an argument or run from a ticket branch.'
-        );
-      }
-
-      const trackerName = options?.tracker || this.configService.get<string>('tracker') || 'github';
-
-      const adapter = this.issueTrackerService.getAdapter(trackerName);
-
-      if (!adapter.supports(IssueTrackerFeature.CREATE_PULL_REQUEST)) {
-        throw new ValidationError(
-          `PR creation is not supported for platform '${trackerName}'. Supported trackers: github`
-        );
-      }
-
-      // Locate plan artifact
-      const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-      const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
-
-      const planPath = this.findPlanArtifact(trackerDir, ticketKey, options?.action);
-
-      if (!planPath) {
-        throw new FileSystemError(
-          `No plan artifact found for ticket '${ticketKey}' under ${trackerDir}.\n` +
-            `Run 'wf issue:plan ${ticketKey} --action <feature|fix|investigate>' first.`
-        );
-      }
-
-      // Parse plan artifact
-      const planContent = fs.readFileSync(planPath, 'utf-8');
-      const plan = JSON.parse(planContent) as {
-        summary?: string;
-        action?: string;
-        steps?: string[];
-      };
-
-      // Resolve source branch
-      let head: string;
-      try {
-        const branchInfo = await this.gitService.getBranchInfo();
-        head = branchInfo.current;
-      } catch {
-        head = ticketKey.toLowerCase();
-      }
-
-      const base = options?.base ?? 'main';
-
-      const title = options?.title ? options.title : `[${ticketKey}] ${plan.summary ?? ticketKey}`;
-
-      const body = this.buildPrBody(ticketKey, plan, planPath);
-
-      const repo = options?.repos?.[0];
-
-      if (!options?.silent) {
-        console.log(chalk.bold.cyan('\n🔀 Creating Pull Request\n'));
-        console.log(chalk.gray(`  Ticket : ${ticketKey}`));
-        console.log(chalk.gray(`  Head   : ${head}`));
-        console.log(chalk.gray(`  Base   : ${base}`));
-        console.log(chalk.gray(`  Title  : ${title}\n`));
-      }
-
-      const prUrl = await adapter.createPullRequest!({
-        title,
-        body,
-        head,
-        base,
-        repo,
-      });
-
-      if (options?.silent) {
-        console.log(prUrl);
-      } else {
-        console.log(chalk.bold.cyan(`\n✅ Pull request created: ${prUrl}\n`));
-      }
-    } catch (error) {
-      ErrorHandler.handle(error as Error);
+  private async createPullRequest(ticketKey: string | null, options?: IssuePrOptions): Promise<void> {
+    if (!ticketKey) {
+      throw new ValidationError('Could not determine ticket key. Pass it as an argument or run from a ticket branch.');
     }
+
+    const { adapter, trackerDir } = this.resolveTrackerContext(options);
+    const { plan, planPath } = this.loadPlan(trackerDir, ticketKey, options?.action);
+    const prParams = await this.buildPrParams(ticketKey, plan, planPath, options);
+
+    if (!options?.silent) this.printPrHeader(ticketKey, prParams.head, prParams.base, prParams.title);
+
+    const prUrl = await adapter.createPullRequest!(prParams);
+    console.log(options?.silent ? prUrl : chalk.bold.cyan(`\n✅ Pull request created: ${prUrl}\n`));
+  }
+
+  private async buildPrParams(ticketKey: string, plan: any, planPath: string, options?: IssuePrOptions) {
+    const branchInfo = await this.gitService.getBranchInfo().catch(() => null);
+    return {
+      head: branchInfo?.current ?? ticketKey.toLowerCase(),
+      base: options?.base ?? 'main',
+      title: options?.title ?? `[${ticketKey}] ${plan.summary ?? ticketKey}`,
+      body: this.buildPrBody(ticketKey, plan, planPath),
+      repo: options?.repos?.[0],
+    };
+  }
+
+  private resolveTrackerContext(options?: IssuePrOptions) {
+    const trackerName = options?.tracker || this.configService.get<string>('tracker') || 'github';
+    const adapter = this.issueTrackerService.getAdapter(trackerName);
+    if (!adapter.supports(IssueTrackerFeature.CREATE_PULL_REQUEST)) {
+      throw new ValidationError(`PR creation is not supported for platform '${trackerName}'. Supported trackers: github`);
+    }
+    const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
+    const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
+    return { adapter, trackerDir };
+  }
+
+  private loadPlan(trackerDir: string, ticketKey: string, action?: string) {
+    const planPath = this.findPlanArtifact(trackerDir, ticketKey, action);
+    if (!planPath) {
+      throw new FileSystemError(
+        `No plan artifact found for ticket '${ticketKey}' under ${trackerDir}.\n`
+        + `Run 'wf issue:plan ${ticketKey} --action <feature|fix|investigate>' first.`
+      );
+    }
+    const plan = JSON.parse(fs.readFileSync(planPath, 'utf-8')) as { summary?: string; action?: string; steps?: string[] };
+    return { plan, planPath };
+  }
+
+  private printPrHeader(ticketKey: string, head: string, base: string, title: string): void {
+    console.log(chalk.bold.cyan('\n🔀 Creating Pull Request\n'));
+    console.log(chalk.gray(`  Ticket : ${ticketKey}`));
+    console.log(chalk.gray(`  Head   : ${head}`));
+    console.log(chalk.gray(`  Base   : ${base}`));
+    console.log(chalk.gray(`  Title  : ${title}\n`));
   }
 
   @Option({
@@ -276,32 +239,16 @@ export class IssuePrCommand extends CommandRunner {
     plan: { summary?: string; action?: string; steps?: string[] },
     planPath: string
   ): string {
-    const lines: string[] = [];
+    const lines: string[] = ['## ' + ticketKey, ''];
 
-    lines.push(`## ${ticketKey}`);
-    lines.push('');
-
-    if (plan.summary) {
-      lines.push(plan.summary);
-      lines.push('');
-    }
-
-    if (plan.action) {
-      lines.push(`**Type:** ${plan.action}`);
-      lines.push('');
-    }
+    if (plan.summary) lines.push(plan.summary, '');
+    if (plan.action) lines.push('**Type:** ' + plan.action, '');
 
     if (plan.steps?.length) {
-      lines.push('## Implementation steps');
-      lines.push('');
-      for (const step of plan.steps) {
-        lines.push(`- ${step}`);
-      }
-      lines.push('');
+      lines.push('## Implementation steps', '', ...plan.steps.map(s => '- ' + s), '');
     }
 
-    lines.push(`---\n*Generated from plan artifact: \`${path.basename(planPath)}\`*`);
-
+    lines.push('---\n*Generated from plan artifact: `' + path.basename(planPath) + '`*');
     return lines.join('\n');
   }
 
@@ -312,12 +259,10 @@ export class IssuePrCommand extends CommandRunner {
    * @returns Ticket key in uppercase, or null if not found
    */
   private async detectTicketFromBranch(): Promise<string | null> {
-    try {
-      const branchInfo = await this.gitService.getBranchInfo();
-      const match = branchInfo.current.match(/([A-Z]+-\d+)/i);
-      return match ? match[1].toUpperCase() : null;
-    } catch {
-      return null;
-    }
+    const branchInfo = await this.gitService.getBranchInfo().catch(() => null);
+    if (!branchInfo) return null;
+
+    const match = new RegExp(/([A-Z]+-\d+)/i).exec(branchInfo.current);
+    return match ? match[1].toUpperCase() : null;
   }
 }

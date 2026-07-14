@@ -6,6 +6,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { JiraService } from '../../src/integrations/jira/jira.service';
+import { resolveArtifactDir } from '../../src/agents/utils';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -50,7 +51,7 @@ async function fetchTicket() {
     console.log(chalk.gray('─'.repeat(60)));
 
     // Save to file
-    const jiraDir = path.join(process.cwd(), 'jira');
+    const jiraDir = resolveArtifactDir(process.cwd(), 'jira');
     if (!fs.existsSync(jiraDir)) {
       fs.mkdirSync(jiraDir, { recursive: true });
     }

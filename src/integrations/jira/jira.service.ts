@@ -213,10 +213,10 @@ export class JiraService {
 
     return issueTypes.filter((issueType): issueType is JiraCreateIssueType =>
       Boolean(
-        issueType &&
-        typeof issueType === 'object' &&
-        typeof (issueType as JiraCreateIssueType).id === 'string' &&
-        typeof (issueType as JiraCreateIssueType).name === 'string'
+        issueType
+        && typeof issueType === 'object'
+        && typeof (issueType as JiraCreateIssueType).id === 'string'
+        && typeof (issueType as JiraCreateIssueType).name === 'string'
       )
     );
   }
@@ -634,10 +634,10 @@ export class JiraService {
    */
   private matchListItem(line: string):
     | {
-        indent: number;
-        listType: 'bulletList' | 'orderedList';
-        text: string;
-      }
+      indent: number;
+      listType: 'bulletList' | 'orderedList';
+      text: string;
+    }
     | undefined {
     const bulletMatch = line.match(/^(\s*)[-*]\s+(.+)$/);
     if (bulletMatch) {

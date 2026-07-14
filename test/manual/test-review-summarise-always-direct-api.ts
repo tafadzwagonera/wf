@@ -68,9 +68,9 @@ async function testReviewSummariseAlwaysDirectApi() {
   // ── Test 3: Uses aiService.execute with stage: 'review' ────────────────
   {
     const hasExecuteCall = callbackBody.includes('this.aiService.execute(');
-    const hasReviewStage = callbackBody.includes("stage: 'review'");
+    const hasReviewStage = callbackBody.includes('stage: \'review\'');
     if (hasExecuteCall && hasReviewStage) {
-      pass("Test 3: summariseCallback calls aiService.execute() with stage: 'review'");
+      pass('Test 3: summariseCallback calls aiService.execute() with stage: \'review\'');
     } else {
       fail(`Test 3: Missing direct API call — execute:${hasExecuteCall}, stage:'review':${hasReviewStage}`);
     }

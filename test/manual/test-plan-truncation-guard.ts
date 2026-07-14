@@ -161,8 +161,8 @@ async function testTruncationGuard() {
     // --- Test 6: non-truncated response parses successfully via parseJsonResponse ---
     (AiService.prototype as any).execute = async () => ({
       content:
-        'Here is the plan:\n```json\n' +
-        JSON.stringify({
+        'Here is the plan:\n```json\n'
+        + JSON.stringify({
           action: 'fix',
           summary: 'Test parse',
           steps: ['step 1'],
@@ -170,8 +170,8 @@ async function testTruncationGuard() {
           affectedFiles: [],
           affectedRepositories: ['repo-a'],
           risks: [],
-        }) +
-        '\n```\nDone.',
+        })
+        + '\n```\nDone.',
     });
 
     try {

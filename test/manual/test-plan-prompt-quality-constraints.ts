@@ -30,9 +30,9 @@ const pass = (label: string) => console.log(`  \u2713 ${label}`);
 // ---------------------------------------------------------------------------
 
 const CALL_SITE_TRACING = 'plan MUST trace every existing call site';
-const JSDOC_CROSS_CHECK = "cross-checked against the implementation's guard clauses";
+const JSDOC_CROSS_CHECK = 'cross-checked against the implementation\'s guard clauses';
 const DI_WIRING = 'every injected service the code reaches MUST have a mock provider';
-const TEST_ISOLATION = "Follow the repo's existing test isolation conventions";
+const TEST_ISOLATION = 'Follow the repo\'s existing test isolation conventions';
 const OLD_DI_BULLET = 'State your DI and test-framework assumptions explicitly';
 const NODE_SHELL_SAFETY = 'Verification commands MUST be shell-safe by construction.';
 const FLAG_VERSION_CHECK = 'cross-check flag names against the installed framework version';

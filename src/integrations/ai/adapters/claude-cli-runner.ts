@@ -83,26 +83,26 @@ export const assertClaudeCliAvailable = (): void => {
   const version = parseClaudeCliVersion(raw);
   if (!version) {
     throw new Error(
-      `Unrecognised Claude CLI version format: "${raw.trim()}". ` +
-        `Set ${SKIP_VERSION_CHECK_ENV}=1 to bypass this check.`
+      `Unrecognised Claude CLI version format: "${raw.trim()}". `
+      + `Set ${SKIP_VERSION_CHECK_ENV}=1 to bypass this check.`
     );
   }
 
   if (version.major !== REQUIRED_CLAUDE_CLI_MAJOR) {
     throw new Error(
-      `Incompatible Claude CLI version ${version.major}.${version.minor}.${version.patch}. ` +
-        `Required: major=${REQUIRED_CLAUDE_CLI_MAJOR} (>=${REQUIRED_CLAUDE_CLI_MAJOR}.${REQUIRED_CLAUDE_CLI_MIN_MINOR}). ` +
-        `Upgrade: npm install -g @anthropic-ai/claude-code@latest. ` +
-        `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
+      `Incompatible Claude CLI version ${version.major}.${version.minor}.${version.patch}. `
+      + `Required: major=${REQUIRED_CLAUDE_CLI_MAJOR} (>=${REQUIRED_CLAUDE_CLI_MAJOR}.${REQUIRED_CLAUDE_CLI_MIN_MINOR}). `
+      + `Upgrade: npm install -g @anthropic-ai/claude-code@latest. `
+      + `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
     );
   }
 
   if (version.minor < REQUIRED_CLAUDE_CLI_MIN_MINOR) {
     throw new Error(
-      `Claude CLI version ${version.major}.${version.minor}.${version.patch} is too old. ` +
-        `Required: >=${REQUIRED_CLAUDE_CLI_MAJOR}.${REQUIRED_CLAUDE_CLI_MIN_MINOR}. ` +
-        `Upgrade: npm install -g @anthropic-ai/claude-code@latest. ` +
-        `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
+      `Claude CLI version ${version.major}.${version.minor}.${version.patch} is too old. `
+      + `Required: >=${REQUIRED_CLAUDE_CLI_MAJOR}.${REQUIRED_CLAUDE_CLI_MIN_MINOR}. `
+      + `Upgrade: npm install -g @anthropic-ai/claude-code@latest. `
+      + `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
     );
   }
 };

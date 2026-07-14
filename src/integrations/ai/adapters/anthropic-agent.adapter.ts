@@ -71,6 +71,21 @@ const resolveRepoPath = (repoDir: string, rawPath: string): string =>
   path.isAbsolute(rawPath) ? rawPath : path.resolve(repoDir, rawPath);
 
 /**
+ * Track files written by the SDK from a `files_persisted` system message.
+ *
+ * @param message - SDK streamed message to inspect
+ * @param repoDir - Absolute path to the repository root
+ * @param touchedFiles - Mutable set that accumulates repo-relative file paths
+ */
+const collectPersistedFiles = (message: SDKMessage, repoDir: string, touchedFiles: Set<string>): void => {
+  if (message.type !== 'system' || message.subtype !== 'files_persisted') return;
+  for (const { filename } of message.files) {
+    const absolutePath = resolveRepoPath(repoDir, filename);
+    touchedFiles.add(path.relative(repoDir, absolutePath));
+  }
+};
+
+/**
  * Format a streamed progress event for console output.
  *
  * @param message - The SDK progress message to format
@@ -194,9 +209,9 @@ const logProgressMessage = (message: SDKMessage): boolean => {
     return false;
   }
 
-  const isWarning =
-    (message.type === 'system' && message.subtype === 'api_retry') ||
-    (message.type === 'system' && message.subtype === 'status');
+  const isWarning
+    = (message.type === 'system' && message.subtype === 'api_retry')
+      || (message.type === 'system' && message.subtype === 'status');
 
   console.log(isWarning ? chalk.yellow(formattedMessage) : chalk.cyan(formattedMessage));
   return true;
@@ -416,12 +431,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
           continue;
         }
 
-        if (message.type === 'system' && message.subtype === 'files_persisted') {
-          for (const { filename } of message.files) {
-            const absolutePath = resolveRepoPath(repoDir, filename);
-            touchedFiles.add(path.relative(repoDir, absolutePath));
-          }
-        }
+        collectPersistedFiles(message, repoDir, touchedFiles);
 
         const activityMessages = formatActivityMessages(message, repoDir, activityState);
         activityMessages.forEach(activityMessage => console.log(chalk.cyan(activityMessage)));
@@ -446,8 +456,8 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     }
 
     if (finalResult.subtype !== 'success' || finalResult.is_error) {
-      const errorSummary =
-        'errors' in finalResult && finalResult.errors.length > 0 ? finalResult.errors.join('; ') : 'unknown error';
+      const errorSummary
+        = 'errors' in finalResult && finalResult.errors.length > 0 ? finalResult.errors.join('; ') : 'unknown error';
       throw new Error(`Claude Agent SDK failed (${finalResult.subtype}): ${errorSummary}`);
     }
 
@@ -548,12 +558,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
             continue;
           }
 
-          if (message.type === 'system' && message.subtype === 'files_persisted') {
-            for (const { filename } of message.files) {
-              const absolutePath = resolveRepoPath(repoDir, filename);
-              touchedFiles.add(path.relative(repoDir, absolutePath));
-            }
-          }
+          collectPersistedFiles(message, repoDir, touchedFiles);
 
           const activityMessages = formatActivityMessages(message, repoDir, activityState);
           activityMessages.forEach(activityMessage => console.log(chalk.cyan(activityMessage)));
@@ -576,8 +581,8 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
       }
 
       if (iterationResult.subtype !== 'success') {
-        const errorSummary =
-          'errors' in iterationResult && iterationResult.errors.length > 0
+        const errorSummary
+          = 'errors' in iterationResult && iterationResult.errors.length > 0
             ? iterationResult.errors.join('; ')
             : 'unknown error';
         throw new Error(`Claude Agent SDK pass ${passNumber + 1} failed (${iterationResult.subtype}): ${errorSummary}`);

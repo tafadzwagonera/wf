@@ -115,7 +115,7 @@ describe('IssueGenerateLookupCommand', () => {
         createdAt: '2026-04-16T00:00:00.000Z',
         hash: '1a2b3c4d',
         sources: ['https://example.com/spec', './notes.md'],
-      })
+      }),
     );
 
     await command.run(['1a2b3c4d']);

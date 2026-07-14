@@ -2,13 +2,19 @@ import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiService, normalizeFileEntries } from '../integrations/ai/ai.service';
-import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
-import { ErrorHandler } from '../shared/utils/error-handler';
 import { ValidationError } from '../shared/utils/errors';
-import { getPlanArtifactExtension } from '../shared/utils/plan-artifact';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+import type { planVerificationConfigSchema } from '../shared/schemas/verification.schema';
+import type { z } from 'zod';
+import { getPlanArtifactExtension,
+  buildPlanArtifactFilename,
+  buildPlanArtifactManifest,
+  hashPlanArtifactSources,
+  writePlanArtifactManifest,
+} from '../shared/utils/plan-artifact';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { resolveCustomSourcePath } from '../shared/utils/custom-source';
 import { parseReposOption } from './utils/repos-option';
@@ -18,21 +24,15 @@ import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { detectTestInfra } from '../shared/utils/detect-test-infra';
-import type { TestInfraContext, NodeInfra } from '../shared/utils/detect-test-infra';
+import type { TestInfraContext, NodeInfra } from '../shared/types/detection.types';
 import { createPlanQualityError, validatePlanQuality } from '../shared/utils/plan-quality';
 import { detectRepoConventions } from '../shared/utils/detect-repo-conventions';
 import { detectPriorPlans, correlatePlans } from '../shared/utils/detect-prior-plans';
 import { detectCrossRepoPatterns } from '../shared/utils/detect-cross-repo-patterns';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as YAML from 'yaml';
 import chalk from 'chalk';
-import {
-  buildPlanArtifactFilename,
-  buildPlanArtifactManifest,
-  hashPlanArtifactSources,
-  writePlanArtifactManifest,
-} from '../shared/utils/plan-artifact';
 
 const ISSUE_PLAN_EXAMPLES: CliExample[] = [
   {
@@ -113,24 +113,40 @@ const describesExpectedFailure = (value?: string): boolean =>
  * @param command - Verification command text
  * @returns True when the command appears to assert on failure conditions
  */
+const ASSERTION_WRAPPER_PATTERNS: string[] = [
+  String.raw`(?:^|[ (])!`,
+  String.raw`\|\|`,
+  '&&',
+  String.raw`\bif\b`,
+  String.raw`\bthen\b`,
+  String.raw`\belse\b`,
+  String.raw`\bfi\b`,
+  String.raw`\bexit\s+0\b`,
+  String.raw`\btest\b`,
+  String.raw`\$\?`,
+  String.raw`\bsh\s+-c\b`,
+  String.raw`\bbash\s+-c\b`,
+  String.raw`\bzsh\s+-c\b`,
+];
+
+const ASSERTION_WRAPPER_REGEX = new RegExp(ASSERTION_WRAPPER_PATTERNS.join('|'));
+
 const usesAssertionWrapper = (command?: string): boolean =>
-  /(?:^|[ (])!|(?:\|\|)|(?:&&)|\bif\b|\bthen\b|\belse\b|\bfi\b|\bexit\s+0\b|\btest\b|\$\?|\bsh\s+-c\b|\bbash\s+-c\b|\bzsh\s+-c\b/.test(
-    command ?? ''
-  );
+  ASSERTION_WRAPPER_REGEX.test(command ?? '');
 
 const normalizeVerificationRunCommand = (command: string, selectedRepoDir: string): string => {
   const trimmed = command.trim();
-  const cdPrefixMatch = trimmed.match(/^cd\s+(.+?)\s*&&\s*(.+)$/);
+  const cdPrefixMatch = new RegExp(/^(cd)\s+(.+?)\s*(&&)\s*(.+)$/).exec(trimmed);
   if (!cdPrefixMatch) {
     return trimmed;
   }
 
-  const [, rawTarget, remainder] = cdPrefixMatch;
-  const target = rawTarget.trim().replace(/^['"]|['"]$/g, '');
+  const [, , rawTarget, , remainder] = cdPrefixMatch;
+  const target = rawTarget.trim().replaceAll(/(^['"])|(['"]$)/g, '');
   const normalizedRepoDir = path.resolve(selectedRepoDir);
   const repoName = path.basename(normalizedRepoDir);
-  const normalizedRelativeTarget =
-    target === repoName || target === `./${repoName}` ? normalizedRepoDir : path.resolve(selectedRepoDir, target);
+  const normalizedRelativeTarget
+    = target === repoName || target === `./${repoName}` ? normalizedRepoDir : path.resolve(selectedRepoDir, target);
   const normalizedAbsoluteTarget = path.resolve(target);
 
   if (normalizedRelativeTarget === normalizedRepoDir || normalizedAbsoluteTarget === normalizedRepoDir) {
@@ -142,17 +158,13 @@ const normalizeVerificationRunCommand = (command: string, selectedRepoDir: strin
 
 const escapesSelectedRepo = (command: string, selectedRepoDir: string): boolean => {
   const trimmed = command.trim();
-  const cdPrefixMatch = trimmed.match(/^cd\s+(.+?)\s*&&\s*(.+)$/);
+  const cdPrefixMatch = new RegExp(/^cd\s+(.+?)\s*&&\s*(.+)$/).exec(trimmed);
   if (!cdPrefixMatch) {
     return false;
   }
 
   const normalized = normalizeVerificationRunCommand(trimmed, selectedRepoDir);
-  if (normalized !== trimmed) {
-    return false;
-  }
-
-  return true;
+  return normalized === trimmed;
 };
 
 /**
@@ -162,7 +174,7 @@ const escapesSelectedRepo = (command: string, selectedRepoDir: string): boolean 
  * @returns Script name when the command uses a package manager runner, undefined otherwise
  */
 const extractScriptName = (command: string): string | undefined => {
-  const match = command.match(/^(?:yarn|npm run|pnpm|pnpm run|npx|nr)\s+([^\s]+)/);
+  const match = new RegExp(/^(?:yarn|npm run|pnpm|pnpm run|npx|nr)\s+(\S+)/).exec(command);
   return match?.[1];
 };
 
@@ -170,21 +182,20 @@ const extractScriptName = (command: string): string | undefined => {
 @Command({
   name: 'issue:plan',
   description:
-    'Plan ticket implementation from a local artifact or repo-scoped custom artifact. ' +
-    'If a local artifact is not found, the command will attempt to fetch it from the primary tracker. ' +
-    'Use --force to fetch and recreate artifacts. ' +
-    'Repo-scoped planning inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so planning prompts can reuse earlier implementation context. ' +
-    'Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. ' +
-    'Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. ' +
-    'Targeted verification commands are interpreted as repo-root-relative: redundant ' +
-    '`cd <repo>` prefixes are normalized away, while commands that change directories ' +
-    'outside the selected repository are rejected.',
+    'Plan ticket implementation from a local artifact or repo-scoped custom artifact. '
+    + 'If a local artifact is not found, the command will attempt to fetch it from the primary tracker. '
+    + 'Use --force to fetch and recreate artifacts. '
+    + 'Repo-scoped planning inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so planning prompts can reuse earlier implementation context. '
+    + 'Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. '
+    + 'Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. '
+    + 'Targeted verification commands are interpreted as repo-root-relative: redundant '
+    + '`cd <repo>` prefixes are normalized away, while commands that change directories '
+    + 'outside the selected repository are rejected.',
   arguments: '',
 })
 export class IssuePlanCommand extends CommandRunner {
   constructor(
     private readonly aiService: AiService,
-    private readonly issueTrackerService: IssueTrackerService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
@@ -290,557 +301,438 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   async run(_: string[], options?: IssuePlanOptions): Promise<void> {
-    const ticketKey = options?.ticketKey;
     if (!options?.silent) {
       printExamples(ISSUE_PLAN_EXAMPLES);
     }
 
-    try {
+    await executeAsyncWithCatch({ fn: async () => {
       await ensureWfHome();
+      this.validatePlanInputs(options);
 
-      if (options?.ticketKey && options?.customPlan) {
-        throw new ValidationError('--custom-plan cannot be used together with --ticket-key');
-      }
+      if (options?.customPlan) return this.executeCustomPlan(options);
 
-      if (!options?.ticketKey && !options?.customPlan) {
-        throw new ValidationError('Provide --ticket-key <key> or --custom-plan <source.md> for a custom plan');
-      }
+      await this.executeTicketPlan(options!.ticketKey!, options!);
+    } });
+  }
 
-      const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
-
-      // Bitbucket + ticket-key requires --repos
-      if (ticketKey && trackerName === 'bitbucket' && !options?.repos?.length) {
-        throw new ValidationError('--repos is required for Bitbucket ticket fetching');
-      }
-
-      const action = options.action;
-      const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-      // Output format: CLI flag > per-stage config > hardcoded default
-      const format =
-        options?.format ||
-        (this.configService.get<string>('stages.plan.outputFormat') as OutputFormat | undefined) ||
-        'json';
-      const extension = getPlanArtifactExtension(format);
-
-      if (options?.customPlan) {
-        const customArtifactDir = resolveCustomArtifactDir(artifactBaseDir);
-        if (!options.customPlan.toLowerCase().endsWith('.md')) {
-          throw new ValidationError('--custom-plan only accepts Markdown (.md) sources');
-        }
-
-        const customSourcePath = resolveCustomSourcePath(options.customPlan, artifactBaseDir, options?.repos);
-        const customSourceStem = path.basename(options.customPlan, '.md');
-        const planFilename = buildPlanArtifactFilename({
-          hash: hashPlanArtifactSources([customSourceStem]),
-          action,
-          format: extension,
-        });
-        const planPath = path.join(customArtifactDir, planFilename);
-
-        if (options.dryRun) {
-          this.dryRunPreview.showHeader('issue:plan', `--custom (${action})`);
-          this.dryRunPreview.previewFileRead({
-            filePath: customSourcePath,
-            exists: fs.existsSync(customSourcePath),
-            sizeInKb: fs.existsSync(customSourcePath) ? (fs.statSync(customSourcePath).size / 1024).toFixed(2) : '0',
-          });
-          this.dryRunPreview.previewApiCall({
-            method: 'POST',
-            endpoint: '/v1/messages',
-            platform: this.aiService.getProviderDisplayName(),
-            description: `Generate ${action} plan from custom markdown source`,
-            estimatedResponse: [
-              '{',
-              `  "action": "${action}",`,
-              '  "estimatedComplexity": "medium",',
-              '  "steps": ["<step 1>", "..."],',
-              '  "affectedFiles": ["<file>", "..."]',
-              '}',
-            ].join('\n'),
-          });
-          this.dryRunPreview.previewFileWrite({
-            filePath: path.join(customArtifactDir, planFilename),
-            operation: 'create',
-            sizeEstimate: '2–8 KB',
-            format,
-            contentPreview: `{ "action": "${action}", "estimatedComplexity": "medium", ... }`,
-          });
-          this.dryRunPreview.showSummary({
-            apiCallCount: 1,
-            fileCreatedCount: 1,
-            fileModifiedCount: 0,
-            gitOperationCount: 0,
-            terminalOutputLines: [
-              `✓ Plan saved to: <artifact-dir>/${planFilename}`,
-              '',
-              `  Action: ${action}`,
-              '  Complexity: <medium|high|low>',
-            ],
-          });
-          this.dryRunPreview.showValidationResult();
-          return;
-        }
-
-        if (!options?.silent) {
-          this.logger.info(`Planning custom source ${customSourceStem} (action: ${action})...`);
-        }
-
-        if (!fs.existsSync(customArtifactDir)) {
-          fs.mkdirSync(customArtifactDir, { recursive: true });
-        }
-
-        const planExists = fs.existsSync(planPath);
-        if (planExists && !options?.force) {
-          if (options?.silent) {
-            console.log(planPath);
-          } else {
-            this.logger.info(`Using existing plan: ${planPath}`);
-          }
-          return;
-        }
-
-        if (!options?.silent) {
-          if (options?.force && planExists) {
-            this.logger.info('Forcing recreation of plan artifact...');
-          }
-          this.logger.info('Generating implementation plan...');
-        }
-
-        const customSourceContent = fs.readFileSync(customSourcePath, 'utf-8');
-
-        // Gather repo discovery context
-        const conventions = detectRepoConventions(artifactBaseDir);
-        const priorPlans = detectPriorPlans(path.basename(artifactBaseDir));
-        const planCorrelation = correlatePlans(customSourceContent, priorPlans, artifactBaseDir);
-        const crossRepoPatterns =
-          (options?.repos?.length ?? 0) > 1
-            ? detectCrossRepoPatterns(
-                artifactBaseDir,
-                (options?.repos ?? []).slice(1).map(r => resolveRepoBasePath(r))
-              )
-            : undefined;
-
-        const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
-
-        const { plan } = await this.planStageService.generatePlan(customSourceContent, {
-          action,
-          affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
-          repoDir: artifactBaseDir,
-          conventions,
-          priorPlans,
-          planCorrelation,
-          crossRepoPatterns,
-          onProgress,
-          resumeProviderSessionId: options?.sessionId,
-        });
-        this.validateGeneratedPlan(
-          plan,
-          artifactBaseDir,
-          this.resolveExpectedRepositories(artifactBaseDir, options?.repos),
-          detectTestInfra(artifactBaseDir)
-        );
-
-        let planContent: string;
-        if (format === 'json') {
-          planContent = JSON.stringify(plan, null, 2);
-        } else if (format === 'yaml') {
-          planContent = YAML.stringify(plan);
-        } else {
-          planContent = this.formatPlanAsMarkdown(plan);
-        }
-
-        await fs.promises.writeFile(planPath, planContent, 'utf-8');
-        writePlanArtifactManifest(
-          buildPlanArtifactManifest(
-            planPath,
-            action,
-            format,
-            hashPlanArtifactSources([customSourceStem]),
-            customSourceStem,
-            'custom',
-            new Date()
-          )
-        );
-        this.deleteSiblingPlanArtifacts(customArtifactDir, customSourceStem, 'custom', action, planPath);
-        if (options?.silent) {
-          console.log(planPath);
-        } else {
-          this.logger.success(`✓ Plan saved to: ${planPath}`);
-          this.logger.info(`\nPlan Summary:`);
-          this.logger.info(`  Action: ${plan.action}`);
-          this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
-          this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
-          this.logger.info(`  Files affected: ${plan.affectedFiles?.length || 0}`);
-        }
-        return;
-      }
-
-      // Guard at line 305 ensures ticketKey is defined when customPlan is absent
-      const resolvedTicketKey = ticketKey!;
-      // Check for local artifact or fetch
-      const trackerDir = resolveArtifactDir(artifactBaseDir, trackerName);
-      const ticketPath = path.join(trackerDir, `${resolvedTicketKey}.md`);
-      const planSourceName = resolvedTicketKey;
-      const planPath = path.join(
-        trackerDir,
-        buildPlanArtifactFilename({
-          hash: hashPlanArtifactSources([planSourceName]),
-          action,
-          format: extension,
-        })
-      );
-      const ticketExists = fs.existsSync(ticketPath);
-      const needsFetch = options?.force || !ticketExists;
-
-      if (options?.dryRun) {
-        this.dryRunPreview.showHeader('issue:plan', resolvedTicketKey);
-
-        if (needsFetch) {
-          this.dryRunPreview.previewApiCall({
-            method: 'GET',
-            endpoint: `/${trackerName}/issues/${resolvedTicketKey}`,
-            platform: trackerName,
-            description: `Fetch ticket ${resolvedTicketKey} from ${trackerName}`,
-            estimatedResponse: '200 OK — ticket data returned',
-          });
-          this.dryRunPreview.previewFileWrite({
-            filePath: ticketPath,
-            operation: ticketExists ? 'overwrite' : 'create',
-            sizeEstimate: '1–5 KB',
-            format: 'markdown',
-            contentPreview: buildTicketMarkdownPreview(resolvedTicketKey),
-          });
-        } else {
-          this.dryRunPreview.previewFileRead({
-            filePath: ticketPath,
-            exists: true,
-            sizeInKb: (fs.statSync(ticketPath).size / 1024).toFixed(2),
-          });
-        }
-
-        this.dryRunPreview.previewApiCall({
-          method: 'POST',
-          endpoint: '/v1/messages',
-          platform: this.aiService.getProviderDisplayName(),
-          description: `Generate ${action} implementation plan`,
-          estimatedResponse: [
-            '{',
-            `  "action": "${action}",`,
-            '  "estimatedComplexity": "medium",',
-            '  "steps": ["<step 1>", "..."],',
-            '  "affectedFiles": ["<file>", "..."]',
-            '}',
-          ].join('\n'),
-        });
-
-        this.dryRunPreview.previewFileWrite({
-          filePath: planPath,
-          operation: fs.existsSync(planPath) ? 'overwrite' : 'create',
-          sizeEstimate: '2–8 KB',
-          format,
-          contentPreview:
-            format === 'json'
-              ? [
-                  '{',
-                  `  "action": "${action}",`,
-                  '  "estimatedComplexity": "medium",',
-                  '  "summary": "<summary>",',
-                  '  "steps": [',
-                  '    "<step 1>",',
-                  '    "<step 2>",',
-                  '    ...',
-                  '  ]',
-                  '}',
-                ].join('\n')
-              : [
-                  '# Implementation Plan',
-                  '',
-                  `**Action:** ${action}`,
-                  '**Complexity:** medium',
-                  '',
-                  '## Summary',
-                  '<summary>',
-                  '',
-                  '## Steps',
-                  '1. <step>',
-                ].join('\n'),
-        });
-
-        this.dryRunPreview.showSummary({
-          apiCallCount: needsFetch ? 2 : 1,
-          fileCreatedCount: needsFetch ? 2 : 1,
-          fileModifiedCount: 0,
-          gitOperationCount: 0,
-          terminalOutputLines: [
-            ...(needsFetch ? [`✓ Ticket saved to: ${ticketPath}`] : []),
-            `✓ Plan saved to: ${planPath}`,
-            '',
-            'Plan Summary:',
-            `  Action: ${action}`,
-            '  Complexity: <medium|high|low>',
-            '  Steps: <n>',
-            '  Files affected: <n>',
-          ],
-        });
-
-        this.dryRunPreview.showValidationResult();
-        return;
-      }
-
-      if (!options?.silent) {
-        this.logger.info(`Planning ticket ${resolvedTicketKey} (action: ${action})...`);
-      }
-
-      let ticketContent: string;
-
-      if (needsFetch) {
-        if (!options?.silent) {
-          if (options?.force) {
-            this.logger.info('Forcing recreation of ticket artifact...');
-          } else {
-            this.logger.info('Local artifact not found. Fetching from tracker...');
-          }
-        }
-
-        const artifact = await this.fetchStageService.fetchArtifact(resolvedTicketKey, {
-          trackerName,
-          repo: options?.repos?.[0],
-          baseDir: artifactBaseDir,
-        });
-        ticketContent = artifact.content;
-        if (!options?.silent) {
-          this.logger.success(`✓ Ticket saved to: ${artifact.path}`);
-        }
-      } else {
-        const artifact = this.fetchStageService.loadArtifact(resolvedTicketKey, trackerName, artifactBaseDir);
-        if (!options?.silent) {
-          this.logger.info(`Using local artifact: ${artifact.path}`);
-        }
-        ticketContent = artifact.content;
-      }
-
-      // Return existing plan unless --force is set
-      const planExists = fs.existsSync(planPath);
-      if (planExists && !options?.force) {
-        if (options?.silent) {
-          console.log(planPath);
-        } else {
-          this.logger.info(`Using existing plan: ${planPath}`);
-        }
-        return;
-      }
-
-      // Generate plan using AI
-      if (!options?.silent) {
-        if (options?.force && planExists) {
-          this.logger.info('Forcing recreation of plan artifact...');
-        }
-        this.logger.info('Generating implementation plan...');
-      }
-
-      // Gather repo discovery context
-      const conventions = detectRepoConventions(artifactBaseDir);
-      const priorPlans = detectPriorPlans(path.basename(artifactBaseDir));
-      const planCorrelation = correlatePlans(ticketContent, priorPlans, artifactBaseDir);
-      const crossRepoPatterns =
-        (options?.repos?.length ?? 0) > 1
-          ? detectCrossRepoPatterns(
-              artifactBaseDir,
-              (options?.repos ?? []).slice(1).map(r => resolveRepoBasePath(r))
-            )
-          : undefined;
-
-      const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
-
-      const { plan } = await this.planStageService.generatePlan(ticketContent, {
-        action,
-        ticketKey: resolvedTicketKey,
-        affectedRepositories: options?.repos ?? [path.basename(artifactBaseDir)],
-        repoDir: artifactBaseDir,
-        conventions,
-        priorPlans,
-        planCorrelation,
-        crossRepoPatterns,
-        onProgress,
-        resumeProviderSessionId: options?.sessionId,
-      });
-      this.validateGeneratedPlan(
-        plan,
-        artifactBaseDir,
-        this.resolveExpectedRepositories(artifactBaseDir, options?.repos),
-        detectTestInfra(artifactBaseDir)
-      );
-
-      // Save plan to file
-
-      let planContent: string;
-      if (format === 'json') {
-        planContent = JSON.stringify(plan, null, 2);
-      } else if (format === 'yaml') {
-        planContent = YAML.stringify(plan);
-      } else {
-        planContent = this.formatPlanAsMarkdown(plan);
-      }
-
-      await fs.promises.writeFile(planPath, planContent, 'utf-8');
-      writePlanArtifactManifest(
-        buildPlanArtifactManifest(
-          planPath,
-          action,
-          format,
-          hashPlanArtifactSources([planSourceName]),
-          planSourceName,
-          'ticket',
-          new Date(),
-          trackerName
-        )
-      );
-      this.deleteSiblingPlanArtifacts(trackerDir, planSourceName, 'ticket', action, planPath);
-
-      if (options?.silent) {
-        console.log(planPath);
-      } else {
-        this.logger.success(`✓ Plan saved to: ${planPath}`);
-        this.logger.info(`\nPlan Summary:`);
-        this.logger.info(`  Action: ${plan.action}`);
-        this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
-        this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
-        this.logger.info(`  Files affected: ${plan.affectedFiles?.length || 0}`);
-      }
-    } catch (error) {
-      ErrorHandler.handle(error as Error);
+  private validatePlanInputs(options?: IssuePlanOptions): void {
+    if (options?.ticketKey && options?.customPlan) {
+      throw new ValidationError('--custom-plan cannot be used together with --ticket-key');
+    }
+    if (!options?.ticketKey && !options?.customPlan) {
+      throw new ValidationError('Provide --ticket-key <key> or --custom-plan <source.md> for a custom plan');
+    }
+    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    if (options?.ticketKey && trackerName === 'bitbucket' && !options?.repos?.length) {
+      throw new ValidationError('--repos is required for Bitbucket ticket fetching');
     }
   }
 
+  private resolvePlanFormat(options?: IssuePlanOptions): OutputFormat {
+    return (
+      options?.format
+      || (this.configService.get<string>('stages.plan.outputFormat') as OutputFormat | undefined)
+      || 'json'
+    );
+  }
+
+  private async executeCustomPlan(options: IssuePlanOptions): Promise<void> {
+    if (!options.customPlan!.toLowerCase().endsWith('.md')) {
+      throw new ValidationError('--custom-plan only accepts Markdown (.md) sources');
+    }
+
+    const ctx = this.resolveCustomPlanContext(options);
+
+    if (options.dryRun) {
+      return this.previewCustomPlanDryRun(
+        ctx.sourcePath, ctx.planFilename, ctx.artifactDir, options.action, ctx.format
+      );
+    }
+
+    if (!options?.silent) this.logger.info('Planning custom source ' + ctx.stem + ' (action: ' + options.action + ')...');
+    if (!fs.existsSync(ctx.artifactDir)) fs.mkdirSync(ctx.artifactDir, { recursive: true });
+
+    if (this.returnCachedPlanIfExists(ctx.planPath, options)) return;
+
+    const plan = await this.generatePlan(fs.readFileSync(ctx.sourcePath, 'utf-8'), ctx.baseDir, options.action, options);
+    await this.savePlan({
+      plan, planPath: ctx.planPath, format: ctx.format, action: options.action,
+      hash: ctx.hash, sourceName: ctx.stem, sourceKind: 'custom', artifactDir: ctx.artifactDir, options,
+    });
+  }
+
+  private resolveCustomPlanContext(options: IssuePlanOptions) {
+    const baseDir = resolveRepoBasePath(options?.repos?.[0]);
+    const format = this.resolvePlanFormat(options);
+    const stem = path.basename(options.customPlan!, '.md');
+    const hash = hashPlanArtifactSources([stem]);
+    const artifactDir = resolveCustomArtifactDir(baseDir);
+    const extension = getPlanArtifactExtension(format);
+    const planFilename = buildPlanArtifactFilename({ hash, action: options.action, format: extension });
+    const planPath = path.join(artifactDir, planFilename);
+    const sourcePath = resolveCustomSourcePath(options.customPlan!, baseDir, options?.repos);
+    return { baseDir, format, stem, hash, artifactDir, planFilename, planPath, sourcePath };
+  }
+
+  private returnCachedPlanIfExists(planPath: string, options: IssuePlanOptions): boolean {
+    if (!fs.existsSync(planPath) || options?.force) {
+      if (!options?.silent && options?.force && fs.existsSync(planPath)) this.logger.info('Forcing recreation of plan artifact...');
+      if (!options?.silent) this.logger.info('Generating implementation plan...');
+      return false;
+    }
+    if (options?.silent) {
+      console.log(planPath);
+      return true;
+    }
+    this.logger.info('Using existing plan: ' + planPath);
+    return true;
+  }
+
+  private async executeTicketPlan(ticketKey: string, options: IssuePlanOptions): Promise<void> {
+    const ctx = this.resolveTicketPlanContext(ticketKey, options);
+
+    if (options?.dryRun) {
+      return this.previewTicketPlanDryRun({
+        ticketKey, trackerName: ctx.trackerName, ticketPath: ctx.ticketPath, planPath: ctx.planPath,
+        format: ctx.format, action: options.action, needsFetch: ctx.needsFetch, ticketExists: ctx.ticketExists,
+      });
+    }
+
+    if (!options?.silent) this.logger.info('Planning ticket ' + ticketKey + ' (action: ' + options.action + ')...');
+    const ticketContent = await this.resolveTicketContent(
+      ticketKey, ctx.trackerName, ctx.baseDir, ctx.needsFetch, options
+    );
+
+    if (this.returnCachedPlanIfExists(ctx.planPath, options)) return;
+
+    const plan = await this.generatePlan(ticketContent, ctx.baseDir, options.action, options, ticketKey);
+    await this.savePlan({
+      plan, planPath: ctx.planPath, format: ctx.format, action: options.action,
+      hash: ctx.hash, sourceName: ticketKey, sourceKind: 'ticket',
+      artifactDir: ctx.trackerDir, options, trackerName: ctx.trackerName,
+    });
+  }
+
+  private resolveTicketPlanContext(ticketKey: string, options: IssuePlanOptions) {
+    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    const baseDir = resolveRepoBasePath(options?.repos?.[0]);
+    const format = this.resolvePlanFormat(options);
+    const trackerDir = resolveArtifactDir(baseDir, trackerName);
+    const ticketPath = path.join(trackerDir, ticketKey + '.md');
+    const hash = hashPlanArtifactSources([ticketKey]);
+    const extension = getPlanArtifactExtension(format);
+    const filename = buildPlanArtifactFilename({ hash, action: options.action, format: extension });
+    const planPath = path.join(trackerDir, filename);
+    const ticketExists = fs.existsSync(ticketPath);
+    const needsFetch = options?.force || !ticketExists;
+    return { trackerName, baseDir, format, trackerDir, ticketPath, hash, planPath, ticketExists, needsFetch };
+  }
+
+  private async resolveTicketContent(
+    ticketKey: string, trackerName: string, artifactBaseDir: string, needsFetch: boolean, options: IssuePlanOptions
+  ): Promise<string> {
+    if (needsFetch) {
+      if (!options?.silent) {
+        this.logger.info(options?.force ? 'Forcing recreation of ticket artifact...' : 'Local artifact not found. Fetching from tracker...');
+      }
+      const artifact = await this.fetchStageService.fetchArtifact(ticketKey, {
+        trackerName, repo: options?.repos?.[0], baseDir: artifactBaseDir,
+      });
+      if (!options?.silent) this.logger.success(`✓ Ticket saved to: ${artifact.path}`);
+      return artifact.content;
+    }
+
+    const artifact = this.fetchStageService.loadArtifact(ticketKey, trackerName, artifactBaseDir);
+    if (!options?.silent) this.logger.info(`Using local artifact: ${artifact.path}`);
+    return artifact.content;
+  }
+
+  private async generatePlan(
+    content: string, baseDir: string, action: ResolutionAction, options: IssuePlanOptions, ticketKey?: string
+  ): Promise<any> {
+    const discovery = this.gatherPlanDiscoveryContext(content, baseDir, options);
+    const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
+
+    const { plan } = await this.planStageService.generatePlan(content, {
+      action, ticketKey, affectedRepositories: options?.repos ?? [path.basename(baseDir)],
+      repoDir: baseDir, ...discovery, onProgress, resumeProviderSessionId: options?.sessionId,
+    });
+
+    this.validateGeneratedPlan(
+      plan, baseDir, this.resolveExpectedRepositories(baseDir, options?.repos), detectTestInfra(baseDir)
+    );
+    return plan;
+  }
+
+  private gatherPlanDiscoveryContext(content: string, baseDir: string, options: IssuePlanOptions) {
+    const conventions = detectRepoConventions(baseDir);
+    const priorPlans = detectPriorPlans(path.basename(baseDir));
+    const planCorrelation = correlatePlans(content, priorPlans, baseDir);
+    const crossRepoPatterns = (options?.repos?.length ?? 0) > 1
+      ? detectCrossRepoPatterns(baseDir, options.repos!.slice(1).map(r => resolveRepoBasePath(r)))
+      : undefined;
+    return { conventions, priorPlans, planCorrelation, crossRepoPatterns };
+  }
+
+  private async savePlan(
+    opts: {
+      plan: any; planPath: string; format: string; action: ResolutionAction;
+      hash: string; sourceName: string; sourceKind: 'ticket' | 'custom';
+      artifactDir: string; options?: IssuePlanOptions; trackerName?: string;
+    }
+  ): Promise<void> {
+    const { plan, planPath, format, action, hash, sourceName, sourceKind, artifactDir, options, trackerName } = opts;
+    await fs.promises.writeFile(planPath, this.serializePlan(plan, format as OutputFormat), 'utf-8');
+    writePlanArtifactManifest(
+      buildPlanArtifactManifest(
+        planPath, action, format as OutputFormat, hash,
+        sourceName, sourceKind, new Date(), trackerName,
+      )
+    );
+    this.deleteSiblingPlanArtifacts(artifactDir, sourceName, sourceKind, action, planPath);
+    this.printPlanSummary(planPath, plan, options?.silent);
+  }
+
+  private previewCustomPlanDryRun(
+    sourcePath: string, planFilename: string, artifactDir: string,
+    action: ResolutionAction, format: string
+  ): void {
+    const exists = fs.existsSync(sourcePath);
+    this.dryRunPreview.showHeader('issue:plan', '--custom (' + action + ')');
+    this.dryRunPreview.previewFileRead({
+      filePath: sourcePath, exists,
+      sizeInKb: exists ? (fs.statSync(sourcePath).size / 1024).toFixed(2) : '0',
+    });
+    this.previewPlanGeneration(action);
+    this.dryRunPreview.previewFileWrite({
+      filePath: path.join(artifactDir, planFilename), operation: 'create', sizeEstimate: '2–8 KB',
+      format, contentPreview: '{ "action": "' + action + '", "estimatedComplexity": "medium", ... }',
+    });
+    this.showPlanDryRunSummary(action, planFilename);
+  }
+
+  private previewPlanGeneration(action: ResolutionAction): void {
+    this.dryRunPreview.previewApiCall({
+      method: 'POST', endpoint: '/v1/messages', platform: this.aiService.getProviderDisplayName(),
+      description: 'Generate ' + action + ' plan',
+      estimatedResponse: '{\n  "action": "' + action + '",\n  "estimatedComplexity": "medium",'
+        + '\n  "steps": ["<step 1>", "..."],\n  "affectedFiles": ["<file>", "..."]\n}',
+    });
+  }
+
+  private showPlanDryRunSummary(action: ResolutionAction, planFilename: string): void {
+    this.dryRunPreview.showSummary({
+      apiCallCount: 1, fileCreatedCount: 1, fileModifiedCount: 0, gitOperationCount: 0,
+      terminalOutputLines: [
+        '✓ Plan saved to: <artifact-dir>/' + planFilename, '',
+        '  Action: ' + action, '  Complexity: <medium|high|low>',
+      ],
+    });
+    this.dryRunPreview.showValidationResult();
+  }
+
+  private previewTicketPlanDryRun(
+    opts: {
+      ticketKey: string; trackerName: string; ticketPath: string; planPath: string;
+      format: string; action: ResolutionAction; needsFetch: boolean; ticketExists: boolean;
+    }
+  ): void {
+    const { ticketKey, trackerName, ticketPath, planPath, format, action, needsFetch, ticketExists } = opts;
+    this.dryRunPreview.showHeader('issue:plan', ticketKey);
+
+    if (needsFetch) {
+      this.previewTicketFetch(ticketKey, trackerName, ticketPath, ticketExists);
+    }
+    if (!needsFetch) {
+      this.dryRunPreview.previewFileRead({
+        filePath: ticketPath, exists: true, sizeInKb: (fs.statSync(ticketPath).size / 1024).toFixed(2),
+      });
+    }
+
+    this.previewPlanGeneration(action);
+    this.previewPlanFileWrite(planPath, format, action);
+    this.showTicketPlanDryRunSummary(needsFetch, ticketPath, planPath, action);
+  }
+
+  private previewTicketFetch(
+    ticketKey: string, trackerName: string, ticketPath: string, ticketExists: boolean
+  ): void {
+    this.dryRunPreview.previewApiCall({
+      method: 'GET', endpoint: '/' + trackerName + '/issues/' + ticketKey, platform: trackerName,
+      description: 'Fetch ticket ' + ticketKey + ' from ' + trackerName,
+      estimatedResponse: '200 OK — ticket data returned',
+    });
+    this.dryRunPreview.previewFileWrite({
+      filePath: ticketPath, operation: ticketExists ? 'overwrite' : 'create',
+      sizeEstimate: '1–5 KB', format: 'markdown', contentPreview: buildTicketMarkdownPreview(ticketKey),
+    });
+  }
+
+  private previewPlanFileWrite(planPath: string, format: string, action: ResolutionAction): void {
+    const jsonPreview = '{\n  "action": "' + action + '",\n  "estimatedComplexity": "medium",'
+      + '\n  "summary": "<summary>",\n  "steps": ["<step 1>", "..."]\n}';
+    const mdPreview = '# Implementation Plan\n\n**Action:** ' + action
+      + '\n**Complexity:** medium\n\n## Summary\n<summary>\n\n## Steps\n1. <step>';
+    this.dryRunPreview.previewFileWrite({
+      filePath: planPath, operation: fs.existsSync(planPath) ? 'overwrite' : 'create',
+      sizeEstimate: '2–8 KB', format, contentPreview: format === 'json' ? jsonPreview : mdPreview,
+    });
+  }
+
+  private showTicketPlanDryRunSummary(
+    needsFetch: boolean, ticketPath: string, planPath: string, action: ResolutionAction
+  ): void {
+    this.dryRunPreview.showSummary({
+      apiCallCount: needsFetch ? 2 : 1, fileCreatedCount: needsFetch ? 2 : 1,
+      fileModifiedCount: 0, gitOperationCount: 0,
+      terminalOutputLines: [
+        ...(needsFetch ? ['✓ Ticket saved to: ' + ticketPath] : []),
+        '✓ Plan saved to: ' + planPath, '', 'Plan Summary:',
+        '  Action: ' + action, '  Complexity: <medium|high|low>', '  Steps: <n>', '  Files affected: <n>',
+      ],
+    });
+    this.dryRunPreview.showValidationResult();
+  }
+
   private formatPlanAsMarkdown(plan: any): string {
-    let md = `# Implementation Plan\n\n`;
-    md += `**Action:** ${plan.action}\n`;
-    md += `**Complexity:** ${plan.estimatedComplexity}\n\n`;
-    md += `## Summary\n\n${plan.summary}\n\n`;
+    const resolveFileLabel = (f: any): string => typeof f === 'string' ? f : f.filePath;
+    let md = '# Implementation Plan\n\n'
+      + '**Action:** ' + plan.action + '\n'
+      + '**Complexity:** ' + plan.estimatedComplexity + '\n\n'
+      + '## Summary\n\n' + plan.summary + '\n\n';
 
-    if (plan.steps && plan.steps.length > 0) {
-      md += `## Steps\n\n`;
-      plan.steps.forEach((step: string, i: number) => {
-        md += `${i + 1}. ${step}\n`;
-      });
-      md += '\n';
-    }
-
-    if (plan.affectedFiles && plan.affectedFiles.length > 0) {
-      md += `## Files Affected\n\n`;
-      plan.affectedFiles.forEach(file => {
-        const label = typeof file === 'string' ? file : file.filePath;
-        md += `- ${label}\n`;
-      });
-      md += '\n';
-    }
-
-    if (plan.affectedFilesContext && plan.affectedFilesContext.length > 0) {
-      md += `## Files for Context (Read-Only)\n\n`;
-      plan.affectedFilesContext.forEach(file => {
-        const label = typeof file === 'string' ? file : file.filePath;
-        md += `- ${label}\n`;
-      });
-      md += '\n';
-    }
-
-    if (plan.affectedRepositories && plan.affectedRepositories.length > 0) {
-      md += `## Affected Repositories\n\n`;
-      plan.affectedRepositories.forEach((repository: string) => {
-        md += `- ${repository}\n`;
-      });
-      md += '\n';
-    }
-
-    if (plan.verification?.targeted?.length || plan.verification?.waivers?.length) {
-      md += `## Verification\n\n`;
-
-      if (plan.verification.targeted?.length) {
-        md += `### Targeted Checks\n\n`;
-        plan.verification.targeted.forEach((check: any) => {
-          const parts = [
-            `- \`${check.id}\``,
-            check.policy ? `policy: \`${check.policy}\`` : '',
-            check.run ? `run: \`${check.run}\`` : '',
-            check.reason ? `reason: ${check.reason}` : '',
-          ].filter(Boolean);
-          md += `${parts.join(' | ')}\n`;
-        });
-        md += '\n';
-      }
-
-      if (plan.verification.waivers?.length) {
-        md += `### Waivers\n\n`;
-        plan.verification.waivers.forEach((waiver: any) => {
-          md += `- \`${waiver.id}\` — ${waiver.reason}\n`;
-        });
-        md += '\n';
-      }
-    }
-
-    if (plan.risks && plan.risks.length > 0) {
-      md += `## Risks\n\n`;
-      plan.risks.forEach((risk: string) => {
-        md += `- ${risk}\n`;
-      });
-    }
-
+    md += this.formatNumberedSection('## Steps', plan.steps);
+    md += this.formatBulletSection('## Files Affected', plan.affectedFiles?.map(resolveFileLabel));
+    md += this.formatBulletSection('## Files for Context (Read-Only)', plan.affectedFilesContext?.map(resolveFileLabel));
+    md += this.formatBulletSection('## Affected Repositories', plan.affectedRepositories);
+    md += this.formatVerificationSection(plan.verification);
+    md += this.formatBulletSection('## Risks', plan.risks);
     return md;
+  }
+
+  private formatNumberedSection(heading: string, items?: string[]): string {
+    if (!items?.length) return '';
+    return heading + '\n\n' + items.map((item, i) => (i + 1) + '. ' + item).join('\n') + '\n\n';
+  }
+
+  private formatBulletSection(heading: string, items?: string[]): string {
+    if (!items?.length) return '';
+    return heading + '\n\n' + items.map(item => '- ' + item).join('\n') + '\n\n';
+  }
+
+  private formatVerificationSection(verification?: z.infer<typeof planVerificationConfigSchema>): string {
+    if (!verification?.targeted?.length && !verification?.waivers?.length) return '';
+    let md = '## Verification\n\n';
+    if (verification.targeted?.length) {
+      md += '### Targeted Checks\n\n';
+      for (const check of verification.targeted) {
+        const parts = [
+          '- `' + check.id + '`',
+          check.policy ? 'policy: `' + check.policy + '`' : '',
+          check.run ? 'run: `' + check.run + '`' : '',
+          check.reason ? 'reason: ' + check.reason : '',
+        ].filter(Boolean);
+        md += parts.join(' | ') + '\n';
+      }
+      md += '\n';
+    }
+    if (verification.waivers?.length) {
+      md += '### Waivers\n\n';
+      md += verification.waivers.map(w => '- `' + w.id + '` — ' + w.reason).join('\n') + '\n\n';
+    }
+    return md;
+  }
+
+  /**
+   * Serialize a plan object to the requested output format.
+   *
+   * @param plan - Parsed plan content
+   * @param format - Target output format
+   * @returns Serialized plan string
+   */
+  private serializePlan(plan: any, format: OutputFormat): string {
+    switch (format) {
+      case 'json':
+        return JSON.stringify(plan, null, 2);
+      case 'yaml':
+        return YAML.stringify(plan);
+      default:
+        return this.formatPlanAsMarkdown(plan);
+    }
+  }
+
+  /**
+   * Print the plan path (silent) or a formatted summary (verbose).
+   *
+   * @param planPath - Absolute path to the saved plan artifact
+   * @param plan - Parsed plan content
+   * @param silent - Whether to suppress decorative output
+   */
+  private printPlanSummary(planPath: string, plan: any, silent?: boolean): void {
+    if (silent) {
+      console.log(planPath);
+      return;
+    }
+    this.logger.success(`✓ Plan saved to: ${planPath}`);
+    this.logger.info(`\nPlan Summary:`);
+    this.logger.info(`  Action: ${plan.action}`);
+    this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
+    this.logger.info(`  Steps: ${plan.steps?.length || 0}`);
+    this.logger.info(`  Files affected: ${plan.affectedFiles?.length || 0}`);
   }
 
   /**
    * Remove stale standard plan siblings so a ticket keeps exactly one standard plan.
    *
    * @param trackerDir - Artifact namespace for the active repo/tracker
-   * @param ticketKey - Ticket identifier
+   * @param sourceName
+   * @param sourceKind
+   * @param currentAction
    * @param retainedPlanPath - Newly selected standard plan path
    * @returns void
    */
   private deleteSiblingPlanArtifacts(
-    trackerDir: string,
-    sourceName: string,
-    sourceKind: 'ticket' | 'custom',
-    currentAction: ResolutionAction,
-    retainedPlanPath: string
+    trackerDir: string, sourceName: string, sourceKind: 'ticket' | 'custom',
+    currentAction: ResolutionAction, retainedPlanPath: string
   ): void {
+    const candidates = this.buildSiblingCandidates(trackerDir, sourceName, sourceKind);
+    for (const candidate of candidates) {
+      if (candidate === retainedPlanPath || !fs.existsSync(candidate)) continue;
+      const action = this.extractActionFromPath(candidate);
+      if (action === currentAction) continue;
+      this.deleteArtifactWithManifest(candidate, trackerDir);
+    }
+  }
+
+  private buildSiblingCandidates(
+    dir: string, sourceName: string, sourceKind: 'ticket' | 'custom'
+  ): string[] {
     const actions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
     const extensions: Array<'json' | 'md' | 'yaml' | 'yml'> = ['json', 'md', 'yaml', 'yml'];
-    const planHash = hashPlanArtifactSources([sourceName]);
-
-    for (const siblingAction of actions) {
-      for (const extension of extensions) {
-        const hashedSiblingPath = path.join(
-          trackerDir,
-          buildPlanArtifactFilename({
-            hash: planHash,
-            action: siblingAction,
-            format: extension,
-          })
-        );
-        const legacySiblingPath = path.join(
-          trackerDir,
-          sourceKind === 'ticket'
-            ? `${sourceName}-plan-${siblingAction}.${extension}`
-            : `${sourceName}-${siblingAction}.${extension}`
-        );
-
-        for (const siblingPath of [hashedSiblingPath, legacySiblingPath]) {
-          if (siblingPath === retainedPlanPath || siblingAction === currentAction || !fs.existsSync(siblingPath)) {
-            continue;
-          }
-
-          this.logger.warn(`Deleting stale plan artifact: ${siblingPath}`);
-          fs.unlinkSync(siblingPath);
-          const siblingManifestPath = path.join(
-            trackerDir,
-            `${path.basename(siblingPath).replace(/\.[^.]+$/, '')}.sources.json`
-          );
-          if (fs.existsSync(siblingManifestPath)) {
-            fs.unlinkSync(siblingManifestPath);
-          }
-        }
+    const hash = hashPlanArtifactSources([sourceName]);
+    const candidates: string[] = [];
+    for (const action of actions) {
+      for (const ext of extensions) {
+        candidates.push(path.join(dir, buildPlanArtifactFilename({ hash, action, format: ext })));
+        const legacyName = sourceKind === 'ticket'
+          ? sourceName + '-plan-' + action + '.' + ext
+          : sourceName + '-' + action + '.' + ext;
+        candidates.push(path.join(dir, legacyName));
       }
     }
+    return candidates;
+  }
+
+  private extractActionFromPath(filePath: string): string {
+    const match = path.basename(filePath).match(/-(feature|fix|investigate)[-.]/);
+    return match?.[1] ?? '';
+  }
+
+  private deleteArtifactWithManifest(artifactPath: string, dir: string): void {
+    this.logger.warn('Deleting stale plan artifact: ' + artifactPath);
+    fs.unlinkSync(artifactPath);
+    const manifestPath = path.join(dir, path.basename(artifactPath).replace(/\.[^.]+$/, '') + '.sources.json');
+    if (fs.existsSync(manifestPath)) fs.unlinkSync(manifestPath);
   }
 
   /**
@@ -868,237 +760,154 @@ export class IssuePlanCommand extends CommandRunner {
    * @param plan - Generated plan content
    * @param selectedRepoDir - Directory used as the repository root for plan execution
    * @param expectedRepositories - Repository names allowed for this plan
+   * @param testInfra
    * @returns Nothing; throws when the plan metadata is incompatible
    */
   private validateGeneratedPlan(
-    plan: RepoAwarePlan,
-    selectedRepoDir: string,
-    expectedRepositories: string[],
-    testInfra?: TestInfraContext
+    plan: RepoAwarePlan, selectedRepoDir: string,
+    expectedRepositories: string[], testInfra?: TestInfraContext
   ): void {
-    const affectedRepositories = plan.affectedRepositories ?? [];
-    const normalizedAffected = normalizeFileEntries(plan.affectedFiles ?? []);
-    const normalizedContext = normalizeFileEntries(plan.affectedFilesContext ?? []);
+    const repos = plan.affectedRepositories ?? [];
+    const affected = normalizeFileEntries(plan.affectedFiles ?? []);
+    const context = normalizeFileEntries(plan.affectedFilesContext ?? []);
 
-    if (affectedRepositories.some(repository => repository === 'repo-name')) {
-      throw createPlanValidationError('placeholder repository metadata found in affectedRepositories.');
-    }
+    this.validatePlanMetadata(repos, affected, context, expectedRepositories);
+    this.verifyFileStatuses(affected, context, selectedRepoDir);
+    this.stripUnresolvableEntries(plan, affected, context);
+    this.normalizeVerificationCommands(plan, selectedRepoDir);
+    this.validateVerificationEcosystems(plan, testInfra);
+    this.validateVerificationSemantics(plan, selectedRepoDir);
+    this.validatePlanQualityRules(plan, repos, testInfra);
+  }
 
-    if (normalizedAffected.some(entry => entry.filePath.startsWith('repo-name/'))) {
-      throw createPlanValidationError('placeholder repository metadata found in affectedFiles.');
-    }
+  private validatePlanMetadata(
+    repos: string[], affected: any[], context: any[], expected: string[]
+  ): void {
+    if (repos.includes('repo-name')) throw createPlanValidationError('placeholder repository metadata found in affectedRepositories.');
+    if (affected.some(e => e.filePath.startsWith('repo-name/'))) throw createPlanValidationError('placeholder repository metadata found in affectedFiles.');
+    if (context.some(e => e.filePath.startsWith('repo-name/'))) throw createPlanValidationError('placeholder repository metadata found in affectedFilesContext.');
+    if (expected.length > 0 && repos.length === 0) throw createPlanValidationError(`affectedRepositories must be present and limited to: ${expected.join(', ')}.`);
 
-    if (normalizedContext.some(entry => entry.filePath.startsWith('repo-name/'))) {
-      throw createPlanValidationError('placeholder repository metadata found in affectedFilesContext.');
-    }
+    const unexpected = repos.filter(r => !expected.includes(r));
+    if (unexpected.length > 0) throw createPlanValidationError(`affectedRepositories contains out-of-scope repositories: ${unexpected.join(', ')}.`);
 
-    if (expectedRepositories.length > 0 && affectedRepositories.length === 0) {
-      throw createPlanValidationError(
-        `affectedRepositories must be present and limited to: ${expectedRepositories.join(', ')}.`
-      );
-    }
+    this.assertRepoPrefixes(affected, repos, 'affectedFiles');
+    this.assertRepoPrefixes(context, repos, 'affectedFilesContext');
 
-    const unexpectedRepositories = affectedRepositories.filter(
-      repository => !expectedRepositories.includes(repository)
-    );
-    if (unexpectedRepositories.length > 0) {
-      throw createPlanValidationError(
-        `affectedRepositories contains out-of-scope repositories: ${unexpectedRepositories.join(', ')}.`
-      );
-    }
+    const badStatus = context.filter(e => e.status === 'to-create');
+    if (badStatus.length > 0) throw createPlanValidationError(`affectedFilesContext entries cannot have status "to-create" — context files must already exist. Invalid: ${badStatus.map(e => e.filePath).join(', ')}.`);
+  }
 
-    const invalidAffectedFiles = normalizedAffected.filter(entry => {
-      const [prefix] = entry.filePath.split('/');
-      return !prefix || !affectedRepositories.includes(prefix);
+  private assertRepoPrefixes(entries: any[], repos: string[], label: string): void {
+    const invalid = entries.filter(e => {
+      const [prefix] = e.filePath.split('/');
+      return !prefix || !repos.includes(prefix);
     });
-    if (invalidAffectedFiles.length > 0) {
-      throw createPlanValidationError(
-        `affectedFiles must use explicit repository prefixes from affectedRepositories. Invalid entries: ${invalidAffectedFiles.map(e => e.filePath).join(', ')}.`
-      );
+    if (invalid.length > 0) {
+      throw createPlanValidationError(`${label} must use explicit repository prefixes from affectedRepositories. Invalid entries: ${invalid.map(e => e.filePath).join(', ')}.`);
     }
+  }
 
-    const invalidContextFiles = normalizedContext.filter(entry => {
-      const [prefix] = entry.filePath.split('/');
-      return !prefix || !affectedRepositories.includes(prefix);
-    });
-    if (invalidContextFiles.length > 0) {
-      throw createPlanValidationError(
-        `affectedFilesContext must use explicit repository prefixes from affectedRepositories. Invalid entries: ${invalidContextFiles.map(e => e.filePath).join(', ')}.`
-      );
-    }
-
-    // Validate to-create is not used in affectedFilesContext (cannot read a non-existent file)
-    const invalidContextStatus = normalizedContext.filter(entry => entry.status === 'to-create');
-    if (invalidContextStatus.length > 0) {
-      throw createPlanValidationError(
-        `affectedFilesContext entries cannot have status "to-create" — context files must already exist. Invalid: ${invalidContextStatus.map(e => e.filePath).join(', ')}.`
-      );
-    }
-
-    // Filesystem verification: check each file path against disk and correct statuses
+  private verifyFileStatuses(affected: any[], context: any[], selectedRepoDir: string): void {
     const repoBaseDir = path.dirname(selectedRepoDir);
-    const allEntries = [...normalizedAffected, ...normalizedContext];
-
-    for (const entry of allEntries) {
+    for (const entry of [...affected, ...context]) {
       const [repoPrefix, ...rest] = entry.filePath.split('/');
       const fullPath = path.join(repoBaseDir, repoPrefix, ...rest);
-      const existsOnDisk = fs.existsSync(fullPath);
-
-      if (existsOnDisk && entry.status === 'to-create') {
-        console.log(
-          chalk.yellow(`  ⚠️ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`)
-        );
+      const exists = fs.existsSync(fullPath);
+      if (exists && entry.status === 'to-create') {
+        console.log(chalk.yellow(`  ⚠️ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`));
         entry.status = 'found';
       }
-
-      if (!existsOnDisk && entry.status === 'found') {
-        console.log(
-          chalk.yellow(`  ⚠️ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`)
-        );
+      if (!exists && entry.status === 'found') {
+        console.log(chalk.yellow(`  ⚠️ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`));
         entry.status = 'not-found';
       }
     }
-
-    const notFoundCount = allEntries.filter(entry => entry.status === 'not-found').length;
-
-    if (allEntries.length > 0 && notFoundCount / allEntries.length > 0.5) {
-      console.log(
-        chalk.yellow(
-          `  ⚠️ More than 50% of file entries are unresolvable (${notFoundCount}/${allEntries.length}) — the plan may contain hallucinated paths.`
-        )
-      );
+    const all = [...affected, ...context];
+    const notFound = all.filter(e => e.status === 'not-found').length;
+    if (all.length > 0 && notFound / all.length > 0.5) {
+      console.log(chalk.yellow(`  ⚠️ More than 50% of file entries are unresolvable (${notFound}/${all.length}) — the plan may contain hallucinated paths.`));
     }
+  }
 
-    // Strip not-found entries from the persisted artifact so downstream
-    // consumers (ImplementerAgent, dry-run display) never see hallucinated paths.
-    const cleanedAffected = normalizedAffected.filter(entry => entry.status !== 'not-found');
-    const cleanedContext = normalizedContext.filter(entry => entry.status !== 'not-found');
-
-    if (cleanedAffected.length < normalizedAffected.length) {
-      const removed = normalizedAffected.length - cleanedAffected.length;
-      console.log(chalk.yellow(`  ⚠️ Removed ${removed} unresolvable path(s) from affectedFiles`));
+  private stripUnresolvableEntries(plan: RepoAwarePlan, affected: any[], context: any[]): void {
+    const cleanAffected = affected.filter(e => e.status !== 'not-found');
+    const cleanContext = context.filter(e => e.status !== 'not-found');
+    if (cleanAffected.length < affected.length) {
+      console.log(chalk.yellow(`  ⚠️ Removed ${affected.length - cleanAffected.length} unresolvable path(s) from affectedFiles`));
     }
-    if (cleanedContext.length < normalizedContext.length) {
-      const removed = normalizedContext.length - cleanedContext.length;
-      console.log(chalk.yellow(`  ⚠️ Removed ${removed} unresolvable path(s) from affectedFilesContext`));
+    if (cleanContext.length < context.length) {
+      console.log(chalk.yellow(`  ⚠️ Removed ${context.length - cleanContext.length} unresolvable path(s) from affectedFilesContext`));
     }
+    plan.affectedFiles = cleanAffected;
+    plan.affectedFilesContext = cleanContext;
+  }
 
-    plan.affectedFiles = cleanedAffected;
-    plan.affectedFilesContext = cleanedContext;
+  private normalizeVerificationCommands(plan: RepoAwarePlan, selectedRepoDir: string): void {
+    if (!plan.verification?.targeted?.length) return;
+    plan.verification.targeted = plan.verification.targeted.map(check => ({
+      ...check,
+      run: typeof check.run === 'string' ? normalizeVerificationRunCommand(check.run, selectedRepoDir) : check.run,
+    }));
+  }
 
-    if (plan.verification?.targeted?.length) {
-      plan.verification.targeted = plan.verification.targeted.map(check => ({
-        ...check,
-        run: typeof check.run === 'string' ? normalizeVerificationRunCommand(check.run, selectedRepoDir) : check.run,
-      }));
+  private validateVerificationEcosystems(plan: RepoAwarePlan, testInfra?: TestInfraContext): void {
+    if (!plan.verification?.targeted?.length || !testInfra) return;
+
+    const eco = {
+      node: testInfra.ecosystems.find((e): e is NodeInfra => e.ecosystem === 'node'),
+      terraform: testInfra.ecosystems.some(e => e.ecosystem === 'terraform'),
+      python: testInfra.ecosystems.some(e => e.ecosystem === 'python'),
+      go: testInfra.ecosystems.some(e => e.ecosystem === 'go'),
+    };
+
+    for (const check of plan.verification.targeted) {
+      const cmd = typeof check.run === 'string' ? check.run : '';
+      if (!cmd) continue;
+      if (/^(node -e|sh -c|bash -c|grep |test |npx )/.test(cmd) || cmd.startsWith('!')) continue;
+      this.validateSingleVerificationCommand(cmd, check, eco);
     }
+  }
 
-    if (plan.verification?.targeted?.length && testInfra) {
-      const nodeEco = testInfra.ecosystems.find((e): e is NodeInfra => e.ecosystem === 'node');
-      const hasTerraform = testInfra.ecosystems.some(e => e.ecosystem === 'terraform');
-      const hasPython = testInfra.ecosystems.some(e => e.ecosystem === 'python');
-      const hasGo = testInfra.ecosystems.some(e => e.ecosystem === 'go');
+  private validateSingleVerificationCommand(
+    cmd: string, check: { policy?: string }, eco: { node?: NodeInfra; terraform: boolean; python: boolean; go: boolean }
+  ): void {
+    const scriptName = extractScriptName(cmd);
+    const rules: Array<{ match: boolean; label: string; ecosystem: boolean }> = [
+      { match: Boolean(scriptName && eco.node), label: `references script "${scriptName}" which does not exist in package.json`, ecosystem: Boolean(eco.node && scriptName && !eco.node.allScriptNames.includes(scriptName)) },
+      { match: /^terraform\s/.test(cmd), label: 'uses terraform but no .tf files were detected in the repository', ecosystem: !eco.terraform },
+      { match: /^(pytest|python -m pytest)\s/.test(cmd), label: 'uses pytest but no Python project files were detected in the repository', ecosystem: !eco.python },
+      { match: /^go (test|vet)\s/.test(cmd), label: 'uses go but no go.mod was detected in the repository', ecosystem: !eco.go },
+      { match: Boolean(scriptName && !eco.node), label: 'references a package manager script but no package.json was detected', ecosystem: true },
+    ];
 
-      for (const check of plan.verification.targeted) {
-        const cmd = typeof check.run === 'string' ? check.run : '';
-        if (!cmd) continue;
-
-        // Skip validation for inline scripts, raw binaries, and npx (auto-installs)
-        if (/^(node -e|sh -c|bash -c|grep |test |npx )/.test(cmd) || cmd.startsWith('!')) continue;
-
-        // Node.js package manager script validation
-        const scriptName = extractScriptName(cmd);
-        if (scriptName && nodeEco) {
-          if (!nodeEco.allScriptNames.includes(scriptName)) {
-            if (check.policy === 'enforced') {
-              throw createPlanValidationError(
-                `verification command "${cmd}" references script "${scriptName}" which does not exist in package.json.`
-              );
-            }
-            console.log(
-              chalk.yellow(
-                `  ⚠️ verification command "${cmd}" references script "${scriptName}" not found in package.json`
-              )
-            );
-          }
-          continue;
-        }
-
-        // Terraform command without terraform ecosystem
-        if (/^terraform\s/.test(cmd) && !hasTerraform) {
-          if (check.policy === 'enforced') {
-            throw createPlanValidationError(
-              `verification command "${cmd}" uses terraform but no .tf files were detected in the repository.`
-            );
-          }
-          console.log(chalk.yellow(`  ⚠️ verification command "${cmd}" uses terraform but no .tf files were detected`));
-          continue;
-        }
-
-        // Python command without python ecosystem
-        if (/^(pytest|python -m pytest)\s/.test(cmd) && !hasPython) {
-          if (check.policy === 'enforced') {
-            throw createPlanValidationError(
-              `verification command "${cmd}" uses pytest but no Python project files were detected in the repository.`
-            );
-          }
-          console.log(chalk.yellow(`  ⚠️ verification command "${cmd}" uses pytest but no Python project detected`));
-          continue;
-        }
-
-        // Go command without go ecosystem
-        if (/^go (test|vet)\s/.test(cmd) && !hasGo) {
-          if (check.policy === 'enforced') {
-            throw createPlanValidationError(
-              `verification command "${cmd}" uses go but no go.mod was detected in the repository.`
-            );
-          }
-          console.log(chalk.yellow(`  ⚠️ verification command "${cmd}" uses go but no go.mod detected`));
-          continue;
-        }
-
-        // Package manager script in non-node repo
-        if (scriptName && !nodeEco) {
-          if (check.policy === 'enforced') {
-            throw createPlanValidationError(
-              `verification command "${cmd}" references a package manager script but no package.json was detected.`
-            );
-          }
-          console.log(
-            chalk.yellow(
-              `  ⚠️ verification command "${cmd}" references a package manager script but no package.json detected`
-            )
-          );
-        }
-      }
+    for (const rule of rules) {
+      if (!rule.match || !rule.ecosystem) continue;
+      if (check.policy === 'enforced') throw createPlanValidationError(`verification command "${cmd}" ${rule.label}.`);
+      console.log(chalk.yellow(`  ⚠️ verification command "${cmd}" ${rule.label}`));
+      return;
     }
+  }
 
-    const invalidVerificationCommand = plan.verification?.targeted?.find(check => {
-      const reasonText = [check.reason, check.id].filter(Boolean).join(' ');
-      return describesExpectedFailure(reasonText) && !usesAssertionWrapper(check.run);
+  private validateVerificationSemantics(plan: RepoAwarePlan, selectedRepoDir: string): void {
+    const badFailure = plan.verification?.targeted?.find(check => {
+      const text = [check.reason, check.id].filter(Boolean).join(' ');
+      return describesExpectedFailure(text) && !usesAssertionWrapper(check.run);
     });
-    if (invalidVerificationCommand) {
-      throw createPlanValidationError(
-        `verification command "${invalidVerificationCommand.run}" must assert expected failure inside the command so it exits 0 on success.`
-      );
+    if (badFailure) {
+      throw createPlanValidationError(`verification command "${badFailure.run}" must assert expected failure inside the command so it exits 0 on success.`);
     }
 
-    const escapedRepoVerificationCommand = plan.verification?.targeted?.find(
+    const escaped = plan.verification?.targeted?.find(
       check => typeof check.run === 'string' && escapesSelectedRepo(check.run, selectedRepoDir)
     );
-    if (escapedRepoVerificationCommand) {
-      throw createPlanValidationError(
-        `verification command "${escapedRepoVerificationCommand.run}" must not change directories outside the selected repository; commands run from the repo root already.`
-      );
+    if (escaped) {
+      throw createPlanValidationError(`verification command "${escaped.run}" must not change directories outside the selected repository; commands run from the repo root already.`);
     }
+  }
 
-    const qualityViolations = validatePlanQuality({
-      plan: plan as any,
-      affectedRepositories,
-      testInfra,
-    });
-    if (qualityViolations.length > 0) {
-      throw createPlanQualityError(qualityViolations);
-    }
+  private validatePlanQualityRules(plan: RepoAwarePlan, repos: string[], testInfra?: TestInfraContext): void {
+    const violations = validatePlanQuality({ plan: plan as any, affectedRepositories: repos, testInfra });
+    if (violations.length > 0) throw createPlanQualityError(violations);
   }
 }

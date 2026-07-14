@@ -78,9 +78,9 @@ async function main(): Promise<void> {
   );
   assert(
     'Anthropic tool progress log omits heuristic progress suffixes',
-    !anthropicMessage?.includes('continue') &&
-      !anthropicMessage?.includes('revisit') &&
-      !anthropicMessage?.includes('complete'),
+    !anthropicMessage?.includes('continue')
+    && !anthropicMessage?.includes('revisit')
+    && !anthropicMessage?.includes('complete'),
     anthropicMessage ?? 'received null'
   );
 

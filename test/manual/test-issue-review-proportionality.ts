@@ -118,6 +118,12 @@ async function run(): Promise<void> {
         useValue: { getProviderDisplayName: () => 'Anthropic Claude' },
       },
       {
+        provide: ConfigService,
+        useValue: {
+          get: (_key: string, fallback?: unknown) => fallback,
+        },
+      },
+      {
         provide: GitService,
         useValue: {
           getDiff: async () => '',

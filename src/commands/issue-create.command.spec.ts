@@ -35,7 +35,7 @@ jest.mock('../agents/utils', () => {
   return {
     ...actual,
     resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
     ),
   };
 });
@@ -268,7 +268,7 @@ describe('IssueCreateCommand', () => {
     await expect(
       command.run(['GENERATED-2026-04-01-46ac9014.md'], {
         dryRun: true,
-      })
+      }),
     ).rejects.toThrow(`Input file not found: ${expectedMissingPath}`);
     expect(mockReadFileSync).not.toHaveBeenCalled();
   });
@@ -308,7 +308,7 @@ describe('IssueCreateCommand', () => {
     expect(jiraAdapter.buildCreatePayload).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Generated ticket',
-      })
+      }),
     );
     expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -324,7 +324,7 @@ describe('IssueCreateCommand', () => {
           '  ### Acceptance Criteria',
           '  - First item',
         ]),
-      })
+      }),
     );
   });
 
@@ -336,7 +336,7 @@ describe('IssueCreateCommand', () => {
       '.wf',
       'service-document-v1',
       'jira',
-      '2026-05-05-d22a1c03-ticket-description.md'
+      '2026-05-05-d22a1c03-ticket-description.md',
     );
     const artifactContent = [
       '# Create service document storage',
@@ -379,7 +379,7 @@ describe('IssueCreateCommand', () => {
         title: 'Create service document storage',
         project: 'WBP',
         description: expect.stringContaining('- **Storage selection:** Persist documents'),
-      })
+      }),
     );
   });
 
@@ -394,7 +394,7 @@ describe('IssueCreateCommand', () => {
       '.wf',
       'terraform-aws',
       'jira',
-      '2026-05-12-d38b5be9-ticket-description.md'
+      '2026-05-12-d38b5be9-ticket-description.md',
     );
     const artifactContent = [
       '# Fix `service-document` startup failures',
@@ -462,7 +462,7 @@ describe('IssueCreateCommand', () => {
           '  Suspicious raw markers: none',
           '  Verdict: looks Jira-safe',
         ]),
-      })
+      }),
     );
   });
 
@@ -545,7 +545,7 @@ describe('IssueCreateCommand', () => {
       expect.objectContaining({
         priority: 'medium',
         project: 'WBP',
-      })
+      }),
     );
   });
 });

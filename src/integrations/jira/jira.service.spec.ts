@@ -1041,9 +1041,9 @@ describe('JiraService', () => {
       );
       const wikiInlineCodeText = adfNodes.some(
         node =>
-          node.type === 'text' &&
-          typeof node.text === 'string' &&
-          (node.text.includes('{{') || node.text.includes('}}'))
+          node.type === 'text'
+          && typeof node.text === 'string'
+          && (node.text.includes('{{') || node.text.includes('}}'))
       );
       const inlineCodeMark = adfNodes.some(
         node => node.type === 'text' && Array.isArray(node.marks) && node.marks.some(mark => mark.type === 'code')

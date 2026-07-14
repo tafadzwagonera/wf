@@ -13,6 +13,7 @@
  */
 
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { IssueReviewCommand } from '../../src/commands/issue-review.command';
 import { AiService, REVIEW_VERDICT_APPROVED } from '../../src/integrations/ai/ai.service';
 import { GitService } from '../../src/integrations/git/git.service';
@@ -78,6 +79,10 @@ async function buildCommand() {
       {
         provide: AiService,
         useValue: { getProviderDisplayName: () => 'OpenAI' },
+      },
+      {
+        provide: ConfigService,
+        useValue: { get: (_key: string, fallback?: unknown) => fallback },
       },
       {
         provide: GitService,

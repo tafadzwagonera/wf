@@ -3,9 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { getWfLogDir, getWfStateDir } from '../shared/utils/wf-paths';
 import { ConfigCleanCommand } from './config-clean.command';
-import { createRequire } from 'module';
-import { ErrorHandler } from '../shared/utils/error-handler';
+import { createRequire } from 'node:module';
 import { ValidationError } from '../shared/utils/errors';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import chalk from 'chalk';
 
 const moduleRequire = createRequire(__filename);
@@ -28,28 +28,28 @@ const discoverConfigPath = (cwd: string): string | null => {
   arguments: '<key>',
 })
 export class ConfigGetCommand extends CommandRunner {
-  constructor(private configService: ConfigService) {
+  constructor(private readonly configService: ConfigService) {
     super();
   }
 
   async run(passedParams: string[]): Promise<void> {
-    try {
-      const key = passedParams[0];
+    await executeAsyncWithCatch({
+      fn: async () => {
+        const key = passedParams[0];
 
-      if (!key) {
-        throw new ValidationError('Configuration key is required');
-      }
+        if (!key) {
+          throw new ValidationError('Configuration key is required');
+        }
 
-      const value = this.configService.get(key);
+        const value = this.configService.get(key);
 
-      if (value === undefined) {
-        console.log(chalk.yellow(`Configuration key "${key}" not found`));
-      } else {
-        console.log(chalk.bold(key + ':'), chalk.cyan(value));
-      }
-    } catch (error) {
-      ErrorHandler.handle(error as Error);
-    }
+        if (value === undefined) {
+          console.log(chalk.yellow(`Configuration key "${key}" not found`));
+        } else {
+          console.log(chalk.bold(key + ':'), chalk.cyan(value));
+        }
+      },
+    });
   }
 }
 
@@ -60,26 +60,26 @@ export class ConfigGetCommand extends CommandRunner {
 })
 export class ConfigSetCommand extends CommandRunner {
   async run(passedParams: string[]): Promise<void> {
-    try {
-      const [key, value] = passedParams;
+    await executeAsyncWithCatch({
+      fn: async () => {
+        const [key, value] = passedParams;
 
-      if (!key || !value) {
-        throw new ValidationError('Both key and value are required');
-      }
+        if (!key || !value) {
+          throw new ValidationError('Both key and value are required');
+        }
 
-      const configPath = discoverConfigPath(process.cwd());
+        const configPath = discoverConfigPath(process.cwd());
 
-      console.log(chalk.yellow('\n⚠️  wf config set is advisory. Update your wf.config.* file manually.\n'));
-      console.log(
-        chalk.gray(
-          `Resolved config file: ${configPath ?? 'none found. Create wf.config.js, wf.config.mjs, wf.config.ts, wf.config.mts, wf.config.yaml, or wf.config.yml.'}`
-        )
-      );
-      console.log(chalk.gray('Suggested update:'));
-      console.log(chalk.cyan(`${key}: ${value}\n`));
-    } catch (error) {
-      ErrorHandler.handle(error as Error);
-    }
+        console.log(chalk.yellow('\n⚠️  wf config set is advisory. Update your wf.config.* file manually.\n'));
+        console.log(
+          chalk.gray(
+            `Resolved config file: ${configPath ?? 'none found. Create wf.config.js, wf.config.mjs, wf.config.ts, wf.config.mts, wf.config.yaml, or wf.config.yml.'}`,
+          ),
+        );
+        console.log(chalk.gray('Suggested update:'));
+        console.log(chalk.cyan(`${key}: ${value}\n`));
+      },
+    });
   }
 }
 
@@ -88,43 +88,64 @@ export class ConfigSetCommand extends CommandRunner {
   description: 'List all configuration values',
 })
 export class ConfigListCommand extends CommandRunner {
-  constructor(private configService: ConfigService) {
+  constructor(private readonly configService: ConfigService) {
     super();
   }
 
   async run(): Promise<void> {
     console.log(chalk.bold.cyan('\n⚙️  Configuration\n'));
+    const config = this.buildConfigSections();
+    this.printConfigSections(config);
+  }
 
-    const config = {
-      'AI Settings': {
-        'ai.provider': this.configService.get('ai.provider'),
-        'ai.model': this.configService.get('ai.model'),
-        'ai.apiKey': this.maskSecret(this.configService.get('ai.apiKey')),
-      },
-      'Atlassian Settings': {
-        'atlassian.baseUrl': this.configService.get('atlassian.baseUrl'),
-        'atlassian.email': this.configService.get('atlassian.email'),
-        'atlassian.apiToken': this.maskSecret(this.configService.get('atlassian.apiToken')),
-        'atlassian.jira.defaultProject': this.configService.get('atlassian.jira.defaultProject'),
-        'atlassian.bitbucket.workspace': this.configService.get('atlassian.bitbucket.workspace'),
-      },
-      'Git Settings': {
-        'git.commitFormat': this.configService.get('git.commitFormat'),
-        'git.branchNamePattern': this.configService.get('git.branchNamePattern'),
-        'git.branchPrefixMapping': JSON.stringify(this.configService.get('git.branchPrefixMapping')),
-      },
-      'System Settings': {
-        'state.directory': getWfStateDir(),
-        'logging.directory': getWfLogDir(),
-        'logging.level': this.configService.get('logging.level'),
-      },
+  private buildConfigSections(): Record<string, Record<string, any>> {
+    return {
+      'AI Settings': this.buildAiSection(),
+      'Atlassian Settings': this.buildAtlassianSection(),
+      'Git Settings': this.buildGitSection(),
+      'System Settings': this.buildSystemSection(),
     };
+  }
 
+  private buildAiSection(): Record<string, any> {
+    return {
+      'ai.provider': this.configService.get('ai.provider'),
+      'ai.model': this.configService.get('ai.model'),
+      'ai.apiKey': this.maskSecret(this.configService.get('ai.apiKey')),
+    };
+  }
+
+  private buildAtlassianSection(): Record<string, any> {
+    return {
+      'atlassian.baseUrl': this.configService.get('atlassian.baseUrl'),
+      'atlassian.email': this.configService.get('atlassian.email'),
+      'atlassian.apiToken': this.maskSecret(this.configService.get('atlassian.apiToken')),
+      'atlassian.jira.defaultProject': this.configService.get('atlassian.jira.defaultProject'),
+      'atlassian.bitbucket.workspace': this.configService.get('atlassian.bitbucket.workspace'),
+    };
+  }
+
+  private buildGitSection(): Record<string, any> {
+    return {
+      'git.commitFormat': this.configService.get('git.commitFormat'),
+      'git.branchNamePattern': this.configService.get('git.branchNamePattern'),
+      'git.branchPrefixMapping': JSON.stringify(this.configService.get('git.branchPrefixMapping')),
+    };
+  }
+
+  private buildSystemSection(): Record<string, any> {
+    return {
+      'state.directory': getWfStateDir(),
+      'logging.directory': getWfLogDir(),
+      'logging.level': this.configService.get('logging.level'),
+    };
+  }
+
+  private printConfigSections(config: Record<string, Record<string, any>>): void {
     for (const [section, values] of Object.entries(config)) {
       console.log(chalk.bold(section));
       for (const [key, value] of Object.entries(values)) {
-        const displayValue = value || chalk.gray('(not set)');
-        console.log(chalk.gray(`  ${key}:`), chalk.cyan(displayValue));
+        console.log(chalk.gray(`  ${key}:`), chalk.cyan(value || chalk.gray('(not set)')));
       }
       console.log();
     }
@@ -145,16 +166,13 @@ export class ConfigListCommand extends CommandRunner {
 })
 export class ConfigCommand extends CommandRunner {
   constructor(
-    private configService: ConfigService,
-    private logger: LoggerService
+    private readonly _configService: ConfigService,
+    private readonly _logger: LoggerService,
   ) {
     super();
   }
 
-  async run(passedParams: string[]): Promise<void> {
-    void this.configService;
-    void this.logger;
-    void passedParams;
+  async run(): Promise<void> {
     console.log(chalk.yellow('\nUsage: wf config <subcommand> [args]'));
     console.log(chalk.gray('\nSubcommands:'));
     console.log(chalk.gray('  get <key>        Get configuration value'));

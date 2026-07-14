@@ -56,12 +56,12 @@ function testProviderName() {
         env: { ...process.env },
       });
     } catch (error: unknown) {
-      const stdout =
-        typeof error === 'object' && error !== null && 'stdout' in error && typeof error.stdout === 'string'
+      const stdout
+        = typeof error === 'object' && error !== null && 'stdout' in error && typeof error.stdout === 'string'
           ? error.stdout
           : '';
-      const stderr =
-        typeof error === 'object' && error !== null && 'stderr' in error && typeof error.stderr === 'string'
+      const stderr
+        = typeof error === 'object' && error !== null && 'stderr' in error && typeof error.stderr === 'string'
           ? error.stderr
           : '';
       return stdout + stderr;

@@ -81,11 +81,11 @@ const run = async (): Promise<void> => {
 
   assert(
     '5. detectRepoConventions returns null fields for missing configs (never throws)',
-    emptyCtx.linter === null &&
-      emptyCtx.typescript === null &&
-      emptyCtx.go === null &&
-      emptyCtx.python === null &&
-      emptyCtx.terraform === null
+    emptyCtx.linter === null
+    && emptyCtx.typescript === null
+    && emptyCtx.go === null
+    && emptyCtx.python === null
+    && emptyCtx.terraform === null
   );
 
   const formatted = formatRepoConventionsPromptSection(ctx, 'wf');
@@ -126,10 +126,10 @@ const run = async (): Promise<void> => {
 
   assert(
     '10. buildSynthesisPrompt includes discovery sections when repoContext is provided',
-    generateSrc.includes('formatRepoConventionsPromptSection') &&
-      generateSrc.includes('formatPriorPlansPromptSection') &&
-      generateSrc.includes('formatPlanCorrelationPromptSection') &&
-      generateSrc.includes('formatCrossRepoPatternsPromptSection')
+    generateSrc.includes('formatRepoConventionsPromptSection')
+    && generateSrc.includes('formatPriorPlansPromptSection')
+    && generateSrc.includes('formatPlanCorrelationPromptSection')
+    && generateSrc.includes('formatCrossRepoPatternsPromptSection')
   );
 
   assert(
@@ -155,10 +155,10 @@ const run = async (): Promise<void> => {
 
   assert(
     '14. PlanStageService.generatePlan accepts planCorrelation as an optional context field',
-    planStageSrc.includes('conventions?:') &&
-      planStageSrc.includes('priorPlans?:') &&
-      planStageSrc.includes('planCorrelation?:') &&
-      planStageSrc.includes('crossRepoPatterns?:')
+    planStageSrc.includes('conventions?:')
+    && planStageSrc.includes('priorPlans?:')
+    && planStageSrc.includes('planCorrelation?:')
+    && planStageSrc.includes('crossRepoPatterns?:')
   );
 
   // --- Minimal-change principles ---

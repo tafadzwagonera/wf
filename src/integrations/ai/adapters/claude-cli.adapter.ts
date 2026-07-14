@@ -92,8 +92,8 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       .filter(Boolean)
       .join('\n\n');
 
-    const implementPrompt =
-      'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes, then Bash for each verification step. Do not output any text or plan before making your first tool call.';
+    const implementPrompt
+      = 'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes, then Bash for each verification step. Do not output any text or plan before making your first tool call.';
     const cliArgs = buildCliArgs({
       prompt: implementPrompt,
       appendSystemPrompt,
@@ -270,9 +270,9 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     const progressLine = formatProgressMessage(message as never);
     if (progressLine) {
       const label = progressLine.replace(/\[claude-agent-sdk\]/, `[${CLI_ADAPTER_LABEL}]`);
-      const isWarning =
-        (message.type === 'system' && message.subtype === 'api_retry') ||
-        (message.type === 'system' && message.subtype === 'status');
+      const isWarning
+        = (message.type === 'system' && message.subtype === 'api_retry')
+          || (message.type === 'system' && message.subtype === 'status');
       console.log(isWarning ? chalk.yellow(label) : chalk.cyan(label));
       return;
     }
@@ -307,12 +307,12 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   ): void {
     const innerMessage = message.message as
       | {
-          content?: Array<{
-            type: string;
-            name?: string;
-            input?: Record<string, unknown>;
-          }>;
-        }
+        content?: Array<{
+          type: string;
+          name?: string;
+          input?: Record<string, unknown>;
+        }>;
+      }
       | undefined;
     const contentBlocks = innerMessage?.content;
     if (!Array.isArray(contentBlocks)) return;
@@ -345,12 +345,9 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       }
 
       if (toolName === 'Read' || toolName === 'Glob' || toolName === 'Grep') {
-        const target =
-          typeof input['file_path'] === 'string'
-            ? input['file_path']
-            : typeof input['pattern'] === 'string'
-              ? input['pattern']
-              : '';
+        let target = '';
+        if (typeof input['file_path'] === 'string') target = input['file_path'];
+        else if (typeof input['pattern'] === 'string') target = input['pattern'];
         if (target) {
           const shortTarget = target.length > 60 ? `${target.slice(0, 57)}...` : target;
           console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] ${toolName}: ${shortTarget}`));
@@ -371,13 +368,13 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   private logCliToolResult(message: ClaudeCliMessage, activityState: ActivityState): void {
     const innerMessage = message.message as
       | {
-          content?: Array<{
-            type: string;
-            content?: string;
-            is_error?: boolean;
-            tool_use_id?: string;
-          }>;
-        }
+        content?: Array<{
+          type: string;
+          content?: string;
+          is_error?: boolean;
+          tool_use_id?: string;
+        }>;
+      }
       | undefined;
     const contentBlocks = innerMessage?.content;
     if (!Array.isArray(contentBlocks)) return;

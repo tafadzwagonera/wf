@@ -53,52 +53,7 @@ export class MarkdownConverter implements FormatConverter {
 
       // Parse metadata fields
       for (const line of lines) {
-        const metadataMatch = line.match(/^\*\*([^:]+):\*\*\s*(.+)$/);
-        if (metadataMatch) {
-          const field = metadataMatch[1].trim();
-          const value = metadataMatch[2].trim();
-
-          switch (field.toLowerCase()) {
-            case 'type':
-              data.type = value.toLowerCase() as TicketType;
-              break;
-            case 'status':
-              data.status = value;
-              break;
-            case 'priority':
-              data.priority = value.toLowerCase() as TicketPriority;
-              break;
-            case 'assignee':
-              if (value && value !== 'Unassigned') {
-                data.assignee = value;
-              }
-              break;
-            case 'reporter':
-              if (value && value !== 'Unknown') {
-                data.reporter = value;
-              }
-              break;
-            case 'project':
-              data.project = value;
-              break;
-            case 'labels':
-              if (value && value !== 'None') {
-                data.labels = value.split(',').map(l => l.trim());
-              }
-              break;
-            case 'components':
-              if (value && value !== 'None') {
-                data.components = value.split(',').map(c => c.trim());
-              }
-              break;
-            case 'created':
-              data.created = new Date(value);
-              break;
-            case 'updated':
-              data.updated = new Date(value);
-              break;
-          }
-        }
+        this.applyMetadataField(line, data);
       }
 
       // Parse description section
@@ -220,5 +175,52 @@ export class MarkdownConverter implements FormatConverter {
    */
   getFileExtension(): string {
     return '.md';
+  }
+
+  /**
+   * Apply a single metadata line to the ticket data if it matches a known field.
+   *
+   * @param line - Raw markdown line to inspect
+   * @param data - Partial ticket accumulator to mutate
+   */
+  private applyMetadataField(line: string, data: Partial<UniversalTicket>): void {
+    const metadataMatch = line.match(/^\*\*([^:]+):\*\*\s*(.+)$/);
+    if (!metadataMatch) return;
+
+    const field = metadataMatch[1].trim();
+    const value = metadataMatch[2].trim();
+
+    switch (field.toLowerCase()) {
+      case 'type':
+        data.type = value.toLowerCase() as TicketType;
+        break;
+      case 'status':
+        data.status = value;
+        break;
+      case 'priority':
+        data.priority = value.toLowerCase() as TicketPriority;
+        break;
+      case 'assignee':
+        if (value && value !== 'Unassigned') data.assignee = value;
+        break;
+      case 'reporter':
+        if (value && value !== 'Unknown') data.reporter = value;
+        break;
+      case 'project':
+        data.project = value;
+        break;
+      case 'labels':
+        if (value && value !== 'None') data.labels = value.split(',').map(l => l.trim());
+        break;
+      case 'components':
+        if (value && value !== 'None') data.components = value.split(',').map(c => c.trim());
+        break;
+      case 'created':
+        data.created = new Date(value);
+        break;
+      case 'updated':
+        data.updated = new Date(value);
+        break;
+    }
   }
 }

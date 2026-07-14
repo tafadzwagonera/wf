@@ -64,8 +64,8 @@ const fail = (message: string, detail?: string): void => {
   console.error(`  \u2717 ${message}${detail ? `\n    \u2192 ${detail}` : ''}`);
 };
 
-const CONTRACTION_PATTERN =
-  /don't|can't|won't|isn't|aren't|doesn't|wasn't|weren't|couldn't|wouldn't|shouldn't|it's|that's|there's|here's|what's|who's|let's|i'm|we're|they're|you're|we've|they've|you've|i've|we'll|they'll|you'll|i'll|he's|she's/i;
+const CONTRACTION_PATTERN
+  = /don't|can't|won't|isn't|aren't|doesn't|wasn't|weren't|couldn't|wouldn't|shouldn't|it's|that's|there's|here's|what's|who's|let's|i'm|we're|they're|you're|we've|they've|you've|i've|we'll|they'll|you'll|i'll|he's|she's/i;
 
 /**
  * Verify a serialized output string contains no contractions.
@@ -131,8 +131,8 @@ async function main() {
       if (format === 'md') {
         return {
           parse: () => ({
-            title: "Imported ticket that don't comply",
-            description: "Imported description that can't be used and it's long enough to bypass synthesis. ".repeat(3),
+            title: 'Imported ticket that don\'t comply',
+            description: 'Imported description that can\'t be used and it\'s long enough to bypass synthesis. '.repeat(3),
             type: 'task',
             priority: 'medium',
           }),
@@ -166,8 +166,8 @@ async function main() {
     console.log('Test 3: saved generated artifacts expand contractions');
     const savedArtifactPath = await (command as any).saveTicketLocally(
       {
-        title: "Saved artifact that don't comply",
-        description: "It's a saved artifact that can't stay informal",
+        title: 'Saved artifact that don\'t comply',
+        description: 'It\'s a saved artifact that can\'t stay informal',
         type: 'task',
         priority: 'medium',
       },

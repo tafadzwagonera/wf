@@ -87,8 +87,8 @@ export class IssueTrackerService {
     return new Map(
       [...this.adapters.entries()].filter(
         ([trackerName, adapter]) =>
-          typeof adapter.findPullRequestsByTicketKey === 'function' &&
-          this.hasPullRequestDiscoveryCredentials(trackerName)
+          typeof adapter.findPullRequestsByTicketKey === 'function'
+          && this.hasPullRequestDiscoveryCredentials(trackerName)
       )
     );
   }
@@ -105,16 +105,16 @@ export class IssueTrackerService {
 
     if (trackerName === 'bitbucket') {
       return Boolean(
-        this.configService.get<string>('atlassian.email')?.trim() &&
-        this.configService.get<string>('atlassian.bitbucket.apiToken')?.trim()
+        this.configService.get<string>('atlassian.email')?.trim()
+        && this.configService.get<string>('atlassian.bitbucket.apiToken')?.trim()
       );
     }
 
     if (trackerName === 'jira') {
       return Boolean(
-        this.configService.get<string>('atlassian.email')?.trim() &&
-        (this.configService.get<string>('atlassian.jira.apiToken')?.trim() ||
-          this.configService.get<string>('atlassian.apiToken')?.trim())
+        this.configService.get<string>('atlassian.email')?.trim()
+        && (this.configService.get<string>('atlassian.jira.apiToken')?.trim()
+          || this.configService.get<string>('atlassian.apiToken')?.trim())
       );
     }
 

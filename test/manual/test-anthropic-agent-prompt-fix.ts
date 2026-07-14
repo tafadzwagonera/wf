@@ -40,8 +40,8 @@ function buildExpectedSystemPrompt(args: {
 }): string {
   const fileList = args.repoFiles.length === 0 ? '  (none listed)' : args.repoFiles.map(f => `  - ${f}`).join('\n');
 
-  const verificationList =
-    args.verificationScripts.length > 0
+  const verificationList
+    = args.verificationScripts.length > 0
       ? args.verificationScripts.map(s => `  - ${s.command}`).join('\n')
       : '  (none configured)';
 
@@ -84,12 +84,12 @@ Ticket context:
 ${args.ticketContext}`;
 }
 
-const ACTION_DIRECTIVE =
-  'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes, then Bash for each verification step. Do not output any text or plan before making your first tool call.';
+const ACTION_DIRECTIVE
+  = 'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes, then Bash for each verification step. Do not output any text or plan before making your first tool call.';
 
 async function main() {
-  const SCENE =
-    '## Plan\n- I will modify variables.tf to add a new variable.\n- I will verify with terraform validate.';
+  const SCENE
+    = '## Plan\n- I will modify variables.tf to add a new variable.\n- I will verify with terraform validate.';
   const REPO_DIR = '/repos/terraform-aws';
 
   // ── Test 1: system prompt contains structured summary headings ──────────

@@ -72,10 +72,10 @@ describe('detectRepoConventions', () => {
       mockExistsSync.mockImplementation((p: fs.PathLike) => {
         const s = String(p);
         return (
-          s === path.join(REPO_DIR, '.eslintrc.json') ||
-          s === path.join(REPO_DIR, 'tsconfig.json') ||
-          s === path.join(REPO_DIR, 'package.json') ||
-          s === SRC_DIR
+          s === path.join(REPO_DIR, '.eslintrc.json')
+          || s === path.join(REPO_DIR, 'tsconfig.json')
+          || s === path.join(REPO_DIR, 'package.json')
+          || s === SRC_DIR
         );
       });
 
@@ -333,13 +333,13 @@ describe('language detection', () => {
     mockExistsSync.mockImplementation((p: fs.PathLike) => {
       const s = String(p);
       return (
-        (s === path.join(REPO_DIR, 'tsconfig.json')) === false &&
-        s !== path.join(REPO_DIR, 'package.json') &&
-        s !== path.join(REPO_DIR, 'go.mod') &&
-        s !== path.join(REPO_DIR, 'pyproject.toml') &&
-        s !== path.join(REPO_DIR, 'setup.py') &&
-        s !== path.join(REPO_DIR, 'requirements.txt') &&
-        s !== path.join(REPO_DIR, 'modules')
+        (s === path.join(REPO_DIR, 'tsconfig.json')) === false
+        && s !== path.join(REPO_DIR, 'package.json')
+        && s !== path.join(REPO_DIR, 'go.mod')
+        && s !== path.join(REPO_DIR, 'pyproject.toml')
+        && s !== path.join(REPO_DIR, 'setup.py')
+        && s !== path.join(REPO_DIR, 'requirements.txt')
+        && s !== path.join(REPO_DIR, 'modules')
       );
     });
     // readdirSync at root returns .tf files
@@ -388,10 +388,10 @@ describe('Go folder structure detection', () => {
     mockExistsSync.mockImplementation((p: fs.PathLike) => {
       const s = String(p);
       return (
-        s === path.join(REPO_DIR, 'go.mod') ||
-        s === path.join(REPO_DIR, 'cmd') ||
-        s === path.join(REPO_DIR, 'pkg') ||
-        s === path.join(REPO_DIR, 'internal')
+        s === path.join(REPO_DIR, 'go.mod')
+        || s === path.join(REPO_DIR, 'cmd')
+        || s === path.join(REPO_DIR, 'pkg')
+        || s === path.join(REPO_DIR, 'internal')
       );
     });
     mockReadFileSync.mockReturnValue('module github.com/example/app\n\ngo 1.21\n');

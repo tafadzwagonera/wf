@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   }
 
   // --- Test 4: Legacy type:'result' events are ignored ---
-  console.log(chalk.bold("\nTest 4: Legacy type:'result' events produce no result"));
+  console.log(chalk.bold('\nTest 4: Legacy type:\'result\' events produce no result'));
   {
     const { result } = extractFromStream([{ type: 'result', result: 'should be ignored', is_error: false }]);
     assert('result is empty when only type:result events are present', result === '', `got: ${JSON.stringify(result)}`);

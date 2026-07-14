@@ -9,7 +9,7 @@ const STRING_LITERAL_PATTERN = /'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)"|`((?:\\.|[^`
 const unquoteStringLiteral = (value: string): string =>
   value
     .replace(/^['"`]|['"`]$/g, '')
-    .replace(/\\'/g, "'")
+    .replace(/\\'/g, '\'')
     .replace(/\\"/g, '"')
     .replace(/\\`/g, '`')
     .replace(/\\n/g, '\n');
@@ -24,7 +24,7 @@ const evaluateStringExpression = (expression?: string): string | undefined => {
 
 const findMatchingBrace = (source: string, startIndex: number): number => {
   let depth = 0;
-  let activeQuote: "'" | '"' | '`' | null = null;
+  let activeQuote: '\'' | '"' | '`' | null = null;
   let isEscaped = false;
 
   for (let index = startIndex; index < source.length; index += 1) {
@@ -47,7 +47,7 @@ const findMatchingBrace = (source: string, startIndex: number): number => {
       continue;
     }
 
-    if (char === "'" || char === '"' || char === '`') {
+    if (char === '\'' || char === '"' || char === '`') {
       activeQuote = char;
       continue;
     }
@@ -100,7 +100,7 @@ const splitTopLevelSegments = (block: string): string[] => {
   const segments: string[] = [];
   let currentSegment = '';
   let depth = 0;
-  let activeQuote: "'" | '"' | '`' | null = null;
+  let activeQuote: '\'' | '"' | '`' | null = null;
   let isEscaped = false;
 
   for (const char of block) {
@@ -123,7 +123,7 @@ const splitTopLevelSegments = (block: string): string[] => {
       continue;
     }
 
-    if (char === "'" || char === '"' || char === '`') {
+    if (char === '\'' || char === '"' || char === '`') {
       activeQuote = char;
       currentSegment += char;
       continue;

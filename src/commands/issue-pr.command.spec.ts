@@ -148,7 +148,7 @@ describe('IssuePrCommand', () => {
     describe('unsupported platform', () => {
       it('exits with error message when platform does not support CREATE_PULL_REQUEST', async () => {
         mockIssueTrackerAdapter.supports.mockImplementation(
-          (feature: IssueTrackerFeature) => feature !== IssueTrackerFeature.CREATE_PULL_REQUEST
+          (feature: IssueTrackerFeature) => feature !== IssueTrackerFeature.CREATE_PULL_REQUEST,
         );
 
         const command = await buildCommand();
@@ -214,7 +214,7 @@ describe('IssuePrCommand', () => {
             title: expect.stringContaining('WBP-2971'),
             base: 'main',
             head: expect.any(String),
-          })
+          }),
         );
 
         const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));

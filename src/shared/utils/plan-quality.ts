@@ -25,10 +25,10 @@ const PYTHON_COMMAND_PATTERN = /^(pytest|python -m pytest)\b/;
 const GO_COMMAND_PATTERN = /^go (test|vet)\b/;
 const TERRAFORM_COMMAND_PATTERN = /^terraform (validate|plan|fmt)\b/;
 const REPO_LOCAL_CD_PREFIX_PATTERN = /^cd\s+(.+?)\s*&&\s*(.+)$/;
-const EXPLICIT_REPLACEMENT_TARGET_PATTERN =
-  /\b(?:rename|move|refactor)\b[\s\S]{0,240}\b(?:to|into)\s+(?:`[^`]+`|'[^']+'|"[^"]+"|[A-Za-z0-9_./-]+)/i;
-const NAMED_REPLACEMENT_TARGET_PATTERN =
-  /\b(?:new name|new path)\b\s*(?::|=|\bis\b)?\s*(?:`[^`]+`|'[^']+'|"[^"]+"|[A-Za-z0-9_./-]+)/i;
+const EXPLICIT_REPLACEMENT_TARGET_PATTERN
+  = /\b(?:rename|move|refactor)\b[\s\S]{0,240}\b(?:to|into)\s+(?:`[^`]+`|'[^']+'|"[^"]+"|[A-Za-z0-9_./-]+)/i;
+const NAMED_REPLACEMENT_TARGET_PATTERN
+  = /\b(?:new name|new path)\b\s*(?::|=|\bis\b)?\s*(?:`[^`]+`|'[^']+'|"[^"]+"|[A-Za-z0-9_./-]+)/i;
 
 const createViolation = (ruleId: PlanQualityViolation['ruleId'], message: string): PlanQualityViolation => ({
   ruleId,
@@ -115,15 +115,15 @@ const isVerificationCommandAllowed = (
   }
 
   if (
-    testInfra?.ecosystems.some(ecosystem => ecosystem.ecosystem === 'terraform') &&
-    TERRAFORM_COMMAND_PATTERN.test(trimmed)
+    testInfra?.ecosystems.some(ecosystem => ecosystem.ecosystem === 'terraform')
+    && TERRAFORM_COMMAND_PATTERN.test(trimmed)
   ) {
     return true;
   }
 
   if (
-    testInfra?.ecosystems.some(ecosystem => ecosystem.ecosystem === 'python') &&
-    PYTHON_COMMAND_PATTERN.test(trimmed)
+    testInfra?.ecosystems.some(ecosystem => ecosystem.ecosystem === 'python')
+    && PYTHON_COMMAND_PATTERN.test(trimmed)
   ) {
     return true;
   }

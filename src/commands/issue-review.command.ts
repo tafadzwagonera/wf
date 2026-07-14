@@ -16,19 +16,19 @@ import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { ErrorHandler } from '../shared/utils/error-handler';
 import { ValidationError, ExecutionError, FileSystemError, GitError } from '../shared/utils/errors';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
-import { ConversationContext } from '../integrations/ai/conversation/interfaces';
+import { ConversationContext } from '../shared/types/conversation.types';
 import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
 import chalk from 'chalk';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as YAML from 'yaml';
 
 type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
@@ -76,6 +76,35 @@ interface PullRequestDiscoveryResult {
   attemptedLookupCount: number;
   missingRepoScopeErrors: string[];
 }
+
+const PROVENANCE_LABELS: Record<TraceProvenance, string> = {
+  'evidence-based': 'Provenance: evidence-based (code-path trace backed by the execution backend)',
+  'best-effort': 'Provenance: best-effort (code-path trace inferred from the diff and AI output)',
+  unavailable: 'Provenance: unavailable (no concrete code-path trace could be inferred from the diff)',
+};
+
+const PROVENANCE_COLORS: Record<TraceProvenance, typeof chalk.green> = {
+  'evidence-based': chalk.green,
+  'best-effort': chalk.yellow,
+  unavailable: chalk.gray,
+};
+
+type SectionLabel = 'call stack' | 'state transition';
+
+const TRACE_DETAIL_LINES: Record<'evidence-based' | 'unavailable', (s: SectionLabel) => string> = {
+  'evidence-based': s => 'Evidence: the ' + s + ' section is grounded in a code-path trace from the changed code.',
+  unavailable: s => 'Trace unavailable: no concrete code-path trace could be inferred for the ' + s + ' section.',
+};
+
+const BEST_EFFORT_TEXT: Record<SectionLabel, string> = {
+  'call stack': 'Best effort: call stack is inferred from the changed code and AI output.',
+  'state transition': 'Best effort: state transitions are inferred from the changed code and AI output.',
+};
+
+const HINDRANCE_TEXT: Record<SectionLabel, string> = {
+  'call stack': 'Hindrance: there is no runtime execution trace backend in this path.',
+  'state transition': 'Hindrance: the review pipeline does not emit a machine-verified state trace.',
+};
 
 const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   {
@@ -148,6 +177,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
   options: { isDefault: false },
 })
 export class IssueReviewCommand extends CommandRunner {
+  // eslint-disable-next-line max-params
   constructor(
     private readonly aiService: AiService,
     private readonly configService: ConfigService,
@@ -169,451 +199,446 @@ export class IssueReviewCommand extends CommandRunner {
     const source = passedParams[0];
     const repoInputs = options?.repos?.length ? options.repos : [];
 
-    try {
-      if (source && options?.ticketKey) {
-        throw new ValidationError('Provide either a PR URL or --ticket-key, not both');
-      }
-
-      if (source && !source.startsWith('http://') && !source.startsWith('https://')) {
-        throw new ValidationError('Invalid source. Expected a PR URL. For ticket reviews, use --ticket-key <key>.');
-      }
-
+    await executeAsyncWithCatch({ fn: async () => {
+      this.validateReviewInputs(source, options);
       await ensureWfHome();
+      await this.executeReviewWorkflow(source, repoInputs, options);
+    } });
+  }
 
-      if (options?.criteria && options?.replaceCriteria) {
-        throw new ValidationError('Cannot use --criteria and --replace-criteria together. Use one or the other.');
-      }
+  private async executeReviewWorkflow(
+    source: string | undefined, repoInputs: string[], options?: IssueReviewOptions
+  ): Promise<void> {
+    const criteriaPath = options?.replaceCriteria ?? options?.criteria;
+    const extraCriteria: string[] | null = criteriaPath ? loadCriteriaFromFile(criteriaPath) : null;
 
-      const extraCriteria: string[] | null = options?.replaceCriteria
-        ? loadCriteriaFromFile(options.replaceCriteria)
-        : options?.criteria
-          ? loadCriteriaFromFile(options.criteria)
-          : null;
-
-      if (options?.dryRun) {
-        const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
-        const reviewScopeLabel = source ? source : `current repo (${this.formatRepoScope(repoDirs)})`;
-        this.dryRunPreview.showHeader('issue:review', reviewScopeLabel);
-        const outputFormat =
-          options?.format ??
-          (this.configService.get<string>('stages.review.outputFormat') as OutputFormat | undefined) ??
-          'md';
-        const ticketAdapter = options?.ticketKey
-          ? options?.tracker
-            ? this.issueTrackerService.getAdapter(options.tracker)
-            : this.issueTrackerService.getDefaultAdapter()
-          : null;
-        const reviewPath = ticketAdapter
-          ? this.resolveTicketReviewArtifactPath(options.ticketKey!, repoInputs, ticketAdapter.getTrackerName())
-          : undefined;
-        const reviewArtifactExists = reviewPath ? fs.existsSync(reviewPath) : false;
-
-        if (!source && !options?.ticketKey) {
-          console.log(chalk.gray(`   Repository: ${this.formatRepoScope(repoDirs)}\n`));
-        } else if (options?.ticketKey) {
-          if (!options?.force && reviewPath && reviewArtifactExists) {
-            this.dryRunPreview.previewFileRead({
-              filePath: reviewPath,
-              exists: true,
-              sizeInKb: (fs.statSync(reviewPath).size / 1024).toFixed(2),
-            });
-            this.dryRunPreview.showSkipped('artifact exists');
-          }
-
-          if (options?.force || !reviewPath || !reviewArtifactExists) {
-            this.dryRunPreview.previewApiCall({
-              method: 'GET',
-              endpoint: `/rest/api/3/issue/${options.ticketKey}`,
-              platform: 'Jira',
-              description: 'Fetch ticket details for review context',
-              estimatedResponse: '200 OK — ticket title and description',
-            });
-            this.dryRunPreview.previewApiCall({
-              method: 'GET',
-              endpoint: '<ticket-associated pull requests>',
-              platform: 'Primary platform adapters',
-              description: 'Discover associated open pull requests for the ticket',
-              estimatedResponse: '200 OK — 0..n pull request URLs',
-            });
-          }
-        } else if (source && this.isUrl(source)) {
-          this.dryRunPreview.previewApiCall({
-            method: 'GET',
-            endpoint: source,
-            platform: source.includes('github') ? 'GitHub' : 'Bitbucket',
-            description: 'Fetch pull request diff',
-            estimatedResponse: '200 OK — diff content',
-          });
-        }
-
-        const shouldPreviewAiReview = !options?.ticketKey || options?.force || !reviewPath || !reviewArtifactExists;
-
-        if (shouldPreviewAiReview) {
-          this.dryRunPreview.previewApiCall({
-            method: 'POST',
-            endpoint: '/v1/messages',
-            platform: this.aiService.getProviderDisplayName(),
-            description: 'Perform AI-powered code review',
-            estimatedResponse: [
-              '{',
-              '  "summary": "<review summary>",',
-              '  "approved": true,',
-              '  "issues": [],',
-              '  "traceProvenance": "evidence-based|best-effort|unavailable",',
-              '  "callStack": [{ "frame": "...", "children": [] }],',
-              '  "stateTransition": {',
-              '    "from": "...",',
-              '    "to": "...",',
-              '    "steps": [{',
-              '      "frame": "...",',
-              '      "captured": { "...": "..." },',
-              '      "changes": { "...": { "before": "...", "after": "..." } }',
-              '    }]',
-              '  },',
-              '  "suggestions": ["..."]',
-              '}',
-            ].join('\n'),
-          });
-        }
-
-        const willPostComment = Boolean(options?.comment && source);
-
-        if (willPostComment && shouldPreviewAiReview) {
-          this.dryRunPreview.previewApiCall({
-            method: 'POST',
-            endpoint: '<pull-request comments endpoint>',
-            platform: 'Supported PR platforms',
-            description: 'Post review summary as a PR comment',
-            estimatedResponse: '201 Created',
-          });
-        }
-
-        let fileCreatedCount = 0;
-        if (!!options?.ticketKey && reviewPath && shouldPreviewAiReview) {
-          this.dryRunPreview.previewFileWrite({
-            filePath: reviewPath,
-            operation: reviewArtifactExists ? 'overwrite' : 'create',
-            sizeEstimate: '2–5 KB',
-            format: 'md',
-            contentPreview: ['Code Review Report', 'Context: <source>', '', '## Summary', '<AI review summary>'].join(
-              '\n'
-            ),
-          });
-          fileCreatedCount++;
-        }
-
-        if (options?.output) {
-          const outputPath = this.resolveOutputPath(
-            options.output,
-            this.resolveOutputBaseDir(!!options?.ticketKey, repoInputs)
-          );
-          this.dryRunPreview.previewFileWrite({
-            filePath: outputPath,
-            operation: 'create',
-            sizeEstimate: '2–5 KB',
-            format: outputFormat,
-            contentPreview: [
-              'Code Review Report',
-              'Context: <source>',
-              '',
-              '## Summary',
-              '<AI review summary>',
-              '',
-              '## Issues Found',
-              '(none)',
-              '',
-              'Suggestion: <paired issue suggestion>',
-              '',
-              '## Call Stack',
-              'Provenance: code-path trace or unavailable',
-              'Code-path trace: grounded in the changed code or marked unavailable.',
-              '- (no structured call stack was returned)',
-              '',
-              '## State Transition',
-              'Provenance: code-path trace or unavailable',
-              'Code-path trace: grounded in the changed code or marked unavailable.',
-              '(no structured state transition was returned)',
-              '',
-              '## Suggestions',
-              '<unmatched suggestions only>',
-              '',
-              '## Approval Status',
-              '✓ Approved',
-            ].join('\n'),
-          });
-          fileCreatedCount++;
-        }
-
-        const isTicketKeyMode = !!options?.ticketKey;
-        const isPrUrl = source && this.isUrl(source);
-        this.dryRunPreview.showSummary({
-          apiCallCount: shouldPreviewAiReview ? (isTicketKeyMode ? 2 : isPrUrl ? 2 : 1) + (willPostComment ? 1 : 0) : 0,
-          fileCreatedCount,
-          fileModifiedCount: 0,
-          gitOperationCount: 0,
-          // Optimistic preview — actual approval status depends on AI response at runtime
-          terminalOutputLines: [
-            '✓ Code review complete',
-            '',
-            'Summary: <AI-generated review summary>',
-            '',
-            '✓ No issues found',
-            '',
-            'Call Stack: code-path trace or unavailable',
-            'State Transition: code-path trace or unavailable',
-            '',
-            `Approval Status: ✓ ${REVIEW_VERDICT_APPROVED}`,
-          ],
-        });
-
-        this.dryRunPreview.showValidationResult();
-        return;
-      }
-
-      const reviewTargets: ReviewTarget[] = [];
-      let reviewPath: string | undefined;
-
-      if (!source && !options?.ticketKey) {
-        const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
-        // Mode 1: No argument - review current repo changes
-        if (!options?.silent) {
-          console.log(chalk.gray(`  Repository: ${this.formatRepoScope(repoDirs)}\n`));
-          console.log(chalk.bold.cyan('\n🔍 Reviewing Current Repository Changes\n'));
-        }
-        const diff = await this.reviewRepoSet(repoDirs);
-        reviewTargets.push({
-          title: `Current repository changes (${this.formatRepoScope(repoDirs)})`,
-          diff,
-          context: this.buildRepoContext(repoDirs, 'current repository changes'),
-        });
-      } else if (source && this.isUrl(source)) {
-        // Mode 2: PR URL - review GitHub/BitBucket PR
-        if (!options?.silent) {
-          console.log(chalk.bold.cyan(`\n🔍 Reviewing Pull Request\n`));
-          console.log(chalk.gray(`  URL: ${source}\n`));
-        }
-        reviewTargets.push({
-          title: this.formatPullRequestTitle(source),
-          diff: await this.reviewPullRequest(source),
-          context: `pull request: ${source}`,
-          repoDir: this.resolveLocalRepoDirForReview(repoInputs),
-          adapterName: this.resolveAdapterNameForPullRequestUrl(source),
-          commentRef: source,
-        });
-      } else if (options?.ticketKey) {
-        // Mode 3: Ticket key - fetch ticket context, then review associated PRs or local changes
-        if (!options?.silent) {
-          console.log(chalk.bold.cyan(`\n🔍 Reviewing Changes for Ticket: ${options.ticketKey}\n`));
-        }
-
-        const ticketAdapter = options?.tracker
-          ? this.issueTrackerService.getAdapter(options.tracker)
-          : this.issueTrackerService.getDefaultAdapter();
-
-        reviewPath = this.resolveTicketReviewArtifactPath(
-          options.ticketKey,
-          repoInputs,
-          ticketAdapter.getTrackerName()
-        );
-        const reviewArtifactExists = fs.existsSync(reviewPath);
-        if (!options?.force && reviewArtifactExists) {
-          if (!options?.silent) {
-            console.log(chalk.gray(`  Review artifact exists: ${reviewPath}`));
-            console.log(chalk.gray('  Use --force to regenerate.\n'));
-          }
-
-          if (options?.output) {
-            const outputPath = this.resolveOutputPath(
-              options.output,
-              this.resolveOutputBaseDir(!!options?.ticketKey, repoInputs)
-            );
-            const cachedReviewOutput = fs.readFileSync(reviewPath, 'utf-8');
-            fs.writeFileSync(outputPath, cachedReviewOutput);
-            if (options?.silent) {
-              console.log(outputPath);
-            } else {
-              console.log(chalk.green(`\n✓ Review saved to: ${outputPath}\n`));
-            }
-          }
-
-          if (options?.silent && !options?.output) {
-            console.log(reviewPath);
-          }
-
-          return;
-        }
-
-        if (options?.force && reviewArtifactExists && !options?.silent) {
-          this.logger.info('Forcing recreation of review artifact...');
-        }
-
-        if (!options?.silent) {
-          console.log(chalk.gray(`  Fetching ticket ${options.ticketKey} from ${ticketAdapter.getTrackerName()}...\n`));
-        }
-        const ticket = await ticketAdapter.getTicket(options.ticketKey);
-        if (!ticket) {
-          throw new ExecutionError(`Ticket lookup failed for ${options.ticketKey}`);
-        }
-
-        const ticketReviewContext = this.buildTicketContext(ticket);
-        const discoveryResult = await this.discoverTicketPullRequests(options.ticketKey, repoInputs);
-        const discoveredPullRequests = discoveryResult.pullRequests;
-
-        if (
-          discoveredPullRequests.length === 0 &&
-          discoveryResult.attemptedLookupCount === 0 &&
-          discoveryResult.missingRepoScopeErrors.length > 0 &&
-          repoInputs.length === 0
-        ) {
-          throw new ValidationError(
-            `Pull request discovery for ticket ${options.ticketKey} requires a repository. Pass --repos <repo> so wf can search the correct remote repository instead of guessing from the current directory.`
-          );
-        }
-
-        if (discoveredPullRequests.length > 0) {
-          if (!options?.silent) {
-            console.log(
-              chalk.gray(`  Found ${discoveredPullRequests.length} open pull request(s) for ${options.ticketKey}\n`)
-            );
-          }
-
-          for (const pullRequest of discoveredPullRequests) {
-            try {
-              const diff = await this.reviewPullRequest(pullRequest.commentRef);
-              reviewTargets.push({
-                title: pullRequest.title,
-                diff,
-                context: `${ticketReviewContext}\n\n${pullRequest.context}`,
-                repoDir: pullRequest.repoDir,
-                adapterName: pullRequest.adapterName,
-                commentRef: pullRequest.commentRef,
-              });
-            } catch (error: any) {
-              console.log(chalk.yellow(`⚠️ Skipping ${pullRequest.title}: ${error.message}`));
-            }
-          }
-        } else {
-          const unresolvedRepoInputs = repoInputs.length > 0 ? this.findUnresolvedLocalRepoInputs(repoInputs) : [];
-          if (unresolvedRepoInputs.length > 0) {
-            const unresolvedRepoList = unresolvedRepoInputs.map(repo => `'${repo}'`).join(', ');
-            throw new ValidationError(
-              `Repository ${unresolvedRepoList} was provided for ticket review but was not found as a local path or sibling directory. Check out the repository locally before falling back to local review.`
-            );
-          }
-
-          if (!options?.silent) {
-            console.log(chalk.yellow(`⚠️ No open pull requests were found for ticket ${options.ticketKey}`));
-          }
-
-          if (!options?.silent) {
-            const fallbackDecision = await this.promptTicketFallbackAction();
-            if (fallbackDecision === 'return') {
-              return;
-            }
-          }
-
-          const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
-          if (!options?.silent) {
-            console.log(chalk.gray(`  Repository: ${this.formatRepoScope(repoDirs)}\n`));
-          }
-          const diff = await this.reviewRepoSet(repoDirs);
-          reviewTargets.push({
-            title: `Local repository changes (${this.formatRepoScope(repoDirs)})`,
-            diff,
-            context: `${ticketReviewContext}\n\n${this.buildRepoContext(repoDirs, 'repositories under review')}`,
-            repoDir: repoDirs[0],
-          });
-        }
-      } else {
-        throw new ValidationError(`Invalid source: ${source}. Expected: ticket key (ABC-123) or PR URL.`);
-      }
-
-      const reviewableTargets = reviewTargets.filter(target => target.diff.trim().length > 0);
-
-      if (reviewableTargets.length === 0) {
-        if (!options?.silent) {
-          console.log(chalk.yellow('⚠️ No changes to review'));
-          console.log(chalk.gray('Make sure you have changes to review (commits, staged, or unstaged)\n'));
-        }
-        return;
-      }
-
-      if (!options?.silent) {
-        console.log(chalk.cyan('🤖 Analyzing changes with AI...\n'));
-      }
-
-      const reviewedTargets: ReviewedTarget[] = [];
-      for (const target of reviewableTargets) {
-        const review = await this.reviewStageService.reviewDiff(target.diff, {
-          context: target.context,
-          extraCriteria: extraCriteria ?? undefined,
-          replaceCriteria: Boolean(options?.replaceCriteria),
-          repoDir: target.repoDir,
-          resumeProviderSessionId: options?.sessionId,
-        });
-
-        reviewedTargets.push({ ...target, review });
-        if (!options?.silent) {
-          this.displayReview(review, target.title);
-        }
-
-        if (options?.comment) {
-          await this.postReviewComment(target, review);
-        }
-      }
-
-      if (!!options?.ticketKey && reviewPath && reviewedTargets.length > 0) {
-        const reviewOutput = this.formatReviewOutput(reviewedTargets, 'md');
-        fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
-        fs.writeFileSync(reviewPath, reviewOutput);
-        if (!options?.silent) {
-          console.log(chalk.gray(`  Cached to: ${reviewPath}`));
-        }
-      }
-
-      if (!options?.silent && this.isInteractiveSession() && reviewedTargets.length > 0) {
-        const { startChat } = await inquirer.prompt([
-          {
-            type: 'confirm',
-            name: 'startChat',
-            message: 'Would you like to discuss the review?',
-            prefix: ' ',
-            default: false,
-          },
-        ]);
-        if (startChat) {
-          const lastReviewed = reviewedTargets[reviewedTargets.length - 1];
-          const repoDir = lastReviewed.repoDir ?? process.cwd();
-          await this.startInteractiveChat(lastReviewed.review, lastReviewed.context, repoDir);
-        }
-      }
-
-      if (!options?.silent) {
-        console.log(chalk.green('✓ Code review complete\n'));
-      }
-
-      // Save to file if requested
-      if (options?.output) {
-        // Output format: CLI flag > per-stage config > hardcoded default
-        const outputFormat =
-          options?.format ??
-          (this.configService.get<string>('stages.review.outputFormat') as OutputFormat | undefined) ??
-          'md';
-        const outputPath = this.resolveOutputPath(
-          options.output,
-          this.resolveOutputBaseDir(!!options?.ticketKey, repoInputs)
-        );
-        const reviewOutput = this.formatReviewOutput(reviewedTargets, outputFormat);
-        fs.writeFileSync(outputPath, reviewOutput);
-        if (options?.silent) {
-          console.log(outputPath);
-        } else {
-          console.log(chalk.green(`\n✓ Review saved to: ${outputPath}\n`));
-        }
-      }
-    } catch (error) {
-      ErrorHandler.handle(error as Error);
+    if (options?.dryRun) {
+      return this.previewReviewDryRun(source, repoInputs, options);
     }
+
+    await this.runLiveReview(source, repoInputs, extraCriteria, options);
+  }
+
+  private previewReviewDryRun(
+    source: string | undefined, repoInputs: string[], options?: IssueReviewOptions
+  ): void {
+    const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
+    this.dryRunPreview.showHeader('issue:review', source || 'current repo (' + this.formatRepoScope(repoDirs) + ')');
+
+    const ctx = this.resolveReviewDryRunContext(source, repoInputs, options);
+    this.previewReviewSourceApis(source, repoDirs, ctx, options);
+    if (ctx.shouldPreview) this.previewAiReviewCall();
+    if (ctx.willPostComment && ctx.shouldPreview) this.previewCommentPost();
+    const fileCount = this.previewReviewOutputFiles(ctx, repoInputs, options);
+    this.showReviewDryRunSummary(source, ctx, fileCount, options);
+  }
+
+  private resolveReviewDryRunContext(source: string | undefined, repoInputs: string[], options?: IssueReviewOptions) {
+    const ticketKey = options?.ticketKey;
+    const adapter = ticketKey ? this.resolveTicketAdapter(options?.tracker) : null;
+    const reviewPath = ticketKey && adapter
+      ? this.resolveTicketReviewArtifactPath(ticketKey, repoInputs, adapter.getTrackerName())
+      : undefined;
+    const exists = reviewPath ? fs.existsSync(reviewPath) : false;
+    const shouldPreview = !ticketKey || options?.force || !reviewPath || !exists;
+    const willPostComment = Boolean(options?.comment && source);
+    const outputFormat = options?.format
+      ?? (this.configService.get<string>('stages.review.outputFormat') as OutputFormat | undefined) ?? 'md';
+    return { reviewPath, exists, shouldPreview, willPostComment, outputFormat };
+  }
+
+  private previewReviewSourceApis(
+    source: string | undefined, repoDirs: string[],
+    ctx: ReturnType<IssueReviewCommand['resolveReviewDryRunContext']>, options?: IssueReviewOptions
+  ): void {
+    if (!source && !options?.ticketKey) {
+      console.log(chalk.gray('   Repository: ' + this.formatRepoScope(repoDirs) + '\n'));
+      return;
+    }
+    if (options?.ticketKey) {
+      this.previewTicketReviewApis(options, ctx);
+      return;
+    }
+    if (source && this.isUrl(source)) {
+      this.dryRunPreview.previewApiCall({
+        method: 'GET', endpoint: source,
+        platform: source.includes('github') ? 'GitHub' : 'Bitbucket',
+        description: 'Fetch pull request diff', estimatedResponse: '200 OK — diff content',
+      });
+    }
+  }
+
+  private previewTicketReviewApis(
+    options: IssueReviewOptions,
+    ctx: ReturnType<IssueReviewCommand['resolveReviewDryRunContext']>
+  ): void {
+    if (this.previewCachedReviewArtifact(options, ctx)) return;
+
+    this.dryRunPreview.previewApiCall({
+      method: 'GET', endpoint: '/rest/api/3/issue/' + options.ticketKey, platform: 'Jira',
+      description: 'Fetch ticket details for review context',
+      estimatedResponse: '200 OK — ticket title and description',
+    });
+    this.dryRunPreview.previewApiCall({
+      method: 'GET', endpoint: '<ticket-associated pull requests>',
+      platform: 'Primary platform adapters',
+      description: 'Discover associated open pull requests for the ticket',
+      estimatedResponse: '200 OK — 0..n pull request URLs',
+    });
+  }
+
+  private previewCachedReviewArtifact(
+    options: IssueReviewOptions,
+    ctx: ReturnType<IssueReviewCommand['resolveReviewDryRunContext']>
+  ): boolean {
+    if (options?.force || !ctx.reviewPath || !ctx.exists) return false;
+
+    this.dryRunPreview.previewFileRead({
+      filePath: ctx.reviewPath, exists: true,
+      sizeInKb: (fs.statSync(ctx.reviewPath).size / 1024).toFixed(2),
+    });
+    this.dryRunPreview.showSkipped('artifact exists');
+    return true;
+  }
+
+  private previewAiReviewCall(): void {
+    this.dryRunPreview.previewApiCall({
+      method: 'POST', endpoint: '/v1/messages', platform: this.aiService.getProviderDisplayName(),
+      description: 'Perform AI-powered code review',
+      estimatedResponse: '{\n  "summary": "<review summary>",\n  "approved": true,\n  "issues": [],\n  "suggestions": ["..."]\n}',
+    });
+  }
+
+  private previewCommentPost(): void {
+    this.dryRunPreview.previewApiCall({
+      method: 'POST', endpoint: '<pull-request comments endpoint>',
+      platform: 'Supported PR platforms',
+      description: 'Post review summary as a PR comment', estimatedResponse: '201 Created',
+    });
+  }
+
+  private previewReviewOutputFiles(
+    ctx: ReturnType<IssueReviewCommand['resolveReviewDryRunContext']>,
+    repoInputs: string[], options?: IssueReviewOptions
+  ): number {
+    let count = 0;
+    if (options?.ticketKey && ctx.reviewPath && ctx.shouldPreview) {
+      this.dryRunPreview.previewFileWrite({
+        filePath: ctx.reviewPath, operation: ctx.exists ? 'overwrite' : 'create',
+        sizeEstimate: '2–5 KB', format: 'md',
+        contentPreview: 'Code Review Report\nContext: <source>\n\n## Summary\n<AI review summary>',
+      });
+      count++;
+    }
+    if (options?.output) {
+      this.previewCustomOutputFile(options.output, ctx.outputFormat, repoInputs, !!options?.ticketKey);
+      count++;
+    }
+    return count;
+  }
+
+  private previewCustomOutputFile(
+    output: string, format: OutputFormat, repoInputs: string[], isTicketMode: boolean
+  ): void {
+    const baseDir = this.resolveOutputBaseDir(isTicketMode, repoInputs);
+    const outPath = this.resolveOutputPath(output, baseDir);
+    this.dryRunPreview.previewFileWrite({
+      filePath: outPath, operation: 'create', sizeEstimate: '2–5 KB', format,
+      contentPreview: 'Code Review Report\nContext: <source>\n\n## Summary\n<AI review summary>'
+        + '\n\n## Approval Status\n✓ Approved',
+    });
+  }
+
+  private showReviewDryRunSummary(
+    source: string | undefined,
+    ctx: ReturnType<IssueReviewCommand['resolveReviewDryRunContext']>,
+    fileCreatedCount: number, options?: IssueReviewOptions
+  ): void {
+    const isPrUrl = Boolean(source && this.isUrl(source));
+    this.dryRunPreview.showSummary({
+      apiCallCount: ctx.shouldPreview
+        ? this.estimateDryRunApiCalls(!!options?.ticketKey, isPrUrl, ctx.willPostComment)
+        : 0,
+      fileCreatedCount, fileModifiedCount: 0, gitOperationCount: 0,
+      terminalOutputLines: [
+        '✓ Code review complete', '', 'Summary: <AI-generated review summary>', '',
+        '✓ No issues found', '', 'Call Stack: code-path trace or unavailable',
+        'State Transition: code-path trace or unavailable', '',
+        'Approval Status: ✓ ' + REVIEW_VERDICT_APPROVED,
+      ],
+    });
+    this.dryRunPreview.showValidationResult();
+  }
+
+  private async runLiveReview(
+    source: string | undefined, repoInputs: string[],
+    extraCriteria: string[] | null, options?: IssueReviewOptions
+  ): Promise<void> {
+    const result = await this.buildReviewTargets(source, repoInputs, options);
+    if (result.earlyExit) return;
+
+    const reviewable = result.targets.filter(t => t.diff.trim().length > 0);
+    if (reviewable.length === 0) {
+      this.printNoChangesWarning(options);
+      return;
+    }
+    if (!options?.silent) console.log(chalk.cyan('🤖 Analyzing changes with AI...\n'));
+
+    const reviewed = await this.executeReviews(reviewable, extraCriteria, options);
+    this.cacheReviewArtifact(result.reviewPath, reviewed, options);
+    await this.offerInteractiveChat(reviewed, options);
+    if (!options?.silent) console.log(chalk.green('✓ Code review complete\n'));
+    this.saveReviewOutput(reviewed, repoInputs, options);
+  }
+
+  private async buildReviewTargets(
+    source: string | undefined, repoInputs: string[], options?: IssueReviewOptions
+  ): Promise<{ targets: ReviewTarget[]; reviewPath?: string; earlyExit?: boolean }> {
+    if (!source && !options?.ticketKey) {
+      return { targets: [await this.buildLocalRepoTarget(repoInputs, options)] };
+    }
+    if (source && this.isUrl(source)) {
+      return { targets: [await this.buildPrUrlTarget(source, repoInputs, options)] };
+    }
+    if (options?.ticketKey) {
+      return this.buildTicketReviewTargets(repoInputs, options);
+    }
+    throw new ValidationError(
+      'Invalid source: ' + source + '. Pass a PR URL or use --ticket-key <key>.'
+    );
+  }
+
+  private async buildLocalRepoTarget(
+    repoInputs: string[], options?: IssueReviewOptions
+  ): Promise<ReviewTarget> {
+    const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
+    if (!options?.silent) {
+      console.log(chalk.gray('  Repository: ' + this.formatRepoScope(repoDirs) + '\n'));
+      console.log(chalk.bold.cyan('\n🔍 Reviewing Current Repository Changes\n'));
+    }
+    const diff = await this.reviewRepoSet(repoDirs);
+    return {
+      title: 'Current repository changes (' + this.formatRepoScope(repoDirs) + ')',
+      diff,
+      context: this.buildRepoContext(repoDirs, 'current repository changes'),
+    };
+  }
+
+  private async buildPrUrlTarget(
+    source: string, repoInputs: string[], options?: IssueReviewOptions
+  ): Promise<ReviewTarget> {
+    if (!options?.silent) {
+      console.log(chalk.bold.cyan('\n🔍 Reviewing Pull Request\n'));
+      console.log(chalk.gray('  URL: ' + source + '\n'));
+    }
+    return {
+      title: this.formatPullRequestTitle(source),
+      diff: await this.reviewPullRequest(source),
+      context: 'pull request: ' + source,
+      repoDir: this.resolveLocalRepoDirForReview(repoInputs),
+      adapterName: this.resolveAdapterNameForPullRequestUrl(source),
+      commentRef: source,
+    };
+  }
+
+  private async buildTicketReviewTargets(
+    repoInputs: string[], options: IssueReviewOptions
+  ): Promise<{ targets: ReviewTarget[]; reviewPath: string; earlyExit?: boolean }> {
+    if (!options?.silent) {
+      console.log(chalk.bold.cyan('\n🔍 Reviewing Changes for Ticket: ' + options.ticketKey + '\n'));
+    }
+    const adapter = this.resolveTicketAdapter(options?.tracker);
+    const reviewPath = this.resolveTicketReviewArtifactPath(
+      options.ticketKey!, repoInputs, adapter.getTrackerName()
+    );
+    if (this.serveCachedReview(reviewPath, repoInputs, options)) {
+      return { targets: [], reviewPath, earlyExit: true };
+    }
+    const ticket = await this.fetchTicketForReview(options.ticketKey!, adapter, options);
+    const ticketCtx = this.buildTicketContext(ticket);
+    const targets = await this.collectTicketTargets(options.ticketKey!, ticketCtx, repoInputs, options);
+    if (!targets) return { targets: [], reviewPath, earlyExit: true };
+    return { targets, reviewPath };
+  }
+
+  private serveCachedReview(
+    reviewPath: string, repoInputs: string[], options: IssueReviewOptions
+  ): boolean {
+    const exists = fs.existsSync(reviewPath);
+    if (options?.force || !exists) {
+      if (options?.force && exists && !options?.silent) {
+        this.logger.info('Forcing recreation of review artifact...');
+      }
+      return false;
+    }
+    if (!options?.silent) {
+      console.log(chalk.gray('  Review artifact exists: ' + reviewPath));
+      console.log(chalk.gray('  Use --force to regenerate.\n'));
+    }
+    this.exportCachedReview(reviewPath, repoInputs, options);
+    return true;
+  }
+
+  private exportCachedReview(
+    reviewPath: string, repoInputs: string[], options: IssueReviewOptions
+  ): void {
+    if (options?.output) {
+      const baseDir = this.resolveOutputBaseDir(true, repoInputs);
+      const outputPath = this.resolveOutputPath(options.output, baseDir);
+      fs.writeFileSync(outputPath, fs.readFileSync(reviewPath, 'utf-8'));
+      const msg = options?.silent ? outputPath : chalk.green('\n✓ Review saved to: ' + outputPath + '\n');
+      console.log(msg);
+      return;
+    }
+    if (options?.silent) console.log(reviewPath);
+  }
+
+  private async fetchTicketForReview(
+    ticketKey: string, adapter: ReturnType<IssueReviewCommand['resolveTicketAdapter']>,
+    options?: IssueReviewOptions
+  ): Promise<UniversalTicket> {
+    if (!options?.silent) {
+      console.log(chalk.gray('  Fetching ticket ' + ticketKey + ' from ' + adapter.getTrackerName() + '...\n'));
+    }
+    const ticket = await adapter.getTicket(ticketKey);
+    if (!ticket) throw new ExecutionError('Ticket lookup failed for ' + ticketKey);
+    return ticket;
+  }
+
+  private async collectTicketTargets(
+    ticketKey: string, ticketCtx: string, repoInputs: string[], options?: IssueReviewOptions
+  ): Promise<ReviewTarget[] | null> {
+    const discovery = await this.discoverTicketPullRequests(ticketKey, repoInputs);
+    this.validatePrDiscovery(ticketKey, discovery, repoInputs);
+    if (discovery.pullRequests.length > 0) {
+      return this.reviewDiscoveredPrs(discovery.pullRequests, ticketKey, ticketCtx, options);
+    }
+    return this.fallbackToLocalReview(ticketKey, ticketCtx, repoInputs, options);
+  }
+
+  private validatePrDiscovery(
+    ticketKey: string, discovery: PullRequestDiscoveryResult, repoInputs: string[]
+  ): void {
+    if (discovery.pullRequests.length > 0 || discovery.attemptedLookupCount > 0) return;
+    if (discovery.missingRepoScopeErrors.length === 0 || repoInputs.length > 0) return;
+    throw new ValidationError(
+      'Pull request discovery for ticket ' + ticketKey + ' requires a repository.'
+      + ' Pass --repos <repo> so wf can search the correct remote repository'
+      + ' instead of guessing from the current directory.'
+    );
+  }
+
+  private async reviewDiscoveredPrs(
+    pullRequests: DiscoveredPullRequestTarget[], ticketKey: string,
+    ticketCtx: string, options?: IssueReviewOptions
+  ): Promise<ReviewTarget[]> {
+    if (!options?.silent) {
+      console.log(chalk.gray('  Found ' + pullRequests.length + ' open pull request(s) for ' + ticketKey + '\n'));
+    }
+    const targets: ReviewTarget[] = [];
+    for (const pr of pullRequests) {
+      try {
+        const diff = await this.reviewPullRequest(pr.commentRef);
+        targets.push({
+          title: pr.title, diff, context: ticketCtx + '\n\n' + pr.context,
+          repoDir: pr.repoDir, adapterName: pr.adapterName, commentRef: pr.commentRef,
+        });
+      } catch (error: any) {
+        console.log(chalk.yellow('⚠️ Skipping ' + pr.title + ': ' + error.message));
+      }
+    }
+    return targets;
+  }
+
+  private async fallbackToLocalReview(
+    ticketKey: string, ticketCtx: string, repoInputs: string[], options?: IssueReviewOptions
+  ): Promise<ReviewTarget[] | null> {
+    this.validateRepoInputsResolvable(repoInputs);
+    if (!options?.silent) {
+      console.log(chalk.yellow('⚠️ No open pull requests were found for ticket ' + ticketKey));
+      const decision = await this.promptTicketFallbackAction();
+      if (decision === 'return') return null;
+    }
+    const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
+    if (!options?.silent) {
+      console.log(chalk.gray('  Repository: ' + this.formatRepoScope(repoDirs) + '\n'));
+    }
+    const diff = await this.reviewRepoSet(repoDirs);
+    return [{
+      title: 'Local repository changes (' + this.formatRepoScope(repoDirs) + ')',
+      diff, context: ticketCtx + '\n\n' + this.buildRepoContext(repoDirs, 'repositories under review'),
+      repoDir: repoDirs[0],
+    }];
+  }
+
+  private validateRepoInputsResolvable(repoInputs: string[]): void {
+    const unresolved = repoInputs.length > 0 ? this.findUnresolvedLocalRepoInputs(repoInputs) : [];
+    if (unresolved.length === 0) return;
+    const list = unresolved.map(r => "'" + r + "'").join(', ');
+    throw new ValidationError(
+      'Repository ' + list + ' was provided for ticket review but was not found'
+      + ' as a local path or sibling directory.'
+      + ' Check out the repository locally before falling back to local review.'
+    );
+  }
+
+  private printNoChangesWarning(options?: IssueReviewOptions): void {
+    if (options?.silent) return;
+    console.log(chalk.yellow('⚠️ No changes to review'));
+    console.log(chalk.gray('Make sure you have changes to review (commits, staged, or unstaged)\n'));
+  }
+
+  private async executeReviews(
+    targets: ReviewTarget[], extraCriteria: string[] | null, options?: IssueReviewOptions
+  ): Promise<ReviewedTarget[]> {
+    const reviewed: ReviewedTarget[] = [];
+    for (const target of targets) {
+      const review = await this.reviewStageService.reviewDiff(target.diff, {
+        context: target.context, extraCriteria: extraCriteria ?? undefined,
+        replaceCriteria: Boolean(options?.replaceCriteria),
+        repoDir: target.repoDir, resumeProviderSessionId: options?.sessionId,
+      });
+      reviewed.push({ ...target, review });
+      if (!options?.silent) this.displayReview(review, target.title);
+      if (options?.comment) await this.postReviewComment(target, review);
+    }
+    return reviewed;
+  }
+
+  private cacheReviewArtifact(
+    reviewPath: string | undefined, reviewed: ReviewedTarget[], options?: IssueReviewOptions
+  ): void {
+    if (!options?.ticketKey || !reviewPath || reviewed.length === 0) return;
+    fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
+    fs.writeFileSync(reviewPath, this.formatReviewOutput(reviewed, 'md'));
+    if (!options?.silent) console.log(chalk.gray('  Cached to: ' + reviewPath));
+  }
+
+  private async offerInteractiveChat(
+    reviewed: ReviewedTarget[], options?: IssueReviewOptions
+  ): Promise<void> {
+    if (options?.silent || !this.isInteractiveSession() || reviewed.length === 0) return;
+    const { startChat } = await inquirer.prompt([{
+      type: 'confirm', name: 'startChat',
+      message: 'Would you like to discuss the review?', prefix: ' ', default: false,
+    }]);
+    if (!startChat) return;
+    const last = reviewed.at(-1)!;
+    await this.startInteractiveChat(last.review, last.context, last.repoDir ?? process.cwd());
+  }
+
+  private saveReviewOutput(
+    reviewed: ReviewedTarget[], repoInputs: string[], options?: IssueReviewOptions
+  ): void {
+    if (!options?.output) return;
+    const format = options?.format
+      ?? (this.configService.get<string>('stages.review.outputFormat') as OutputFormat | undefined)
+      ?? 'md';
+    const baseDir = this.resolveOutputBaseDir(!!options?.ticketKey, repoInputs);
+    const outputPath = this.resolveOutputPath(options.output, baseDir);
+    fs.writeFileSync(outputPath, this.formatReviewOutput(reviewed, format));
+    const msg = options?.silent ? outputPath : chalk.green('\n✓ Review saved to: ' + outputPath + '\n');
+    console.log(msg);
   }
 
   @Option({
@@ -724,6 +749,30 @@ export class IssueReviewCommand extends CommandRunner {
    * @param ticket Universal ticket data
    * @returns Context string for the AI review prompt
    */
+  /**
+   * Resolve the ticket adapter from an optional tracker name.
+   * @returns The resolved adapter
+   * @param source
+   * @param options
+   */
+  private validateReviewInputs(source: string | undefined, options?: IssueReviewOptions): void {
+    if (source && options?.ticketKey) {
+      throw new ValidationError('Provide either a PR URL or --ticket-key, not both');
+    }
+    if (source && fs.existsSync(source)) {
+      throw new ValidationError(
+        `Directory paths are not accepted as review sources. Use a PR URL or --ticket-key instead.`
+      );
+    }
+    if (options?.criteria && options?.replaceCriteria) {
+      throw new ValidationError('Cannot use --criteria and --replace-criteria together. Use one or the other.');
+    }
+  }
+
+  private resolveTicketAdapter(tracker?: string) {
+    return tracker ? this.issueTrackerService.getAdapter(tracker) : this.issueTrackerService.getDefaultAdapter();
+  }
+
   private buildTicketContext(ticket: UniversalTicket): string {
     return `ticket ${ticket.key}: ${ticket.title}\n\n${ticket.description}`;
   }
@@ -749,8 +798,8 @@ export class IssueReviewCommand extends CommandRunner {
    * @returns Provenance label for trace sections
    */
   private resolveTraceProvenance(review: CodeReview): TraceProvenance {
-    const hasStructuredTrace =
-      Boolean(review.callStack?.length) || Object.keys(review.stateTransition ?? {}).length > 0;
+    const hasStructuredTrace
+      = Boolean(review.callStack?.length) || Object.keys(review.stateTransition ?? {}).length > 0;
     if (!hasStructuredTrace || review.traceProvenance === 'unavailable') {
       return 'unavailable';
     }
@@ -772,29 +821,13 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private formatTraceProvenanceNote(review: CodeReview, colorized: boolean): string {
     const provenance = this.resolveTraceProvenance(review);
-    const executionMode = review.executionMode ?? 'standard';
-    const modeLine = `Execution mode: ${executionMode}`;
-    const line =
-      provenance === 'evidence-based'
-        ? 'Provenance: evidence-based (code-path trace backed by the execution backend)'
-        : provenance === 'best-effort'
-          ? 'Provenance: best-effort (code-path trace inferred from the diff and AI output)'
-          : 'Provenance: unavailable (no concrete code-path trace could be inferred from the diff)';
-    const rendered = [`  ${modeLine}`, `  ${line}`];
+    const modeLine = '  Execution mode: ' + (review.executionMode ?? 'standard');
+    const line = '  ' + PROVENANCE_LABELS[provenance];
+    const rendered = [modeLine, line];
+    if (!colorized) return rendered.join('\n');
 
-    if (!colorized) {
-      return rendered.join('\n');
-    }
-
-    if (provenance === 'evidence-based') {
-      return `${chalk.green(`  ${modeLine}`)}\n${chalk.green(`  ${line}`)}`;
-    }
-
-    if (provenance === 'best-effort') {
-      return `${chalk.yellow(`  ${modeLine}`)}\n${chalk.yellow(`  ${line}`)}`;
-    }
-
-    return `${chalk.gray(`  ${modeLine}`)}\n${chalk.gray(`  ${line}`)}`;
+    const colorFn = PROVENANCE_COLORS[provenance] ?? chalk.gray;
+    return rendered.map(colorFn).join('\n');
   }
 
   /**
@@ -811,35 +844,14 @@ export class IssueReviewCommand extends CommandRunner {
   ): string[] {
     const provenance = this.resolveTraceProvenance(review);
     const provenanceNote = this.formatTraceProvenanceNote(review, colorized);
-
-    if (provenance === 'evidence-based') {
-      const evidenceLine = colorized
-        ? chalk.green(`  Evidence: the ${sectionLabel} section is grounded in a code-path trace from the changed code.`)
-        : `  Evidence: the ${sectionLabel} section is grounded in a code-path trace from the changed code.`;
-
-      return [provenanceNote, evidenceLine];
+    if (provenance === 'best-effort') {
+      return [provenanceNote, this.formatBestEffortNote(
+        BEST_EFFORT_TEXT[sectionLabel], HINDRANCE_TEXT[sectionLabel], colorized,
+      )];
     }
-
-    if (provenance === 'unavailable') {
-      const unavailableLine = colorized
-        ? chalk.gray(
-            `  Trace unavailable: no concrete code-path trace could be inferred for the ${sectionLabel} section.`
-          )
-        : `  Trace unavailable: no concrete code-path trace could be inferred for the ${sectionLabel} section.`;
-
-      return [provenanceNote, unavailableLine];
-    }
-
-    const bestEffortText =
-      sectionLabel === 'call stack'
-        ? 'Best effort: call stack is inferred from the changed code and AI output.'
-        : 'Best effort: state transitions are inferred from the changed code and AI output.';
-    const hindranceText =
-      sectionLabel === 'call stack'
-        ? 'Hindrance: there is no runtime execution trace backend in this path.'
-        : 'Hindrance: the review pipeline does not emit a machine-verified state trace.';
-
-    return [provenanceNote, this.formatBestEffortNote(bestEffortText, hindranceText, colorized)];
+    const detail = TRACE_DETAIL_LINES[provenance](sectionLabel);
+    const colorFn = PROVENANCE_COLORS[provenance] ?? chalk.gray;
+    return [provenanceNote, colorized ? colorFn('  ' + detail) : '  ' + detail];
   }
 
   /**
@@ -848,52 +860,50 @@ export class IssueReviewCommand extends CommandRunner {
    * @param review The AI review result
    */
   private async postReviewComment(target: ReviewTarget, review: CodeReview): Promise<void> {
-    const commentBody = this.formatReviewAsComment(review);
-    const adapterName = target.adapterName ?? this.resolveAdapterNameForPullRequestUrl(target.commentRef ?? '');
+    const adapter = this.resolveCommentAdapter(target);
+    if (!adapter) return;
 
-    if (!adapterName) {
-      console.log(chalk.yellow(`⚠️ --comment skipped for ${target.title}: no supported PR adapter was resolved`));
-      return;
-    }
-
-    let adapter: any;
+    const ref = target.commentRef ?? target.title;
     try {
-      adapter = this.issueTrackerService.getAdapter(adapterName);
+      await adapter.createComment(ref, this.formatReviewAsComment(review));
     } catch (error: any) {
-      console.log(chalk.yellow(`⚠️ --comment skipped for ${target.title}: ${error.message}`));
+      console.log(chalk.yellow('⚠️ --comment skipped for ' + target.title + ': ' + error.message));
       return;
     }
-    if (!adapter.createComment) {
-      console.log(
-        chalk.yellow(`⚠️ --comment skipped for ${target.title}: comment API is not supported by ${adapterName}`)
-      );
-      return;
-    }
+    await this.postInlineComments(adapter, ref, target.title, review);
+  }
 
+  private resolveCommentAdapter(target: ReviewTarget): any {
+    const name = target.adapterName ?? this.resolveAdapterNameForPullRequestUrl(target.commentRef ?? '');
+    if (!name) {
+      console.log(chalk.yellow('⚠️ --comment skipped for ' + target.title + ': no supported PR adapter was resolved'));
+      return null;
+    }
     try {
-      await adapter.createComment(target.commentRef ?? target.title, commentBody);
+      const adapter = this.issueTrackerService.getAdapter(name);
+      if (!adapter.createComment) {
+        console.log(chalk.yellow('⚠️ --comment skipped for ' + target.title + ': comment API is not supported by ' + name));
+        return null;
+      }
+      return adapter;
     } catch (error: any) {
-      console.log(chalk.yellow(`⚠️ --comment skipped for ${target.title}: ${error.message}`));
-      return;
+      console.log(chalk.yellow('⚠️ --comment skipped for ' + target.title + ': ' + error.message));
+      return null;
     }
+  }
 
-    const inlineIssues: CodeIssue[] = (review.issues ?? []).filter(
-      (issue: CodeIssue) =>
-        (issue.severity === 'error' || issue.severity === 'warning') &&
-        issue.file != null &&
-        issue.line != null &&
-        issue.line > 0
+  private async postInlineComments(adapter: any, ref: string, title: string, review: CodeReview): Promise<void> {
+    if (!adapter.createInlineComment) return;
+    const issues = (review.issues ?? []).filter(
+      (i: CodeIssue) => (i.severity === 'error' || i.severity === 'warning') && i.file != null && i.line != null && i.line > 0
     );
-
-    if (inlineIssues.length > 0 && adapter.createInlineComment) {
-      console.log(chalk.cyan(`💬 Posting ${inlineIssues.length} inline comment(s) to ${adapterName}...\n`));
-
-      for (const issue of inlineIssues) {
-        try {
-          await adapter.createInlineComment(target.commentRef ?? target.title, issue.file!, issue.line!, issue.message);
-        } catch (error: any) {
-          console.log(chalk.yellow(`⚠️ Inline comment skipped (${issue.file}:${issue.line}): ${error.message}`));
-        }
+    if (issues.length === 0) return;
+    console.log(chalk.cyan('💬 Posting ' + issues.length + ' inline comment(s) to ' + title + '...\n'));
+    for (const issue of issues) {
+      try {
+        await adapter.createInlineComment(ref, issue.file!, issue.line!, issue.message);
+      } catch (error: any) {
+        console.log(chalk.yellow('⚠️ Inline comment skipped (' + issue.file + ':' + issue.line + '): ' + error.message));
       }
     }
   }
@@ -905,44 +915,36 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private formatReviewAsComment(review: CodeReview): string {
     const presentation = buildCodeReviewPresentation(review);
-    const lines: string[] = ['## AI Code Review', ''];
-    lines.push(`**Summary:** ${review.summary}`);
-    lines.push('');
-    lines.push('### Issues');
-
-    if (presentation.issueRows.length > 0) {
-      for (const row of presentation.issueRows) {
-        const { issue, suggestion } = row;
-        const location = issue.file ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})` : '';
-        lines.push(`- [${issue.severity}] ${issue.message}${location}`);
-        if (suggestion) {
-          lines.push(`  Suggestion: ${suggestion}`);
-        }
-      }
-    } else {
-      lines.push('- None');
-    }
-
-    lines.push('');
-    lines.push('### Call Stack');
-    lines.push(this.formatCallStackPlain(review));
-    lines.push('');
-    lines.push('### State Transition');
-    lines.push(this.formatStateTransitionPlain(review));
-    lines.push('');
-    if (presentation.unmatchedSuggestions.length > 0) {
-      lines.push('### Suggestions');
-      for (const suggestion of presentation.unmatchedSuggestions) {
-        lines.push(`- ${suggestion}`);
-      }
-      lines.push('');
-    }
-
-    lines.push(
-      `**Approval Status:** ${review.approved ? `✓ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`}`
-    );
-
+    const verdict = review.approved
+      ? '✓ ' + REVIEW_VERDICT_APPROVED
+      : '✗ ' + REVIEW_VERDICT_CHANGES_REQUESTED;
+    const lines: string[] = [
+      '## AI Code Review', '',
+      '**Summary:** ' + review.summary, '',
+      '### Issues', ...this.formatCommentIssueRows(presentation.issueRows), '',
+      '### Call Stack', this.formatCallStackPlain(review), '',
+      '### State Transition', this.formatStateTransitionPlain(review), '',
+      ...this.formatUnmatchedSuggestions(presentation.unmatchedSuggestions),
+      '**Approval Status:** ' + verdict,
+    ];
     return lines.join('\n');
+  }
+
+  private formatCommentIssueRows(rows: ReturnType<typeof buildCodeReviewPresentation>['issueRows']): string[] {
+    if (rows.length === 0) return ['- None'];
+    const lines: string[] = [];
+    for (const { issue, suggestion } of rows) {
+      const lineRef = issue.line ? ':' + issue.line : '';
+      const loc = issue.file ? ' (' + issue.file + lineRef + ')' : '';
+      lines.push('- [' + issue.severity + '] ' + issue.message + loc);
+      if (suggestion) lines.push('  Suggestion: ' + suggestion);
+    }
+    return lines;
+  }
+
+  private formatUnmatchedSuggestions(suggestions: string[]): string[] {
+    if (suggestions.length === 0) return [];
+    return ['### Suggestions', ...suggestions.map(s => '- ' + s), ''];
   }
 
   /**
@@ -982,16 +984,13 @@ export class IssueReviewCommand extends CommandRunner {
    * Review pull request from URL
    */
   private async reviewPullRequest(url: string): Promise<string> {
-    // Determine platform from URL
-    if (url.includes('github.com')) {
-      const adapter = this.issueTrackerService.getAdapter('github');
-      return await adapter.getPullRequestDiff!(url);
-    } else if (url.includes('bitbucket.org')) {
-      const adapter = this.issueTrackerService.getAdapter('bitbucket');
-      return await adapter.getPullRequestDiff!(url);
-    } else {
+    const adapterName = this.resolveAdapterNameForPullRequestUrl(url);
+    if (!adapterName) {
       throw new ValidationError('Unsupported PR URL. Only GitHub and BitBucket are supported.');
     }
+
+    const adapter = this.issueTrackerService.getAdapter(adapterName);
+    return await adapter.getPullRequestDiff!(url);
   }
 
   private buildRepoContext(repoDirs: string[], label: string): string {
@@ -1016,75 +1015,63 @@ export class IssueReviewCommand extends CommandRunner {
    * @returns Stable list of PR metadata objects
    */
   private async discoverTicketPullRequests(
-    ticketKey: string,
-    repoInputs: string[]
+    ticketKey: string, repoInputs: string[]
   ): Promise<PullRequestDiscoveryResult> {
-    const adapters = [...this.issueTrackerService.getPullRequestDiscoveryAdapters().entries()].sort(
-      ([leftName], [rightName]) => leftName.localeCompare(rightName)
-    );
-
+    const adapters = [...this.issueTrackerService.getPullRequestDiscoveryAdapters().entries()]
+      .sort(([a], [b]) => a.localeCompare(b));
     const repoHints = this.resolveTicketDiscoveryRepoHints(repoInputs);
-
     const discovered = new Map<string, DiscoveredPullRequestTarget>();
     let attemptedLookupCount = 0;
     const missingRepoScopeErrors: string[] = [];
 
     for (const repoHint of repoHints) {
       for (const [adapterName, adapter] of adapters) {
-        let pullRequestUrls: string[] = [];
-        try {
-          pullRequestUrls = await adapter.findPullRequestsByTicketKey!(ticketKey, repoHint);
-        } catch (error: any) {
-          if (this.isMissingPullRequestRepoScopeError(error)) {
-            missingRepoScopeErrors.push(error.message);
-          }
-          console.log(
-            chalk.yellow(
-              `⚠️ PR discovery skipped for ${adapterName}${repoHint ? ` (${repoHint})` : ''}: ${error.message}`
-            )
-          );
-          continue;
-        }
-
+        const result = await this.probeAdapterForPrs(adapter, adapterName, ticketKey, repoHint, missingRepoScopeErrors);
+        if (!result) continue;
         attemptedLookupCount += 1;
-
-        for (const url of pullRequestUrls) {
-          const cacheKey = `${adapterName}:${url}`;
-          if (discovered.has(cacheKey)) {
-            continue;
-          }
-
-          discovered.set(cacheKey, {
-            adapterName,
-            commentRef: url,
-            title: this.formatPullRequestTitle(url),
-            context: `pull request: ${url}`,
-            repoDir: repoHint ? (this.resolveExistingLocalRepoDir(repoHint) ?? undefined) : undefined,
-          });
-        }
+        this.registerDiscoveredPrs(result, adapterName, repoHint, discovered);
       }
     }
+    return { pullRequests: this.sortDiscoveredPrs(discovered), attemptedLookupCount, missingRepoScopeErrors };
+  }
 
-    const pullRequests = [...discovered.values()].sort((left, right) => {
-      const adapterComparison = left.adapterName.localeCompare(right.adapterName);
-      if (adapterComparison !== 0) {
-        return adapterComparison;
-      }
+  private async probeAdapterForPrs(
+    adapter: any, adapterName: string, ticketKey: string,
+    repoHint: string, missingRepoScopeErrors: string[]
+  ): Promise<string[] | null> {
+    try {
+      return await adapter.findPullRequestsByTicketKey!(ticketKey, repoHint);
+    } catch (error: any) {
+      if (this.isMissingPullRequestRepoScopeError(error)) missingRepoScopeErrors.push(error.message);
+      const scope = repoHint ? ' (' + repoHint + ')' : '';
+      console.log(chalk.yellow('⚠️ PR discovery skipped for ' + adapterName + scope + ': ' + error.message));
+      return null;
+    }
+  }
 
-      const numberComparison =
-        this.extractPullRequestNumber(left.commentRef) - this.extractPullRequestNumber(right.commentRef);
-      if (numberComparison !== 0) {
-        return numberComparison;
-      }
+  private registerDiscoveredPrs(
+    urls: string[], adapterName: string, repoHint: string,
+    discovered: Map<string, DiscoveredPullRequestTarget>
+  ): void {
+    const repoDir = repoHint ? (this.resolveExistingLocalRepoDir(repoHint) ?? undefined) : undefined;
+    for (const url of urls) {
+      const key = adapterName + ':' + url;
+      if (discovered.has(key)) continue;
+      discovered.set(key, {
+        adapterName, commentRef: url,
+        title: this.formatPullRequestTitle(url), context: 'pull request: ' + url, repoDir,
+      });
+    }
+  }
 
-      return left.commentRef.localeCompare(right.commentRef);
+  private sortDiscoveredPrs(discovered: Map<string, DiscoveredPullRequestTarget>): DiscoveredPullRequestTarget[] {
+    return [...discovered.values()].sort((a, b) => {
+      const byAdapter = a.adapterName.localeCompare(b.adapterName);
+      if (byAdapter !== 0) return byAdapter;
+      const byNumber = this.extractPullRequestNumber(a.commentRef) - this.extractPullRequestNumber(b.commentRef);
+      if (byNumber !== 0) return byNumber;
+      return a.commentRef.localeCompare(b.commentRef);
     });
-
-    return {
-      pullRequests,
-      attemptedLookupCount,
-      missingRepoScopeErrors,
-    };
   }
 
   /**
@@ -1133,7 +1120,9 @@ export class IssueReviewCommand extends CommandRunner {
    * @returns True when the adapter needs an explicit repository or default repo
    */
   private isMissingPullRequestRepoScopeError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+    let message = '';
+    if (error instanceof Error) message = error.message;
+    if (typeof error === 'string') message = error;
 
     return [
       'No BitBucket repository specified.',
@@ -1184,31 +1173,23 @@ export class IssueReviewCommand extends CommandRunner {
    * @param repoDir - Repository directory for conversation persistence
    */
   private async startInteractiveChat(review: CodeReview, reviewContext: string, repoDir: string): Promise<void> {
-    const context: ConversationContext = {
-      ticketKey: 'review',
-      stage: 'review',
-      stageOutput: review,
-      repoDir,
-      workflowState: {
-        ticketContent: reviewContext,
-        review,
-      },
-    };
-
-    let conversation = await this.conversationService.loadConversation('review', repoDir);
-    if (!conversation) {
-      conversation = await this.conversationService.createConversation('review', context);
-    }
-
-    const systemPrompt = this.buildChatSystemPrompt(review, reviewContext);
-
+    const context = this.buildChatConversationContext(review, reviewContext, repoDir);
+    const conversation = await this.conversationService.loadConversation('review', repoDir)
+      ?? await this.conversationService.createConversation('review', context);
     await this.conversationService.startChatSession(conversation.conversationId, {
-      systemPrompt,
-      maxTurns: 20,
-      exitCommands: ['exit', 'quit', 'continue'],
-      stage: 'review',
-      repoDir,
+      systemPrompt: this.buildChatSystemPrompt(review, reviewContext),
+      maxTurns: 20, exitCommands: ['exit', 'quit', 'continue'],
+      stage: 'review', repoDir,
     });
+  }
+
+  private buildChatConversationContext(
+    review: CodeReview, reviewContext: string, repoDir: string
+  ): ConversationContext {
+    return {
+      ticketKey: 'review', stage: 'review', stageOutput: review, repoDir,
+      workflowState: { ticketContent: reviewContext, review },
+    };
   }
 
   /**
@@ -1218,36 +1199,31 @@ export class IssueReviewCommand extends CommandRunner {
    * @returns System prompt string
    */
   private buildChatSystemPrompt(review: CodeReview, reviewContext: string): string {
-    const issuesText =
-      review.issues.length > 0
-        ? review.issues
-            .map(
-              issue =>
-                `  [${issue.severity}] ${issue.message}${issue.file ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})` : ''}`
-            )
-            .join('\n')
-        : '  No issues found';
+    const verdict = review.approved ? REVIEW_VERDICT_APPROVED : REVIEW_VERDICT_CHANGES_REQUESTED;
+    return [
+      'You are a code reviewer discussing your findings on the changes described below.',
+      '', 'Review Context:', reviewContext,
+      '', 'Review Verdict: ' + verdict,
+      '', 'Summary:', review.summary,
+      '', 'Issues Found:', this.formatChatIssueLines(review.issues),
+      '', 'Suggestions:', this.formatChatSuggestionLines(review.suggestions),
+      '', 'Answer questions about the review, explain why specific issues were raised, suggest concrete fixes,',
+      'or help the developer decide which items to address first. Reference file paths and line numbers when relevant.',
+    ].join('\n');
+  }
 
-    const suggestionsText =
-      review.suggestions.length > 0 ? review.suggestions.map(s => `  - ${s}`).join('\n') : '  No suggestions';
+  private formatChatIssueLines(issues: CodeIssue[]): string {
+    if (issues.length === 0) return '  No issues found';
+    return issues.map(i => {
+      const lineRef = i.line ? ':' + i.line : '';
+      const loc = i.file ? ' (' + i.file + lineRef + ')' : '';
+      return '  [' + i.severity + '] ' + i.message + loc;
+    }).join('\n');
+  }
 
-    return `You are a code reviewer discussing your findings on the changes described below.
-
-Review Context:
-${reviewContext}
-
-Review Verdict: ${review.approved ? REVIEW_VERDICT_APPROVED : REVIEW_VERDICT_CHANGES_REQUESTED}
-
-Summary:
-${review.summary}
-
-Issues Found:
-${issuesText}
-
-Suggestions:
-${suggestionsText}
-
-Answer questions about the review, explain why specific issues were raised, suggest concrete fixes, or help the developer decide which items to address first. Reference file paths and line numbers when relevant.`;
+  private formatChatSuggestionLines(suggestions: string[]): string {
+    if (suggestions.length === 0) return '  No suggestions';
+    return suggestions.map(s => '  - ' + s).join('\n');
   }
 
   /**
@@ -1317,32 +1293,24 @@ Answer questions about the review, explain why specific issues were raised, sugg
    * @returns Absolute local directory or null when unresolved
    */
   private resolveExistingLocalRepoDir(repo: string): string | null {
-    const resolvePath = (candidate: string): string | null => {
-      if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
-        return candidate;
-      }
+    const resolved = this.resolveLocalPath(repo);
+    if (resolved) return resolved;
 
-      const relPath = path.resolve(process.cwd(), candidate);
-      if (fs.existsSync(relPath)) {
-        return relPath;
-      }
+    const segments = repo.split(/\//).filter(Boolean);
+    const localName = segments.length > 1 ? segments[1] : null;
+    return localName ? this.resolveLocalPath(localName) : null;
+  }
 
-      const siblingPath = path.resolve(process.cwd(), '..', candidate);
-      if (fs.existsSync(siblingPath)) {
-        return siblingPath;
-      }
+  private resolveLocalPath(candidate: string): string | null {
+    if (path.isAbsolute(candidate) && fs.existsSync(candidate)) return candidate;
 
-      return null;
-    };
+    const relPath = path.resolve(process.cwd(), candidate);
+    if (fs.existsSync(relPath)) return relPath;
 
-    const repoDir = resolvePath(repo);
-    if (repoDir) {
-      return repoDir;
-    }
+    const siblingPath = path.resolve(process.cwd(), '..', candidate);
+    if (fs.existsSync(siblingPath)) return siblingPath;
 
-    const repoSegments = repo.split(/\//).filter(Boolean);
-    const localRepoName = repoSegments.length > 1 ? repoSegments[1] : null;
-    return localRepoName ? resolvePath(localRepoName) : null;
+    return null;
   }
 
   /**
@@ -1388,9 +1356,9 @@ Answer questions about the review, explain why specific issues were raised, sugg
    * @returns Pull request number or Number.MAX_SAFE_INTEGER if unavailable
    */
   private extractPullRequestNumber(url: string): number {
-    const match = url.match(/\/pull\/(\d+)|\/pull-requests\/(\d+)/);
+    const match = new RegExp(/\/pull\/(\d+)|\/pull-requests\/(\d+)/).exec(url);
     const value = match?.[1] ?? match?.[2];
-    return value ? parseInt(value, 10) : Number.MAX_SAFE_INTEGER;
+    return value ? Number.parseInt(value, 10) : Number.MAX_SAFE_INTEGER;
   }
 
   /**
@@ -1398,6 +1366,16 @@ Answer questions about the review, explain why specific issues were raised, sugg
    */
   private isUrl(str: string): boolean {
     return str.startsWith('http://') || str.startsWith('https://');
+  }
+
+  /**
+   * Estimate the number of API calls for a dry-run review preview.
+   */
+  private estimateDryRunApiCalls(isTicketKeyMode: boolean, isPrUrl: boolean, willPostComment: boolean): number {
+    let count = 1;
+    if (isTicketKeyMode || isPrUrl) count = 2;
+    if (willPostComment) count++;
+    return count;
   }
 
   /**
@@ -1413,6 +1391,22 @@ Answer questions about the review, explain why specific issues were raised, sugg
     }
 
     return [chalk.yellow(`  ${bestEffortText}`), chalk.gray(`  ${hindranceText}`)].join('\n');
+  }
+
+  /**
+   * Map an issue severity level to its terminal color function.
+   * @param severity Issue severity
+   * @returns chalk color function
+   */
+  private resolveSeverityColor(severity: string): chalk.Chalk {
+    switch (severity) {
+      case 'error':
+        return chalk.red;
+      case 'warning':
+        return chalk.yellow;
+      default:
+        return chalk.blue;
+    }
   }
 
   /**
@@ -1443,22 +1437,22 @@ Answer questions about the review, explain why specific issues were raised, sugg
       return line;
     }
 
-    const branchMatch = line.match(/^(\s*)(├─|└─)\s*(.*)$/);
+    const branchMatch = new RegExp(/^(\s*)(├─|└─)\s*(.*)$/).exec(line);
     if (branchMatch) {
       const [, indent, branch, rest] = branchMatch;
-      return `${indent}${this.colorizeBranch(branch)} ${chalk.gray(rest)}`;
+      return indent + this.colorizeBranch(branch) + ' ' + chalk.gray(rest);
     }
 
-    const labelMatch = line.match(/^(\s*)(from|to|captured|changes):\s*(.*)$/);
+    const labelMatch = new RegExp(/^(\s*)(from|to|captured|changes):\s*(.*)$/).exec(line);
     if (labelMatch) {
       const [, indent, label, rest] = labelMatch;
-      return `${indent}${chalk.cyan(`${label}:`)} ${rest ? chalk.gray(rest) : ''}`.trimEnd();
+      return (indent + chalk.cyan(label + ':') + ' ' + (rest ? chalk.gray(rest) : '')).trimEnd();
     }
 
-    const keyValueMatch = line.match(/^(\s*)(.+?)\s*=\s*(.*)$/);
+    const keyValueMatch = new RegExp(/^(\s*)(.+?)\s*=\s*(.*)$/).exec(line);
     if (keyValueMatch) {
       const [, indent, key, rest] = keyValueMatch;
-      return `${indent}${chalk.cyan(key)} = ${chalk.gray(rest)}`;
+      return indent + chalk.cyan(key) + ' = ' + chalk.gray(rest);
     }
 
     return chalk.gray(line);
@@ -1543,56 +1537,51 @@ Answer questions about the review, explain why specific issues were raised, sugg
    */
   private displayReview(review: CodeReview, heading?: string): void {
     const presentation = buildCodeReviewPresentation(review);
-    if (heading) {
-      console.log(chalk.bold.cyan(`\n${heading}\n`));
-    }
+    if (heading) console.log(chalk.bold.cyan('\n' + heading + '\n'));
 
     console.log(chalk.bold('Summary:'));
     console.log(chalk.bold.cyan('  ' + review.summary));
-
-    if (presentation.issueRows.length > 0) {
-      console.log(chalk.bold('\nIssues Found:'));
-      presentation.issueRows.forEach(row => {
-        const { issue, suggestion } = row;
-        const severityColor =
-          issue.severity === 'error' ? chalk.red : issue.severity === 'warning' ? chalk.yellow : chalk.blue;
-        console.log(severityColor(`  [${issue.severity.toUpperCase()}] ${issue.message}`));
-        if (issue.file) {
-          console.log(chalk.gray(`    File: ${issue.file}${issue.line ? `:${issue.line}` : ''}`));
-        }
-        if (suggestion) {
-          console.log(chalk.cyan(`    Suggestion: ${suggestion}`));
-        }
-      });
-    } else {
-      console.log(chalk.green('\n✓ No issues found'));
-    }
+    this.displayIssueRows(presentation.issueRows);
 
     console.log(chalk.bold('\nCall Stack:'));
     console.log(this.formatCallStackInline(review));
-
     console.log(chalk.bold('\nState Transition:'));
     console.log(this.formatStateTransitionInline(review));
 
-    if (presentation.unmatchedSuggestions.length > 0) {
-      console.log(chalk.bold('\nSuggestions:'));
-      presentation.unmatchedSuggestions.forEach((suggestion: string) => {
-        console.log(chalk.cyan(`  💡 ${suggestion}`));
-      });
-    } else {
-      console.log(chalk.green('\n✓ No suggestions'));
-    }
-
-    console.log(
-      chalk.bold('\nApproval Status:'),
-      review.approved ? chalk.green(`✓ ${REVIEW_VERDICT_APPROVED}`) : chalk.red(`✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`)
-    );
-
-    if (!review.approved) {
-      console.log(chalk.yellow('\n⚠️ Address the issues above before proceeding'));
-    }
-
+    this.displaySuggestions(presentation.unmatchedSuggestions);
+    this.displayApprovalStatus(review.approved);
     console.log();
+  }
+
+  private displayIssueRows(rows: ReturnType<typeof buildCodeReviewPresentation>['issueRows']): void {
+    if (rows.length === 0) {
+      console.log(chalk.green('\n✓ No issues found'));
+      return;
+    }
+    console.log(chalk.bold('\nIssues Found:'));
+    for (const { issue, suggestion } of rows) {
+      const color = this.resolveSeverityColor(issue.severity);
+      console.log(color('  [' + issue.severity.toUpperCase() + '] ' + issue.message));
+      if (issue.file) console.log(chalk.gray('    File: ' + issue.file + (issue.line ? ':' + issue.line : '')));
+      if (suggestion) console.log(chalk.cyan('    Suggestion: ' + suggestion));
+    }
+  }
+
+  private displaySuggestions(suggestions: string[]): void {
+    if (suggestions.length === 0) {
+      console.log(chalk.green('\n✓ No suggestions'));
+      return;
+    }
+    console.log(chalk.bold('\nSuggestions:'));
+    for (const s of suggestions) console.log(chalk.cyan('  💡 ' + s));
+  }
+
+  private displayApprovalStatus(approved: boolean): void {
+    const verdict = approved
+      ? chalk.green('✓ ' + REVIEW_VERDICT_APPROVED)
+      : chalk.red('✗ ' + REVIEW_VERDICT_CHANGES_REQUESTED);
+    console.log(chalk.bold('\nApproval Status:'), verdict);
+    if (!approved) console.log(chalk.yellow('\n⚠️ Address the issues above before proceeding'));
   }
 
   /**
@@ -1604,7 +1593,7 @@ Answer questions about the review, explain why specific issues were raised, sugg
     text += `Generated: ${new Date().toISOString()}\n`;
     text += `\n${'='.repeat(70)}\n\n`;
 
-    reviewedTargets.forEach((target, index) => {
+    for (const [index, target] of reviewedTargets.entries()) {
       if (index > 0) {
         text += `\n${'='.repeat(70)}\n\n`;
       }
@@ -1612,7 +1601,7 @@ Answer questions about the review, explain why specific issues were raised, sugg
       text += `TARGET: ${target.title}\n`;
       text += `Context: ${target.context}\n\n`;
       text += this.formatReviewBlockText(target.review);
-    });
+    }
 
     return text;
   }
@@ -1643,43 +1632,33 @@ Answer questions about the review, explain why specific issues were raised, sugg
    */
   private formatReviewBlockText(review: CodeReview): string {
     const presentation = buildCodeReviewPresentation(review);
-    let text = '';
+    const verdict = review.approved ? REVIEW_VERDICT_APPROVED : REVIEW_VERDICT_CHANGES_REQUESTED;
+    return [
+      'SUMMARY:\n' + review.summary, '',
+      this.formatBlockIssues(presentation.issueRows),
+      'CALL STACK:\n' + this.formatCallStackPlain(review), '',
+      'STATE TRANSITION:\n' + this.formatStateTransitionPlain(review), '',
+      this.formatBlockSuggestions(presentation.unmatchedSuggestions, presentation.issueRows.length),
+      'APPROVAL STATUS: ' + verdict,
+    ].filter(Boolean).join('\n') + '\n';
+  }
 
-    text += `SUMMARY:\n${review.summary}\n\n`;
-
-    if (presentation.issueRows.length > 0) {
-      text += `ISSUES FOUND (${presentation.issueRows.length}):\n`;
-      presentation.issueRows.forEach((row, index: number) => {
-        const { issue, suggestion } = row;
-        text += `\n${index + 1}. [${issue.severity.toUpperCase()}] ${issue.message}\n`;
-        if (issue.file) {
-          text += `   File: ${issue.file}${issue.line ? `:${issue.line}` : ''}\n`;
-        }
-        if (suggestion) {
-          text += `   Suggestion: ${suggestion}\n`;
-        }
-      });
-      text += '\n';
-    } else {
-      text += 'ISSUES: None\n\n';
+  private formatBlockIssues(rows: ReturnType<typeof buildCodeReviewPresentation>['issueRows']): string {
+    if (rows.length === 0) return 'ISSUES: None\n';
+    const lines = ['ISSUES FOUND (' + rows.length + '):'];
+    for (const [i, { issue, suggestion }] of rows.entries()) {
+      const lineRef = issue.line ? ':' + issue.line : '';
+      lines.push('', (i + 1) + '. [' + issue.severity.toUpperCase() + '] ' + issue.message);
+      if (issue.file) lines.push('   File: ' + issue.file + lineRef);
+      if (suggestion) lines.push('   Suggestion: ' + suggestion);
     }
+    return lines.join('\n') + '\n';
+  }
 
-    text += `CALL STACK:\n${this.formatCallStackPlain(review)}\n\n`;
-    text += `STATE TRANSITION:\n${this.formatStateTransitionPlain(review)}\n\n`;
-
-    if (presentation.unmatchedSuggestions.length > 0) {
-      text += `SUGGESTIONS (${presentation.unmatchedSuggestions.length}):\n`;
-      presentation.unmatchedSuggestions.forEach((suggestion: string, index: number) => {
-        text += `${index + 1}. ${suggestion}\n`;
-      });
-      text += '\n';
-    } else if (presentation.issueRows.length === 0) {
-      text += 'SUGGESTIONS: None\n\n';
-    }
-
-    text += `APPROVAL STATUS: ${review.approved ? REVIEW_VERDICT_APPROVED : REVIEW_VERDICT_CHANGES_REQUESTED}\n`;
-
-    return text;
+  private formatBlockSuggestions(suggestions: string[], issueCount: number): string {
+    if (suggestions.length === 0) return issueCount === 0 ? 'SUGGESTIONS: None\n' : '';
+    const items = suggestions.map((s, i) => (i + 1) + '. ' + s).join('\n');
+    return 'SUGGESTIONS (' + suggestions.length + '):\n' + items + '\n';
   }
 
   /**

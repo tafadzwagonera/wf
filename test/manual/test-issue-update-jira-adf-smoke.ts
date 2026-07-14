@@ -2,7 +2,8 @@
  * Manual Test: issue:update Jira ADF payload smoke test
  *
  * Run:
- * nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file .wf/terraform-aws/jira/ticket-description.md
+ * nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 \
+ *   --description-file .wf/terraform-aws/jira/ticket-description.md
  *
  * Preview mode builds the exact outgoing Jira update payload through the
  * JiraAdapter and JiraService update path without performing a live PUT.
@@ -84,8 +85,8 @@ const main = async (): Promise<void> => {
     : null;
 
   try {
-    const dependencies =
-      app !== null
+    const dependencies
+      = app !== null
         ? {
             adapter: app.get(JiraAdapter),
             jiraService: app.get(JiraService),

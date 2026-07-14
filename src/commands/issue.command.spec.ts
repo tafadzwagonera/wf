@@ -39,7 +39,7 @@ jest.mock('../agents/utils', () => {
   return {
     ...actual,
     resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
     ),
   };
 });
@@ -397,10 +397,10 @@ describe('IssueCommand', () => {
       .spyOn(require('fs'), 'existsSync')
       .mockImplementation(
         (input: string) =>
-          String(input) === ticketPath ||
-          String(input) === planPath ||
-          String(input) === manifestPath ||
-          String(input) === artifactDir
+          String(input) === ticketPath
+          || String(input) === planPath
+          || String(input) === manifestPath
+          || String(input) === artifactDir,
       );
     jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([path.basename(manifestPath)] as any);
     jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
@@ -443,13 +443,13 @@ describe('IssueCommand', () => {
       'WBP-1',
       'jira',
       path.join('/tmp/consumer-app', 'repo-a'),
-      undefined
+      undefined,
     );
     expect(mockOrchestrator.planner.loadFromDisk).toHaveBeenCalledWith(ticketPath, undefined, undefined);
     expect(mockOrchestrator.implementer.execute).toHaveBeenCalledWith(
       expect.objectContaining({ ticketKey: 'WBP-1' }),
       expect.objectContaining({ action: 'fix', path: planPath }),
-      expect.objectContaining({ trackerName: 'jira' })
+      expect.objectContaining({ trackerName: 'jira' }),
     );
   });
 
@@ -538,10 +538,10 @@ describe('IssueCommand', () => {
       .spyOn(require('fs'), 'existsSync')
       .mockImplementation(
         (input: string) =>
-          String(input) === planPath ||
-          String(input) === manifestPath ||
-          String(input) === ticketPath ||
-          String(input) === artifactDir
+          String(input) === planPath
+          || String(input) === manifestPath
+          || String(input) === ticketPath
+          || String(input) === artifactDir,
       );
     jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
       const filePath = String(input);
@@ -659,10 +659,10 @@ describe('IssueCommand', () => {
       .spyOn(require('fs'), 'existsSync')
       .mockImplementation(
         (input: string) =>
-          String(input) === planPath ||
-          String(input) === manifestPath ||
-          String(input) === ticketPath ||
-          String(input) === artifactDir
+          String(input) === planPath
+          || String(input) === manifestPath
+          || String(input) === ticketPath
+          || String(input) === artifactDir,
       );
     jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
       const filePath = String(input);
@@ -702,7 +702,7 @@ describe('IssueCommand', () => {
       'WBP-3',
       'jira',
       path.join('/tmp/consumer-app', 'target-repo'),
-      undefined
+      undefined,
     );
   });
 
@@ -790,7 +790,7 @@ describe('IssueCommand', () => {
     jest
       .spyOn(require('fs'), 'existsSync')
       .mockImplementation(
-        (input: string) => String(input) === planPath || String(input) === manifestPath || String(input) === ticketPath
+        (input: string) => String(input) === planPath || String(input) === manifestPath || String(input) === ticketPath,
       );
     jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
       const filePath = String(input);
@@ -930,7 +930,7 @@ describe('IssueCommand', () => {
       expect.any(Object),
       'plan',
       expect.objectContaining({ provider: expect.any(String), backend: expect.any(String) }),
-      expect.any(String)
+      expect.any(String),
     );
     // expect.any(Object) — sessionState is created before the custom token block
     // updates ticketKey, so its ticketKey holds the filename, not the resolved sourceName.
@@ -1039,7 +1039,7 @@ describe('IssueCommand', () => {
       expect.any(Object),
       'plan',
       expect.any(Object),
-      expect.any(String)
+      expect.any(String),
     );
     expect(mockSessionService.recordStageComplete).toHaveBeenCalledWith(expect.any(Object), 'plan', 'Test plan');
   });
@@ -1150,7 +1150,7 @@ describe('IssueCommand', () => {
       expect.any(Object),
       'implement',
       expect.any(Object),
-      expect.any(Function)
+      expect.any(Function),
     );
     expect(mockImplementerExecute).toHaveBeenCalledWith(
       expect.any(Object),
@@ -1158,13 +1158,13 @@ describe('IssueCommand', () => {
       expect.objectContaining({
         resumeProviderSessionId: 'sess-plan-123',
         priorStageSummary: 'Plan summary from prior stage',
-      })
+      }),
     );
     expect(mockSessionService.recordStageStart).toHaveBeenCalledWith(
       expect.any(Object),
       'implement',
       expect.any(Object),
-      expect.any(String)
+      expect.any(String),
     );
     expect(mockSessionService.recordStageComplete).toHaveBeenCalledWith(expect.any(Object), 'implement', null);
   });
@@ -1379,7 +1379,7 @@ describe('IssueCommand', () => {
     expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
       expect.any(Object),
       'plan',
-      'sess-cache-123'
+      'sess-cache-123',
     );
   });
 
@@ -1472,7 +1472,7 @@ describe('IssueCommand', () => {
     expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
       expect.any(Object),
       'plan',
-      'sess-skip-456'
+      'sess-skip-456',
     );
   });
 
@@ -1573,7 +1573,7 @@ describe('IssueCommand', () => {
     expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'existing-uuid' }),
       'plan',
-      'sess-resume-789'
+      'sess-resume-789',
     );
   });
 

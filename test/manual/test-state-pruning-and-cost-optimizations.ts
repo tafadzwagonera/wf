@@ -91,8 +91,8 @@ const run = async (): Promise<void> => {
   // 7. Pruning handles reasoning→function_call pair boundaries
   assert(
     'pruning checks function_call/reasoning pair boundaries',
-    openaiAdapterSource.includes("rawType === 'function_call'") &&
-      openaiAdapterSource.includes("rawType === 'reasoning'")
+    openaiAdapterSource.includes('rawType === \'function_call\'')
+    && openaiAdapterSource.includes('rawType === \'reasoning\'')
   );
 
   // 8. No as any in pruneStateIfNeeded or its call sites
@@ -110,7 +110,7 @@ const run = async (): Promise<void> => {
 
   // 9. Successful edit_file clears stale validation failures
   const editToolCleanupSection = openaiAdapterSource.slice(
-    openaiAdapterSource.indexOf("name: 'edit_file'"),
+    openaiAdapterSource.indexOf('name: \'edit_file\''),
     openaiAdapterSource.indexOf('const agent = new Agent')
   );
   assert(
@@ -122,23 +122,23 @@ const run = async (): Promise<void> => {
 
   // 10. write_file returns compact JSON without progress
   const writeToolSection = openaiAdapterSource.slice(
-    openaiAdapterSource.indexOf("name: 'write_file'"),
-    openaiAdapterSource.indexOf("name: 'delete_file'")
+    openaiAdapterSource.indexOf('name: \'write_file\''),
+    openaiAdapterSource.indexOf('name: \'delete_file\'')
   );
   assert(
     'write_file returns { path, status } without progress signal',
-    writeToolSection.includes('return JSON.stringify({ path: relativePath, status })') &&
-      !writeToolSection.includes('buildMutationProgressSignal')
+    writeToolSection.includes('return JSON.stringify({ path: relativePath, status })')
+    && !writeToolSection.includes('buildMutationProgressSignal')
   );
 
   // 10. edit_file returns compact JSON without progress
   const editToolSection = openaiAdapterSource.slice(
-    openaiAdapterSource.indexOf("name: 'edit_file'"),
+    openaiAdapterSource.indexOf('name: \'edit_file\''),
     openaiAdapterSource.indexOf('const agent = new Agent')
   );
   assert(
     'edit_file returns { path, status: "updated" } without progress signal',
-    editToolSection.includes("return JSON.stringify({ path: relativePath, status: 'updated' })")
+    editToolSection.includes('return JSON.stringify({ path: relativePath, status: \'updated\' })')
   );
 
   // 11. Passing verify_command omits stdout/stderr
@@ -187,12 +187,12 @@ const run = async (): Promise<void> => {
   // 18. Anthropic adapter uses Claude tool names
   assert(
     'Anthropic adapter uses Claude tool names (Read, Write, Edit, Grep, Glob, Bash)',
-    anthropicAdapterSource.includes('- Read(file_path') &&
-      anthropicAdapterSource.includes('- Write(file_path') &&
-      anthropicAdapterSource.includes('- Edit(file_path') &&
-      anthropicAdapterSource.includes('- Grep(pattern') &&
-      anthropicAdapterSource.includes('- Glob(pattern') &&
-      anthropicAdapterSource.includes('- Bash(command)')
+    anthropicAdapterSource.includes('- Read(file_path')
+    && anthropicAdapterSource.includes('- Write(file_path')
+    && anthropicAdapterSource.includes('- Edit(file_path')
+    && anthropicAdapterSource.includes('- Grep(pattern')
+    && anthropicAdapterSource.includes('- Glob(pattern')
+    && anthropicAdapterSource.includes('- Bash(command)')
   );
 
   // 19. Anthropic adapter no longer uses old generic tool names

@@ -59,8 +59,8 @@ const normalizeStateNode = (node: ReviewTraceStateNode | Record<string, unknown>
   const typedNode = node as Partial<ReviewTraceStateNode> & Record<string, unknown>;
 
   if (typeof typedNode.frame === 'string') {
-    const normalizedChanges: Record<string, ReviewTraceValueChange> | undefined =
-      typedNode.changes && typeof typedNode.changes === 'object'
+    const normalizedChanges: Record<string, ReviewTraceValueChange> | undefined
+      = typedNode.changes && typeof typedNode.changes === 'object'
         ? Object.entries(typedNode.changes).reduce<Record<string, ReviewTraceValueChange>>((acc, [key, value]) => {
             if (isReviewTraceValueChange(value)) {
               acc[key] = value;

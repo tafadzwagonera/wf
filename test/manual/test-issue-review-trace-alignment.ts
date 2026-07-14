@@ -6,6 +6,7 @@
  */
 
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { IssueReviewCommand } from '../../src/commands/issue-review.command';
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { GitService } from '../../src/integrations/git/git.service';
@@ -18,6 +19,7 @@ import * as path from 'path';
 
 type MockAdapter = {
   getPlatformName: () => string;
+  getTrackerName: () => string;
   getTicket: () => Promise<{ key: string; title: string; description: string }>;
   findPullRequestsByTicketKey: (ticketKey: string, repoHint?: string) => Promise<string[]>;
   getPullRequestDiff: (url: string) => Promise<string>;
@@ -25,6 +27,7 @@ type MockAdapter = {
 
 const buildAdapter = (name: string): MockAdapter => ({
   getPlatformName: () => name,
+  getTrackerName: () => name,
   getTicket: async () => ({
     key: 'TAD-575',
     title: 'Test ticket',
@@ -88,6 +91,10 @@ async function run(): Promise<void> {
         useValue: {
           getProviderDisplayName: () => 'OpenAI',
         },
+      },
+      {
+        provide: ConfigService,
+        useValue: { get: (_key: string, fallback?: unknown) => fallback },
       },
       {
         provide: GitService,
@@ -168,8 +175,8 @@ async function run(): Promise<void> {
   };
 
   setNonInteractiveSession();
-  await command.run([], { ticketKey: 'TAD-575' });
-  await command.run([], { ticketKey: 'TAD-575', repos: [repoName] });
+  await command.run([], { ticketKey: 'TAD-575', force: true });
+  await command.run([], { ticketKey: 'TAD-575', repos: [repoName], force: true });
 
   console.log = originalConsoleLog;
 

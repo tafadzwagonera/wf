@@ -45,15 +45,15 @@ const run = async (): Promise<void> => {
   );
   assert(
     'legacy filesAffected maps to affectedFiles',
-    legacyPlan.affectedFiles?.length === 1 &&
-      typeof legacyPlan.affectedFiles[0] === 'object' &&
-      legacyPlan.affectedFiles[0].filePath === 'repo-a/src/auth.ts'
+    legacyPlan.affectedFiles?.length === 1
+    && typeof legacyPlan.affectedFiles[0] === 'object'
+    && legacyPlan.affectedFiles[0].filePath === 'repo-a/src/auth.ts'
   );
   assert(
     'legacy filesContext maps to affectedFilesContext',
-    legacyPlan.affectedFilesContext?.length === 1 &&
-      typeof legacyPlan.affectedFilesContext[0] === 'object' &&
-      legacyPlan.affectedFilesContext[0].filePath === 'repo-a/package.json'
+    legacyPlan.affectedFilesContext?.length === 1
+    && typeof legacyPlan.affectedFilesContext[0] === 'object'
+    && legacyPlan.affectedFilesContext[0].filePath === 'repo-a/package.json'
   );
 
   // 2. New field names take precedence over legacy
@@ -72,15 +72,15 @@ const run = async (): Promise<void> => {
   );
   assert(
     'new affectedFiles takes precedence over legacy filesAffected',
-    dualPlan.affectedFiles?.length === 1 &&
-      typeof dualPlan.affectedFiles[0] === 'object' &&
-      dualPlan.affectedFiles[0].filePath === 'repo-a/src/new.ts'
+    dualPlan.affectedFiles?.length === 1
+    && typeof dualPlan.affectedFiles[0] === 'object'
+    && dualPlan.affectedFiles[0].filePath === 'repo-a/src/new.ts'
   );
   assert(
     'new affectedFilesContext takes precedence over legacy filesContext',
-    dualPlan.affectedFilesContext?.length === 1 &&
-      typeof dualPlan.affectedFilesContext[0] === 'object' &&
-      dualPlan.affectedFilesContext[0].filePath === 'repo-a/new-pkg.json'
+    dualPlan.affectedFilesContext?.length === 1
+    && typeof dualPlan.affectedFilesContext[0] === 'object'
+    && dualPlan.affectedFilesContext[0].filePath === 'repo-a/new-pkg.json'
   );
 
   // 3. Zod schema validates new field names

@@ -142,7 +142,7 @@ const makeStreamedRun = (
   error,
   finalOutput,
   currentTurn,
-  async *[Symbol.asyncIterator]() {
+  async* [Symbol.asyncIterator]() {
     for (const event of events) {
       yield event;
     }
@@ -432,8 +432,8 @@ describe('OpenAIAgentAdapter', () => {
   });
 
   describe('classifyAgentError', () => {
-    const { MaxTurnsExceededError, ToolTimeoutError, ToolCallError, ModelBehaviorError, UserError, SystemError } =
-      jest.requireMock('@openai/agents');
+    const { MaxTurnsExceededError, ToolTimeoutError, ToolCallError, ModelBehaviorError, UserError, SystemError }
+      = jest.requireMock('@openai/agents');
 
     it('classifies MaxTurnsExceededError', () => {
       const error = new MaxTurnsExceededError('exceeded 20 turns');
@@ -1387,9 +1387,9 @@ describe('OpenAIAgentAdapter', () => {
       expect(
         logCalls.some(
           message =>
-            message.includes('Usage: 31376 input') &&
-            message.includes('(12000 cached)') &&
-            message.includes('1063 output tokens')
+            message.includes('Usage: 31376 input')
+            && message.includes('(12000 cached)')
+            && message.includes('1063 output tokens')
         )
       ).toBe(true);
     });
@@ -1562,7 +1562,7 @@ describe('OpenAIAgentAdapter', () => {
             error: maxTurnsError,
             finalOutput: '',
             currentTurn: 20,
-            async *[Symbol.asyncIterator]() {
+            async* [Symbol.asyncIterator]() {
               // no events
             },
           };
@@ -1597,7 +1597,7 @@ describe('OpenAIAgentAdapter', () => {
             finalOutput: '',
             currentTurn: callCount,
             state: {},
-            async *[Symbol.asyncIterator]() {
+            async* [Symbol.asyncIterator]() {
               yield makeRawModelEvent({
                 type: 'response_done',
                 response: {
@@ -1637,7 +1637,7 @@ describe('OpenAIAgentAdapter', () => {
         currentTurn: 1,
         state: {},
         // eslint-disable-next-line require-yield
-        async *[Symbol.asyncIterator]() {
+        async* [Symbol.asyncIterator]() {
           throw rateLimitError;
         },
       }));

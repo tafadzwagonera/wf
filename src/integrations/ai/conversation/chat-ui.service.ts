@@ -178,8 +178,8 @@ export class ChatUIService {
       console.log(chalk.dim('No messages yet'));
     } else {
       messages.forEach((msg, index) => {
-        const prefix =
-          msg.role === 'user'
+        const prefix
+          = msg.role === 'user'
             ? chalk.cyan(`💬 You [${index + 1}]:`)
             : chalk.magenta(`🤖 ${this.aiService.getProviderShortName()} [${index + 1}]:`);
 

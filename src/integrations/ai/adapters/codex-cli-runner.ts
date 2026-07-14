@@ -114,26 +114,26 @@ export const assertCodexCliAvailable = (): void => {
   const version = parseCodexCliVersion(raw);
   if (!version) {
     throw new Error(
-      `Unrecognised Codex CLI version format: "${raw.trim()}". ` +
-        `Set ${SKIP_VERSION_CHECK_ENV}=1 to bypass this check.`
+      `Unrecognised Codex CLI version format: "${raw.trim()}". `
+      + `Set ${SKIP_VERSION_CHECK_ENV}=1 to bypass this check.`
     );
   }
 
   if (version.major !== REQUIRED_CODEX_CLI_MAJOR) {
     throw new Error(
-      `Incompatible Codex CLI version ${version.major}.${version.minor}.${version.patch}. ` +
-        `Required: major=${REQUIRED_CODEX_CLI_MAJOR} (>=${REQUIRED_CODEX_CLI_MAJOR}.${REQUIRED_CODEX_CLI_MIN_MINOR}). ` +
-        `Upgrade: npm install -g @openai/codex@latest. ` +
-        `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
+      `Incompatible Codex CLI version ${version.major}.${version.minor}.${version.patch}. `
+      + `Required: major=${REQUIRED_CODEX_CLI_MAJOR} (>=${REQUIRED_CODEX_CLI_MAJOR}.${REQUIRED_CODEX_CLI_MIN_MINOR}). `
+      + `Upgrade: npm install -g @openai/codex@latest. `
+      + `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
     );
   }
 
   if (version.minor < REQUIRED_CODEX_CLI_MIN_MINOR) {
     throw new Error(
-      `Codex CLI version ${version.major}.${version.minor}.${version.patch} is too old. ` +
-        `Required: >=${REQUIRED_CODEX_CLI_MAJOR}.${REQUIRED_CODEX_CLI_MIN_MINOR}. ` +
-        `Upgrade: npm install -g @openai/codex@latest. ` +
-        `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
+      `Codex CLI version ${version.major}.${version.minor}.${version.patch} is too old. `
+      + `Required: >=${REQUIRED_CODEX_CLI_MAJOR}.${REQUIRED_CODEX_CLI_MIN_MINOR}. `
+      + `Upgrade: npm install -g @openai/codex@latest. `
+      + `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`
     );
   }
 };

@@ -179,8 +179,8 @@ async function main() {
 
   // ── Test 2: direct file-path fallback in trackerDir ────────────────────
   console.log(
-    '\n\uD83E\uDDEA Test 2: direct file-path fallback in trackerDir (no manifest in dir listing)\n' +
-      '\u2500'.repeat(60)
+    '\n\uD83E\uDDEA Test 2: direct file-path fallback in trackerDir (no manifest in dir listing)\n'
+    + '\u2500'.repeat(60)
   );
   {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));

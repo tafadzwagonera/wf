@@ -3,10 +3,9 @@ import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracke
 import { FormatConverterService } from '../common/converters/format-converter.service';
 import { AiService, requireAiResponseContent } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
-import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { ErrorHandler } from '../shared/utils/error-handler';
 import { isAIErrorLike, ValidationError, ExecutionError, ConfigurationError } from '../shared/utils/errors';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { SlackService } from '../integrations/slack/slack.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
@@ -22,8 +21,8 @@ import {
 import { UniversalTicket, TicketType } from '../common/dto/universal-ticket.dto';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import axios from 'axios';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import {
@@ -45,53 +44,85 @@ import {
   type CrossRepoContext,
 } from '../shared/utils/detect-cross-repo-patterns';
 
-/** Maximum source content length (chars) before AI summarisation kicks in. */
+/** Maximum source content length (chars) before AI summarization kicks in. */
 const MAX_SOURCE_CONTENT_LENGTH = 30_000;
 const SLACK_CHANNEL_HISTORY_LIMIT = 50;
 const SLACK_THREAD_PATH = /^\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
 const SLACK_CHANNEL_PATH = /^\/archives\/([A-Z0-9]+)\/?$/i;
 const JIRA_BROWSE_PATH = /^\/browse\/([A-Z]+-\d+)\/?$/i;
 const CONTRACTION_MAP: ReadonlyMap<string, string> = new Map([
-  ["don't", 'do not'],
-  ["can't", 'cannot'],
-  ["won't", 'will not'],
-  ["isn't", 'is not'],
-  ["aren't", 'are not'],
-  ["doesn't", 'does not'],
-  ["wasn't", 'was not'],
-  ["weren't", 'were not'],
-  ["couldn't", 'could not'],
-  ["wouldn't", 'would not'],
-  ["shouldn't", 'should not'],
-  ["it's", 'it is'],
-  ["that's", 'that is'],
-  ["there's", 'there is'],
-  ["here's", 'here is'],
-  ["what's", 'what is'],
-  ["who's", 'who is'],
-  ["let's", 'let us'],
-  ["i'm", 'I am'],
-  ["we're", 'we are'],
-  ["they're", 'they are'],
-  ["you're", 'you are'],
-  ["we've", 'we have'],
-  ["they've", 'they have'],
-  ["you've", 'you have'],
-  ["i've", 'I have'],
-  ["we'll", 'we will'],
-  ["they'll", 'they will'],
-  ["you'll", 'you will'],
-  ["i'll", 'I will'],
-  ["he's", 'he is'],
-  ["she's", 'she is'],
+  ['don\'t', 'do not'],
+  ['can\'t', 'cannot'],
+  ['won\'t', 'will not'],
+  ['isn\'t', 'is not'],
+  ['aren\'t', 'are not'],
+  ['doesn\'t', 'does not'],
+  ['wasn\'t', 'was not'],
+  ['weren\'t', 'were not'],
+  ['couldn\'t', 'could not'],
+  ['wouldn\'t', 'would not'],
+  ['shouldn\'t', 'should not'],
+  ['it\'s', 'it is'],
+  ['that\'s', 'that is'],
+  ['there\'s', 'there is'],
+  ['here\'s', 'here is'],
+  ['what\'s', 'what is'],
+  ['who\'s', 'who is'],
+  ['let\'s', 'let us'],
+  ['i\'m', 'I am'],
+  ['we\'re', 'we are'],
+  ['they\'re', 'they are'],
+  ['you\'re', 'you are'],
+  ['we\'ve', 'we have'],
+  ['they\'ve', 'they have'],
+  ['you\'ve', 'you have'],
+  ['i\'ve', 'I have'],
+  ['we\'ll', 'we will'],
+  ['they\'ll', 'they will'],
+  ['you\'ll', 'you will'],
+  ['i\'ll', 'I will'],
+  ['he\'s', 'he is'],
+  ['she\'s', 'she is'],
 ]);
 
 const CONTRACTION_PATTERN = new RegExp(
   Array.from(CONTRACTION_MAP.keys())
-    .map(k => k.replace(/'/g, "['\u2019]"))
+    .map(k => k.replaceAll('\'', '[\'\u2019]'))
     .join('|'),
   'gi'
 );
+
+const SYNTHESIS_PROMPT_TEMPLATE = [
+  'Synthesize the following sources into a single, concise Jira ticket. Every sentence must earn its place; omit filler, redundancy, and preamble.\n',
+  'Output ONLY valid Markdown using this exact structure. Every heading MUST appear even when source material is sparse; use "None" for sections with no relevant information:\n',
+  '# Heading: <concise title>\n',
+  '**Type:** <task|bug|story|epic|subtask>',
+  '**Priority:** <high|medium|low>\n',
+  '## Description\n',
+  '### Summary',
+  '<concise issue description with code excerpts where applicable>\n',
+  '#### Technical Details',
+  '<implementation suggestions, backward compatibility concerns, required migrations, architectural alignment>\n',
+  '### Acceptance Criteria',
+  '- <criterion 1>\n',
+  '### Risks & Assumptions',
+  '- <risk or assumption or "None">\n',
+  '#### Out of Scope',
+  '- <out of scope item or "None">\n',
+  'Rules:',
+  '- Do not add, remove, or rename any heading.',
+  '- Do not wrap the output in a code fence.',
+  '- Use fenced Markdown code blocks (```lang) for code samples; never use Jira wiki {code} syntax.',
+  '- Use `- ` for every unordered bullet item; never use `* ` bullets.',
+  '- Write in formal British English throughout.',
+  '- Do not use contractions (e.g., write "do not" instead of "don\'t", "cannot" instead of "can\'t").',
+  '- Use the active voice (e.g., "The system validates input" instead of "Input is validated by the system").',
+  '- Do not use informal or colloquial language (e.g., avoid "basically", "just", "a lot of", "pretty much").',
+  '- Use third-person perspective only (e.g., do not use "you", "we", "our").',
+  '- Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").',
+  '- Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.',
+  '- The line "## Description" MUST appear exactly once.\n',
+].join('\n');
 
 const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
   {
@@ -195,7 +226,7 @@ class UnresolvedSourceError extends Error {}
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g. https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. AI synthesis always runs on every source to enrich and standardise the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g., https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. AI synthesis always runs on every source to enrich and standardize the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -205,7 +236,6 @@ export class IssueGenerateCommand extends CommandRunner {
     private readonly formatConverterService: FormatConverterService,
     private readonly aiService: AiService,
     private readonly configService: ConfigService,
-    private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
     private readonly slackService: SlackService,
     private readonly stageAgentService: StageAgentService
@@ -217,284 +247,178 @@ export class IssueGenerateCommand extends CommandRunner {
     if (!options?.silent) {
       printExamples(ISSUE_GENERATE_EXAMPLES);
     }
-
     await ensureWfHome();
 
-    try {
+    await executeAsyncWithCatch({ fn: async () => {
       if (!passedParams || passedParams.length === 0) {
         throw new ValidationError('At least one source is required. Use --ticket, --file, or --url.');
       }
 
-      if (options?.dryRun) {
-        const format = options?.format || this.configService.get<string>('stages.generate.outputFormat') || 'md';
-        const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
-        const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
+      if (options?.dryRun) return this.previewGenerateDryRun(passedParams, options);
 
-        this.dryRunPreview.showHeader('issue:generate', `${passedParams.length} source(s)`);
+      await this.executeGenerate(passedParams, options);
+    } });
+  }
 
-        let apiCallCount = 0;
+  private async previewGenerateDryRun(sources: string[], options: IssueGenerateOptions): Promise<void> {
+    const format = options?.format || this.configService.get<string>('stages.generate.outputFormat') || 'md';
+    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    const artifactBaseDir = resolveRepoBasePath(options?.repos?.[0]);
 
-        for (const source of passedParams) {
-          const resolvedSources = await this.resolveSourceInputs(source, options?.repos, options?.silent ?? false);
-          this.assertResolvableSourceSelection(source, resolvedSources, options?.repos);
+    this.dryRunPreview.showHeader('issue:generate', `${sources.length} source(s)`);
 
-          for (const resolvedSource of resolvedSources) {
-            const slackSourceMatch = this.parseSlackSource(resolvedSource);
+    let apiCallCount = await this.previewDryRunSources(sources, options, trackerName, artifactBaseDir);
+    apiCallCount += this.previewSynthesisApiCall(sources.length);
 
-            if (slackSourceMatch?.kind === 'thread') {
-              const [seconds, micros] = slackSourceMatch.threadTs.split('.');
-              this.dryRunPreview.previewApiCall({
-                method: 'GET',
-                endpoint: 'https://slack.com/api/conversations.replies',
-                platform: 'Slack',
-                description: `Fetch thread ${resolvedSource}`,
-                estimatedResponse: '200 OK — thread messages JSON',
-              });
-              this.dryRunPreview.previewFileWrite({
-                filePath: path.join(
-                  resolveArtifactDir(artifactBaseDir, 'slack'),
-                  `slack-thread-${slackSourceMatch.channelId}-${seconds}-${micros}.md`
-                ),
-                operation: 'create',
-                sizeEstimate: '1–20 KB',
-                format: 'md',
-                contentPreview: '[<ts>] <user>: <message>\n[<ts>] <user>: <reply>',
-              });
-              apiCallCount++;
-            } else if (slackSourceMatch?.kind === 'channel') {
-              this.dryRunPreview.previewApiCall({
-                method: 'GET',
-                endpoint: 'https://slack.com/api/conversations.history',
-                platform: 'Slack',
-                description: `Fetch recent channel history ${resolvedSource}`,
-                estimatedResponse: '200 OK — channel messages JSON',
-              });
-              this.dryRunPreview.previewFileWrite({
-                filePath: path.join(
-                  resolveArtifactDir(artifactBaseDir, 'slack'),
-                  `slack-thread-${slackSourceMatch.channelId}-<oldest-message-ts>.md`
-                ),
-                operation: 'create',
-                sizeEstimate: '1–20 KB',
-                format: 'md',
-                contentPreview: '[<ts>] <user>: <message>\n[<ts>] <user>: <message>',
-              });
-              apiCallCount++;
-            } else if (resolvedSource.startsWith('http://') || resolvedSource.startsWith('https://')) {
-              this.dryRunPreview.previewApiCall({
-                method: 'GET',
-                endpoint: resolvedSource,
-                platform: 'Web',
-                description: 'Fetch content from URL',
-                estimatedResponse: '200 OK — HTML / text content',
-              });
-              apiCallCount++;
-            } else if (/^[A-Z]+-\d+$/i.test(resolvedSource)) {
-              this.dryRunPreview.previewApiCall({
-                method: 'GET',
-                endpoint: `/${trackerName}/issues/${resolvedSource}`,
-                platform: trackerName,
-                description: `Fetch ticket ${resolvedSource}`,
-                estimatedResponse: '200 OK — ticket data',
-              });
-              apiCallCount++;
-            } else if (fs.existsSync(resolvedSource)) {
-              this.dryRunPreview.previewFileRead({
-                filePath: path.resolve(resolvedSource),
-                exists: true,
-                sizeInKb: (fs.statSync(resolvedSource).size / 1024).toFixed(2),
-              });
-            }
-          }
-        }
+    const fileCreatedCount = this.previewDryRunOutputFiles(sources, options, format, trackerName, artifactBaseDir);
 
-        this.dryRunPreview.previewApiCall({
-          method: 'POST',
-          endpoint: '/v1/messages',
-          platform: this.aiService.getProviderDisplayName(),
-          description: `Synthesise ${passedParams.length} source(s) into a unified ticket`,
-          estimatedResponse: [
-            '{',
-            '  "title": "<synthesized title>",',
-            '  "type": "task",',
-            '  "priority": "medium",',
-            '  "description": "<synthesized from sources>"',
-            '}',
-          ].join('\n'),
-        });
-        apiCallCount++;
+    this.dryRunPreview.showSummary({
+      apiCallCount, fileCreatedCount, fileModifiedCount: 0, gitOperationCount: 0,
+      terminalOutputLines: this.buildDryRunTerminalLines(options),
+    });
+    this.dryRunPreview.showValidationResult();
+  }
 
-        const generatedPreview = [
-          '# <synthesized title>',
-          '',
-          '**Type:** task',
-          '**Priority:** medium',
-          '',
-          '## Description',
-          '',
-          '<synthesized from sources>',
-        ].join('\n');
-
-        let fileCreatedCount = 0;
-
-        if (options?.save) {
-          const timestamp = new Date();
-          const artifactFilename = buildGeneratedTicketArtifactFilename(timestamp, passedParams, format);
-          const manifestFilename = buildGeneratedTicketManifestFilename(artifactFilename);
-          const filePath = path.join(resolveArtifactDir(artifactBaseDir, trackerName), artifactFilename);
-          this.dryRunPreview.previewFileWrite({
-            filePath,
-            operation: 'create',
-            sizeEstimate: '2–10 KB',
-            format,
-            contentPreview: generatedPreview,
-          });
-          this.dryRunPreview.previewFileWrite({
-            filePath: path.join(resolveArtifactDir(artifactBaseDir, trackerName), manifestFilename),
-            operation: 'create',
-            sizeEstimate: '1–2 KB',
-            format: 'json',
-            contentPreview: JSON.stringify(
-              buildGeneratedTicketSourceManifest(filePath, trackerName, format, passedParams, timestamp),
-              null,
-              2
-            ),
-          });
-          fileCreatedCount++;
-          fileCreatedCount++;
-        }
-
-        if (options?.output) {
-          this.dryRunPreview.previewFileWrite({
-            filePath: path.resolve(options.output),
-            operation: 'create',
-            sizeEstimate: '2–10 KB',
-            format,
-            contentPreview: generatedPreview,
-          });
-          fileCreatedCount++;
-        }
-
-        this.dryRunPreview.showSummary({
-          apiCallCount,
-          fileCreatedCount,
-          fileModifiedCount: 0,
-          gitOperationCount: 0,
-          terminalOutputLines: [
-            ...(options?.save
-              ? ['✓ Ticket saved to: <tracker-dir>/YYYY-MM-DD-<hash>-ticket-description.<format>']
-              : []),
-            ...(options?.output ? [`✓ Ticket also saved to: ${path.resolve(options.output)}`] : []),
-            ...(!options?.save && !options?.output
-              ? ['✓ Generated Ticket:', '', '  <ticket content printed to stdout>']
-              : []),
-          ],
-        });
-
-        this.dryRunPreview.showValidationResult();
-        return;
+  private async previewDryRunSources(
+    sources: string[], options: IssueGenerateOptions, trackerName: string, artifactBaseDir: string
+  ): Promise<number> {
+    let count = 0;
+    for (const source of sources) {
+      const resolvedSources = await this.resolveSourceInputs(source, options?.repos, options?.silent ?? false);
+      this.assertResolvableSourceSelection(source, resolvedSources, options?.repos);
+      for (const resolvedSource of resolvedSources) {
+        count += this.previewDryRunSource(resolvedSource, trackerName, artifactBaseDir);
       }
+    }
+    return count;
+  }
 
-      const silent = options?.silent ?? false;
-      const onProgress = silent ? undefined : (line: string) => console.log(chalk.gray(line));
+  private previewSynthesisApiCall(sourceCount: number): number {
+    this.dryRunPreview.previewApiCall({
+      method: 'POST', endpoint: '/v1/messages',
+      platform: this.aiService.getProviderDisplayName(),
+      description: `Synthesise ${sourceCount} source(s) into a unified ticket`,
+      estimatedResponse: '{\n  "title": "<synthesized title>",\n  "type": "task",\n  "priority": "medium",\n  "description": "<synthesized from sources>"\n}',
+    });
+    return 1;
+  }
 
-      if (!silent) {
-        console.log(chalk.bold.cyan(`\n📝 Generating Ticket from ${passedParams.length} source(s)\n`));
-      }
+  private previewDryRunOutputFiles(
+    sources: string[], options: IssueGenerateOptions, format: string, trackerName: string, artifactBaseDir: string
+  ): number {
+    const preview = '# <synthesized title>\n\n**Type:** task\n**Priority:** medium\n\n## Description\n\n<synthesized from sources>';
+    let count = 0;
+    if (options?.save) {
+      count += this.previewSaveArtifacts(sources, format, trackerName, artifactBaseDir, preview);
+    }
+    if (options?.output) {
+      this.dryRunPreview.previewFileWrite({
+        filePath: path.resolve(options.output), operation: 'create', sizeEstimate: '2–10 KB', format, contentPreview: preview,
+      });
+      count++;
+    }
+    return count;
+  }
 
-      // Fetch content from all sources
-      const sourceContents = await this.fetchAllSources(passedParams, options?.tracker, options?.repos, silent);
-      this.assertSourcesAvailable(sourceContents, passedParams);
+  private previewSaveArtifacts(
+    sources: string[], format: string, trackerName: string, baseDir: string, preview: string
+  ): number {
+    const timestamp = new Date();
+    const artifactFilename = buildGeneratedTicketArtifactFilename(timestamp, sources, format);
+    const dir = resolveArtifactDir(baseDir, trackerName);
+    const filePath = path.join(dir, artifactFilename);
+    this.dryRunPreview.previewFileWrite({ filePath, operation: 'create', sizeEstimate: '2–10 KB', format, contentPreview: preview });
+    const manifest = buildGeneratedTicketSourceManifest(filePath, trackerName, format, sources, timestamp);
+    this.dryRunPreview.previewFileWrite({
+      filePath: path.join(dir, buildGeneratedTicketManifestFilename(artifactFilename)),
+      operation: 'create', sizeEstimate: '1–2 KB', format: 'json',
+      contentPreview: JSON.stringify(manifest, null, 2),
+    });
+    return 2;
+  }
 
-      // Summarise oversized sources (interactive review in TTY mode)
-      await this.summariseOversizedSources(sourceContents, silent, onProgress);
+  private buildDryRunTerminalLines(options?: IssueGenerateOptions): string[] {
+    return [
+      ...(options?.save ? ['✓ Ticket saved to: <tracker-dir>/YYYY-MM-DD-<hash>-ticket-description.<format>'] : []),
+      ...(options?.output ? [`✓ Ticket also saved to: ${path.resolve(options.output)}`] : []),
+      ...(!options?.save && !options?.output ? ['✓ Generated Ticket:', '', '  <ticket content printed to stdout>'] : []),
+    ];
+  }
 
-      // Interactive clarification pass (non-silent, TTY only)
-      if (!silent && this.isInteractiveSession()) {
-        const clarifications = await this.identifyClarifications(sourceContents, onProgress);
-        if (clarifications.length > 0) {
-          const userResponses = await this.promptClarifications(clarifications);
-          sourceContents.push({
-            type: 'file',
-            source: 'user-clarifications',
-            content: userResponses,
-          });
-        }
-      }
+  private async executeGenerate(sources: string[], options?: IssueGenerateOptions): Promise<void> {
+    const silent = options?.silent ?? false;
+    const onProgress = silent ? undefined : (line: string) => console.log(chalk.gray(line));
 
-      // Gather repo discovery context
-      const repoContext = await this.gatherRepoContext(options?.repos, sourceContents);
+    if (!silent) console.log(chalk.bold.cyan(`\n📝 Generating Ticket from ${sources.length} source(s)\n`));
 
-      // Use AI to synthesize and collate data
-      const synthesizedTicket = await this.synthesizeWithAI(sourceContents, silent, repoContext, onProgress);
+    const sourceContents = await this.fetchAllSources(sources, options?.tracker, options?.repos, silent);
+    this.assertSourcesAvailable(sourceContents, sources);
+    await this.summariseOversizedSources(sourceContents, silent, onProgress);
+    await this.gatherClarifications(sourceContents, silent, onProgress);
 
-      // Apply metadata overrides if provided
-      if (options?.title) {
-        synthesizedTicket.title = options.title;
-      }
-      if (options?.type) {
-        synthesizedTicket.type = options.type as TicketType;
-      }
-      if (options?.priority) {
-        synthesizedTicket.priority = options.priority as any;
-      }
-      this.normalizeTicketTextFields(synthesizedTicket);
+    const repoContext = await this.gatherRepoContext(options?.repos, sourceContents);
+    const synthesizedTicket = await this.synthesizeWithAI(sourceContents, silent, repoContext, onProgress);
 
-      // Get output format
-      // Output format: CLI flag > per-stage config > hardcoded default
-      const format = options?.format || this.configService.get<string>('stages.generate.outputFormat') || 'md';
+    this.applyMetadataOverrides(synthesizedTicket, options);
+    this.normalizeTicketTextFields(synthesizedTicket);
 
-      // Serialize ticket to desired format
-      const output = this.serializeTicketOutput(synthesizedTicket, format, 'stdout/file output');
+    const format = options?.format || this.configService.get<string>('stages.generate.outputFormat') || 'md';
+    const output = this.serializeTicketOutput(synthesizedTicket, format, 'stdout/file output');
 
-      // Save to tracker directory if --save option is provided
-      if (options?.save) {
-        const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
-        const saveTargets = await this.resolveSaveTargets(options?.repos, silent);
-        const targetRepos = saveTargets.length > 0 ? saveTargets : [undefined];
+    await this.outputResults(synthesizedTicket, output, format, sources, silent, options);
+  }
 
-        for (const targetRepo of targetRepos) {
-          const savedPath = await this.saveTicketLocally(
-            synthesizedTicket,
-            trackerName,
-            format,
-            passedParams,
-            targetRepo
-          );
-          if (silent) {
-            console.log(savedPath);
-          } else {
-            console.log(chalk.green('\n✓ Ticket saved to:'), chalk.cyan(savedPath));
-          }
-        }
-      }
+  private async gatherClarifications(
+    sourceContents: SourceContent[], silent: boolean, onProgress?: (line: string) => void
+  ): Promise<void> {
+    if (silent || !this.isInteractiveSession()) return;
 
-      // Output to file or stdout
-      if (options?.output) {
-        const outputPath = path.resolve(options.output);
-        fs.writeFileSync(outputPath, output);
-        if (silent) {
-          console.log(outputPath);
-        } else {
-          console.log(chalk.green('\n✓ Ticket also saved to:'), chalk.cyan(outputPath));
-        }
-      } else if (!options?.save) {
-        // Output to stdout
-        if (!silent) {
-          console.log(chalk.green('\n✓ Generated Ticket:\n'));
-        }
-        console.log(output);
-      }
+    const clarifications = await this.identifyClarifications(sourceContents, onProgress);
+    if (clarifications.length === 0) return;
 
-      if (!silent) {
-        console.log(
-          chalk.gray(
-            `\n💡 Tip: Use --save to save to tracker directory, --output to save to file, or --format to change output format\n`
-          )
-        );
-      }
-    } catch (error) {
-      ErrorHandler.handle(error as Error);
+    const userResponses = await this.promptClarifications(clarifications);
+    sourceContents.push({ type: 'file', source: 'user-clarifications', content: userResponses });
+  }
+
+  private applyMetadataOverrides(ticket: UniversalTicket, options?: IssueGenerateOptions): void {
+    if (options?.title) ticket.title = options.title;
+    if (options?.type) ticket.type = options.type as TicketType;
+    if (options?.priority) ticket.priority = options.priority as any;
+  }
+
+  private async outputResults(
+    ticket: UniversalTicket, output: string, format: string,
+    sources: string[], silent: boolean, options?: IssueGenerateOptions
+  ): Promise<void> {
+    if (options?.save) {
+      await this.saveGeneratedTicket(ticket, format, sources, silent, options);
+    }
+
+    if (options?.output) {
+      const outputPath = path.resolve(options.output);
+      fs.writeFileSync(outputPath, output);
+      console.log(silent ? outputPath : `${chalk.green('\n✓ Ticket also saved to:')} ${chalk.cyan(outputPath)}`);
+    }
+    if (!options?.save && !options?.output) {
+      if (!silent) console.log(chalk.green('\n✓ Generated Ticket:\n'));
+      console.log(output);
+    }
+
+    if (!silent) {
+      console.log(chalk.gray('\n💡 Tip: Use --save to save to tracker directory, --output to save to file, or --format to change output format\n'));
+    }
+  }
+
+  private async saveGeneratedTicket(
+    ticket: UniversalTicket, format: string, sources: string[], silent: boolean, options?: IssueGenerateOptions
+  ): Promise<void> {
+    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    const saveTargets = await this.resolveSaveTargets(options?.repos, silent);
+    const targetRepos = saveTargets.length > 0 ? saveTargets : [undefined];
+
+    for (const targetRepo of targetRepos) {
+      const savedPath = await this.saveTicketLocally(ticket, trackerName, format, sources, targetRepo);
+      console.log(silent ? savedPath : `${chalk.green('\n✓ Ticket saved to:')} ${chalk.cyan(savedPath)}`);
     }
   }
 
@@ -594,41 +518,41 @@ export class IssueGenerateCommand extends CommandRunner {
     silent = false
   ): Promise<SourceContent[]> {
     const contents: SourceContent[] = [];
-
     for (const source of sources) {
-      if (!silent) {
-        console.log(chalk.gray(`  Fetching: ${source}`));
-      }
-
-      try {
-        const resolvedSources = await this.resolveSourceInputs(source, repos, silent);
-        this.assertResolvableSourceSelection(source, resolvedSources, repos);
-
-        if (resolvedSources.length === 0) {
-          if (!silent) {
-            console.log(chalk.yellow('    ⚠️ Skipped: no sources selected'));
-          }
-          continue;
-        }
-
-        for (const resolvedSource of resolvedSources) {
-          const content = await this.fetchSource(resolvedSource, tracker, repos?.[0]);
-          contents.push(content);
-          if (!silent) {
-            console.log(chalk.green(`    ✓ Fetched (${content.type})`));
-          }
-        }
-      } catch (error) {
-        if (error instanceof UnresolvedSourceError) {
-          throw error;
-        }
-
-        if (!silent) {
-          console.log(chalk.yellow(`    ⚠️ Failed: ${error.message}`));
-        }
-      }
+      if (!silent) console.log(chalk.gray('  Fetching: ' + source));
+      const fetched = await this.fetchSingleSource(source, tracker, repos, silent);
+      contents.push(...fetched);
     }
+    return contents;
+  }
 
+  private async fetchSingleSource(
+    source: string, tracker?: string, repos?: string[], silent = false
+  ): Promise<SourceContent[]> {
+    try {
+      const resolved = await this.resolveSourceInputs(source, repos, silent);
+      this.assertResolvableSourceSelection(source, resolved, repos);
+      if (resolved.length === 0) {
+        if (!silent) console.log(chalk.yellow('    ⚠️ Skipped: no sources selected'));
+        return [];
+      }
+      return this.fetchResolvedSources(resolved, tracker, repos?.[0], silent);
+    } catch (error) {
+      if (error instanceof UnresolvedSourceError) throw error;
+      if (!silent) console.log(chalk.yellow('    ⚠️ Failed: ' + error.message));
+      return [];
+    }
+  }
+
+  private async fetchResolvedSources(
+    resolved: string[], tracker?: string, repo?: string, silent = false
+  ): Promise<SourceContent[]> {
+    const contents: SourceContent[] = [];
+    for (const resolvedSource of resolved) {
+      const content = await this.fetchSource(resolvedSource, tracker, repo);
+      contents.push(content);
+      if (!silent) console.log(chalk.green('    ✓ Fetched (' + content.type + ')'));
+    }
     return contents;
   }
 
@@ -653,39 +577,18 @@ export class IssueGenerateCommand extends CommandRunner {
    * Fetch content from a single source
    */
   private async fetchSource(source: string, tracker?: string, repo?: string): Promise<SourceContent> {
-    // Check if it's a Slack thread permalink (must come before generic URL check)
-    const slackSourceMatch = this.parseSlackSource(source);
-    if (slackSourceMatch?.kind === 'thread') {
-      return await this.fetchFromSlack(source, slackSourceMatch.channelId, slackSourceMatch.threadTs, repo);
-    }
+    const slack = this.parseSlackSource(source);
+    if (slack?.kind === 'thread') return this.fetchFromSlack(source, slack.channelId, slack.threadTs, repo);
+    if (slack?.kind === 'channel') return this.fetchFromSlackChannel(source, slack.channelId, repo);
 
-    if (slackSourceMatch?.kind === 'channel') {
-      return await this.fetchFromSlackChannel(source, slackSourceMatch.channelId, repo);
-    }
-
-    // Check if it's a tracker browse URL (must come before generic URL check)
-    const trackerSourceMatch = this.parseTrackerSource(source);
-    if (trackerSourceMatch) {
-      return await this.fetchFromTracker(trackerSourceMatch.ticketKey, tracker, repo);
-    }
-
-    // Check if it's a URL
-    if (source.startsWith('http://') || source.startsWith('https://')) {
-      return await this.fetchFromUrl(source);
-    }
-
-    // Check if it's a local file path
-    if (fs.existsSync(source)) {
-      return await this.fetchFromFile(source);
-    }
-
-    // Check if it's a ticket key (contains letters and numbers with dash/hyphen)
-    if (/^[A-Z]+-\d+$/i.test(source)) {
-      return await this.fetchFromTracker(source, tracker, repo);
-    }
+    const trackerMatch = this.parseTrackerSource(source);
+    if (trackerMatch) return this.fetchFromTracker(trackerMatch.ticketKey, tracker, repo);
+    if (source.startsWith('http://') || source.startsWith('https://')) return this.fetchFromUrl(source);
+    if (fs.existsSync(source)) return this.fetchFromFile(source);
+    if (/^[A-Z]+-\d+$/i.test(source)) return this.fetchFromTracker(source, tracker, repo);
 
     throw new ValidationError(
-      `Unknown source type: ${source}. Supported: URL, local file path, ticket key (ABC-123), Slack thread URL`
+      'Unknown source type: ' + source + '. Supported: URL, local file path, ticket key (ABC-123), Slack thread URL'
     );
   }
 
@@ -742,20 +645,9 @@ export class IssueGenerateCommand extends CommandRunner {
     // Structured local files keep their current fallback: parse as a ticket
     // when recognized, otherwise continue as a plain file source.
     if (['.json', '.yaml', '.yml', '.md'].includes(ext)) {
-      try {
-        const format = this.formatConverterService.detectFormat(filePath);
-        if (format) {
-          const converter = this.formatConverterService.getConverter(format);
-          const ticket = converter.parse(content);
-          return {
-            type: 'ticket',
-            source: filePath,
-            content: content,
-            ticket: ticket,
-          };
-        }
-      } catch {
-        // Files that do not parse as tickets remain valid plain file sources.
+      const ticket = this.tryParseAsTicket(filePath, content);
+      if (ticket) {
+        return { type: 'ticket', source: filePath, content, ticket };
       }
     }
 
@@ -764,6 +656,26 @@ export class IssueGenerateCommand extends CommandRunner {
       source: filePath,
       content: content,
     };
+  }
+
+  /**
+   * Attempt to parse file content as a ticket via format detection.
+   * Returns null when the format is unrecognized or parsing fails.
+   *
+   * @param filePath - Path used for format detection
+   * @param content - Raw file content
+   * @returns Parsed ticket or null
+   */
+  private tryParseAsTicket(filePath: string, content: string): UniversalTicket | null {
+    const format = this.formatConverterService.detectFormat(filePath);
+    if (!format) return null;
+
+    const converter = this.formatConverterService.getConverter(format);
+    try {
+      return converter.parse(content);
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -776,8 +688,8 @@ export class IssueGenerateCommand extends CommandRunner {
         : this.issueTrackerService.getDefaultAdapter();
 
       // Format reference for Bitbucket
-      const ticketReference =
-        tracker === 'bitbucket' ? this.formatBitbucketReference(ticketKey, repo!, this.configService) : ticketKey;
+      const ticketReference
+        = tracker === 'bitbucket' ? this.formatBitbucketReference(ticketKey, repo!, this.configService) : ticketKey;
 
       const ticket = await adapter.getTicket(ticketReference);
 
@@ -825,6 +737,73 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   /**
+   * Preview a single resolved source for dry-run mode.
+   * @returns 1 when an API call was previewed, 0 otherwise
+   */
+  private previewDryRunSource(source: string, trackerName: string, baseDir: string): number {
+    const slack = this.parseSlackSource(source);
+    if (slack?.kind === 'thread') return this.previewSlackThread(source, slack, baseDir);
+    if (slack?.kind === 'channel') return this.previewSlackChannel(source, slack, baseDir);
+    if (source.startsWith('http://') || source.startsWith('https://')) return this.previewUrlSource(source);
+    if (/^[A-Z]+-\d+$/i.test(source)) return this.previewTrackerSource(source, trackerName);
+    if (fs.existsSync(source)) {
+      this.dryRunPreview.previewFileRead({
+        filePath: path.resolve(source), exists: true,
+        sizeInKb: (fs.statSync(source).size / 1024).toFixed(2),
+      });
+    }
+    return 0;
+  }
+
+  private previewSlackThread(
+    source: string, match: { channelId: string; threadTs: string }, baseDir: string
+  ): number {
+    const [seconds, micros] = match.threadTs.split('.');
+    this.dryRunPreview.previewApiCall({
+      method: 'GET', endpoint: 'https://slack.com/api/conversations.replies', platform: 'Slack',
+      description: 'Fetch thread ' + source, estimatedResponse: '200 OK — thread messages JSON',
+    });
+    const fileName = 'slack-thread-' + match.channelId + '-' + seconds + '-' + micros + '.md';
+    this.dryRunPreview.previewFileWrite({
+      filePath: path.join(resolveArtifactDir(baseDir, 'slack'), fileName),
+      operation: 'create', sizeEstimate: '1–20 KB', format: 'md',
+      contentPreview: '[<ts>] <user>: <message>\n[<ts>] <user>: <reply>',
+    });
+    return 1;
+  }
+
+  private previewSlackChannel(source: string, match: { channelId: string }, baseDir: string): number {
+    this.dryRunPreview.previewApiCall({
+      method: 'GET', endpoint: 'https://slack.com/api/conversations.history', platform: 'Slack',
+      description: 'Fetch recent channel history ' + source,
+      estimatedResponse: '200 OK — channel messages JSON',
+    });
+    const fileName = 'slack-thread-' + match.channelId + '-<oldest-message-ts>.md';
+    this.dryRunPreview.previewFileWrite({
+      filePath: path.join(resolveArtifactDir(baseDir, 'slack'), fileName),
+      operation: 'create', sizeEstimate: '1–20 KB', format: 'md',
+      contentPreview: '[<ts>] <user>: <message>\n[<ts>] <user>: <message>',
+    });
+    return 1;
+  }
+
+  private previewUrlSource(source: string): number {
+    this.dryRunPreview.previewApiCall({
+      method: 'GET', endpoint: source, platform: 'Web',
+      description: 'Fetch content from URL', estimatedResponse: '200 OK — HTML / text content',
+    });
+    return 1;
+  }
+
+  private previewTrackerSource(source: string, trackerName: string): number {
+    this.dryRunPreview.previewApiCall({
+      method: 'GET', endpoint: '/' + trackerName + '/issues/' + source, platform: trackerName,
+      description: 'Fetch ticket ' + source, estimatedResponse: '200 OK — ticket data',
+    });
+    return 1;
+  }
+
+  /**
    * Compare Slack timestamps numerically while preserving sub-second ordering.
    *
    * @param leftTs - First Slack timestamp
@@ -868,40 +847,37 @@ export class IssueGenerateCommand extends CommandRunner {
    * Save ticket to tracker directory with generated filename
    */
   private async saveTicketLocally(
-    ticket: UniversalTicket,
-    trackerName: string,
-    format: string,
-    sources: string[],
-    repo?: string
+    ticket: UniversalTicket, trackerName: string, format: string, sources: string[], repo?: string
   ): Promise<string> {
     const trackerDir = resolveArtifactDir(resolveRepoBasePath(repo), trackerName);
     await fs.promises.mkdir(trackerDir, { recursive: true });
 
-    const hash8 = hashGeneratedTicketSources(sources);
-    const extension = format === 'md' ? 'md' : format;
     const timestamp = new Date();
-
-    // Find an existing artifact with the same source hash and overwrite it,
-    // avoiding duplicate files when the command is retried with identical inputs.
-    const existingFilename = fs
-      .readdirSync(trackerDir)
-      .find(name => new RegExp(`^\\d{4}-\\d{2}-\\d{2}-${hash8}-ticket-description\\.${extension}$`).test(name));
-
-    let artifactPath: string;
-    if (existingFilename) {
-      artifactPath = path.join(trackerDir, existingFilename);
-    } else {
-      artifactPath = path.join(trackerDir, buildGeneratedTicketArtifactFilename(timestamp, sources, format));
-    }
+    const artifactPath = this.resolveArtifactPath(trackerDir, sources, format, timestamp);
 
     this.normalizeTicketTextFields(ticket);
-    const content = this.serializeTicketOutput(ticket, format, `saved artifact for ${trackerName}`);
+    const content = this.serializeTicketOutput(ticket, format, 'saved artifact for ' + trackerName);
     await fs.promises.writeFile(artifactPath, content, 'utf-8');
+    await this.writeManifest(artifactPath, trackerName, format, sources, timestamp);
+
+    return artifactPath;
+  }
+
+  private resolveArtifactPath(dir: string, sources: string[], format: string, timestamp: Date): string {
+    const hash8 = hashGeneratedTicketSources(sources);
+    const extension = format === 'md' ? 'md' : format;
+    const pattern = new RegExp(String.raw`^\d{4}-\d{2}-\d{2}-` + hash8 + String.raw`-ticket-description\.` + extension + '$');
+    const existing = fs.readdirSync(dir).find(name => pattern.test(name));
+    if (existing) return path.join(dir, existing);
+    return path.join(dir, buildGeneratedTicketArtifactFilename(timestamp, sources, format));
+  }
+
+  private async writeManifest(
+    artifactPath: string, trackerName: string, format: string, sources: string[], timestamp: Date
+  ): Promise<void> {
     const manifestPath = buildGeneratedTicketManifestPath(artifactPath);
     const manifest = buildGeneratedTicketSourceManifest(artifactPath, trackerName, format, sources, timestamp);
     await fs.promises.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
-
-    return artifactPath;
   }
 
   /**
@@ -918,11 +894,11 @@ export class IssueGenerateCommand extends CommandRunner {
    */
   private async resolveSourceInputs(source: string, repos?: string[], silent = false): Promise<string[]> {
     if (
-      this.parseSlackSource(source) !== null ||
-      this.parseTrackerSource(source) !== null ||
-      source.startsWith('http://') ||
-      source.startsWith('https://') ||
-      /^[A-Z]+-\d+$/i.test(source)
+      this.parseSlackSource(source) !== null
+      || this.parseTrackerSource(source) !== null
+      || source.startsWith('http://')
+      || source.startsWith('https://')
+      || /^[A-Z]+-\d+$/i.test(source)
     ) {
       return [source];
     }
@@ -975,18 +951,12 @@ export class IssueGenerateCommand extends CommandRunner {
       return false;
     }
 
-    if (
-      path.isAbsolute(source) ||
-      this.parseSlackSource(source) !== null ||
-      this.parseTrackerSource(source) !== null ||
-      source.startsWith('http://') ||
-      source.startsWith('https://') ||
-      /^[A-Z]+-\d+$/i.test(source)
-    ) {
-      return false;
-    }
-
-    return true;
+    return !(path.isAbsolute(source)
+      || this.parseSlackSource(source) !== null
+      || this.parseTrackerSource(source) !== null
+      || source.startsWith('http://')
+      || source.startsWith('https://')
+      || /^[A-Z]+-\d+$/i.test(source));
   }
 
   /**
@@ -1000,9 +970,9 @@ export class IssueGenerateCommand extends CommandRunner {
     const suggestedRepo = repos?.[0] ?? path.basename(resolveRepoBasePath(repos?.[0]));
 
     return (
-      `Source "${source}" could not be resolved from the current directory. ` +
-      'If this is a repo-scoped artifact under ~/.wf/<repo>/, re-run with ' +
-      `--repos <repo> (for example: wf issue:generate ${source} -r ${suggestedRepo}).`
+      `Source "${source}" could not be resolved from the current directory. `
+      + 'If this is a repo-scoped artifact under ~/.wf/<repo>/, re-run with '
+      + `--repos <repo> (for example: wf issue:generate ${source} -r ${suggestedRepo}).`
     );
   }
 
@@ -1015,93 +985,68 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Concrete source paths plus the matching repo identifiers
    */
   private async resolveRepoRelativeSources(
-    source: string,
-    repos?: string[],
-    silent = false
+    source: string, repos?: string[], silent = false
   ): Promise<LocalSourceResolution> {
-    if (!repos?.length || path.isAbsolute(source)) {
-      return { concreteSources: [], matchedRepoInputs: [] };
-    }
+    if (!repos?.length || path.isAbsolute(source)) return { concreteSources: [], matchedRepoInputs: [] };
 
-    const resolvedRepos = this.resolveRepos(repos);
-    const matches = resolvedRepos
-      .map(repo => {
-        const artifactCandidate = path.join(resolveCustomArtifactDir(repo.basePath), source);
-        if (fs.existsSync(artifactCandidate)) {
-          return {
-            repoInput: repo.input,
-            filePath: artifactCandidate,
-          };
-        }
-
-        const repoCandidate = path.join(repo.basePath, source);
-        if (fs.existsSync(repoCandidate)) {
-          return {
-            repoInput: repo.input,
-            filePath: repoCandidate,
-          };
-        }
-
-        return null;
-      })
-      .filter(
-        (
-          match
-        ): match is {
-          repoInput: string;
-          filePath: string;
-        } => match !== null
-      );
-
-    if (matches.length === 0) {
-      return { concreteSources: [], matchedRepoInputs: [] };
-    }
-
+    const matches = this.findRepoSourceMatches(source, repos);
+    if (matches.length === 0) return { concreteSources: [], matchedRepoInputs: [] };
     if (matches.length === 1) {
-      return {
-        concreteSources: [matches[0].filePath],
-        matchedRepoInputs: [matches[0].repoInput],
-      };
+      return { concreteSources: [matches[0].filePath], matchedRepoInputs: [matches[0].repoInput] };
     }
 
+    this.assertCanDisambiguate(source, matches, silent);
+    return this.promptSourceSelection(source, matches);
+  }
+
+  private findRepoSourceMatches(
+    source: string, repos: string[]
+  ): Array<{ repoInput: string; filePath: string }> {
+    return this.resolveRepos(repos)
+      .map(repo => this.findSourceInRepo(source, repo))
+      .filter((match): match is { repoInput: string; filePath: string } => match !== null);
+  }
+
+  private findSourceInRepo(
+    source: string, repo: { input: string; basePath: string }
+  ): { repoInput: string; filePath: string } | null {
+    const artifactPath = path.join(resolveCustomArtifactDir(repo.basePath), source);
+    if (fs.existsSync(artifactPath)) return { repoInput: repo.input, filePath: artifactPath };
+    const repoPath = path.join(repo.basePath, source);
+    if (fs.existsSync(repoPath)) return { repoInput: repo.input, filePath: repoPath };
+    return null;
+  }
+
+  private assertCanDisambiguate(
+    source: string, matches: Array<{ repoInput: string }>, silent: boolean
+  ): void {
+    const repoList = matches.map(m => m.repoInput).join(', ');
     if (!this.isInteractiveSession()) {
       throw new ValidationError(
-        `Source "${source}" matches multiple repositories: ${matches
-          .map(({ repoInput }) => repoInput)
-          .join(', ')}. Re-run in an interactive terminal or pass a single unambiguous --repos value.`
+        'Source "' + source + '" matches multiple repositories: ' + repoList
+        + '. Re-run in an interactive terminal or pass a single unambiguous --repos value.'
       );
     }
-
     if (silent) {
       throw new ValidationError(
-        `Source "${source}" matches multiple repositories: ${matches
-          .map(({ repoInput }) => repoInput)
-          .join(', ')}. Pass a single unambiguous --repos value in silent mode.`
+        'Source "' + source + '" matches multiple repositories: ' + repoList
+        + '. Pass a single unambiguous --repos value in silent mode.'
       );
     }
+  }
 
-    const answers = await inquirer.prompt([
-      {
-        type: 'checkbox',
-        name: 'selectedSources',
-        message: `Select matching files for ${source}:`,
-        prefix: ' ',
-        choices: matches.map(({ filePath, repoInput }) => ({
-          name: `${repoInput}: ${filePath}`,
-          value: filePath,
-        })),
-      },
-    ]);
-
-    const selectedSources = (answers.selectedSources ?? []) as string[];
-    const selectedRepoInputs = matches
-      .filter(({ filePath }) => selectedSources.includes(filePath))
-      .map(({ repoInput }) => repoInput);
-
-    return {
-      concreteSources: selectedSources,
-      matchedRepoInputs: selectedRepoInputs,
-    };
+  private async promptSourceSelection(
+    source: string, matches: Array<{ repoInput: string; filePath: string }>
+  ): Promise<LocalSourceResolution> {
+    const answers = await inquirer.prompt([{
+      type: 'checkbox', name: 'selectedSources',
+      message: 'Select matching files for ' + source + ':',
+      prefix: ' ',
+      choices: matches.map(m => ({ name: m.repoInput + ': ' + m.filePath, value: m.filePath })),
+    }]);
+    const selected = (answers.selectedSources ?? []) as string[];
+    const repoInputs = matches.filter(m => selected.includes(m.filePath)).map(m => m.repoInput);
+    return { concreteSources: selected, matchedRepoInputs: repoInputs };
   }
 
   /**
@@ -1113,34 +1058,17 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Slack source metadata when the URL is supported; otherwise null
    */
   private parseSlackSource(source: string): SlackSourceMatch | null {
-    let parsedUrl: URL;
+    if (!URL.canParse(source)) return null;
+    const url = new URL(source);
+    if (!url.hostname.endsWith('.slack.com')) return null;
 
-    try {
-      parsedUrl = new URL(source);
-    } catch {
-      return null;
+    const thread = new RegExp(SLACK_THREAD_PATH).exec(url.pathname);
+    if (thread) {
+      return { kind: 'thread', channelId: thread[1], threadTs: thread[2] + '.' + thread[3] };
     }
 
-    if (!parsedUrl.hostname.endsWith('.slack.com')) {
-      return null;
-    }
-
-    const slackThreadMatch = parsedUrl.pathname.match(SLACK_THREAD_PATH);
-    if (slackThreadMatch) {
-      return {
-        kind: 'thread',
-        channelId: slackThreadMatch[1],
-        threadTs: `${slackThreadMatch[2]}.${slackThreadMatch[3]}`,
-      };
-    }
-
-    const slackChannelMatch = parsedUrl.pathname.match(SLACK_CHANNEL_PATH);
-    if (slackChannelMatch) {
-      return {
-        kind: 'channel',
-        channelId: slackChannelMatch[1],
-      };
-    }
+    const channel = new RegExp(SLACK_CHANNEL_PATH).exec(url.pathname);
+    if (channel) return { kind: 'channel', channelId: channel[1] };
 
     return null;
   }
@@ -1152,23 +1080,12 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Parsed ticket key or null if the source is not a tracker browse URL
    */
   private parseTrackerSource(source: string): TrackerSourceMatch | null {
-    let parsedUrl: URL;
-
-    try {
-      parsedUrl = new URL(source);
-    } catch {
-      return null;
-    }
+    if (!URL.canParse(source)) return null;
+    const parsedUrl = new URL(source);
 
     const configuredBaseUrl = this.configService.get<string>('atlassian.baseUrl');
-    let configuredHostname: string | null = null;
-    if (configuredBaseUrl) {
-      try {
-        configuredHostname = new URL(configuredBaseUrl).hostname;
-      } catch {
-        // Malformed config value — fall through to well-known pattern
-      }
-    }
+    const configuredHostname
+      = configuredBaseUrl && URL.canParse(configuredBaseUrl) ? new URL(configuredBaseUrl).hostname : null;
 
     const isConfiguredHost = configuredHostname !== null && parsedUrl.hostname === configuredHostname;
     const isWellKnownHost = parsedUrl.hostname.endsWith('.atlassian.net');
@@ -1177,7 +1094,7 @@ export class IssueGenerateCommand extends CommandRunner {
       return null;
     }
 
-    const browseMatch = parsedUrl.pathname.match(JIRA_BROWSE_PATH);
+    const browseMatch = new RegExp(JIRA_BROWSE_PATH).exec(parsedUrl.pathname);
     if (!browseMatch) {
       return null;
     }
@@ -1193,46 +1110,41 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Repo identifiers to use as artifact namespaces
    */
   private async resolveSaveTargets(repos?: string[], silent = false): Promise<string[]> {
-    if (!repos?.length) {
-      return [];
-    }
+    if (!repos?.length) return [];
 
-    const resolvedRepos = this.resolveRepos(repos);
-    if (resolvedRepos.length <= 1) {
-      return resolvedRepos.map(({ input }) => input);
-    }
+    const resolved = this.resolveRepos(repos);
+    if (resolved.length <= 1) return resolved.map(r => r.input);
 
+    this.assertSaveNotAmbiguous(resolved, silent);
+    return this.promptSaveRepoSelection(resolved);
+  }
+
+  private assertSaveNotAmbiguous(
+    repos: Array<{ input: string }>, silent: boolean
+  ): void {
+    const repoList = repos.map(r => r.input).join(', ');
     if (!this.isInteractiveSession()) {
       throw new ValidationError(
-        `Cannot save to multiple repositories in a non-interactive session. Matching repositories: ${resolvedRepos
-          .map(({ input }) => input)
-          .join(', ')}.`
+        'Cannot save to multiple repositories in a non-interactive session. Matching repositories: ' + repoList + '.'
       );
     }
-
     if (silent) {
       throw new ValidationError(
-        `Cannot save to multiple repositories in silent mode. Matching repositories: ${resolvedRepos
-          .map(({ input }) => input)
-          .join(', ')}.`
+        'Cannot save to multiple repositories in silent mode. Matching repositories: ' + repoList + '.'
       );
     }
+  }
 
-    const answers = await inquirer.prompt([
-      {
-        type: 'checkbox',
-        name: 'selectedRepos',
-        message: 'Select repositories to save the generated artifact into:',
-        prefix: ' ',
-        choices: resolvedRepos.map(({ input, basePath }) => ({
-          name: `${input}: ${basePath}`,
-          value: input,
-        })),
-        validate: (selectedRepos: string[]) =>
-          selectedRepos.length > 0 || 'Select at least one repository to save the generated artifact.',
-      },
-    ]);
-
+  private async promptSaveRepoSelection(
+    repos: Array<{ input: string; basePath: string }>
+  ): Promise<string[]> {
+    const answers = await inquirer.prompt([{
+      type: 'checkbox', name: 'selectedRepos',
+      message: 'Select repositories to save the generated artifact into:',
+      prefix: ' ',
+      choices: repos.map(r => ({ name: r.input + ': ' + r.basePath, value: r.input })),
+      validate: (sel: string[]) => sel.length > 0 || 'Select at least one repository to save the generated artifact.',
+    }]);
     return answers.selectedRepos as string[];
   }
 
@@ -1288,7 +1200,7 @@ export class IssueGenerateCommand extends CommandRunner {
   }
 
   /**
-   * Summarise and interactively review any source whose content exceeds
+   * Summarize and interactively review any source whose content exceeds
    * MAX_SOURCE_CONTENT_LENGTH. Replaces the source content in-place with
    * the approved summary.
    *
@@ -1297,38 +1209,30 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param onProgress - Optional callback for real-time progress lines from agent backends
    */
   private async summariseOversizedSources(
-    sources: SourceContent[],
-    silent: boolean,
-    onProgress?: (line: string) => void
+    sources: SourceContent[], silent: boolean, onProgress?: (line: string) => void
   ): Promise<void> {
     for (let i = 0; i < sources.length; i++) {
-      const source = sources[i];
-      const raw = typeof source.content === 'string' ? source.content : JSON.stringify(source.content);
+      const raw = typeof sources[i].content === 'string' ? sources[i].content : JSON.stringify(sources[i].content);
+      if (raw.length <= MAX_SOURCE_CONTENT_LENGTH) continue;
 
-      if (raw.length <= MAX_SOURCE_CONTENT_LENGTH) {
-        continue;
-      }
-
-      if (!silent) {
-        console.log(
-          chalk.yellow(
-            `\n    Warning: Source ${i + 1} (${source.source}) exceeds ${MAX_SOURCE_CONTENT_LENGTH} characters (${raw.length}). Summarising...\n`
-          )
-        );
-      }
-
-      const summary = await this.summariseOversizedSource(source, onProgress);
-
-      if (!silent && this.isInteractiveSession()) {
-        source.content = await this.reviewSummaryBullets(summary, source);
-      } else {
-        source.content = summary;
-      }
+      this.warnOversizedSource(i, sources[i].source, raw.length, silent);
+      const summary = await this.summariseOversizedSource(sources[i], onProgress);
+      sources[i].content = (!silent && this.isInteractiveSession())
+        ? await this.reviewSummaryBullets(summary, sources[i])
+        : summary;
     }
   }
 
+  private warnOversizedSource(index: number, source: string, lengthInChars: number, silent: boolean): void {
+    if (silent) return;
+    console.log(chalk.yellow(
+      '\n    Warning: Source ' + (index + 1) + ' (' + source + ') exceeds '
+      + MAX_SOURCE_CONTENT_LENGTH + ' characters (' + lengthInChars + '). Summarising...\n'
+    ));
+  }
+
   /**
-   * Summarise a source whose content exceeds MAX_SOURCE_CONTENT_LENGTH.
+   * Summarize a source whose content exceeds MAX_SOURCE_CONTENT_LENGTH.
    * Returns a bullet-point summary produced by the AI.
    *
    * @param source - The oversized source
@@ -1338,13 +1242,13 @@ export class IssueGenerateCommand extends CommandRunner {
   private async summariseOversizedSource(source: SourceContent, onProgress?: (line: string) => void): Promise<string> {
     const raw = typeof source.content === 'string' ? source.content : JSON.stringify(source.content);
 
-    const prompt =
-      `Summarise the following source into concise bullet points that capture every key fact, ` +
-      `decision, root cause, timeline entry, and action item. Do not omit technical details ` +
-      `(error messages, config values, IDs, commands). ` +
-      `Return ONLY a Markdown bullet list (- item).\n\n` +
-      `### Source: ${source.source} (${source.type})\n` +
-      `\`\`\`\n${raw}\n\`\`\``;
+    const prompt
+      = `Summarise the following source into concise bullet points that capture every key fact, `
+        + `decision, root cause, timeline entry, and action item. Do not omit technical details `
+        + `(error messages, config values, IDs, commands). `
+        + `Return ONLY a Markdown bullet list (- item).\n\n`
+        + `### Source: ${source.source} (${source.type})\n`
+        + `\`\`\`\n${raw}\n\`\`\``;
 
     const responseContent = this.stageAgentService.isEnabledForStage('generate')
       ? await this.stageAgentService.generateFromPrompt(prompt, onProgress)
@@ -1364,109 +1268,78 @@ export class IssueGenerateCommand extends CommandRunner {
   /**
    * Present AI-generated summary bullets for interactive approval.
    * The user can accept (Y) or reject (n) each bullet, and can type
-   * free-form messages to request re-summarisation of specific content.
+   * free-form messages to request re-summarization of specific content.
    *
    * @param summary - AI-generated bullet-point summary
-   * @param source - Original source (for re-summarisation context)
+   * @param source - Original source (for re-summarization context)
    * @returns Approved summary string
    */
   private async reviewSummaryBullets(summary: string, source: SourceContent): Promise<string> {
-    const bullets = summary
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.startsWith('- '));
-
-    const approved: string[] = [];
+    const bullets = this.parseBullets(summary);
     const raw = typeof source.content === 'string' ? source.content : JSON.stringify(source.content);
 
     console.log(chalk.cyan('\n  Review the summarised key points:\n'));
-
-    for (const bullet of bullets) {
-      console.log(chalk.cyan(`  ${bullet}`));
-      const { accept } = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'accept',
-          message: 'Include this point?',
-          prefix: ' ',
-          default: true,
-        },
-      ]);
-      if (accept) {
-        approved.push(bullet);
-      }
-    }
-
-    console.log(
-      chalk.yellow('\n  Type a message to ask the AI to summarise specific content, or "done" to continue.\n')
-    );
-
-    while (true) {
-      const { input } = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'input',
-          message: chalk.cyan('message'),
-          prefix: ' ',
-        },
-      ]);
-
-      const trimmed = input.trim();
-      if (!trimmed || trimmed.toLowerCase() === 'done') {
-        break;
-      }
-
-      const prompt =
-        `The user reviewed a summary of a source and wants additional or different detail.\n\n` +
-        `User's request: "${trimmed}"\n\n` +
-        `Original source:\n\`\`\`\n${raw}\n\`\`\`\n\n` +
-        `Return ONLY new Markdown bullet points (- item) addressing the user's request. ` +
-        `Do not repeat bullets already approved.`;
-
-      const extra = this.stageAgentService.isEnabledForStage('generate')
-        ? await this.stageAgentService.generateFromPrompt(prompt)
-        : await this.aiService.execute({
-            prompt,
-            maxTokens: 1024,
-            stage: 'generate',
-          });
-
-      const extraContent =
-        typeof extra === 'string'
-          ? extra
-          : requireAiResponseContent(extra, 'AI provider returned an empty summary response');
-
-      const extraBullets = extraContent
-        .trim()
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line.startsWith('- '));
-
-      for (const bullet of extraBullets) {
-        console.log(chalk.cyan(`  ${bullet}`));
-        const { accept } = await inquirer.prompt([
-          {
-            type: 'confirm',
-            name: 'accept',
-            message: 'Include this point?',
-            prefix: ' ',
-            default: true,
-          },
-        ]);
-        if (accept) {
-          approved.push(bullet);
-        }
-      }
-
-      console.log(chalk.yellow('  💬 Type another message or "done" to continue.\n'));
-    }
+    const approved = await this.promptBulletApproval(bullets);
+    await this.collectFollowUpBullets(approved, raw);
 
     if (approved.length === 0) {
       console.log(chalk.yellow('  No bullets approved — using the full AI summary.\n'));
       return summary;
     }
-
     return approved.join('\n');
+  }
+
+  private parseBullets(text: string): string[] {
+    return text.split('\n').map(line => line.trim()).filter(line => line.startsWith('- '));
+  }
+
+  private async promptBulletApproval(bullets: string[]): Promise<string[]> {
+    const approved: string[] = [];
+    for (const bullet of bullets) {
+      console.log(chalk.cyan('  ' + bullet));
+      const { accept } = await inquirer.prompt([
+        { type: 'confirm', name: 'accept', message: 'Include this point?', prefix: ' ', default: true },
+      ]);
+      if (accept) approved.push(bullet);
+    }
+    return approved;
+  }
+
+  private async collectFollowUpBullets(approved: string[], raw: string): Promise<void> {
+    console.log(chalk.yellow(
+      '\n  Type a message to ask the AI to summarise specific content, or "done" to continue.\n'
+    ));
+
+    while (true) {
+      const { input } = await inquirer.prompt([
+        { type: 'input', name: 'input', message: chalk.cyan('message'), prefix: ' ' },
+      ]);
+      const trimmed = input.trim();
+      if (!trimmed || trimmed.toLowerCase() === 'done') break;
+
+      const extraBullets = await this.requestAdditionalBullets(trimmed, raw);
+      const accepted = await this.promptBulletApproval(extraBullets);
+      approved.push(...accepted);
+      console.log(chalk.yellow('  💬 Type another message or "done" to continue.\n'));
+    }
+  }
+
+  private async requestAdditionalBullets(userRequest: string, raw: string): Promise<string[]> {
+    const prompt = 'The user reviewed a summary of a source and wants additional or different detail.\n\n'
+      + 'User\'s request: "' + userRequest + '"\n\n'
+      + 'Original source:\n```\n' + raw + '\n```\n\n'
+      + 'Return ONLY new Markdown bullet points (- item) addressing the user\'s request. '
+      + 'Do not repeat bullets already approved.';
+
+    const extra = this.stageAgentService.isEnabledForStage('generate')
+      ? await this.stageAgentService.generateFromPrompt(prompt)
+      : await this.aiService.execute({ prompt, maxTokens: 1024, stage: 'generate' });
+
+    const content = typeof extra === 'string'
+      ? extra
+      : requireAiResponseContent(extra, 'AI provider returned an empty summary response');
+
+    return this.parseBullets(content);
   }
 
   /**
@@ -1478,37 +1351,34 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Clarification questions as plain strings
    */
   private async identifyClarifications(
-    sources: SourceContent[],
-    onProgress?: (line: string) => void
+    sources: SourceContent[], onProgress?: (line: string) => void
   ): Promise<string[]> {
-    const prompt = this.buildClarificationPrompt(sources);
-
     try {
-      const responseContent = this.stageAgentService.isEnabledForStage('generate')
-        ? await this.stageAgentService.generateFromPrompt(prompt, onProgress)
-        : await this.aiService.execute({
-            prompt,
-            maxTokens: 1024,
-            stage: 'generate',
-          });
-
-      const clarificationContent =
-        typeof responseContent === 'string'
-          ? responseContent
-          : requireAiResponseContent(responseContent, 'AI provider returned an empty clarification response');
-
-      const parsed = JSON.parse(clarificationContent.trim());
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-      return parsed.filter((item: unknown) => typeof item === 'string' && item.trim().length > 0);
+      const content = await this.generateStageContent(
+        this.buildClarificationPrompt(sources), 1024, 'empty clarification response', onProgress
+      );
+      return this.parseStringArray(content);
     } catch (error) {
-      if (isAIErrorLike(error)) {
-        throw error;
-      }
-
+      if (isAIErrorLike(error)) throw error;
       return [];
     }
+  }
+
+  private async generateStageContent(
+    prompt: string, maxTokens: number, emptyMessage: string, onProgress?: (line: string) => void
+  ): Promise<string> {
+    const response = this.stageAgentService.isEnabledForStage('generate')
+      ? await this.stageAgentService.generateFromPrompt(prompt, onProgress)
+      : await this.aiService.execute({ prompt, maxTokens, stage: 'generate' });
+    return typeof response === 'string'
+      ? response
+      : requireAiResponseContent(response, 'AI provider returned an ' + emptyMessage);
+  }
+
+  private parseStringArray(content: string): string[] {
+    const parsed = JSON.parse(content.trim());
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item: unknown) => typeof item === 'string' && (item).trim().length > 0);
   }
 
   /**
@@ -1518,17 +1388,17 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Prompt string
    */
   private buildClarificationPrompt(sources: SourceContent[]): string {
-    let prompt =
-      'Analyze these sources and identify 0-5 key ambiguities, assumptions, or risks that should be clarified before generating a ticket.\n\n' +
-      'IMPORTANT: Do NOT raise issues that the sources already acknowledge, discuss, or mitigate. ' +
-      'Only surface gaps - things the sources leave unaddressed or contradict without resolution. ' +
-      'If the sources already cover risks, assumptions, and scope adequately, return [].\n\n' +
-      'Return ONLY a JSON array of question strings. Return [] if everything is clear.\n\n';
+    let prompt
+      = 'Analyze these sources and identify 0-5 key ambiguities, assumptions, or risks that should be clarified before generating a ticket.\n\n'
+        + 'IMPORTANT: Do NOT raise issues that the sources already acknowledge, discuss, or mitigate. '
+        + 'Only surface gaps - things the sources leave unaddressed or contradict without resolution. '
+        + 'If the sources already cover risks, assumptions, and scope adequately, return [].\n\n'
+        + 'Return ONLY a JSON array of question strings. Return [] if everything is clear.\n\n';
 
-    sources.forEach((source, index) => {
+    for (const [index, source] of sources.entries()) {
       prompt += `### Source ${index + 1}: ${source.source} (${source.type})\n`;
       prompt += `\`\`\`\n${typeof source.content === 'string' ? source.content.substring(0, MAX_SOURCE_CONTENT_LENGTH) : JSON.stringify(source.content).substring(0, MAX_SOURCE_CONTENT_LENGTH)}\n\`\`\`\n\n`;
-    });
+    }
 
     return prompt;
   }
@@ -1562,37 +1432,16 @@ export class IssueGenerateCommand extends CommandRunner {
    * Use AI to synthesize and collate data from multiple sources
    */
   private async synthesizeWithAI(
-    sources: SourceContent[],
-    silent = false,
-    repoContext?: RepoDiscoveryContext,
-    onProgress?: (line: string) => void
+    sources: SourceContent[], silent = false,
+    repoContext?: RepoDiscoveryContext, onProgress?: (line: string) => void
   ): Promise<UniversalTicket> {
-    if (!silent) {
-      console.log(chalk.cyan('\n🤖 Using AI to synthesize content...\n'));
-    }
+    if (!silent) console.log(chalk.cyan('\n🤖 Using AI to synthesize content...\n'));
 
-    // Build prompt for AI
     const prompt = this.buildSynthesisPrompt(sources, repoContext);
+    const content = await this.generateStageContent(prompt, 4096, 'empty ticket synthesis response', onProgress);
 
-    // Call AI to synthesize
-    const responseContent = this.stageAgentService.isEnabledForStage('generate')
-      ? await this.stageAgentService.generateFromPrompt(prompt, onProgress)
-      : await this.aiService.execute({
-          prompt: prompt,
-          maxTokens: 4096,
-          stage: 'generate',
-        });
-
-    const synthesisContent =
-      typeof responseContent === 'string'
-        ? responseContent
-        : requireAiResponseContent(responseContent, 'AI provider returned an empty ticket synthesis response');
-
-    // Parse AI response as markdown (default) and convert to UniversalTicket
-    const mdConverter = this.formatConverterService.getConverter('md');
-    const ticket = mdConverter.parse(synthesisContent);
+    const ticket = this.formatConverterService.getConverter('md').parse(content);
     this.normalizeTicketTextFields(ticket);
-
     return ticket;
   }
 
@@ -1605,107 +1454,72 @@ export class IssueGenerateCommand extends CommandRunner {
    */
   private async gatherRepoContext(repos?: string[], sources?: SourceContent[]): Promise<RepoDiscoveryContext> {
     const context: RepoDiscoveryContext = {};
+    const primaryRepoDir = resolveRepoBasePath(repos?.[0]);
+    const repoName = path.basename(primaryRepoDir);
 
-    try {
-      const primaryRepoDir = resolveRepoBasePath(repos?.[0]);
-      const repoName = path.basename(primaryRepoDir);
+    // Each discovery step is best-effort; failures are silenced individually
+    context.conventions = this.safeCall(() => detectRepoConventions(primaryRepoDir));
+    context.priorPlans = this.safeCall(() => detectPriorPlans(repoName));
 
-      // Detect conventions
-      context.conventions = detectRepoConventions(primaryRepoDir);
+    if (repos && repos.length > 1) {
+      const secondaryDirs = repos.slice(1).map(r => resolveRepoBasePath(r));
+      context.crossRepoPatterns = this.safeCall(() => detectCrossRepoPatterns(primaryRepoDir, secondaryDirs));
+    }
 
-      // Detect prior plans
-      context.priorPlans = detectPriorPlans(repoName);
-
-      // Cross-repo patterns (only when multiple repos)
-      if (repos && repos.length > 1) {
-        const secondaryDirs = repos.slice(1).map(r => resolveRepoBasePath(r));
-        context.crossRepoPatterns = detectCrossRepoPatterns(primaryRepoDir, secondaryDirs);
-      }
-
-      // Plan correlation
-      if (context.priorPlans.plans.length > 0 && sources && sources.length > 0) {
-        const currentContent = sources
-          .map(s => (typeof s.content === 'string' ? s.content : JSON.stringify(s.content)))
-          .join('\n')
-          .substring(0, 3000);
-        context.planCorrelation = correlatePlans(currentContent, context.priorPlans, primaryRepoDir);
-      }
-    } catch {
-      // Discovery is best-effort; don't block generation on failure
+    if (context.priorPlans && context.priorPlans.plans.length > 0 && sources && sources.length > 0) {
+      const currentContent = sources
+        .map(s => (typeof s.content === 'string' ? s.content : JSON.stringify(s.content)))
+        .join('\n')
+        .substring(0, 3000);
+      context.planCorrelation = this.safeCall(() =>
+        correlatePlans(currentContent, context.priorPlans!, primaryRepoDir)
+      );
     }
 
     return context;
   }
 
   /**
+   * Execute a callback and return its result, or undefined on failure.
+   * Used for best-effort discovery steps that must not block the caller.
+   */
+  private safeCall<T>(fn: () => T): T | undefined {
+    try {
+      return fn();
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * Build prompt for AI synthesis
    */
   private buildSynthesisPrompt(sources: SourceContent[], repoContext?: RepoDiscoveryContext): string {
-    let prompt = `Synthesize the following sources into a single, concise Jira ticket. Every sentence must earn its place; omit filler, redundancy, and preamble.\n\n`;
-    prompt += `Output ONLY valid Markdown using this exact structure. Every heading MUST appear even when source material is sparse; use "None" for sections with no relevant information:\n\n`;
-    prompt += `# Heading: <concise title>\n\n`;
-    prompt += `**Type:** <task|bug|story|epic|subtask>\n`;
-    prompt += `**Priority:** <high|medium|low>\n\n`;
-    prompt += `## Description\n\n`;
-    prompt += `### Summary\n`;
-    prompt += `<concise issue description with code excerpts where applicable>\n\n`;
-    prompt += `#### Technical Details\n`;
-    prompt += `<implementation suggestions, backward compatibility concerns, required migrations, architectural alignment>\n\n`;
-    prompt += `### Acceptance Criteria\n`;
-    prompt += `- <criterion 1>\n\n`;
-    prompt += `### Risks & Assumptions\n`;
-    prompt += `- <risk or assumption or "None">\n\n`;
-    prompt += `#### Out of Scope\n`;
-    prompt += `- <out of scope item or "None">\n\n`;
-    prompt += `Rules:\n`;
-    prompt += `- Do not add, remove, or rename any heading.\n`;
-    prompt += `- Do not wrap the output in a code fence.\n`;
-    prompt += `- Use fenced Markdown code blocks (\`\`\`lang) for code samples; never use Jira wiki {code} syntax.\n`;
-    prompt += `- Use \`- \` for every unordered bullet item; never use \`* \` bullets.\n`;
-    prompt += `- Write in formal British English throughout.\n`;
-    prompt += `- Do not use contractions (e.g., write "do not" instead of "don't", "cannot" instead of "can't").\n`;
-    prompt += `- Use the active voice (e.g., "The system validates input" instead of "Input is validated by the system").\n`;
-    prompt += `- Do not use informal or colloquial language (e.g., avoid "basically", "just", "a lot of", "pretty much").\n`;
-    prompt += `- Use third-person perspective only (e.g., do not use "you", "we", "our").\n`;
-    prompt += `- Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").\n`;
-    prompt += `- Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.\n`;
-    prompt += `- The line "## Description" MUST appear exactly once.\n\n`;
+    return SYNTHESIS_PROMPT_TEMPLATE
+      + this.buildRepoContextSection(repoContext)
+      + this.formatSourcesForPrompt(sources);
+  }
 
-    // Inject repo discovery context
-    if (repoContext) {
-      const parts: string[] = [];
-      if (repoContext.conventions) {
-        const section = formatRepoConventionsPromptSection(
-          repoContext.conventions,
-          repoContext.priorPlans?.repoName ?? 'repo'
-        );
-        if (section) parts.push(section);
-      }
-      if (repoContext.priorPlans) {
-        const section = formatPriorPlansPromptSection(repoContext.priorPlans);
-        if (section) parts.push(section);
-      }
-      if (repoContext.planCorrelation) {
-        const section = formatPlanCorrelationPromptSection(repoContext.planCorrelation);
-        if (section) parts.push(section);
-      }
-      if (repoContext.crossRepoPatterns) {
-        const section = formatCrossRepoPatternsPromptSection(repoContext.crossRepoPatterns);
-        if (section) parts.push(section);
-      }
-      if (parts.length > 0) {
-        prompt += parts.join('\n\n') + '\n\n';
-      }
+  private buildRepoContextSection(ctx?: RepoDiscoveryContext): string {
+    if (!ctx) return '';
+    const formatters: Array<(() => string | undefined) | undefined> = [
+      ctx.conventions ? () => formatRepoConventionsPromptSection(ctx.conventions!, ctx.priorPlans?.repoName ?? 'repo') : undefined,
+      ctx.priorPlans ? () => formatPriorPlansPromptSection(ctx.priorPlans!) : undefined,
+      ctx.planCorrelation ? () => formatPlanCorrelationPromptSection(ctx.planCorrelation!) : undefined,
+      ctx.crossRepoPatterns ? () => formatCrossRepoPatternsPromptSection(ctx.crossRepoPatterns!) : undefined,
+    ];
+    const parts = formatters.filter(Boolean).map(fn => fn!()).filter(Boolean) as string[];
+    return parts.length > 0 ? parts.join('\n\n') + '\n\n' : '';
+  }
+
+  private formatSourcesForPrompt(sources: SourceContent[]): string {
+    let result = 'Sources to synthesize:\n\n';
+    for (const [i, s] of sources.entries()) {
+      const content = typeof s.content === 'string' ? s.content : JSON.stringify(s.content);
+      result += '### Source ' + (i + 1) + ': ' + s.source + ' (' + s.type + ')\n';
+      result += '```\n' + content.substring(0, MAX_SOURCE_CONTENT_LENGTH) + '\n```\n\n';
     }
-
-    prompt += `Sources to synthesize:\n\n`;
-
-    sources.forEach((source, index) => {
-      prompt += `### Source ${index + 1}: ${source.source} (${source.type})\n`;
-      prompt += `\`\`\`\n${typeof source.content === 'string' ? source.content.substring(0, MAX_SOURCE_CONTENT_LENGTH) : JSON.stringify(source.content).substring(0, MAX_SOURCE_CONTENT_LENGTH)}\n\`\`\`\n\n`;
-    });
-
-    return prompt;
+    return result;
   }
 
   /**
@@ -1740,9 +1554,9 @@ export class IssueGenerateCommand extends CommandRunner {
     }
 
     if (value && typeof value === 'object') {
-      Object.entries(value).forEach(([key, nestedValue]) => {
+      for (const [key, nestedValue] of Object.entries(value)) {
         (value as Record<string, unknown>)[key] = this.normalizeNestedValue(nestedValue);
-      });
+      }
     }
 
     return value;
@@ -1750,19 +1564,17 @@ export class IssueGenerateCommand extends CommandRunner {
 
   /**
    * Expand contractions to their formal equivalents while preserving leading
-   * capitalisation of the original match.
+   * capitalization of the original match.
    *
    * @param text - Text to normalize
    * @returns Text with contractions expanded
    */
   private expandContractions(text: string): string {
     return text.replace(CONTRACTION_PATTERN, match => {
-      const key = match.replace(/\u2019/g, "'").toLowerCase();
+      const key = match.replaceAll('\u2019', '\'').toLowerCase();
       const expansion = CONTRACTION_MAP.get(key) ?? match;
-      if (match[0] === match[0].toUpperCase()) {
-        return expansion[0].toUpperCase() + expansion.slice(1);
-      }
-      return expansion;
+      const isCapitalized = match.startsWith(match[0].toUpperCase());
+      return isCapitalized ? expansion[0].toUpperCase() + expansion.slice(1) : expansion;
     });
   }
 
@@ -1791,7 +1603,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Nothing
    */
   private assertNoContractionsInSerializedOutput(output: string, targetDescription: string): void {
-    const matches = output.match(CONTRACTION_PATTERN);
+    const matches = new RegExp(CONTRACTION_PATTERN).exec(output);
     if (!matches) {
       return;
     }

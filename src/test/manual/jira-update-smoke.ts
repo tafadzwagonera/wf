@@ -55,8 +55,8 @@ export const parseJiraUpdateSmokeArgs = (
 
   let descriptionFileArg: string | undefined;
   let confirmLiveUpdate = false;
-  let executeLiveUpdate =
-    environmentVariables.JIRA_UPDATE_LIVE === '1' || environmentVariables.JIRA_UPDATE_LIVE === 'true';
+  let executeLiveUpdate
+    = environmentVariables.JIRA_UPDATE_LIVE === '1' || environmentVariables.JIRA_UPDATE_LIVE === 'true';
 
   for (let index = 0; index < restArgs.length; index += 1) {
     const arg = restArgs[index];

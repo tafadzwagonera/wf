@@ -312,8 +312,8 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     }
 
     throw new Error(
-      'No GitHub repository specified and no default repository configured. ' +
-        'Provide project as "owner/repo" or set github.defaultRepo in wf.config.*.'
+      'No GitHub repository specified and no default repository configured. '
+      + 'Provide project as "owner/repo" or set github.defaultRepo in wf.config.*.'
     );
   }
 

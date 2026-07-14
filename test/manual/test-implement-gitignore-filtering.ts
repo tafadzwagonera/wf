@@ -90,9 +90,9 @@ async function main(): Promise<void> {
         .filter(Boolean);
       assert(
         'checkIgnored returns ignored paths for docs/ and *.log',
-        ignoredPaths.length === 2 &&
-          ignoredPaths.some(p => p.includes('docs')) &&
-          ignoredPaths.some(p => p.includes('.log')),
+        ignoredPaths.length === 2
+        && ignoredPaths.some(p => p.includes('docs'))
+        && ignoredPaths.some(p => p.includes('.log')),
         `Got: ${JSON.stringify(ignoredPaths)}`
       );
     } catch {
@@ -183,9 +183,9 @@ async function main(): Promise<void> {
     const filteredRepoFiles = keptIndices.map(i => repoFiles[i]);
     assert(
       'repoFiles is aligned with filtered trackedFilePaths',
-      filteredRepoFiles.length === 2 &&
-        filteredRepoFiles[0] === 'repo/src/alarm.tf' &&
-        filteredRepoFiles[1] === 'repo/src/variables.tf',
+      filteredRepoFiles.length === 2
+      && filteredRepoFiles[0] === 'repo/src/alarm.tf'
+      && filteredRepoFiles[1] === 'repo/src/variables.tf',
       `Got filteredRepoFiles: ${JSON.stringify(filteredRepoFiles)}`
     );
   } finally {

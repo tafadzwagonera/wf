@@ -58,12 +58,12 @@ describe('OpenAIAdapter', () => {
       const adapter = createAdapter();
       const mockCreate = jest
         .fn<
-          Promise<{
-            choices: Array<{ message: { content: string } }>;
-            usage: { prompt_tokens: number; completion_tokens: number };
-          }>,
-          [MockChatCompletionRequest]
-        >()
+        Promise<{
+          choices: Array<{ message: { content: string } }>;
+          usage: { prompt_tokens: number; completion_tokens: number };
+        }>,
+        [MockChatCompletionRequest]
+      >()
         .mockResolvedValue({
           choices: [{ message: { content: 'ok' } }],
           usage: {
@@ -113,12 +113,12 @@ describe('OpenAIAdapter', () => {
       const adapter = createAdapter();
       const mockCreate = jest
         .fn<
-          Promise<{
-            choices: Array<{ message: { content: string } }>;
-            usage: { prompt_tokens: number; completion_tokens: number };
-          }>,
-          [MockChatCompletionRequest]
-        >()
+        Promise<{
+          choices: Array<{ message: { content: string } }>;
+          usage: { prompt_tokens: number; completion_tokens: number };
+        }>,
+        [MockChatCompletionRequest]
+      >()
         .mockResolvedValue({
           choices: [{ message: { content: 'ok' } }],
           usage: { prompt_tokens: 10, completion_tokens: 5 },
@@ -141,12 +141,12 @@ describe('OpenAIAdapter', () => {
       const adapter = createAdapter();
       const mockCreate = jest
         .fn<
-          Promise<{
-            choices: Array<{ message: { content: string } }>;
-            usage: { prompt_tokens: number; completion_tokens: number };
-          }>,
-          [MockChatCompletionRequest]
-        >()
+        Promise<{
+          choices: Array<{ message: { content: string } }>;
+          usage: { prompt_tokens: number; completion_tokens: number };
+        }>,
+        [MockChatCompletionRequest]
+      >()
         .mockResolvedValue({
           choices: [{ message: { content: 'ok' } }],
           usage: { prompt_tokens: 10, completion_tokens: 5 },
@@ -169,12 +169,12 @@ describe('OpenAIAdapter', () => {
       const adapter = createAdapter();
       const mockCreate = jest
         .fn<
-          Promise<{
-            choices: Array<{ message: { content: string } }>;
-            usage: { prompt_tokens: number; completion_tokens: number };
-          }>,
-          [MockChatCompletionRequest]
-        >()
+        Promise<{
+          choices: Array<{ message: { content: string } }>;
+          usage: { prompt_tokens: number; completion_tokens: number };
+        }>,
+        [MockChatCompletionRequest]
+      >()
         .mockResolvedValue({
           choices: [{ message: { content: 'ok' } }],
           usage: { prompt_tokens: 10, completion_tokens: 5 },
@@ -227,12 +227,12 @@ describe('OpenAIAdapter', () => {
       const adapter = createAdapter();
       const mockCreate = jest
         .fn<
-          Promise<{
-            choices: Array<{ message: { content: string } }>;
-            usage: { prompt_tokens: number; completion_tokens: number };
-          }>,
-          [MockChatCompletionRequest]
-        >()
+        Promise<{
+          choices: Array<{ message: { content: string } }>;
+          usage: { prompt_tokens: number; completion_tokens: number };
+        }>,
+        [MockChatCompletionRequest]
+      >()
         .mockResolvedValue({
           choices: [{ message: { content: 'ok' } }],
           usage: { prompt_tokens: 10, completion_tokens: 5 },
@@ -257,12 +257,12 @@ describe('OpenAIAdapter', () => {
       const adapter = createAdapter();
       const mockCreate = jest
         .fn<
-          Promise<{
-            choices: Array<{ message: { content: string } }>;
-            usage: { prompt_tokens: number; completion_tokens: number };
-          }>,
-          [MockChatCompletionRequest]
-        >()
+        Promise<{
+          choices: Array<{ message: { content: string } }>;
+          usage: { prompt_tokens: number; completion_tokens: number };
+        }>,
+        [MockChatCompletionRequest]
+      >()
         .mockResolvedValue({
           choices: [{ message: { content: 'ok' } }],
           usage: { prompt_tokens: 10, completion_tokens: 5 },

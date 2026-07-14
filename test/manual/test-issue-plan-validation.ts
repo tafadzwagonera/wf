@@ -260,10 +260,10 @@ const main = async (): Promise<void> => {
 
     const [, planOptions] = generatePlan.calls[0] ?? [];
     if (
-      planOptions?.affectedRepositories?.length === 1 &&
-      planOptions.affectedRepositories[0] === repoName &&
-      artifactWriteCallCount === 1 &&
-      manifestWriteCallCount === 1
+      planOptions?.affectedRepositories?.length === 1
+      && planOptions.affectedRepositories[0] === repoName
+      && artifactWriteCallCount === 1
+      && manifestWriteCallCount === 1
     ) {
       pass('Ticket-mode planning forwards repo hints and persists a valid plan');
     } else {
@@ -380,10 +380,10 @@ const main = async (): Promise<void> => {
     );
 
     if (
-      aiServiceSource.includes('Previous plan attempt was rejected for these exact reasons:') &&
-      stageAgentServiceSource.includes('Previous plan attempt was rejected for these exact reasons:') &&
-      planStageServiceSource.includes('planQualityFeedback') &&
-      planStageServiceSource.includes('const retryAttempt = await generatePlanAttempt(firstAttemptViolations);')
+      aiServiceSource.includes('Previous plan attempt was rejected for these exact reasons:')
+      && stageAgentServiceSource.includes('Previous plan attempt was rejected for these exact reasons:')
+      && planStageServiceSource.includes('planQualityFeedback')
+      && planStageServiceSource.includes('const retryAttempt = await generatePlanAttempt(firstAttemptViolations);')
     ) {
       pass('Retry feedback markers are wired into both prompt builders and the plan stage retry path');
     } else {
@@ -448,11 +448,11 @@ const main = async (): Promise<void> => {
       mutablePlanArtifactUtils.writePlanArtifactManifest = originalWritePlanArtifactManifest;
     }
 
-    const validPlanSaved =
-      validManifestWriteCallCount === 1 &&
-      validWritePayload.includes('Rename AuthService to AuthSessionService') &&
-      validWritePayload.includes('jest.restoreAllMocks()') &&
-      validWritePayload.includes('yarn test:manual -- test-issue-plan-validation');
+    const validPlanSaved
+      = validManifestWriteCallCount === 1
+        && validWritePayload.includes('Rename AuthService to AuthSessionService')
+        && validWritePayload.includes('jest.restoreAllMocks()')
+        && validWritePayload.includes('yarn test:manual -- test-issue-plan-validation');
 
     generatePlan.mockResolvedValueOnce({
       plan: {
@@ -480,12 +480,12 @@ const main = async (): Promise<void> => {
     });
 
     if (
-      validPlanSaved &&
-      invalidArtifactWriteCallCount === 0 &&
-      invalidManifestWriteCallCount === 0 &&
-      exitCodes.includes(1) &&
-      output.includes('Generated plan failed quality checks') &&
-      output.includes('rename-target-required')
+      validPlanSaved
+      && invalidArtifactWriteCallCount === 0
+      && invalidManifestWriteCallCount === 0
+      && exitCodes.includes(1)
+      && output.includes('Generated plan failed quality checks')
+      && output.includes('rename-target-required')
     ) {
       pass('Only semantically valid plans are persisted; invalid plans are rejected before artifact write');
     } else {

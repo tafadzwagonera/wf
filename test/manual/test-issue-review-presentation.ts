@@ -6,6 +6,7 @@
  */
 
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { IssueReviewCommand } from '../../src/commands/issue-review.command';
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { GitService } from '../../src/integrations/git/git.service';
@@ -80,6 +81,10 @@ async function run(): Promise<void> {
         },
       },
       {
+        provide: ConfigService,
+        useValue: { get: (_key: string, fallback?: unknown) => fallback },
+      },
+      {
         provide: GitService,
         useValue: {
           getDiff: async () => '',
@@ -144,8 +149,8 @@ async function run(): Promise<void> {
   console.log = originalConsoleLog;
 
   if (
-    !capturedLogs.includes('[WARNING] Use a narrower guard') ||
-    !capturedLogs.includes('Suggestion: Add a focused regression test')
+    !capturedLogs.includes('[WARNING] Use a narrower guard')
+    || !capturedLogs.includes('Suggestion: Add a focused regression test')
   ) {
     throw new Error('Expected issue-local suggestion output in the terminal renderer.');
   }
@@ -155,8 +160,8 @@ async function run(): Promise<void> {
   }
 
   if (
-    !capturedLogs.includes('[INFO] Rename the helper') ||
-    !capturedLogs.includes('Suggestion: Use a domain-specific helper name')
+    !capturedLogs.includes('[INFO] Rename the helper')
+    || !capturedLogs.includes('Suggestion: Use a domain-specific helper name')
   ) {
     throw new Error('Expected later issue rows to preserve suggestion adjacency.');
   }
@@ -178,10 +183,10 @@ async function run(): Promise<void> {
 
   const inlineComment = createdInlineComments.find(
     comment =>
-      comment.ref === 'https://bitbucket.org/workspace/repo/pull-requests/160' &&
-      comment.file === 'src/example.ts' &&
-      comment.line === 24 &&
-      comment.body === 'Use a narrower guard'
+      comment.ref === 'https://bitbucket.org/workspace/repo/pull-requests/160'
+      && comment.file === 'src/example.ts'
+      && comment.line === 24
+      && comment.body === 'Use a narrower guard'
   );
   if (!inlineComment) {
     throw new Error('Expected an inline comment to be posted with the normalized destination-side line.');

@@ -146,7 +146,7 @@ describe('implement verification helpers', () => {
       expect(
         Array.from(
           extractVerificationErrorClasses(
-            "src/example.ts:1:1 - error TS2322: Type 'string' is not assignable to type 'number'",
+            'src/example.ts:1:1 - error TS2322: Type \'string\' is not assignable to type \'number\'',
             'eslint: no-unused-vars'
           )
         )

@@ -46,11 +46,11 @@ type BuildSystemPromptArgs = {
  * assert against the real adapter source's expected markers.
  */
 function buildExpectedSystemPrompt(args: BuildSystemPromptArgs): string {
-  const fileList =
-    args.repoFiles.length === 0 ? '  (none listed)' : args.repoFiles.map(f => `  - ${args.repoName}/${f}`).join('\n');
+  const fileList
+    = args.repoFiles.length === 0 ? '  (none listed)' : args.repoFiles.map(f => `  - ${args.repoName}/${f}`).join('\n');
 
-  const verificationList =
-    args.verificationScripts.length > 0
+  const verificationList
+    = args.verificationScripts.length > 0
       ? args.verificationScripts.map(s => `  - ${s.command}`).join('\n')
       : '  (none configured)';
 

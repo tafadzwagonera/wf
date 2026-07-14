@@ -65,8 +65,9 @@ const detectTestPatterns = (repoDir: string): NodeInfra['testPatterns'] => {
     else testCount++;
   }
   const total = testFiles.length;
-  const fileSuffix: '.spec' | '.test' | 'mixed' =
-    specCount / total >= 0.8 ? '.spec' : testCount / total >= 0.8 ? '.test' : 'mixed';
+  let fileSuffix: '.spec' | '.test' | 'mixed' = 'mixed';
+  if (specCount / total >= 0.8) fileSuffix = '.spec';
+  else if (testCount / total >= 0.8) fileSuffix = '.test';
 
   // Single-pass content scan: mockPrefix, mockFactoryPrefix, describeStyle, mockCleanup, diSetupPattern
   let mockPrefix: string | null = null;
@@ -361,8 +362,8 @@ const formatTestInfraPromptSection = (ctx: TestInfraContext): string => {
         if (eco.testPatterns) {
           lines.push('');
           lines.push('Test conventions detected in this repository:');
-          const suffixLabel =
-            eco.testPatterns.fileSuffix === 'mixed' ? '*.spec.ts / *.test.ts' : `*${eco.testPatterns.fileSuffix}.ts`;
+          const suffixLabel
+            = eco.testPatterns.fileSuffix === 'mixed' ? '*.spec.ts / *.test.ts' : `*${eco.testPatterns.fileSuffix}.ts`;
           lines.push(`- Test file suffix: ${suffixLabel} (use this suffix for new test files)`);
           if (eco.testPatterns.mockPrefix) {
             const factoryNote = eco.testPatterns.mockFactoryPrefix

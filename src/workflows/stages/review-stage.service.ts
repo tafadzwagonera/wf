@@ -59,12 +59,12 @@ export class ReviewStageService {
 
     const segments = splitDiffByFile(diff);
     const summariseCallback = async (patch: string, file: string) => {
-      const prompt =
-        `Summarise the following diff for ${file} into concise bullet points that capture every ` +
-        `changed function, added/removed import, modified signature, and behavioural change. ` +
-        `Do not omit technical details (identifiers, types, values). ` +
-        `Return ONLY a Markdown bullet list (- item).\n\n` +
-        `\`\`\`diff\n${patch}\n\`\`\``;
+      const prompt
+        = `Summarise the following diff for ${file} into concise bullet points that capture every `
+          + `changed function, added/removed import, modified signature, and behavioural change. `
+          + `Do not omit technical details (identifiers, types, values). `
+          + `Return ONLY a Markdown bullet list (- item).\n\n`
+          + `\`\`\`diff\n${patch}\n\`\`\``;
 
       // Always use the direct API for summarisation — no tools needed,
       // and spawning a CLI process per file segment is prohibitively slow.
@@ -120,8 +120,8 @@ export class ReviewStageService {
     const callStackSection = this.formatCallStackMarkdown(review.callStack);
     const stateTransitionSection = this.formatStateTransitionMarkdown(review.stateTransition);
     const provenanceSection = this.formatTraceProvenance(review);
-    const issuesSection =
-      presentation.issueRows.length > 0
+    const issuesSection
+      = presentation.issueRows.length > 0
         ? presentation.issueRows
             .map(({ issue, suggestion }) =>
               [
@@ -133,8 +133,8 @@ export class ReviewStageService {
             )
             .join('\n')
         : '- None';
-    const trailingSuggestionsSection =
-      presentation.unmatchedSuggestions.length > 0
+    const trailingSuggestionsSection
+      = presentation.unmatchedSuggestions.length > 0
         ? `\n## Suggestions\n${presentation.unmatchedSuggestions.map(suggestion => `- ${suggestion}`).join('\n')}\n`
         : '\n';
 
@@ -161,8 +161,8 @@ ${review.approved ? `✓ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHA
   }
 
   private resolveTraceProvenance(review: CodeReview): string {
-    const hasStructuredTrace =
-      Boolean(review.callStack?.length) || Object.keys(review.stateTransition ?? {}).length > 0;
+    const hasStructuredTrace
+      = Boolean(review.callStack?.length) || Object.keys(review.stateTransition ?? {}).length > 0;
     if (!hasStructuredTrace || review.traceProvenance === 'unavailable') {
       return 'unavailable';
     }

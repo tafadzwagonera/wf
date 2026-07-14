@@ -33,8 +33,8 @@ describe('zod-error.util', () => {
 
       const output = formatZodError(zodError);
 
-      expect(output).toContain("Field: 'ai.provider'");
-      expect(output).toContain("Code: 'invalid_type'");
+      expect(output).toContain('Field: \'ai.provider\'');
+      expect(output).toContain('Code: \'invalid_type\'');
       expect(output).toContain('Expected string, received number');
     });
 
@@ -50,7 +50,7 @@ describe('zod-error.util', () => {
           code: 'invalid_value',
           values: ['json', 'md'],
           path: ['outputFormat'],
-          message: "Invalid enum value. Expected 'json' | 'md', received 'txt'",
+          message: 'Invalid enum value. Expected \'json\' | \'md\', received \'txt\'',
         },
       ]);
 

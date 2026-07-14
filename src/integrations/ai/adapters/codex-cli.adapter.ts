@@ -178,12 +178,9 @@ export class CodexCliAdapter implements ImplementerBackend {
         const input = block.input ?? {};
 
         if (block.name === 'write' || block.name === 'edit' || block.name === 'Write' || block.name === 'Edit') {
-          const filePath =
-            typeof input['file_path'] === 'string'
-              ? input['file_path']
-              : typeof input['path'] === 'string'
-                ? input['path']
-                : '';
+          let filePath = '';
+          if (typeof input['file_path'] === 'string') filePath = input['file_path'];
+          else if (typeof input['path'] === 'string') filePath = input['path'];
           if (filePath) {
             const relativePath = path.isAbsolute(filePath) ? path.relative(repoDir, filePath) : filePath;
             touchedFiles.add(relativePath);

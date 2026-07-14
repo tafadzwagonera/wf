@@ -85,9 +85,9 @@ const computeDeltas = (
 
   // Different TypeScript strictness
   if (
-    secondary.typescript !== null &&
-    primary.typescript !== null &&
-    secondary.typescript.strict !== primary.typescript.strict
+    secondary.typescript !== null
+    && primary.typescript !== null
+    && secondary.typescript.strict !== primary.typescript.strict
   ) {
     if (!secondary.typescript.strict && primary.typescript.strict) {
       deltas.push(`${repoName} uses non-strict TypeScript (primary uses strict)`);

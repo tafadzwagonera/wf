@@ -39,7 +39,7 @@ jest.mock('../agents/utils', () => {
   return {
     ...actual,
     resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
     ),
   };
 });

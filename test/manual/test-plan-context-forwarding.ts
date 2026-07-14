@@ -91,7 +91,7 @@ const run = async (): Promise<void> => {
   // 5. Default action fallback
   assert(
     'Anthropic buildSystemPrompt defaults action to "(not specified)"',
-    anthropicAdapterSource.includes("return '(not specified)'")
+    anthropicAdapterSource.includes('return \'(not specified)\'')
   );
 
   // --- Risks and guardrails ---

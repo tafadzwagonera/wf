@@ -4,8 +4,8 @@ import { AiService } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { ErrorHandler } from '../shared/utils/error-handler';
 import { GitError } from '../shared/utils/errors';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveRepoBasePath } from '../agents/utils';
@@ -69,144 +69,136 @@ export class IssueCommitCommand extends CommandRunner {
     super();
   }
 
-  async run(passedParams: string[], options?: IssueCommitOptions): Promise<void> {
+  async run(_passedParams: string[], options?: IssueCommitOptions): Promise<void> {
     printExamples(ISSUE_COMMIT_EXAMPLES);
 
-    try {
+    await executeAsyncWithCatch({ fn: async () => {
       const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
       warnOnIgnoredRepos(options?.repos);
+      const ticketKey = options?.ticketKey ?? await this.detectTicketFromBranch(repoBaseDir);
 
-      // Get ticket key (from --ticket-key or branch) — needed for both dry-run and live
-      let ticketKey: string | null = options?.ticketKey ?? null;
+      if (options?.dryRun) return this.previewDryRun(ticketKey, options);
 
-      if (options?.dryRun) {
-        if (!ticketKey) {
-          const detected = await this.detectTicketFromBranch(repoBaseDir);
-          if (detected) {
-            ticketKey = detected;
-          }
-        }
+      await this.executeCommit(repoBaseDir, options?.ticketKey ?? null, options);
+    } });
+  }
 
-        this.dryRunPreview.showHeader('issue:commit', ticketKey ?? undefined);
+  private previewDryRun(ticketKey: string | null, options: IssueCommitOptions): void {
+    const prefix = ticketKey ? `${ticketKey}: ` : '';
+    this.dryRunPreview.showHeader('issue:commit', ticketKey ?? undefined);
+    this.previewDryRunApiCall(prefix, options);
+    this.previewDryRunSummary(prefix, ticketKey, options);
+    this.dryRunPreview.showValidationResult();
+  }
 
-        if (!options?.message) {
-          this.dryRunPreview.previewApiCall({
-            method: 'POST',
-            endpoint: '/v1/messages',
-            platform: this.aiService.getProviderDisplayName(),
-            description: 'Generate conventional commit message from staged diff',
-            estimatedResponse: [
-              '{',
-              `  "content": "${ticketKey ? ticketKey + ': ' : ''}feat(scope): <generated message>"`,
-              '}',
-            ].join('\n'),
-          });
-        }
+  private previewDryRunApiCall(prefix: string, options: IssueCommitOptions): void {
+    if (options?.message) return;
+    this.dryRunPreview.previewApiCall({
+      method: 'POST',
+      endpoint: '/v1/messages',
+      platform: this.aiService.getProviderDisplayName(),
+      description: 'Generate conventional commit message from staged diff',
+      estimatedResponse: `{\n  "content": "${prefix}feat(scope): <generated message>"\n}`,
+    });
+  }
 
-        const msgPreview = options?.message ? options.message : '[AI-generated commit message]';
-        const fullMsg = ticketKey ? `${ticketKey}: ${msgPreview}` : msgPreview;
+  private previewDryRunSummary(
+    prefix: string, ticketKey: string | null, options: IssueCommitOptions
+  ): void {
+    const msgPreview = options?.message ?? '[AI-generated commit message]';
+    const fullMsg = ticketKey ? `${ticketKey}: ${msgPreview}` : msgPreview;
+    this.dryRunPreview.previewGitOperation({
+      operation: 'commit', description: 'git commit -m "<message>"', message: fullMsg,
+    });
+    this.dryRunPreview.showSummary({
+      apiCallCount: options?.message ? 0 : 1, fileCreatedCount: 0, fileModifiedCount: 0, gitOperationCount: 1,
+      terminalOutputLines: [
+        '✅ Commit created successfully!', '', 'Commit hash: <short-sha>',
+        `Message: ${prefix}<AI-generated message>`, '',
+        '💡 Tip: Use "git push" to push your commit to remote',
+      ],
+    });
+  }
 
-        this.dryRunPreview.previewGitOperation({
-          operation: 'commit',
-          description: 'git commit -m "<message>"',
-          message: fullMsg,
-        });
+  private async executeCommit(
+    repoBaseDir: string, detectedTicketKey: string | null, options?: IssueCommitOptions
+  ): Promise<void> {
+    await this.assertGitRepository(repoBaseDir);
 
-        this.dryRunPreview.showSummary({
-          apiCallCount: options?.message ? 0 : 1,
-          fileCreatedCount: 0,
-          fileModifiedCount: 0,
-          gitOperationCount: 1,
-          terminalOutputLines: [
-            '✅ Commit created successfully!',
-            '',
-            'Commit hash: <short-sha>',
-            `Message: ${ticketKey ? ticketKey + ': ' : ''}<AI-generated message>`,
-            '',
-            '💡 Tip: Use "git push" to push your commit to remote',
-          ],
-        });
+    const { ticketKey, autoDetected } = await this.resolveTicketKey(detectedTicketKey, repoBaseDir);
+    this.printCommitHeader(ticketKey, autoDetected, options);
 
-        this.dryRunPreview.showValidationResult();
-        return;
-      }
+    const diff = await this.getStagedDiff(repoBaseDir);
+    const commitMessage = await this.buildFinalMessage(diff, ticketKey, options);
+    await this.createAndPrintCommit(commitMessage, repoBaseDir);
+  }
 
-      // Check if we're in a git repository
-      const isRepo = await this.gitService.isGitRepository(repoBaseDir);
-      if (!isRepo) {
-        throw new GitError(`Not a git repository. Run this command from within a git repository: ${repoBaseDir}`);
-      }
-
-      let autoDetected = false;
-      if (!ticketKey) {
-        const detected = await this.detectTicketFromBranch(repoBaseDir);
-        if (detected) {
-          ticketKey = detected;
-          autoDetected = true;
-        }
-      }
-
-      const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
-
-      console.log(chalk.bold.cyan('\n📝 Commit'));
-      console.log(chalk.gray('─'.repeat(70)));
-      if (ticketKey) {
-        console.log(chalk.gray(`Ticket: ${ticketKey}${autoDetected ? ' (auto-detected)' : ''}`));
-      }
-      console.log(chalk.gray(`Platform: ${trackerName}`));
-      if (options?.repos?.length) {
-        console.log(chalk.gray(`Repository: ${options.repos[0]}`));
-      }
-      console.log();
-
-      // Get git diff to understand changes
-      const diff = await this.gitService.getDiff(true, repoBaseDir); // Get staged changes
-      if (!diff || diff.trim().length === 0) {
-        throw new GitError('No staged changes to commit. Stage files with git add before running this command.');
-      }
-
-      const fileCount = this.countChangedFiles(diff);
-      console.log(chalk.gray(`  Staged changes: ${fileCount} file(s)\n`));
-
-      // Generate or get commit message
-      let commitMessage: string;
-
-      if (options?.message) {
-        // Manual message provided via --message flag
-        commitMessage = options.message;
-        console.log(chalk.gray('  Using provided commit message\n'));
-      } else {
-        // Generate with AI (default behavior)
-        console.log(chalk.cyan('🤖 Generating commit message with AI...\n'));
-        commitMessage = await this.commitStageService.generateCommitMessage({
-          diff,
-          ticketKey: ticketKey || undefined,
-          conventional: options?.conventional,
-        });
-        console.log(chalk.green('✓ Generated commit message:\n'));
-        console.log(chalk.bold.cyan(this.indentMessage(commitMessage)));
-        console.log();
-      }
-
-      // Add ticket key prefix if available and not already present
-      if (ticketKey && !commitMessage.includes(ticketKey)) {
-        commitMessage = `${ticketKey}: ${commitMessage}`;
-      }
-
-      // Create commit
-      console.log(chalk.cyan('📦 Creating commit...\n'));
-      const commitHash = await this.gitService.commit({
-        message: commitMessage,
-        cwd: repoBaseDir,
-      });
-
-      console.log(chalk.green('✅ Commit created successfully!\n'));
-      console.log(chalk.bold('Commit hash:'), chalk.cyan(commitHash));
-      console.log(chalk.bold('Message:'), chalk.bold.cyan(commitMessage.split('\n')[0]));
-      console.log(chalk.gray('\n💡 Tip: Use "git push" to push your commit to remote\n'));
-    } catch (error) {
-      ErrorHandler.handle(error as Error);
+  private async assertGitRepository(repoBaseDir: string): Promise<void> {
+    const isRepo = await this.gitService.isGitRepository(repoBaseDir);
+    if (!isRepo) {
+      throw new GitError(`Not a git repository. Run this command from within a git repository: ${repoBaseDir}`);
     }
+  }
+
+  private async resolveTicketKey(
+    detectedTicketKey: string | null, repoBaseDir: string
+  ): Promise<{ ticketKey: string | null; autoDetected: boolean }> {
+    if (detectedTicketKey) return { ticketKey: detectedTicketKey, autoDetected: false };
+    const ticketKey = await this.detectTicketFromBranch(repoBaseDir);
+    return { ticketKey, autoDetected: Boolean(ticketKey) };
+  }
+
+  private async buildFinalMessage(
+    diff: string, ticketKey: string | null, options?: IssueCommitOptions
+  ): Promise<string> {
+    let msg = await this.resolveCommitMessage(diff, ticketKey, options);
+    if (ticketKey && !msg.includes(ticketKey)) msg = `${ticketKey}: ${msg}`;
+    return msg;
+  }
+
+  private async createAndPrintCommit(commitMessage: string, repoBaseDir: string): Promise<void> {
+    console.log(chalk.cyan('📦 Creating commit...\n'));
+    const commitHash = await this.gitService.commit({ message: commitMessage, cwd: repoBaseDir });
+    console.log(chalk.green('✅ Commit created successfully!\n'));
+    console.log(chalk.bold('Commit hash:'), chalk.cyan(commitHash));
+    console.log(chalk.bold('Message:'), chalk.bold.cyan(commitMessage.split('\n')[0]));
+    console.log(chalk.gray('\n💡 Tip: Use "git push" to push your commit to remote\n'));
+  }
+
+  private printCommitHeader(ticketKey: string | null, autoDetected: boolean, options?: IssueCommitOptions): void {
+    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    console.log(chalk.bold.cyan('\n📝 Commit'));
+    console.log(chalk.gray('─'.repeat(70)));
+    if (ticketKey) console.log(chalk.gray(`Ticket: ${ticketKey}${autoDetected ? ' (auto-detected)' : ''}`));
+    console.log(chalk.gray(`Platform: ${trackerName}`));
+    if (options?.repos?.length) console.log(chalk.gray(`Repository: ${options.repos[0]}`));
+    console.log();
+  }
+
+  private async getStagedDiff(repoBaseDir: string): Promise<string> {
+    const diff = await this.gitService.getDiff(true, repoBaseDir);
+    if (!diff || diff.trim().length === 0) {
+      throw new GitError('No staged changes to commit. Stage files with git add before running this command.');
+    }
+    console.log(chalk.gray(`  Staged changes: ${this.countChangedFiles(diff)} file(s)\n`));
+    return diff;
+  }
+
+  private async resolveCommitMessage(
+    diff: string, ticketKey: string | null, options?: IssueCommitOptions
+  ): Promise<string> {
+    if (options?.message) {
+      console.log(chalk.gray('  Using provided commit message\n'));
+      return options.message;
+    }
+    console.log(chalk.cyan('🤖 Generating commit message with AI...\n'));
+    const msg = await this.commitStageService.generateCommitMessage({
+      diff, ticketKey: ticketKey || undefined, conventional: options?.conventional,
+    });
+    console.log(chalk.green('✓ Generated commit message:\n'));
+    console.log(chalk.bold.cyan(this.indentMessage(msg)));
+    console.log();
+    return msg;
   }
 
   @Option({
@@ -271,20 +263,11 @@ export class IssueCommitCommand extends CommandRunner {
    * Supports formats like: feature/WBP-2971-description, WBP-2971, etc.
    */
   private async detectTicketFromBranch(repoBaseDir?: string): Promise<string | null> {
-    try {
-      const branchInfo = await this.gitService.getBranchInfo(repoBaseDir);
-      const branchName = branchInfo.current;
+    const branchInfo = await this.gitService.getBranchInfo(repoBaseDir).catch(() => null);
+    if (!branchInfo) return null;
 
-      // Try to extract ticket key (format: ABC-123)
-      const match = branchName.match(/([A-Z]+-\d+)/i);
-      if (match) {
-        return match[1].toUpperCase();
-      }
-
-      return null;
-    } catch {
-      return null;
-    }
+    const match = new RegExp(/([A-Z]+-\d+)/i).exec(branchInfo.current);
+    return match ? match[1].toUpperCase() : null;
   }
 
   /**

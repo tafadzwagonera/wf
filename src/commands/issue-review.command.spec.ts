@@ -584,9 +584,10 @@ describe('IssueReviewCommand', () => {
       const { command, adapters } = await buildCommand();
       const resolveRepoBasePathMock = resolveRepoBasePath as jest.MockedFunction<typeof resolveRepoBasePath>;
 
-      resolveRepoBasePathMock.mockImplementation((repo?: string) =>
-        repo === 'api-gateway-v1' ? process.cwd() : repo ? path.join('/mock', repo) : '/mock/repo'
-      );
+      resolveRepoBasePathMock.mockImplementation((repo?: string) => {
+        if (repo === 'api-gateway-v1') return process.cwd();
+        return repo ? path.join('/mock', repo) : '/mock/repo';
+      });
       adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
         'https://bitbucket.org/workspace/repo/pull-requests/43',
       ]);
@@ -637,9 +638,10 @@ describe('IssueReviewCommand', () => {
       const handleSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
       const resolveRepoBasePathMock = resolveRepoBasePath as jest.MockedFunction<typeof resolveRepoBasePath>;
 
-      resolveRepoBasePathMock.mockImplementation((repo?: string) =>
-        repo === 'api-gateway-v1' ? process.cwd() : repo ? path.join('/mock', repo) : '/mock/repo'
-      );
+      resolveRepoBasePathMock.mockImplementation((repo?: string) => {
+        if (repo === 'api-gateway-v1') return process.cwd();
+        return repo ? path.join('/mock', repo) : '/mock/repo';
+      });
       adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
       setInteractiveSession();
@@ -649,7 +651,7 @@ describe('IssueReviewCommand', () => {
       expect(handleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining(
-            "Repository 'api-gateway-v1' was provided for ticket review but was not found as a local path or sibling directory."
+            'Repository \'api-gateway-v1\' was provided for ticket review but was not found as a local path or sibling directory.'
           ),
         })
       );

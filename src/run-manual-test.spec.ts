@@ -52,8 +52,8 @@ describe('run-manual-test bootstrap', () => {
     jest.doMock(
       manualTestModulePath,
       () => {
-        process.env.WF_MANUAL_TEST_MODULE_LOADED =
-          process.env.WF_MANUAL_TEST_CONFIG_LOADED === 'true' ? 'after-config' : 'before-config';
+        process.env.WF_MANUAL_TEST_MODULE_LOADED
+          = process.env.WF_MANUAL_TEST_CONFIG_LOADED === 'true' ? 'after-config' : 'before-config';
         return {};
       },
       { virtual: true }

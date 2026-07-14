@@ -40,9 +40,9 @@ const main = async (): Promise<void> => {
       'legacy-plan.json'
     );
     if (
-      Array.isArray(plan.affectedRepositories) &&
-      plan.affectedRepositories.length === 1 &&
-      plan.affectedRepositories[0] === 'service-tourv3'
+      Array.isArray(plan.affectedRepositories)
+      && plan.affectedRepositories.length === 1
+      && plan.affectedRepositories[0] === 'service-tourv3'
     ) {
       pass('Legacy repositoriesAffected mapped to affectedRepositories');
     } else {
@@ -63,9 +63,9 @@ const main = async (): Promise<void> => {
       'new-plan.json'
     );
     if (
-      Array.isArray(plan.affectedRepositories) &&
-      plan.affectedRepositories.length === 1 &&
-      plan.affectedRepositories[0] === 'api-gateway-v1'
+      Array.isArray(plan.affectedRepositories)
+      && plan.affectedRepositories.length === 1
+      && plan.affectedRepositories[0] === 'api-gateway-v1'
     ) {
       pass('New affectedRepositories key reads directly');
     } else {
@@ -87,9 +87,9 @@ const main = async (): Promise<void> => {
       'both-keys-plan.json'
     );
     if (
-      Array.isArray(plan.affectedRepositories) &&
-      plan.affectedRepositories.length === 1 &&
-      plan.affectedRepositories[0] === 'new-repo'
+      Array.isArray(plan.affectedRepositories)
+      && plan.affectedRepositories.length === 1
+      && plan.affectedRepositories[0] === 'new-repo'
     ) {
       pass('New key takes precedence over legacy key');
     } else {
@@ -115,9 +115,9 @@ const main = async (): Promise<void> => {
     ].join('\n');
     const plan = parsePlanArtifact(md, 'old-heading-plan.md');
     if (
-      Array.isArray(plan.affectedRepositories) &&
-      plan.affectedRepositories.length === 1 &&
-      plan.affectedRepositories[0] === 'service-authv2'
+      Array.isArray(plan.affectedRepositories)
+      && plan.affectedRepositories.length === 1
+      && plan.affectedRepositories[0] === 'service-authv2'
     ) {
       pass('Old heading "Repositories Affected" parsed correctly');
     } else {
@@ -143,9 +143,9 @@ const main = async (): Promise<void> => {
     ].join('\n');
     const plan = parsePlanArtifact(md, 'new-heading-plan.md');
     if (
-      Array.isArray(plan.affectedRepositories) &&
-      plan.affectedRepositories.length === 1 &&
-      plan.affectedRepositories[0] === 'api-gateway-v1'
+      Array.isArray(plan.affectedRepositories)
+      && plan.affectedRepositories.length === 1
+      && plan.affectedRepositories[0] === 'api-gateway-v1'
     ) {
       pass('New heading "Affected Repositories" parsed correctly');
     } else {

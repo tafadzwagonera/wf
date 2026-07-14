@@ -222,7 +222,7 @@ const makeSdkSession = (messages: SDKMessage[]) => {
   let messageIndex = 0;
 
   return {
-    async *[Symbol.asyncIterator]() {
+    async* [Symbol.asyncIterator]() {
       while (messageIndex < messages.length) {
         yield messages[messageIndex++];
       }

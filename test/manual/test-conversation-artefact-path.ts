@@ -22,9 +22,9 @@ async function testConversationArtefactPath() {
   const ticketKey = process.env.WF_TEST_TICKET;
   if (!ticketKey) {
     console.log(
-      '⚠️ WF_TEST_TICKET is not set — skipping test.\n' +
-        '  Set it to a ticket key for which you have already run:\n' +
-        '    wf issue <ticket> --from fetch -a fix --chat-mode\n'
+      '⚠️ WF_TEST_TICKET is not set — skipping test.\n'
+      + '  Set it to a ticket key for which you have already run:\n'
+      + '    wf issue <ticket> --from fetch -a fix --chat-mode\n'
     );
     process.exit(0);
   }
@@ -55,8 +55,8 @@ async function testConversationArtefactPath() {
     pass(`Artefact found at correct location: ${expectedPath}`);
   } else {
     fail(
-      `Artefact NOT found at expected location: ${expectedPath}\n` +
-        '  Run wf issue with --chat-mode first, or check that Bug 1 fix was applied.'
+      `Artefact NOT found at expected location: ${expectedPath}\n`
+      + '  Run wf issue with --chat-mode first, or check that Bug 1 fix was applied.'
     );
   }
 
@@ -65,8 +65,8 @@ async function testConversationArtefactPath() {
     pass(`Artefact correctly absent from wrong location: ${wrongPath}`);
   } else {
     fail(
-      `Artefact found at WRONG location: ${wrongPath}\n` +
-        '  Bug 1 regression — conversation is still being saved to <cwd>/jira/.'
+      `Artefact found at WRONG location: ${wrongPath}\n`
+      + '  Bug 1 regression — conversation is still being saved to <cwd>/jira/.'
     );
   }
 

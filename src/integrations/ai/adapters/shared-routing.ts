@@ -153,8 +153,8 @@ export const resolveModelRouting = (params: {
   const { routing, fallbackDefaultModel, defaultMechanicalModel, configService, plan, adapterLabel } = params;
 
   const singleModel = configService.get<string>('stages.implement.model');
-  const modelsConfig =
-    configService.get<import('../../../config/public-config').WfImplementStageModelsConfig>('stages.implement.models');
+  const modelsConfig
+    = configService.get<import('../../../config/public-config').WfImplementStageModelsConfig>('stages.implement.models');
 
   // models is more specific than model — it takes precedence when both are set.
   const defaultModel = modelsConfig?.default || singleModel || fallbackDefaultModel;
@@ -162,9 +162,9 @@ export const resolveModelRouting = (params: {
 
   if (singleModel && modelsConfig) {
     throw new Error(
-      'stages.implement.model and stages.implement.models are mutually exclusive.\n' +
-        '  Use stages.implement.model for a single model, or\n' +
-        '  Use stages.implement.models for routing-aware model selection (default + mechanical).'
+      'stages.implement.model and stages.implement.models are mutually exclusive.\n'
+      + '  Use stages.implement.model for a single model, or\n'
+      + '  Use stages.implement.models for routing-aware model selection (default + mechanical).'
     );
   }
 
@@ -232,8 +232,8 @@ export const formatRepoFileList = (repoFiles: string[], repoName: string): strin
 
   return repoFiles
     .map(filePath => {
-      const relativePath =
-        repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
+      const relativePath
+        = repoName && filePath.startsWith(`${repoName}/`) ? filePath.slice(repoName.length + 1) : filePath;
       return `  - ${relativePath}`;
     })
     .join('\n');
@@ -286,23 +286,23 @@ export const buildPlanContext = (params: {
   planAction?: 'fix' | 'feature' | 'investigate';
 }): string => {
   const fileList = formatRepoFileList(params.repoFiles, params.repoName);
-  const trackedIdentical =
-    params.repoFiles.length === params.trackedFilePaths.length &&
-    params.repoFiles.every((f, i) => f === params.trackedFilePaths[i]);
+  const trackedIdentical
+    = params.repoFiles.length === params.trackedFilePaths.length
+      && params.repoFiles.every((f, i) => f === params.trackedFilePaths[i]);
   const trackedFileList = trackedIdentical
     ? '  (same as files to implement)'
     : formatRepoFileList(params.trackedFilePaths, params.repoName);
-  const verificationList =
-    params.verificationScripts.length > 0
+  const verificationList
+    = params.verificationScripts.length > 0
       ? params.verificationScripts.map(script => `  - ${script.command}`).join('\n')
       : '  (none configured)';
-  const planStepList =
-    params.planSteps.length > 0
+  const planStepList
+    = params.planSteps.length > 0
       ? params.planSteps.map((step, i) => `  ${i + 1}. ${step}`).join('\n')
       : '  (none listed)';
 
-  const contextFileSection =
-    params.contextFiles && params.contextFiles.length > 0
+  const contextFileSection
+    = params.contextFiles && params.contextFiles.length > 0
       ? `\n\nFiles for context (read-only — do NOT edit these):\n${formatRepoFileList(params.contextFiles, params.repoName)}`
       : '';
 
@@ -315,15 +315,15 @@ Plan summary:
 ${params.planSummary || '(none)'}
 
 Action: ${(() => {
-    switch (params.planAction) {
-      case 'fix':
-        return 'This is a bug fix. Make minimal, targeted changes that resolve the issue without altering unrelated behavior.';
-      case 'feature':
-        return 'This is a new feature. Extend the codebase following existing patterns and conventions.';
-      default:
-        return '(not specified)';
-    }
-  })()}
+  switch (params.planAction) {
+    case 'fix':
+      return 'This is a bug fix. Make minimal, targeted changes that resolve the issue without altering unrelated behavior.';
+    case 'feature':
+      return 'This is a new feature. Extend the codebase following existing patterns and conventions.';
+    default:
+      return '(not specified)';
+  }
+})()}
 
 Plan steps:
 ${planStepList}

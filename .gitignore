@@ -10,5 +10,5 @@ node_modules/
 # Runtime logs / agent state
 .wf/
 .env
-wf.config.ts
-verification.policy.json
+wf.config.*
+verification.policy.*

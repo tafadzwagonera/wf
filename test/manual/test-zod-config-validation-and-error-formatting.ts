@@ -109,8 +109,8 @@ const mockZodError = new ZodError([
 ]);
 
 const formatted = formatZodError(mockZodError);
-assert('contains field path', formatted.includes("Field: 'ai.provider'"));
-assert('contains code', formatted.includes("Code: 'invalid_type'"));
+assert('contains field path', formatted.includes('Field: \'ai.provider\''));
+assert('contains code', formatted.includes('Code: \'invalid_type\''));
 assert('contains message', formatted.includes('Expected string, received number'));
 
 // --- isZodErrorLike ---

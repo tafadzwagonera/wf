@@ -77,8 +77,8 @@ const collectDiffFileInfo = (diff: string): Map<string, DiffFileInfo> => {
     const destinationFileMatch = line.match(DESTINATION_FILE_PATTERN);
     if (destinationFileMatch) {
       const destinationFilePath = destinationFileMatch[1]?.trim();
-      currentFile =
-        destinationFilePath && destinationFilePath !== '/dev/null' ? normalizeFilePath(destinationFilePath) : null;
+      currentFile
+        = destinationFilePath && destinationFilePath !== '/dev/null' ? normalizeFilePath(destinationFilePath) : null;
       currentDestinationLine = null;
       continue;
     }
@@ -232,12 +232,11 @@ const resolveSemanticIssueLine = (
     score: scoreChangedLineAgainstIssue(changedLine, anchors),
   }));
   const bestMatch = scoredChangedLines.reduce(
-    (best, candidate) =>
-      candidate.score > best.score
-        ? candidate
-        : candidate.score === best.score && candidate.changedLine.line < best.changedLine.line
-          ? candidate
-          : best,
+    (best, candidate) => {
+      if (candidate.score > best.score) return candidate;
+      if (candidate.score === best.score && candidate.changedLine.line < best.changedLine.line) return candidate;
+      return best;
+    },
     {
       changedLine: changedLines[0],
       score: scoreChangedLineAgainstIssue(changedLines[0], anchors),
@@ -247,8 +246,8 @@ const resolveSemanticIssueLine = (
     return null;
   }
 
-  const rawLineScore =
-    typeof issue.line === 'number'
+  const rawLineScore
+    = typeof issue.line === 'number'
       ? (scoredChangedLines.find(({ changedLine }) => changedLine.line === issue.line)?.score ?? 0)
       : 0;
 
@@ -298,8 +297,8 @@ const normalizeReviewIssues = (review: CodeReview, diff: string): CodeReview => 
           0
         );
         if (maxScore === 0) {
-          const withinHunkSpan =
-            typeof issue.line === 'number' && issue.line >= hunkSpanFirst && issue.line <= hunkSpanLast;
+          const withinHunkSpan
+            = typeof issue.line === 'number' && issue.line >= hunkSpanFirst && issue.line <= hunkSpanLast;
 
           if (!withinHunkSpan) {
             return { ...issue, line: undefined };

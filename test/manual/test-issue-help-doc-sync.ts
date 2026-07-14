@@ -87,9 +87,9 @@ async function main() {
   try {
     const helpOutput = run('yarn start issue:generate -h');
     if (
-      helpOutput.includes('-f, --format <format>') &&
-      helpOutput.includes('-r, --repos <repos...>') &&
-      helpOutput.includes('-t, --title <title>')
+      helpOutput.includes('-f, --format <format>')
+      && helpOutput.includes('-r, --repos <repos...>')
+      && helpOutput.includes('-t, --title <title>')
     ) {
       pass('Help output includes expected abbreviated flags');
       passed += 1;
@@ -157,8 +157,8 @@ async function main() {
     ];
     const missingBlocks = requiredBlocks.filter(
       commandName =>
-        !readme.includes(`<!-- BEGIN GENERATED COMMAND DOCS: ${commandName} -->`) ||
-        !readme.includes(`<!-- END GENERATED COMMAND DOCS: ${commandName} -->`)
+        !readme.includes(`<!-- BEGIN GENERATED COMMAND DOCS: ${commandName} -->`)
+        || !readme.includes(`<!-- END GENERATED COMMAND DOCS: ${commandName} -->`)
     );
 
     if (missingBlocks.length === 0) {

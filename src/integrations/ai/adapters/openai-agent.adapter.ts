@@ -60,7 +60,7 @@ const COMPACTION_INPUT_TOKEN_CEILING = 80_000;
 const STATE_PRUNING_TOKEN_CEILING = 120_000;
 const STATE_PRUNING_KEEP_TAIL_ITEMS = 20;
 
-const shellEscape = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
+const shellEscape = (value: string): string => `'${value.replace(/'/g, '\'\\\'\'')}'`;
 
 /**
  * Prunes the Runner's in-memory `_generatedItems` to keep context within bounds.
@@ -254,10 +254,10 @@ export type OpenAiUsageSummary = {
  */
 export const extractUsageFromEvent = (event: unknown): OpenAiUsageSummary | null => {
   if (
-    !event ||
-    typeof event !== 'object' ||
-    !('type' in event) ||
-    (event as { type?: string }).type !== 'raw_model_stream_event'
+    !event
+    || typeof event !== 'object'
+    || !('type' in event)
+    || (event as { type?: string }).type !== 'raw_model_stream_event'
   ) {
     return null;
   }
@@ -619,6 +619,40 @@ Ticket context:
 ${ticketContext}`;
 };
 
+/**
+ * Accumulate token usage from a stream event into the running summary, handle
+ * compaction flags, and trigger state pruning when needed.
+ *
+ * @param params - Usage event, summary accumulator, run state, and file status
+ * @returns Updated lastObservedInputTokens value
+ */
+const accumulateUsage = (params: {
+  usage: OpenAiUsageSummary;
+  summary: OpenAiUsageSummary;
+  runState: unknown;
+  lastObservedInputTokens: number;
+  fileChangeStatus: Map<string, string>;
+}): number => {
+  const { usage, summary } = params;
+  summary.inputTokens += usage.inputTokens;
+  summary.outputTokens += usage.outputTokens;
+  summary.totalTokens += usage.totalTokens;
+  summary.cachedInputTokens += usage.cachedInputTokens;
+  let observed = usage.inputTokens;
+  if (usage.compacted) {
+    summary.compacted = true;
+    observed = 0;
+  }
+  const pruned = pruneStateIfNeeded(params.runState, observed, params.fileChangeStatus);
+  if (pruned > 0) {
+    console.log(
+      chalk.yellow(`  [openai-agent] State pruned: removed ${pruned} items (input was ${observed} tokens)`)
+    );
+    observed = 0;
+  }
+  return observed;
+};
+
 export const formatProgressMessage = (event: unknown): { message: string; isWarning?: boolean } | null => {
   if (!event || typeof event !== 'object' || !('type' in event)) {
     return null;
@@ -712,16 +746,16 @@ export const formatProgressMessage = (event: unknown): { message: string; isWarn
   }
 
   if (item.type === 'reasoning') {
-    const text =
-      item.content
+    const text
+      = item.content
         ?.map(part => part.text)
         .filter(Boolean)
-        .join(' ') ||
-      item.rawItem?.content
-        ?.map(part => part.text)
-        .filter(Boolean)
-        .join(' ') ||
-      '';
+        .join(' ')
+        || item.rawItem?.content
+          ?.map(part => part.text)
+          .filter(Boolean)
+          .join(' ')
+          || '';
     return {
       message: text ? `  [openai-agent] Reasoning: ${text.trim().slice(0, 160)}` : '  [openai-agent] Reasoning updated',
     };
@@ -1209,7 +1243,9 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
       modelProvider,
     });
 
-    const compactionItemThreshold = planStepCount <= 5 ? 10 : planStepCount <= 10 ? 20 : 30;
+    let compactionItemThreshold = 30;
+    if (planStepCount <= 5) compactionItemThreshold = 10;
+    else if (planStepCount <= 10) compactionItemThreshold = 20;
 
     // Track the last response_done input token count for the compaction
     // trigger. Updated on every response_done event; reset to 0 after
@@ -1254,24 +1290,13 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
           eventsProcessedInSegment++;
           const usage = extractUsageFromEvent(event);
           if (usage) {
-            usageSummary.inputTokens += usage.inputTokens;
-            usageSummary.outputTokens += usage.outputTokens;
-            usageSummary.totalTokens += usage.totalTokens;
-            usageSummary.cachedInputTokens += usage.cachedInputTokens;
-            lastObservedInputTokens = usage.inputTokens;
-            if (usage.compacted) {
-              usageSummary.compacted = true;
-              lastObservedInputTokens = 0;
-            }
-            const pruned = pruneStateIfNeeded(streamedRun.state, lastObservedInputTokens, fileChangeStatus);
-            if (pruned > 0) {
-              console.log(
-                chalk.yellow(
-                  `  [openai-agent] State pruned: removed ${pruned} items (input was ${lastObservedInputTokens} tokens)`
-                )
-              );
-              lastObservedInputTokens = 0;
-            }
+            lastObservedInputTokens = accumulateUsage({
+              usage,
+              summary: usageSummary,
+              runState: streamedRun.state,
+              lastObservedInputTokens,
+              fileChangeStatus,
+            });
           }
           const formatted = formatProgressMessage(event);
           if (formatted) {
@@ -1451,24 +1476,13 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
             eventsProcessedInSegment++;
             const usage = extractUsageFromEvent(event);
             if (usage) {
-              usageSummary.inputTokens += usage.inputTokens;
-              usageSummary.outputTokens += usage.outputTokens;
-              usageSummary.totalTokens += usage.totalTokens;
-              usageSummary.cachedInputTokens += usage.cachedInputTokens;
-              lastObservedInputTokens = usage.inputTokens;
-              if (usage.compacted) {
-                usageSummary.compacted = true;
-                lastObservedInputTokens = 0;
-              }
-              const pruned = pruneStateIfNeeded(streamedRun.state, lastObservedInputTokens, fileChangeStatus);
-              if (pruned > 0) {
-                console.log(
-                  chalk.yellow(
-                    `  [openai-agent] State pruned: removed ${pruned} items (input was ${lastObservedInputTokens} tokens)`
-                  )
-                );
-                lastObservedInputTokens = 0;
-              }
+              lastObservedInputTokens = accumulateUsage({
+                usage,
+                summary: usageSummary,
+                runState: streamedRun.state,
+                lastObservedInputTokens,
+                fileChangeStatus,
+              });
             }
             const formatted = formatProgressMessage(event);
             if (formatted) {

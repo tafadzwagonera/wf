@@ -342,13 +342,11 @@ export class ConversationService {
    * @returns Full path to conversation JSON file
    */
   private getConversationFilePath(ticketKey: string, repoDir?: string, trackerName?: string): string {
-    if (repoDir) {
-      const segments = [os.homedir(), '.wf', path.basename(path.resolve(repoDir))];
-      if (trackerName) {
-        segments.push(trackerName);
-      }
-      return path.join(...segments, `${ticketKey}-conversation.json`);
+    const baseDir = repoDir ?? process.cwd();
+    const segments: string[] = [os.homedir(), '.wf', path.basename(path.resolve(baseDir))];
+    if (trackerName) {
+      segments.push(trackerName);
     }
-    return path.join(process.cwd(), 'jira', `${ticketKey}-conversation.json`);
+    return path.join(...segments, `${ticketKey}-conversation.json`);
   }
 }

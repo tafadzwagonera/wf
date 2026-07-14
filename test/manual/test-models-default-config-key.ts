@@ -98,10 +98,10 @@ const run = async (): Promise<void> => {
   // --- 8. ModelRouting type uses `default` routing strategy ---
 
   const interfacesSource = fs.readFileSync(path.join(srcRoot, 'agents', 'interfaces.ts'), 'utf8');
-  assert('ModelRouting includes default strategy', interfacesSource.includes("'auto' | 'default' | 'mechanical'"));
+  assert('ModelRouting includes default strategy', interfacesSource.includes('\'auto\' | \'default\' | \'mechanical\''));
   assert(
     'ModelRouting does NOT include primary strategy',
-    !interfacesSource.includes("'auto' | 'primary' | 'mechanical'")
+    !interfacesSource.includes('\'auto\' | \'primary\' | \'mechanical\'')
   );
 
   // --- 9. ModelRoutingResult uses `defaultModel` ---

@@ -81,7 +81,7 @@ function main(): void {
   // 4. handleBranchWorkflow short-circuits before source detection
   test('handleBranchWorkflow short-circuits --no-branch before source detection', () => {
     const noBranchIndex = agentSource.indexOf('if (options.noBranch)');
-    const detectIndex = agentSource.indexOf("console.log(chalk.gray('  Detecting source branches...'));");
+    const detectIndex = agentSource.indexOf('console.log(chalk.gray(\'  Detecting source branches...\'));');
     assert.ok(noBranchIndex !== -1, 'Expected --no-branch guard in handleBranchWorkflow');
     assert.ok(detectIndex !== -1, 'Expected source detection log in handleBranchWorkflow');
     assert.ok(noBranchIndex < detectIndex, '--no-branch guard should run before source detection');

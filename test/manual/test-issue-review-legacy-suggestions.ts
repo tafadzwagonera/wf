@@ -6,6 +6,7 @@
  */
 
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { IssueReviewCommand } from '../../src/commands/issue-review.command';
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { GitService } from '../../src/integrations/git/git.service';
@@ -43,6 +44,7 @@ async function run(): Promise<void> {
   const prUrl = 'https://bitbucket.org/workspace/repo/pull-requests/35';
   const bitbucketAdapter = {
     getPlatformName: () => 'bitbucket',
+    getTrackerName: () => 'bitbucket',
     getTicket: async () => ({
       key: 'WBP-3087',
       title: 'Cache geo CSV',
@@ -60,6 +62,10 @@ async function run(): Promise<void> {
         useValue: {
           getProviderDisplayName: () => 'OpenAI',
         },
+      },
+      {
+        provide: ConfigService,
+        useValue: { get: (_key: string, fallback?: unknown) => fallback },
       },
       {
         provide: GitService,
@@ -121,7 +127,7 @@ async function run(): Promise<void> {
     capturedLogs += `${args.map(String).join(' ')}\n`;
   };
 
-  await command.run([], { ticketKey: 'WBP-3087' });
+  await command.run([], { ticketKey: 'WBP-3087', force: true });
 
   console.log = originalConsoleLog;
 
@@ -134,9 +140,9 @@ async function run(): Promise<void> {
   }
 
   if (
-    !capturedLogs.includes('Suggestions:') ||
-    !capturedLogs.includes('💡 Normalize lookup inputs before querying.') ||
-    !capturedLogs.includes('💡 Add duplicate detection while building the maps.')
+    !capturedLogs.includes('Suggestions:')
+    || !capturedLogs.includes('💡 Normalize lookup inputs before querying.')
+    || !capturedLogs.includes('💡 Add duplicate detection while building the maps.')
   ) {
     throw new Error('Expected legacy detached suggestions to render only in the trailing Suggestions section.');
   }

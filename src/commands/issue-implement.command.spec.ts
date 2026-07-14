@@ -39,7 +39,7 @@ jest.mock('../agents/utils', () => {
   return {
     ...actual,
     resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
     ),
   };
 });
@@ -159,7 +159,7 @@ describe('IssueImplementCommand', () => {
       jest
         .spyOn(require('fs'), 'existsSync')
         .mockImplementation((input: string) =>
-          String(input).endsWith(path.join('.wf', 'repo-a', 'dark-building-creek-fix.json'))
+          String(input).endsWith(path.join('.wf', 'repo-a', 'dark-building-creek-fix.json')),
         );
       jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
       jest.spyOn(require('fs'), 'readFileSync').mockReturnValue(
@@ -169,7 +169,7 @@ describe('IssueImplementCommand', () => {
           steps: ['Route custom plans to the shared implementer'],
           affectedFiles: ['repo-a/src/commands/issue-implement.command.ts'],
           affectedRepositories: ['repo-a'],
-        })
+        }),
       );
 
       await command.run(['dark-building-creek-fix'], {
@@ -180,7 +180,7 @@ describe('IssueImplementCommand', () => {
       expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
         expect.objectContaining({
           filePath: path.join(os.homedir(), '.wf', 'repo-a', 'dark-building-creek-fix.json'),
-        })
+        }),
       );
     });
 
@@ -195,10 +195,10 @@ describe('IssueImplementCommand', () => {
         .spyOn(require('fs'), 'existsSync')
         .mockImplementation(
           (input: string) =>
-            String(input) === artifactDir ||
-            String(input) === planPath ||
-            String(input) === manifestPath ||
-            String(input).endsWith('WBP-0001.md')
+            String(input) === artifactDir
+            || String(input) === planPath
+            || String(input) === manifestPath
+            || String(input).endsWith('WBP-0001.md'),
         );
       jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([path.basename(manifestPath)] as any);
       jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
@@ -239,7 +239,7 @@ describe('IssueImplementCommand', () => {
       expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
         expect.objectContaining({
           filePath: path.join(os.homedir(), '.wf', 'repo-a', 'jira', `2026-04-16-${hash}-fix-plan.json`),
-        })
+        }),
       );
     });
   });
@@ -338,7 +338,7 @@ describe('IssueImplementCommand', () => {
         '.wf',
         'repo-a',
         'jira',
-        `2026-04-16-${hash}-feature-plan.json`
+        `2026-04-16-${hash}-feature-plan.json`,
       );
       const canonicalManifestPath = buildPlanArtifactManifestPath(canonicalPlanPath);
       // Allow ticket .md and only the feature plan so discoverPlanAction resolves
@@ -346,10 +346,10 @@ describe('IssueImplementCommand', () => {
       // equal mtimeMs if we simply mockReturnValue(true)).
       existsSyncSpy.mockImplementation(
         (p: string) =>
-          String(p).endsWith('WBP-0001.md') ||
-          String(p).endsWith('/jira') ||
-          String(p) === canonicalPlanPath ||
-          String(p) === canonicalManifestPath
+          String(p).endsWith('WBP-0001.md')
+          || String(p).endsWith('/jira')
+          || String(p) === canonicalPlanPath
+          || String(p) === canonicalManifestPath,
       );
       jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([path.basename(canonicalManifestPath)] as any);
       jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
@@ -374,7 +374,7 @@ describe('IssueImplementCommand', () => {
       expect(exitSpy).not.toHaveBeenCalled();
       expect(dryRunPreview.previewFileRead).toHaveBeenCalledTimes(2);
       expect(dryRunPreview.showSummary).toHaveBeenCalledWith(
-        expect.objectContaining({ apiCallCount: 0, fileCreatedCount: 0 })
+        expect.objectContaining({ apiCallCount: 0, fileCreatedCount: 0 }),
       );
     });
 
@@ -385,15 +385,15 @@ describe('IssueImplementCommand', () => {
         '.wf',
         'repo-a',
         'jira',
-        `2026-04-16-${hash}-investigate-plan.json`
+        `2026-04-16-${hash}-investigate-plan.json`,
       );
       const canonicalManifestPath = buildPlanArtifactManifestPath(canonicalPlanPath);
       existsSyncSpy.mockImplementation(
         (p: string) =>
-          String(p).endsWith('WBP-0001.md') ||
-          String(p).endsWith('/jira') ||
-          String(p) === canonicalPlanPath ||
-          String(p) === canonicalManifestPath
+          String(p).endsWith('WBP-0001.md')
+          || String(p).endsWith('/jira')
+          || String(p) === canonicalPlanPath
+          || String(p) === canonicalManifestPath,
       );
       jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([path.basename(canonicalManifestPath)] as any);
       jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
@@ -417,7 +417,7 @@ describe('IssueImplementCommand', () => {
 
       expect(exitSpy).not.toHaveBeenCalled();
       expect(dryRunPreview.showSummary).toHaveBeenCalledWith(
-        expect.objectContaining({ apiCallCount: 1, fileCreatedCount: 1 })
+        expect.objectContaining({ apiCallCount: 1, fileCreatedCount: 1 }),
       );
     });
   });
@@ -429,7 +429,7 @@ describe('IssueImplementCommand', () => {
       jest
         .spyOn(require('fs'), 'existsSync')
         .mockImplementation((input: string) =>
-          String(input).endsWith(path.join('.wf', 'repo-a', 'merry-tinkering-pine-feature.json'))
+          String(input).endsWith(path.join('.wf', 'repo-a', 'merry-tinkering-pine-feature.json')),
         );
       jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
       jest.spyOn(require('fs'), 'readFileSync').mockReturnValue(JSON.stringify({ action: 'feature', steps: [] }));
@@ -442,7 +442,7 @@ describe('IssueImplementCommand', () => {
       expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
         expect.objectContaining({
           filePath: path.join(os.homedir(), '.wf', 'repo-a', 'merry-tinkering-pine-feature.json'),
-        })
+        }),
       );
     });
 
@@ -452,7 +452,7 @@ describe('IssueImplementCommand', () => {
       jest
         .spyOn(require('fs'), 'existsSync')
         .mockImplementation((input: string) =>
-          String(input).endsWith(path.join('.wf', 'repo-a', 'dark-building-creek-fix.json'))
+          String(input).endsWith(path.join('.wf', 'repo-a', 'dark-building-creek-fix.json')),
         );
       jest.spyOn(require('fs'), 'readFileSync').mockReturnValue(
         JSON.stringify({
@@ -461,7 +461,7 @@ describe('IssueImplementCommand', () => {
           steps: ['Update the implement command'],
           affectedFiles: ['repo-a/src/commands/issue-implement.command.ts'],
           affectedRepositories: ['repo-a'],
-        })
+        }),
       );
 
       await command.run(['dark-building-creek-fix.json'], {
@@ -484,10 +484,10 @@ describe('IssueImplementCommand', () => {
           trackerName: 'jira',
           repoDir: '/tmp/consumer-app/repo-a',
           customBranchSlug: 'dark-building-creek',
-        })
+        }),
       );
       expect(
-        consoleWarnSpy.mock.calls.some(call => String(call[0]).includes('synthetic execution context for custom plan'))
+        consoleWarnSpy.mock.calls.some(call => String(call[0]).includes('synthetic execution context for custom plan')),
       ).toBe(true);
 
       consoleWarnSpy.mockRestore();
@@ -499,7 +499,7 @@ describe('IssueImplementCommand', () => {
       jest
         .spyOn(require('fs'), 'existsSync')
         .mockImplementation((input: string) =>
-          String(input).endsWith(path.join('.wf', 'repo-a', 'dark-building-creek-feature.json'))
+          String(input).endsWith(path.join('.wf', 'repo-a', 'dark-building-creek-feature.json')),
         );
       jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
       jest.spyOn(require('fs'), 'readFileSync').mockReturnValue(
@@ -509,7 +509,7 @@ describe('IssueImplementCommand', () => {
           steps: ['Update the implement command'],
           affectedFiles: ['repo-a/src/commands/issue-implement.command.ts'],
           affectedRepositories: ['repo-a'],
-        })
+        }),
       );
 
       await command.run(['dark-building-creek-feature.json'], {
@@ -521,7 +521,7 @@ describe('IssueImplementCommand', () => {
         expect.objectContaining({
           filePath: '/tmp/consumer-app/repo-a/src/commands/issue-implement.command.ts',
           operation: 'create',
-        })
+        }),
       );
       expect(dryRunPreview.showSummary).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -531,7 +531,7 @@ describe('IssueImplementCommand', () => {
             expect.stringContaining('Synthetic execution context'),
             expect.stringContaining('Branch: feature/dark-building-creek'),
           ]),
-        })
+        }),
       );
     });
   });
@@ -589,10 +589,10 @@ describe('IssueImplementCommand', () => {
       jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
         const filePath = String(input);
         return (
-          filePath.endsWith('WBP-0001.md') ||
-          filePath === canonicalPlanPath ||
-          filePath === canonicalManifestPath ||
-          filePath.endsWith('/jira')
+          filePath.endsWith('WBP-0001.md')
+          || filePath === canonicalPlanPath
+          || filePath === canonicalManifestPath
+          || filePath.endsWith('/jira')
         );
       });
       jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([path.basename(canonicalManifestPath)] as any);
@@ -662,7 +662,7 @@ describe('IssueImplementCommand', () => {
         '.wf',
         'repo-a',
         'jira',
-        `2026-04-16-${hash}-feature-plan.json`
+        `2026-04-16-${hash}-feature-plan.json`,
       );
       const canonicalManifestPath = buildPlanArtifactManifestPath(canonicalPlanPath);
       // Allow ticket .md and only the feature plan so discoverPlanAction resolves
@@ -670,10 +670,10 @@ describe('IssueImplementCommand', () => {
       // win when all mtimeMs are equal if we simply mockReturnValue(true)).
       existsSyncSpy.mockImplementation(
         (p: string) =>
-          String(p).endsWith('WBP-0001.md') ||
-          String(p).endsWith('/jira') ||
-          String(p) === canonicalPlanPath ||
-          String(p) === canonicalManifestPath
+          String(p).endsWith('WBP-0001.md')
+          || String(p).endsWith('/jira')
+          || String(p) === canonicalPlanPath
+          || String(p) === canonicalManifestPath,
       );
       jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([path.basename(canonicalManifestPath)] as any);
       // statSync is called by discoverPlanAction's sort — prevent real fs access
@@ -749,7 +749,7 @@ describe('IssueImplementCommand', () => {
         expect.objectContaining({
           trackerName: 'jira',
           repoDir: '/tmp/consumer-app/repo-a',
-        })
+        }),
       );
       // planner was never called — plan was loaded from disk
       expect(mockOrchestrator.planner.execute).not.toHaveBeenCalled();
@@ -765,7 +765,7 @@ describe('IssueImplementCommand', () => {
         '.wf',
         'repo-a',
         'jira',
-        `2026-04-16-${hash}-feature-plan.json`
+        `2026-04-16-${hash}-feature-plan.json`,
       );
       const canonicalManifestPath = buildPlanArtifactManifestPath(canonicalPlanPath);
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -773,10 +773,10 @@ describe('IssueImplementCommand', () => {
         .spyOn(require('fs'), 'existsSync')
         .mockImplementation(
           (p: string) =>
-            String(p).endsWith('WBP-0001.md') ||
-            String(p).endsWith('/jira') ||
-            String(p) === canonicalPlanPath ||
-            String(p) === canonicalManifestPath
+            String(p).endsWith('WBP-0001.md')
+            || String(p).endsWith('/jira')
+            || String(p) === canonicalPlanPath
+            || String(p) === canonicalManifestPath,
         );
       jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([path.basename(canonicalManifestPath)] as any);
       jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
@@ -843,7 +843,7 @@ describe('IssueImplementCommand', () => {
           additionalRepoDirs: ['/tmp/consumer-app/repo-b'],
           allowMultiRepoScope: true,
           suppressHeader: true,
-        })
+        }),
       );
       expect(orchestrator.implementer.execute).toHaveBeenCalledWith(
         expect.anything(),
@@ -853,7 +853,7 @@ describe('IssueImplementCommand', () => {
           additionalRepoDirs: ['/tmp/consumer-app/repo-a'],
           allowMultiRepoScope: true,
           suppressHeader: true,
-        })
+        }),
       );
 
       existsSyncSpy.mockRestore();
@@ -873,7 +873,7 @@ describe('IssueImplementCommand', () => {
           repoDir: '/tmp/consumer-app/repo-a',
           allowMultiRepoScope: false,
           suppressHeader: false,
-        })
+        }),
       );
 
       existsSyncSpy.mockRestore();
@@ -929,7 +929,7 @@ describe('IssueImplementCommand', () => {
     jest
       .spyOn(require('fs'), 'existsSync')
       .mockImplementation((input: string) =>
-        String(input).endsWith(path.join('.wf', 'repo-a', 'dark-building-creek-fix.json'))
+        String(input).endsWith(path.join('.wf', 'repo-a', 'dark-building-creek-fix.json')),
       );
     jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048, mtimeMs: Date.now() } as any);
     jest.spyOn(require('fs'), 'readFileSync').mockReturnValue(
@@ -939,7 +939,7 @@ describe('IssueImplementCommand', () => {
         steps: ['Step 1'],
         affectedFiles: ['repo-a/src/a.ts'],
         affectedRepositories: ['repo-a'],
-      })
+      }),
     );
 
     await command.run(['dark-building-creek-fix.json'], {
@@ -950,7 +950,7 @@ describe('IssueImplementCommand', () => {
     expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
       expect.objectContaining({
         filePath: path.join(os.homedir(), '.wf', 'repo-a', 'dark-building-creek-fix.json'),
-      })
+      }),
     );
   });
 });

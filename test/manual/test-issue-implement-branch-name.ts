@@ -79,8 +79,8 @@ async function main() {
     suppressHeader: true,
   });
 
-  const expectedBranchName =
-    'feature/WBP-3054__tripcom-content-mapping-align-contentful-fields-to-tripcom-preview-structure';
+  const expectedBranchName
+    = 'feature/WBP-3054__tripcom-content-mapping-align-contentful-fields-to-tripcom-preview-structure';
   const currentBranchName = runGit(repoDir, ['branch', '--show-current']);
 
   if (result.type === 'implementation') {

@@ -1,8 +1,8 @@
 jest.mock('chalk', () => {
-  const wrap =
-    (label: string) =>
-    (value: string): string =>
-      `<${label}>${value}</${label}>`;
+  const wrap
+    = (label: string) =>
+      (value: string): string =>
+        `<${label}>${value}</${label}>`;
 
   return {
     __esModule: true,

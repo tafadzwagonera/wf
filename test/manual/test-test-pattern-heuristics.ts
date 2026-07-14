@@ -228,8 +228,8 @@ async function main(): Promise<void> {
     );
     check(
       'renders shell-safety guidance for node -e',
-      output.includes('Verification commands MUST be shell-safe by construction.') &&
-        output.includes('single-quoted JS strings or properly escaped backticks'),
+      output.includes('Verification commands MUST be shell-safe by construction.')
+      && output.includes('single-quoted JS strings or properly escaped backticks'),
       'missing shell-safety prompt text'
     );
   }

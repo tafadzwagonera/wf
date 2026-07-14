@@ -21,8 +21,8 @@ import { AiService } from '../../integrations/ai/ai.service';
 import { SlackService } from '../../integrations/slack/slack.service';
 import { getWfHomeDir } from '../../shared/utils/wf-paths';
 
-const SLACK_PERMALINK =
-  'https://myworkspace.slack.com/archives/C01ABC123/p1711234567890000?thread_ts=1711234567.890000&cid=C01ABC123';
+const SLACK_PERMALINK
+  = 'https://myworkspace.slack.com/archives/C01ABC123/p1711234567890000?thread_ts=1711234567.890000&cid=C01ABC123';
 const EXPECTED_CHANNEL_ID = 'C01ABC123';
 const EXPECTED_THREAD_TS = '1711234567.890000';
 

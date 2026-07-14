@@ -323,10 +323,10 @@ export const detectRepoConventions = (repoDir: string): RepoConventionsContext =
         const rootEntries = fs.readdirSync(repoDir, { withFileTypes: true });
         for (const entry of rootEntries) {
           if (
-            entry.isDirectory() &&
-            !entry.name.startsWith('.') &&
-            !['node_modules', '__pycache__', '.git', 'venv', '.venv'].includes(entry.name) &&
-            fs.existsSync(path.join(repoDir, entry.name, '__init__.py'))
+            entry.isDirectory()
+            && !entry.name.startsWith('.')
+            && !['node_modules', '__pycache__', '.git', 'venv', '.venv'].includes(entry.name)
+            && fs.existsSync(path.join(repoDir, entry.name, '__init__.py'))
           ) {
             sourceRoots.push(path.join(repoDir, entry.name));
             break;
@@ -416,11 +416,11 @@ export const detectRepoConventions = (repoDir: string): RepoConventionsContext =
     if (mod.includes('commonjs')) {
       importStyle = 'commonjs';
     } else if (
-      mod.includes('esm') ||
-      mod.includes('esnext') ||
-      mod.includes('es2015') ||
-      mod === 'nodenext' ||
-      mod === 'node16'
+      mod.includes('esm')
+      || mod.includes('esnext')
+      || mod.includes('es2015')
+      || mod === 'nodenext'
+      || mod === 'node16'
     ) {
       importStyle = 'esm';
     }
@@ -466,8 +466,9 @@ export const detectRepoConventions = (repoDir: string): RepoConventionsContext =
   // --- Error handling paths ---
   const errorHandlingPaths: string[] = [];
 
-  const errorScanRoots =
-    sourceRoots.length > 0 ? sourceRoots : fs.existsSync(path.join(repoDir, 'src')) ? [path.join(repoDir, 'src')] : [];
+  let errorScanRoots: string[] = [];
+  if (sourceRoots.length > 0) errorScanRoots = sourceRoots;
+  else if (fs.existsSync(path.join(repoDir, 'src'))) errorScanRoots = [path.join(repoDir, 'src')];
 
   for (const root of errorScanRoots) {
     const matches = walkDir(
@@ -505,16 +506,16 @@ export const detectRepoConventions = (repoDir: string): RepoConventionsContext =
  * @returns A formatted string for inclusion in an AI prompt, or empty string when no meaningful data exists
  */
 export const formatRepoConventionsPromptSection = (ctx: RepoConventionsContext, repoName: string): string => {
-  const hasMeaningfulData =
-    ctx.linter !== null ||
-    ctx.typescript !== null ||
-    ctx.go !== null ||
-    ctx.python !== null ||
-    ctx.terraform !== null ||
-    ctx.folderStructure.length > 0 ||
-    ctx.nestjsDetected ||
-    ctx.keyDependencies.length > 0 ||
-    ctx.errorHandlingPaths.length > 0;
+  const hasMeaningfulData
+    = ctx.linter !== null
+      || ctx.typescript !== null
+      || ctx.go !== null
+      || ctx.python !== null
+      || ctx.terraform !== null
+      || ctx.folderStructure.length > 0
+      || ctx.nestjsDetected
+      || ctx.keyDependencies.length > 0
+      || ctx.errorHandlingPaths.length > 0;
 
   if (!hasMeaningfulData) return '';
 

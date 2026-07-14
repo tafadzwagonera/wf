@@ -906,10 +906,10 @@ describe('StageAgentService', () => {
         expect.objectContaining({
           prompt: expect.stringContaining('Summarize the code review you just completed'),
           appendSystemPrompt:
-            'You are an expert code reviewer providing constructive feedback.\n' +
-            'You may inspect repository files with read-only tools before answering.\n' +
-            'Focus on code quality, bugs, security, and the changed execution path.\n' +
-            'Ignore JSON or markdown files under .wf/ and tracker artifact directories.',
+            'You are an expert code reviewer providing constructive feedback.\n'
+            + 'You may inspect repository files with read-only tools before answering.\n'
+            + 'Focus on code quality, bugs, security, and the changed execution path.\n'
+            + 'Ignore JSON or markdown files under .wf/ and tracker artifact directories.',
           model: 'claude-sonnet-4-5-20250514',
           sessionId: 'claude-review-session-42',
           cwd: '/tmp/repo',

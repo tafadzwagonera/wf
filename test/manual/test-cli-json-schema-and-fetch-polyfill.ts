@@ -57,10 +57,10 @@ const extractAssistantText = (message: ClaudeCliMessage): string | undefined => 
   let turnText = '';
   for (const block of blocks) {
     if (
-      typeof block === 'object' &&
-      block !== null &&
-      (block as Record<string, unknown>).type === 'text' &&
-      typeof (block as Record<string, unknown>).text === 'string'
+      typeof block === 'object'
+      && block !== null
+      && (block as Record<string, unknown>).type === 'text'
+      && typeof (block as Record<string, unknown>).text === 'string'
     ) {
       turnText += (block as { text: string }).text;
     }

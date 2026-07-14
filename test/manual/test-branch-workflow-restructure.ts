@@ -73,7 +73,7 @@ function main(): void {
   });
 
   test('ensureCleanWorkingTree is called after branchAction prompt in create path', () => {
-    const branchActionIdx = agentSource.indexOf("value: 'create'");
+    const branchActionIdx = agentSource.indexOf('value: \'create\'');
     const ensureCleanIdx = agentSource.indexOf('ensureCleanWorkingTree(planArtifact, options, stashInteractive, cwd)');
     assert.ok(branchActionIdx > 0, 'branchAction create choice should exist');
     assert.ok(ensureCleanIdx > 0, 'ensureCleanWorkingTree call should exist');

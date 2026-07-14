@@ -36,9 +36,9 @@ async function main() {
   console.log(chalk.bold('Test 1: Spec mocks writePlanArtifactManifest at the module level'));
   try {
     const content = fs.readFileSync(specPath, 'utf8');
-    const hasModuleMock =
-      content.includes("jest.mock('../shared/utils/plan-artifact'") &&
-      content.includes('writePlanArtifactManifest: jest.fn()');
+    const hasModuleMock
+      = content.includes('jest.mock(\'../shared/utils/plan-artifact\'')
+        && content.includes('writePlanArtifactManifest: jest.fn()');
 
     if (hasModuleMock) {
       pass('Module-level mock for writePlanArtifactManifest found');

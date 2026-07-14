@@ -82,8 +82,8 @@ async function main() {
     console.log('\n🧪 CommitterAgent: ticket context → accurate commit message + real commit\n');
     console.log('─'.repeat(60));
 
-    const ticketContext =
-      'Prevent solo travelers from selecting double room options by adding validation in service-passengerv1';
+    const ticketContext
+      = 'Prevent solo travelers from selecting double room options by adding validation in service-passengerv1';
 
     try {
       await committer.execute('TEST-001', tmpDir, ticketContext);

@@ -92,11 +92,11 @@ async function main() {
   try {
     const readme = fs.readFileSync(readmePath, 'utf8');
 
-    if (readme.includes("directory: '.wf/state'")) {
-      fail("README still mentions state directory: '.wf/state'");
+    if (readme.includes('directory: \'.wf/state\'')) {
+      fail('README still mentions state directory: \'.wf/state\'');
       failed += 1;
-    } else if (readme.includes("directory: '.wf/logs'")) {
-      fail("README still mentions log directory: '.wf/logs'");
+    } else if (readme.includes('directory: \'.wf/logs\'')) {
+      fail('README still mentions log directory: \'.wf/logs\'');
       failed += 1;
     } else if (readme.includes('directory: .wf/logs')) {
       fail('README YAML example still mentions directory: .wf/logs');

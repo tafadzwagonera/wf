@@ -1,20 +1,19 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
-import { ErrorHandler } from '../shared/utils/error-handler';
 import { ValidationError } from '../shared/utils/errors';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import chalk from 'chalk';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as YAML from 'yaml';
 
 const ISSUE_FETCH_EXAMPLES: CliExample[] = [
@@ -50,13 +49,12 @@ interface IssueFetchOptions {
 @Command({
   name: 'issue:fetch',
   description:
-    'Fetch ticket description from a tracker. ' +
-    'NB: This command will override the locally generated artifact with the ticket description fetched from the specified tracker',
+    'Fetch ticket description from a tracker. '
+    + 'NB: This command will override the locally generated artifact with the ticket description fetched from the specified tracker',
   arguments: '<ticket-key>',
 })
 export class IssueFetchCommand extends CommandRunner {
   constructor(
-    private readonly issueTrackerService: IssueTrackerService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
@@ -119,96 +117,88 @@ export class IssueFetchCommand extends CommandRunner {
       printExamples(ISSUE_FETCH_EXAMPLES);
     }
 
-    try {
+    await executeAsyncWithCatch({ fn: async () => {
       await ensureWfHome();
-      if (!options?.silent) {
-        warnOnIgnoredRepos(options?.repos);
-      }
+      if (!options?.silent) warnOnIgnoredRepos(options?.repos);
 
-      // Get tracker (from option or config)
-      const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+      const ctx = this.resolveInputs(ticketKey, options);
 
-      // Output format: CLI flag > hardcoded default (fetch has no stage config)
-      const format: OutputFormat = options?.format || 'md';
+      if (options?.dryRun) return this.previewDryRun(ctx);
 
-      const extension = format === 'md' ? 'md' : format;
-      const repoBase = resolveRepoBasePath(options?.repos?.[0]);
-      const trackerDir = resolveArtifactDir(repoBase, trackerName);
-      const filePath = path.join(trackerDir, `${ticketKey}.${extension}`);
+      await this.executeFetch(ctx, options);
+    } });
+  }
 
-      if (options?.dryRun) {
-        this.dryRunPreview.showHeader('issue:fetch', ticketKey);
+  private resolveInputs(ticketKey: string, options?: IssueFetchOptions) {
+    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    const format: OutputFormat = options?.format || 'md';
+    const repoBase = resolveRepoBasePath(options?.repos?.[0]);
+    const trackerDir = resolveArtifactDir(repoBase, trackerName);
+    const filePath = path.join(trackerDir, `${ticketKey}.${format}`);
+    return { ticketKey, trackerName, format, trackerDir, filePath };
+  }
 
-        this.dryRunPreview.previewApiCall({
-          method: 'GET',
-          endpoint: `/${trackerName}/issues/${ticketKey}`,
-          platform: trackerName,
-          description: `Fetch ticket ${ticketKey} from ${trackerName}`,
-          estimatedResponse: '200 OK — ticket data returned',
-        });
+  private previewDryRun(ctx: ReturnType<IssueFetchCommand['resolveInputs']>): void {
+    this.dryRunPreview.showHeader('issue:fetch', ctx.ticketKey);
+    this.dryRunPreview.previewApiCall({
+      method: 'GET',
+      endpoint: '/' + ctx.trackerName + '/issues/' + ctx.ticketKey,
+      platform: ctx.trackerName,
+      description: 'Fetch ticket ' + ctx.ticketKey + ' from ' + ctx.trackerName,
+      estimatedResponse: '200 OK — ticket data returned',
+    });
+    this.dryRunPreview.previewFileWrite({
+      filePath: ctx.filePath,
+      operation: fs.existsSync(ctx.filePath) ? 'overwrite' : 'create',
+      sizeEstimate: '1–5 KB',
+      format: ctx.format,
+      contentPreview: this.buildTicketContentPreview(ctx.ticketKey, ctx.format),
+    });
+    this.previewFetchSummary(ctx.filePath);
+  }
 
-        this.dryRunPreview.previewFileWrite({
-          filePath,
-          operation: fs.existsSync(filePath) ? 'overwrite' : 'create',
-          sizeEstimate: '1–5 KB',
-          format,
-          contentPreview: this.buildTicketContentPreview(ticketKey, format),
-        });
+  private previewFetchSummary(filePath: string): void {
+    this.dryRunPreview.showSummary({
+      apiCallCount: 1, fileCreatedCount: 1, fileModifiedCount: 0, gitOperationCount: 0,
+      terminalOutputLines: [
+        '✓ Ticket saved to: ' + filePath, '',
+        'Ticket Details:', '  Title: <fetched from tracker>',
+        '  Type: <type>', '  Status: <status>', '  Priority: <priority>',
+      ],
+    });
+    this.dryRunPreview.showValidationResult();
+  }
 
-        this.dryRunPreview.showSummary({
-          apiCallCount: 1,
-          fileCreatedCount: 1,
-          fileModifiedCount: 0,
-          gitOperationCount: 0,
-          terminalOutputLines: [
-            `✓ Ticket saved to: ${filePath}`,
-            '',
-            'Ticket Details:',
-            '  Title: <fetched from tracker>',
-            '  Type: <type>',
-            '  Status: <status>',
-            '  Priority: <priority>',
-          ],
-        });
-
-        this.dryRunPreview.showValidationResult();
-        return;
-      }
-
-      if (!options?.silent) {
-        this.logger.info(`Fetching ticket ${ticketKey} from ${trackerName}...`);
-      }
-
-      // Format reference for Bitbucket
-      const ticket = await this.fetchStageService.fetchTicket(ticketKey, {
-        trackerName,
-        repo: options?.repos?.[0],
-      });
-
-      // Format ticket content
-      const content = this.formatTicket(ticket, format);
-
-      // Determine output file path
-      if (!fs.existsSync(trackerDir)) {
-        fs.mkdirSync(trackerDir, { recursive: true });
-      }
-
-      // Write to file
-      await fs.promises.writeFile(filePath, content, 'utf-8');
-
-      if (options?.silent) {
-        console.log(filePath);
-      } else {
-        this.logger.success(`✓ Ticket saved to: ${filePath}`);
-        this.logger.info(`\nTicket Details:`);
-        this.logger.info(`  Title: ${ticket.title}`);
-        this.logger.info(`  Type: ${ticket.type || 'N/A'}`);
-        this.logger.info(`  Status: ${ticket.status}`);
-        this.logger.info(`  Priority: ${ticket.priority || 'N/A'}`);
-      }
-    } catch (error) {
-      ErrorHandler.handle(error as Error);
+  private async executeFetch(
+    ctx: ReturnType<IssueFetchCommand['resolveInputs']>,
+    options?: IssueFetchOptions
+  ): Promise<void> {
+    if (!options?.silent) {
+      this.logger.info('Fetching ticket ' + ctx.ticketKey + ' from ' + ctx.trackerName + '...');
     }
+
+    const ticket = await this.fetchStageService.fetchTicket(ctx.ticketKey, {
+      trackerName: ctx.trackerName, repo: options?.repos?.[0],
+    });
+
+    const content = this.formatTicket(ticket, ctx.format);
+    if (!fs.existsSync(ctx.trackerDir)) fs.mkdirSync(ctx.trackerDir, { recursive: true });
+    await fs.promises.writeFile(ctx.filePath, content, 'utf-8');
+
+    if (options?.silent) {
+      console.log(ctx.filePath);
+      return;
+    }
+    this.printTicketDetails(ticket, ctx.filePath);
+  }
+
+  private printTicketDetails(ticket: any, filePath: string): void {
+    this.logger.success('✓ Ticket saved to: ' + filePath);
+    this.logger.info('\nTicket Details:');
+    this.logger.info('  Title: ' + ticket.title);
+    this.logger.info('  Type: ' + (ticket.type || 'N/A'));
+    this.logger.info('  Status: ' + ticket.status);
+    this.logger.info('  Priority: ' + (ticket.priority || 'N/A'));
   }
 
   private formatTicket(ticket: any, format: OutputFormat): string {
@@ -251,39 +241,16 @@ export class IssueFetchCommand extends CommandRunner {
    * @returns Truncated preview string (at most 10 lines)
    */
   private buildTicketContentPreview(ticketKey: string, format: OutputFormat): string {
-    if (format === 'json') {
-      return [
-        '{',
-        `  "key": "${ticketKey}",`,
-        '  "title": "<title>",',
-        '  "type": "<type>",',
-        '  "status": "<status>",',
-        '  "priority": "<priority>",',
-        '  "description": "<description>"',
-        '}',
-      ].join('\n');
+    switch (format) {
+      case 'json':
+        return '{\n  "key": "' + ticketKey + '",\n  "title": "<title>",\n  "type": "<type>",'
+          + '\n  "status": "<status>",\n  "priority": "<priority>",\n  "description": "<description>"\n}';
+      case 'yaml':
+      case 'yml':
+        return 'key: ' + ticketKey + '\ntitle: <title>\ntype: <type>'
+          + '\nstatus: <status>\npriority: <priority>\ndescription: <description>';
+      default:
+        return buildTicketMarkdownPreview(ticketKey);
     }
-    if (format === 'yaml') {
-      return [
-        `key: ${ticketKey}`,
-        'title: <title>',
-        'type: <type>',
-        'status: <status>',
-        'priority: <priority>',
-        'description: <description>',
-      ].join('\n');
-    }
-    if (format === 'yml') {
-      return [
-        `key: ${ticketKey}`,
-        'title: <title>',
-        'type: <type>',
-        'status: <status>',
-        'priority: <priority>',
-        'description: <description>',
-      ].join('\n');
-    }
-    // markdown (default)
-    return buildTicketMarkdownPreview(ticketKey);
   }
 }

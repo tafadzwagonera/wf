@@ -148,8 +148,8 @@ async function testIssueGenerateSlackChannel() {
   const artifactWritePathString = artifactWritePath ? String(artifactWritePath) : '';
   const artifactWriteContentString = artifactWriteContent ? String(artifactWriteContent) : '';
   const hasExpectedArtifactPath = artifactWritePathString.endsWith(`slack-channel-${EXPECTED_CHANNEL_ID}.md`);
-  const hasExpectedArtifactContent =
-    artifactWriteContentString.includes(expectedLine0) && artifactWriteContentString.includes(expectedLine1);
+  const hasExpectedArtifactContent
+    = artifactWriteContentString.includes(expectedLine0) && artifactWriteContentString.includes(expectedLine1);
 
   if (hasExpectedArtifactPath && hasExpectedArtifactContent) {
     pass(`Artifact write captured at ${artifactWritePath}`);

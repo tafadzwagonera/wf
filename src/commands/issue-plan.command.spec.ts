@@ -39,7 +39,7 @@ jest.mock('../agents/utils', () => {
   return {
     ...actual,
     resolveRepoBasePath: jest.fn((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
     ),
   };
 });
@@ -143,7 +143,7 @@ describe('IssuePlanCommand', () => {
     cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(mockCwd);
     const { resolveRepoBasePath } = require('../agents/utils');
     (resolveRepoBasePath as jest.Mock).mockImplementation((repo?: string) =>
-      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
+      repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
     );
   });
 
@@ -262,7 +262,7 @@ describe('IssuePlanCommand', () => {
         name: 'AppError',
         code: 'FILE_SYSTEM_ERROR',
         message: expect.stringContaining('not found in artifact repository'),
-      })
+      }),
     );
 
     existsSyncSpy.mockRestore();
@@ -350,7 +350,7 @@ describe('IssuePlanCommand', () => {
 
     const planPreview = dryRunPreview.previewFileWrite.mock.calls[1][0];
     expect(path.basename(planPreview.filePath)).toMatch(
-      new RegExp(`^\\d{4}-\\d{2}-\\d{2}-${hashPlanArtifactSources(['WBP-1'])}-fix-plan\\.json$`)
+      new RegExp(`^\\d{4}-\\d{2}-\\d{2}-${hashPlanArtifactSources(['WBP-1'])}-fix-plan\\.json$`),
     );
   });
 
@@ -426,7 +426,7 @@ describe('IssuePlanCommand', () => {
         ticketKey: 'WBP-1',
         affectedRepositories: ['repo-a'],
         repoDir: '/tmp/consumer-app/repo-a',
-      })
+      }),
     );
     expect(writeFileSpy).toHaveBeenCalled();
     expect(String(writeFileSpy.mock.calls[0][1])).toContain('"verification"');
@@ -495,7 +495,7 @@ describe('IssuePlanCommand', () => {
         repoDir: '/tmp/consumer-app/repo-a',
         planCorrelation: mockPlanCorrelation,
         priorPlans: mockPriorPlans,
-      })
+      }),
     );
   });
 
@@ -554,7 +554,7 @@ describe('IssuePlanCommand', () => {
         repoDir: '/tmp/consumer-app',
         planCorrelation: mockPlanCorrelation,
         priorPlans: mockPriorPlans,
-      })
+      }),
     );
 
     existsSyncSpy.mockRestore();
@@ -589,7 +589,7 @@ describe('IssuePlanCommand', () => {
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
-      'placeholder repository metadata'
+      'placeholder repository metadata',
     );
 
     consoleErrorSpy.mockRestore();
@@ -625,7 +625,7 @@ describe('IssuePlanCommand', () => {
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
-      'placeholder repository metadata found in affectedFilesContext'
+      'placeholder repository metadata found in affectedFilesContext',
     );
 
     consoleErrorSpy.mockRestore();
@@ -661,7 +661,7 @@ describe('IssuePlanCommand', () => {
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
-      'affectedFilesContext must use explicit repository prefixes'
+      'affectedFilesContext must use explicit repository prefixes',
     );
 
     consoleErrorSpy.mockRestore();
@@ -697,7 +697,7 @@ describe('IssuePlanCommand', () => {
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
-      'cannot have status "to-create"'
+      'cannot have status "to-create"',
     );
 
     consoleErrorSpy.mockRestore();
@@ -742,7 +742,7 @@ describe('IssuePlanCommand', () => {
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
-      'must assert expected failure inside the command'
+      'must assert expected failure inside the command',
     );
 
     consoleErrorSpy.mockRestore();
@@ -834,12 +834,12 @@ describe('IssuePlanCommand', () => {
     fs.writeFileSync(path.join(repoPath, 'package.json'), JSON.stringify({ scripts: { test: 'jest' } }));
     fs.writeFileSync(
       path.join(repoPath, 'src', 'auth.spec.ts'),
-      'afterEach(() => { jest.restoreAllMocks(); });\nconst mockUser = {};\nconst createMockUser = () => mockUser;\n'
+      'afterEach(() => { jest.restoreAllMocks(); });\nconst mockUser = {};\nconst createMockUser = () => mockUser;\n',
     );
 
     const { resolveRepoBasePath } = require('../agents/utils');
     (resolveRepoBasePath as jest.Mock).mockImplementation((repo?: string) =>
-      repo ? path.join(repoDir, repo) : repoDir
+      repo ? path.join(repoDir, repo) : repoDir,
     );
 
     fetchStageService.fetchArtifact.mockResolvedValue({
@@ -961,7 +961,7 @@ describe('IssuePlanCommand', () => {
     expect(writeFileSpy).not.toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
-      'must not change directories outside the selected repository'
+      'must not change directories outside the selected repository',
     );
 
     consoleErrorSpy.mockRestore();
@@ -980,7 +980,7 @@ describe('IssuePlanCommand', () => {
 
     const { resolveRepoBasePath } = require('../agents/utils');
     (resolveRepoBasePath as jest.Mock).mockImplementation((repo?: string) =>
-      repo ? path.join(repoDir, repo) : repoDir
+      repo ? path.join(repoDir, repo) : repoDir,
     );
 
     fetchStageService.fetchArtifact.mockResolvedValue({
@@ -1012,7 +1012,7 @@ describe('IssuePlanCommand', () => {
 
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
-      'does not exist in package.json'
+      'does not exist in package.json',
     );
 
     consoleErrorSpy.mockRestore();
@@ -1027,12 +1027,12 @@ describe('IssuePlanCommand', () => {
     fs.mkdirSync(repoPath, { recursive: true });
     fs.writeFileSync(
       path.join(repoPath, 'package.json'),
-      JSON.stringify({ scripts: { test: 'jest', 'test:manual': 'ts-node run-manual-test.ts' } })
+      JSON.stringify({ scripts: { test: 'jest', 'test:manual': 'ts-node run-manual-test.ts' } }),
     );
 
     const { resolveRepoBasePath } = require('../agents/utils');
     (resolveRepoBasePath as jest.Mock).mockImplementation((repo?: string) =>
-      repo ? path.join(repoDir, repo) : repoDir
+      repo ? path.join(repoDir, repo) : repoDir,
     );
 
     fetchStageService.fetchArtifact.mockResolvedValue({
@@ -1101,9 +1101,9 @@ describe('IssuePlanCommand', () => {
     jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
       const filePath = String(input);
       return (
-        filePath.endsWith('WBP-1.md') ||
-        filePath.endsWith('WBP-1-plan-feature.json') ||
-        filePath.endsWith('WBP-1-plan-investigate.md')
+        filePath.endsWith('WBP-1.md')
+        || filePath.endsWith('WBP-1-plan-feature.json')
+        || filePath.endsWith('WBP-1-plan-investigate.md')
       );
     });
     const unlinkSyncSpy = jest.spyOn(require('fs'), 'unlinkSync').mockImplementation(() => {});
@@ -1112,10 +1112,10 @@ describe('IssuePlanCommand', () => {
     await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
     expect(unlinkSyncSpy).toHaveBeenCalledWith(
-      path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-1-plan-feature.json')
+      path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-1-plan-feature.json'),
     );
     expect(unlinkSyncSpy).toHaveBeenCalledWith(
-      path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-1-plan-investigate.md')
+      path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-1-plan-investigate.md'),
     );
   });
 
@@ -1142,7 +1142,7 @@ describe('IssuePlanCommand', () => {
 
     expect(planStageService.generatePlan).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ onProgress: expect.any(Function) })
+      expect.objectContaining({ onProgress: expect.any(Function) }),
     );
   });
 
@@ -1169,7 +1169,7 @@ describe('IssuePlanCommand', () => {
 
     expect(planStageService.generatePlan).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ onProgress: undefined })
+      expect.objectContaining({ onProgress: undefined }),
     );
   });
 
