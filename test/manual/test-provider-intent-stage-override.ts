@@ -310,6 +310,21 @@ function testHasProviderUsageIntentWithStageProviders(): void {
     'non-default provider returns false when stageProviders has different provider',
     hasProviderUsageIntent(providers, 'openai', ['google']) === false,
   );
+
+  const fullyOverriddenProviders: WfAiProviderConfig[] = [
+    { provider: 'anthropic', apiKey: 'sk-ant-xxx', model: 'claude-sonnet-4-6' },
+    { provider: 'openai', apiKey: 'sk-xxx', model: 'gpt-4.1', default: true },
+  ];
+
+  assert(
+    'explicit default returns false when every stage overrides to a different provider',
+    hasProviderUsageIntent(fullyOverriddenProviders, 'openai', ['anthropic', 'anthropic', 'anthropic']) === false,
+  );
+
+  assert(
+    'explicit default returns true when at least one stage has no override',
+    hasProviderUsageIntent(fullyOverriddenProviders, 'openai', ['anthropic', undefined, 'anthropic']) === true,
+  );
 }
 
 async function main(): Promise<void> {

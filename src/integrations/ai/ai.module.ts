@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { AiService } from './ai.service';
-import { ConversationModule } from './conversation/conversation.module';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { LlmAdapterFactory } from './adapters/llm-adapter.factory';
 import { AnthropicAdapter } from './adapters/anthropic.adapter';
@@ -8,9 +7,10 @@ import { OpenAIAdapter } from './adapters/openai.adapter';
 import { GeminiAdapter } from './adapters/gemini.adapter';
 import { DeepSeekAdapter } from './adapters/deepseek.adapter';
 import { StageAgentService } from './stage-agent.service';
+import { ConversationService } from './conversation/conversation.service';
+import { ChatUIService } from './conversation/chat-ui.service';
 
 @Module({
-  imports: [ConversationModule],
   providers: [
     AnthropicAdapter,
     OpenAIAdapter,
@@ -20,7 +20,9 @@ import { StageAgentService } from './stage-agent.service';
     AiService,
     StageAgentService,
     LoggerService,
+    ConversationService,
+    ChatUIService,
   ],
-  exports: [AiService, StageAgentService, ConversationModule],
+  exports: [AiService, StageAgentService, ConversationService, ChatUIService],
 })
 export class AIModule {}

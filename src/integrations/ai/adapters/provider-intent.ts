@@ -16,7 +16,8 @@ export const hasProviderUsageIntent = (
   const matchingProvider = providers?.find(provider => provider.provider === providerName);
   if (!matchingProvider?.apiKey || !matchingProvider?.model) return false;
 
-  if (matchingProvider.default) return true;
+  const defaultIsReachable = stageProviders.length === 0 || stageProviders.includes(undefined);
+  if (matchingProvider.default && defaultIsReachable) return true;
 
   if (stageProviders.includes(providerName)) return true;
 

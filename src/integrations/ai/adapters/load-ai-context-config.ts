@@ -27,6 +27,9 @@ export const loadAiContextConfig = async (
   ]);
 
   if (globalContent === null && projectContent === null) {
+    // Warning fires for active providers only (explicit default, implicit
+    // first-entry default, or stage-override). Creating the provider's
+    // context file (e.g. ~/.openai/OPENAI.md) suppresses it.
     if (shouldWarnWhenMissing) {
       console.warn(chalk.yellow(`⚠️ No global or project-level configuration found for ${providerName}`));
     }

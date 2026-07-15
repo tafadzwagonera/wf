@@ -48,6 +48,28 @@ describe('hasProviderUsageIntent', () => {
     expect(hasProviderUsageIntent(providers as WfAiProviderConfig[], 'anthropic')).toBe(false);
   });
 
+  it('returns false for explicit default when every stage overrides to a different provider', () => {
+    const providers = [
+      { provider: 'anthropic', apiKey: 'sk-ant-xxx', model: 'claude-sonnet-4-6' },
+      { provider: 'openai', apiKey: 'sk-xxx', model: 'gpt-4.1', default: true },
+    ];
+    const stageProviders: (WfAiProviderName | undefined)[] = ['anthropic', 'anthropic', 'anthropic'];
+    expect(hasProviderUsageIntent(providers as WfAiProviderConfig[], 'openai', stageProviders)).toBe(
+      false
+    );
+  });
+
+  it('returns true for explicit default when at least one stage has no override', () => {
+    const providers = [
+      { provider: 'anthropic', apiKey: 'sk-ant-xxx', model: 'claude-sonnet-4-6' },
+      { provider: 'openai', apiKey: 'sk-xxx', model: 'gpt-4.1', default: true },
+    ];
+    const stageProviders: (WfAiProviderName | undefined)[] = ['anthropic', undefined, 'anthropic'];
+    expect(hasProviderUsageIntent(providers as WfAiProviderConfig[], 'openai', stageProviders)).toBe(
+      true
+    );
+  });
+
   it('returns false when provider has no apiKey', () => {
     const providers = [{ provider: 'openai', apiKey: '', model: 'gpt-4.1', default: true }];
     expect(hasProviderUsageIntent(providers as WfAiProviderConfig[], 'openai')).toBe(false);
