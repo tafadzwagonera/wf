@@ -130,7 +130,7 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   {
     comment:
       'Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail',
-    command: 'wf issue:review --ticket-key WBP-2971 --session-id review-session-42 -r service-bookingv3',
+    command: 'wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3',
   },
 ];
 
@@ -827,7 +827,7 @@ export class IssueReviewCommand extends CommandRunner {
     if (!colorized) return rendered.join('\n');
 
     const colorFn = PROVENANCE_COLORS[provenance] ?? chalk.gray;
-    return rendered.map(colorFn).join('\n');
+    return rendered.map(l => colorFn(l)).join('\n');
   }
 
   /**

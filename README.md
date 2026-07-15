@@ -414,9 +414,6 @@ wf issue:review --ticket-key WBP-2971 --force --tracker jira -r service-bookingv
 
 # Review a pull request and post review comments with diff-aligned inline anchors
 wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
-
-# Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail
-wf issue:review --ticket-key WBP-2971 --session-id review-session-42 -r service-bookingv3
 ```
 
 **Options:**

@@ -950,7 +950,21 @@ describe('IssueReviewCommand', () => {
 
       expect(output).toContain('Execution mode: agent');
       expect(output).toContain('Provenance: evidence-based (code-path trace backed by the execution backend)');
-      expect(output).not.toContain('Execution mode: standard\n  Provenance: evidence-based');
+      expect(output).toContain('Execution mode: agent\n  Provenance: evidence-based');
+    });
+
+    it('does not leak array indices into the colorized provenance output', async () => {
+      const { command } = await buildCommand();
+
+      const output = (command as any).formatCallStackInline({
+        ...mockReview,
+        executionMode: 'cli',
+        traceProvenance: 'evidence-based',
+      });
+
+      expect(output).not.toMatch(/Execution mode: \w+ \d/);
+      expect(output).toContain('Execution mode: cli');
+      expect(output).toContain('Provenance: evidence-based');
     });
 
     it('renders paired suggestions directly under each issue in text output and keeps extras trailing', async () => {
