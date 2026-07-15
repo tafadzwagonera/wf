@@ -83,6 +83,22 @@ describe('parseVerificationManifest', () => {
     expect(manifest.baseline).toEqual([{ id: 'build', run: 'yarn build', policy: 'enforced' }]);
   });
 
+  it('should accept override as a valid verification policy', () => {
+    const manifest = parseVerificationManifest(
+      JSON.stringify({
+        version: 2,
+        implement: {
+          baseline: [{ id: 'lint', run: 'yarn lint', policy: 'override' }],
+        },
+      }),
+      '/tmp/verification.json',
+      'implement'
+    );
+
+    expect(manifest.baseline).toHaveLength(1);
+    expect(manifest.baseline[0].policy).toBe('override');
+  });
+
   it('rejects unsupported manifest versions', () => {
     expect(() =>
       parseVerificationManifest(JSON.stringify({ version: 99, baseline: [] }), '/tmp/verification.json')

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const verificationPolicySchema = z.enum(['enforced', 'best_effort']);
+export const verificationPolicySchema = z.enum(['enforced', 'best_effort', 'override']);
 
 export const verificationStepSchema = z.object({
   id: z.string(),

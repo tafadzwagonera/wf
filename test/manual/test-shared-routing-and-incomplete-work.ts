@@ -51,6 +51,7 @@ const run = async (): Promise<void> => {
 
   const openaiSource = fs.readFileSync(path.join(adaptersDir, 'openai-agent.adapter.ts'), 'utf8');
   const anthropicSource = fs.readFileSync(path.join(adaptersDir, 'anthropic-agent.adapter.ts'), 'utf8');
+  const cliSource = fs.readFileSync(path.join(adaptersDir, 'claude-cli.adapter.ts'), 'utf8');
   const sharedSource = fs.readFileSync(path.join(adaptersDir, 'shared-routing.ts'), 'utf8');
 
   // --- Shared routing exports ---
@@ -169,6 +170,20 @@ const run = async (): Promise<void> => {
   assert('isGlobPattern returns false for path with dots', !isGlobPattern('src/app.module.ts'));
   assert('OpenAI adapter filters glob patterns from unvisited files', openaiSource.includes('isGlobPattern'));
   assert('Anthropic adapter filters glob patterns from unvisited files', anthropicSource.includes('isGlobPattern'));
+
+  // --- Continuation passes use routed model ---
+
+  assert(
+    'Anthropic adapter continuation does not use defaultModel',
+    !anthropicSource.includes('iterationModel = modelRoutingResult.defaultModel')
+    && !anthropicSource.includes('iterationModel')
+  );
+
+  assert(
+    'Claude CLI adapter continuation uses routed model',
+    !cliSource.includes('modelRoutingResult.defaultModel')
+    && cliSource.includes('const model = modelRoutingResult.model')
+  );
 
   console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));
 

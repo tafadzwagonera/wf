@@ -529,7 +529,6 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
       }
 
       passNumber++;
-      const iterationModel = modelRoutingResult.defaultModel;
 
       console.log(
         chalk.yellow(
@@ -545,7 +544,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
         prompt: continuationPrompt,
         options: {
           ...sdkOptions,
-          model: iterationModel,
+          model,
           resume: sessionId,
         },
       });

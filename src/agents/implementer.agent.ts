@@ -21,7 +21,7 @@ import { getWfStateDir } from '../shared/utils/wf-paths';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
-import { loadVerificationManifest, type VerificationStep } from '../shared/utils/verification-manifest';
+import { loadVerificationManifest, mergeVerificationSteps, type VerificationStep } from '../shared/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import { ClaudeCliAdapter } from '../integrations/ai/adapters/claude-cli.adapter';
@@ -431,7 +431,7 @@ export class ImplementerAgent {
     const waiverIds = new Set((planVerification?.waivers ?? []).map(w => w.id));
     const targetedSteps = planVerification?.targeted ?? [];
 
-    return [...baselineSteps, ...targetedSteps]
+    return mergeVerificationSteps(baselineSteps, targetedSteps)
       .filter(step => !waiverIds.has(step.id))
       .map(step => this.toVerificationScript(step, repoDir, packageScripts));
   }
@@ -442,11 +442,13 @@ export class ImplementerAgent {
     packageScripts: Record<string, string>
   ): VerificationScript {
     const command = this.normalizeVerificationCommand(step.run, repoDir);
+    // 'override' is a dedup-only directive; once merged, treat as 'enforced' for execution
+    const effectivePolicy = step.policy === 'override' ? 'enforced' : step.policy;
     return {
       id: step.id,
       name: step.id,
       command,
-      policy: step.policy,
+      policy: effectivePolicy,
       reason: step.reason,
       aliases: this.findPackageAliases(command, packageScripts),
     };

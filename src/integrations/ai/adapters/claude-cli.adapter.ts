@@ -197,7 +197,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       const continueArgs = buildCliArgs({
         prompt: continuationPrompt,
         appendSystemPrompt,
-        model: modelRoutingResult.defaultModel,
+        model,
         cwd: repoDir,
         sessionId,
         tools: IMPLEMENT_TOOLS,

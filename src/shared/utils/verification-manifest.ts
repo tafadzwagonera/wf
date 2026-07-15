@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { verificationPolicySchema } from '../schemas/verification.schema';
 import type {
   VerificationPolicy,
   VerificationStep,
@@ -10,6 +11,8 @@ import type {
 
 export type { VerificationPolicy, VerificationStep, VerificationWaiver, VerificationManifest, PlanVerificationConfig };
 
+const VALID_POLICIES = new Set<string>(verificationPolicySchema.options);
+
 const normalizeStep = (value: unknown, filePath: string): VerificationStep => {
   if (!value || typeof value !== 'object') {
     throw new Error(`Verification step is not valid: ${filePath}`);
@@ -18,7 +21,7 @@ const normalizeStep = (value: unknown, filePath: string): VerificationStep => {
   const rawStep = value as Record<string, unknown>;
   const id = typeof rawStep.id === 'string' ? rawStep.id.trim() : '';
   const run = typeof rawStep.run === 'string' ? rawStep.run.trim() : '';
-  const policy = rawStep.policy === 'best_effort' ? 'best_effort' : rawStep.policy;
+  const policy = rawStep.policy;
 
   if (!id) {
     throw new Error(`Verification step is missing id: ${filePath}`);
@@ -28,14 +31,14 @@ const normalizeStep = (value: unknown, filePath: string): VerificationStep => {
     throw new Error(`Verification step is missing run command: ${filePath}`);
   }
 
-  if (policy !== 'enforced' && policy !== 'best_effort') {
+  if (typeof policy !== 'string' || !VALID_POLICIES.has(policy)) {
     throw new Error(`Verification step has an invalid policy: ${filePath}`);
   }
 
   return {
     id,
     run,
-    policy,
+    policy: policy as VerificationPolicy,
     reason: typeof rawStep.reason === 'string' && rawStep.reason.trim() ? rawStep.reason.trim() : undefined,
   };
 };
@@ -58,6 +61,29 @@ const normalizeWaiver = (value: unknown, filePath: string): VerificationWaiver =
   }
 
   return { id, reason };
+};
+
+/**
+ * Merge baseline and targeted verification steps by ID.
+ * Targeted steps with `policy: 'override'` replace a baseline entry with
+ * the same ID; other targeted duplicates are silently dropped (baseline wins).
+ * New targeted IDs are appended in order.
+ *
+ * @param baseline - Steps from the verification manifest
+ * @param targeted - Steps from the plan's targeted verification config
+ * @returns Deduplicated steps preserving baseline insertion order
+ */
+export const mergeVerificationSteps = (
+  baseline: VerificationStep[],
+  targeted: VerificationStep[],
+): VerificationStep[] => {
+  const mergedById = new Map(baseline.map(s => [s.id, s]));
+  for (const step of targeted) {
+    if (step.policy === 'override' || !mergedById.has(step.id)) {
+      mergedById.set(step.id, step);
+    }
+  }
+  return [...mergedById.values()];
 };
 
 export const normalizePlanVerification = (value: unknown, filePath: string): PlanVerificationConfig | undefined => {

@@ -219,6 +219,16 @@ Example verification manifest:
 }
 ```
 
+Verification step policies:
+
+| Policy | Behaviour |
+| --- | --- |
+| `enforced` | Failure blocks the run and is reported as an error. |
+| `best_effort` | Failure is logged as a warning but does not block. |
+| `override` | Targeted-only. Replaces a baseline step with the same `id`. After dedup, executes as `enforced`. |
+
+When a plan includes `targeted` verification steps whose `id` matches a baseline step, the baseline entry wins unless the targeted step uses `policy: "override"`. Targeted steps with new IDs are appended after the baseline.
+
 ### TypeScript Config Support
 
 - Bun and Deno support TypeScript config files natively.
