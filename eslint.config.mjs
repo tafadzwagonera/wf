@@ -60,7 +60,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/commands/*.command.ts'],
+    files: ['src/commands/*.command.ts', 'src/agents/*.agent.ts'],
     rules: {
       'max-lines-per-function': ['warn', { max: 20, skipBlankLines: true, skipComments: true }],
     },

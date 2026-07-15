@@ -1,7 +1,7 @@
 // src/agents/planner.agent.ts
 import { Injectable } from '@nestjs/common';
 import chalk from 'chalk';
-import * as path from 'path';
+import * as path from 'node:path';
 import { TicketArtifact, PlanArtifact, PlannerOptions, ResolutionAction } from './interfaces';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import { buildPlanArtifactResolutionNotice } from '../shared/utils/plan-artifact';
@@ -23,28 +23,28 @@ export class PlannerAgent {
       console.log(chalk.gray('─'.repeat(70)));
       console.log(chalk.gray(`  Action type: ${options.action}`));
     }
+
     const onProgress = options.silent ? undefined : (line: string) => console.log(chalk.gray(line));
+    const artifact = await this.planStageService.createPlanArtifact(ticket, { ...options, onProgress });
 
-    const artifact = await this.planStageService.createPlanArtifact(ticket, {
-      ...options,
-      onProgress,
-    });
-
-    if (!options.silent) {
-      if (artifact.fromCache) {
-        console.log(chalk.yellow(`⚠️  Skipping PLAN - artifact exists: ${artifact.path}`));
-      } else if (options.skipExisting === false) {
-        console.log(chalk.yellow('⚠️  --force enabled; regenerated plan artifact'));
-        console.log(chalk.green('✓ Plan generated'));
-      } else {
-        console.log(chalk.green('✓ Plan generated'));
-      }
-      console.log(chalk.bold('  Summary:'), chalk.bold.cyan(artifact.plan.summary));
-      console.log(chalk.bold('  Action:'), chalk.cyan(artifact.plan.action));
-      console.log(chalk.bold('  Complexity:'), chalk.cyan(artifact.plan.estimatedComplexity));
-      console.log(chalk.gray(`  Saved to: ${artifact.path}`));
-    }
+    if (!options.silent) this.logPlanOutcome(artifact, options.skipExisting);
     return artifact;
+  }
+
+  private logPlanOutcome(artifact: PlanArtifact & { fromCache?: boolean }, skipExisting?: boolean): void {
+    if (artifact.fromCache) {
+      console.log(chalk.yellow(`⚠️  Skipping PLAN - artifact exists: ${artifact.path}`));
+    }
+    if (!artifact.fromCache && skipExisting === false) {
+      console.log(chalk.yellow('⚠️  --force enabled; regenerated plan artifact'));
+    }
+    if (!artifact.fromCache) {
+      console.log(chalk.green('✓ Plan generated'));
+    }
+    console.log(chalk.bold('  Summary:'), chalk.bold.cyan(artifact.plan.summary));
+    console.log(chalk.bold('  Action:'), chalk.cyan(artifact.plan.action));
+    console.log(chalk.bold('  Complexity:'), chalk.cyan(artifact.plan.estimatedComplexity));
+    console.log(chalk.gray(`  Saved to: ${artifact.path}`));
   }
 
   /**
@@ -52,6 +52,7 @@ export class PlannerAgent {
    *
    * @param ticketPath - The file path to the ticket markdown artifact
    * @param action - Optional action type to load a specific plan; if omitted, the most recent plan is auto-discovered
+   * @param silent
    * @returns The PlanArtifact with the loaded plan, resolved action, and file path
    * @throws Error if the specified plan file does not exist or contains invalid JSON
    */

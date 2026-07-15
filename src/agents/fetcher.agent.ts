@@ -1,4 +1,3 @@
-// src/agents/fetcher.agent.ts
 import { Injectable } from '@nestjs/common';
 import chalk from 'chalk';
 import { TicketArtifact, FetcherOptions } from './interfaces';
@@ -20,23 +19,30 @@ export class FetcherAgent {
       console.log(chalk.bold.yellow('📋 STAGE 1: Fetch Ticket'));
       console.log(chalk.gray('─'.repeat(70)));
     }
+
     const artifact = await this.fetchStageService.fetchArtifact(ticketKey, options);
-    const titleMatch = artifact.content.match(/^#\s+[^:]+:\s+(.+)$/m);
+
     if (!options.silent) {
-      if (artifact.fromCache) {
-        console.log(chalk.yellow(`⚠️  Using existing FETCH artifact: ${artifact.path}`));
-      }
-      if (!artifact.fromCache && options.skipExisting === false) {
-        console.log(chalk.yellow(`⚠️  --force enabled; overwrote ticket artifact`));
-        console.log(chalk.green('✓ Ticket refetched'));
-      }
-      if (!artifact.fromCache && options.skipExisting !== false) {
-        console.log(chalk.green('✓ Ticket fetched'));
-      }
+      this.logFetchOutcome(artifact, options);
+      const titleMatch = /^#\s+[^:]+:\s+(.+)$/m.exec(artifact.content);
       console.log(chalk.bold('  Title:'), chalk.bold.cyan(titleMatch?.[1] ?? ticketKey));
       console.log(chalk.gray(`  Saved to: ${artifact.path}`));
     }
+
     return artifact;
+  }
+
+  private logFetchOutcome(artifact: TicketArtifact & { fromCache?: boolean }, options: FetcherOptions): void {
+    if (artifact.fromCache) {
+      console.log(chalk.yellow(`⚠️  Using existing FETCH artifact: ${artifact.path}`));
+      return;
+    }
+    if (options.skipExisting === false) {
+      console.log(chalk.yellow(`⚠️  --force enabled; overwrote ticket artifact`));
+      console.log(chalk.green('✓ Ticket refetched'));
+      return;
+    }
+    console.log(chalk.green('✓ Ticket fetched'));
   }
 
   /**
@@ -45,6 +51,7 @@ export class FetcherAgent {
    * @param ticketKey - The ticket identifier (e.g. WBP-1234)
    * @param trackerName - The platform directory name (e.g. 'jira', 'bitbucket')
    * @param baseDir - Base directory for artifact storage (defaults to process.cwd())
+   * @param silent
    * @returns The TicketArtifact with key, markdown content, and file path
    * @throws Error if the ticket file does not exist on disk
    */

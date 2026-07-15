@@ -1,6 +1,5 @@
-// src/agents/utils.ts
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import chalk from 'chalk';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 
@@ -31,23 +30,33 @@ export const resolveCustomArtifactDir = (baseDir: string): string =>
  * @returns The summary text, or 'Implementation' if no match found
  */
 export const extractSummary = (content: string): string => {
-  const keyedMatch = content.match(/^#\s+[A-Z]+-\d+:\s+(.+)$/m);
+  const keyedMatch = /^#\s+[A-Z]+-\d+:\s+(.+)$/m.exec(content);
   if (keyedMatch) return keyedMatch[1];
 
-  const headingMatch = content.match(/^#\s+(.+)$/m);
+  const headingMatch = /^#\s+(.+)$/m.exec(content);
   if (headingMatch) return headingMatch[1];
 
   return 'Implementation';
 };
 
-/**
- * Convert a string to a URL-safe slug.
- * Lowercases, strips non-word characters, collapses spaces to hyphens,
- * deduplicates hyphens, and strips leading/trailing hyphens.
- *
- * @param text - Input string to slugify
- * @returns URL-safe slug
- */
+const tryResolvePath = (candidate: string): string | null => {
+  if (path.isAbsolute(candidate) && fs.existsSync(candidate)) return candidate;
+
+  const relPath = path.resolve(process.cwd(), candidate);
+  if (fs.existsSync(relPath)) return relPath;
+
+  const siblingPath = path.resolve(process.cwd(), '..', candidate);
+  if (fs.existsSync(siblingPath)) return siblingPath;
+
+  return null;
+};
+
+const tryResolveSegmentFallback = (repo: string): string | null => {
+  const segments = repo.split(/\//).filter(Boolean);
+  const localRepoName = segments.length > 1 ? segments[1] : null;
+  return localRepoName ? tryResolvePath(localRepoName) : null;
+};
+
 /**
  * Resolve the base directory for a repository.
  * Tries: absolute path → relative to cwd → sibling of cwd → falls back to cwd.
@@ -58,37 +67,8 @@ export const extractSummary = (content: string): string => {
 export const resolveRepoBasePath = (repo?: string): string => {
   if (!repo) return process.cwd();
 
-  const tryResolvePath = (candidate: string): string | null => {
-    if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
-      return candidate;
-    }
-
-    const relPath = path.resolve(process.cwd(), candidate);
-    if (fs.existsSync(relPath)) {
-      return relPath;
-    }
-
-    const siblingPath = path.resolve(process.cwd(), '..', candidate);
-    if (fs.existsSync(siblingPath)) {
-      return siblingPath;
-    }
-
-    return null;
-  };
-
-  const resolvedRepoPath = tryResolvePath(repo);
-  if (resolvedRepoPath) {
-    return resolvedRepoPath;
-  }
-
-  const repoSegments = repo.split(/\//).filter(Boolean);
-  const localRepoName = repoSegments.length > 1 ? repoSegments[1] : null;
-  if (localRepoName) {
-    const resolvedRepoNamePath = tryResolvePath(localRepoName);
-    if (resolvedRepoNamePath) {
-      return resolvedRepoNamePath;
-    }
-  }
+  const resolved = tryResolvePath(repo) ?? tryResolveSegmentFallback(repo);
+  if (resolved) return resolved;
 
   console.log(
     chalk.yellow(`⚠️ Repository '${repo}' not found as a path or sibling directory. Using current directory.`)
@@ -96,13 +76,21 @@ export const resolveRepoBasePath = (repo?: string): string => {
   return process.cwd();
 };
 
+/**
+ * Convert a string to a URL-safe slug.
+ * Lowercases, strips non-word characters, collapses spaces to hyphens,
+ * deduplicates hyphens, and strips leading/trailing hyphens.
+ *
+ * @param text - Input string to slugify
+ * @returns URL-safe slug
+ */
 export const slugify = (text: string): string =>
   text
     .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replaceAll(/[^\w\s-]/g, '')
+    .replaceAll(/\s+/g, '-')
+    .replaceAll(/-+/g, '-')
+    .replaceAll(/(^-+)|(-+$)/g, '');
 
 export const MAX_BRANCH_NAME_LENGTH = 100;
 

@@ -12,6 +12,7 @@ describe('CommitterAgent', () => {
           provide: GitService,
           useValue: {
             getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            stageAll: jest.fn().mockResolvedValue(undefined),
             getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
             getRecentCommits: jest.fn().mockResolvedValue([{ message: 'WBP-100: prior change' }]),
             commit: jest.fn().mockResolvedValue('abc123'),

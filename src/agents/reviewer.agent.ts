@@ -1,9 +1,9 @@
 // src/agents/reviewer.agent.ts
 import { Injectable } from '@nestjs/common';
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import chalk from 'chalk';
-import type { CodeReview } from '../integrations/ai/ai.service';
-import { REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../integrations/ai/ai.service';
+import type { CodeReview } from '../shared/types/review.types';
+import { REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../shared/types/review.types';
 import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
@@ -28,94 +28,96 @@ export class ReviewerAgent {
    * @returns ReviewArtifact with review data, disk path, and approval status; or null when skipped
    */
   async execute(ticket: TicketArtifact, options: ReviewerOptions = {}): Promise<ReviewArtifact | null> {
-    const reviewPath = deriveReviewArtifactPath(ticket.path);
-
-    if (options.skipExisting && fs.existsSync(reviewPath)) {
-      if (!options.silent) {
-        console.log(chalk.gray(`🔍 Skipping REVIEW - artifact exists: ${reviewPath}`));
-      }
-      const content = fs.readFileSync(reviewPath, 'utf-8');
-      const approved = content.includes('✓ Approved');
-      return {
-        review: {
-          summary: '',
-          issues: [],
-          suggestions: [],
-          approved,
-        } as CodeReview,
-        path: reviewPath,
-        approved,
-      };
-    }
+    const cached = this.tryLoadCachedReview(ticket.path, options);
+    if (cached) return cached;
 
     if (!options.suppressHeader && !options.silent) {
       console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
       console.log(chalk.gray('─'.repeat(70)));
     }
 
-    const status = await this.gitService.getStatus(options.repoDir);
-    if (status.files.length === 0) {
-      if (!options.silent) {
-        if (options.skipExisting === false) {
-          console.log(
-            chalk.yellow('⚠️  --force requested, but no uncommitted changes are available for review regeneration')
-          );
-        } else {
-          console.log(chalk.yellow('⚠️  No uncommitted changes to review'));
-        }
-      }
-      return null;
-    }
+    if (await this.hasNoChanges(options)) return null;
+    if (!options.silent) console.log(chalk.bold('  Analyzing changes...'));
 
+    const review = await this.stageAndReview(ticket, options);
+    if (!options.silent) this.logReview(review);
+
+    const artifact = this.reviewStageService.createReviewArtifact(ticket, review);
+    if (!options.silent) console.log(chalk.gray(`\n  Saved to: ${artifact.path}`));
+    return artifact;
+  }
+
+  private tryLoadCachedReview(ticketPath: string, options: ReviewerOptions): ReviewArtifact | null {
+    const reviewPath = deriveReviewArtifactPath(ticketPath);
+    if (!options.skipExisting || !fs.existsSync(reviewPath)) return null;
+
+    if (!options.silent) {
+      console.log(chalk.gray(`🔍 Skipping REVIEW - artifact exists: ${reviewPath}`));
+    }
+    const content = fs.readFileSync(reviewPath, 'utf-8');
+    const approved = content.includes(`✓ ${REVIEW_VERDICT_APPROVED}`);
+    return {
+      review: { summary: '', issues: [], suggestions: [], approved } as CodeReview,
+      path: reviewPath,
+      approved,
+    };
+  }
+
+  private async hasNoChanges(options: ReviewerOptions): Promise<boolean> {
+    const status = await this.gitService.getStatus(options.repoDir);
+    if (status.files.length > 0) return false;
+
+    if (!options.silent) {
+      const message = options.skipExisting === false
+        ? '⚠️  --force requested, but no uncommitted changes are available for review regeneration'
+        : '⚠️  No uncommitted changes to review';
+      console.log(chalk.yellow(message));
+    }
+    return true;
+  }
+
+  private async stageAndReview(ticket: TicketArtifact, options: ReviewerOptions): Promise<CodeReview> {
     await this.gitService.stageAll(options.repoDir);
     const diff = await this.gitService.getDiff(true, options.repoDir);
 
-    if (!options.silent) {
-      console.log(chalk.bold('  Analyzing changes...'));
-    }
-
-    const review = await this.reviewStageService.reviewDiff(diff, {
+    return this.reviewStageService.reviewDiff(diff, {
       context: `ticket ${ticket.ticketKey}`,
       repoDir: options.repoDir,
       resumeProviderSessionId: options.resumeProviderSessionId,
       priorStageSummary: options.priorStageSummary,
     });
+  }
 
-    if (!options.silent) {
-      console.log(chalk.green('\n✓ Review complete'));
-      console.log(chalk.bold('\n  Summary:'), chalk.bold.cyan(review.summary));
+  private logReview(review: CodeReview): void {
+    console.log(chalk.green('\n✓ Review complete'));
+    console.log(chalk.bold('\n  Summary:'), chalk.bold.cyan(review.summary));
+    this.logIssues(review.issues);
+    this.logSuggestions(review.suggestions);
 
-      if (review.issues.length > 0) {
-        console.log(chalk.bold('\n  Issues found:'));
-        review.issues.forEach(issue => {
-          let color = chalk.blue;
-          if (issue.severity === 'error') color = chalk.red;
-          if (issue.severity === 'warning') color = chalk.yellow;
-          console.log(color(`    [${issue.severity}] ${issue.message}`));
-          if (issue.file) {
-            console.log(chalk.gray(`      ${issue.file}${issue.line ? `:${issue.line}` : ''}`));
-          }
-        });
+    const verdict = review.approved
+      ? chalk.green(`✓ ${REVIEW_VERDICT_APPROVED}`)
+      : chalk.red(`✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`);
+    console.log(chalk.bold('\n  Status:'), verdict);
+  }
+
+  private logIssues(issues: CodeReview['issues']): void {
+    if (issues.length === 0) return;
+    console.log(chalk.bold('\n  Issues found:'));
+    const severityColors: Record<string, typeof chalk.red> = { error: chalk.red, warning: chalk.yellow };
+    for (const issue of issues) {
+      const color = severityColors[issue.severity] ?? chalk.blue;
+      console.log(color(`    [${issue.severity}] ${issue.message}`));
+      if (issue.file) {
+        console.log(chalk.gray(`      ${issue.file}${issue.line ? `:${issue.line}` : ''}`));
       }
-
-      if (review.suggestions.length > 0) {
-        console.log(chalk.bold('\n  Suggestions:'));
-        review.suggestions.forEach(s => console.log(chalk.cyan(`    - ${s}`)));
-      }
-
-      console.log(
-        chalk.bold('\n  Status:'),
-        review.approved
-          ? chalk.green(`✓ ${REVIEW_VERDICT_APPROVED}`)
-          : chalk.red(`✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`)
-      );
     }
+  }
 
-    const artifact = this.reviewStageService.createReviewArtifact(ticket, review);
-    if (!options.silent) {
-      console.log(chalk.gray(`\n  Saved to: ${artifact.path}`));
+  private logSuggestions(suggestions: string[]): void {
+    if (suggestions.length === 0) return;
+    console.log(chalk.bold('\n  Suggestions:'));
+    for (const s of suggestions) {
+      console.log(chalk.cyan(`    - ${s}`));
     }
-
-    return artifact;
   }
 }
