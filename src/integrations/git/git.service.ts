@@ -7,6 +7,91 @@ import { LoggerService } from '../../shared/logger/logger.service';
 export type { BranchInfo, CommitOptions, CommitInfo } from '../../shared/types/git.types';
 import type { BranchInfo, CommitOptions, CommitInfo } from '../../shared/types/git.types';
 
+/**
+ * Create a SimpleGit instance for `cwd` with LEFTHOOK disabled so automated
+ * commit flows are not blocked by git hooks.
+ *
+ * @param cwd - Repository working directory
+ * @returns A SimpleGit instance with LEFTHOOK=0 in its environment
+ */
+const createCommitGit = (cwd: string): SimpleGit =>
+  simpleGit(cwd).env({ ...process.env, LEFTHOOK: '0' });
+
+/**
+ * Re-throw `error` as a {@link GitError} unless it already is one, extracting
+ * the most descriptive detail available from the raw error object.
+ *
+ * @param error - The caught value
+ * @param message - Human-readable error message for the GitError
+ * @returns Never — always throws
+ */
+const wrapGitError = (error: unknown, message: string): never => {
+  if (error instanceof GitError) throw error;
+  const e = error as Record<string, unknown>;
+  const detail = e?.git ?? e?.message ?? error;
+  throw new GitError(message, detail);
+};
+
+/**
+ * Assemble a {@link BranchInfo} value object from git status and branch data.
+ *
+ * @param status - Current git status
+ * @param branches - Current branch summary
+ * @param devBranches - Detected development branches (first entry used as primary)
+ * @returns Populated BranchInfo
+ */
+const buildBranchInfo = (
+  status: StatusResult,
+  branches: BranchSummary,
+  devBranches: string[]
+): BranchInfo => ({
+  current: status.current ?? 'HEAD',
+  all: branches.all,
+  development: devBranches[0],
+  isClean: status.isClean(),
+  hasUncommittedChanges: !status.isClean(),
+});
+
+/**
+ * Resolve the base branch to create a new branch from.
+ *
+ * @param branches - Full branch summary from simple-git
+ * @param currentBranch - Currently checked-out branch name (may be null)
+ * @param baseBranch - Caller-supplied override; takes precedence when set
+ * @returns The branch name to use as the base
+ */
+const resolveBaseBranch = (
+  branches: BranchSummary,
+  currentBranch: string | null,
+  baseBranch?: string
+): string => {
+  const devBranches = branches.all.filter(b => {
+    const name = b.includes('/') ? b.split('/').pop()! : b;
+    return name.includes('dev');
+  });
+  return baseBranch ?? devBranches[0] ?? currentBranch ?? 'HEAD';
+};
+
+/**
+ * Run `git check-ignore` on a single chunk of paths, returning the ignored subset.
+ * exit code 1 from git means "none ignored" — that is not an error.
+ *
+ * @param git - SimpleGit instance to use
+ * @param chunk - Slice of paths to check (should be ≤ 100 to stay within OS arg limits)
+ * @returns The paths from `chunk` that are gitignored
+ */
+const checkIgnoredChunk = async (git: SimpleGit, chunk: string[]): Promise<string[]> => {
+  try {
+    const result = await git.raw(['check-ignore', ...chunk]);
+    return result
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
 @Injectable()
 export class GitService {
   private git: SimpleGit;
@@ -33,17 +118,8 @@ export class GitService {
     try {
       const status: StatusResult = await git.status();
       const branches: BranchSummary = await git.branch();
-
-      // Detect development branch (first match for backward compat)
       const devBranches = this.detectDevelopmentBranches(branches.all);
-
-      return {
-        current: status.current || 'HEAD',
-        all: branches.all,
-        development: devBranches[0],
-        isClean: status.isClean(),
-        hasUncommittedChanges: !status.isClean(),
-      };
+      return buildBranchInfo(status, branches, devBranches);
     } catch (error) {
       throw new GitError('Failed to get branch information', error);
     }
@@ -80,37 +156,42 @@ export class GitService {
   async createBranch(branchName: string, baseBranch?: string, cwd?: string): Promise<void> {
     const git = cwd ? simpleGit(cwd) : this.git;
     try {
-      // Validate branch name
-      if (!this.isValidBranchName(branchName)) {
-        throw new GitError(
-          `Invalid branch name: ${branchName}. Branch names should follow pattern: feature/name or WBP-1234__feature-name`
-        );
-      }
-
-      const status = await git.status();
-      const branches = await git.branch();
-
-      // Check if branch already exists
+      this.assertValidBranchName(branchName);
+      const [status, branches] = await Promise.all([git.status(), git.branch()]);
       if (branches.all.includes(branchName)) {
-        this.logger.warn(`Branch ${branchName} already exists, checking out...`);
-        await git.checkout(branchName);
-        return;
+        return void (await this.checkoutExistingBranch(git, branchName));
       }
-
-      // Determine base branch
-      const devBranches = this.detectDevelopmentBranches(branches.all);
-      const base = baseBranch || devBranches[0] || status.current || 'HEAD';
-
-      // Create and checkout new branch from the specified base
+      const base = resolveBaseBranch(branches, status.current, baseBranch);
       await git.checkout(['-b', branchName, base]);
-
       this.logger.success(`Created and checked out branch: ${branchName} from ${base}`);
     } catch (error) {
-      if (error instanceof GitError) {
-        throw error;
-      }
-      throw new GitError(`Failed to create branch: ${branchName}`, error);
+      wrapGitError(error, `Failed to create branch: ${branchName}`);
     }
+  }
+
+  /**
+   * Throw a {@link GitError} if `name` does not match any recognised branch
+   * name pattern (feature/name, WBP-1234__feature-name, or simple-name).
+   *
+   * @param name - Branch name to validate
+   */
+  private assertValidBranchName(name: string): void {
+    if (!this.isValidBranchName(name)) {
+      throw new GitError(
+        `Invalid branch name: ${name}. Branch names should follow pattern: feature/name or WBP-1234__feature-name`
+      );
+    }
+  }
+
+  /**
+   * Check out an already-existing local branch and log a warning.
+   *
+   * @param git - SimpleGit instance to use
+   * @param branchName - Name of the branch to check out
+   */
+  private async checkoutExistingBranch(git: SimpleGit, branchName: string): Promise<void> {
+    this.logger.warn(`Branch ${branchName} already exists, checking out...`);
+    await git.checkout(branchName);
   }
 
   private isValidBranchName(name: string): boolean {
@@ -126,53 +207,55 @@ export class GitService {
 
   async commit(options: CommitOptions): Promise<string> {
     try {
-      // Always create a fresh instance so LEFTHOOK=0 can be set without
-      // mutating the shared this.git. LEFTHOOK=0 is the officially supported
-      // skip mechanism — all Lefthook-generated hooks check this var and
-      // exit 0 immediately, preventing hangs in automated commit flows.
-      const git = simpleGit(options.cwd ?? process.cwd()).env({
-        ...process.env,
-        LEFTHOOK: '0',
-      });
-
+      const git = createCommitGit(options.cwd ?? process.cwd());
       const status = await git.status();
       this.ensureGitignoreIsNotStaged(status.staged);
-
-      // If specific files provided, add them
-      if (options.files && options.files.length > 0) {
-        this.ensureGitignoreIsNotStaged(options.files);
-        await git.add(options.files);
-      } else if (!status.staged.length && status.files.length > 0) {
-        // Add all modified files if nothing is staged, excluding .wf/** runtime
-        // artifacts and wf config files that wf writes into the consuming app's
-        // directory. See src/config/wf-config-loader.ts for the full list of
-        // recognized config file names.
-        const filesToAdd = this.filterStageable(status.files.map(f => f.path));
-        if (filesToAdd.length > 0) {
-          await git.add(filesToAdd);
-        }
-      }
-
-      // Check if there are changes to commit
-      const updatedStatus = await git.status();
-      this.ensureGitignoreIsNotStaged(updatedStatus.staged);
-      if (!updatedStatus.staged.length && !options.allowEmpty) {
-        throw new GitError('No changes to commit');
-      }
-
-      // Create commit
-      const result = await git.commit(options.message);
-
-      this.logger.success(`Created commit: ${result.commit}`);
-      return result.commit;
+      await this.stageFilesForCommit(git, status, options.files);
+      return await this.finaliseCommit(git, options);
     } catch (error) {
-      if (error instanceof GitError) {
-        throw error;
-      }
-      const e = error as Record<string, unknown>;
-      const detail = e?.git ?? e?.message ?? error;
-      throw new GitError('Failed to create commit', detail);
+      wrapGitError(error, 'Failed to create commit');
     }
+  }
+
+  /**
+   * Verify staged files, then create the git commit and return its hash.
+   *
+   * @param git - SimpleGit instance (LEFTHOOK=0 already set)
+   * @param options - Commit options including message and allowEmpty flag
+   * @returns The short commit hash
+   */
+  private async finaliseCommit(git: SimpleGit, options: CommitOptions): Promise<string> {
+    const updatedStatus = await git.status();
+    this.ensureGitignoreIsNotStaged(updatedStatus.staged);
+    if (!updatedStatus.staged.length && !options.allowEmpty) {
+      throw new GitError('No changes to commit');
+    }
+    const result = await git.commit(options.message);
+    this.logger.success(`Created commit: ${result.commit}`);
+    return result.commit;
+  }
+
+  /**
+   * Stage files for a commit: explicit files when provided, otherwise all
+   * stageable modified files that are not already staged.
+   *
+   * @param git - SimpleGit instance to use
+   * @param status - Current git status snapshot
+   * @param files - Optional explicit list of files to stage
+   */
+  private async stageFilesForCommit(
+    git: SimpleGit,
+    status: StatusResult,
+    files?: string[]
+  ): Promise<void> {
+    if (files && files.length > 0) {
+      this.ensureGitignoreIsNotStaged(files);
+      await git.add(files);
+      return;
+    }
+    if (status.staged.length || !status.files.length) return;
+    const filesToAdd = this.filterStageable(status.files.map(f => f.path));
+    if (filesToAdd.length > 0) await git.add(filesToAdd);
   }
 
   async getRecentCommits(count: number = 10, cwd?: string): Promise<CommitInfo[]> {
@@ -229,16 +312,9 @@ export class GitService {
       const git = cwd ? simpleGit(cwd) : this.git;
       const status = await git.status();
       const filesToAdd = this.filterStageable(status.files.map(f => f.path));
-      if (filesToAdd.length > 0) {
-        await git.add(filesToAdd);
-      }
+      if (filesToAdd.length > 0) await git.add(filesToAdd);
     } catch (error) {
-      if (error instanceof GitError) {
-        throw error;
-      }
-      const e = error as Record<string, unknown>;
-      const detail = e?.git ?? e?.message ?? error;
-      throw new GitError('Failed to stage all changes', detail);
+      wrapGitError(error, 'Failed to stage all changes');
     }
   }
 
@@ -366,25 +442,12 @@ export class GitService {
     if (paths.length === 0) return [];
 
     const git = cwd ? simpleGit(cwd) : this.git;
-    // Process in chunks to avoid exceeding OS argument length limits.
     const CHUNK_SIZE = 100;
-    const ignored: string[] = [];
-
-    for (let i = 0; i < paths.length; i += CHUNK_SIZE) {
-      const chunk = paths.slice(i, i + CHUNK_SIZE);
-      try {
-        const result = await git.raw(['check-ignore', ...chunk]);
-        ignored.push(
-          ...result
-            .split('\n')
-            .map(line => line.trim())
-            .filter(Boolean)
-        );
-      } catch {
-        // exit code 1 means "none of the paths are ignored" — not an error
-      }
-    }
-
-    return ignored;
+    const results = await Promise.all(
+      Array.from({ length: Math.ceil(paths.length / CHUNK_SIZE) }, (_, i) =>
+        checkIgnoredChunk(git, paths.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE))
+      )
+    );
+    return results.flat();
   }
 }

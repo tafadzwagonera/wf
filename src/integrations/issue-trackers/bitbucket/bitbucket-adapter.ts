@@ -11,10 +11,6 @@ import {
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { IssueTrackerConfigService } from '../issue-tracker-config.service';
 
-/**
- * BitBucket platform adapter implementing IssueTrackerAdapter interface
- * Handles BitBucket issues and pull requests
- */
 @Injectable()
 export class BitBucketAdapter implements IssueTrackerAdapter {
   private bitbucket: InstanceType<typeof Bitbucket>;
@@ -28,27 +24,31 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     const email = this.configService.get<string>('atlassian.email');
     const apiToken = this.configService.get<string>('atlassian.bitbucket.apiToken');
     const workspace = this.configService.get<string>('atlassian.bitbucket.workspace');
+    this.bitbucket = this.initBitbucketClient(email, apiToken, Boolean(apiToken || workspace));
+    if (workspace) this.defaultWorkspace = workspace;
+  }
 
-    // Check if tracker has any configuration (partial config detection)
-    const hasPartialConfig = Boolean(apiToken || workspace);
-
+  /**
+   * Initialise the Bitbucket SDK client, warning when credentials are absent.
+   * @param email - Atlassian account e-mail
+   * @param apiToken - Bitbucket API token
+   * @param hasPartialConfig - Whether any Bitbucket config key is set
+   * @returns Configured Bitbucket client instance
+   */
+  private initBitbucketClient(
+    email: string | undefined,
+    apiToken: string | undefined,
+    hasPartialConfig: boolean
+  ): InstanceType<typeof Bitbucket> {
     if (!email || !apiToken) {
-      // Only warn if tracker is enabled
       if (this.issueTrackerConfig.isTrackerEnabled('bitbucket', hasPartialConfig)) {
         this.logger.warn(
           'BitBucket credentials not configured. Set atlassian.email, atlassian.bitbucket.apiToken, and atlassian.bitbucket.workspace in wf.config.*.'
         );
       }
-      this.bitbucket = new Bitbucket();
-    } else {
-      this.bitbucket = new Bitbucket({
-        auth: { username: email, password: apiToken },
-      });
+      return new Bitbucket();
     }
-
-    if (workspace) {
-      this.defaultWorkspace = workspace;
-    }
+    return new Bitbucket({ auth: { username: email, password: apiToken } });
   }
 
   /**
@@ -56,22 +56,12 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
    */
   async createTicket(ticket: UniversalTicket): Promise<IssueTrackerTicketReference> {
     const { workspace, repo } = this.parseProjectOrDefault(ticket.project);
-
     const response = await this.bitbucket.issue.create({
       workspace,
       repo_slug: repo,
-      _body: {
-        title: ticket.title,
-        content: {
-          raw: ticket.description,
-        },
-        kind: this.mapTicketTypeToBitBucket(ticket.type),
-        priority: this.mapPriorityToBitBucket(ticket.priority),
-      },
+      _body: this.buildBitbucketCreateBody(ticket),
     });
-
     const issue = response.data;
-
     return {
       tracker: 'bitbucket',
       id: issue.id.toString(),
@@ -85,32 +75,8 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
    */
   async getTicket(reference: string): Promise<UniversalTicket> {
     const { workspace, repo, issueId } = this.parseReference(reference);
-
-    const response = await this.bitbucket.issue.get({
-      workspace,
-      repo_slug: repo,
-      issue_id: issueId,
-    });
-
-    const issue = response.data;
-
-    return new UniversalTicket({
-      key: `${workspace}/${repo}#${issue.id}`,
-      title: issue.title,
-      description: issue.content?.raw || '',
-      type: this.mapBitBucketTypeToUniversal(issue.kind),
-      status: issue.state,
-      priority: this.mapBitBucketPriorityToUniversal(issue.priority),
-      assignee: issue.assignee?.display_name,
-      reporter: issue.reporter?.display_name,
-      created: new Date(issue.created_on),
-      updated: new Date(issue.updated_on),
-      project: `${workspace}/${repo}`,
-      trackerData: {
-        bitbucketId: issue.id,
-        bitbucketUrl: issue.links?.html?.href,
-      },
-    });
+    const response = await this.bitbucket.issue.get({ workspace, repo_slug: repo, issue_id: issueId });
+    return this.mapBitbucketIssueToUniversal(response.data, workspace, repo);
   }
 
   /**
@@ -118,30 +84,11 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
    */
   async updateTicket(reference: string, updates: Partial<UniversalTicket>): Promise<void> {
     const { workspace, repo, issueId } = this.parseReference(reference);
-
-    const updateData: any = {};
-
-    if (updates.title) {
-      updateData.title = updates.title;
-    }
-    if (updates.description !== undefined) {
-      updateData.content = { raw: updates.description };
-    }
-    if (updates.status) {
-      updateData.state = updates.status;
-    }
-    if (updates.type) {
-      updateData.kind = this.mapTicketTypeToBitBucket(updates.type);
-    }
-    if (updates.priority) {
-      updateData.priority = this.mapPriorityToBitBucket(updates.priority);
-    }
-
     await this.bitbucket.issue.update({
       workspace,
       repo_slug: repo,
       issue_id: issueId,
-      _body: updateData,
+      _body: this.buildBitbucketUpdateBody(updates),
     });
   }
 
@@ -178,20 +125,16 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     if (reference.includes('bitbucket.org') && reference.includes('pull-requests')) {
       const { workspace, repo, prId } = this.parsePullRequestUrl(reference);
       await this.bitbucket.pullrequests.createComment({
-        workspace,
-        repo_slug: repo,
-        pull_request_id: prId,
+        workspace, repo_slug: repo, pull_request_id: prId,
         _body: { content: { raw: body } } as any,
       });
-    } else {
-      const { workspace, repo, issueId } = this.parseReference(reference);
-      await this.bitbucket.issue.createComment({
-        workspace,
-        repo_slug: repo,
-        issue_id: issueId,
-        _body: { content: { raw: body } },
-      });
+      return;
     }
+    const { workspace, repo, issueId } = this.parseReference(reference);
+    await this.bitbucket.issue.createComment({
+      workspace, repo_slug: repo, issue_id: issueId,
+      _body: { content: { raw: body } },
+    });
   }
 
   /**
@@ -235,39 +178,19 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
   async findPullRequestsByTicketKey(ticketKey: string, repoOverride?: string): Promise<string[]> {
     const { workspace, repo } = this.parseProjectOrDefault(repoOverride);
     const pullRequestUrls = new Set<string>();
+    const listArgs = (q: string) => ({ workspace, repo_slug: repo, q });
 
-    // Search 1: branch name contains ticket key (open PRs only)
-    const byBranch = await this.bitbucket.pullrequests.list({
-      workspace,
-      repo_slug: repo,
-      q: `source.branch.name ~ "${ticketKey}" AND state = "OPEN"`,
-    });
-    byBranch.data.values?.forEach((pullRequest: any) => {
-      const url = pullRequest.links?.html?.href;
-      if (url) {
-        pullRequestUrls.add(url);
-      }
-    });
+    const byBranch = await this.bitbucket.pullrequests.list(
+      listArgs(`source.branch.name ~ "${ticketKey}" AND state = "OPEN"`)
+    );
+    this.collectPullRequestUrls(byBranch.data.values, pullRequestUrls);
 
-    // Search 2: PR title contains ticket key (fallback)
-    const byTitle = await this.bitbucket.pullrequests.list({
-      workspace,
-      repo_slug: repo,
-      q: `title ~ "${ticketKey}" AND state = "OPEN"`,
-    });
+    const byTitle = await this.bitbucket.pullrequests.list(listArgs(`title ~ "${ticketKey}" AND state = "OPEN"`));
+    this.collectPullRequestUrls(byTitle.data.values, pullRequestUrls);
 
-    byTitle.data.values?.forEach((pullRequest: any) => {
-      const url = pullRequest.links?.html?.href;
-      if (url) {
-        pullRequestUrls.add(url);
-      }
-    });
-
-    return [...pullRequestUrls].sort((left, right) => {
-      const leftId = this.extractPullRequestId(left);
-      const rightId = this.extractPullRequestId(right);
-      return leftId - rightId || left.localeCompare(right);
-    });
+    const sortById = (left: string, right: string) =>
+      this.extractPullRequestId(left) - this.extractPullRequestId(right) || left.localeCompare(right);
+    return [...pullRequestUrls].sort(sortById);
   }
 
   /**
@@ -285,6 +208,67 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     return response.data as unknown as string;
   }
 
+  /**
+   * Build the Bitbucket issue create request body from a universal ticket.
+   * @param ticket - Universal ticket to convert
+   * @returns Bitbucket create body object
+   */
+  private buildBitbucketCreateBody(ticket: UniversalTicket): Record<string, unknown> {
+    return {
+      title: ticket.title,
+      content: { raw: ticket.description },
+      kind: this.mapTicketTypeToBitBucket(ticket.type),
+      priority: this.mapPriorityToBitBucket(ticket.priority),
+    };
+  }
+
+  /**
+   * Map a raw Bitbucket issue to a UniversalTicket.
+   * @param issue - Raw issue object from Bitbucket API
+   * @param workspace - Bitbucket workspace slug
+   * @param repo - Bitbucket repository slug
+   * @returns Populated UniversalTicket
+   */
+  private mapBitbucketIssueToUniversal(issue: any, workspace: string, repo: string): UniversalTicket {
+    const project = `${workspace}/${repo}`;
+    return new UniversalTicket({
+      key: `${project}#${issue.id}`, title: issue.title,
+      description: issue.content?.raw || '',
+      type: this.mapBitBucketTypeToUniversal(issue.kind), status: issue.state,
+      priority: this.mapBitBucketPriorityToUniversal(issue.priority),
+      assignee: issue.assignee?.display_name, reporter: issue.reporter?.display_name,
+      created: new Date(issue.created_on), updated: new Date(issue.updated_on),
+      project, trackerData: { bitbucketId: issue.id, bitbucketUrl: issue.links?.html?.href },
+    });
+  }
+
+  /**
+   * Build the Bitbucket issue update body from partial universal ticket fields.
+   * @param updates - Partial fields to apply
+   * @returns Bitbucket update body object
+   */
+  private buildBitbucketUpdateBody(updates: Partial<UniversalTicket>): Record<string, unknown> {
+    const body: Record<string, unknown> = {};
+    if (updates.title) body.title = updates.title;
+    if (updates.description !== undefined) body.content = { raw: updates.description };
+    if (updates.status) body.state = updates.status;
+    if (updates.type) body.kind = this.mapTicketTypeToBitBucket(updates.type);
+    if (updates.priority) body.priority = this.mapPriorityToBitBucket(updates.priority);
+    return body;
+  }
+
+  /**
+   * Collect PR URLs from a Bitbucket response page into the given Set.
+   * @param values - Array of pull request objects from the Bitbucket API
+   * @param into - Set to accumulate discovered URLs into
+   */
+  private collectPullRequestUrls(values: any[] | undefined, into: Set<string>): void {
+    for (const pullRequest of values ?? []) {
+      const url = pullRequest.links?.html?.href;
+      if (url) into.add(url);
+    }
+  }
+
   private extractPullRequestId(url: string): number {
     const match = url.match(/pull-requests\/(\d+)/);
     return match ? parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
@@ -295,55 +279,18 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
    */
   async searchTickets(query: string): Promise<UniversalTicket[]> {
     const { workspace, repo } = this.parseProjectOrDefault();
-
-    const response = await this.bitbucket.issue.list({
-      workspace,
-      repo_slug: repo,
-      q: query,
-    });
-
+    const response = await this.bitbucket.issue.list({ workspace, repo_slug: repo, q: query });
     const issues = response.data.values || [];
-
-    return issues.map(
-      (issue: any) =>
-        new UniversalTicket({
-          key: `${workspace}/${repo}#${issue.id}`,
-          title: issue.title,
-          description: issue.content?.raw || '',
-          type: this.mapBitBucketTypeToUniversal(issue.kind),
-          status: issue.state,
-          priority: this.mapBitBucketPriorityToUniversal(issue.priority),
-          assignee: issue.assignee?.display_name,
-          reporter: issue.reporter?.display_name,
-          created: new Date(issue.created_on),
-          updated: new Date(issue.updated_on),
-          project: `${workspace}/${repo}`,
-          trackerData: {
-            bitbucketId: issue.id,
-            bitbucketUrl: issue.links?.html?.href,
-          },
-        })
-    );
+    return issues.map((issue: any) => this.mapBitbucketIssueToUniversal(issue, workspace, repo));
   }
 
-  /**
-   * Parse project string or use default
-   */
-  private parseProjectOrDefault(project?: string): {
-    workspace: string;
-    repo: string;
-  } {
-    const normalizedProject = project?.trim();
-
-    if (normalizedProject && normalizedProject.includes('/')) {
-      const [workspace, repo] = normalizedProject.split('/');
+  private parseProjectOrDefault(project?: string): { workspace: string; repo: string } {
+    const p = project?.trim();
+    if (p?.includes('/')) {
+      const [workspace, repo] = p.split('/');
       return { workspace, repo };
     }
-
-    if (normalizedProject && this.defaultWorkspace) {
-      return { workspace: this.defaultWorkspace, repo: normalizedProject };
-    }
-
+    if (p && this.defaultWorkspace) return { workspace: this.defaultWorkspace, repo: p };
     throw new Error(
       'No BitBucket repository specified. Provide the repository as "workspace/repo" or pass --repos <repo> so the configured workspace can be used.'
     );

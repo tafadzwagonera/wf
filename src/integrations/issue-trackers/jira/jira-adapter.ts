@@ -8,7 +8,7 @@ import {
   TicketType,
   TicketPriority,
 } from '../../../common/dto/universal-ticket.dto';
-import { CreateTicketRequest, UpdateTicketRequest } from '../../jira/dto/jira.dto';
+import { CreateTicketRequest, JiraTicket, UpdateTicketRequest } from '../../jira/dto/jira.dto';
 
 const JIRA_NEUTRAL_PRIORITY = 'Medium';
 
@@ -75,50 +75,14 @@ export class JiraAdapter implements IssueTrackerAdapter {
    */
   async getTicket(reference: string): Promise<UniversalTicket> {
     const jiraTicket = await this.jiraService.getTicket(reference);
-
-    return new UniversalTicket({
-      key: jiraTicket.key,
-      title: jiraTicket.summary,
-      description: jiraTicket.description,
-      type: this.mapJiraTypeToUniversal(jiraTicket.issueType),
-      status: jiraTicket.status.toLowerCase(),
-      priority: this.mapJiraPriorityToUniversal(jiraTicket.priority),
-      assignee: jiraTicket.assignee,
-      reporter: jiraTicket.reporter,
-      created: jiraTicket.created,
-      updated: jiraTicket.updated,
-      labels: jiraTicket.labels,
-      components: jiraTicket.components,
-      trackerData: {
-        jiraId: jiraTicket.id,
-        jiraKey: jiraTicket.key,
-      },
-    });
+    return this.mapJiraTicketToUniversal(jiraTicket);
   }
 
   /**
    * Update a ticket on Jira
    */
   async updateTicket(reference: string, updates: Partial<UniversalTicket>): Promise<void> {
-    const request: UpdateTicketRequest = {};
-
-    if (updates.title) {
-      request.summary = updates.title;
-    }
-    if (updates.description) {
-      request.description = updates.description;
-    }
-    if (updates.priority) {
-      request.priority = this.mapPriorityToJira(updates.priority);
-    }
-    if (updates.labels) {
-      request.labels = updates.labels;
-    }
-    if (updates.assignee) {
-      request.assignee = updates.assignee;
-    }
-
-    await this.jiraService.updateTicket(reference, request);
+    await this.jiraService.updateTicket(reference, this.buildJiraUpdateRequest(updates));
   }
 
   /**
@@ -148,32 +112,42 @@ export class JiraAdapter implements IssueTrackerAdapter {
    * Search tickets on Jira
    */
   async searchTickets(query: string): Promise<UniversalTicket[]> {
-    const jiraTickets = await this.jiraService.searchTickets({
-      jql: query,
-      maxResults: 50,
-    });
+    const jiraTickets = await this.jiraService.searchTickets({ jql: query, maxResults: 50 });
+    return jiraTickets.map(jiraTicket => this.mapJiraTicketToUniversal(jiraTicket));
+  }
 
-    return jiraTickets.map(
-      jiraTicket =>
-        new UniversalTicket({
-          key: jiraTicket.key,
-          title: jiraTicket.summary,
-          description: jiraTicket.description,
-          type: this.mapJiraTypeToUniversal(jiraTicket.issueType),
-          status: jiraTicket.status.toLowerCase(),
-          priority: this.mapJiraPriorityToUniversal(jiraTicket.priority),
-          assignee: jiraTicket.assignee,
-          reporter: jiraTicket.reporter,
-          created: jiraTicket.created,
-          updated: jiraTicket.updated,
-          labels: jiraTicket.labels,
-          components: jiraTicket.components,
-          trackerData: {
-            jiraId: jiraTicket.id,
-            jiraKey: jiraTicket.key,
-          },
-        })
-    );
+  /**
+   * Map a raw JiraTicket to a UniversalTicket.
+   * @param jiraTicket - Raw ticket returned by JiraService
+   * @returns UniversalTicket populated from Jira fields
+   */
+  private mapJiraTicketToUniversal(jiraTicket: JiraTicket): UniversalTicket {
+    return new UniversalTicket({
+      key: jiraTicket.key, title: jiraTicket.summary,
+      description: jiraTicket.description,
+      type: this.mapJiraTypeToUniversal(jiraTicket.issueType),
+      status: jiraTicket.status.toLowerCase(),
+      priority: this.mapJiraPriorityToUniversal(jiraTicket.priority),
+      assignee: jiraTicket.assignee, reporter: jiraTicket.reporter,
+      created: jiraTicket.created, updated: jiraTicket.updated,
+      labels: jiraTicket.labels, components: jiraTicket.components,
+      trackerData: { jiraId: jiraTicket.id, jiraKey: jiraTicket.key },
+    });
+  }
+
+  /**
+   * Build a Jira UpdateTicketRequest from a partial UniversalTicket.
+   * @param updates - Partial ticket fields to apply
+   * @returns Populated UpdateTicketRequest
+   */
+  private buildJiraUpdateRequest(updates: Partial<UniversalTicket>): UpdateTicketRequest {
+    const request: UpdateTicketRequest = {};
+    if (updates.title) request.summary = updates.title;
+    if (updates.description) request.description = updates.description;
+    if (updates.priority) request.priority = this.mapPriorityToJira(updates.priority);
+    if (updates.labels) request.labels = updates.labels;
+    if (updates.assignee) request.assignee = updates.assignee;
+    return request;
   }
 
   /**

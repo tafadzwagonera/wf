@@ -12,9 +12,13 @@ import { LoggerService } from '../../../shared/logger/logger.service';
 import { IssueTrackerConfigService } from '../issue-tracker-config.service';
 
 /**
- * GitHub platform adapter implementing IssueTrackerAdapter interface
- * Handles GitHub issues and pull requests
+ * Return the name string from a GitHub label, regardless of whether it is a plain string or an object.
+ * @param label - A GitHub label value (string or object with a `name` property)
+ * @returns The label name string
  */
+const getLabelName = (label: string | { name: string }): string =>
+  typeof label === 'string' ? label : label.name;
+
 @Injectable()
 export class GitHubAdapter implements IssueTrackerAdapter {
   private octokit: Octokit;
@@ -28,21 +32,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
   ) {
     const token = this.configService.get<string>('github.token');
     const defaultRepo = this.configService.get<string>('github.defaultRepo');
-
-    // Check if tracker has any configuration (partial config detection)
-    const hasPartialConfig = Boolean(token || defaultRepo);
-
-    if (!token) {
-      // Only warn if tracker is enabled
-      if (this.issueTrackerConfig.isTrackerEnabled('github', hasPartialConfig)) {
-        this.logger.warn('GitHub token not configured. Set github.token in wf.config.*.');
-      }
-      this.octokit = new Octokit();
-    } else {
-      this.octokit = new Octokit({ auth: token });
-    }
-
-    // Parse default repo from config if provided (format: owner/repo)
+    this.octokit = this.initOctokit(token, Boolean(token || defaultRepo));
     if (defaultRepo) {
       const [owner, repo] = defaultRepo.split('/');
       this.defaultOwner = owner;
@@ -51,28 +41,32 @@ export class GitHubAdapter implements IssueTrackerAdapter {
   }
 
   /**
-   * Create an issue on GitHub
+   * Initialise the Octokit client, warning when the token is absent.
+   * @param token - GitHub personal access token
+   * @param hasPartialConfig - Whether any GitHub config key is set
+   * @returns Configured Octokit instance
    */
+  private initOctokit(token: string | undefined, hasPartialConfig: boolean): Octokit {
+    if (!token) {
+      if (this.issueTrackerConfig.isTrackerEnabled('github', hasPartialConfig)) {
+        this.logger.warn('GitHub token not configured. Set github.token in wf.config.*.');
+      }
+      return new Octokit();
+    }
+    return new Octokit({ auth: token });
+  }
+
   async createTicket(ticket: UniversalTicket): Promise<IssueTrackerTicketReference> {
     const { owner, repo } = this.parseProjectOrDefault(ticket.project);
-
-    const labels = this.buildLabels(ticket);
-
     const response = await this.octokit.issues.create({
-      owner,
-      repo,
+      owner, repo,
       title: ticket.title,
       body: ticket.description,
-      labels,
+      labels: this.buildLabels(ticket),
       assignees: ticket.assignee ? [ticket.assignee] : undefined,
     });
-
-    return {
-      tracker: 'github',
-      id: response.data.number.toString(),
-      key: `${owner}/${repo}#${response.data.number}`,
-      url: response.data.html_url,
-    };
+    const { number, html_url } = response.data;
+    return { tracker: 'github', id: number.toString(), key: `${owner}/${repo}#${number}`, url: html_url };
   }
 
   /**
@@ -80,33 +74,8 @@ export class GitHubAdapter implements IssueTrackerAdapter {
    */
   async getTicket(reference: string): Promise<UniversalTicket> {
     const { owner, repo, issueNumber } = this.parseReference(reference);
-
-    const response = await this.octokit.issues.get({
-      owner,
-      repo,
-      issue_number: issueNumber,
-    });
-
-    const issue = response.data;
-
-    return new UniversalTicket({
-      key: `${owner}/${repo}#${issue.number}`,
-      title: issue.title,
-      description: issue.body || '',
-      type: this.extractTypeFromLabels(issue.labels as any[]),
-      status: issue.state,
-      priority: this.extractPriorityFromLabels(issue.labels as any[]),
-      assignee: issue.assignee?.login,
-      reporter: issue.user?.login,
-      created: new Date(issue.created_at),
-      updated: new Date(issue.updated_at),
-      labels: issue.labels.map((l: any) => (typeof l === 'string' ? l : l.name)),
-      project: `${owner}/${repo}`,
-      trackerData: {
-        githubNumber: issue.number,
-        githubUrl: issue.html_url,
-      },
-    });
+    const response = await this.octokit.issues.get({ owner, repo, issue_number: issueNumber });
+    return this.mapGitHubIssueToUniversal(response.data, owner, repo);
   }
 
   /**
@@ -114,30 +83,11 @@ export class GitHubAdapter implements IssueTrackerAdapter {
    */
   async updateTicket(reference: string, updates: Partial<UniversalTicket>): Promise<void> {
     const { owner, repo, issueNumber } = this.parseReference(reference);
-
-    const updateData: any = {};
-
-    if (updates.title) {
-      updateData.title = updates.title;
-    }
-    if (updates.description !== undefined) {
-      updateData.body = updates.description;
-    }
-    if (updates.status) {
-      updateData.state = updates.status === 'done' ? 'closed' : 'open';
-    }
-    if (updates.labels) {
-      updateData.labels = updates.labels;
-    }
-    if (updates.assignee) {
-      updateData.assignees = [updates.assignee];
-    }
-
     await this.octokit.issues.update({
       owner,
       repo,
       issue_number: issueNumber,
-      ...updateData,
+      ...this.buildGitHubUpdateBody(updates),
     });
   }
 
@@ -216,22 +166,11 @@ export class GitHubAdapter implements IssueTrackerAdapter {
   async createComment(reference: string, body: string): Promise<void> {
     if (reference.includes('github.com') && reference.includes('/pull/')) {
       const { owner, repo, prNumber } = this.parsePullRequestUrl(reference);
-      await this.octokit.issues.createComment({
-        owner,
-        repo,
-        issue_number: prNumber,
-        body,
-      });
+      await this.octokit.issues.createComment({ owner, repo, issue_number: prNumber, body });
       return;
     }
-
     const { owner, repo, issueNumber } = this.parseReference(reference);
-    await this.octokit.issues.createComment({
-      owner,
-      repo,
-      issue_number: issueNumber,
-      body,
-    });
+    await this.octokit.issues.createComment({ owner, repo, issue_number: issueNumber, body });
   }
 
   /**
@@ -242,106 +181,53 @@ export class GitHubAdapter implements IssueTrackerAdapter {
    */
   async findPullRequestsByTicketKey(ticketKey: string, repoOverride?: string): Promise<string[]> {
     const { owner, repo } = this.parseProjectOrDefault(repoOverride);
-    const query = `repo:${owner}/${repo} is:pr is:open "${ticketKey}"`;
     const response = await this.octokit.search.issuesAndPullRequests({
-      q: query,
-      per_page: 50,
+      q: `repo:${owner}/${repo} is:pr is:open "${ticketKey}"`, per_page: 50,
     });
-
     const pullRequestUrls = new Set<string>();
-    response.data.items.forEach(item => {
-      if (!item.html_url?.includes('/pull/')) {
-        return;
-      }
-
-      pullRequestUrls.add(item.html_url);
-    });
-
-    return [...pullRequestUrls].sort((left, right) => {
-      const leftNumber = this.extractPullRequestNumber(left);
-      const rightNumber = this.extractPullRequestNumber(right);
-      return leftNumber - rightNumber || left.localeCompare(right);
-    });
+    for (const item of response.data.items) {
+      if (item.html_url?.includes('/pull/')) pullRequestUrls.add(item.html_url);
+    }
+    const sortByNumber = (left: string, right: string) =>
+      this.extractPullRequestNumber(left) - this.extractPullRequestNumber(right) || left.localeCompare(right);
+    return [...pullRequestUrls].sort(sortByNumber);
   }
 
   /**
    * Search issues on GitHub
    */
   async searchTickets(query: string): Promise<UniversalTicket[]> {
-    const response = await this.octokit.search.issuesAndPullRequests({
-      q: query,
-      per_page: 50,
+    const response = await this.octokit.search.issuesAndPullRequests({ q: query, per_page: 50 });
+    return response.data.items.map(issue => {
+      const [owner, repo] = issue.repository_url.split('/').slice(-2);
+      return this.mapGitHubIssueToUniversal(issue as any, owner, repo);
     });
-
-    return response.data.items.map(
-      issue =>
-        new UniversalTicket({
-          key: `${issue.repository_url.split('/').slice(-2).join('/')}#${issue.number}`,
-          title: issue.title,
-          description: issue.body || '',
-          type: this.extractTypeFromLabels(issue.labels as any[]),
-          status: issue.state,
-          priority: this.extractPriorityFromLabels(issue.labels as any[]),
-          assignee: issue.assignee?.login,
-          reporter: issue.user?.login,
-          created: new Date(issue.created_at),
-          updated: new Date(issue.updated_at),
-          labels: issue.labels.map((l: any) => (typeof l === 'string' ? l : l.name)),
-          trackerData: {
-            githubNumber: issue.number,
-            githubUrl: issue.html_url,
-          },
-        })
-    );
   }
 
-  /**
-   * Parse project string or use default
-   */
-  private parseProjectOrDefault(project?: string): {
-    owner: string;
-    repo: string;
-  } {
-    if (project && project.includes('/')) {
+  private parseProjectOrDefault(project?: string): { owner: string; repo: string } {
+    if (project?.includes('/')) {
       const [owner, repo] = project.split('/');
       return { owner, repo };
     }
-
-    if (this.defaultOwner && this.defaultRepo) {
-      return { owner: this.defaultOwner, repo: this.defaultRepo };
-    }
-
+    if (this.defaultOwner && this.defaultRepo) return { owner: this.defaultOwner, repo: this.defaultRepo };
     throw new Error(
       'No GitHub repository specified and no default repository configured. '
       + 'Provide project as "owner/repo" or set github.defaultRepo in wf.config.*.'
     );
   }
 
-  /**
-   * Parse issue reference (supports: "owner/repo#123" or just "123")
-   */
-  private parseReference(reference: string): {
-    owner: string;
-    repo: string;
-    issueNumber: number;
-  } {
-    // Format: owner/repo#123
+  private parseReference(reference: string): { owner: string; repo: string; issueNumber: number } {
     if (reference.includes('/') && reference.includes('#')) {
       const [ownerRepo, number] = reference.split('#');
       const [owner, repo] = ownerRepo.split('/');
       return { owner, repo, issueNumber: parseInt(number, 10) };
     }
 
-    // Format: 123 (use default repo)
     if (/^\d+$/.test(reference)) {
       if (!this.defaultOwner || !this.defaultRepo) {
         throw new Error('Cannot use issue number without default repository configured');
       }
-      return {
-        owner: this.defaultOwner,
-        repo: this.defaultRepo,
-        issueNumber: parseInt(reference, 10),
-      };
+      return { owner: this.defaultOwner, repo: this.defaultRepo, issueNumber: parseInt(reference, 10) };
     }
 
     throw new Error(`Invalid GitHub issue reference: ${reference}`);
@@ -374,6 +260,42 @@ export class GitHubAdapter implements IssueTrackerAdapter {
   }
 
   /**
+   * Map a raw GitHub issue object to a UniversalTicket.
+   * @param issue - Raw issue from the Octokit response
+   * @param owner - GitHub repository owner
+   * @param repo - GitHub repository name
+   * @returns Populated UniversalTicket
+   */
+  private mapGitHubIssueToUniversal(issue: any, owner: string, repo: string): UniversalTicket {
+    const project = `${owner}/${repo}`;
+    return new UniversalTicket({
+      key: `${project}#${issue.number}`, title: issue.title,
+      description: issue.body || '',
+      type: this.extractTypeFromLabels(issue.labels as any[]), status: issue.state,
+      priority: this.extractPriorityFromLabels(issue.labels as any[]),
+      assignee: issue.assignee?.login, reporter: issue.user?.login,
+      created: new Date(issue.created_at), updated: new Date(issue.updated_at),
+      labels: issue.labels.map((l: any) => getLabelName(l)),
+      project, trackerData: { githubNumber: issue.number, githubUrl: issue.html_url },
+    });
+  }
+
+  /**
+   * Build a GitHub issues.update body from partial UniversalTicket fields.
+   * @param updates - Partial ticket fields to apply
+   * @returns Object with only the defined update fields
+   */
+  private buildGitHubUpdateBody(updates: Partial<UniversalTicket>): Record<string, unknown> {
+    const body: Record<string, unknown> = {};
+    if (updates.title) body.title = updates.title;
+    if (updates.description !== undefined) body.body = updates.description;
+    if (updates.status) body.state = updates.status === 'done' ? 'closed' : 'open';
+    if (updates.labels) body.labels = updates.labels;
+    if (updates.assignee) body.assignees = [updates.assignee];
+    return body;
+  }
+
+  /**
    * Build labels array including type and priority
    */
   private buildLabels(ticket: UniversalTicket): string[] {
@@ -389,52 +311,22 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     return labels;
   }
 
-  /**
-   * Extract ticket type from GitHub labels
-   */
   private extractTypeFromLabels(labels: any[]): TicketType {
-    const typeLabel = labels.find(l => {
-      const name = typeof l === 'string' ? l : l.name;
-      return name.startsWith('type:');
-    });
+    const typeLabel = labels.find(l => getLabelName(l).startsWith('type:'));
+    if (typeLabel) return (getLabelName(typeLabel).replace('type:', '') as TicketType) || TicketType.TASK;
 
-    if (typeLabel) {
-      const name = typeof typeLabel === 'string' ? typeLabel : typeLabel.name;
-      const type = name.replace('type:', '');
-      return (type as TicketType) || TicketType.TASK;
-    }
-
-    // Check for standard GitHub labels
-    const hasLabel = (name: string) =>
-      labels.some(l => {
-        const labelName = typeof l === 'string' ? l : l.name;
-        return labelName.toLowerCase() === name.toLowerCase();
-      });
-
+    const hasLabel = (name: string) => labels.some(l => getLabelName(l).toLowerCase() === name.toLowerCase());
     if (hasLabel('bug')) return TicketType.BUG;
     if (hasLabel('enhancement')) return TicketType.STORY;
 
     return TicketType.TASK;
   }
 
-  /**
-   * Extract the normalized wf priority from GitHub labels.
-   *
-   * GitHub does not have a native issue priority field, so the adapter
-   * encodes and decodes priority through labels.
-   */
   private extractPriorityFromLabels(labels: any[]): TicketPriority {
-    const priorityLabel = labels.find(l => {
-      const name = typeof l === 'string' ? l : l.name;
-      return name.startsWith('priority:');
-    });
-
+    const priorityLabel = labels.find(l => getLabelName(l).startsWith('priority:'));
     if (priorityLabel) {
-      const name = typeof priorityLabel === 'string' ? priorityLabel : priorityLabel.name;
-      const priority = name.replace('priority:', '');
-      return (priority as TicketPriority) || TicketPriority.MEDIUM;
+      return (getLabelName(priorityLabel).replace('priority:', '') as TicketPriority) || TicketPriority.MEDIUM;
     }
-
     return TicketPriority.MEDIUM;
   }
 }
