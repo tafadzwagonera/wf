@@ -953,4 +953,47 @@ describe('IssueImplementCommand', () => {
       }),
     );
   });
+
+  describe('filterActiveRepos', () => {
+    const buildPlanArtifact = (overrides?: Partial<{ affectedRepositories: string[] }>) => ({
+      action: 'fix' as const,
+      path: '/tmp/.wf/repo-a/jira/plan.json',
+      plan: {
+        action: 'fix' as const,
+        summary: 'Fix something',
+        steps: ['Update a file'],
+        estimatedComplexity: 'low' as const,
+        affectedFiles: ['repo-a/src/a.ts'],
+        affectedRepositories: overrides?.affectedRepositories ?? ['repo-a'],
+      },
+    });
+
+    it('skips repos not in affectedRepositories', async () => {
+      const command = await buildCommand();
+      const plan = buildPlanArtifact({ affectedRepositories: ['repo-a'] });
+      const result = (command as any).filterActiveRepos(['repo-a', 'repo-b'], plan);
+      expect(result).toEqual(['repo-a']);
+    });
+
+    it('keeps all repos when affectedRepositories is empty', async () => {
+      const command = await buildCommand();
+      const plan = buildPlanArtifact({ affectedRepositories: [] });
+      const result = (command as any).filterActiveRepos(['repo-a', 'repo-b'], plan);
+      expect(result).toEqual(['repo-a', 'repo-b']);
+    });
+
+    it('always keeps undefined (cwd mode)', async () => {
+      const command = await buildCommand();
+      const plan = buildPlanArtifact({ affectedRepositories: ['repo-a'] });
+      const result = (command as any).filterActiveRepos([undefined, 'repo-b'], plan);
+      expect(result).toEqual([undefined]);
+    });
+
+    it('falls back to full list when filtering removes all repos', async () => {
+      const command = await buildCommand();
+      const plan = buildPlanArtifact({ affectedRepositories: ['repo-c'] });
+      const result = (command as any).filterActiveRepos(['repo-a', 'repo-b'], plan);
+      expect(result).toEqual(['repo-a', 'repo-b']);
+    });
+  });
 });

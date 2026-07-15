@@ -726,7 +726,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 | `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
 <!-- END GENERATED COMMAND DOCS: issue:implement -->
 
-`issue:implement` only supports plans that affect a single repository. If the plan's `affectedRepositories` lists more than one repo, the command exits with an error. Use `wf issue -r <repos...>` to run implementation per repo when the plan spans multiple repositories.
+`issue:implement` only supports plans that affect a single repository per execution context. When multiple repos are passed via `-r`, the command skips repos not listed in the plan's `affectedRepositories` (with a log message) and filters plan steps per-repo so each AI agent only sees relevant work. If `affectedRepositories` is empty or all repos would be filtered out, the full list is used as a fallback.
 
 When a canonical hashed plan artifact is detected, the CLI prints a yellow warning with the decoded artifact and action so you can confirm the resolved plan before implementation starts. Supplying `--action` alongside that artifact still performs a strict validation check against the filename and manifest contents.
 

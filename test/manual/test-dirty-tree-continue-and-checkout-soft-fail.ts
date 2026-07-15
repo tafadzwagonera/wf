@@ -1,16 +1,18 @@
 /**
- * Smoke test: dirty-tree "Continue without stashing" and checkoutBranch soft-fail
+ * Smoke test: dirty-tree "Continue without stashing" and checkoutBranch error propagation
  *
- * Verifies two behaviours introduced by the dirty-tree prompt rework:
+ * Verifies two behaviours:
  *   1. When the user selects "Continue without stashing", the implementer
  *      skips stashing and proceeds with the dirty working tree.
- *   2. pullLatestFromSource soft-fails when checkoutBranch throws (e.g. dirty
- *      tree conflicts with the target branch) instead of propagating an error.
+ *   2. pullLatestFromSource throws a GitError when checkoutBranch fails
+ *      (e.g. dirty tree conflicts with the target branch), surfacing an
+ *      actionable message instead of silently continuing.
  *
  * Run: nr test:manual -- test-dirty-tree-continue-and-checkout-soft-fail
  */
 
 import chalk from 'chalk';
+import { GitError } from '../../src/shared/errors/app.error';
 
 /* ── Scenario 1: ensureCleanWorkingTree — "continue" skips stash ────────── */
 
@@ -38,58 +40,55 @@ async function testContinueSkipsStash() {
   console.log(chalk.green('     PASS — "continue" yields { didStash: false }'));
 }
 
-/* ── Scenario 2: pullLatestFromSource — checkoutBranch soft-fail ────────── */
+/* ── Scenario 2: pullLatestFromSource — checkoutBranch throws GitError ──── */
 
-async function testCheckoutSoftFail() {
-  console.log(chalk.gray('  2. pullLatestFromSource soft-fails when checkoutBranch throws'));
+async function testCheckoutThrowsGitError() {
+  console.log(chalk.gray('  2. pullLatestFromSource throws GitError when checkoutBranch fails'));
 
-  // Simulate the guarded checkoutBranch logic from pullLatestFromSource.
   const sourceBranch = 'develop' as string;
   const currentBranch = 'main' as string;
-  let checkoutCalled = false;
-  let pullCalled = false;
-  let warningLogged = false;
 
   const mockCheckoutBranch = async (_branch: string): Promise<void> => {
-    checkoutCalled = true;
     throw new Error('error: Your local changes would be overwritten by checkout');
   };
 
-  const mockPull = async (): Promise<void> => {
-    pullCalled = true;
+  // Replicate the tryCheckoutSource + pullLatestFromSource flow from production code
+  const tryCheckoutSource = async (branch: string): Promise<boolean> => {
+    try {
+      await mockCheckoutBranch(branch);
+      return true;
+    } catch {
+      return false;
+    }
   };
 
-  // Replicate the try/catch structure from the production code
   const isRemote = (b: string): boolean => b.startsWith('remotes/') || b.startsWith('origin/');
-  if (!isRemote(sourceBranch)) {
-    if (currentBranch !== sourceBranch) {
-      try {
-        await mockCheckoutBranch(sourceBranch);
-      } catch {
-        warningLogged = true;
-        // Production code logs: chalk.yellow(`Could not switch to ${sourceBranch} — …`)
-        // and returns early, skipping the pull.
+  let threw = false;
+  let errorMessage = '';
+
+  try {
+    if (!isRemote(sourceBranch) && currentBranch !== sourceBranch) {
+      const switched = await tryCheckoutSource(sourceBranch);
+      if (!switched) {
+        throw new GitError(
+          `Cannot switch to source branch '${sourceBranch}' — working tree has conflicting changes.\n`
+          + `Stash or commit your changes in the current directory, then retry.`,
+          { sourceBranch },
+        );
       }
     }
-    if (!warningLogged) {
-      try {
-        await mockPull();
-      } catch {
-        // non-fatal
-      }
-    }
+  } catch (err) {
+    threw = true;
+    errorMessage = err instanceof Error ? err.message : String(err);
   }
 
-  if (!checkoutCalled) {
-    throw new Error('checkoutBranch was never called');
+  if (!threw) {
+    throw new Error('Expected GitError to be thrown but no error occurred');
   }
-  if (!warningLogged) {
-    throw new Error('checkout failure was not caught — error propagated');
+  if (!(errorMessage.includes('Cannot switch to source branch'))) {
+    throw new Error(`Expected GitError message, got: ${errorMessage}`);
   }
-  if (pullCalled) {
-    throw new Error('pull should have been skipped after checkout failure');
-  }
-  console.log(chalk.green('     PASS — checkout failure caught, pull skipped, no throw'));
+  console.log(chalk.green('     PASS — checkout failure throws GitError with actionable message'));
 }
 
 /* ── Scenario 3: pullLatestFromSource — happy path still works ──────────── */
@@ -101,7 +100,6 @@ async function testCheckoutHappyPath() {
   const currentBranch = 'main' as string;
   let checkoutCalled = false;
   let pullCalled = false;
-  let warningLogged = false;
 
   const mockCheckoutBranch = async (_branch: string): Promise<void> => {
     checkoutCalled = true;
@@ -111,29 +109,26 @@ async function testCheckoutHappyPath() {
     pullCalled = true;
   };
 
-  const isRemote = (b: string): boolean => b.startsWith('remotes/') || b.startsWith('origin/');
-  if (!isRemote(sourceBranch)) {
-    if (currentBranch !== sourceBranch) {
-      try {
-        await mockCheckoutBranch(sourceBranch);
-      } catch {
-        warningLogged = true;
-      }
+  const tryCheckoutSource = async (branch: string): Promise<boolean> => {
+    try {
+      await mockCheckoutBranch(branch);
+      return true;
+    } catch {
+      return false;
     }
-    if (!warningLogged) {
-      try {
-        await mockPull();
-      } catch {
-        // non-fatal
-      }
+  };
+
+  const isRemote = (b: string): boolean => b.startsWith('remotes/') || b.startsWith('origin/');
+  if (!isRemote(sourceBranch) && currentBranch !== sourceBranch) {
+    const switched = await tryCheckoutSource(sourceBranch);
+    if (!switched) {
+      throw new GitError('Should not reach here', { sourceBranch });
     }
   }
+  await mockPull();
 
   if (!checkoutCalled) {
     throw new Error('checkoutBranch was never called');
-  }
-  if (warningLogged) {
-    throw new Error('warning should not have been logged on success');
   }
   if (!pullCalled) {
     throw new Error('pull should have been called after successful checkout');
@@ -144,10 +139,10 @@ async function testCheckoutHappyPath() {
 /* ── Runner ─────────────────────────────────────────────────────────────── */
 
 async function main() {
-  console.log(chalk.bold.cyan('\nSmoke test: dirty-tree continue & checkout soft-fail\n'));
+  console.log(chalk.bold.cyan('\nSmoke test: dirty-tree continue & checkout error propagation\n'));
 
   await testContinueSkipsStash();
-  await testCheckoutSoftFail();
+  await testCheckoutThrowsGitError();
   await testCheckoutHappyPath();
 
   console.log(chalk.bold.green('\nAll smoke tests passed.\n'));

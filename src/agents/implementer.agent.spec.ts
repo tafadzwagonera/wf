@@ -858,6 +858,21 @@ describe('ImplementerAgent', () => {
       expect(gitService.stashPop).toHaveBeenCalledWith('/tmp/repo-a');
       expect(gitService.createBranch).toHaveBeenCalled();
     });
+
+    it('throws GitError when source branch checkout fails due to dirty working tree', async () => {
+      gitService.detectDevelopmentBranches.mockReturnValue(['develop']);
+      gitService.checkoutBranch.mockRejectedValue(new Error('checkout conflict'));
+
+      await expect(
+        agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+          trackerName: 'jira',
+          repoDir: '/tmp/repo-a',
+          silent: true,
+        })
+      ).rejects.toThrow(/Cannot switch to source branch/);
+
+      expect(gitService.createBranch).not.toHaveBeenCalled();
+    });
   });
 
   describe('tracked file validation', () => {
@@ -1091,6 +1106,94 @@ describe('ImplementerAgent', () => {
 
       const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
       expect(logCalls.some(msg => msg.includes('No planned files to implement'))).toBe(true);
+    });
+  });
+
+  describe('plan step filtering', () => {
+    beforeEach(() => {
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('includes steps referencing the current repo files and excludes steps for other repos', async () => {
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          steps: [
+            'Update repo-a/src/services/booking.mapper.ts to fix the issue',
+            'Update cop-nuxt-app/src/services/booking.service.ts for the API change',
+            'Run verification tests',
+          ],
+          affectedFiles: ['repo-a/src/services/booking.mapper.ts'],
+          affectedRepositories: ['repo-a'],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
+      expect(passedPlan.steps).toHaveLength(2);
+      expect(passedPlan.steps).toContain('Update repo-a/src/services/booking.mapper.ts to fix the issue');
+      expect(passedPlan.steps).toContain('Run verification tests');
+      expect(passedPlan.steps).not.toContain('Update cop-nuxt-app/src/services/booking.service.ts for the API change');
+    });
+
+    it('passes all steps through when repoName is empty (no repoDir)', async () => {
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          steps: ['Step A', 'Step B'],
+          affectedFiles: ['src/example.ts'],
+          affectedRepositories: [],
+        }),
+        { trackerName: 'jira', silent: true },
+      );
+
+      const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
+      expect(passedPlan.steps).toEqual(['Step A', 'Step B']);
+    });
+
+    it('passes all steps through when repoFiles is empty', async () => {
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          steps: ['Step A', 'Step B'],
+          affectedFiles: [],
+          affectedRepositories: ['repo-a'],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
+      expect(passedPlan.steps).toEqual(['Step A', 'Step B']);
+    });
+
+    it('always includes generic steps with no repo-prefixed path', async () => {
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          steps: ['Run yarn test', 'Check CI status', 'Update src/example.ts in repo-a'],
+          affectedFiles: ['repo-a/src/example.ts'],
+          affectedRepositories: ['repo-a'],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
+      expect(passedPlan.steps).toContain('Run yarn test');
+      expect(passedPlan.steps).toContain('Check CI status');
+      expect(passedPlan.steps).toContain('Update src/example.ts in repo-a');
     });
   });
 });

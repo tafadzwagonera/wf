@@ -195,7 +195,7 @@ export class IssueImplementCommand extends CommandRunner {
     const baseDir = resolveRepoBasePath(options?.repos?.[0]);
     const trackerDir = resolveArtifactDir(baseDir, trackerName);
     const customArtifactDir = resolveCustomArtifactDir(baseDir);
-    const repoList: (string | undefined)[] = options?.repos?.length ? options.repos : [undefined];
+    const repos: (string | undefined)[] = options?.repos?.length ? options.repos : [undefined];
     const ticketKey = options?.ticketKey;
 
     let resolvedPlanReference: PlanArtifactReference | null = null;
@@ -206,7 +206,7 @@ export class IssueImplementCommand extends CommandRunner {
       plan = loadPlanFile(resolvedPlanReference.artifactPath);
     }
 
-    return { trackerName, baseDir, trackerDir, customArtifactDir, repoList, ticketKey, resolvedPlanReference, plan };
+    return { trackerName, baseDir, trackerDir, customArtifactDir, repos, ticketKey, resolvedPlanReference, plan };
   }
 
   private resolveAndLoadPlanReference(
@@ -309,13 +309,14 @@ export class IssueImplementCommand extends CommandRunner {
     ctx: ReturnType<IssueImplementCommand['resolveImplementContext']>,
     options?: IssueImplementOptions, customBranchSlug?: string
   ): Promise<void> {
-    const isMultiRepo = ctx.repoList.length > 1;
+    const activeRepos = this.filterActiveRepos(ctx.repos, planArtifact);
+    const isMultiRepo = activeRepos.length > 1;
     if (isMultiRepo && !options?.silent) {
       console.log(chalk.bold.yellow('\n🔧 Implementation'));
       console.log(chalk.gray('─'.repeat(70)));
     }
 
-    for (const repo of ctx.repoList) {
+    for (const repo of activeRepos) {
       if (isMultiRepo && !options?.silent) console.log(chalk.bold.cyan('\n  ── ' + (repo ?? 'current directory') + ' ──'));
       const result = await this.orchestrator.implementer.execute(
         ticketArtifact, planArtifact, this.buildImplementOpts(repo, ctx, options, isMultiRepo, customBranchSlug)
@@ -325,6 +326,29 @@ export class IssueImplementCommand extends CommandRunner {
         return;
       }
     }
+  }
+
+  /**
+   * Filters the repo list to only those present in the plan's affectedRepositories.
+   * If affectedRepositories is empty, all repos are returned unchanged.
+   * undefined entries (cwd mode) are always kept.
+   * Falls back to the full list if filtering would remove all repos.
+   * @param repos - The list of repo names (or undefined for cwd mode).
+   * @param planArtifact - The plan artifact containing affectedRepositories.
+   * @returns The filtered (or original) repo list.
+   */
+  private filterActiveRepos(repos: (string | undefined)[], planArtifact: PlanArtifact): (string | undefined)[] {
+    const affected = new Set(planArtifact.plan.affectedRepositories ?? []);
+    if (affected.size === 0) return repos;
+
+    const active = repos.filter(repo => !repo || affected.has(repo));
+    if (active.length < repos.length) {
+      const skipped = repos.filter(repo => repo && !affected.has(repo));
+      for (const repo of skipped) {
+        console.log(chalk.gray(`  Skipping ${repo} — not in plan's affected repositories`));
+      }
+    }
+    return active.length > 0 ? active : repos;
   }
 
   private buildImplementOpts(

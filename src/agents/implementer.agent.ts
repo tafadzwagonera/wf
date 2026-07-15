@@ -81,10 +81,12 @@ export class ImplementerAgent {
 
     this.validateImplementationScope(planArtifact, options.repoDir, options.allowMultiRepoScope);
     const branchName = await this.handleBranchWorkflow(ticket, planArtifact, options);
-    this.logPlanSteps(planArtifact.plan.steps);
 
     const resolved = this.resolveFiles(planArtifact, options);
-    return this.runBackend(ticket, planArtifact, options, branchName, resolved);
+    const filteredSteps = this.filterStepsForRepo(planArtifact.plan.steps, resolved.repoFiles, resolved.repoName);
+    this.logPlanSteps(filteredSteps);
+    const scopedPlan = { ...planArtifact, plan: { ...planArtifact.plan, steps: filteredSteps } };
+    return this.runBackend(ticket, scopedPlan, options, branchName, resolved);
   }
 
   private logPlanSteps(steps: string[]): void {
@@ -100,6 +102,31 @@ export class ImplementerAgent {
     const repoFiles = this.resolveRepoFiles(planArtifact, repoName, repoDir);
     const contextFiles = this.resolveContextFiles(planArtifact, repoName, repoDir, repoFiles);
     return { repoName, repoDir, repoFiles, contextFiles };
+  }
+
+  /**
+   * Filters plan steps to only those relevant to the given repo.
+   * Steps that reference another repo's prefixed paths are excluded.
+   * Generic steps (no repo-prefixed path) are always included.
+   * @param steps - All plan steps from the plan artifact.
+   * @param repoFiles - Resolved file paths for this repo (may include repo-name prefix).
+   * @param repoName - The basename of the current repo directory.
+   * @returns Filtered steps relevant to this repo.
+   */
+  private filterStepsForRepo(steps: string[], repoFiles: string[], repoName: string): string[] {
+    if (!repoName || repoFiles.length === 0) return steps;
+
+    const strippedPaths = repoFiles.map(f =>
+      f.startsWith(`${repoName}/`) ? f.slice(repoName.length + 1) : f,
+    );
+
+    const repoPathPattern = /\b[\w-]+\/(?:src|test|lib|app)\//i;
+
+    return steps.filter(step => {
+      const referencesThisRepo = strippedPaths.some(p => step.includes(p));
+      const referencesAnyRepo = repoPathPattern.exec(step) !== null;
+      return referencesThisRepo || !referencesAnyRepo;
+    });
   }
 
   private async runBackend(
@@ -861,7 +888,13 @@ export class ImplementerAgent {
 
     if (currentBranch !== sourceBranch) {
       const switched = await this.tryCheckoutSource(sourceBranch, cwd);
-      if (!switched) return;
+      if (!switched) {
+        throw new GitError(
+          `Cannot switch to source branch '${sourceBranch}' — working tree has conflicting changes.\n`
+          + `Stash or commit your changes in ${cwd ?? 'the current directory'}, then retry.`,
+          { sourceBranch, cwd },
+        );
+      }
     }
     await this.pullSafe(sourceBranch, cwd);
   }
@@ -871,10 +904,6 @@ export class ImplementerAgent {
       await this.gitService.checkoutBranch(sourceBranch, cwd);
       return true;
     } catch {
-      console.log(chalk.yellow(
-        `  Could not switch to ${sourceBranch} — working tree has conflicting changes. `
-        + `Continuing on current branch`
-      ));
       return false;
     }
   }
