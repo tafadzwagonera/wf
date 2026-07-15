@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
+import inquirer from 'inquirer';
 import { AiService, ResolutionPlan } from '../../integrations/ai/ai.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import {
@@ -13,7 +14,7 @@ import {
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
-import { AIError, isAIErrorLike } from '../../shared/utils/errors';
+import { AIError, isAIErrorLike, ValidationError } from '../../shared/utils/errors';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { validatePlanQuality } from '../../shared/utils/plan-quality';
 import type { RepoConventionsContext } from '../../shared/utils/detect-repo-conventions';
@@ -175,13 +176,23 @@ export class PlanStageService {
           artifactDir,
           action: options.action,
         });
-        return {
-          plan: this.readPlan(existing.artifactPath),
-          action: options.action,
-          path: existing.artifactPath,
-          fromCache: true,
-        };
-      } catch {
+        const plan = this.readPlan(existing.artifactPath);
+
+        if (plan.action === options.action) {
+          return { plan, action: plan.action, path: existing.artifactPath, fromCache: true };
+        }
+
+        const resolvedAction = await this.resolveActionMismatch(
+          plan.action, options.action, path.basename(existing.artifactPath)
+        );
+
+        if (resolvedAction === plan.action) {
+          return { plan, action: plan.action, path: existing.artifactPath, fromCache: true };
+        }
+
+        // User chose the requested action — fall through to regeneration below.
+      } catch (error) {
+        if (error instanceof ValidationError) throw error;
         // No existing plan artifact could be resolved; fall through to generation.
       }
     }
@@ -212,7 +223,7 @@ export class PlanStageService {
     return { plan, action: options.action, path: planPath, fromCache: false, sessionId };
   }
 
-  loadPlanArtifact(ticketPath: string, action?: ResolutionAction): PlanArtifact {
+  async loadPlanArtifact(ticketPath: string, action?: ResolutionAction): Promise<PlanArtifact> {
     const artifactDir = path.dirname(ticketPath);
     const sourceName = path.basename(ticketPath, '.md');
     const resolved = resolvePlanArtifactReference(sourceName, {
@@ -221,18 +232,22 @@ export class PlanStageService {
     });
 
     const plan = this.readPlan(resolved.artifactPath);
-    if (action && plan.action !== action) {
-      throw new Error(
-        `Plan action mismatch for ${path.basename(resolved.artifactPath)}: expected ${action}, found ${plan.action}.`
-      );
+    const filename = path.basename(resolved.artifactPath);
+
+    if (!action || plan.action === action) {
+      return { plan, action: plan.action, path: resolved.artifactPath, fromCache: true };
     }
 
-    return {
-      plan,
-      action: plan.action,
-      path: resolved.artifactPath,
-      fromCache: true,
-    };
+    const resolvedAction = await this.resolveActionMismatch(plan.action, action, filename);
+
+    if (resolvedAction === plan.action) {
+      return { plan, action: plan.action, path: resolved.artifactPath, fromCache: true };
+    }
+
+    throw new ValidationError(
+      `Plan action '${plan.action}' in '${filename}' does not match requested '${action}'. `
+      + `Re-run with --from plan to regenerate.`
+    );
   }
 
   extractSummary(content: string): string {
@@ -246,6 +261,52 @@ export class PlanStageService {
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : `Plan file is not valid: ${path.basename(planPath)}`);
     }
+  }
+
+  /**
+   * Warn about a cached plan action mismatch and let the user pick the correct action.
+   *
+   * @param planAction - The action stored inside the cached plan file
+   * @param requestedAction - The action requested by the caller
+   * @param filename - The basename of the cached plan file (for display)
+   * @returns The action the user selected
+   * @throws ValidationError when the session is non-interactive
+   */
+  private async resolveActionMismatch(
+    planAction: ResolutionAction,
+    requestedAction: ResolutionAction,
+    filename: string
+  ): Promise<ResolutionAction> {
+    console.log(
+      chalk.yellow(
+        `  ⚠️  Cached plan action mismatch for ${filename}: plan contains '${planAction}', requested '${requestedAction}'.`
+      )
+    );
+
+    if (!this.isInteractiveSession()) {
+      throw new ValidationError(
+        `Cached plan action mismatch: '${filename}' contains '${planAction}' but '${requestedAction}' was requested. `
+        + `Re-run with --from plan to regenerate, or re-run interactively to choose.`
+      );
+    }
+
+    const { selectedAction } = await inquirer.prompt<{ selectedAction: ResolutionAction }>([{
+      type: 'list',
+      name: 'selectedAction',
+      message: 'Which action should be used?',
+      prefix: ' ',
+      choices: [
+        { name: `Use '${planAction}' (from cached plan)`, value: planAction },
+        { name: `Use '${requestedAction}' (requested — may require re-running from plan stage)`, value: requestedAction },
+      ],
+      default: planAction,
+    }]);
+
+    return selectedAction;
+  }
+
+  private isInteractiveSession(): boolean {
+    return Boolean(process.stdin.isTTY && process.stdout.isTTY);
   }
 
   private deleteStalePlanArtifacts(

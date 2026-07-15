@@ -68,7 +68,7 @@ async function main() {
     console.log(chalk.bold.cyan('\n🧪 Part 4: PlannerAgent error on missing plan'));
     console.log(chalk.gray('─'.repeat(60)));
     try {
-      orchestrator.planner.loadFromDisk('/nonexistent/FAKE-9999.md', 'feature');
+      await orchestrator.planner.loadFromDisk('/nonexistent/FAKE-9999.md', 'feature');
       assert('throws for missing plan', false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';

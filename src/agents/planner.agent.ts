@@ -53,11 +53,11 @@ export class PlannerAgent {
    * @param ticketPath - The file path to the ticket markdown artifact
    * @param action - Optional action type to load a specific plan; if omitted, the most recent plan is auto-discovered
    * @param silent
-   * @returns The PlanArtifact with the loaded plan, resolved action, and file path
+   * @returns Promise<PlanArtifact> with the loaded plan, resolved action, and file path
    * @throws Error if the specified plan file does not exist or contains invalid JSON
    */
-  loadFromDisk(ticketPath: string, action?: ResolutionAction, silent?: boolean): PlanArtifact {
-    const artifact = this.planStageService.loadPlanArtifact(ticketPath, action);
+  async loadFromDisk(ticketPath: string, action?: ResolutionAction, silent?: boolean): Promise<PlanArtifact> {
+    const artifact = await this.planStageService.loadPlanArtifact(ticketPath, action);
     if (!silent) {
       const notice = buildPlanArtifactResolutionNotice({
         action: artifact.action,

@@ -2,12 +2,25 @@ import { Test } from '@nestjs/testing';
 import { AiService } from '../../integrations/ai/ai.service';
 import { PlanStageService } from './plan-stage.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
-import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../../shared/utils/plan-artifact';
-import { AIError } from '../../shared/utils/errors';
+import {
+  buildPlanArtifactManifest,
+  buildPlanArtifactManifestPath,
+  buildPlanArtifactFilename,
+  hashPlanArtifactSources,
+  writePlanArtifactManifest,
+} from '../../shared/utils/plan-artifact';
+import { AIError, ValidationError } from '../../shared/utils/errors';
 import { detectTestInfra } from '../../shared/utils/detect-test-infra';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+
+jest.mock('inquirer', () => ({
+  __esModule: true,
+  default: {
+    prompt: jest.fn(),
+  },
+}));
 
 jest.mock('../../shared/utils/detect-test-infra', () => ({
   detectTestInfra: jest.fn(),
@@ -437,6 +450,170 @@ describe('PlanStageService', () => {
       action: 'fix',
       path: planPath,
       fromCache: false,
+    });
+  });
+
+  describe('action mismatch handling', () => {
+    const mockInquirer = require('inquirer').default as { prompt: jest.Mock };
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    });
+
+    const setInteractiveSession = () => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    };
+
+    /**
+     * Build a cached plan fixture where the file content's action differs from
+     * the filename/manifest action. This simulates a hand-edited or mis-stamped plan.
+     *
+     * @param tempDir - Temp directory for the fixture
+     * @param filenameAction - Action encoded in the filename and manifest (e.g., 'fix')
+     * @param contentAction - Action stored inside the plan file content (e.g., 'investigate')
+     * @param sourceName - Ticket key used as source identifier
+     */
+    const buildCachedPlan = (
+      tempDir: string,
+      filenameAction: string,
+      contentAction: string,
+      sourceName = 'WBP-MISMATCH'
+    ) => {
+      const hash = hashPlanArtifactSources([sourceName]);
+      const createdAt = new Date('2026-04-16T00:00:00.000Z');
+      const planFilename = buildPlanArtifactFilename({
+        createdAt, hash, action: filenameAction as any, format: 'json',
+      });
+      const planPath = path.join(tempDir, planFilename);
+      // File content has the contentAction (mismatch from filename)
+      const plan = { ...mockPlan, action: contentAction };
+      fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
+      // Manifest records the filenameAction (what the resolution lookup will match)
+      const manifest = buildPlanArtifactManifest(
+        planPath, filenameAction as any, 'json', hash, sourceName, 'ticket', createdAt
+      );
+      writePlanArtifactManifest(manifest);
+      return { planPath, plan, hash };
+    };
+
+    it('createPlanArtifact returns cached plan without prompting when actions match', async () => {
+      const { service } = await buildService();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
+      fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
+      // Filename='fix', content='fix' — no mismatch
+      buildCachedPlan(tempDir, 'fix', 'fix');
+
+      const artifact = await service.createPlanArtifact(
+        { ticketKey: 'WBP-MISMATCH', content: '# WBP-MISMATCH: Test', path: ticketPath },
+        { action: 'fix', skipExisting: true }
+      );
+
+      expect(artifact.fromCache).toBe(true);
+      expect(artifact.action).toBe('fix');
+      expect(mockInquirer.prompt).not.toHaveBeenCalled();
+    });
+
+    it('createPlanArtifact returns cached plan when user picks plan action on mismatch', async () => {
+      const { service } = await buildService();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
+      fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
+      // Filename='fix', content='investigate' — mismatch when caller requests 'fix'
+      buildCachedPlan(tempDir, 'fix', 'investigate');
+      setInteractiveSession();
+      mockInquirer.prompt.mockResolvedValue({ selectedAction: 'investigate' });
+
+      const artifact = await service.createPlanArtifact(
+        { ticketKey: 'WBP-MISMATCH', content: '# WBP-MISMATCH: Test', path: ticketPath },
+        { action: 'fix', skipExisting: true }
+      );
+
+      expect(artifact.fromCache).toBe(true);
+      expect(artifact.action).toBe('investigate');
+      expect(artifact.plan.action).toBe('investigate');
+    });
+
+    it('createPlanArtifact falls through to regeneration when user picks requested action on mismatch', async () => {
+      const { service } = await buildService();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
+      fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
+      buildCachedPlan(tempDir, 'fix', 'investigate');
+      setInteractiveSession();
+      mockInquirer.prompt.mockResolvedValue({ selectedAction: 'fix' });
+
+      const artifact = await service.createPlanArtifact(
+        { ticketKey: 'WBP-MISMATCH', content: '# WBP-MISMATCH: Test', path: ticketPath },
+        { action: 'fix', skipExisting: true }
+      );
+
+      expect(artifact.fromCache).toBe(false);
+      expect(artifact.action).toBe('fix');
+    });
+
+    it('createPlanArtifact throws ValidationError non-interactively when actions mismatch', async () => {
+      const { service } = await buildService();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
+      fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
+      buildCachedPlan(tempDir, 'fix', 'investigate');
+
+      await expect(
+        service.createPlanArtifact(
+          { ticketKey: 'WBP-MISMATCH', content: '# WBP-MISMATCH: Test', path: ticketPath },
+          { action: 'fix', skipExisting: true }
+        )
+      ).rejects.toThrow(ValidationError);
+
+      await expect(
+        service.createPlanArtifact(
+          { ticketKey: 'WBP-MISMATCH', content: '# WBP-MISMATCH: Test', path: ticketPath },
+          { action: 'fix', skipExisting: true }
+        )
+      ).rejects.toThrow(/mismatch/i);
+    });
+
+    it('loadPlanArtifact prompts and returns cached plan when user picks plan action on mismatch', async () => {
+      const { service } = await buildService();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
+      fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
+      buildCachedPlan(tempDir, 'fix', 'investigate');
+      setInteractiveSession();
+      mockInquirer.prompt.mockResolvedValue({ selectedAction: 'investigate' });
+
+      const artifact = await service.loadPlanArtifact(ticketPath, 'fix');
+
+      expect(artifact.fromCache).toBe(true);
+      expect(artifact.action).toBe('investigate');
+    });
+
+    it('loadPlanArtifact throws ValidationError with --from plan guidance when user picks requested action', async () => {
+      const { service } = await buildService();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
+      fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
+      buildCachedPlan(tempDir, 'fix', 'investigate');
+      setInteractiveSession();
+      mockInquirer.prompt.mockResolvedValue({ selectedAction: 'fix' });
+
+      await expect(service.loadPlanArtifact(ticketPath, 'fix')).rejects.toThrow(ValidationError);
+      await expect(service.loadPlanArtifact(ticketPath, 'fix')).rejects.toThrow(/--from plan/);
+    });
+
+    it('loadPlanArtifact throws ValidationError non-interactively when actions mismatch', async () => {
+      const { service } = await buildService();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
+      fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
+      buildCachedPlan(tempDir, 'fix', 'investigate');
+
+      await expect(service.loadPlanArtifact(ticketPath, 'fix')).rejects.toThrow(ValidationError);
+      await expect(service.loadPlanArtifact(ticketPath, 'fix')).rejects.toThrow(/mismatch/i);
     });
   });
 });

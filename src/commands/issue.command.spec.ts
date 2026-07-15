@@ -63,6 +63,7 @@ import { AiService } from '../integrations/ai/ai.service';
 import { SessionService } from '../shared/session/session.service';
 import { SummaryService } from '../shared/session/summary.service';
 import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../shared/utils/plan-artifact';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import inquirer from 'inquirer';
@@ -1759,5 +1760,97 @@ describe('IssueCommand', () => {
     await command.run(['WBP-24'], { from: 'implement', to: 'implement' });
 
     expect(inquirer.prompt).not.toHaveBeenCalled();
+  });
+
+  describe('resolveCustomPlanToken action mismatch', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+      Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    });
+
+    const buildPlanFile = (tempDir: string, planAction: string) => {
+      const planPath = path.join(tempDir, `2026-04-16-abc123-${planAction}-plan.json`);
+      const plan = {
+        action: planAction,
+        summary: 'Test plan',
+        estimatedComplexity: 'low',
+        steps: ['Step 1'],
+        affectedFiles: [],
+        affectedRepositories: [],
+      };
+      fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
+      return { planPath, plan };
+    };
+
+    it('returns artifact with plan action when user picks it on custom token mismatch', async () => {
+      const command = await buildCommand();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-token-'));
+      const { planPath } = buildPlanFile(tempDir, 'investigate');
+      setInteractiveSession();
+      (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ selectedAction: 'investigate' });
+
+      const result = await (command as any).resolveCustomPlanToken(
+        { kind: 'custom', action: 'fix', artifactPath: planPath },
+        undefined
+      );
+
+      expect(result).not.toBeNull();
+      expect(result.action).toBe('investigate');
+      expect(result.planArtifact.action).toBe('investigate');
+      expect(result.planArtifact.plan.action).toBe('investigate');
+    });
+
+    it('returns artifact with requested action when user picks it on custom token mismatch', async () => {
+      const command = await buildCommand();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-token-'));
+      const { planPath } = buildPlanFile(tempDir, 'investigate');
+      setInteractiveSession();
+      (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ selectedAction: 'fix' });
+
+      const result = await (command as any).resolveCustomPlanToken(
+        { kind: 'custom', action: 'fix', artifactPath: planPath },
+        undefined
+      );
+
+      expect(result).not.toBeNull();
+      expect(result.action).toBe('fix');
+      expect(result.planArtifact.action).toBe('fix');
+    });
+
+    it('throws ValidationError non-interactively when custom token action mismatches', async () => {
+      const command = await buildCommand();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-token-'));
+      const { planPath } = buildPlanFile(tempDir, 'investigate');
+
+      await expect(
+        (command as any).resolveCustomPlanToken(
+          { kind: 'custom', action: 'fix', artifactPath: planPath },
+          undefined
+        )
+      ).rejects.toThrow(/mismatch/i);
+
+      await expect(
+        (command as any).resolveCustomPlanToken(
+          { kind: 'custom', action: 'fix', artifactPath: planPath },
+          undefined
+        )
+      ).rejects.toThrow(/--action/);
+    });
+
+    it('skips validation when custom token action matches plan action', async () => {
+      const command = await buildCommand();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-token-'));
+      const { planPath } = buildPlanFile(tempDir, 'fix');
+
+      const result = await (command as any).resolveCustomPlanToken(
+        { kind: 'custom', action: 'fix', artifactPath: planPath },
+        undefined
+      );
+
+      expect(result).not.toBeNull();
+      expect(result.planArtifact.action).toBe('fix');
+      expect(inquirer.prompt).not.toHaveBeenCalled();
+    });
   });
 });

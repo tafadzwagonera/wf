@@ -518,7 +518,7 @@ export class IssueCommand extends CommandRunner {
     const needsPlan = ctx.stagesToRun.some(s => planConsumers.has(s));
     if (planArtifact || !needsPlan) return { planArtifact, sessionState };
 
-    const loaded = this.agents.planner.loadFromDisk(ticketArtifact.path, action, ctx.options?.silent);
+    const loaded = await this.agents.planner.loadFromDisk(ticketArtifact.path, action, ctx.options?.silent);
     sessionState = await this.promptAndRecordSkippedPlanSession(loaded, sessionState);
     return { planArtifact: loaded, sessionState };
   }
@@ -967,9 +967,19 @@ export class IssueCommand extends CommandRunner {
       fs.readFileSync(planTokenResolution.artifactPath, 'utf-8'),
       planTokenResolution.artifactPath
     );
+
+    const filename = path.basename(planTokenResolution.artifactPath);
+    let resolvedAction = planTokenResolution.action;
+
+    if (plan.action !== planTokenResolution.action) {
+      resolvedAction = await this.resolveCustomTokenActionMismatch(
+        plan.action, planTokenResolution.action, filename
+      );
+    }
+
     const ticketArtifact = buildSyntheticTicketArtifact(planTokenResolution.artifactPath, plan);
     const planArtifact: PlanArtifact = {
-      plan, action: planTokenResolution.action, path: planTokenResolution.artifactPath,
+      plan, action: resolvedAction, path: planTokenResolution.artifactPath,
     };
 
     const providerSessionId = await this.promptProviderSessionId();
@@ -977,7 +987,49 @@ export class IssueCommand extends CommandRunner {
 
     sessionState = await this.recordCustomPlanSession(sessionState, planArtifact);
 
-    return { action: planTokenResolution.action, ticketArtifact, planArtifact, sessionState };
+    return { action: resolvedAction, ticketArtifact, planArtifact, sessionState };
+  }
+
+  /**
+   * Warn about a custom plan token action mismatch and let the user pick the correct action.
+   *
+   * @param planAction - The action stored inside the plan file
+   * @param requestedAction - The action from the CLI flag or plan filename
+   * @param filename - The basename of the plan file (for display)
+   * @returns The action the user selected
+   * @throws ValidationError when the session is non-interactive
+   */
+  private async resolveCustomTokenActionMismatch(
+    planAction: ResolutionAction,
+    requestedAction: ResolutionAction,
+    filename: string
+  ): Promise<ResolutionAction> {
+    console.log(
+      chalk.yellow(
+        `  ⚠️  Plan token action mismatch for ${filename}: plan contains '${planAction}', requested '${requestedAction}'.`
+      )
+    );
+
+    if (!this.isInteractiveSession()) {
+      throw new ValidationError(
+        `Plan token action mismatch: '${filename}' contains '${planAction}' but '${requestedAction}' was requested. `
+        + `Pass the correct --action or re-run interactively to choose.`
+      );
+    }
+
+    const { selectedAction } = await inquirer.prompt<{ selectedAction: ResolutionAction }>([{
+      type: 'list',
+      name: 'selectedAction',
+      message: 'Which action should be used?',
+      prefix: ' ',
+      choices: [
+        { name: `Use '${planAction}' (from plan file)`, value: planAction },
+        { name: `Use '${requestedAction}' (from plan token)`, value: requestedAction },
+      ],
+      default: planAction,
+    }]);
+
+    return selectedAction;
   }
 
   private async recordCustomPlanSession(

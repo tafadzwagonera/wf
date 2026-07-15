@@ -174,7 +174,7 @@ async function testSilentModeAgents() {
   {
     const planner = app.get(PlannerAgent);
     const origLoad = PlanStageService.prototype.loadPlanArtifact;
-    (PlanStageService.prototype as any).loadPlanArtifact = () => ({
+    (PlanStageService.prototype as any).loadPlanArtifact = async () => ({
       plan: MOCK_PLAN,
       action: 'fix',
       path: planPath,
@@ -183,7 +183,7 @@ async function testSilentModeAgents() {
 
     const cap = captureConsole();
     try {
-      planner.loadFromDisk(ticketPath, 'fix', true);
+      await planner.loadFromDisk(ticketPath, 'fix', true);
     } finally {
       cap.restore();
     }
