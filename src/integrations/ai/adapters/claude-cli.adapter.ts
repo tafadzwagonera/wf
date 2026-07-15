@@ -21,10 +21,381 @@ import { assertClaudeCliAvailable, buildCliArgs, spawnCli, type ClaudeCliMessage
 const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const CLI_ADAPTER_LABEL = 'claude-cli';
 const IMPLEMENT_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Skill'];
+const IMPLEMENT_PROMPT
+  = 'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes, then Bash for each verification step. Do not output any text or plan before making your first tool call.';
 
 type ActivityState = {
   lastVerificationCommand?: string;
 };
+
+type ToolBlock = {
+  type: string;
+  name?: string;
+  input?: Record<string, unknown>;
+};
+
+type ResultBlock = {
+  type: string;
+  content?: string;
+  is_error?: boolean;
+  tool_use_id?: string;
+};
+
+type GenerateAndVerifyParams = {
+  ticket: TicketArtifact;
+  planArtifact: PlanArtifact;
+  options: ImplementerOptions;
+  verificationScripts: VerificationScript[];
+  ticketContext: string;
+  repoFiles: string[];
+  contextFiles?: string[];
+  repoName: string;
+  trackedFilePaths: string[];
+};
+
+type CliSessionParams = {
+  options: ImplementerOptions;
+  repoFiles: string[];
+  repoName: string;
+  repoDir: string;
+  additionalRepoDirs: string[];
+  appendSystemPrompt: string;
+  model: string;
+};
+
+type ContinuationLoopParams = {
+  sessionId: string | undefined;
+  repoFiles: string[];
+  repoName: string;
+  touchedFiles: Set<string>;
+  appendSystemPrompt: string;
+  model: string;
+  repoDir: string;
+  additionalRepoDirs: string[];
+  activityState: ActivityState;
+};
+
+type SinglePassParams = {
+  passNumber: number;
+  sessionId: string;
+  currentUnvisited: string[];
+  appendSystemPrompt: string;
+  model: string;
+  repoDir: string;
+  additionalRepoDirs: string[];
+  touchedFiles: Set<string>;
+  activityState: ActivityState;
+};
+
+type ToolBlockLogParams = {
+  block: ToolBlock;
+  repoDir: string;
+  activityState: ActivityState;
+  touchedFiles?: Set<string>;
+};
+
+/**
+ * Builds the combined append-system-prompt string from prior stage context, Claude context, and the main system prompt.
+ * @param priorStageSummary - Optional summary from a prior workflow stage.
+ * @param claudeContext - Optional repo AI context loaded from disk.
+ * @param systemPrompt - The main system prompt for the implementer.
+ * @returns The joined append-system-prompt string.
+ */
+const buildCliSystemPrompt = (
+  priorStageSummary: string | undefined,
+  claudeContext: string | null,
+  systemPrompt: string
+): string => {
+  const preamble = priorStageSummary
+    ? `<prior-stage-context>\n${priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.`
+    : '';
+  return [preamble, claudeContext ? `Repo AI context:\n${claudeContext}` : '', systemPrompt]
+    .filter(Boolean)
+    .join('\n\n');
+};
+
+/**
+ * Collects touched files from a CLI message's file list.
+ * @param message - The CLI message to inspect.
+ * @param repoDir - Absolute path to the repository directory.
+ * @param touchedFiles - Set of relative file paths to update.
+ */
+const collectTouchedFiles = (message: ClaudeCliMessage, repoDir: string, touchedFiles: Set<string>): void => {
+  if (!message.files) return;
+  for (const { filename } of message.files) {
+    const absolutePath = path.isAbsolute(filename) ? filename : path.resolve(repoDir, filename);
+    touchedFiles.add(path.relative(repoDir, absolutePath));
+  }
+};
+
+/**
+ * Logs the summary lines from a CLI result message.
+ * @param message - A result-type CLI message.
+ */
+const logCliResultSummary = (message: ClaudeCliMessage): void => {
+  const summary = message.result?.trim();
+  if (!summary) return;
+  console.log(chalk.bold('\n  Summary:'));
+  for (const line of summary.split('\n')) {
+    if (line.trim()) console.log(chalk.cyan(`    ${line}`));
+  }
+};
+
+/**
+ * Logs the final result of the initial CLI run (summary, turns, cost, session).
+ * @param message - A result-type CLI message.
+ * @param sessionId - The resolved session ID to display.
+ */
+const logCliResult = (message: ClaudeCliMessage, sessionId: string | undefined): void => {
+  if (message.is_error) throw new Error(`Claude CLI failed: ${message.result ?? 'unknown error'}`);
+  logCliResultSummary(message);
+  if (message.num_turns) {
+    console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Completed in ${message.num_turns} turn(s).`));
+  }
+  if (message.total_cost_usd && message.total_cost_usd > 0) {
+    console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Cost: $${message.total_cost_usd.toFixed(4)} USD`));
+  }
+  if (sessionId) {
+    console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Provider session: ${sessionId}`));
+  }
+};
+
+/**
+ * Processes a single CLI stream message: updates session ID, collects touched files, and handles result output.
+ * @param message - The CLI message to process.
+ * @param repoDir - Absolute path to the repository directory.
+ * @param sessionId - Current session ID (may be updated).
+ * @param touchedFiles - Set of relative file paths modified so far.
+ * @returns Updated session ID after processing.
+ */
+const processCliStream = (
+  message: ClaudeCliMessage,
+  repoDir: string,
+  sessionId: string | undefined,
+  touchedFiles: Set<string>
+): string | undefined => {
+  const updatedSession = message.session_id ?? sessionId;
+  collectTouchedFiles(message, repoDir, touchedFiles);
+  if (message.type === 'result') logCliResult(message, updatedSession);
+  return updatedSession;
+};
+
+/**
+ * Builds the continuation prompt listing unvisited planned files.
+ * @param currentUnvisited - List of planned file paths not yet touched.
+ * @returns The continuation prompt string.
+ */
+const buildContinuationPrompt = (currentUnvisited: string[]): string => {
+  const unvisitedLines = currentUnvisited.map(f => `- ${f}`).join('\n');
+  return (
+    `Continue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}\n\n`
+    + `For each file listed above, read the full file first with Read, then apply Edit to complete the required changes. `
+    + `After addressing all listed files, use Grep to search for any remaining migration patterns and continue editing until zero matches remain. `
+    + `Do not output any text or plan before making your first tool call.`
+  );
+};
+
+/**
+ * Logs the result of a single continuation pass.
+ * @param passNumber - 1-based pass index.
+ * @param message - The CLI result message for this pass.
+ */
+const logContinuationPassResult = (passNumber: number, message: ClaudeCliMessage): void => {
+  if (message.type !== 'result') return;
+  const outcome = message.is_error
+    ? chalk.yellow(`  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} completed with errors — continuing`)
+    : chalk.green(`  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} completed in ${message.num_turns ?? '?'} turn(s).`);
+  console.log(outcome);
+  if (message.total_cost_usd && message.total_cost_usd > 0) {
+    console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} cost: $${message.total_cost_usd.toFixed(4)} USD`));
+  }
+};
+
+/**
+ * Checks whether the continuation loop has stalled and logs a warning if so.
+ * @param currentWorkload - Number of unvisited files in this pass.
+ * @param previousWorkload - Number of unvisited files in the prior pass.
+ * @param stalledPasses - Running count of non-decreasing passes.
+ * @param currentUnvisited - List of unvisited file paths (for the warning message).
+ * @returns Updated stalledPasses count, or -1 to signal the loop should break.
+ */
+const checkStallCondition = (
+  currentWorkload: number,
+  previousWorkload: number,
+  stalledPasses: number,
+  currentUnvisited: string[]
+): number => {
+  const updated = currentWorkload < previousWorkload ? 0 : stalledPasses + 1;
+  if (updated < 2) return updated;
+  console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Workload not decreasing after 2 passes — stopping`));
+  const remaining = `  [${CLI_ADAPTER_LABEL}] Remaining: ${currentUnvisited.length} planned file(s) not touched: ${currentUnvisited.join(', ')}`;
+  console.log(chalk.yellow(remaining));
+  return -1;
+};
+
+/**
+ * Logs SDK-compatible progress or activity events for a CLI message.
+ * @param message - The CLI message to evaluate.
+ * @param repoDir - Absolute path to the repository directory.
+ * @param activityState - Mutable state tracking the last verification command.
+ * @returns True if the message was handled, false otherwise.
+ */
+const logSdkProgressEvent = (message: ClaudeCliMessage, repoDir: string, activityState: ActivityState): boolean => {
+  const progressLine = formatProgressMessage(message as never);
+  if (!progressLine) return false;
+  const label = progressLine.replace(/\[claude-agent-sdk\]/, `[${CLI_ADAPTER_LABEL}]`);
+  const isWarning
+    = (message.type === 'system' && message.subtype === 'api_retry')
+      || (message.type === 'system' && message.subtype === 'status');
+  console.log(isWarning ? chalk.yellow(label) : chalk.cyan(label));
+  for (const line of formatActivityMessages(message as never, repoDir, activityState)) {
+    console.log(chalk.cyan(line.replace(/\[claude-agent-sdk\]/, `[${CLI_ADAPTER_LABEL}]`)));
+  }
+  return true;
+};
+
+/**
+ * Logs a CLI progress event (Skill task_progress, SDK progress line, or SDK activity lines).
+ * @param message - The CLI message to evaluate.
+ * @param repoDir - Absolute path to the repository directory.
+ * @param activityState - Mutable state tracking the last verification command.
+ * @returns True if the message was handled as a progress event, false otherwise.
+ */
+const logCliProgressEvent = (message: ClaudeCliMessage, repoDir: string, activityState: ActivityState): boolean => {
+  if (message.type === 'system' && message.subtype === 'task_progress' && message.last_tool_name === 'Skill') {
+    const raw = message.summary ?? message.description;
+    const summary = (typeof raw === 'string' ? raw : '').trim();
+    if (summary) console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] Skill: ${summary}`));
+    return true;
+  }
+  if (logSdkProgressEvent(message, repoDir, activityState)) return true;
+  const activityLines = formatActivityMessages(message as never, repoDir, activityState);
+  for (const line of activityLines) {
+    console.log(chalk.cyan(line.replace(/\[claude-agent-sdk\]/, `[${CLI_ADAPTER_LABEL}]`)));
+  }
+  return activityLines.length > 0;
+};
+
+/**
+ * Logs a Write or Edit tool invocation.
+ * @param toolName - Either 'Write' or 'Edit'.
+ * @param input - The tool input block.
+ * @param repoDir - Absolute path to the repository directory.
+ * @param touchedFiles - Set of relative file paths to update.
+ */
+const logWriteEditEvent = (
+  toolName: string,
+  input: Record<string, unknown>,
+  repoDir: string,
+  touchedFiles: Set<string> | undefined
+): void => {
+  const filePath = typeof input['file_path'] === 'string' ? input['file_path'] : '';
+  if (!filePath) return;
+  const relativePath = path.isAbsolute(filePath) ? path.relative(repoDir, filePath) : filePath;
+  const action = toolName === 'Write' ? 'created' : 'updated';
+  console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] File ${action}: ${relativePath}`));
+  touchedFiles?.add(relativePath);
+};
+
+/**
+ * Logs a Bash tool invocation and records it as the last verification command.
+ * @param input - The tool input block.
+ * @param activityState - Mutable state tracking the last verification command.
+ */
+const logBashEvent = (input: Record<string, unknown>, activityState: ActivityState): void => {
+  const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
+  if (!command) return;
+  activityState.lastVerificationCommand = command;
+  console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Verification running: ${command}`));
+};
+
+/**
+ * Resolves the target string for a Read, Glob, or Grep tool input.
+ * @param input - The tool input block.
+ * @returns The resolved target string, or empty string if not found.
+ */
+const resolveReadTarget = (input: Record<string, unknown>): string => {
+  if (typeof input['file_path'] === 'string') return input['file_path'];
+  if (typeof input['pattern'] === 'string') return input['pattern'];
+  return '';
+};
+
+/**
+ * Logs a Read, Glob, or Grep tool invocation.
+ * @param toolName - One of 'Read', 'Glob', or 'Grep'.
+ * @param input - The tool input block.
+ */
+const logReadEvent = (toolName: string, input: Record<string, unknown>): void => {
+  const target = resolveReadTarget(input);
+  if (!target) return;
+  const short = target.length > 60 ? `${target.slice(0, 57)}...` : target;
+  console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] ${toolName}: ${short}`));
+};
+
+/**
+ * Applies the verification outcome log for one tool_result block.
+ * @param block - The result block to evaluate.
+ * @param activityState - Mutable state tracking the last verification command.
+ */
+const applyToolResultOutcome = (block: ResultBlock, activityState: ActivityState): void => {
+  const content = typeof block.content === 'string' ? block.content : '';
+  if (!content || !activityState.lastVerificationCommand) return;
+  const hasFailure = block.is_error || /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(content);
+  const hasSuccess = /(passed|success|succeeded|completed successfully|exit code 0)/i.test(content);
+  if (hasFailure) {
+    console.log(chalk.red(`  [${CLI_ADAPTER_LABEL}] Verification failed: ${activityState.lastVerificationCommand}`));
+    activityState.lastVerificationCommand = undefined;
+    return;
+  }
+  if (hasSuccess) {
+    console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Verification passed: ${activityState.lastVerificationCommand}`));
+    activityState.lastVerificationCommand = undefined;
+  }
+};
+
+/**
+ * Computes the list of planned files not yet touched in the current pass.
+ * @param repoFiles - All planned file entries for the repo.
+ * @param repoName - Repository name prefix to strip.
+ * @param touchedFiles - Set of relative paths already modified.
+ * @returns Filtered list of unvisited non-glob file paths.
+ */
+const computeUnvisitedFiles = (repoFiles: string[], repoName: string, touchedFiles: Set<string>): string[] =>
+  repoFiles.map(f => stripRepoPrefix(f, repoName)).filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
+
+/**
+ * Builds CLI args for the initial implement pass.
+ * @param p - Session parameters including model, paths, and session state.
+ * @returns CLI argument array for spawnCli.
+ */
+const buildImplementCliArgs = (p: CliSessionParams) =>
+  buildCliArgs({
+    prompt: IMPLEMENT_PROMPT,
+    appendSystemPrompt: p.appendSystemPrompt,
+    model: p.model,
+    cwd: p.repoDir,
+    tools: IMPLEMENT_TOOLS,
+    permissionMode: 'acceptEdits',
+    addDirs: p.additionalRepoDirs.length > 0 ? p.additionalRepoDirs : undefined,
+    sessionId: p.options.resumeProviderSessionId,
+  });
+
+/**
+ * Builds CLI args for a single continuation pass.
+ * @param p - Pass parameters including session ID, model, and paths.
+ * @returns CLI argument array for spawnCli.
+ */
+const buildPassCliArgs = (p: SinglePassParams, continuationPrompt: string) =>
+  buildCliArgs({
+    prompt: continuationPrompt,
+    appendSystemPrompt: p.appendSystemPrompt,
+    model: p.model,
+    cwd: p.repoDir,
+    sessionId: p.sessionId,
+    tools: IMPLEMENT_TOOLS,
+    permissionMode: 'acceptEdits',
+    addDirs: p.additionalRepoDirs.length > 0 ? p.additionalRepoDirs : undefined,
+  });
 
 /**
  * Claude CLI headless mode (`claude -p`) implementer backend.
@@ -34,220 +405,116 @@ type ActivityState = {
 export class ClaudeCliAdapter implements ImplementerBackend {
   constructor(private configService: ConfigService) {}
 
-  async generateAndVerify(params: {
-    ticket: TicketArtifact;
-    planArtifact: PlanArtifact;
-    options: ImplementerOptions;
-    verificationScripts: VerificationScript[];
-    ticketContext: string;
-    repoFiles: string[];
-    contextFiles?: string[];
-    repoName: string;
-    trackedFilePaths: string[];
-  }): Promise<{ sessionId?: string }> {
-    const { options, verificationScripts, ticketContext, repoFiles, repoName } = params;
-
+  async generateAndVerify(params: GenerateAndVerifyParams): Promise<{ sessionId?: string }> {
+    const { options, repoFiles, repoName } = params;
     const repoDir = options.repoDir ?? process.cwd();
-    const additionalRepoDirs = options.additionalRepoDirs ?? [];
-
     assertClaudeCliAvailable();
+    const modelRoutingResult = this.resolveCliModelRouting(options, params.planArtifact);
+    console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
+    const appendSystemPrompt = buildCliSystemPrompt(
+      options.priorStageSummary, await loadClaudeContext(repoDir), this.buildCliImplementerPrompt(params)
+    );
+    return this.runCliSession({
+      options, repoFiles, repoName, repoDir,
+      appendSystemPrompt, model: modelRoutingResult.model,
+      additionalRepoDirs: options.additionalRepoDirs ?? [],
+    });
+  }
 
-    const fallbackDefaultModel = this.configService.get<string>('ai.model') || 'claude-sonnet-4-6';
-    const routing = options.modelRouting ?? 'auto';
-    const modelRoutingResult = resolveModelRouting({
-      routing,
-      fallbackDefaultModel,
+  private resolveCliModelRouting(options: ImplementerOptions, planArtifact: PlanArtifact) {
+    return resolveModelRouting({
+      routing: options.modelRouting ?? 'auto',
+      fallbackDefaultModel: this.configService.get<string>('ai.model') || 'claude-sonnet-4-6',
       defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL,
       configService: this.configService,
-      plan: params.planArtifact.plan,
+      plan: planArtifact.plan,
       adapterLabel: CLI_ADAPTER_LABEL,
     });
-    const model = modelRoutingResult.model;
-    console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
+  }
 
-    const claudeContext = await loadClaudeContext(repoDir);
-    const systemPrompt = buildSystemPrompt({
-      ticketKey: params.ticket.ticketKey,
-      repoDir,
-      repoName,
-      repoFiles,
-      contextFiles: params.contextFiles,
-      trackedFilePaths: params.trackedFilePaths,
-      verificationScripts,
-      ticketContext,
-      planSteps: params.planArtifact.plan.steps,
-      planSummary: params.planArtifact.plan.summary,
-      planRisks: params.planArtifact.plan.risks,
-      planAction: params.planArtifact.plan.action,
+  private buildCliImplementerPrompt(params: GenerateAndVerifyParams): string {
+    const { ticket, planArtifact, options, verificationScripts, ticketContext } = params;
+    const { repoFiles, contextFiles, repoName, trackedFilePaths } = params;
+    return buildSystemPrompt({
+      ticketKey: ticket.ticketKey,
+      repoDir: options.repoDir ?? process.cwd(),
+      repoName, repoFiles, contextFiles, trackedFilePaths,
+      verificationScripts, ticketContext,
+      planSteps: planArtifact.plan.steps,
+      planSummary: planArtifact.plan.summary,
+      planRisks: planArtifact.plan.risks,
+      planAction: planArtifact.plan.action,
     });
+  }
 
-    const priorStagePreamble = params.options.priorStageSummary
-      ? `<prior-stage-context>\n${params.options.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.`
-      : '';
-    const appendSystemPrompt = [
-      priorStagePreamble,
-      claudeContext ? `Repo AI context:\n${claudeContext}` : '',
-      systemPrompt,
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-
-    const implementPrompt
-      = 'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes, then Bash for each verification step. Do not output any text or plan before making your first tool call.';
-    const cliArgs = buildCliArgs({
-      prompt: implementPrompt,
-      appendSystemPrompt,
-      model,
-      cwd: repoDir,
-      tools: IMPLEMENT_TOOLS,
-      permissionMode: 'acceptEdits',
-      addDirs: additionalRepoDirs.length > 0 ? additionalRepoDirs : undefined,
-      sessionId: params.options.resumeProviderSessionId,
-    });
-
-    console.log(chalk.bold.cyan(`\n  [${CLI_ADAPTER_LABEL}] Running CLI agent in ${repoDir}...`));
-
+  private async runCliSession(p: CliSessionParams): Promise<{ sessionId?: string }> {
+    const cliArgs = buildImplementCliArgs(p);
+    console.log(chalk.bold.cyan(`\n  [${CLI_ADAPTER_LABEL}] Running CLI agent in ${p.repoDir}...`));
     const touchedFiles = new Set<string>();
     const activityState: ActivityState = {};
-    let sessionId: string | undefined = params.options.resumeProviderSessionId;
-
-    for await (const message of spawnCli(cliArgs, repoDir, implementPrompt)) {
-      this.logCliMessage(message, repoDir, activityState, touchedFiles);
-
-      if (message.session_id) {
-        sessionId = message.session_id;
-      }
-
-      if (message.files) {
-        for (const { filename } of message.files) {
-          const absolutePath = path.isAbsolute(filename) ? filename : path.resolve(repoDir, filename);
-          touchedFiles.add(path.relative(repoDir, absolutePath));
-        }
-      }
-
-      if (message.type === 'result') {
-        if (message.is_error) {
-          throw new Error(`Claude CLI failed: ${message.result ?? 'unknown error'}`);
-        }
-
-        const summary = message.result?.trim();
-        if (summary) {
-          console.log(chalk.bold('\n  Summary:'));
-          summary.split('\n').forEach(line => {
-            if (line.trim()) {
-              console.log(chalk.cyan(`    ${line}`));
-            }
-          });
-        }
-
-        if (message.num_turns) {
-          console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Completed in ${message.num_turns} turn(s).`));
-        }
-        if (message.total_cost_usd && message.total_cost_usd > 0) {
-          console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Cost: $${message.total_cost_usd.toFixed(4)} USD`));
-        }
-        if (sessionId) {
-          console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Provider session: ${sessionId}`));
-        }
-      }
+    let sessionId: string | undefined = p.options.resumeProviderSessionId;
+    for await (const message of spawnCli(cliArgs, p.repoDir, IMPLEMENT_PROMPT)) {
+      this.logCliMessage(message, p.repoDir, activityState, touchedFiles);
+      sessionId = processCliStream(message, p.repoDir, sessionId, touchedFiles);
     }
+    await discoverChangedFiles(p.repoDir, touchedFiles);
+    return this.finalizeCliSession({ ...p, sessionId, touchedFiles, activityState });
+  }
 
-    await discoverChangedFiles(repoDir, touchedFiles);
-
-    // Continuation loop for untouched files
-    let previousWorkload = Infinity;
-    let stalledPasses = 0;
-    let passNumber = 0;
-
-    while (sessionId) {
-      const currentUnvisited = repoFiles
-        .map(f => stripRepoPrefix(f, repoName))
-        .filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
-      const currentWorkload = currentUnvisited.length;
-
-      if (currentWorkload === 0) break;
-
-      if (currentWorkload < previousWorkload) {
-        stalledPasses = 0;
-      } else {
-        stalledPasses++;
-      }
-      previousWorkload = currentWorkload;
-
-      if (stalledPasses >= 2) {
-        console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Workload not decreasing after 2 passes — stopping`));
-        console.log(
-          chalk.yellow(
-            `  [${CLI_ADAPTER_LABEL}] Remaining: ${currentUnvisited.length} planned file(s) not touched: ${currentUnvisited.join(', ')}`
-          )
-        );
-        break;
-      }
-
-      passNumber++;
-      console.log(
-        chalk.yellow(
-          `\n  [${CLI_ADAPTER_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`
-        )
-      );
-
-      const unvisitedLines = currentUnvisited.map(f => `- ${f}`).join('\n');
-      const continuationPrompt = `Continue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}\n\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. After addressing all listed files, use Grep to search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before making your first tool call.`;
-
-      const continueArgs = buildCliArgs({
-        prompt: continuationPrompt,
-        appendSystemPrompt,
-        model,
-        cwd: repoDir,
-        sessionId,
-        tools: IMPLEMENT_TOOLS,
-        permissionMode: 'acceptEdits',
-        addDirs: additionalRepoDirs.length > 0 ? additionalRepoDirs : undefined,
-      });
-
-      for await (const message of spawnCli(continueArgs, repoDir, continuationPrompt)) {
-        this.logCliMessage(message, repoDir, activityState, touchedFiles);
-
-        if (message.session_id) {
-          sessionId = message.session_id;
-        }
-
-        if (message.files) {
-          for (const { filename } of message.files) {
-            const absolutePath = path.isAbsolute(filename) ? filename : path.resolve(repoDir, filename);
-            touchedFiles.add(path.relative(repoDir, absolutePath));
-          }
-        }
-
-        if (message.type === 'result') {
-          if (message.is_error) {
-            console.log(chalk.yellow(`  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} completed with errors — continuing`));
-          } else {
-            console.log(
-              chalk.green(
-                `  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} completed in ${message.num_turns ?? '?'} turn(s).`
-              )
-            );
-          }
-          if (message.total_cost_usd && message.total_cost_usd > 0) {
-            console.log(
-              chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Pass ${passNumber} cost: $${message.total_cost_usd.toFixed(4)} USD`)
-            );
-          }
-        }
-      }
-
-      await discoverChangedFiles(repoDir, touchedFiles);
-    }
-
-    if (touchedFiles.size > 0) {
+  private async finalizeCliSession(p: ContinuationLoopParams): Promise<{ sessionId?: string }> {
+    const sessionId = await this.runContinuationLoop(p);
+    if (p.touchedFiles.size > 0) {
       console.log(chalk.bold('\n  File summary:'));
-      [...touchedFiles].sort().forEach(f => console.log(chalk.cyan(`    - updated: ${f}`)));
+      [...p.touchedFiles].sort().forEach(f => console.log(chalk.cyan(`    - updated: ${f}`)));
     } else {
       console.log(chalk.gray('\n  File summary: no file changes were made.'));
     }
-
     return { sessionId };
+  }
+
+  private async runContinuationLoop(p: ContinuationLoopParams): Promise<string | undefined> {
+    let previousWorkload = Infinity;
+    let stalledPasses = 0;
+    let passNumber = 0;
+    let sessionId = p.sessionId;
+    while (sessionId) {
+      const currentUnvisited = computeUnvisitedFiles(p.repoFiles, p.repoName, p.touchedFiles);
+      if (currentUnvisited.length === 0) break;
+      stalledPasses = checkStallCondition(currentUnvisited.length, previousWorkload, stalledPasses, currentUnvisited);
+      if (stalledPasses === -1) break;
+      previousWorkload = currentUnvisited.length;
+      sessionId = await this.executePassAndDiscover(p, ++passNumber, sessionId, currentUnvisited);
+    }
+    return sessionId;
+  }
+
+  private async executePassAndDiscover(
+    p: ContinuationLoopParams,
+    passNumber: number,
+    sessionId: string,
+    currentUnvisited: string[]
+  ): Promise<string | undefined> {
+    const { appendSystemPrompt, model, repoDir, additionalRepoDirs, touchedFiles, activityState } = p;
+    console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`));
+    const nextSession = await this.runSinglePass({
+      passNumber, sessionId, currentUnvisited,
+      appendSystemPrompt, model, repoDir, additionalRepoDirs, touchedFiles, activityState,
+    });
+    await discoverChangedFiles(repoDir, touchedFiles);
+    return nextSession;
+  }
+
+  private async runSinglePass(p: SinglePassParams): Promise<string | undefined> {
+    const { passNumber, currentUnvisited, repoDir, touchedFiles, activityState } = p;
+    const continuationPrompt = buildContinuationPrompt(currentUnvisited);
+    const continueArgs = buildPassCliArgs(p, continuationPrompt);
+    let sessionId: string | undefined = p.sessionId;
+    for await (const message of spawnCli(continueArgs, repoDir, continuationPrompt)) {
+      this.logCliMessage(message, repoDir, activityState, touchedFiles);
+      sessionId = processCliStream(message, repoDir, sessionId, touchedFiles);
+      logContinuationPassResult(passNumber, message);
+    }
+    return sessionId;
   }
 
   private logCliMessage(
@@ -256,47 +523,12 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     activityState: ActivityState,
     touchedFiles?: Set<string>
   ): void {
-    // Skill tool invocations surface via task_progress with last_tool_name
-    if (message.type === 'system' && message.subtype === 'task_progress' && message.last_tool_name === 'Skill') {
-      const raw = message.summary ?? message.description;
-      const summary = (typeof raw === 'string' ? raw : '').trim();
-      if (summary) {
-        console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] Skill: ${summary}`));
-      }
-      return;
-    }
-
-    // SDK-compatible progress events (rate_limit_event, system:status, etc.)
-    const progressLine = formatProgressMessage(message as never);
-    if (progressLine) {
-      const label = progressLine.replace(/\[claude-agent-sdk\]/, `[${CLI_ADAPTER_LABEL}]`);
-      const isWarning
-        = (message.type === 'system' && message.subtype === 'api_retry')
-          || (message.type === 'system' && message.subtype === 'status');
-      console.log(isWarning ? chalk.yellow(label) : chalk.cyan(label));
-      return;
-    }
-
-    // SDK-compatible activity events (files_persisted, tool_use_summary)
-    const activityLines = formatActivityMessages(message as never, repoDir, activityState);
-    if (activityLines.length > 0) {
-      for (const line of activityLines) {
-        const label = line.replace(/\[claude-agent-sdk\]/, `[${CLI_ADAPTER_LABEL}]`);
-        console.log(chalk.cyan(label));
-      }
-      return;
-    }
-
-    // CLI-specific: parse assistant messages for tool_use activity
+    if (logCliProgressEvent(message, repoDir, activityState)) return;
     if (message.type === 'assistant') {
       this.logCliAssistantMessage(message, repoDir, activityState, touchedFiles);
       return;
     }
-
-    // CLI-specific: parse user messages for tool_result (verification output)
-    if (message.type === 'user') {
-      this.logCliToolResult(message, activityState);
-    }
+    if (message.type === 'user') this.logCliToolResult(message, activityState);
   }
 
   private logCliAssistantMessage(
@@ -305,103 +537,33 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     activityState: ActivityState,
     touchedFiles?: Set<string>
   ): void {
-    const innerMessage = message.message as
-      | {
-        content?: Array<{
-          type: string;
-          name?: string;
-          input?: Record<string, unknown>;
-        }>;
-      }
-      | undefined;
-    const contentBlocks = innerMessage?.content;
+    const contentBlocks = (message.message as { content?: ToolBlock[] } | undefined)?.content;
     if (!Array.isArray(contentBlocks)) return;
-
     for (const block of contentBlocks) {
-      if (block.type !== 'tool_use' || !block.name) continue;
-
-      const toolName = block.name;
-      const input = block.input ?? {};
-
-      if (toolName === 'Write' || toolName === 'Edit') {
-        const filePath = typeof input['file_path'] === 'string' ? input['file_path'] : '';
-        if (filePath) {
-          const relativePath = path.isAbsolute(filePath) ? path.relative(repoDir, filePath) : filePath;
-          console.log(
-            chalk.cyan(`  [${CLI_ADAPTER_LABEL}] File ${toolName === 'Write' ? 'created' : 'updated'}: ${relativePath}`)
-          );
-          touchedFiles?.add(relativePath);
-        }
-        continue;
-      }
-
-      if (toolName === 'Bash') {
-        const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
-        if (command) {
-          activityState.lastVerificationCommand = command;
-          console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Verification running: ${command}`));
-        }
-        continue;
-      }
-
-      if (toolName === 'Read' || toolName === 'Glob' || toolName === 'Grep') {
-        let target = '';
-        if (typeof input['file_path'] === 'string') target = input['file_path'];
-        else if (typeof input['pattern'] === 'string') target = input['pattern'];
-        if (target) {
-          const shortTarget = target.length > 60 ? `${target.slice(0, 57)}...` : target;
-          console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] ${toolName}: ${shortTarget}`));
-        }
-        continue;
-      }
-
-      if (toolName === 'Skill') {
-        const skillName = typeof input['skill'] === 'string' ? input['skill'] : '';
-        if (skillName) {
-          console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] Skill: ${skillName}`));
-        }
-        continue;
-      }
+      this.logAssistantToolBlock({ block, repoDir, activityState, touchedFiles });
     }
   }
 
+  private logAssistantToolBlock(p: ToolBlockLogParams): void {
+    const { block, repoDir, activityState, touchedFiles } = p;
+    if (block.type !== 'tool_use' || !block.name) return;
+    const input = block.input ?? {};
+    if (block.name === 'Write' || block.name === 'Edit') return logWriteEditEvent(block.name, input, repoDir, touchedFiles);
+    if (block.name === 'Bash') return logBashEvent(input, activityState);
+    if (block.name === 'Read' || block.name === 'Glob' || block.name === 'Grep') return logReadEvent(block.name, input);
+    if (block.name === 'Skill') this.logSkillBlock(input);
+  }
+
+  private logSkillBlock(input: Record<string, unknown>): void {
+    const skillName = typeof input['skill'] === 'string' ? input['skill'] : '';
+    if (skillName) console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] Skill: ${skillName}`));
+  }
+
   private logCliToolResult(message: ClaudeCliMessage, activityState: ActivityState): void {
-    const innerMessage = message.message as
-      | {
-        content?: Array<{
-          type: string;
-          content?: string;
-          is_error?: boolean;
-          tool_use_id?: string;
-        }>;
-      }
-      | undefined;
-    const contentBlocks = innerMessage?.content;
+    const contentBlocks = (message.message as { content?: ResultBlock[] } | undefined)?.content;
     if (!Array.isArray(contentBlocks)) return;
-
     for (const block of contentBlocks) {
-      if (block.type !== 'tool_result') continue;
-
-      const content = typeof block.content === 'string' ? block.content : '';
-      if (!content || !activityState.lastVerificationCommand) continue;
-
-      const hasFailure = /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(content);
-      const hasSuccess = /(passed|success|succeeded|completed successfully|exit code 0)/i.test(content);
-
-      if (block.is_error || hasFailure) {
-        console.log(
-          chalk.red(`  [${CLI_ADAPTER_LABEL}] Verification failed: ${activityState.lastVerificationCommand}`)
-        );
-        activityState.lastVerificationCommand = undefined;
-        continue;
-      }
-
-      if (hasSuccess) {
-        console.log(
-          chalk.green(`  [${CLI_ADAPTER_LABEL}] Verification passed: ${activityState.lastVerificationCommand}`)
-        );
-        activityState.lastVerificationCommand = undefined;
-      }
+      if (block.type === 'tool_result') applyToolResultOutcome(block, activityState);
     }
   }
 }
