@@ -246,6 +246,31 @@ describe('IssueCommand', () => {
     consoleLogSpy.mockRestore();
   });
 
+  it('defaults --from to plan when --custom-plan is provided', async () => {
+    const command = await buildCommand();
+    jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await command.run([], {
+      customPlan: 'plan.md',
+      action: 'fix',
+      to: 'plan',
+    } as any);
+
+    const errorOutput = consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n');
+    expect(errorOutput).not.toContain('--from option is required');
+
+    const logOutput = consoleLogSpy.mock.calls.map(call => call.join(' ')).join('\n');
+    expect(logOutput).toContain('Stages:');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
+  });
+
   it('rejects --custom-plan with non-.md extension', async () => {
     const command = await buildCommand();
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);

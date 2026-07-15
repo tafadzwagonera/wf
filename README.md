@@ -644,11 +644,11 @@ wf issue -k WBP-2971 --from plan --to review --action fix
 # Resume from implement (auto-discovers existing plan)
 wf issue -k WBP-2971 --from implement
 
-# Resume from a canonical hashed plan artifact without --action
-wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement
+# Resume from a hashed plan artifact without --action (--from defaults to implement)
+wf issue 2026-05-04-1a2b3c4d-fix-plan.json --to review
 
-# Resume from a custom plan artifact created with --custom-plan
-wf issue --custom-plan dark-building-creek-fix.md --from plan
+# Custom plan (--from defaults to plan)
+wf issue --custom-plan dark-building-creek-fix.md --action fix
 
 # Force refresh even when local artifacts already exist
 wf issue -k WBP-2971 --from fetch --action fix --force
@@ -671,7 +671,7 @@ wf issue -k WBP-2971 --from fetch --action fix --dry-run
 
 | Flag                        | Description                                                                                                                                        | Default            |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `--from <stage>`            | Start stage: `fetch \| plan \| implement \| review \| commit` — defaults to `implement` when a plan token is provided                              | —                  |
+| `--from <stage>`            | Start stage: `fetch \| plan \| implement \| review \| commit` — defaults to `plan` when `--custom-plan` is provided, `implement` when a plan token is provided | —                  |
 | `--to <stage>`              | Stop stage (inclusive)                                                                                                                             | `commit`           |
 | `--action <action>`         | Resolution action: `feature \| fix \| investigate` — required when `plan` stage runs, optional when resuming from a canonical hashed plan artifact | —                  |
 | `-t, --tracker <tracker>` | Tracker: `jira \| github \| bitbucket`                                                                                                            | `TRACKER` |

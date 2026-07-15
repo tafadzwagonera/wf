@@ -52,12 +52,12 @@ const ISSUE_EXAMPLES: CliExample[] = [
     command: 'wf issue -k WBP-2971 --from implement --action fix --tracker jira',
   },
   {
-    comment: 'Run the workflow from a custom markdown plan source',
-    command: 'wf issue -c bar.md --from plan --action fix',
+    comment: 'Run the workflow from a custom markdown plan source (--from defaults to plan)',
+    command: 'wf issue -c bar.md --action fix',
   },
   {
-    comment: 'Resume from a hashed plan artifact without --action',
-    command: 'wf issue 2026-05-04-1a2b3c4d-fix-plan.json --from implement',
+    comment: 'Resume from a hashed plan artifact without --action (--from defaults to implement)',
+    command: 'wf issue 2026-05-04-1a2b3c4d-fix-plan.json --to review',
   },
 ];
 
@@ -188,7 +188,7 @@ export class IssueCommand extends CommandRunner {
   @Option({
     flags: '--from <stage>',
     description:
-      'Start from stage (fetch|plan|implement|review|commit) — defaults to implement when a plan token is provided',
+      'Start from stage (fetch|plan|implement|review|commit) — defaults to `plan` when `--custom-plan` is provided, `implement` when a plan token is provided',
   })
   parseFrom(val: string): string {
     return val;
@@ -348,6 +348,9 @@ export class IssueCommand extends CommandRunner {
     let resolved = options ?? {} as IssueOptions;
     if (planToken && isPlanToken(planToken) && !resolved.from) {
       resolved = { ...resolved, from: 'implement' };
+    }
+    if (resolved.customPlan && !resolved.from) {
+      resolved = { ...resolved, from: 'plan' };
     }
     if (!resolved.from) {
       throw new ValidationError(
