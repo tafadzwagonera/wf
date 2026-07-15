@@ -166,8 +166,8 @@ const resolveExitStatus = (exitCode?: number): string => {
   return exitCode === 0 ? 'completed' : `exit ${exitCode}`;
 };
 
-const formatCodexCommandCompletion = (item: { exit_code?: number; command?: string }): string =>
-  `  [${CODEX_STAGE_LABEL}] Command ${resolveExitStatus(item.exit_code)}: ${truncateCodexText(item.command ?? 'unknown', 60)}`;
+const formatCodexCommandCompletion = (item: { exit_code?: number | null; command?: string }): string =>
+  `  [${CODEX_STAGE_LABEL}] Command ${resolveExitStatus(item.exit_code ?? undefined)}: ${truncateCodexText(item.command ?? 'unknown', 60)}`;
 
 /**
  * @param message - a completed-item Codex CLI message

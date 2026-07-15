@@ -5,6 +5,7 @@ import {
   ModelBehaviorError,
   OpenAIProvider,
   Runner,
+  RunContext,
   SystemError,
   ToolCallError,
   ToolTimeoutError,
@@ -12,7 +13,7 @@ import {
   setTracingExportApiKey,
   tool,
 } from '@openai/agents';
-import type { StreamedRunResult } from '@openai/agents';
+import type { StreamedRunResult, RunState } from '@openai/agents';
 import { OpenAIResponsesCompactionSession } from '@openai/agents-openai';
 import chalk from 'chalk';
 import * as fs from 'fs/promises';
@@ -46,6 +47,7 @@ import {
   isGlobPattern,
   buildPlanContext,
 } from './shared-routing';
+import type { ResolutionPlan } from '../ai.service';
 
 const execAsync = promisify(exec);
 const DEFAULT_MODEL = 'gpt-4.1';
@@ -111,7 +113,7 @@ type StreamLoopState = {
 };
 
 type StreamRunConfig = {
-  runner: Runner<OpenAiImplementerContext>;
+  runner: Runner;
   agent: Agent<OpenAiImplementerContext>;
   context: OpenAiImplementerContext;
   maxTurns: number;
@@ -346,7 +348,7 @@ const resolveWritablePath = (requestedPath: string, ctx: OpenAiImplementerContex
  * @param runContext - OpenAI agent run context
  * @returns Validated implementer context
  */
-const getToolContext = (runContext: { context?: unknown } | undefined): OpenAiImplementerContext => {
+const getToolContext = (runContext: RunContext<unknown> | undefined): OpenAiImplementerContext => {
   const ctx = runContext?.context as OpenAiImplementerContext | undefined;
   if (!ctx) throw new Error('OpenAI agent tool context is missing.');
   return ctx;
@@ -892,7 +894,7 @@ const buildReadFileResult = (rel: string, allLines: string[], offset: number, li
  */
 const executeReadFile = async (
   input: { path: string; offset: number; limit: number },
-  runContext: { context?: unknown }
+  runContext: RunContext<unknown> | undefined
 ): Promise<string> => {
   const ctx = getToolContext(runContext);
   const abs = resolveReadablePath(input.path, ctx);
@@ -938,7 +940,7 @@ const recordFileChange = (
  */
 const executeWriteFile = async (
   input: { path: string; content: string },
-  runContext: { context?: unknown },
+  runContext: RunContext<unknown> | undefined,
   mutable: ToolMutableState
 ): Promise<string> => {
   const ctx = getToolContext(runContext);
@@ -964,7 +966,7 @@ const buildMissingFileResult = (repoDir: string, abs: string): string =>
   JSON.stringify({ path: path.relative(repoDir, abs), status: 'missing', message: 'File does not exist.' }, null, 2);
 
 const executeDeleteFile = async (
-  input: { path: string }, runContext: { context?: unknown }, mutable: ToolMutableState
+  input: { path: string }, runContext: RunContext<unknown> | undefined, mutable: ToolMutableState
 ): Promise<string> => {
   const ctx = getToolContext(runContext);
   const abs = resolveWritablePath(input.path, ctx);
@@ -1114,7 +1116,7 @@ const buildWhitelistDenial = (command: string, allowed: string[]): string => {
 };
 
 const executeVerifyCommand = async (
-  input: { command: string }, runContext: { context?: unknown }, vs: VerifyCommandState
+  input: { command: string }, runContext: RunContext<unknown> | undefined, vs: VerifyCommandState
 ): Promise<string> => {
   const ctx = getToolContext(runContext);
   const command = normalizeCommand(input.command);
@@ -1207,7 +1209,7 @@ const buildGrepCommand = (pattern: string, root: string, globArg: string, max: n
 
 const executeSearchFiles = async (
   input: { pattern: string; path: string; file_glob: string; max_results: number },
-  runContext: { context?: unknown }
+  runContext: RunContext<unknown> | undefined
 ): Promise<string> => {
   const ctx = getToolContext(runContext);
   const root = input.path ? resolveReadablePath(input.path, ctx) : ctx.repoDir;
@@ -1230,7 +1232,7 @@ const executeSearchFiles = async (
  */
 const executeFindFiles = async (
   input: { pattern: string; path: string; max_results: number },
-  runContext: { context?: unknown }
+  runContext: RunContext<unknown> | undefined
 ): Promise<string> => {
   const ctx = getToolContext(runContext);
   const root = input.path ? resolveReadablePath(input.path, ctx) : ctx.repoDir;
@@ -1355,7 +1357,7 @@ const applyValidEdit = async (
 type EditFileInput = { path: string; old_string: string; new_string: string };
 
 const executeEditFile = async (
-  input: EditFileInput, runContext: { context?: unknown }, mutable: ToolMutableState
+  input: EditFileInput, runContext: RunContext<unknown> | undefined, mutable: ToolMutableState
 ): Promise<string> => {
   const ctx = getToolContext(runContext);
   const abs = resolveWritablePath(input.path, ctx);
@@ -1760,9 +1762,11 @@ const startContinuationRun = async (
   prompt: string,
   config: StreamRunConfig
 ): Promise<OaiStreamedRun> =>
-  config.runner.run(config.agent, state ?? prompt, {
-    stream: true, context: config.context, maxTurns: config.maxTurns, session: config.compaction,
-  });
+  config.runner.run(
+    config.agent,
+    (state ?? prompt) as string | RunState<OpenAiImplementerContext, OaiAgent>,
+    { stream: true, context: config.context, maxTurns: config.maxTurns, session: config.compaction }
+  );
 
 /**
  * Runs a single continuation pass.
@@ -1981,13 +1985,17 @@ const createAllTools = (mutable: ToolMutableState, vs: VerifyCommandState) => [
  * @returns Resolved model name and log message
  */
 const resolveModel = (
-  configService: ConfigService, modelRouting: string | undefined, plan?: { steps: string[] }
+  configService: ConfigService, modelRouting: string | undefined, plan?: ResolutionPlan
 ): { model: string; logMessage: string } => {
   const fallback = configService.get<string>('ai.model') || DEFAULT_MODEL;
+  const fallbackPlan: ResolutionPlan = plan ?? {
+    action: 'feature', summary: '', steps: [], estimatedComplexity: 'medium',
+  };
   const result = resolveModelRouting({
-    routing: modelRouting ?? 'auto', fallbackDefaultModel: fallback,
+    routing: (modelRouting ?? 'auto') as 'auto' | 'default' | 'mechanical',
+    fallbackDefaultModel: fallback,
     defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL,
-    configService, plan, adapterLabel: OPENAI_AGENT_LABEL,
+    configService, plan: fallbackPlan, adapterLabel: OPENAI_AGENT_LABEL,
   });
   return { model: result.model, logMessage: result.logMessage };
 };
@@ -2109,7 +2117,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
    * @param options - Implementer options
    * @returns Provider components
    */
-  private initProvider(options: ImplementerOptions, plan?: { steps: string[] }) {
+  private initProvider(options: ImplementerOptions, plan?: ResolutionPlan) {
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
     if (!apiKey) throw new Error('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
     const { client, provider } = initOpenAiClient(apiKey);

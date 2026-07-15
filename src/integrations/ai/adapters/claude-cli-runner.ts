@@ -266,8 +266,8 @@ const spawnChild = (
  */
 const pipePrompt = (child: ReturnType<typeof spawn>, prompt: string | undefined): void => {
   if (!prompt) return;
-  child.stdin.write(prompt);
-  child.stdin.end();
+  child.stdin!.write(prompt);
+  child.stdin!.end();
 };
 
 /**
@@ -287,9 +287,9 @@ const spawnChildProcess = (
 ): ChildBundle => {
   const child = spawnChild(args, cwd, env);
   pipePrompt(child, prompt);
-  const rl = createInterface({ input: child.stdout });
+  const rl = createInterface({ input: child.stdout! });
   const stderrChunks: Buffer[] = [];
-  child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+  child.stderr!.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
   return { child, rl, stderrChunks };
 };
 

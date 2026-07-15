@@ -5,7 +5,7 @@ import { AIError, isAIErrorLike } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
-import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
+import { formatTestInfraPromptSection, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 import {
   formatRepoConventionsPromptSection,
@@ -413,7 +413,7 @@ type PlanFeedbackBlocks = { repoHint: string; retryFeedbackBlock: string };
 
 const buildPlanFeedbackBlocks = (context?: Record<string, unknown>): PlanFeedbackBlocks => {
   const repoHint = (context?.affectedRepositories as string[] | undefined)?.length
-    ? `Affected repositories (hint): ${(context.affectedRepositories as string[]).join(', ')}\n\n`
+    ? `Affected repositories (hint): ${(context!.affectedRepositories as string[]).join(', ')}\n\n`
     : '';
   const qualityFeedback = context?.planQualityFeedback;
   const retryFeedbackBlock
@@ -653,7 +653,7 @@ const buildPlanPromptBody = (
 ): string => assemblePlanPrompt(
   buildPlanPreamble(action, issueContent, context),
   discoveryBlock,
-  [context?.testInfra ? formatTestInfraPromptSection(context.testInfra) : '', context?.testInfra ? PLAN_TEST_CONVENTIONS : ''],
+  [context?.testInfra ? formatTestInfraPromptSection(context.testInfra as TestInfraContext) : '', context?.testInfra ? PLAN_TEST_CONVENTIONS : ''],
   buildVerificationBlock(hasNodeTestInfra),
   buildPlanOutputSchema(action, repoExample)
 );

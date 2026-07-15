@@ -567,7 +567,7 @@ const logSdkUsage = (result: SDKResultMessage): void => {
  * @param touchedFiles - Set of repo-relative paths that were written during the session
  */
 const logSdkSummaryAndFiles = (result: SDKResultMessage, touchedFiles: Set<string>): void => {
-  const summary = result.result.trim();
+  const summary = result.subtype === 'success' ? result.result.trim() : '';
   if (summary) {
     console.log(chalk.bold('\n  Summary:'));
     summary.split('\n').forEach(line => {

@@ -313,7 +313,7 @@ const buildTimeoutMessage = (timeoutMs: number): CodexCliMessage => ({
  */
 const attachStderrCollector = (proc: ChildProcess): Buffer[] => {
   const chunks: Buffer[] = [];
-  proc.stderr.on('data', (chunk: Buffer) => chunks.push(chunk));
+  proc.stderr!.on('data', (chunk: Buffer) => chunks.push(chunk));
   return chunks;
 };
 
@@ -333,7 +333,7 @@ interface CodexSession {
  * @returns Fully initialised `CodexSession` ready for the generator loop
  */
 const buildCodexSession = (child: ChildProcess, timeoutMs: number): CodexSession => ({
-  rl: createInterface({ input: child.stdout }),
+  rl: createInterface({ input: child.stdout! }),
   stderrChunks: attachStderrCollector(child),
   ctrl: buildKillController(child, timeoutMs),
   yieldedRef: [false],

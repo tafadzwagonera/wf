@@ -147,7 +147,7 @@ export class SlackService {
       if (lastData.ok) return lastData;
       if (!isSlackRetryable(lastData, options, index, tokens.length)) this.ensureSlackResponseOk(lastData, channelId);
     }
-    this.ensureSlackResponseOk(lastData, channelId);
+    return this.ensureSlackResponseOk(lastData, channelId) as never;
   }
 
   /**

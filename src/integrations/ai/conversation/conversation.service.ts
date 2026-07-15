@@ -57,7 +57,9 @@ const parseConversationFile = (raw: string): ConversationState => {
  * @param conversation - Current conversation state
  * @returns Array of role/content pairs
  */
-const buildApiMessages = (conversation: ConversationState): Array<{ role: string; content: string }> =>
+const buildApiMessages = (
+  conversation: ConversationState
+): Array<{ role: 'user' | 'assistant'; content: string }> =>
   conversation.messages.map(msg => ({ role: msg.role, content: msg.content }));
 
 /**
@@ -76,7 +78,7 @@ const updateTokenCounts = (
 };
 
 /** Resolved chat session options with maxTurns guaranteed. */
-type ResolvedSessionOptions = ResolvedSessionOptions;
+type ResolvedSessionOptions = ChatSessionOptions & { maxTurns: number };
 
 /**
  * Service for managing multi-turn conversations with Claude
@@ -323,7 +325,7 @@ export class ConversationService {
     if (useAgentBackend) {
       return this.processAgentTurn(
         input, state, options.stage as AgentStageName,
-        options.systemPrompt ?? '', options.repoDir ?? state.context.repoDir, agentSession
+        options.systemPrompt ?? '', options.repoDir ?? state.context.repoDir ?? '', agentSession
       );
     }
     await this.processStandardTurn(conversationId, state, options.systemPrompt, options.stage);

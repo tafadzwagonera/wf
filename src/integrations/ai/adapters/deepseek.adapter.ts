@@ -167,7 +167,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
     return this.contextConfig + (systemPrompt ?? '');
   }
 
-  private assertClient(): asserts this is this & { client: OpenAI } {
+  private assertClient(): OpenAI {
     if (!this.client) {
       throw new AIError(
         'DeepSeek client not initialized. Configure `ai[].apiKey` for the `deepseek` provider in wf.config.*.',
@@ -175,11 +175,12 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
         false
       );
     }
+    return this.client;
   }
 
   async execute(request: AIRequest): Promise<AIResponse> {
     this.initializeClient();
-    this.assertClient();
+    const client = this.assertClient();
     this.logger.debug('Executing AI request via DeepSeek');
 
     const systemPrompt = this.prependConfig(request.systemPrompt);
@@ -187,16 +188,16 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
     const params = buildCompletionParams(request, messages, this.model, this.maxTokens);
 
     try {
-      const response = await this.client.chat.completions.create(params);
+      const response = await client.chat.completions.create(params);
       return mapDeepSeekResponse(response, params.model);
     } catch (error) {
-      throwDeepSeekError(error, 'Failed to execute AI request');
+      return throwDeepSeekError(error, 'Failed to execute AI request');
     }
   }
 
   async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
     this.initializeClient();
-    this.assertClient();
+    const client = this.assertClient();
     this.logger.debug(`Executing conversation request with ${request.messages.length} messages via DeepSeek`);
 
     const systemPrompt = this.prependConfig(request.systemPrompt);
@@ -204,10 +205,10 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
     const params = buildCompletionParams(request, messages, this.model, this.maxTokens);
 
     try {
-      const response = await this.client.chat.completions.create(params);
+      const response = await client.chat.completions.create(params);
       return mapDeepSeekResponse(response, params.model);
     } catch (error) {
-      throwDeepSeekError(error, 'Failed to execute conversation request');
+      return throwDeepSeekError(error, 'Failed to execute conversation request');
     }
   }
 }

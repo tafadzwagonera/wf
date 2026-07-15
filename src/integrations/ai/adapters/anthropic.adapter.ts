@@ -98,7 +98,7 @@ const buildMessageHistory = (request: AIConversationRequest): Anthropic.MessageP
  * @param error - The caught Anthropic API error
  * @returns A new AIError with status metadata
  */
-const wrapApiError = (error: Anthropic.APIError): AIError =>
+const wrapApiError = (error: InstanceType<typeof Anthropic.APIError>): AIError =>
   new AIError(`Claude API error: ${error.message}`, { status: error.status }, true);
 
 /**

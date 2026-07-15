@@ -213,7 +213,7 @@ export class GitService {
       await this.stageFilesForCommit(git, status, options.files);
       return await this.finaliseCommit(git, options);
     } catch (error) {
-      wrapGitError(error, 'Failed to create commit');
+      return wrapGitError(error, 'Failed to create commit');
     }
   }
 

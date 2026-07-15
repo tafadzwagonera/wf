@@ -150,7 +150,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
     return this.contextConfig ? this.contextConfig + (systemPrompt ?? '') : systemPrompt;
   }
 
-  private assertClient(): asserts this is this & { client: OpenAI } {
+  private assertClient(): void {
     if (!this.client) {
       throw new AIError(
         'OpenAI client not initialized. Configure `ai[].apiKey` for the `openai` provider in wf.config.*.',
