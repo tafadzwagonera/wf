@@ -56,15 +56,53 @@ const DEFAULT_REVIEW_MAX_TOKENS = 16384 as const;
  * @returns File content without the outermost code fence, or the original string if none is present
  */
 export const stripCodeFences = (content: string): string => {
-  // Happy path: the entire response is a single code fence.
-  const exactMatch = content.match(/^```[\w]*\n?([\s\S]*?)```\s*$/);
+  const exactMatch = /^```[\w]*\n?([\s\S]*?)```\s*$/.exec(content);
   if (exactMatch) return exactMatch[1];
 
-  // Fallback: the model added preamble or trailing text — extract the first fence.
-  const embeddedMatch = content.match(/```[\w]*\n([\s\S]*?)```/);
+  const embeddedMatch = /```[\w]*\n([\s\S]*?)```/.exec(content);
   if (embeddedMatch) return embeddedMatch[1];
 
   return content;
+};
+
+/**
+ * Advance the JSON brace-depth scanner state by one character.
+ * @param char Current character
+ * @param isEscaped Whether the previous character was a backslash escape
+ * @param inString Whether the scanner is currently inside a JSON string
+ * @returns Updated [inString, isEscaped] tuple
+ */
+const advanceJsonStringState = (char: string, isEscaped: boolean, inString: boolean): [boolean, boolean] => {
+  if (!inString) return char === '"' ? [true, false] : [false, false];
+  if (isEscaped) return [true, false];
+  if (char === '\\') return [true, true];
+  if (char === '"') return [false, false];
+  return [true, false];
+};
+
+/**
+ * Process one character for the brace-depth scanner when outside a string.
+ * @param char Current character
+ * @param braceDepth Current brace depth
+ * @returns Updated braceDepth, or null to signal a complete balanced-object match
+ */
+const processJsonBraceChar = (char: string, braceDepth: number): number | null => {
+  if (char === '{') return braceDepth + 1;
+  if (char !== '}') return braceDepth;
+  if (braceDepth - 1 === 0) return null;
+  return braceDepth - 1;
+};
+
+/**
+ * Scan forward through content to find the index of the first opening brace.
+ * @param content String to scan
+ * @returns Index of first '{', or -1 when not found
+ */
+const findFirstBrace = (content: string): number => {
+  for (let i = 0; i < content.length; i += 1) {
+    if (content[i] === '{') return i;
+  }
+  return -1;
 };
 
 /**
@@ -74,61 +112,35 @@ export const stripCodeFences = (content: string): string => {
  * @returns First balanced JSON object substring, or null when none is found
  */
 const extractFirstJsonObject = (content: string): string | null => {
-  let braceDepth = 0;
-  let startIndex = -1;
+  const startIndex = findFirstBrace(content);
+  if (startIndex === -1) return null;
+
+  let braceDepth = 1;
   let inString = false;
   let isEscaped = false;
 
-  for (let index = 0; index < content.length; index += 1) {
-    const char = content[index];
-
-    if (startIndex === -1) {
-      if (char === '{') {
-        startIndex = index;
-        braceDepth = 1;
-      }
-      continue;
-    }
-
-    if (inString) {
-      if (isEscaped) {
-        isEscaped = false;
-        continue;
-      }
-
-      if (char === '\\') {
-        isEscaped = true;
-        continue;
-      }
-
-      if (char === '"') {
-        inString = false;
-      }
-
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-
-    if (char === '{') {
-      braceDepth += 1;
-      continue;
-    }
-
-    if (char !== '}') {
-      continue;
-    }
-
-    braceDepth -= 1;
-    if (braceDepth === 0) {
-      return content.slice(startIndex, index + 1);
-    }
+  for (let i = startIndex + 1; i < content.length; i += 1) {
+    [inString, isEscaped] = advanceJsonStringState(content[i], isEscaped, inString);
+    if (inString) continue;
+    const next = processJsonBraceChar(content[i], braceDepth);
+    if (next === null) return content.slice(startIndex, i + 1);
+    braceDepth = next;
   }
 
   return null;
+};
+
+/**
+ * Build the ordered list of candidate strings to attempt JSON parsing against.
+ * @param content Raw LLM response content
+ * @returns Ordered array of candidate strings (non-empty)
+ */
+const buildJsonCandidates = (content: string): string[] => {
+  const trimmed = content.trim();
+  const stripped = stripCodeFences(trimmed);
+  return [stripped, extractFirstJsonObject(stripped), extractFirstJsonObject(trimmed)].filter(
+    (c): c is string => Boolean(c)
+  );
 };
 
 /**
@@ -138,14 +150,7 @@ const extractFirstJsonObject = (content: string): string | null => {
  * @throws SyntaxError when no valid JSON object can be parsed
  */
 export const parseJsonResponse = <T>(content: string): T => {
-  const trimmedContent = content.trim();
-  const strippedContent = stripCodeFences(trimmedContent);
-  const candidates = [
-    strippedContent,
-    extractFirstJsonObject(strippedContent),
-    extractFirstJsonObject(trimmedContent),
-  ].filter((candidate): candidate is string => Boolean(candidate));
-
+  const candidates = buildJsonCandidates(content);
   let lastError: unknown;
   for (const candidate of candidates) {
     try {
@@ -154,18 +159,16 @@ export const parseJsonResponse = <T>(content: string): T => {
       lastError = error;
     }
   }
-
   throw lastError instanceof Error ? lastError : new SyntaxError('No valid JSON object found in AI response');
 };
 
 /**
  * Normalize a repository hint for plan prompt examples.
- *
- * @param repositories - Optional affected repository list
+ * @param repositories Optional affected repository list
  * @returns First repository name or a generic fallback
  */
 const resolvePlanPromptRepoExample = (repositories?: string[]): string => {
-  const firstRepository = repositories?.find(repository => typeof repository === 'string' && repository.trim());
+  const firstRepository = repositories?.find(repo => typeof repo === 'string' && repo.trim());
   return firstRepository?.trim() || 'current-repo';
 };
 
@@ -195,64 +198,39 @@ const REVIEW_TRACE_ANCHOR_PATTERNS: RegExp[] = [
 ];
 
 const REVIEW_TRACE_STOP_WORDS = new Set([
-  'async',
-  'await',
-  'break',
-  'case',
-  'catch',
-  'class',
-  'const',
-  'continue',
-  'constructor',
-  'default',
-  'delete',
-  'do',
-  'else',
-  'false',
-  'finally',
-  'for',
-  'function',
-  'if',
-  'import',
-  'let',
-  'new',
-  'null',
-  'protected',
-  'private',
-  'public',
-  'return',
-  'static',
-  'super',
-  'switch',
-  'this',
-  'throw',
-  'true',
-  'try',
-  'undefined',
-  'var',
-  'while',
-  'with',
+  'async', 'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'constructor',
+  'default', 'delete', 'do', 'else', 'false', 'finally', 'for', 'function', 'if', 'import',
+  'let', 'new', 'null', 'protected', 'private', 'public', 'return', 'static', 'super',
+  'switch', 'this', 'throw', 'true', 'try', 'undefined', 'var', 'while', 'with',
 ]);
 
+/**
+ * Collect identifiers matched by one anchor pattern from the diff.
+ * @param diff Git diff text to scan
+ * @param pattern Anchor regex with a capture group for the identifier
+ * @returns Set of lowercased identifiers (stop words excluded)
+ */
+const collectAnchorMatches = (diff: string, pattern: RegExp): Set<string> => {
+  const found = new Set<string>();
+  for (const match of diff.matchAll(pattern)) {
+    const candidate = match[1]?.trim();
+    if (!candidate) continue;
+    const lowered = candidate.toLowerCase();
+    if (!REVIEW_TRACE_STOP_WORDS.has(lowered)) found.add(lowered);
+  }
+  return found;
+};
+
+/**
+ * Extract code identifiers from a diff that can be used as trace anchors.
+ * @param diff Git diff text
+ * @returns Array of unique lowercased identifier strings
+ */
 const extractReviewTraceAnchors = (diff: string): string[] => {
   const anchors = new Set<string>();
-
   for (const pattern of REVIEW_TRACE_ANCHOR_PATTERNS) {
-    for (const match of diff.matchAll(pattern)) {
-      const candidate = match[1]?.trim();
-      if (!candidate) {
-        continue;
-      }
-
-      const lowered = candidate.toLowerCase();
-      if (REVIEW_TRACE_STOP_WORDS.has(lowered)) {
-        continue;
-      }
-
-      anchors.add(lowered);
-    }
+    for (const id of collectAnchorMatches(diff, pattern)) anchors.add(id);
   }
-
   return [...anchors];
 };
 
@@ -262,22 +240,28 @@ const traceContainsCodeAnchors = (traceText: string, anchors: string[]): boolean
 const traceContainsReviewerAnalysisLanguage = (traceText: string): boolean =>
   REVIEW_TRACE_META_PATTERNS.some(pattern => pattern.test(traceText));
 
+/**
+ * Build the lowercase JSON text used for trace contamination checks.
+ * @param review Code review object whose trace fields are serialized
+ * @returns Lowercased JSON string of callStack and stateTransition
+ */
+const buildTraceText = (review: CodeReview): string =>
+  JSON.stringify({ callStack: review.callStack ?? [], stateTransition: review.stateTransition ?? {} }).toLowerCase();
+
+/**
+ * Sanitize the code review trace, clearing contaminated or unverifiable entries.
+ * @param review Parsed CodeReview object
+ * @param diff Git diff used for anchor extraction
+ * @returns Review with cleared trace fields when contamination is detected
+ */
 export const sanitizeCodeReviewTrace = (review: CodeReview, diff: string): CodeReview => {
-  const traceText = JSON.stringify({
-    callStack: review.callStack ?? [],
-    stateTransition: review.stateTransition ?? {},
-  }).toLowerCase();
+  const traceText = buildTraceText(review);
   const anchors = extractReviewTraceAnchors(diff);
   const hasCodeAnchors = anchors.length > 0 && traceContainsCodeAnchors(traceText, anchors);
   const hasReviewerAnalysisLanguage = traceContainsReviewerAnalysisLanguage(traceText);
 
   if (!hasCodeAnchors || hasReviewerAnalysisLanguage) {
-    return {
-      ...review,
-      traceProvenance: 'unavailable',
-      callStack: [],
-      stateTransition: {},
-    };
+    return { ...review, traceProvenance: 'unavailable', callStack: [], stateTransition: {} };
   }
 
   return review;
@@ -300,41 +284,30 @@ type ResponseContentDiagnostics = Pick<
 const REVIEW_EMPTY_RESPONSE_RETRY_LIMIT = 1;
 
 const BLANK_REVIEW_FINISH_REASONS = new Set([
-  'content_filter',
-  'error',
-  'guardrail',
-  'invalid_request',
-  'model_context_window_exceeded',
-  'recitation',
-  'refusal',
-  'safety',
-  'tool_use',
+  'content_filter', 'error', 'guardrail', 'invalid_request',
+  'model_context_window_exceeded', 'recitation', 'refusal',
+  'safety', 'tool_use',
 ]);
 
 const isBlankReviewResponse = (response: ReviewResponseDiagnostics): boolean => response.content.trim().length === 0;
 
-const hasRecoverableBlankReviewMetadata = (response: ReviewResponseDiagnostics): boolean => {
-  if (response.refusal?.trim()) {
-    return false;
-  }
-
+/**
+ * Return true when the finish/stop reason or refusal signals a non-retriable failure.
+ * @param response Adapter response diagnostics
+ * @returns Whether a non-recoverable signal is present
+ */
+const hasNonRecoverableSignal = (response: ReviewResponseDiagnostics): boolean => {
+  if (response.refusal?.trim()) return true;
   const finishReason = response.finishReason?.trim().toLowerCase();
-  if (finishReason && BLANK_REVIEW_FINISH_REASONS.has(finishReason)) {
-    return false;
-  }
-
+  if (finishReason && BLANK_REVIEW_FINISH_REASONS.has(finishReason)) return true;
   const stopReason = response.stopReason?.trim().toLowerCase();
-  if (stopReason && BLANK_REVIEW_FINISH_REASONS.has(stopReason)) {
-    return false;
-  }
-
+  if (stopReason && BLANK_REVIEW_FINISH_REASONS.has(stopReason)) return true;
   const contentTypes = response.contentTypes ?? [];
-  if (contentTypes.length > 0 && !contentTypes.includes('text')) {
-    return false;
-  }
-
-  return true;
+  return contentTypes.length > 0 && !contentTypes.includes('text');
 };
+
+const hasRecoverableBlankReviewMetadata = (response: ReviewResponseDiagnostics): boolean =>
+  !hasNonRecoverableSignal(response);
 
 /**
  * Validates that a review-stage model response contains JSON-bearing text.
@@ -343,24 +316,17 @@ const hasRecoverableBlankReviewMetadata = (response: ReviewResponseDiagnostics):
  * @returns Trimmed response content when non-empty
  * @throws AIError when the provider returned blank or non-text review output
  */
-export const requireReviewResponseContent = (response: ReviewResponseDiagnostics): string => {
-  return requireAiResponseContent(response, 'AI provider returned an empty review response');
-};
+export const requireReviewResponseContent = (response: ReviewResponseDiagnostics): string =>
+  requireAiResponseContent(response, 'AI provider returned an empty review response');
 
 /**
- * Validates that a provider response contains non-empty text content.
- *
- * @param response - Adapter response plus diagnostics
- * @param message - Error message to raise for empty output
- * @returns Trimmed response content when non-empty
- * @throws AIError when the provider returned blank output
+ * Build the AIError thrown when the provider returns empty content.
+ * @param response Adapter response diagnostics
+ * @param message Human-readable error message
+ * @returns Constructed AIError
  */
-export const requireAiResponseContent = (response: ResponseContentDiagnostics, message: string): string => {
-  if (!isBlankReviewResponse(response)) {
-    return response.content.trim();
-  }
-
-  throw new AIError(
+const buildEmptyResponseError = (response: ResponseContentDiagnostics, message: string): AIError =>
+  new AIError(
     message,
     {
       provider: response.provider,
@@ -374,6 +340,18 @@ export const requireAiResponseContent = (response: ResponseContentDiagnostics, m
     },
     hasRecoverableBlankReviewMetadata(response)
   );
+
+/**
+ * Validates that a provider response contains non-empty text content.
+ *
+ * @param response - Adapter response plus diagnostics
+ * @param message - Error message to raise for empty output
+ * @returns Trimmed response content when non-empty
+ * @throws AIError when the provider returned blank output
+ */
+export const requireAiResponseContent = (response: ResponseContentDiagnostics, message: string): string => {
+  if (!isBlankReviewResponse(response)) return response.content.trim();
+  throw buildEmptyResponseError(response, message);
 };
 
 /**
@@ -386,96 +364,92 @@ export const requireAiResponseContent = (response: ResponseContentDiagnostics, m
 export const normalizeFileEntries = (raw: (string | FileEntry)[]): FileEntry[] =>
   raw.map(entry => (typeof entry === 'string' ? { filePath: entry, status: 'found' as const } : entry));
 
-@Injectable()
-export class AiService {
-  constructor(
-    private logger: LoggerService,
-    @Inject(LLM_ADAPTER) private adapter: LlmAdapter,
-    private configService: ConfigService
-  ) {}
+// ---------------------------------------------------------------------------
+// Plan prompt helpers
+// ---------------------------------------------------------------------------
 
-  async execute(request: AIRequest): Promise<AIResponse> {
-    return this.adapter.execute({
-      ...request,
-      ...this.resolveAiTarget(request.stage, request.provider, request.model),
-    });
-  }
+/**
+ * Collect non-empty discovery prompt sections for the given context.
+ * @param context Raw plan context object
+ * @returns Array of non-empty section strings
+ */
+const collectDiscoverySections = (context: Record<string, unknown>): string[] => {
+  const repoName = (context.affectedRepositories as string[] | undefined)?.[0] ?? 'repo';
+  const candidates = [
+    context.conventions && formatRepoConventionsPromptSection(context.conventions as RepoConventionsContext, repoName),
+    context.crossRepoPatterns && formatCrossRepoPatternsPromptSection(context.crossRepoPatterns as CrossRepoContext),
+    context.planCorrelation && formatPlanCorrelationPromptSection(context.planCorrelation as PlanCorrelationResult),
+    context.priorPlans && formatPriorPlansPromptSection(context.priorPlans as PriorPlanContext),
+  ];
+  return candidates.filter((s): s is string => Boolean(s));
+};
 
-  /**
-   * Execute a multi-turn conversation with the configured LLM provider.
-   * Maintains conversation history by passing full message array to the adapter.
-   *
-   * @param request - Conversation request with message history
-   * @returns AI response with content and token usage
-   */
-  async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
-    return this.adapter.executeWithHistory({
-      ...request,
-      ...this.resolveAiTarget(request.stage, request.provider, request.model),
-    });
-  }
+/**
+ * Build the discovery context block injected into the plan prompt.
+ * @param context Raw plan context object
+ * @returns Newline-delimited discovery sections, or empty string
+ */
+const buildPlanDiscoveryBlock = (context: Record<string, unknown>): string => {
+  const parts = collectDiscoverySections(context);
+  return parts.length > 0 ? `\n${parts.join('\n\n')}\n` : '';
+};
 
-  async generatePlan(
-    action: 'fix' | 'implement' | 'investigate',
-    issueContent: string,
-    context?: Record<string, any>
-  ): Promise<ResolutionPlan> {
-    const systemPrompt = `You are an expert software engineer creating detailed resolution plans.
-Your task is to analyze the issue and create a structured plan with clear, actionable steps.
-Return your response as a JSON object matching the ResolutionPlan interface.`;
+/**
+ * Build the agent-analysis preamble block from context.
+ * @param context Optional plan context
+ * @returns Agent analysis block string, or empty string
+ */
+const buildAgentAnalysisBlock = (context?: Record<string, unknown>): string =>
+  context?.agentAnalysis
+    ? `Prior analysis (from agent codebase exploration — use as structured input, output JSON only):\n${(context.agentAnalysis as string).slice(0, 8000)}\n\n`
+    : '';
 
-    const repoHint = context?.affectedRepositories?.length
-      ? `Affected repositories (hint): ${(context.affectedRepositories as string[]).join(', ')}\n\n`
+/**
+ * Build the repo-hint and retry-feedback preamble blocks from context.
+ * @param context Optional plan context
+ * @returns Object with repoHint and retryFeedbackBlock strings
+ */
+type PlanFeedbackBlocks = { repoHint: string; retryFeedbackBlock: string };
+
+const buildPlanFeedbackBlocks = (context?: Record<string, unknown>): PlanFeedbackBlocks => {
+  const repoHint = (context?.affectedRepositories as string[] | undefined)?.length
+    ? `Affected repositories (hint): ${(context.affectedRepositories as string[]).join(', ')}\n\n`
+    : '';
+  const qualityFeedback = context?.planQualityFeedback;
+  const retryFeedbackBlock
+    = Array.isArray(qualityFeedback) && (qualityFeedback as string[]).length > 0
+      ? `Previous plan attempt was rejected for these exact reasons:\n${(qualityFeedback as string[]).join('\n')}\n\nRegenerate the full plan and fix every listed problem. Do not repeat any rejected step wording.\n\n`
       : '';
-    const retryFeedbackBlock
-      = Array.isArray(context?.planQualityFeedback) && context.planQualityFeedback.length > 0
-        ? `Previous plan attempt was rejected for these exact reasons:\n${(context.planQualityFeedback as string[]).join('\n')}\n\nRegenerate the full plan and fix every listed problem. Do not repeat any rejected step wording.\n\n`
-        : '';
-    const repoExample = resolvePlanPromptRepoExample(context?.affectedRepositories as string[] | undefined);
+  return { repoHint, retryFeedbackBlock };
+};
 
-    // Build discovery context sections
-    const discoveryParts: string[] = [];
-    if (context?.conventions) {
-      const repoName = (context.affectedRepositories as string[] | undefined)?.[0] ?? 'repo';
-      const section = formatRepoConventionsPromptSection(context.conventions as RepoConventionsContext, repoName);
-      if (section) discoveryParts.push(section);
-    }
-    if (context?.crossRepoPatterns) {
-      const section = formatCrossRepoPatternsPromptSection(context.crossRepoPatterns as CrossRepoContext);
-      if (section) discoveryParts.push(section);
-    }
-    if (context?.planCorrelation) {
-      const section = formatPlanCorrelationPromptSection(context.planCorrelation as PlanCorrelationResult);
-      if (section) discoveryParts.push(section);
-    }
-    if (context?.priorPlans) {
-      const section = formatPriorPlansPromptSection(context.priorPlans as PriorPlanContext);
-      if (section) discoveryParts.push(section);
-    }
-    const discoveryBlock = discoveryParts.length > 0 ? `\n${discoveryParts.join('\n\n')}\n` : '';
-
-    const agentAnalysisBlock = context?.agentAnalysis
-      ? `Prior analysis (from agent codebase exploration — use as structured input, output JSON only):\n${(context.agentAnalysis as string).slice(0, 8000)}\n\n`
-      : '';
-    const hasNodeTestInfra
-      = context?.testInfra
-        && typeof context.testInfra === 'object'
-        && 'ecosystems' in context.testInfra
-        && Array.isArray((context.testInfra as { ecosystems?: Array<{ ecosystem?: string }> }).ecosystems)
-        && (context.testInfra as { ecosystems: Array<{ ecosystem?: string }> }).ecosystems.some(
-          ecosystem => ecosystem.ecosystem === 'node'
-        );
-
-    const prompt = `${agentAnalysisBlock}
+/**
+ * Build the preamble section of the plan prompt.
+ * @param action Plan action type
+ * @param issueContent Raw issue text
+ * @param context Optional plan context
+ * @returns Preamble string
+ */
+const buildPlanPreamble = (
+  action: 'fix' | 'implement' | 'investigate',
+  issueContent: string,
+  context?: Record<string, unknown>
+): string => {
+  const agentAnalysisBlock = buildAgentAnalysisBlock(context);
+  const { repoHint, retryFeedbackBlock } = buildPlanFeedbackBlocks(context);
+  return `${agentAnalysisBlock}
 Action: ${action}
 Issue Content:
 ${issueContent}
 
 ${context ? `Context:\n${JSON.stringify(context, null, 2)}` : ''}
 
-${repoHint}${retryFeedbackBlock}${discoveryBlock}Create a detailed resolution plan with:
+${repoHint}${retryFeedbackBlock}`;
+};
+
+const PLAN_STEP_INSTRUCTIONS = `Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
-2. Specific, actionable steps to ${action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
+2. Specific, actionable steps to resolve the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
    Every rename, move, or refactoring step MUST state both the current name/path AND the
    replacement name/path (e.g., "Rename class \`PaymentService\` to \`PaymentProcessorService\`
    in src/payments/payment.service.ts"). A step that says only "rename X" without the target
@@ -556,26 +530,9 @@ ${repoHint}${retryFeedbackBlock}${discoveryBlock}Create a detailed resolution pl
    have status "found" — you cannot read a file that does not exist yet. Verify each path
    exists before listing it.
 6. Potential risks or considerations
-7. Repositories that will be affected (if known — use provided hints or infer from ticket text)
+7. Repositories that will be affected (if known — use provided hints or infer from ticket text)`;
 
-${context?.testInfra ? formatTestInfraPromptSection(context.testInfra) : ''}
-${
-  context?.testInfra
-    ? `When a plan step includes test code snippets or prescribes test changes:
-   - Follow ALL test conventions listed above (mock cleanup, DI setup, error handling).
-   - Mock isolation steps MUST be concrete, not conditional — prescribe the exact call, do not say "check whether X or add Y".
-   - Test setup MUST match the DI wiring the code path requires — every injected service the code reaches MUST have a mock provider, not an empty object.
-   - Follow the repo's existing test isolation conventions (detected above). If tests use jest.restoreAllMocks() in afterEach, new tests MUST do the same — do not introduce a different cleanup strategy.
-`
-    : ''
-}
-Minimal-change principles — apply to every plan:
-- Propose the smallest effective change. Do not modify files unrelated to the ticket.
-- Limit verification to files edited by this plan.
-- Each component should be designed to address a single responsibility.
-- Prefer changes that are replaceable or deletable without cascading effects on other components.
-
-8. Task-specific verification only when needed:
+const PLAN_VERIFICATION_CORE = `8. Task-specific verification only when needed:
    - Use "verification.targeted" for focused checks required by this specific plan
    - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
    - Omit "verification" entirely when no targeted checks or waivers are needed
@@ -584,16 +541,13 @@ Minimal-change principles — apply to every plan:
    - Commands must be copy-paste-runnable: reference ONLY scripts/binaries listed in the
      "Available test infrastructure" section. Do not invent scripts.
    - CRITICAL: verification commands are validated against the allowlist above. Any command
-     that does not match an allowed form will be rejected. When unsure, use: node -e "..."
-${
-  hasNodeTestInfra
-    ? `   - Verification commands MUST be shell-safe by construction. For inline \`node -e\`, prefer
+     that does not match an allowed form will be rejected. When unsure, use: node -e "..."`;
+
+const PLAN_VERIFICATION_NODE_ADDENDUM = `   - Verification commands MUST be shell-safe by construction. For inline \`node -e\`, prefer
      single-quoted JS strings or properly escaped backticks — never rely on unescaped
-     template literals inside double-quoted shell strings.
-`
-    : ''
-}
-   - Each verification command MUST be relevant to this plan: it should verify a side effect
+     template literals inside double-quoted shell strings.`;
+
+const PLAN_VERIFICATION_TAIL = `   - Each verification command MUST be relevant to this plan: it should verify a side effect
      or behavior introduced by the steps above, not just run the whole test suite.
    - Each verification command MUST target the specific behavior introduced by the step it validates
      — not unrelated output like global README string order or full-file snapshots.
@@ -606,19 +560,34 @@ ${
      change. When uncertain, prefer the long-form flag name and note the minimum version.
    - For inline assertions, prefer: node -e "const assert = require('node:assert'); ..."
      (when node:test is available) or the installed test framework CLI
-   - If you need to prove an expected failure, wrap it in a shell assertion that exits 0 when the expected failure occurs.
+   - If you need to prove an expected failure, wrap it in a shell assertion that exits 0 when the expected failure occurs.`;
 
-Return ONLY a valid JSON object with these fields:
-{
-  "action": "${action}",
-  "summary": "...",
-  "steps": ["step 1", "step 2", ...],
-  "estimatedComplexity": "low|medium|high",
-  "affectedFiles": [{ "filePath": "${repoExample}/src/path/to/file.ts", "status": "found" }, { "filePath": "${repoExample}/src/path/to/new-file.ts", "status": "to-create" }],
-  "affectedFilesContext": [{ "filePath": "${repoExample}/package.json", "status": "found" }],
-  "affectedRepositories": ["${repoExample}"],
-  "risks": ["risk 1", ...],
-  "verification": {
+const PLAN_MINIMAL_CHANGE = `Minimal-change principles — apply to every plan:
+- Propose the smallest effective change. Do not modify files unrelated to the ticket.
+- Limit verification to files edited by this plan.
+- Each component should be designed to address a single responsibility.
+- Prefer changes that are replaceable or deletable without cascading effects on other components.`;
+
+const PLAN_TEST_CONVENTIONS = `When a plan step includes test code snippets or prescribes test changes:
+   - Follow ALL test conventions listed above (mock cleanup, DI setup, error handling).
+   - Mock isolation steps MUST be concrete, not conditional — prescribe the exact call, do not say "check whether X or add Y".
+   - Test setup MUST match the DI wiring the code path requires — every injected service the code reaches MUST have a mock provider, not an empty object.
+   - Follow the repo's existing test isolation conventions (detected above). If tests use jest.restoreAllMocks() in afterEach, new tests MUST do the same — do not introduce a different cleanup strategy.`;
+
+/**
+ * Build the verification block, optionally including the Node safety addendum.
+ * @param hasNodeTestInfra Whether node test infrastructure was detected
+ * @returns Multi-line verification instructions string
+ */
+const buildVerificationBlock = (hasNodeTestInfra: boolean): string =>
+  [PLAN_VERIFICATION_CORE, hasNodeTestInfra ? PLAN_VERIFICATION_NODE_ADDENDUM : '', PLAN_VERIFICATION_TAIL]
+    .filter(Boolean)
+    .join('\n');
+
+const PLAN_OUTPUT_SCHEMA_TEMPLATE_FILES = `  "affectedFiles": [{ "filePath": "REPO/src/path/to/file.ts", "status": "found" }, { "filePath": "REPO/src/path/to/new-file.ts", "status": "to-create" }],
+  "affectedFilesContext": [{ "filePath": "REPO/package.json", "status": "found" }],`;
+
+const PLAN_OUTPUT_SCHEMA_VERIFICATION = `  "verification": {
     "targeted": [
       {
         "id": "manual-review",
@@ -633,229 +602,140 @@ Return ONLY a valid JSON object with these fields:
         "reason": "Explain why this repo-level baseline check is waived"
       }
     ]
-  }
-}`;
+  }`;
 
-    // Configurable via stages.plan.maxTokens in wf.config.ts;
-    // defaults to DEFAULT_PLAN_MAX_TOKENS to accommodate verbose Opus output
-    const planMaxTokens = this.configService.get<number>('stages.plan.maxTokens', DEFAULT_PLAN_MAX_TOKENS);
+/**
+ * Build the JSON output schema example for the plan prompt.
+ * @param action Plan action type
+ * @param repoExample Example repository name
+ * @returns Output schema string
+ */
+const buildPlanOutputSchema = (action: 'fix' | 'implement' | 'investigate', repoExample: string): string => {
+  const filesSection = PLAN_OUTPUT_SCHEMA_TEMPLATE_FILES.replaceAll('REPO', repoExample);
+  return `Return ONLY a valid JSON object with these fields:\n{\n  "action": "${action}",\n  "summary": "...",\n  "steps": ["step 1", "step 2", ...],\n  "estimatedComplexity": "low|medium|high",\n${filesSection}\n  "affectedRepositories": ["${repoExample}"],\n  "risks": ["risk 1", ...],\n${PLAN_OUTPUT_SCHEMA_VERIFICATION}\n}`;
+};
 
-    const response = await this.execute({
-      prompt,
-      systemPrompt,
-      temperature: 0.5,
-      maxTokens: planMaxTokens,
-      stage: 'plan',
-    });
+/**
+ * Build the plan prompt body from pre-built sections.
+ * @param preamble Pre-built preamble string
+ * @param discoveryBlock Pre-built discovery sections block
+ * @param testSections Pre-built test infra and conventions sections
+ * @param verificationBlock Pre-built verification instructions
+ * @param outputSchema Pre-built output schema
+ * @returns Complete prompt string
+ */
+const assemblePlanPrompt = (
+  preamble: string,
+  discoveryBlock: string,
+  testSections: [string, string],
+  verificationBlock: string,
+  outputSchema: string
+): string =>
+  [preamble, discoveryBlock, PLAN_STEP_INSTRUCTIONS, '\n', ...testSections, PLAN_MINIMAL_CHANGE, '\n', verificationBlock, '\n', outputSchema].join('');
 
-    if (
-      response.stopReason === 'max_tokens'
+/**
+ * Build the full plan prompt body including instructions, test infra, and output schema.
+ * @param action Plan action type
+ * @param issueContent Issue text
+ * @param context Optional plan context
+ * @param repoExample Example repository name for the JSON schema
+ * @param discoveryBlock Pre-built discovery sections block
+ * @param hasNodeTestInfra Whether node test infrastructure was detected
+ * @returns Complete prompt string
+ */
+const buildPlanPromptBody = (
+  action: 'fix' | 'implement' | 'investigate',
+  issueContent: string,
+  context: Record<string, unknown> | undefined,
+  repoExample: string,
+  discoveryBlock: string,
+  hasNodeTestInfra: boolean
+): string => assemblePlanPrompt(
+  buildPlanPreamble(action, issueContent, context),
+  discoveryBlock,
+  [context?.testInfra ? formatTestInfraPromptSection(context.testInfra) : '', context?.testInfra ? PLAN_TEST_CONVENTIONS : ''],
+  buildVerificationBlock(hasNodeTestInfra),
+  buildPlanOutputSchema(action, repoExample)
+);
+
+/**
+ * Detect whether the context describes a Node.js test ecosystem.
+ * @param context Raw plan context object
+ * @returns true when a node ecosystem entry is found
+ */
+const detectNodeTestInfra = (context?: Record<string, unknown>): boolean => {
+  if (!context?.testInfra) return false;
+  if (typeof context.testInfra !== 'object' || !('ecosystems' in context.testInfra)) return false;
+  const infra = context.testInfra as { ecosystems?: Array<{ ecosystem?: string }> };
+  return Array.isArray(infra.ecosystems) && infra.ecosystems.some(e => e.ecosystem === 'node');
+};
+
+/**
+ * Normalize plan steps from the AI response into a plain string array.
+ * @param rawSteps Array of unknown step values from the parsed plan
+ * @returns String array of steps
+ */
+const normalizePlanSteps = (rawSteps: unknown[]): string[] =>
+  rawSteps.map(step => {
+    if (typeof step === 'string') return step;
+    if (step && typeof step === 'object') {
+      const s = step as Record<string, unknown>;
+      const text = s['description'] ?? s['text'] ?? s['title'] ?? s['content'];
+      if (typeof text === 'string') return text;
+    }
+    return String(step);
+  });
+
+/**
+ * Derive the short model source identifier from a full model name and provider.
+ * @param provider AI provider key
+ * @param model Full model name
+ * @returns Model name with provider prefix stripped
+ */
+const deriveModelSource = (provider: string, model: string): string => {
+  const prefixMap: Record<string, string> = { anthropic: 'claude-', google: 'gemini-', deepseek: 'deepseek-', openai: 'gpt-' };
+  const prefix = prefixMap[provider] ?? '';
+  return model.startsWith(prefix) ? model.slice(prefix.length) : model;
+};
+
+/**
+ * Throw when a response was truncated by the output token limit.
+ * @param response AI response to inspect
+ * @param stage Config stage label used in the error message
+ */
+const throwIfTruncated = (response: AIResponse, stage: string): void => {
+  const truncated
+    = response.stopReason === 'max_tokens'
       || response.finishReason === 'length'
-      || response.finishReason === 'MAX_TOKENS'
-    ) {
-      throw new AIError(
-        'Plan response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.plan.maxTokens in wf.config.ts.',
-        { stopReason: response.stopReason, finishReason: response.finishReason, usage: response.usage }
-      );
-    }
+      || response.finishReason === 'MAX_TOKENS';
+  if (!truncated) return;
+  throw new AIError(
+    `${stage} response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.${stage.toLowerCase()}.maxTokens in wf.config.ts.`,
+    { stopReason: response.stopReason, finishReason: response.finishReason, usage: response.usage }
+  );
+};
 
-    try {
-      const plan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
-        requireAiResponseContent(response, 'AI provider returned an empty plan response')
-      );
-      // Backward-compat: AI may still return the old key name during the transition period
-      if (!plan.affectedRepositories && plan.repositoriesAffected) {
-        plan.affectedRepositories = plan.repositoriesAffected;
-      }
-      delete plan.repositoriesAffected;
+// ---------------------------------------------------------------------------
+// Review prompt helpers
+// ---------------------------------------------------------------------------
 
-      const rawSteps: unknown[] = Array.isArray(plan.steps) ? plan.steps : [];
-      plan.steps = rawSteps.map(step => {
-        if (typeof step === 'string') return step;
-        if (step && typeof step === 'object') {
-          const s = step as Record<string, unknown>;
-          const text = s['description'] ?? s['text'] ?? s['title'] ?? s['content'];
-          if (typeof text === 'string') return text;
-        }
-        return String(step);
-      });
+const PLAN_SYSTEM_PROMPT = `You are an expert software engineer creating detailed resolution plans.
+Your task is to analyze the issue and create a structured plan with clear, actionable steps.
+Return your response as a JSON object matching the ResolutionPlan interface.`;
 
-      const provider = this.configService.get<string>('ai.provider', 'anthropic');
-      const model = this.configService.get<string>('ai.model', '');
-      const prefixMap: Record<string, string> = {
-        anthropic: 'claude-',
-        google: 'gemini-',
-        deepseek: 'deepseek-',
-        openai: 'gpt-',
-      };
-      const prefix = prefixMap[provider] ?? '';
-      const source = model.startsWith(prefix) ? model.slice(prefix.length) : model;
-
-      plan.provider = provider;
-      plan.source = source;
-      plan.timestamp = dayjs().toISOString();
-
-      return plan;
-    } catch (error) {
-      if (isAIErrorLike(error)) {
-        throw error;
-      }
-
-      this.logger.error('Failed to parse AI response as JSON', error);
-      throw new AIError('Failed to parse resolution plan from AI response', {
-        response: response.content,
-        error,
-      });
-    }
-  }
-
-  /**
-   * Generate structured findings and recommendations from an investigation plan.
-   *
-   * @param plan - The investigation plan produced by PlannerAgent
-   * @param ticketContent - Optional ticket markdown for additional context
-   * @returns Structured findings document with findings and recommendations
-   */
-  async generateFindings(plan: ResolutionPlan, ticketContent?: string): Promise<FindingsDocument> {
-    const systemPrompt = `You are an expert software investigator providing structured findings and recommendations.
+const FINDINGS_SYSTEM_PROMPT = `You are an expert software investigator providing structured findings and recommendations.
 Analyse the given investigation plan and any available ticket context to produce clear, actionable findings.
 Return your response as a JSON object.`;
 
-    const prompt = `
-Investigation Plan:
-${JSON.stringify(plan, null, 2)}
-${ticketContent ? `\nTicket Context:\n${ticketContent}\n` : ''}
-Perform the investigation described in the plan and generate structured findings and recommendations.
-
-Return ONLY a valid JSON object:
-{
-  "action": "investigate",
-  "summary": "Brief summary of what was investigated and the key findings",
-  "findings": ["finding 1", "finding 2", ...],
-  "recommendations": ["recommendation 1", ...],
-  "conclusion": "Overall conclusion and suggested next steps"
-}`;
-
-    // Configurable via stages.implement.maxTokens in wf.config.ts; defaults to DEFAULT_FINDINGS_MAX_TOKENS
-    const findingsMaxTokens = this.configService.get<number>('stages.implement.maxTokens', DEFAULT_FINDINGS_MAX_TOKENS);
-
-    const response = await this.execute({
-      prompt,
-      systemPrompt,
-      temperature: 0.4,
-      maxTokens: findingsMaxTokens,
-      stage: 'implement',
-    });
-
-    if (
-      response.stopReason === 'max_tokens'
-      || response.finishReason === 'length'
-      || response.finishReason === 'MAX_TOKENS'
-    ) {
-      throw new AIError(
-        'Findings response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.implement.maxTokens in wf.config.ts.',
-        { stopReason: response.stopReason, finishReason: response.finishReason, usage: response.usage }
-      );
-    }
-
-    try {
-      return parseJsonResponse<FindingsDocument>(
-        requireAiResponseContent(response, 'AI provider returned an empty investigation findings response')
-      );
-    } catch (error) {
-      if (isAIErrorLike(error)) {
-        throw error;
-      }
-
-      this.logger.error('Failed to parse findings response', error);
-      throw new AIError('Failed to parse investigation findings from AI response', {
-        response: response.content,
-        error,
-      });
-    }
-  }
-
-  async generateCommitMessage(
-    diff: string,
-    commitHistory: string[],
-    format: 'conventional' | 'freeform' | 'auto' = 'auto',
-    ticketContext?: string
-  ): Promise<string> {
-    const systemPrompt = `You are an expert at writing clear, concise git commit messages.
+const COMMIT_SYSTEM_PROMPT = `You are an expert at writing clear, concise git commit messages.
 Analyze the diff and commit history to generate an appropriate commit message.`;
 
-    // Detect format from commit history if auto
-    let detectedFormat = format;
-    if (format === 'auto' && commitHistory.length > 0) {
-      detectedFormat = this.detectCommitFormat(commitHistory);
-    }
-
-    const formatInstructions
-      = detectedFormat === 'conventional'
-        ? `Use conventional commits format: <type>(<scope>): <subject>
-Types: feat, fix, docs, style, refactor, test, chore
-Example: "feat(auth): add JWT token validation"`
-        : 'Write a clear, concise commit message describing the changes';
-
-    const ticketContextSection = ticketContext ? `Ticket context: ${ticketContext}\n\n` : '';
-
-    const prompt = `
-${ticketContextSection}Git Diff:
-\`\`\`
-${diff.substring(0, 3000)} ${diff.length > 3000 ? '...(truncated)' : ''}
-\`\`\`
-
-Recent Commit History:
-${commitHistory.slice(0, 5).join('\n')}
-
-${formatInstructions}
-
-Generate a commit message that:
-1. Reflects the ticket's intent, not just the code change pattern
-2. Follows the repository's commit message style
-3. Is concise but informative
-4. ${detectedFormat === 'conventional' ? 'Follows conventional commits format' : 'Follows the existing commit message style'}
-
-Do NOT include ticket IDs, issue keys, or project codes in your message (e.g. WBP-1234, TAD-575). The ticket prefix is added automatically.
-Return ONLY the commit message description, nothing else.`;
-
-    const response = await this.execute({
-      prompt,
-      systemPrompt,
-      temperature: 0.3,
-      maxTokens: 200,
-      stage: 'commit',
-    });
-
-    return requireAiResponseContent(response, 'AI provider returned an empty commit message response');
-  }
-
-  async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
-    const systemPrompt = `You are an expert code reviewer providing constructive feedback.
+const REVIEW_SYSTEM_PROMPT = `You are an expert code reviewer providing constructive feedback.
 Focus on code quality, best practices, potential bugs, and security issues.
 Ignore any changes to JSON or markdown files under \`.wf/\` or tracker artefact directories (jira/, bitbucket/) — review only application source code.
 Return your response as a JSON object matching the CodeReview interface.`;
 
-    const prompt = `
-Code Changes:
-\`\`\`
-${diff}
-\`\`\`
-
-    Review Guidelines:
-${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
-
-    Provide a code review with:
-    1. A brief summary of the changes
-    2. Any issues found (errors, warnings, or info)
-    3. A trace provenance label: evidence-based, best-effort, or unavailable
-    4. A nested tree-like call stack that walks the changed code path, starting from concrete functions, handlers, or methods in the diff
-    5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack, not the reviewer's analysis flow
-    6. A suggestion for each issue when remediation is clear — each suggestion must recommend the smallest effective fix (the minimum change that resolves the issue without introducing unnecessary scope). Write suggestions in plain, human-friendly language: be concise, use everyday phrasing, and avoid jargon-heavy or robotic sentences.
-    7. Optional trailing suggestions for general follow-up work that is not tied to a single issue — each must also prefer the smallest effective fix and use the same concise, human-friendly tone
-    8. Whether the code is approved
-
-    Important trace rules:
+const REVIEW_PROMPT_TRACE_RULES = `    Important trace rules:
     - Describe the code under review, not the review process.
     - Do not return review-process steps such as "diff loaded", "analyzing", "reviewed", or "issues found" in callStack or stateTransition.
     - If the changed code cannot be traced confidently, set traceProvenance to "unavailable" and return empty callStack and stateTransition fields.
@@ -868,9 +748,9 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     - For the state transition tree, use the same frame labels and capture the variable changes observed at each frame.
     - Use \`captured\` for the variables or objects observed at a frame, and \`changes\` for the values that changed between the current frame and the previous one.
     - For detailed traces, include important intermediate methods, mappers, helpers, and client calls when they materially affect the changed path.
-    - Prefer multiple distinct tree levels when downstream dependencies are nested.
+    - Prefer multiple distinct tree levels when downstream dependencies are nested.`;
 
-    Return ONLY a valid JSON object:
+const REVIEW_PROMPT_OUTPUT_SCHEMA = `    Return ONLY a valid JSON object:
     {
       "summary": "...",
       "issues": [
@@ -917,67 +797,211 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
       "approved": true|false
     }`;
 
-    // Configurable via stages.review.maxTokens in wf.config.ts; defaults to DEFAULT_REVIEW_MAX_TOKENS
-    const reviewMaxTokens = this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
+/**
+ * Build the user-facing code review prompt.
+ * @param diff Git diff text to review
+ * @param guidelines Ordered review guideline strings
+ * @returns Full review prompt string
+ */
+const buildReviewPrompt = (diff: string, guidelines: string[]): string =>
+  [
+    `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\`\n`,
+    `    Review Guidelines:\n${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}\n`,
+    `    Provide a code review with:\n    1. A brief summary of the changes\n    2. Any issues found (errors, warnings, or info)\n    3. A trace provenance label: evidence-based, best-effort, or unavailable\n    4. A nested tree-like call stack that walks the changed code path, starting from concrete functions, handlers, or methods in the diff\n    5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack, not the reviewer's analysis flow\n    6. A suggestion for each issue when remediation is clear — each suggestion must recommend the smallest effective fix (the minimum change that resolves the issue without introducing unnecessary scope). Write suggestions in plain, human-friendly language: be concise, use everyday phrasing, and avoid jargon-heavy or robotic sentences.\n    7. Optional trailing suggestions for general follow-up work that is not tied to a single issue — each must also prefer the smallest effective fix and use the same concise, human-friendly tone\n    8. Whether the code is approved\n`,
+    REVIEW_PROMPT_TRACE_RULES,
+    '\n',
+    REVIEW_PROMPT_OUTPUT_SCHEMA,
+  ].join('\n');
 
-    let response = await this.execute({
-      prompt,
-      systemPrompt,
-      temperature: 0.3,
-      maxTokens: reviewMaxTokens,
-      stage: 'review',
-    });
+/**
+ * Execute one review attempt with blank-response retry logic.
+ * @param executeFn Async function that performs a single AI review call
+ * @param maxRetries Maximum number of recoverable retries
+ * @returns Final AIResponse after retries are exhausted or a non-blank response arrives
+ */
+const retryOnBlankResponse = async (executeFn: () => Promise<AIResponse>, maxRetries: number): Promise<AIResponse> => {
+  let response = await executeFn();
+  let attemptCount = 0;
 
-    let attemptCount = 0;
-    while (attemptCount < REVIEW_EMPTY_RESPONSE_RETRY_LIMIT) {
-      try {
-        requireReviewResponseContent(response);
-        break;
-      } catch (error) {
-        if (!isAIErrorLike(error) || !error.recoverable) {
-          throw error;
-        }
-
-        attemptCount += 1;
-        response = await this.execute({
-          prompt,
-          systemPrompt,
-          temperature: 0.3,
-          maxTokens: reviewMaxTokens,
-          stage: 'review',
-        });
-      }
-    }
-
-    if (
-      response.stopReason === 'max_tokens'
-      || response.finishReason === 'length'
-      || response.finishReason === 'MAX_TOKENS'
-    ) {
-      throw new AIError(
-        'Review response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.review.maxTokens in wf.config.ts.',
-        { stopReason: response.stopReason, finishReason: response.finishReason, usage: response.usage }
-      );
-    }
-
+  while (attemptCount < maxRetries) {
     try {
-      const parsed = parseJsonResponse<CodeReview>(requireReviewResponseContent(response));
-      const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
-      return {
-        ...processedReview.review,
-        executionMode: 'standard',
-      };
+      requireReviewResponseContent(response);
+      break;
     } catch (error) {
-      if (isAIErrorLike(error)) {
-        throw error;
-      }
-
-      this.logger.error('Failed to parse code review response', error);
-      throw new AIError('Failed to parse code review from AI response', {
-        response: response.content,
-        error,
-      });
+      if (!isAIErrorLike(error) || !error.recoverable) throw error;
+      attemptCount += 1;
+      response = await executeFn();
     }
+  }
+
+  return response;
+};
+
+// ---------------------------------------------------------------------------
+// Findings prompt helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the findings prompt from an investigation plan.
+ * @param plan The investigation plan to summarize
+ * @param ticketContent Optional raw ticket text for extra context
+ * @returns Prompt string for the findings generation call
+ */
+const buildFindingsPrompt = (plan: ResolutionPlan, ticketContent?: string): string => `
+Investigation Plan:
+${JSON.stringify(plan, null, 2)}
+${ticketContent ? `\nTicket Context:\n${ticketContent}\n` : ''}
+Perform the investigation described in the plan and generate structured findings and recommendations.
+
+Return ONLY a valid JSON object:
+{
+  "action": "investigate",
+  "summary": "Brief summary of what was investigated and the key findings",
+  "findings": ["finding 1", "finding 2", ...],
+  "recommendations": ["recommendation 1", ...],
+  "conclusion": "Overall conclusion and suggested next steps"
+}`;
+
+// ---------------------------------------------------------------------------
+// Commit prompt helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the commit format instructions string for the given format.
+ * @param detectedFormat Resolved commit format
+ * @returns Format instructions string
+ */
+const resolveCommitFormatInstructions = (detectedFormat: 'conventional' | 'freeform'): string =>
+  detectedFormat === 'conventional'
+    ? `Use conventional commits format: <type>(<scope>): <subject>
+Types: feat, fix, docs, style, refactor, test, chore
+Example: "feat(auth): add JWT token validation"`
+    : 'Write a clear, concise commit message describing the changes';
+
+/**
+ * Build the commit message generation prompt.
+ * @param diff Git diff text (truncated to 3000 chars)
+ * @param commitHistory Recent commit messages
+ * @param formatInstructions Format-specific instructions
+ * @param detectedFormat Resolved commit format
+ * @param ticketContext Optional ticket context string
+ * @returns Prompt string for commit message generation
+ */
+const buildCommitPrompt = (
+  diff: string,
+  commitHistory: string[],
+  formatInstructions: string,
+  detectedFormat: 'conventional' | 'freeform',
+  ticketContext?: string
+): string => {
+  const ticketContextSection = ticketContext ? `Ticket context: ${ticketContext}\n\n` : '';
+  const diffSection = `${diff.substring(0, 3000)} ${diff.length > 3000 ? '...(truncated)' : ''}`;
+  const styleRule = detectedFormat === 'conventional' ? 'Follows conventional commits format' : 'Follows the existing commit message style';
+  return `\n${ticketContextSection}Git Diff:\n\`\`\`\n${diffSection}\n\`\`\`\n\nRecent Commit History:\n${commitHistory.slice(0, 5).join('\n')}\n\n${formatInstructions}\n\nGenerate a commit message that:\n1. Reflects the ticket's intent, not just the code change pattern\n2. Follows the repository's commit message style\n3. Is concise but informative\n4. ${styleRule}\n\nDo NOT include ticket IDs, issue keys, or project codes in your message (e.g. WBP-1234, TAD-575). The ticket prefix is added automatically.\nReturn ONLY the commit message description, nothing else.`;
+};
+
+// ---------------------------------------------------------------------------
+// Stage override helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the provider value for a stage from config, trying both key locations.
+ * @param configService NestJS ConfigService
+ * @param stage Stage name to look up
+ * @returns Provider string or undefined
+ */
+const resolveStageProvider = (configService: ConfigService, stage: string): string | undefined =>
+  configService.get<string>(`stages.${stage}.provider`)
+  ?? configService.get<string>(`ai.stages.${stage}.provider`);
+
+/**
+ * Read the model value for a stage from config, trying both key locations.
+ * @param configService NestJS ConfigService
+ * @param stage Stage name to look up
+ * @returns Model string or undefined
+ */
+const resolveStageModel = (configService: ConfigService, stage: string): string | undefined =>
+  configService.get<string>(`stages.${stage}.model`)
+  ?? configService.get<string>(`ai.stages.${stage}.model`);
+
+@Injectable()
+export class AiService {
+  constructor(
+    private logger: LoggerService,
+    @Inject(LLM_ADAPTER) private adapter: LlmAdapter,
+    private configService: ConfigService
+  ) {}
+
+  async execute(request: AIRequest): Promise<AIResponse> {
+    return this.adapter.execute({
+      ...request,
+      ...this.resolveAiTarget(request.stage, request.provider, request.model),
+    });
+  }
+
+  /**
+   * Execute a multi-turn conversation with the configured LLM provider.
+   * Maintains conversation history by passing full message array to the adapter.
+   *
+   * @param request - Conversation request with message history
+   * @returns AI response with content and token usage
+   */
+  async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
+    return this.adapter.executeWithHistory({
+      ...request,
+      ...this.resolveAiTarget(request.stage, request.provider, request.model),
+    });
+  }
+
+  async generatePlan(
+    action: 'fix' | 'implement' | 'investigate',
+    issueContent: string,
+    context?: Record<string, unknown>
+  ): Promise<ResolutionPlan> {
+    const repoExample = resolvePlanPromptRepoExample(context?.affectedRepositories as string[] | undefined);
+    const discoveryBlock = context ? buildPlanDiscoveryBlock(context) : '';
+    const hasNodeInfra = detectNodeTestInfra(context);
+    const prompt = buildPlanPromptBody(action, issueContent, context, repoExample, discoveryBlock, hasNodeInfra);
+    const planMaxTokens = this.configService.get<number>('stages.plan.maxTokens', DEFAULT_PLAN_MAX_TOKENS);
+    const response = await this.execute({ prompt, systemPrompt: PLAN_SYSTEM_PROMPT, temperature: 0.5, maxTokens: planMaxTokens, stage: 'plan' });
+    throwIfTruncated(response, 'Plan');
+    return this.parsePlanResponse(response);
+  }
+
+  /**
+   * Generate structured findings and recommendations from an investigation plan.
+   *
+   * @param plan - The investigation plan produced by PlannerAgent
+   * @param ticketContent - Optional ticket markdown for additional context
+   * @returns Structured findings document with findings and recommendations
+   */
+  async generateFindings(plan: ResolutionPlan, ticketContent?: string): Promise<FindingsDocument> {
+    const findingsMaxTokens = this.configService.get<number>('stages.implement.maxTokens', DEFAULT_FINDINGS_MAX_TOKENS);
+    const response = await this.execute({ prompt: buildFindingsPrompt(plan, ticketContent), systemPrompt: FINDINGS_SYSTEM_PROMPT, temperature: 0.4, maxTokens: findingsMaxTokens, stage: 'implement' });
+    throwIfTruncated(response, 'Findings');
+    return this.parseFindingsResponse(response);
+  }
+
+  async generateCommitMessage(
+    diff: string,
+    commitHistory: string[],
+    format: 'conventional' | 'freeform' | 'auto' = 'auto',
+    ticketContext?: string
+  ): Promise<string> {
+    const detectedFormat = this.resolveCommitFormat(format, commitHistory);
+    const formatInstructions = resolveCommitFormatInstructions(detectedFormat);
+    const prompt = buildCommitPrompt(diff, commitHistory, formatInstructions, detectedFormat, ticketContext);
+    const response = await this.execute({ prompt, systemPrompt: COMMIT_SYSTEM_PROMPT, temperature: 0.3, maxTokens: 200, stage: 'commit' });
+    return requireAiResponseContent(response, 'AI provider returned an empty commit message response');
+  }
+
+  async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
+    const reviewMaxTokens = this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
+    const executeReview = () =>
+      this.execute({ prompt: buildReviewPrompt(diff, guidelines), systemPrompt: REVIEW_SYSTEM_PROMPT, temperature: 0.3, maxTokens: reviewMaxTokens, stage: 'review' });
+    const response = await retryOnBlankResponse(executeReview, REVIEW_EMPTY_RESPONSE_RETRY_LIMIT);
+    throwIfTruncated(response, 'Review');
+    return this.parseReviewResponse(response, diff);
   }
 
   /**
@@ -1008,55 +1032,129 @@ ${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
     return 'Claude';
   }
 
+  /**
+   * Resolve stage-level provider and model, validating that both or neither are set.
+   * @param stage Stage name to look up
+   * @param fallback Default provider/model to use when no stage override is present
+   * @returns Resolved provider and model
+   */
+  private resolveStageTarget(
+    stage: string,
+    fallback: { provider: string; model: string }
+  ): { provider?: string; model?: string } {
+    const stageProvider = resolveStageProvider(this.configService, stage);
+    const stageModel = resolveStageModel(this.configService, stage);
+    if (!stageProvider && !stageModel) return fallback;
+    if (!stageProvider || !stageModel) throw new AIError(`AI stage target for "${stage}" must define provider and model together.`);
+    return { provider: stageProvider, model: stageModel };
+  }
+
   private resolveAiTarget(
     stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit' | 'create',
     providerOverride?: string,
     modelOverride?: string
   ): { provider?: string; model?: string } {
     if (providerOverride || modelOverride) {
-      if (!providerOverride || !modelOverride) {
-        throw new AIError('AI provider and model overrides must be supplied together.');
-      }
-
-      return {
-        provider: providerOverride,
-        model: modelOverride,
-      };
+      if (!providerOverride || !modelOverride) throw new AIError('AI provider and model overrides must be supplied together.');
+      return { provider: providerOverride, model: modelOverride };
     }
-
     const provider = this.configService.get<string>('ai.provider', 'anthropic');
     const model = this.configService.get<string>('ai.model', '');
+    if (!stage) return { provider, model };
+    return this.resolveStageTarget(stage, { provider, model });
+  }
 
-    if (!stage) {
-      return { provider, model };
-    }
-
-    const stageProvider
-      = this.configService.get<string>(`stages.${stage}.provider`)
-        ?? this.configService.get<string>(`ai.stages.${stage}.provider`);
-    const stageModel
-      = this.configService.get<string>(`stages.${stage}.model`)
-        ?? this.configService.get<string>(`ai.stages.${stage}.model`);
-
-    if (!stageProvider && !stageModel) {
-      return { provider, model };
-    }
-
-    if (!stageProvider || !stageModel) {
-      throw new AIError(`AI stage target for "${stage}" must define provider and model together.`);
-    }
-
-    return {
-      provider: stageProvider,
-      model: stageModel,
-    };
+  /**
+   * Resolve the detected commit format from the format hint and commit history.
+   * @param format Requested format, may be 'auto'
+   * @param commitHistory Recent commit messages used for format detection
+   * @returns Resolved 'conventional' or 'freeform'
+   */
+  private resolveCommitFormat(
+    format: 'conventional' | 'freeform' | 'auto',
+    commitHistory: string[]
+  ): 'conventional' | 'freeform' {
+    if (format !== 'auto') return format;
+    return commitHistory.length > 0 ? this.detectCommitFormat(commitHistory) : 'freeform';
   }
 
   private detectCommitFormat(commitHistory: string[]): 'conventional' | 'freeform' {
     const conventionalPattern = /^(feat|fix|docs|style|refactor|test|chore)(\(.+\))?:/;
     const conventionalCount = commitHistory.filter(msg => conventionalPattern.test(msg)).length;
-
-    // If more than 60% use conventional format, use it
     return conventionalCount / commitHistory.length > 0.6 ? 'conventional' : 'freeform';
+  }
+
+  /**
+   * Stamp provider metadata onto a parsed plan in place.
+   * @param plan Mutable ResolutionPlan to annotate
+   */
+  private stampPlanMetadata(plan: ResolutionPlan & { repositoriesAffected?: string[] }): void {
+    if (!plan.affectedRepositories && plan.repositoriesAffected) {
+      plan.affectedRepositories = plan.repositoriesAffected;
+    }
+    delete plan.repositoriesAffected;
+    plan.steps = normalizePlanSteps(Array.isArray(plan.steps) ? plan.steps : []);
+    const provider = this.configService.get<string>('ai.provider', 'anthropic');
+    const model = this.configService.get<string>('ai.model', '');
+    plan.provider = provider;
+    plan.source = deriveModelSource(provider, model);
+    plan.timestamp = dayjs().toISOString();
+  }
+
+  /**
+   * Parse and normalize the AI response into a ResolutionPlan.
+   * @param response Raw AI response from the plan execution call
+   * @returns Normalized ResolutionPlan with provider metadata
+   * @throws AIError on empty or unparseable response
+   */
+  private parsePlanResponse(response: AIResponse): ResolutionPlan {
+    try {
+      const plan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
+        requireAiResponseContent(response, 'AI provider returned an empty plan response')
+      );
+      this.stampPlanMetadata(plan);
+      return plan;
+    } catch (error) {
+      if (isAIErrorLike(error)) throw error;
+      this.logger.error('Failed to parse AI response as JSON', error);
+      throw new AIError('Failed to parse resolution plan from AI response', { response: response.content, error });
+    }
+  }
+
+  /**
+   * Parse the findings AI response into a FindingsDocument.
+   * @param response Raw AI response from the findings execution call
+   * @returns Parsed FindingsDocument
+   * @throws AIError on empty or unparseable response
+   */
+  private parseFindingsResponse(response: AIResponse): FindingsDocument {
+    try {
+      return parseJsonResponse<FindingsDocument>(
+        requireAiResponseContent(response, 'AI provider returned an empty investigation findings response')
+      );
+    } catch (error) {
+      if (isAIErrorLike(error)) throw error;
+      this.logger.error('Failed to parse findings response', error);
+      throw new AIError('Failed to parse investigation findings from AI response', { response: response.content, error });
+    }
+  }
+
+  /**
+   * Parse the review AI response into a CodeReview.
+   * @param response Raw AI response from the review execution call
+   * @param diff Git diff used for trace sanitization
+   * @returns Parsed and sanitized CodeReview
+   * @throws AIError on empty or unparseable response
+   */
+  private parseReviewResponse(response: AIResponse, diff: string): CodeReview {
+    try {
+      const parsed = parseJsonResponse<CodeReview>(requireReviewResponseContent(response));
+      const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
+      return { ...processedReview.review, executionMode: 'standard' };
+    } catch (error) {
+      if (isAIErrorLike(error)) throw error;
+      this.logger.error('Failed to parse code review response', error);
+      throw new AIError('Failed to parse code review from AI response', { response: response.content, error });
+    }
   }
 }

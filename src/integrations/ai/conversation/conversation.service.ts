@@ -16,6 +16,69 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 
 /**
+ * Build the initial ConversationState value for a new conversation.
+ *
+ * @param conversationId - UUID for the new conversation
+ * @param ticketKey - Ticket identifier
+ * @param context - Workflow context
+ * @returns Fully initialised ConversationState
+ */
+const buildInitialState = (
+  conversationId: string,
+  ticketKey: string,
+  context: ConversationContext
+): ConversationState => {
+  const now = new Date();
+  return {
+    conversationId, ticketKey, messages: [], context,
+    totalTokensUsed: { input: 0, output: 0 }, createdAt: now, updatedAt: now,
+  };
+};
+
+/**
+ * Parse raw JSON file content into a ConversationState with Date objects restored.
+ *
+ * @param raw - Raw UTF-8 file content
+ * @returns Parsed ConversationState with Date fields as Date instances
+ */
+const parseConversationFile = (raw: string): ConversationState => {
+  const state = JSON.parse(raw) as ConversationState;
+  state.createdAt = new Date(state.createdAt);
+  state.updatedAt = new Date(state.updatedAt);
+  state.messages.forEach(msg => {
+    msg.timestamp = new Date(msg.timestamp);
+  });
+  return state;
+};
+
+/**
+ * Build the messages array suitable for the AI API from a conversation state.
+ *
+ * @param conversation - Current conversation state
+ * @returns Array of role/content pairs
+ */
+const buildApiMessages = (conversation: ConversationState): Array<{ role: string; content: string }> =>
+  conversation.messages.map(msg => ({ role: msg.role, content: msg.content }));
+
+/**
+ * Apply token usage from a response to the running conversation totals.
+ *
+ * @param conversation - Conversation state to mutate
+ * @param usage - Token counts from the API response
+ */
+const updateTokenCounts = (
+  conversation: ConversationState,
+  usage: { inputTokens: number; outputTokens: number } | undefined
+): void => {
+  if (!usage) return;
+  conversation.totalTokensUsed.input += usage.inputTokens;
+  conversation.totalTokensUsed.output += usage.outputTokens;
+};
+
+/** Resolved chat session options with maxTurns guaranteed. */
+type ResolvedSessionOptions = ResolvedSessionOptions;
+
+/**
  * Service for managing multi-turn conversations with Claude
  *
  * Handles conversation state, history management, and orchestration
@@ -43,24 +106,9 @@ export class ConversationService {
    */
   async createConversation(ticketKey: string, context: ConversationContext): Promise<ConversationState> {
     const conversationId = randomUUID();
-    const now = new Date();
-
-    const state: ConversationState = {
-      conversationId,
-      ticketKey,
-      messages: [],
-      context,
-      totalTokensUsed: {
-        input: 0,
-        output: 0,
-      },
-      createdAt: now,
-      updatedAt: now,
-    };
-
+    const state = buildInitialState(conversationId, ticketKey, context);
     this.conversations.set(conversationId, state);
     this.logger.debug(`Created conversation: ${conversationId} for ticket: ${ticketKey}`);
-
     return state;
   }
 
@@ -71,28 +119,13 @@ export class ConversationService {
    * @returns Loaded conversation state or null if not found
    */
   async loadConversation(ticketKey: string, repoDir?: string, trackerName?: string): Promise<ConversationState | null> {
+    const filePath = this.getConversationFilePath(ticketKey, repoDir, trackerName);
+    if (!fs.existsSync(filePath)) return null;
+    this.logger.debug(`Loading conversation for ticket: ${ticketKey}`);
     try {
-      const filePath = this.getConversationFilePath(ticketKey, repoDir, trackerName);
-
-      if (!fs.existsSync(filePath)) {
-        this.logger.debug(`No conversation file found for ticket: ${ticketKey}`);
-        return null;
-      }
-
-      const content = await fs.promises.readFile(filePath, 'utf-8');
-      const state = JSON.parse(content) as ConversationState;
-
-      // Parse Date objects
-      state.createdAt = new Date(state.createdAt);
-      state.updatedAt = new Date(state.updatedAt);
-      state.messages.forEach(msg => {
-        msg.timestamp = new Date(msg.timestamp);
-      });
-
-      // Store in memory
+      const state = parseConversationFile(await fs.promises.readFile(filePath, 'utf-8'));
       this.conversations.set(state.conversationId, state);
       this.logger.debug(`Loaded conversation: ${state.conversationId} for ticket: ${ticketKey}`);
-
       return state;
     } catch (error) {
       this.logger.error(`Failed to load conversation for ticket ${ticketKey}: ${error.message}`);
@@ -129,6 +162,27 @@ export class ConversationService {
   }
 
   /**
+   * Append an assistant message to state and update token counts.
+   *
+   * @param state - Conversation state to mutate
+   * @param content - Response text
+   * @param usage - Token usage from the API response
+   * @returns The newly created assistant ConversationMessage
+   */
+  private recordAssistantMessage(
+    state: ConversationState,
+    content: string,
+    usage: ConversationMessage['tokenUsage']
+  ): ConversationMessage {
+    const assistantMessage: ConversationMessage = { role: 'assistant', content, timestamp: new Date(), tokenUsage: usage };
+    state.messages.push(assistantMessage);
+    state.updatedAt = new Date();
+    updateTokenCounts(state, usage);
+    this.logger.debug(`Assistant response added. Total tokens: ${state.totalTokensUsed.input + state.totalTokensUsed.output}`);
+    return assistantMessage;
+  }
+
+  /**
    * Get assistant response using Claude API
    *
    * @param conversationId - Conversation identifier
@@ -141,51 +195,13 @@ export class ConversationService {
     stage?: WorkflowStage
   ): Promise<ConversationMessage> {
     const state = this.conversations.get(conversationId);
-
-    if (!state) {
-      throw new Error(`Conversation not found: ${conversationId}`);
-    }
-
-    // Build messages array for API
-    const messages = state.messages.map(msg => ({
-      role: msg.role,
-      content: msg.content,
-    }));
-
-    this.logger.debug(
-      `Getting assistant response for conversation: ${conversationId} with ${messages.length} messages`
-    );
-
-    // Call Claude with full history
-    const response = await this.claudeService.executeWithHistory({
-      messages,
-      systemPrompt,
-      ...(stage ? { stage: stage as AIConversationRequest['stage'] } : {}),
-    });
+    if (!state) throw new Error(`Conversation not found: ${conversationId}`);
+    const messages = buildApiMessages(state);
+    this.logger.debug(`Getting assistant response for conversation: ${conversationId} with ${messages.length} messages`);
+    const stageOverride = stage ? { stage: stage as AIConversationRequest['stage'] } : {};
+    const response = await this.claudeService.executeWithHistory({ messages, systemPrompt, ...stageOverride });
     const content = requireAiResponseContent(response, 'AI provider returned an empty chat response');
-
-    // Create assistant message
-    const assistantMessage: ConversationMessage = {
-      role: 'assistant',
-      content,
-      timestamp: new Date(),
-      tokenUsage: response.usage,
-    };
-
-    // Update state
-    state.messages.push(assistantMessage);
-    state.updatedAt = new Date();
-
-    if (response.usage) {
-      state.totalTokensUsed.input += response.usage.inputTokens;
-      state.totalTokensUsed.output += response.usage.outputTokens;
-    }
-
-    this.logger.debug(
-      `Assistant response added. Total tokens: ${state.totalTokensUsed.input + state.totalTokensUsed.output}`
-    );
-
-    return assistantMessage;
+    return this.recordAssistantMessage(state, content, response.usage);
   }
 
   /**
@@ -197,22 +213,177 @@ export class ConversationService {
     try {
       const filePath = this.getConversationFilePath(state.ticketKey, state.context.repoDir, state.context.trackerName);
       const dir = path.dirname(filePath);
-
-      // Ensure directory exists
-      if (!fs.existsSync(dir)) {
-        await fs.promises.mkdir(dir, { recursive: true });
-      }
-
-      // Write with atomic operation (temp file + rename)
+      if (!fs.existsSync(dir)) await fs.promises.mkdir(dir, { recursive: true });
       const tempPath = `${filePath}.tmp`;
       await fs.promises.writeFile(tempPath, JSON.stringify(state, null, 2), 'utf-8');
       await fs.promises.rename(tempPath, filePath);
-
       this.logger.debug(`Saved conversation to: ${filePath}`);
     } catch (error) {
       this.logger.error(`Failed to save conversation: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Handle a UI-only chat command (history/help) without consuming a turn.
+   *
+   * @param input - Normalised lower-case user input
+   * @param state - Current conversation state
+   * @returns True if the input was a handled command
+   */
+  private handleChatCommand(input: string, state: ConversationState): boolean {
+    if (input === 'history') {
+      this.chatUI.displayConversationHistory(state.messages);
+      return true;
+    }
+    if (input === 'help') {
+      this.chatUI.displayHelp();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Process one agent-backend turn and push the assistant message to state.
+   *
+   * @param input - User message text
+   * @param state - Current conversation state
+   * @param stage - Workflow stage used as agent stage name
+   * @param systemPrompt - System prompt string
+   * @param repoDir - Repository directory override
+   * @param agentSession - Current agent session (mutated and returned)
+   * @returns Updated agent session
+   */
+  private async processAgentTurn(
+    input: string,
+    state: ConversationState,
+    stage: AgentStageName,
+    systemPrompt: string,
+    repoDir: string,
+    agentSession: AgentChatSession | undefined
+  ): Promise<AgentChatSession | undefined> {
+    const result = await this.stageAgentService.chatTurn({
+      stage, userMessage: input, systemPrompt, repoDir, session: agentSession,
+    });
+    const msg = this.recordAssistantMessage(state, result.content, undefined);
+    this.chatUI.displayAssistantResponse(msg);
+    return result.session;
+  }
+
+  /**
+   * Process one standard-completions turn and display the response.
+   *
+   * @param conversationId - Conversation identifier
+   * @param state - Current conversation state
+   * @param systemPrompt - System prompt string
+   * @param stage - Workflow stage for provider routing
+   */
+  private async processStandardTurn(
+    conversationId: string,
+    state: ConversationState,
+    systemPrompt: string | undefined,
+    stage: WorkflowStage | undefined
+  ): Promise<void> {
+    const response = await this.getAssistantResponse(conversationId, systemPrompt, stage);
+    this.chatUI.displayAssistantResponse(response);
+    if (response.tokenUsage) this.chatUI.displayTokenUsage(response.tokenUsage, state.totalTokensUsed);
+  }
+
+  /**
+   * Resolve whether the agent backend is enabled for the current stage.
+   *
+   * @param stage - Workflow stage from session options
+   * @returns True when the stage-agent service is enabled for that stage
+   */
+  private resolveAgentBackend(stage: WorkflowStage | undefined): boolean {
+    if (stage !== 'plan' && stage !== 'review') return false;
+    try {
+      return this.stageAgentService.isEnabledForStage(stage as AgentStageName);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Dispatch a user message to the appropriate backend (agent or standard).
+   *
+   * @param input - User message text
+   * @param conversationId - Conversation identifier
+   * @param state - Current conversation state
+   * @param options - Resolved session options
+   * @param useAgentBackend - Whether to route through the agent SDK
+   * @param agentSession - Current agent session state
+   * @returns Updated agent session
+   */
+  private async dispatchTurn(
+    input: string, conversationId: string, state: ConversationState,
+    options: ResolvedSessionOptions,
+    useAgentBackend: boolean, agentSession: AgentChatSession | undefined
+  ): Promise<AgentChatSession | undefined> {
+    if (useAgentBackend) {
+      return this.processAgentTurn(
+        input, state, options.stage as AgentStageName,
+        options.systemPrompt ?? '', options.repoDir ?? state.context.repoDir, agentSession
+      );
+    }
+    await this.processStandardTurn(conversationId, state, options.systemPrompt, options.stage);
+    return agentSession;
+  }
+
+  /**
+   * Execute a single chat loop iteration; return the updated agent session and whether to break.
+   *
+   * @param turn - Current turn number
+   * @param conversationId - Conversation identifier
+   * @param state - Current conversation state
+   * @param options - Resolved session options
+   * @param useAgentBackend - Whether to route through the agent SDK
+   * @param agentSession - Current agent session
+   * @returns Object with updated session and exit flag
+   */
+  private async executeTurn(
+    turn: number, conversationId: string, state: ConversationState,
+    options: ResolvedSessionOptions,
+    useAgentBackend: boolean, agentSession: AgentChatSession | undefined
+  ): Promise<{ session: AgentChatSession | undefined; exit: boolean; skip: boolean }> {
+    const { input, shouldExit } = await this.chatUI.promptUserInput(turn, options.maxTurns);
+    this.logger.debug(shouldExit ? 'User requested to exit chat session' : `Processing turn ${turn}`);
+    if (shouldExit) return { session: agentSession, exit: true, skip: false };
+    if (this.handleChatCommand(input.toLowerCase(), state)) return { session: agentSession, exit: false, skip: true };
+    await this.addUserMessage(conversationId, input);
+    const session = await this.dispatchTurn(input, conversationId, state, options, useAgentBackend, agentSession);
+    await this.saveConversation(state);
+    return { session, exit: false, skip: false };
+  }
+
+  /**
+   * Run the chat loop, processing turns until exit or max turns reached.
+   *
+   * @param conversationId - Conversation identifier
+   * @param state - Current conversation state
+   * @param options - Resolved session options
+   * @param useAgentBackend - Whether to route turns through the agent SDK
+   * @returns Final turn count
+   */
+  private onTurnError(error: Error): void {
+    this.logger.error(`Error in chat session: ${error.message}`);
+    this.chatUI.displayError(`Failed to process message: ${error.message}`);
+  }
+
+  private async runChatLoop(
+    conversationId: string, state: ConversationState,
+    options: ResolvedSessionOptions, useAgentBackend: boolean
+  ): Promise<number> {
+    let agentSession: AgentChatSession | undefined, turn = 1;
+    while (turn <= options.maxTurns) {
+      try {
+        const result = await this.executeTurn(turn, conversationId, state, options, useAgentBackend, agentSession);
+        if (result.exit) break;
+        agentSession = result.session;
+        turn += result.skip ? 0 : 1;
+      } catch (error) { this.onTurnError(error as Error); }
+    }
+    return turn;
   }
 
   /**
@@ -223,104 +394,13 @@ export class ConversationService {
    */
   async startChatSession(conversationId: string, options?: ChatSessionOptions): Promise<void> {
     const state = this.conversations.get(conversationId);
-
-    if (!state) {
-      throw new Error(`Conversation not found: ${conversationId}`);
-    }
-
-    const { systemPrompt, maxTurns = 20, stage, repoDir } = options || {};
-
-    const isAgentStage = stage === 'plan' || stage === 'review';
-    let useAgentBackend = false;
-    if (isAgentStage) {
-      try {
-        useAgentBackend = this.stageAgentService.isEnabledForStage(stage as AgentStageName);
-      } catch {
-        // Unsupported provider for agent mode — fall back to standard
-      }
-    }
-
-    let agentSession: AgentChatSession | undefined;
-
-    // Display intro
+    if (!state) throw new Error(`Conversation not found: ${conversationId}`);
+    const resolvedOptions = { maxTurns: 20, ...options };
+    const useAgentBackend = this.resolveAgentBackend(resolvedOptions.stage);
     this.chatUI.displayChatIntro(state.context.stage, state.context);
-
-    let turn = 1;
-
-    while (turn <= maxTurns) {
-      try {
-        // Get user input
-        const { input, shouldExit } = await this.chatUI.promptUserInput(turn, maxTurns);
-
-        // Handle special commands
-        if (shouldExit) {
-          this.logger.debug('User requested to exit chat session');
-          break;
-        }
-
-        if (input.toLowerCase() === 'history') {
-          this.chatUI.displayConversationHistory(state.messages);
-          continue; // Don't increment turn for command
-        }
-
-        if (input.toLowerCase() === 'help') {
-          this.chatUI.displayHelp();
-          continue; // Don't increment turn for command
-        }
-
-        // Add user message
-        await this.addUserMessage(conversationId, input);
-
-        if (useAgentBackend) {
-          const result = await this.stageAgentService.chatTurn({
-            stage: stage as AgentStageName,
-            userMessage: input,
-            systemPrompt: systemPrompt ?? '',
-            repoDir: repoDir ?? state.context.repoDir,
-            session: agentSession,
-          });
-          agentSession = result.session;
-
-          const assistantMessage: ConversationMessage = {
-            role: 'assistant',
-            content: result.content,
-            timestamp: new Date(),
-          };
-          state.messages.push(assistantMessage);
-          state.updatedAt = new Date();
-          this.chatUI.displayAssistantResponse(assistantMessage);
-        } else {
-          // Get assistant response via standard completions
-          const response = await this.getAssistantResponse(conversationId, systemPrompt, stage);
-
-          // Display response
-          this.chatUI.displayAssistantResponse(response);
-
-          // Display token usage
-          if (response.tokenUsage) {
-            this.chatUI.displayTokenUsage(response.tokenUsage, state.totalTokensUsed);
-          }
-        }
-
-        // Save conversation after each exchange
-        await this.saveConversation(state);
-
-        turn++;
-      } catch (error) {
-        this.logger.error(`Error in chat session: ${error.message}`);
-        this.chatUI.displayError(`Failed to process message: ${error.message}`);
-        // Continue the loop to allow recovery
-      }
-    }
-
-    if (turn > maxTurns) {
-      this.chatUI.displayMaxTurnsReached(maxTurns);
-    }
-
-    // Final save
+    const turn = await this.runChatLoop(conversationId, state, resolvedOptions, useAgentBackend);
+    if (turn > resolvedOptions.maxTurns) this.chatUI.displayMaxTurnsReached(resolvedOptions.maxTurns);
     await this.saveConversation(state);
-
-    // Display end message
     const filePath = this.getConversationFilePath(state.ticketKey, state.context.repoDir, state.context.trackerName);
     this.chatUI.displayChatEnd(filePath);
   }

@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Agent, OpenAIProvider, Runner, setTracingExportApiKey, tool } from '@openai/agents';
-import type { StreamedRunResult } from '@openai/agents';
 import { z } from 'zod';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -86,45 +85,129 @@ const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => 
 const CLI_STAGE_LABEL = 'claude-cli';
 const CLI_STALL_THRESHOLD = 2;
 const CLI_REVIEW_EPILOGUE_TIMEOUT_MS = 5000;
+const CLI_EPILOGUE_PROMPT
+  = 'Summarize the code review you just completed in a brief, human-readable format. '
+    + 'Include: approval status, issue count by severity, and top suggestions. '
+    + 'IMPORTANT: Do NOT repeat the raw JSON.';
 const DEFAULT_CLI_WALL_CLOCK_TIMEOUT_MS = 30 * 60 * 1000;
 
 const CODEX_STAGE_LABEL = 'codex-cli';
 
-const formatCodexProgressMessage = (message: CodexCliMessage): string | null => {
-  if (message.type === 'thread.started' && message.thread_id) {
-    return `  [${CODEX_STAGE_LABEL}] Session started: ${message.thread_id}`;
-  }
+const CLI_RETRY_PROMPT
+  = 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines).';
 
-  if (message.type === 'item.started' && message.item?.type === 'command_execution' && message.item.command) {
-    const cmd = message.item.command.length > 80 ? `${message.item.command.slice(0, 77)}...` : message.item.command;
-    return `  [${CODEX_STAGE_LABEL}] Running: ${cmd}`;
-  }
+const CLI_CHAT_RETRY_PROMPT
+  = 'Your previous response did not include a usable result. Please respond with the requested content directly.';
 
-  if (message.type === 'item.completed' && message.item?.type === 'agent_message' && message.item.text) {
-    const text = message.item.text.length > 120 ? `${message.item.text.slice(0, 117)}...` : message.item.text;
-    return `  [${CODEX_STAGE_LABEL}] Agent: ${text}`;
-  }
+type CliPassResult = {
+  result: string;
+  source: 'structured_output' | 'result' | 'assistant_text' | undefined;
+  stopReason: string | undefined;
+  sessionId: string | undefined;
+  hadContent: boolean;
+  diagnostics: string[];
+};
 
-  if (message.type === 'item.completed' && message.item?.type === 'command_execution') {
-    let status = `exit ${message.item.exit_code}`;
-    if (message.item.exit_code === 0) status = 'completed';
-    if (message.item.exit_code == null) status = 'status unknown';
-    const cmd = message.item.command ?? 'unknown';
-    const shortCmd = cmd.length > 60 ? `${cmd.slice(0, 57)}...` : cmd;
-    return `  [${CODEX_STAGE_LABEL}] Command ${status}: ${shortCmd}`;
-  }
+type CliChatPassOpts = {
+  stage: AgentStageName;
+  userMessage: string;
+  systemPrompt: string;
+  model: string;
+  resolvedRepoDir: string;
+  allowInspection: boolean;
+  initialSessionId?: string;
+};
 
-  if (message.type === 'turn.completed' && message.usage) {
-    return `  [${CODEX_STAGE_LABEL}] Turn complete (${message.usage.input_tokens} in / ${message.usage.output_tokens} out)`;
-  }
+type CliStagePassOpts = {
+  stage: AgentStageName;
+  prompt: string;
+  systemPrompt: string;
+  model: string;
+  resolvedRepoDir: string;
+  allowInspection: boolean;
+  jsonSchema?: string;
+  sessionId?: string;
+  passNumber?: number;
+  resumeProviderSessionId?: string;
+  onProgress?: StageProgressCallback;
+};
 
+const PLAN_SYSTEM_PROMPT = `You are an expert software engineer creating detailed resolution plans.
+You may inspect repository files with read-only tools before answering.
+Return your response as a JSON object matching the ResolutionPlan interface.`;
+
+const REVIEW_SYSTEM_PROMPT = `You are an expert code reviewer providing constructive feedback.
+You may inspect repository files with read-only tools before answering.
+Focus on code quality, bugs, security, and the changed execution path.
+Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
+
+const GENERATE_SYSTEM_PROMPT = `You are an expert technical writer and repository analyst.
+You may inspect repository files with read-only tools before answering.
+Return only the requested ticket markdown and preserve the required heading structure exactly.`;
+
+/**
+ * @param text - raw text to truncate
+ * @param maxLength - maximum allowed character count
+ * @returns truncated text with ellipsis if over limit, original otherwise
+ */
+const truncateCodexText = (text: string, maxLength: number): string =>
+  text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+
+/**
+ * @param item - completed command execution item
+ * @returns formatted command completion line
+ */
+/**
+ * @param exitCode - process exit code
+ * @returns human-readable completion status
+ */
+const resolveExitStatus = (exitCode?: number): string => {
+  if (exitCode == null) return 'status unknown';
+  return exitCode === 0 ? 'completed' : `exit ${exitCode}`;
+};
+
+const formatCodexCommandCompletion = (item: { exit_code?: number; command?: string }): string =>
+  `  [${CODEX_STAGE_LABEL}] Command ${resolveExitStatus(item.exit_code)}: ${truncateCodexText(item.command ?? 'unknown', 60)}`;
+
+/**
+ * @param message - a completed-item Codex CLI message
+ * @returns formatted progress string or null
+ */
+const formatCodexCompletedItem = (message: CodexCliMessage): string | null => {
+  if (message.item?.type === 'agent_message' && message.item.text) return `  [${CODEX_STAGE_LABEL}] Agent: ${truncateCodexText(message.item.text, 120)}`;
+  if (message.item?.type === 'command_execution') return formatCodexCommandCompletion(message.item);
   return null;
+};
+
+/**
+ * @param message - a parsed Codex CLI NDJSON message
+ * @returns formatted progress string or null if the message type is not display-worthy
+ */
+const formatCodexProgressMessage = (message: CodexCliMessage): string | null => {
+  if (message.type === 'thread.started' && message.thread_id) return `  [${CODEX_STAGE_LABEL}] Session started: ${message.thread_id}`;
+  if (message.type === 'item.started' && message.item?.type === 'command_execution' && message.item.command) return `  [${CODEX_STAGE_LABEL}] Running: ${truncateCodexText(message.item.command, 80)}`;
+  if (message.type === 'item.completed') return formatCodexCompletedItem(message);
+  if (message.type === 'turn.completed' && message.usage) return `  [${CODEX_STAGE_LABEL}] Turn complete (${message.usage.input_tokens} in / ${message.usage.output_tokens} out)`;
+  return null;
+};
+
+/**
+ * @param block - a single content block from a CLI assistant message
+ * @returns the block's text if it is a text block, empty string otherwise
+ */
+const extractTextBlockContent = (block: unknown): string => {
+  if (typeof block !== 'object' || block === null) return '';
+  const record = block as Record<string, unknown>;
+  return record.type === 'text' && typeof record.text === 'string' ? record.text : '';
 };
 
 /**
  * Extracts the last assistant turn's text from a CLI NDJSON message.
  * Only the last assistant turn is relevant — earlier turns may contain
  * JSON-like fragments from intermediate analysis.
+ *
+ * @param message - a parsed CLI NDJSON message
+ * @returns concatenated text content or undefined if not an assistant message
  */
 const extractAssistantText = (message: ClaudeCliMessage): string | undefined => {
   if (message.type !== 'assistant') return undefined;
@@ -132,17 +215,7 @@ const extractAssistantText = (message: ClaudeCliMessage): string | undefined => 
   if (!content || typeof content !== 'object' || !('content' in content)) return undefined;
   const blocks = (content as { content: unknown[] }).content;
   if (!Array.isArray(blocks)) return undefined;
-  let turnText = '';
-  for (const block of blocks) {
-    if (
-      typeof block === 'object'
-      && block !== null
-      && (block as Record<string, unknown>).type === 'text'
-      && typeof (block as Record<string, unknown>).text === 'string'
-    ) {
-      turnText += (block as { text: string }).text;
-    }
-  }
+  const turnText = blocks.map(extractTextBlockContent).join('');
   return turnText || undefined;
 };
 
@@ -163,6 +236,24 @@ type OpenAiStageContext = {
   repoDir: string;
 };
 
+type StagePromptParams = {
+  stage: AgentStageName;
+  prompt: string;
+  systemPrompt: string;
+  repoDir?: string;
+  onProgress?: StageProgressCallback;
+  priorStageSummary?: string;
+  resumeProviderSessionId?: string;
+};
+
+type ChatTurnParams = {
+  stage: AgentStageName;
+  userMessage: string;
+  systemPrompt: string;
+  repoDir?: string;
+  session?: AgentChatSession;
+};
+
 const resolveStagePromptRepoExample = (repositories?: string[]): string => {
   const firstRepository = repositories?.find(repository => typeof repository === 'string' && repository.trim());
   return firstRepository?.trim() || 'current-repo';
@@ -171,79 +262,89 @@ const resolveStagePromptRepoExample = (repositories?: string[]): string => {
 const isReadOnlyCommand = (command: string): boolean =>
   ALLOWED_READ_ONLY_COMMAND_PREFIXES.some(prefix => command === prefix || command.startsWith(prefix));
 
-@Injectable()
-export class StageAgentService {
-  constructor(private readonly configService: ConfigService) {}
+type GeneratePlanParams = {
+  action: 'fix' | 'feature' | 'investigate';
+  issueContent: string;
+  ticketKey?: string;
+  affectedRepositories?: string[];
+  planQualityFeedback?: string[];
+  testInfra?: TestInfraContext;
+  conventions?: RepoConventionsContext;
+  priorPlans?: PriorPlanContext;
+  planCorrelation?: PlanCorrelationResult;
+  crossRepoPatterns?: CrossRepoContext;
+};
 
-  isEnabledForStage(stage: AgentStageName): boolean {
-    const backend = this.resolveStageBackend(stage);
-    return backend === 'agent' || backend === 'cli';
-  }
+/**
+ * @param params - plan generation parameters including discovery context
+ * @returns discovery context block string (may be empty)
+ */
+const buildPlanDiscoveryBlock = (params: GeneratePlanParams): string => {
+  const repoName = params.affectedRepositories?.[0] ?? 'repo';
+  const parts = [
+    params.conventions ? formatRepoConventionsPromptSection(params.conventions, repoName) : '',
+    params.crossRepoPatterns ? formatCrossRepoPatternsPromptSection(params.crossRepoPatterns) : '',
+    params.planCorrelation ? formatPlanCorrelationPromptSection(params.planCorrelation) : '',
+    params.priorPlans ? formatPriorPlansPromptSection(params.priorPlans) : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? `\n${parts.join('\n\n')}\n` : '';
+};
 
-  async generatePlan(params: {
-    action: 'fix' | 'feature' | 'investigate';
-    issueContent: string;
-    ticketKey?: string;
-    affectedRepositories?: string[];
-    planQualityFeedback?: string[];
-    testInfra?: TestInfraContext;
-    conventions?: RepoConventionsContext;
-    priorPlans?: PriorPlanContext;
-    planCorrelation?: PlanCorrelationResult;
-    crossRepoPatterns?: CrossRepoContext;
-    onProgress?: StageProgressCallback;
-    priorStageSummary?: string;
-    resumeProviderSessionId?: string;
-  }): Promise<{ plan: ResolutionPlan; sessionId?: string }> {
-    const repoExample = resolveStagePromptRepoExample(params.affectedRepositories);
+/**
+ * @param params - plan generation parameters including test infra context
+ * @returns test conventions block for inclusion in the plan prompt
+ */
+const buildPlanTestConventionsBlock = (params: GeneratePlanParams): string => {
+  if (!params.testInfra) return '';
+  return `When a plan step includes test code snippets or prescribes test changes:
+   - Follow ALL test conventions listed above (mock cleanup, DI setup, error handling).
+   - Mock isolation steps MUST be concrete, not conditional — prescribe the exact call, do not say "check whether X or add Y".
+   - Test setup MUST match the DI wiring the code path requires — every injected service the code reaches MUST have a mock provider, not an empty object.
+   - Follow the repo's existing test isolation conventions (detected above). If tests use jest.restoreAllMocks() in afterEach, new tests MUST do the same — do not introduce a different cleanup strategy.
+`;
+};
 
-    // Build discovery context sections
-    const discoveryParts: string[] = [];
-    if (params.conventions) {
-      const repoName = params.affectedRepositories?.[0] ?? 'repo';
-      const section = formatRepoConventionsPromptSection(params.conventions, repoName);
-      if (section) discoveryParts.push(section);
-    }
-    if (params.crossRepoPatterns) {
-      const section = formatCrossRepoPatternsPromptSection(params.crossRepoPatterns);
-      if (section) discoveryParts.push(section);
-    }
-    if (params.planCorrelation) {
-      const section = formatPlanCorrelationPromptSection(params.planCorrelation);
-      if (section) discoveryParts.push(section);
-    }
-    if (params.priorPlans) {
-      const section = formatPriorPlansPromptSection(params.priorPlans);
-      if (section) discoveryParts.push(section);
-    }
-    const discoveryBlock = discoveryParts.length > 0 ? `\n${discoveryParts.join('\n\n')}\n` : '';
-    const hasNodeTestInfra
-      = params.testInfra && params.testInfra.ecosystems.some(ecosystem => ecosystem.ecosystem === 'node');
-    const retryFeedbackBlock
-      = params.planQualityFeedback && params.planQualityFeedback.length > 0
-        ? `Previous plan attempt was rejected for these exact reasons:\n${params.planQualityFeedback.join('\n')}\n\nRegenerate the full plan and fix every listed problem. Do not repeat any rejected step wording.\n\n`
-        : '';
+/**
+ * @param hasNodeTestInfra - whether the project has Node.js test infrastructure
+ * @returns shell-safety guidance block for verification commands
+ */
+const buildPlanShellSafetyBlock = (hasNodeTestInfra: boolean): string => {
+  if (!hasNodeTestInfra) return '';
+  return `   - Verification commands MUST be shell-safe by construction. For inline \`node -e\`, prefer
+     single-quoted JS strings or properly escaped backticks — never rely on unescaped
+     template literals inside double-quoted shell strings.
+`;
+};
 
-    const prompt = `
-Action: ${params.action}
-Issue Content:
-${params.issueContent}
+/**
+ * @param params - plan generation parameters
+ * @returns the fully assembled plan prompt string
+ */
+/**
+ * @param feedback - plan quality feedback array
+ * @returns formatted retry feedback block or empty string
+ */
+const buildRetryFeedbackBlock = (feedback?: string[]): string =>
+  feedback && feedback.length > 0
+    ? `Previous plan attempt was rejected for these exact reasons:\n${feedback.join('\n')}\n\nRegenerate the full plan and fix every listed problem. Do not repeat any rejected step wording.\n\n`
+    : '';
 
-Context:
-${JSON.stringify(
-  {
-    ticketKey: params.ticketKey,
-    summary: params.ticketKey,
+const buildStagePlanPrompt = (params: GeneratePlanParams): string => {
+  const hasNodeTestInfra = params.testInfra?.ecosystems.some(e => e.ecosystem === 'node') ?? false;
+  return buildPlanPromptBody({
+    action: params.action, issueContent: params.issueContent, ticketKey: params.ticketKey,
     affectedRepositories: params.affectedRepositories,
-  },
-  null,
-  2
-)}
-${retryFeedbackBlock}${discoveryBlock}
-Create a detailed resolution plan with:
-1. A brief summary of the issue and proposed solution
-2. Specific, actionable steps to ${params.action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
-   Every rename, move, or refactoring step MUST state both the current name/path AND the
+    repoExample: resolveStagePromptRepoExample(params.affectedRepositories),
+    retryFeedbackBlock: buildRetryFeedbackBlock(params.planQualityFeedback),
+    discoveryBlock: buildPlanDiscoveryBlock(params),
+    testInfraSection: params.testInfra ? formatTestInfraPromptSection(params.testInfra) : '',
+    testConventionsBlock: buildPlanTestConventionsBlock(params),
+    shellSafetyBlock: buildPlanShellSafetyBlock(hasNodeTestInfra),
+  });
+};
+
+// Step instructions for the plan prompt — extracted to stay under max-lines-per-function
+const PLAN_STEP_INSTRUCTIONS = `   Every rename, move, or refactoring step MUST state both the current name/path AND the
    replacement name/path (e.g., "Rename class \`PaymentService\` to \`PaymentProcessorService\`
    in src/payments/payment.service.ts"). A step that says only "rename X" without the target
    is unusable by the implementer and will be rejected.
@@ -308,8 +409,9 @@ Create a detailed resolution plan with:
    and continue" instead of throwing), the plan MUST include failure-path test
    coverage for that behaviour. Verify that the warning is emitted, the return value
    is correct on the failure path, and downstream code handles the degraded state.
-   Silent error swallowing without coverage is a latent bug.
-3. Estimated complexity (low/medium/high)
+   Silent error swallowing without coverage is a latent bug.`;
+
+const PLAN_FILE_LISTING_INSTRUCTIONS = `3. Estimated complexity (low/medium/high)
 4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not
    placeholders. Set status to "found" for existing files or "to-create" for new files.
@@ -320,26 +422,9 @@ Create a detailed resolution plan with:
    E.g., reading package.json to confirm a dependency. All context files must have status
    "found". Verify each path exists with tools before listing it.
 6. Potential risks or considerations
-7. Repositories that will be affected (if known)
+7. Repositories that will be affected (if known)`;
 
-${params.testInfra ? formatTestInfraPromptSection(params.testInfra) : ''}
-${
-  params.testInfra
-    ? `When a plan step includes test code snippets or prescribes test changes:
-   - Follow ALL test conventions listed above (mock cleanup, DI setup, error handling).
-   - Mock isolation steps MUST be concrete, not conditional — prescribe the exact call, do not say "check whether X or add Y".
-   - Test setup MUST match the DI wiring the code path requires — every injected service the code reaches MUST have a mock provider, not an empty object.
-   - Follow the repo's existing test isolation conventions (detected above). If tests use jest.restoreAllMocks() in afterEach, new tests MUST do the same — do not introduce a different cleanup strategy.
-`
-    : ''
-}
-Minimal-change principles — apply to every plan:
-- Propose the smallest effective change. Do not modify files unrelated to the ticket.
-- Limit verification to files edited by this plan.
-- Each component should be designed to address a single responsibility.
-- Prefer changes that are replaceable or deletable without cascading effects on other components.
-
-8. Task-specific verification only when needed:
+const PLAN_VERIFICATION_INSTRUCTIONS = `8. Task-specific verification only when needed:
    - Use "verification.targeted" for focused checks required by this specific plan
    - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
    - Omit "verification" entirely when no targeted checks or waivers are needed
@@ -348,16 +433,9 @@ Minimal-change principles — apply to every plan:
    - Commands must be copy-paste-runnable: reference ONLY scripts/binaries listed in the
      "Available test infrastructure" section. Do not invent scripts.
    - CRITICAL: verification commands are validated against the allowlist above. Any command
-     that does not match an allowed form will be rejected. When unsure, use: node -e "..."
-${
-  hasNodeTestInfra
-    ? `   - Verification commands MUST be shell-safe by construction. For inline \`node -e\`, prefer
-     single-quoted JS strings or properly escaped backticks — never rely on unescaped
-     template literals inside double-quoted shell strings.
-`
-    : ''
-}
-   - Each verification command MUST be relevant to this plan: it should verify a side effect
+     that does not match an allowed form will be rejected. When unsure, use: node -e "..."`;
+
+const PLAN_VERIFICATION_TAIL = `   - Each verification command MUST be relevant to this plan: it should verify a side effect
      or behavior introduced by the steps above, not just run the whole test suite.
    - Each verification command MUST target the specific behavior introduced by the step it validates
      — not unrelated output like global README string order or full-file snapshots.
@@ -368,112 +446,86 @@ ${
      change. When uncertain, prefer the long-form flag name and note the minimum version.
    - For inline assertions, prefer: node -e "const assert = require('node:assert'); ..."
      (when node:test is available) or the installed test framework CLI
-   - If you need to prove an expected failure, wrap it in a shell assertion that exits 0
+   - If you need to prove an expected failure, wrap it in a shell assertion that exits 0`;
 
-Return ONLY a valid JSON object with these fields:
-{
-  "action": "${params.action}",
-  "summary": "...",
-  "steps": ["step 1", "step 2"],
-  "estimatedComplexity": "low|medium|high",
-  "affectedFiles": [{ "filePath": "${repoExample}/src/path/to/file.ts", "status": "found" }],
-  "affectedFilesContext": [{ "filePath": "${repoExample}/package.json", "status": "found" }],
-  "affectedRepositories": ["${repoExample}"],
-  "risks": ["risk 1"],
+const PLAN_MINIMAL_CHANGE_INSTRUCTIONS = `Minimal-change principles — apply to every plan:
+- Propose the smallest effective change. Do not modify files unrelated to the ticket.
+- Limit verification to files edited by this plan.
+- Each component should be designed to address a single responsibility.
+- Prefer changes that are replaceable or deletable without cascading effects on other components.`;
+
+type PlanPromptBodyOpts = {
+  action: string;
+  issueContent: string;
+  ticketKey?: string;
+  affectedRepositories?: string[];
+  repoExample: string;
+  retryFeedbackBlock: string;
+  discoveryBlock: string;
+  testInfraSection: string;
+  testConventionsBlock: string;
+  shellSafetyBlock: string;
+};
+
+/**
+ * @param opts - pre-computed prompt fragments
+ * @returns the plan prompt preamble (action, issue, context, feedback, discovery)
+ */
+const buildPlanPromptPreamble = (opts: PlanPromptBodyOpts): string => `
+Action: ${opts.action}
+Issue Content:
+${opts.issueContent}
+
+Context:
+${JSON.stringify({ ticketKey: opts.ticketKey, summary: opts.ticketKey, affectedRepositories: opts.affectedRepositories }, null, 2)}
+${opts.retryFeedbackBlock}${opts.discoveryBlock}
+Create a detailed resolution plan with:
+1. A brief summary of the issue and proposed solution
+2. Specific, actionable steps to ${opts.action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
+${PLAN_STEP_INSTRUCTIONS}
+${PLAN_FILE_LISTING_INSTRUCTIONS}`;
+
+const PLAN_JSON_SCHEMA_TAIL = `  "risks": ["risk 1"],
   "verification": {
-    "targeted": [
-      {
-        "id": "manual-review",
-        "run": "yarn test:manual -- test-issue-review",
-        "policy": "enforced",
-        "reason": "Explain what this check covers"
-      }
-    ],
-    "waivers": [
-      {
-        "id": "e2e",
-        "reason": "Explain why this repo-level baseline check is waived"
-      }
-    ]
+    "targeted": [{ "id": "manual-review", "run": "yarn test:manual -- test-issue-review", "policy": "enforced", "reason": "Explain what this check covers" }],
+    "waivers": [{ "id": "e2e", "reason": "Explain why this repo-level baseline check is waived" }]
   }
 }
 
 IMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.`;
 
-    const systemPrompt = `You are an expert software engineer creating detailed resolution plans.
-You may inspect repository files with read-only tools before answering.
-Return your response as a JSON object matching the ResolutionPlan interface.`;
+/**
+ * @param opts - pre-computed prompt fragments
+ * @returns the plan prompt JSON schema example block
+ */
+const buildPlanJsonSchemaExample = (opts: PlanPromptBodyOpts): string => `
+Return ONLY a valid JSON object with these fields:
+{
+  "action": "${opts.action}",
+  "summary": "...",
+  "steps": ["step 1", "step 2"],
+  "estimatedComplexity": "low|medium|high",
+  "affectedFiles": [{ "filePath": "${opts.repoExample}/src/path/to/file.ts", "status": "found" }],
+  "affectedFilesContext": [{ "filePath": "${opts.repoExample}/package.json", "status": "found" }],
+  "affectedRepositories": ["${opts.repoExample}"],
+${PLAN_JSON_SCHEMA_TAIL}`;
 
-    const { content: response, sessionId } = await this.runStagePrompt({
-      stage: 'plan',
-      prompt,
-      systemPrompt,
-      repoDir: process.cwd(),
-      onProgress: params.onProgress,
-      priorStageSummary: params.priorStageSummary,
-      resumeProviderSessionId: params.resumeProviderSessionId,
-    });
+/**
+ * @param opts - pre-computed prompt fragments
+ * @returns the raw plan prompt body string
+ */
+const buildPlanPromptBody = (opts: PlanPromptBodyOpts): string => [
+  buildPlanPromptPreamble(opts),
+  opts.testInfraSection,
+  opts.testConventionsBlock,
+  PLAN_MINIMAL_CHANGE_INSTRUCTIONS,
+  PLAN_VERIFICATION_INSTRUCTIONS,
+  opts.shellSafetyBlock,
+  PLAN_VERIFICATION_TAIL,
+  buildPlanJsonSchemaExample(opts),
+].join('\n');
 
-    try {
-      const plan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
-        requireAiResponseContent(
-          {
-            content: response,
-            provider: this.resolveStageProvider('plan'),
-            model: this.resolveStageModel('plan'),
-          },
-          'AI provider returned an empty plan response'
-        )
-      );
-      // Backward-compat: AI may still return the old key name during the transition period
-      if (!plan.affectedRepositories && plan.repositoriesAffected) {
-        plan.affectedRepositories = plan.repositoriesAffected;
-      }
-      delete plan.repositoriesAffected;
-      const provider = this.resolveStageProvider('plan');
-      const model = this.resolveStageModel('plan');
-      const prefixMap: Record<string, string> = {
-        anthropic: 'claude-',
-        google: 'gemini-',
-        deepseek: 'deepseek-',
-        openai: 'gpt-',
-      };
-      const prefix = prefixMap[provider] ?? '';
-      const source = model.startsWith(prefix) ? model.slice(prefix.length) : model;
-
-      plan.provider = provider;
-      plan.source = source;
-      plan.timestamp = dayjs().toISOString();
-      return { plan, sessionId };
-    } catch (error) {
-      if (isAIErrorLike(error)) {
-        throw error;
-      }
-
-      throw new AIError('Failed to parse resolution plan from agent response', {
-        response,
-        error,
-      });
-    }
-  }
-
-  async reviewCode(
-    diff: string,
-    guidelines: string[],
-    repoDir?: string,
-    priorStageSummary?: string,
-    resumeProviderSessionId?: string
-  ): Promise<{ review: CodeReview; sessionId?: string }> {
-    const prompt = `
-Code Changes:
-\`\`\`
-${diff}
-\`\`\`
-
-Review Guidelines:
-${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
-
-Provide a code review with:
+const REVIEW_INSTRUCTIONS = `Provide a code review with:
 1. A brief summary of the changes
 2. Any issues found
 3. A trace provenance label: evidence-based, best-effort, or unavailable
@@ -481,9 +533,9 @@ Provide a code review with:
 5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack
 6. A suggestion for each issue when remediation is clear — each suggestion must recommend the smallest effective fix (the minimum change that resolves the issue without introducing unnecessary scope). Write suggestions in plain, human-friendly language: be concise, use everyday phrasing, and avoid jargon-heavy or robotic sentences.
 7. Optional trailing suggestions for general follow-up work that is not tied to a single issue — each must also prefer the smallest effective fix and use the same concise, human-friendly tone
-8. Whether the code is approved
+8. Whether the code is approved`;
 
-Return ONLY a valid JSON object:
+const REVIEW_JSON_SCHEMA = `Return ONLY a valid JSON object:
 {
   "summary": "...",
   "issues": [
@@ -531,83 +583,585 @@ Return ONLY a valid JSON object:
 
 IMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.`;
 
-    const systemPrompt = `You are an expert code reviewer providing constructive feedback.
-You may inspect repository files with read-only tools before answering.
-Focus on code quality, bugs, security, and the changed execution path.
-Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
+/**
+ * @param diff - unified diff string
+ * @param guidelines - review guidelines list
+ * @returns the fully assembled review prompt string
+ */
+const buildStageReviewPrompt = (diff: string, guidelines: string[]): string => `
+Code Changes:
+\`\`\`
+${diff}
+\`\`\`
 
+Review Guidelines:
+${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
+
+${REVIEW_INSTRUCTIONS}
+
+${REVIEW_JSON_SCHEMA}`;
+
+/**
+ * @param provider - AI provider name
+ * @param model - model identifier
+ * @returns model source label stripped of vendor prefix
+ */
+const derivePlanSource = (provider: string, model: string): string => {
+  const prefixMap: Record<string, string> = {
+    anthropic: 'claude-',
+    google: 'gemini-',
+    deepseek: 'deepseek-',
+    openai: 'gpt-',
+  };
+  const prefix = prefixMap[provider] ?? '';
+  return model.startsWith(prefix) ? model.slice(prefix.length) : model;
+};
+
+/**
+ * @param toolName - name of the tool being invoked
+ * @param input - tool input parameters
+ * @returns permission decision for the tool invocation
+ */
+const anthropicReadOnlyToolGuard = async (
+  toolName: string,
+  input: Record<string, unknown>
+): Promise<{ behavior: 'allow' } | { behavior: 'deny'; message: string; interrupt: boolean }> => {
+  if (toolName !== 'Bash') return { behavior: 'allow' };
+  const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
+  if (!command || !isReadOnlyCommand(command)) {
+    return { behavior: 'deny', message: 'Only read-only repository inspection commands are allowed in this agent path.', interrupt: true };
+  }
+  return { behavior: 'allow' };
+};
+
+/**
+ * @param systemPrompt - base system prompt
+ * @param allowInspection - whether file inspection is enabled
+ * @returns system prompt, optionally appending a no-inspection note
+ */
+const resolveEffectiveSystemPrompt = (systemPrompt: string, allowInspection: boolean): string =>
+  allowInspection ? systemPrompt : `${systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
+
+/**
+ * @param repoDir - repository root directory
+ * @param allowInspection - whether file inspection tools are enabled
+ * @returns sandbox configuration object for the Anthropic agent SDK
+ */
+const buildAnthropicSandboxConfig = (repoDir: string, allowInspection: boolean) => ({
+  enabled: true,
+  failIfUnavailable: true,
+  allowUnsandboxedCommands: false,
+  autoAllowBashIfSandboxed: true,
+  filesystem: {
+    allowRead: allowInspection ? [repoDir] : [],
+    allowWrite: [],
+  },
+});
+
+/**
+ * @param priorStageSummary - prior stage summary context
+ * @returns formatted prior-stage preamble block
+ */
+const buildPriorStagePreamble = (priorStageSummary?: string): string => {
+  if (!priorStageSummary) return '';
+  return `<prior-stage-context>\n${priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.`;
+};
+
+type AnthropicStageOpts = {
+  prompt: string;
+  model: string;
+  apiKey: string;
+  resolvedRepoDir: string;
+  allowInspection: boolean;
+  systemPrompt: string;
+  priorStageSummary?: string;
+  anthropicContext: string;
+  resumeProviderSessionId?: string;
+};
+
+/**
+ * @param opts - options for building the Anthropic stage query
+ * @returns the anthropic agent options sub-object
+ */
+/**
+ * @param opts - Anthropic stage options
+ * @param systemAppend - system prompt append content
+ * @returns base anthropic query options without resume
+ */
+const buildAnthropicBaseOptions = (opts: AnthropicStageOpts, systemAppend: string) => {
+  const tools = opts.allowInspection ? [...ANTHROPIC_STAGE_TOOLS] : [];
+  return {
+    cwd: opts.resolvedRepoDir, model: opts.model, tools, allowedTools: tools,
+    permissionMode: 'acceptEdits' as const,
+    systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const, append: systemAppend },
+    canUseTool: anthropicReadOnlyToolGuard,
+    env: { ...process.env, ANTHROPIC_API_KEY: opts.apiKey },
+    sandbox: buildAnthropicSandboxConfig(opts.resolvedRepoDir, opts.allowInspection),
+  };
+};
+
+const buildAnthropicStageQueryOptions = (opts: AnthropicStageOpts) => {
+  const effectiveSystemPrompt = resolveEffectiveSystemPrompt(opts.systemPrompt, opts.allowInspection);
+  const systemAppend = [buildPriorStagePreamble(opts.priorStageSummary), opts.anthropicContext, effectiveSystemPrompt].filter(Boolean).join('\n\n');
+  const resumeOption = opts.resumeProviderSessionId ? { resume: opts.resumeProviderSessionId } : {};
+  return { ...buildAnthropicBaseOptions(opts, systemAppend), ...resumeOption };
+};
+
+/**
+ * @param opts - Anthropic stage options
+ * @returns query input object for the Anthropic agent SDK
+ */
+const buildAnthropicStageOptions = (opts: AnthropicStageOpts) => ({
+  prompt: opts.prompt,
+  options: buildAnthropicStageQueryOptions(opts),
+});
+
+/**
+ * @param args - Codex CLI arguments
+ * @param repoDir - repository directory
+ * @param fullPrompt - full prompt text
+ * @param initialSessionId - session ID from a prior invocation
+ * @param onProgress - optional progress callback
+ * @returns content and session ID from the Codex CLI run
+ */
+/**
+ * @param result - extracted result text
+ * @param sessionId - session ID from the codex run
+ * @returns content and session ID
+ * @throws when no result was produced
+ */
+const finalizeCodexResult = (result: string, sessionId?: string): { content: string; sessionId?: string } => {
+  if (!result) {
+    console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] No result message received from Codex CLI`));
+    if (sessionId) console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] Provider session: ${sessionId}`));
+    throw new AIError('Codex CLI finished without returning a result.', null, true);
+  }
+  if (sessionId) console.log(chalk.gray(`  [${CODEX_STAGE_LABEL}] Provider session: ${sessionId}`));
+  return { content: result.trim(), sessionId };
+};
+
+const processCodexStageResult = async (
+  args: string[], repoDir: string, fullPrompt: string, initialSessionId?: string, onProgress?: StageProgressCallback
+): Promise<{ content: string; sessionId?: string }> => {
+  let sessionId = initialSessionId;
+  let result = '';
+  for await (const message of spawnCodex(args, repoDir, fullPrompt)) {
+    if (message.type === 'thread.started' && message.thread_id) sessionId = message.thread_id;
+    if (onProgress) {
+      const line = formatCodexProgressMessage(message);
+      if (line) onProgress(line);
+    }
+    if (message.type === 'item.completed' && message.item?.type === 'agent_message' && message.item.text) result = message.item.text;
+  }
+  return finalizeCodexResult(result, sessionId);
+};
+
+/**
+ * @param message - a CLI result message
+ * @returns extracted result content and source type
+ */
+const extractCliResultContent = (
+  message: ClaudeCliMessage
+): { result: string; source: 'structured_output' | 'result' } | undefined => {
+  if (message.type !== 'result' || message.is_error) return undefined;
+  if (message.structured_output && typeof message.structured_output === 'object') {
+    return { result: JSON.stringify(message.structured_output), source: 'structured_output' };
+  }
+  if (message.result) return { result: message.result, source: 'result' };
+  return undefined;
+};
+
+type CliPassAccumulator = {
+  result: string;
+  source: CliPassResult['source'];
+  stopReason: string | undefined;
+  sessionId: string | undefined;
+  lastAssistantText: string;
+  diagnostics: string[];
+};
+
+/**
+ * @param acc - mutable accumulator for CLI pass state
+ * @param message - a CLI NDJSON message
+ */
+const applyCliResultToAcc = (acc: CliPassAccumulator, message: ClaudeCliMessage): void => {
+  const extracted = extractCliResultContent(message);
+  if (!extracted) return;
+  acc.result = extracted.result;
+  acc.source = extracted.source;
+  acc.stopReason = message.stop_reason as string | undefined;
+};
+
+/**
+ * @param acc - mutable accumulator for CLI pass state
+ * @param message - a CLI NDJSON message
+ * @param onProgress - optional progress callback
+ */
+const accumulateCliMessage = (
+  acc: CliPassAccumulator, message: ClaudeCliMessage, onProgress?: StageProgressCallback
+): void => {
+  if (message.session_id) acc.sessionId = message.session_id;
+  if (onProgress) {
+    const line = formatAnthropicProgressMessage(message as never, CLI_STAGE_LABEL);
+    if (line) onProgress(line);
+  }
+  const assistantText = extractAssistantText(message);
+  if (assistantText) acc.lastAssistantText = assistantText;
+  applyCliResultToAcc(acc, message);
+  const diagnostic = extractCliDiagnostic(message);
+  if (diagnostic) acc.diagnostics.push(diagnostic);
+};
+
+/**
+ * @param acc - finalized CLI pass accumulator
+ * @returns CLI pass result derived from the accumulator
+ */
+const finalizeCliPass = (acc: CliPassAccumulator): CliPassResult => {
+  const result = acc.result || (acc.lastAssistantText.trim() ? acc.lastAssistantText : '');
+  const fallbackSource = acc.lastAssistantText.trim() ? 'assistant_text' as const : acc.source;
+  const source = acc.result ? acc.source : fallbackSource;
+  const hadContent = acc.lastAssistantText.trim().length > 0;
+  return {
+    result, source, stopReason: acc.stopReason,
+    sessionId: acc.sessionId, hadContent, diagnostics: acc.diagnostics,
+  };
+};
+
+/**
+ * @param args - CLI arguments
+ * @param repoDir - repository directory
+ * @param prompt - prompt text
+ * @param wallClockTimeoutMs - timeout in milliseconds
+ * @param onProgress - optional progress callback
+ * @returns aggregated result from a single CLI pass
+ */
+const processCliPassMessages = async (
+  args: string[], repoDir: string, prompt: string, wallClockTimeoutMs: number, onProgress?: StageProgressCallback
+): Promise<CliPassResult> => {
+  const acc: CliPassAccumulator = { result: '', source: undefined, stopReason: undefined, sessionId: undefined, lastAssistantText: '', diagnostics: [] };
+  for await (const message of spawnCli(args, repoDir, prompt, undefined, wallClockTimeoutMs)) {
+    accumulateCliMessage(acc, message, onProgress);
+  }
+  return finalizeCliPass(acc);
+};
+
+type CliRetryState = { sessionId?: string; stalledPasses: number; passNumber: number; lastDiagnostics: string[] };
+
+/**
+ * @param state - mutable retry loop state
+ * @param passResult - result from the latest CLI pass
+ */
+const advanceCliRetryState = (state: CliRetryState, passResult: CliPassResult): void => {
+  state.stalledPasses = passResult.hadContent ? 0 : state.stalledPasses + 1;
+  checkCliStallCondition(state.stalledPasses, state.passNumber, state.lastDiagnostics);
+  state.lastDiagnostics = passResult.diagnostics;
+  console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${state.passNumber}: no usable result — resuming session`));
+};
+
+/**
+ * @param stalledPasses - number of consecutive stalled passes
+ * @param passNumber - current pass number
+ * @param lastDiagnostics - diagnostics from the most recent pass
+ * @throws when stall threshold is reached
+ */
+const checkCliStallCondition = (stalledPasses: number, passNumber: number, lastDiagnostics: string[]): void => {
+  if (stalledPasses < CLI_STALL_THRESHOLD) return;
+  const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
+  throw new AIError(
+    `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`,
+    null, true
+  );
+};
+
+type AnthropicChatOpts = {
+  prompt: string;
+  model: string;
+  apiKey: string;
+  resolvedRepoDir: string;
+  allowInspection: boolean;
+  systemPrompt: string;
+  anthropicContext: string;
+  resumeSessionId?: string;
+};
+
+/**
+ * @param opts - Anthropic chat options
+ * @returns the anthropic agent options sub-object for chat turns
+ */
+const buildAnthropicChatQueryOptions = (opts: AnthropicChatOpts) => {
+  const effectiveSystemPrompt = resolveEffectiveSystemPrompt(opts.systemPrompt, opts.allowInspection);
+  const systemAppend = [opts.anthropicContext, effectiveSystemPrompt].filter(Boolean).join('\n\n');
+  const resumeOption = opts.resumeSessionId ? { resume: opts.resumeSessionId } : {};
+  return { ...buildAnthropicBaseOptions(opts, systemAppend), ...resumeOption };
+};
+
+/**
+ * @param opts - options for building the Anthropic chat query
+ * @returns query input object for the Anthropic agent SDK chat turn
+ */
+const buildAnthropicChatOptions = (opts: AnthropicChatOpts) => ({
+  prompt: opts.prompt,
+  options: buildAnthropicChatQueryOptions(opts),
+});
+
+/**
+ * @param systemPrompt - base system prompt
+ * @param priorStageSummary - optional prior stage summary
+ * @param allowInspection - whether file inspection is enabled
+ * @returns combined OpenAI system prompt with preamble
+ */
+const buildOpenAiSystemPrompt = (
+  systemPrompt: string, priorStageSummary?: string, allowInspection?: boolean
+): string => {
+  const preamble = buildPriorStagePreamble(priorStageSummary);
+  const preambleWithNewline = preamble ? `${preamble}\n\n` : '';
+  return `${preambleWithNewline}${resolveEffectiveSystemPrompt(systemPrompt, Boolean(allowInspection))}`;
+};
+
+/** @returns OpenAI read_file tool */
+const createOpenAiReadFileTool = () => tool({
+  name: 'read_file',
+  description: 'Read a file from the current repository workspace.',
+  parameters: z.object({ path: z.string().min(1) }),
+  async execute(input, runContext) {
+    const ctx = runContext?.context as OpenAiStageContext;
+    const absolutePath = path.resolve(ctx.repoDir, input.path);
+    const content = await fs.readFile(absolutePath, 'utf-8');
+    return JSON.stringify({ path: path.relative(ctx.repoDir, absolutePath), content }, null, 2);
+  },
+});
+
+/** @returns OpenAI list_files tool */
+const createOpenAiListFilesTool = () => tool({
+  name: 'list_files',
+  description: 'List files in the current repository workspace.',
+  parameters: z.object({ root: z.string().min(1).describe('Repository subdirectory to list; use "." for the repo root.') }),
+  async execute(input, runContext) {
+    const ctx = runContext?.context as OpenAiStageContext;
+    const relativeRoot = input.root.trim() || '.';
+    const command = `rg --files ${relativeRoot === '.' ? '' : relativeRoot}`.trim();
+    const { stdout } = await execAsync(command, { cwd: ctx.repoDir, maxBuffer: MAX_BUFFER_IN_BYTES });
+    return stdout.trim();
+  },
+});
+
+/** @returns OpenAI search_files tool */
+const createOpenAiSearchFilesTool = () => tool({
+  name: 'search_files',
+  description: 'Search repository files with ripgrep.',
+  parameters: z.object({ pattern: z.string().min(1), root: z.string().min(1).describe('Repository subdirectory to search; use "." for the repo root.') }),
+  async execute(input, runContext) {
+    const ctx = runContext?.context as OpenAiStageContext;
+    const relativeRoot = input.root.trim() || '.';
+    const { stdout } = await execAsync(`rg -n ${JSON.stringify(input.pattern)} ${relativeRoot}`, { cwd: ctx.repoDir, maxBuffer: MAX_BUFFER_IN_BYTES });
+    return stdout.trim();
+  },
+});
+
+/** @returns OpenAI run_readonly_command tool */
+const createOpenAiRunCommandTool = () => tool({
+  name: 'run_readonly_command',
+  description: 'Run a read-only repository inspection command such as pwd, ls, rg, git diff, or git status.',
+  parameters: z.object({ command: z.string().min(1) }),
+  async execute(input, runContext) {
+    const ctx = runContext?.context as OpenAiStageContext;
+    const command = input.command.trim();
+    if (!isReadOnlyCommand(command)) {
+      return JSON.stringify({ allowed: false, message: 'Only read-only repository inspection commands are allowed in this agent path.' }, null, 2);
+    }
+    const { stdout, stderr } = await execAsync(command, { cwd: ctx.repoDir, maxBuffer: MAX_BUFFER_IN_BYTES });
+    return JSON.stringify({ allowed: true, stdout: stdout.trim(), stderr: stderr.trim() }, null, 2);
+  },
+});
+
+/**
+ * @returns array of OpenAI agent tools for read-only repository inspection
+ */
+const buildOpenAiStageTools = () => [
+  createOpenAiReadFileTool(), createOpenAiListFilesTool(), createOpenAiSearchFilesTool(), createOpenAiRunCommandTool(),
+];
+
+/**
+ * @param session - Anthropic SDK session to drain
+ * @param handler - processes each message, returns content if done
+ * @param sessionLogPrefix - prefix for session ID log line
+ * @returns content and session ID from the first successful result
+ */
+type AnthropicSession = AsyncIterable<Record<string, unknown>> & { close: () => void };
+type AnthropicResultHandler = (msg: Record<string, unknown>) => { content: string } | undefined;
+
+const drainAnthropicSession = async (
+  session: AnthropicSession, handler: AnthropicResultHandler, sessionLogPrefix: string
+): Promise<{ content: string; sessionId?: string }> => {
+  let sessionId: string | undefined;
+  try {
+    for await (const message of session) {
+      if ('session_id' in message && typeof message.session_id === 'string') sessionId = message.session_id;
+      const result = handler(message);
+      if (!result) continue;
+      if (sessionId && sessionLogPrefix) console.log(chalk.cyan(sessionLogPrefix + sessionId));
+      return { ...result, sessionId };
+    }
+  } finally { session.close(); }
+  throw new Error('Claude Agent SDK finished without returning a result.');
+};
+
+/**
+ * @param message - Anthropic SDK stream message
+ * @param onProgress - optional progress callback
+ * @returns result text if this is a successful result message, undefined otherwise
+ * @throws when the result indicates an error
+ */
+const extractAnthropicResultMessage = (
+  message: Record<string, unknown>, onProgress?: StageProgressCallback
+): string | undefined => {
+  if ((message as { type: string }).type !== 'result') {
+    const line = onProgress ? formatAnthropicProgressMessage(message as never) : null;
+    if (line) onProgress?.(line);
+    return undefined;
+  }
+  const result = message as { subtype: string; is_error?: boolean; errors?: string[]; result: string };
+  if (result.subtype !== 'success' || result.is_error) {
+    const errorSummary = result.errors?.length ? result.errors.join('; ') : 'unknown error';
+    throw new Error(`Claude Agent SDK failed (${result.subtype}): ${errorSummary}`);
+  }
+  return result.result;
+};
+
+@Injectable()
+export class StageAgentService {
+  constructor(private readonly configService: ConfigService) {}
+
+  isEnabledForStage(stage: AgentStageName): boolean {
+    const backend = this.resolveStageBackend(stage);
+    return backend === 'agent' || backend === 'cli';
+  }
+
+  async generatePlan(params: GeneratePlanParams & {
+    onProgress?: StageProgressCallback;
+    priorStageSummary?: string;
+    resumeProviderSessionId?: string;
+  }): Promise<{ plan: ResolutionPlan; sessionId?: string }> {
     const { content: response, sessionId } = await this.runStagePrompt({
-      stage: 'review',
-      prompt,
-      systemPrompt,
-      repoDir,
-      priorStageSummary,
-      resumeProviderSessionId,
+      stage: 'plan', prompt: buildStagePlanPrompt(params), systemPrompt: PLAN_SYSTEM_PROMPT,
+      repoDir: process.cwd(), onProgress: params.onProgress,
+      priorStageSummary: params.priorStageSummary, resumeProviderSessionId: params.resumeProviderSessionId,
     });
+    return this.parseStagePlanResponse(response, sessionId);
+  }
 
+  /**
+   * @param response - raw AI response content
+   * @param sessionId - provider session identifier
+   * @returns parsed and enriched resolution plan with session metadata
+   */
+  private parseStagePlanResponse(response: string, sessionId?: string): { plan: ResolutionPlan; sessionId?: string } {
     try {
-      const parsed = parseJsonResponse<CodeReview>(
-        requireReviewResponseContent({
-          content: response,
-          provider: this.resolveStageProvider('review'),
-          model: this.resolveStageModel('review'),
-        })
-      );
-      const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
-      const backend = this.resolveStageBackend('review');
-      if (backend === 'cli' && sessionId) {
-        const label = this.resolveStageProvider('review') === 'openai' ? CODEX_STAGE_LABEL : CLI_STAGE_LABEL;
-
-        try {
-          await this.sendCliReviewEpilogue({
-            sessionId,
-            repoDir: repoDir ?? process.cwd(),
-            systemPrompt,
-            priorStageSummary,
-          });
-          console.log(chalk.gray(`  [${label}] Review epilogue sent`));
-        } catch {
-          console.log(chalk.yellow(`  [${label}] Review epilogue failed — manual resume may show raw JSON`));
-        }
-      }
-
-      return {
-        review: {
-          ...processedReview.review,
-          executionMode: backend === 'cli' ? 'cli' : 'agent',
-        },
-        sessionId,
-      };
+      const plan = this.parseAndValidatePlan(response);
+      return { plan, sessionId };
     } catch (error) {
-      if (isAIErrorLike(error)) {
-        throw error;
-      }
+      if (isAIErrorLike(error)) throw error;
+      throw new AIError('Failed to parse resolution plan from agent response', { response, error });
+    }
+  }
 
-      throw new AIError('Failed to parse code review from agent response', {
-        response,
-        error,
+  /**
+   * @param response - raw AI response content
+   * @returns parsed, normalized, and enriched resolution plan
+   */
+  private parseAndValidatePlan(response: string): ResolutionPlan {
+    const plan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
+      requireAiResponseContent(
+        { content: response, provider: this.resolveStageProvider('plan'), model: this.resolveStageModel('plan') },
+        'AI provider returned an empty plan response'
+      )
+    );
+    if (!plan.affectedRepositories && plan.repositoriesAffected) plan.affectedRepositories = plan.repositoriesAffected;
+    delete plan.repositoriesAffected;
+    const provider = this.resolveStageProvider('plan');
+    plan.provider = provider;
+    plan.source = derivePlanSource(provider, this.resolveStageModel('plan'));
+    plan.timestamp = dayjs().toISOString();
+    return plan;
+  }
+
+  async reviewCode(
+    diff: string, guidelines: string[], repoDir?: string, priorStageSummary?: string, resumeProviderSessionId?: string
+  ): Promise<{ review: CodeReview; sessionId?: string }> {
+    const { content: response, sessionId } = await this.runStagePrompt({
+      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines), systemPrompt: REVIEW_SYSTEM_PROMPT,
+      repoDir, priorStageSummary, resumeProviderSessionId,
+    });
+    return this.parseStageReviewResponse(response, sessionId, repoDir, REVIEW_SYSTEM_PROMPT, priorStageSummary);
+  }
+
+  /**
+   * @param response - raw AI response content
+   * @param sessionId - provider session identifier
+   * @param repoDir - repository directory path
+   * @param systemPrompt - system prompt used for the review
+   * @param priorStageSummary - prior stage summary context
+   * @returns parsed code review with session metadata
+   */
+  private async parseStageReviewResponse(
+    response: string, sessionId: string | undefined, repoDir: string | undefined,
+    systemPrompt: string, priorStageSummary: string | undefined
+  ): Promise<{ review: CodeReview; sessionId?: string }> {
+    try {
+      const review = this.parseAndProcessReview(response);
+      const backend = this.resolveStageBackend('review');
+      await this.trySendReviewEpilogue(backend, sessionId, repoDir, systemPrompt, priorStageSummary);
+      return { review: { ...review, executionMode: backend === 'cli' ? 'cli' : 'agent' }, sessionId };
+    } catch (error) {
+      if (isAIErrorLike(error)) throw error;
+      throw new AIError('Failed to parse code review from agent response', { response, error });
+    }
+  }
+
+  /**
+   * @param response - raw AI response content
+   * @returns parsed and post-processed code review
+   */
+  private parseAndProcessReview(response: string): CodeReview {
+    const parsed = parseJsonResponse<CodeReview>(
+      requireReviewResponseContent({ content: response, provider: this.resolveStageProvider('review'), model: this.resolveStageModel('review') })
+    );
+    return postProcessCodeReview(sanitizeCodeReviewTrace(parsed, response), response).review;
+  }
+
+  /**
+   * @param backend - resolved backend mode for the review stage
+   * @param sessionId - provider session identifier
+   * @param repoDir - repository directory path
+   * @param systemPrompt - system prompt used for the review
+   * @param priorStageSummary - prior stage summary context
+   * @returns nothing; failures are logged and swallowed
+   */
+  private async trySendReviewEpilogue(
+    backend: WfBackendMode, sessionId: string | undefined, repoDir: string | undefined,
+    systemPrompt: string, priorStageSummary: string | undefined
+  ): Promise<void> {
+    if (backend !== 'cli' || !sessionId) return;
+    const label = this.resolveStageProvider('review') === 'openai' ? CODEX_STAGE_LABEL : CLI_STAGE_LABEL;
+    try {
+      await this.sendCliReviewEpilogue({
+        sessionId, repoDir: repoDir ?? process.cwd(), systemPrompt, priorStageSummary,
       });
+      console.log(chalk.gray(`  [${label}] Review epilogue sent`));
+    } catch {
+      console.log(chalk.yellow(`  [${label}] Review epilogue failed — manual resume may show raw JSON`));
     }
   }
 
   async generateFromPrompt(prompt: string, onProgress?: StageProgressCallback): Promise<string> {
-    const systemPrompt = `You are an expert technical writer and repository analyst.
-You may inspect repository files with read-only tools before answering.
-Return only the requested ticket markdown and preserve the required heading structure exactly.`;
-
     const { content: response } = await this.runStagePrompt({
       stage: 'generate',
       prompt,
-      systemPrompt,
+      systemPrompt: GENERATE_SYSTEM_PROMPT,
       onProgress,
     });
-
     return requireAiResponseContent(
-      {
-        content: response,
-        provider: this.resolveStageProvider('generate'),
-        model: this.resolveStageModel('generate'),
-      },
+      { content: response, provider: this.resolveStageProvider('generate'), model: this.resolveStageModel('generate') },
       'AI provider returned an empty generated content response'
     );
   }
@@ -650,780 +1204,331 @@ Return only the requested ticket markdown and preserve the required heading stru
     return this.configService.get<number>(`stages.${stage}.timeoutMs`, DEFAULT_CLI_WALL_CLOCK_TIMEOUT_MS);
   }
 
-  private async runStagePrompt(params: {
-    stage: AgentStageName;
-    prompt: string;
-    systemPrompt: string;
-    repoDir?: string;
-    onProgress?: StageProgressCallback;
-    priorStageSummary?: string;
-    resumeProviderSessionId?: string;
-  }): Promise<{ content: string; sessionId?: string }> {
+  private async runStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     const backend = this.resolveStageBackend(params.stage);
-    if (backend === 'cli') {
-      const provider = this.resolveStageProvider(params.stage);
-      if (provider === 'openai') {
-        return this.runCodexCliStagePrompt(params);
-      }
-      return this.runCliStagePrompt(params);
-    }
-
+    if (backend === 'cli') return this.dispatchCliStagePrompt(params);
     const provider = this.resolveStageProvider(params.stage);
-    if (provider === 'anthropic') {
-      return this.runAnthropicStagePrompt(params);
-    }
-
+    if (provider === 'anthropic') return this.runAnthropicStagePrompt(params);
     const content = await this.runOpenAiStagePrompt(params);
     return { content };
   }
 
-  private async runAnthropicStagePrompt(params: {
-    stage: AgentStageName;
-    prompt: string;
-    systemPrompt: string;
-    repoDir?: string;
-    onProgress?: StageProgressCallback;
-    priorStageSummary?: string;
-    resumeProviderSessionId?: string;
-  }): Promise<{ content: string; sessionId?: string }> {
-    const apiKey = this.configService.get<string>('ai.anthropicApiKey');
-    if (!apiKey) {
-      throw new Error('Anthropic agent backend requires `ai.anthropicApiKey` to be configured.');
-    }
-
-    const model = this.resolveStageModel(params.stage);
-    const anthropicContext = await loadAiContextConfig(
-      path.join(os.homedir(), '.claude', 'CLAUDE.md'),
-      'CLAUDE.md',
-      'anthropic',
-      true
-    );
-    const resolvedRepoDir = params.repoDir ?? process.cwd();
-    const allowInspection = Boolean(params.repoDir);
-    const anthropicTools = allowInspection ? [...ANTHROPIC_STAGE_TOOLS] : [];
-    const anthropicSystemPrompt = allowInspection
-      ? params.systemPrompt
-      : `${params.systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
-    const { query } = await loadAnthropicAgentSdk();
-    const resumeOption = params.resumeProviderSessionId ? { resume: params.resumeProviderSessionId } : {};
-    const session = query({
-      prompt: params.prompt,
-      options: {
-        ...resumeOption,
-        cwd: resolvedRepoDir,
-        model,
-        tools: anthropicTools,
-        allowedTools: anthropicTools,
-        permissionMode: 'acceptEdits',
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append: [
-            params.priorStageSummary
-              ? `<prior-stage-context>\n${params.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.`
-              : '',
-            anthropicContext,
-            anthropicSystemPrompt,
-          ]
-            .filter(Boolean)
-            .join('\n\n'),
-        },
-        canUseTool: async (toolName, input) => {
-          if (toolName !== 'Bash') {
-            return { behavior: 'allow' };
-          }
-
-          const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
-          if (!command || !isReadOnlyCommand(command)) {
-            return {
-              behavior: 'deny',
-              message: 'Only read-only repository inspection commands are allowed in this agent path.',
-              interrupt: true,
-            };
-          }
-
-          return { behavior: 'allow' };
-        },
-        env: {
-          ...process.env,
-          ANTHROPIC_API_KEY: apiKey,
-        },
-        sandbox: {
-          enabled: true,
-          failIfUnavailable: true,
-          allowUnsandboxedCommands: false,
-          autoAllowBashIfSandboxed: true,
-          filesystem: {
-            allowRead: allowInspection ? [resolvedRepoDir] : [],
-            allowWrite: [],
-          },
-        },
-      },
-    });
-
-    let extractedSessionId: string | undefined;
-
-    try {
-      for await (const message of session) {
-        if ('session_id' in message && typeof message.session_id === 'string') {
-          extractedSessionId = message.session_id;
-        }
-
-        if (message.type !== 'result') {
-          const line = params.onProgress ? formatAnthropicProgressMessage(message) : null;
-          if (line) params.onProgress?.(line);
-          continue;
-        }
-
-        if (message.subtype !== 'success' || message.is_error) {
-          const errorSummary
-            = 'errors' in message && message.errors.length > 0 ? message.errors.join('; ') : 'unknown error';
-          throw new Error(`Claude Agent SDK failed (${message.subtype}): ${errorSummary}`);
-        }
-
-        if (extractedSessionId) {
-          console.log(chalk.cyan('  [claude-agent-sdk] Provider session: ' + extractedSessionId));
-        }
-        return { content: message.result.trim(), sessionId: extractedSessionId };
-      }
-    } finally {
-      session.close();
-    }
-
-    throw new Error('Claude Agent SDK finished without returning a result.');
+  /**
+   * @param params - stage prompt parameters
+   * @returns CLI stage result from the appropriate CLI backend
+   */
+  private dispatchCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
+    const provider = this.resolveStageProvider(params.stage);
+    return provider === 'openai' ? this.runCodexCliStagePrompt(params) : this.runCliStagePrompt(params);
   }
 
-  private async runOpenAiStagePrompt(params: {
-    stage: AgentStageName;
-    prompt: string;
-    systemPrompt: string;
-    repoDir?: string;
-    onProgress?: StageProgressCallback;
-    priorStageSummary?: string;
-    resumeProviderSessionId?: string;
-  }): Promise<string> {
-    const apiKey = this.configService.get<string>('ai.openaiApiKey');
-    if (!apiKey) {
-      throw new Error('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
-    }
+  private async runAnthropicStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
+    const apiKey = this.requireAnthropicApiKey();
+    const anthropicContext = await loadAiContextConfig(path.join(os.homedir(), '.claude', 'CLAUDE.md'), 'CLAUDE.md', 'anthropic', true);
+    const options = buildAnthropicStageOptions({
+      prompt: params.prompt, model: this.resolveStageModel(params.stage), apiKey,
+      resolvedRepoDir: params.repoDir ?? process.cwd(), allowInspection: Boolean(params.repoDir),
+      systemPrompt: params.systemPrompt, priorStageSummary: params.priorStageSummary,
+      anthropicContext, resumeProviderSessionId: params.resumeProviderSessionId,
+    });
+    const { query } = await loadAnthropicAgentSdk();
+    return this.processAnthropicStageResult(query(options), params.onProgress);
+  }
 
+  /**
+   * @returns the Anthropic API key from config
+   * @throws when the key is not configured
+   */
+  private requireAnthropicApiKey(): string {
+    const apiKey = this.configService.get<string>('ai.anthropicApiKey');
+    if (!apiKey) throw new Error('Anthropic agent backend requires `ai.anthropicApiKey` to be configured.');
+    return apiKey;
+  }
+
+  /**
+   * @param session - an active Anthropic agent SDK query session
+   * @param onProgress - optional progress callback
+   * @returns content and session ID from the first successful result message
+   */
+  private async processAnthropicStageResult(
+    session: AsyncIterable<Record<string, unknown>> & { close: () => void }, onProgress?: StageProgressCallback
+  ): Promise<{ content: string; sessionId?: string }> {
+    return drainAnthropicSession(session, msg => {
+      const outcome = extractAnthropicResultMessage(msg, onProgress);
+      return outcome ? { content: outcome.trim() } : undefined;
+    }, '  [claude-agent-sdk] Provider session: ');
+  }
+
+  private async runOpenAiStagePrompt(params: StagePromptParams): Promise<string> {
+    const apiKey = this.requireOpenAiApiKey();
     setTracingExportApiKey(apiKey);
-    const modelProvider = new OpenAIProvider({ apiKey });
-    const model = this.resolveStageModel(params.stage);
-    const openAiContext = await loadAiContextConfig(
-      path.join(os.homedir(), '.openai', 'OPENAI.md'),
-      '.openai/OPENAI.md',
-      'openai',
-      true
-    );
-    const resolvedRepoDir = params.repoDir ?? process.cwd();
-    const allowInspection = Boolean(params.repoDir);
-
     if (params.resumeProviderSessionId) {
-      console.log(
-        chalk.yellow(
-          '  [openai-agent] Session resumption is not yet supported for the OpenAI agent backend. Starting fresh.'
-        )
-      );
+      console.log(chalk.yellow('  [openai-agent] Session resumption is not yet supported for the OpenAI agent backend. Starting fresh.'));
     }
-
-    const priorStagePreamble = params.priorStageSummary
-      ? `<prior-stage-context>\n${params.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
-      : '';
-    const openAiSystemPrompt = allowInspection
-      ? `${priorStagePreamble}${params.systemPrompt}`
-      : `${priorStagePreamble}${params.systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
-    const context: OpenAiStageContext = {
-      repoDir: resolvedRepoDir,
-    };
-
-    const readFileTool = tool({
-      name: 'read_file',
-      description: 'Read a file from the current repository workspace.',
-      parameters: z.object({
-        path: z.string().min(1),
-      }),
-      async execute(input, runContext) {
-        const toolContext = runContext?.context as OpenAiStageContext;
-        const absolutePath = path.resolve(toolContext.repoDir, input.path);
-        const content = await fs.readFile(absolutePath, 'utf-8');
-        return JSON.stringify(
-          {
-            path: path.relative(toolContext.repoDir, absolutePath),
-            content,
-          },
-          null,
-          2
-        );
-      },
+    const { agent, runner, context } = await this.buildOpenAiStageAgent({
+      stage: params.stage, systemPrompt: params.systemPrompt,
+      repoDir: params.repoDir, priorStageSummary: params.priorStageSummary, apiKey,
     });
+    return this.processOpenAiStageResult(agent, runner, context, params.prompt, 16, params.onProgress);
+  }
 
-    const listFilesTool = tool({
-      name: 'list_files',
-      description: 'List files in the current repository workspace.',
-      parameters: z.object({
-        root: z.string().min(1).describe('Repository subdirectory to list; use "." for the repo root.'),
-      }),
-      async execute(input, runContext) {
-        const toolContext = runContext?.context as OpenAiStageContext;
-        const relativeRoot = input.root.trim() || '.';
-        const command = `rg --files ${relativeRoot === '.' ? '' : relativeRoot}`.trim();
-        const { stdout } = await execAsync(command, {
-          cwd: toolContext.repoDir,
-          maxBuffer: MAX_BUFFER_IN_BYTES,
-        });
-        return stdout.trim();
-      },
-    });
+  /**
+   * @returns the OpenAI API key from config
+   * @throws when the key is not configured
+   */
+  private requireOpenAiApiKey(): string {
+    const apiKey = this.configService.get<string>('ai.openaiApiKey');
+    if (!apiKey) throw new Error('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
+    return apiKey;
+  }
 
-    const searchFilesTool = tool({
-      name: 'search_files',
-      description: 'Search repository files with ripgrep.',
-      parameters: z.object({
-        pattern: z.string().min(1),
-        root: z.string().min(1).describe('Repository subdirectory to search; use "." for the repo root.'),
-      }),
-      async execute(input, runContext) {
-        const toolContext = runContext?.context as OpenAiStageContext;
-        const relativeRoot = input.root.trim() || '.';
-        const command = `rg -n ${JSON.stringify(input.pattern)} ${relativeRoot}`;
-        const { stdout } = await execAsync(command, {
-          cwd: toolContext.repoDir,
-          maxBuffer: MAX_BUFFER_IN_BYTES,
-        });
-        return stdout.trim();
-      },
-    });
-
-    const runCommandTool = tool({
-      name: 'run_readonly_command',
-      description: 'Run a read-only repository inspection command such as pwd, ls, rg, git diff, or git status.',
-      parameters: z.object({
-        command: z.string().min(1),
-      }),
-      async execute(input, runContext) {
-        const toolContext = runContext?.context as OpenAiStageContext;
-        const command = input.command.trim();
-        if (!isReadOnlyCommand(command)) {
-          return JSON.stringify(
-            {
-              allowed: false,
-              message: 'Only read-only repository inspection commands are allowed in this agent path.',
-            },
-            null,
-            2
-          );
-        }
-
-        const { stdout, stderr } = await execAsync(command, {
-          cwd: toolContext.repoDir,
-          maxBuffer: MAX_BUFFER_IN_BYTES,
-        });
-        return JSON.stringify(
-          {
-            allowed: true,
-            stdout: stdout.trim(),
-            stderr: stderr.trim(),
-          },
-          null,
-          2
-        );
-      },
-    });
-
+  /**
+   * @param opts - agent configuration parameters
+   * @returns built agent, runner, and context for OpenAI stage operations
+   */
+  private async buildOpenAiStageAgent(opts: {
+    stage: AgentStageName; systemPrompt: string; repoDir?: string; priorStageSummary?: string; apiKey: string;
+  }): Promise<{ agent: Agent<OpenAiStageContext>; runner: Runner; context: OpenAiStageContext }> {
+    const openAiContext = await loadAiContextConfig(path.join(os.homedir(), '.openai', 'OPENAI.md'), '.openai/OPENAI.md', 'openai', true);
+    const allowInspection = Boolean(opts.repoDir);
+    const instructions = [openAiContext, buildOpenAiSystemPrompt(opts.systemPrompt, opts.priorStageSummary, allowInspection)].filter(Boolean).join('\n\n');
     const agent = new Agent<OpenAiStageContext>({
-      name: `wf ${params.stage} openai agent backend`,
+      name: `wf ${opts.stage} openai agent backend`,
       handoffDescription: 'Uses read-only tools to inspect the repository and answer the current stage prompt.',
-      instructions: [openAiContext, openAiSystemPrompt].filter(Boolean).join('\n\n'),
-      model,
-      tools: allowInspection ? [readFileTool, listFilesTool, searchFilesTool, runCommandTool] : [],
-      toolUseBehavior: 'run_llm_again',
-      resetToolChoice: true,
+      instructions, model: this.resolveStageModel(opts.stage),
+      tools: allowInspection ? buildOpenAiStageTools() : [], toolUseBehavior: 'run_llm_again', resetToolChoice: true,
     });
+    const runner = new Runner({ modelProvider: new OpenAIProvider({ apiKey: opts.apiKey }) });
+    return { agent, runner, context: { repoDir: opts.repoDir ?? process.cwd() } };
+  }
 
-    const runner = new Runner({
-      modelProvider,
-    });
-    const streamedRun: StreamedRunResult<OpenAiStageContext, typeof agent> = await runner.run(agent, params.prompt, {
-      stream: true,
-      context,
-      maxTurns: 16,
-    });
-
+  /**
+   * @param agent - OpenAI agent instance
+   * @param runner - OpenAI runner instance
+   * @param context - stage context with repo directory
+   * @param input - prompt or run state input
+   * @param maxTurns - maximum number of agent turns
+   * @param onProgress - optional progress callback
+   * @returns trimmed final output string
+   */
+  private async processOpenAiStageResult(
+    agent: Agent<OpenAiStageContext>, runner: Runner, context: OpenAiStageContext,
+    input: string, maxTurns: number, onProgress?: StageProgressCallback
+  ): Promise<string> {
+    const streamedRun = await runner.run(agent, input, { stream: true, context, maxTurns });
     for await (const event of streamedRun) {
-      if (params.onProgress) {
+      if (onProgress) {
         const formatted = formatOpenAiProgressMessage(event);
-        if (formatted) params.onProgress(formatted.message);
+        if (formatted) onProgress(formatted.message);
       }
     }
-
-    if (streamedRun.error) {
-      const streamError = this.extractStreamError(streamedRun.error);
-      throw new Error(`OpenAI agent run failed: ${streamError}`);
-    }
-
+    if (streamedRun.error) throw new Error(`OpenAI agent run failed: ${this.extractStreamError(streamedRun.error)}`);
     return typeof streamedRun.finalOutput === 'string' ? streamedRun.finalOutput.trim() : '';
   }
 
-  async chatTurn(params: {
-    stage: AgentStageName;
-    userMessage: string;
-    systemPrompt: string;
-    repoDir?: string;
-    session?: AgentChatSession;
-  }): Promise<{ content: string; session: AgentChatSession }> {
+  async chatTurn(params: ChatTurnParams): Promise<{ content: string; session: AgentChatSession }> {
     const backend = this.resolveStageBackend(params.stage);
-    if (backend === 'cli') {
-      return this.cliChatTurn(params);
-    }
+    if (backend === 'cli') return this.cliChatTurn(params);
     const provider = this.resolveStageProvider(params.stage);
-    if (provider === 'anthropic') {
-      return this.anthropicChatTurn(params);
-    }
+    if (provider === 'anthropic') return this.anthropicChatTurn(params);
+    return this.validateAndReturnOpenAiChat(params);
+  }
+
+  /**
+   * @param params - chat turn parameters
+   * @returns validated OpenAI chat result
+   */
+  private async validateAndReturnOpenAiChat(
+    params: ChatTurnParams
+  ): Promise<{ content: string; session: AgentChatSession }> {
     const result = await this.openAiChatTurn(params);
     requireAiResponseContent(
-      {
-        content: result.content,
-        provider: 'openai',
-        model: this.resolveStageModel(params.stage),
-      },
+      { content: result.content, provider: 'openai', model: this.resolveStageModel(params.stage) },
       'AI provider returned an empty chat response'
     );
     return result;
   }
 
-  private async anthropicChatTurn(params: {
-    stage: AgentStageName;
-    userMessage: string;
-    systemPrompt: string;
-    repoDir?: string;
-    session?: AgentChatSession;
-  }): Promise<{ content: string; session: AgentChatSession }> {
-    const apiKey = this.configService.get<string>('ai.anthropicApiKey');
-    if (!apiKey) {
-      throw new Error('Anthropic agent backend requires `ai.anthropicApiKey` to be configured.');
-    }
-
-    const model = this.resolveStageModel(params.stage);
-    const anthropicContext = await loadAiContextConfig(
-      path.join(os.homedir(), '.claude', 'CLAUDE.md'),
-      'CLAUDE.md',
-      'anthropic',
-      true
-    );
-    const resolvedRepoDir = params.repoDir ?? process.cwd();
-    const allowInspection = Boolean(params.repoDir);
-    const anthropicTools = allowInspection ? [...ANTHROPIC_STAGE_TOOLS] : [];
-    const anthropicSystemPrompt = allowInspection
-      ? params.systemPrompt
-      : `${params.systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
-
-    const { query } = await loadAnthropicAgentSdk();
-
-    const resumeOption = params.session?.sessionId ? { resume: params.session.sessionId } : {};
-
-    const session = query({
-      prompt: params.userMessage,
-      options: {
-        cwd: resolvedRepoDir,
-        model,
-        tools: anthropicTools,
-        allowedTools: anthropicTools,
-        permissionMode: 'acceptEdits',
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append: [anthropicContext, anthropicSystemPrompt].filter(Boolean).join('\n\n'),
-        },
-        canUseTool: async (toolName: string, input: Record<string, unknown>) => {
-          if (toolName !== 'Bash') {
-            return { behavior: 'allow' as const };
-          }
-          const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
-          if (!command || !isReadOnlyCommand(command)) {
-            return {
-              behavior: 'deny' as const,
-              message: 'Only read-only repository inspection commands are allowed in this agent path.',
-              interrupt: true,
-            };
-          }
-          return { behavior: 'allow' as const };
-        },
-        env: {
-          ...process.env,
-          ANTHROPIC_API_KEY: apiKey,
-        },
-        sandbox: {
-          enabled: true,
-          failIfUnavailable: true,
-          allowUnsandboxedCommands: false,
-          autoAllowBashIfSandboxed: true,
-          filesystem: {
-            allowRead: allowInspection ? [resolvedRepoDir] : [],
-            allowWrite: [],
-          },
-        },
-        ...resumeOption,
-      },
+  private async anthropicChatTurn(params: ChatTurnParams): Promise<{ content: string; session: AgentChatSession }> {
+    const apiKey = this.requireAnthropicApiKey();
+    const anthropicContext = await loadAiContextConfig(path.join(os.homedir(), '.claude', 'CLAUDE.md'), 'CLAUDE.md', 'anthropic', true);
+    const options = buildAnthropicChatOptions({
+      prompt: params.userMessage, model: this.resolveStageModel(params.stage), apiKey,
+      resolvedRepoDir: params.repoDir ?? process.cwd(), allowInspection: Boolean(params.repoDir),
+      systemPrompt: params.systemPrompt, anthropicContext, resumeSessionId: params.session?.sessionId,
     });
-
-    try {
-      let sessionId: string | undefined = params.session?.sessionId;
-      for await (const message of session) {
-        if (message.type !== 'result') {
-          continue;
-        }
-
-        if ('session_id' in message && typeof message.session_id === 'string') {
-          sessionId = message.session_id;
-        }
-
-        if (message.subtype !== 'success' || message.is_error) {
-          const errorSummary
-            = 'errors' in message && message.errors.length > 0 ? message.errors.join('; ') : 'unknown error';
-          throw new Error(`Claude Agent SDK failed (${message.subtype}): ${errorSummary}`);
-        }
-
-        return {
-          content: message.result.trim(),
-          session: { provider: 'anthropic' as const, sessionId },
-        };
-      }
-    } finally {
-      session.close();
-    }
-
-    throw new Error('Claude Agent SDK finished without returning a result.');
+    const { query } = await loadAnthropicAgentSdk();
+    return this.processAnthropicChatResult(query(options), params.session?.sessionId);
   }
 
-  private async openAiChatTurn(params: {
-    stage: AgentStageName;
-    userMessage: string;
-    systemPrompt: string;
-    repoDir?: string;
-    session?: AgentChatSession;
-  }): Promise<{ content: string; session: AgentChatSession }> {
-    const apiKey = this.configService.get<string>('ai.openaiApiKey');
-    if (!apiKey) {
-      throw new Error('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
-    }
+  /**
+   * @param session - active Anthropic agent SDK session
+   * @param existingSessionId - session ID from a prior turn
+   * @returns chat content and updated session metadata
+   */
+  private async processAnthropicChatResult(
+    session: AsyncIterable<Record<string, unknown>> & { close: () => void }, existingSessionId?: string
+  ): Promise<{ content: string; session: AgentChatSession }> {
+    const result = await drainAnthropicSession(session, msg => {
+      const outcome = extractAnthropicResultMessage(msg);
+      return outcome ? { content: outcome.trim() } : undefined;
+    }, '');
+    const sessionId = result.sessionId ?? existingSessionId;
+    return { content: result.content, session: { provider: 'anthropic' as const, sessionId } };
+  }
 
+  private async openAiChatTurn(params: ChatTurnParams): Promise<{ content: string; session: AgentChatSession }> {
+    const apiKey = this.requireOpenAiApiKey();
     setTracingExportApiKey(apiKey);
-    const modelProvider = new OpenAIProvider({ apiKey });
-    const model = this.resolveStageModel(params.stage);
-    const openAiContext = await loadAiContextConfig(
-      path.join(os.homedir(), '.openai', 'OPENAI.md'),
-      '.openai/OPENAI.md',
-      'openai',
-      true
-    );
-    const resolvedRepoDir = params.repoDir ?? process.cwd();
-    const allowInspection = Boolean(params.repoDir);
-    const openAiSystemPrompt = allowInspection
-      ? params.systemPrompt
-      : `${params.systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
-    const context: OpenAiStageContext = { repoDir: resolvedRepoDir };
+    const { agent, runner, context } = await this.resolveOpenAiChatAgent(params, apiKey);
+    const runInput = (params.session?.runState ?? params.userMessage) as string;
+    const content = await this.processOpenAiStageResult(agent, runner, context, runInput, 8);
+    return this.buildOpenAiChatResult(content, agent, runner);
+  }
 
-    const readFileTool = tool({
-      name: 'read_file',
-      description: 'Read a file from the current repository workspace.',
-      parameters: z.object({ path: z.string().min(1) }),
-      async execute(input, runContext) {
-        const toolContext = runContext?.context as OpenAiStageContext;
-        const absolutePath = path.resolve(toolContext.repoDir, input.path);
-        const content = await fs.readFile(absolutePath, 'utf-8');
-        return JSON.stringify({ path: path.relative(toolContext.repoDir, absolutePath), content }, null, 2);
-      },
-    });
-
-    const listFilesTool = tool({
-      name: 'list_files',
-      description: 'List files in the current repository workspace.',
-      parameters: z.object({
-        root: z.string().min(1).describe('Repository subdirectory to list; use "." for the repo root.'),
-      }),
-      async execute(input, runContext) {
-        const toolContext = runContext?.context as OpenAiStageContext;
-        const relativeRoot = input.root.trim() || '.';
-        const command = `rg --files ${relativeRoot === '.' ? '' : relativeRoot}`.trim();
-        const { stdout } = await execAsync(command, {
-          cwd: toolContext.repoDir,
-          maxBuffer: MAX_BUFFER_IN_BYTES,
-        });
-        return stdout.trim();
-      },
-    });
-
-    const searchFilesTool = tool({
-      name: 'search_files',
-      description: 'Search repository files with ripgrep.',
-      parameters: z.object({
-        pattern: z.string().min(1),
-        root: z.string().min(1).describe('Repository subdirectory to search; use "." for the repo root.'),
-      }),
-      async execute(input, runContext) {
-        const toolContext = runContext?.context as OpenAiStageContext;
-        const relativeRoot = input.root.trim() || '.';
-        const command = `rg -n ${JSON.stringify(input.pattern)} ${relativeRoot}`;
-        const { stdout } = await execAsync(command, {
-          cwd: toolContext.repoDir,
-          maxBuffer: MAX_BUFFER_IN_BYTES,
-        });
-        return stdout.trim();
-      },
-    });
-
-    const runCommandTool = tool({
-      name: 'run_readonly_command',
-      description: 'Run a read-only repository inspection command such as pwd, ls, rg, git diff, or git status.',
-      parameters: z.object({ command: z.string().min(1) }),
-      async execute(input, runContext) {
-        const toolContext = runContext?.context as OpenAiStageContext;
-        const command = input.command.trim();
-        if (!isReadOnlyCommand(command)) {
-          return JSON.stringify(
-            {
-              allowed: false,
-              message: 'Only read-only repository inspection commands are allowed in this agent path.',
-            },
-            null,
-            2
-          );
-        }
-        const { stdout, stderr } = await execAsync(command, {
-          cwd: toolContext.repoDir,
-          maxBuffer: MAX_BUFFER_IN_BYTES,
-        });
-        return JSON.stringify({ allowed: true, stdout: stdout.trim(), stderr: stderr.trim() }, null, 2);
-      },
-    });
-
+  /**
+   * @param params - chat turn parameters
+   * @param apiKey - OpenAI API key
+   * @returns reused or freshly built agent, runner, and context
+   */
+  private async resolveOpenAiChatAgent(
+    params: Pick<ChatTurnParams, 'stage' | 'systemPrompt' | 'repoDir' | 'session'>, apiKey: string
+  ): Promise<{ agent: Agent<OpenAiStageContext>; runner: Runner; context: OpenAiStageContext }> {
     const reusableAgent = params.session?.agent as Agent<OpenAiStageContext> | undefined;
     const reusableRunner = params.session?.runner as Runner | undefined;
-
-    const agent
-      = reusableAgent
-        ?? new Agent<OpenAiStageContext>({
-          name: `wf ${params.stage} openai agent backend`,
-          handoffDescription: 'Uses read-only tools to inspect the repository and answer the current stage prompt.',
-          instructions: [openAiContext, openAiSystemPrompt].filter(Boolean).join('\n\n'),
-          model,
-          tools: allowInspection ? [readFileTool, listFilesTool, searchFilesTool, runCommandTool] : [],
-          toolUseBehavior: 'run_llm_again',
-          resetToolChoice: true,
-        });
-
-    const runner = reusableRunner ?? new Runner({ modelProvider });
-
-    const runInput = params.session?.runState ?? params.userMessage;
-    const streamedRun: StreamedRunResult<OpenAiStageContext, typeof agent> = await runner.run(agent, runInput as any, {
-      stream: true,
-      context,
-      maxTurns: 8,
+    if (reusableAgent && reusableRunner) {
+      return { agent: reusableAgent, runner: reusableRunner, context: { repoDir: params.repoDir ?? process.cwd() } };
+    }
+    return this.buildOpenAiStageAgent({
+      stage: params.stage, systemPrompt: params.systemPrompt, repoDir: params.repoDir, apiKey,
     });
-
-    for await (const event of streamedRun) {
-      void event;
-    }
-
-    if (streamedRun.error) {
-      const streamError = this.extractStreamError(streamedRun.error);
-      throw new Error(`OpenAI agent run failed: ${streamError}`);
-    }
-
-    const content = typeof streamedRun.finalOutput === 'string' ? streamedRun.finalOutput.trim() : '';
-
-    return {
-      content,
-      session: {
-        provider: 'openai' as const,
-        runState: streamedRun.state,
-        agent,
-        runner,
-      },
-    };
   }
 
-  private async runCliStagePrompt(params: {
-    stage: AgentStageName;
-    prompt: string;
-    systemPrompt: string;
-    repoDir?: string;
-    onProgress?: StageProgressCallback;
-    priorStageSummary?: string;
-    resumeProviderSessionId?: string;
-  }): Promise<{ content: string; sessionId?: string }> {
+  /**
+   * @param content - final output content from the agent
+   * @param agent - OpenAI agent instance to preserve for session reuse
+   * @param runner - OpenAI runner instance to preserve for session reuse
+   * @returns chat result with session metadata
+   */
+  private buildOpenAiChatResult(
+    content: string,
+    agent: Agent<OpenAiStageContext>,
+    runner: Runner
+  ): { content: string; session: AgentChatSession } {
+    return { content, session: { provider: 'openai' as const, agent, runner } };
+  }
+
+  private async runCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     assertClaudeCliAvailable();
+    const preamble = buildPriorStagePreamble(params.priorStageSummary);
+    const systemPrompt = preamble ? `${preamble}\n\n${params.systemPrompt}` : params.systemPrompt;
+    const passOpts: CliStagePassOpts = {
+      stage: params.stage, prompt: params.prompt, systemPrompt,
+      model: this.resolveStageModel(params.stage), resolvedRepoDir: params.repoDir ?? process.cwd(),
+      allowInspection: Boolean(params.repoDir),
+      jsonSchema: params.stage === 'plan' ? JSON.stringify(z.toJSONSchema(resolutionPlanSchema)) : undefined,
+      resumeProviderSessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
+    };
+    return this.runCliRetryLoop(passOpts, params.stage, params.resumeProviderSessionId);
+  }
 
-    const model = this.resolveStageModel(params.stage);
-    const resolvedRepoDir = params.repoDir ?? process.cwd();
-    const allowInspection = Boolean(params.repoDir);
-
-    const jsonSchema = params.stage === 'plan' ? JSON.stringify(z.toJSONSchema(resolutionPlanSchema)) : undefined;
-
-    let sessionId: string | undefined = params.resumeProviderSessionId;
-    let stalledPasses = 0;
-    let passNumber = 0;
-    let lastDiagnostics: string[] = [];
-
+  /**
+   * @param passOpts - immutable pass options reused across iterations
+   * @param stage - stage name for error messages
+   * @param initialSessionId - session ID to start with
+   * @returns content and session ID from the first successful pass
+   */
+  /**
+   * @param stage - stage name for error context
+   * @param initialSessionId - session ID to start with
+   * @param runPass - function that executes a single CLI pass
+   * @returns content and session ID from the first successful pass
+   */
+  private async runGenericCliRetryLoop(
+    stage: AgentStageName, initialSessionId: string | undefined,
+    runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>
+  ): Promise<{ content: string; sessionId?: string }> {
+    const state = { sessionId: initialSessionId, stalledPasses: 0, passNumber: 0, lastDiagnostics: [] as string[] };
     while (true) {
-      passNumber++;
-      const isResume = (passNumber > 1 && sessionId) || (passNumber === 1 && params.resumeProviderSessionId);
-
-      // Keep retry turns aligned with the parser contract: JSON-only and minified.
-      const prompt
-        = isResume && passNumber > 1
-          ? 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines).'
-          : params.prompt;
-
-      const priorStagePreamble = params.priorStageSummary
-        ? `<prior-stage-context>\n${params.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
-        : '';
-      const args = buildCliArgs({
-        prompt,
-        appendSystemPrompt: `${priorStagePreamble}${params.systemPrompt}`,
-        model,
-        cwd: resolvedRepoDir,
-        tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [],
-        permissionMode: 'plan',
-        sessionId: isResume ? sessionId : undefined,
-        jsonSchema,
-      });
-
-      let result = '';
-      let resultSource: 'structured_output' | 'result' | 'assistant_text' | undefined;
-      let resultStopReason: string | undefined;
-      let lastAssistantText = '';
-      const cliDiagnostics: string[] = [];
-
-      const wallClockTimeoutMs = this.resolveStageTimeoutMs(params.stage);
-      for await (const message of spawnCli(args, resolvedRepoDir, prompt, undefined, wallClockTimeoutMs)) {
-        if (message.session_id) sessionId = message.session_id;
-
-        if (params.onProgress) {
-          const line = formatAnthropicProgressMessage(message as never, CLI_STAGE_LABEL);
-          if (line) params.onProgress(line);
-        }
-
-        const assistantText = extractAssistantText(message);
-        if (assistantText) lastAssistantText = assistantText;
-
-        if (message.type === 'result' && !message.is_error) {
-          resultStopReason = message.stop_reason as string | undefined;
-          if (message.structured_output && typeof message.structured_output === 'object') {
-            result = JSON.stringify(message.structured_output);
-            resultSource = 'structured_output';
-          } else if (message.result) {
-            result = message.result;
-            resultSource = 'result';
-          }
-        }
-        const diagnostic = extractCliDiagnostic(message);
-        if (diagnostic) cliDiagnostics.push(diagnostic);
-      }
-
-      if (!result && lastAssistantText.trim()) {
-        result = lastAssistantText;
-        resultSource = 'assistant_text';
-      }
-
-      if (result) {
-        if (resultStopReason === 'max_tokens') {
-          throw new AIError(
-            `CLI response was truncated due to output token limit — the model ran out of space before `
-            + `completing the response. Increase stages.${params.stage}.maxTokens in wf.config.ts.`,
-            { stopReason: resultStopReason, stage: params.stage },
-            true
-          );
-        }
-        console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${resultSource} (pass ${passNumber})`));
-        if (sessionId) {
-          console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Provider session: ${sessionId}`));
-        }
-        return { content: result.trim(), sessionId };
-      }
-
-      // Stall detection: stop when consecutive passes produce no content
-      const hadContent = lastAssistantText.trim().length > 0;
-      if (hadContent) {
-        stalledPasses = 0;
-      } else {
-        stalledPasses++;
-      }
-
-      if (stalledPasses >= CLI_STALL_THRESHOLD) {
-        const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
-        throw new AIError(
-          `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`,
-          null,
-          true
-        );
-      }
-
-      lastDiagnostics = cliDiagnostics;
-
-      console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${passNumber}: no usable result — resuming session`));
+      state.passNumber++;
+      const passResult = await runPass(state.sessionId, state.passNumber);
+      if (passResult.sessionId) state.sessionId = passResult.sessionId;
+      const completed = this.tryFinalizeCliPass(passResult, stage, state.passNumber, state.sessionId);
+      if (completed) return completed;
+      advanceCliRetryState(state, passResult);
     }
   }
 
-  private async runCodexCliStagePrompt(params: {
-    stage: AgentStageName;
-    prompt: string;
-    systemPrompt: string;
-    repoDir?: string;
-    onProgress?: StageProgressCallback;
-    priorStageSummary?: string;
-    resumeProviderSessionId?: string;
-  }): Promise<{ content: string; sessionId?: string }> {
-    assertCodexCliAvailable();
+  private async runCliRetryLoop(
+    passOpts: CliStagePassOpts, stage: AgentStageName, initialSessionId?: string
+  ): Promise<{ content: string; sessionId?: string }> {
+    return this.runGenericCliRetryLoop(
+      stage, initialSessionId,
+      (sessionId, passNumber) => this.runCliStagePass({ ...passOpts, sessionId, passNumber })
+    );
+  }
 
+  /**
+   * @param passResult - result from a CLI pass
+   * @param stage - stage name for error context
+   * @param passNumber - current pass number
+   * @param sessionId - current session ID
+   * @returns finalized result if the pass produced content, undefined otherwise
+   */
+  private tryFinalizeCliPass(
+    passResult: CliPassResult, stage: AgentStageName, passNumber: number, sessionId?: string
+  ): { content: string; sessionId?: string } | undefined {
+    if (!passResult.result) return undefined;
+    this.checkCliMaxTokens(passResult.stopReason, stage);
+    console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${passResult.source} (pass ${passNumber})`));
+    if (sessionId) console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Provider session: ${sessionId}`));
+    return { content: passResult.result.trim(), sessionId };
+  }
+
+  /**
+   * @param stopReason - CLI stop reason string
+   * @param stage - stage name for error context
+   * @throws when the response was truncated due to max tokens
+   */
+  private checkCliMaxTokens(stopReason: string | undefined, stage: AgentStageName): void {
+    if (stopReason !== 'max_tokens') return;
+    throw new AIError(
+      `CLI response was truncated due to output token limit — the model ran out of space before `
+      + `completing the response. Increase stages.${stage}.maxTokens in wf.config.ts.`,
+      { stopReason, stage }, true
+    );
+  }
+
+  /**
+   * @param opts - CLI pass configuration
+   * @returns extracted result, diagnostics, and metadata from a single CLI pass
+   */
+  private async runCliStagePass(opts: CliStagePassOpts & { passNumber: number }): Promise<CliPassResult> {
+    const isResume = (opts.passNumber > 1 && opts.sessionId) || (opts.passNumber === 1 && opts.resumeProviderSessionId);
+    const prompt = isResume && opts.passNumber > 1 ? CLI_RETRY_PROMPT : opts.prompt;
+    const args = buildCliArgs({
+      prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: opts.resolvedRepoDir,
+      tools: opts.allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [],
+      permissionMode: 'plan', sessionId: isResume ? opts.sessionId : undefined, jsonSchema: opts.jsonSchema,
+    });
+    const timeoutMs = this.resolveStageTimeoutMs(opts.stage);
+    return processCliPassMessages(args, opts.resolvedRepoDir, prompt, timeoutMs, opts.onProgress);
+  }
+
+  private async runCodexCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
+    assertCodexCliAvailable();
     const model = this.resolveStageModel(params.stage);
     const resolvedRepoDir = params.repoDir ?? process.cwd();
-
-    const priorStagePreamble = params.priorStageSummary
-      ? `<prior-stage-context>\n${params.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
-      : '';
-    const fullPrompt = `${priorStagePreamble}${params.systemPrompt}\n\n${params.prompt}`;
-
+    const preamble = buildPriorStagePreamble(params.priorStageSummary);
+    const preambleWithNewline = preamble ? `${preamble}\n\n` : '';
+    const fullPrompt = `${preambleWithNewline}${params.systemPrompt}\n\n${params.prompt}`;
     const args = buildCodexCliArgs({
-      prompt: fullPrompt,
-      model,
-      cwd: resolvedRepoDir,
+      prompt: fullPrompt, model, cwd: resolvedRepoDir,
       sessionId: params.resumeProviderSessionId,
     });
-
-    let sessionId: string | undefined = params.resumeProviderSessionId;
-    let result = '';
-
-    for await (const message of spawnCodex(args, resolvedRepoDir, fullPrompt)) {
-      if (message.type === 'thread.started' && message.thread_id) {
-        sessionId = message.thread_id;
-      }
-
-      if (params.onProgress) {
-        const line = formatCodexProgressMessage(message);
-        if (line) params.onProgress(line);
-      }
-
-      if (message.type === 'item.completed' && message.item?.type === 'agent_message' && message.item.text) {
-        result = message.item.text;
-      }
-    }
-
-    if (!result) {
-      console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] No result message received from Codex CLI`));
-      if (sessionId) {
-        console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] Provider session: ${sessionId}`));
-      }
-
-      throw new AIError('Codex CLI finished without returning a result.', null, true);
-    }
-
-    if (sessionId) {
-      console.log(chalk.gray(`  [${CODEX_STAGE_LABEL}] Provider session: ${sessionId}`));
-    }
-
-    return { content: result.trim(), sessionId };
+    return processCodexStageResult(
+      args, resolvedRepoDir, fullPrompt, params.resumeProviderSessionId, params.onProgress
+    );
   }
 
   /**
@@ -1439,168 +1544,94 @@ Return only the requested ticket markdown and preserve the required heading stru
     systemPrompt: string;
     priorStageSummary?: string;
   }): Promise<void> {
-    const epiloguePrompt
-      = 'Summarize the code review you just completed in a brief, human-readable format. '
-        + 'Include: approval status, issue count by severity, and top suggestions. '
-        + 'IMPORTANT: Do NOT repeat the raw JSON.';
-
     const model = this.resolveStageModel('review');
     const provider = this.resolveStageProvider('review');
-
     if (provider === 'openai') {
-      const args = buildCodexCliArgs({
-        prompt: epiloguePrompt,
-        sessionId: params.sessionId,
-        model,
-        cwd: params.repoDir,
-      });
-
-      for await (const _message of spawnCodex(
-        args,
-        params.repoDir,
-        epiloguePrompt,
-        undefined,
-        CLI_REVIEW_EPILOGUE_TIMEOUT_MS
-      )) {
-        void _message;
-      }
-      return;
+      return this.sendCodexEpilogue(params.sessionId, params.repoDir, model);
     }
+    return this.sendClaudeEpilogue(
+      params.sessionId, params.repoDir, model, params.systemPrompt, params.priorStageSummary
+    );
+  }
 
-    const allowInspection = Boolean(params.repoDir);
-    const priorStagePreamble = params.priorStageSummary
-      ? `<prior-stage-context>\n${params.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
-      : '';
-    const args = buildCliArgs({
-      prompt: epiloguePrompt,
-      appendSystemPrompt: `${priorStagePreamble}${params.systemPrompt}`,
-      model,
-      sessionId: params.sessionId,
-      cwd: params.repoDir,
-      permissionMode: 'plan',
-      tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [],
-      jsonSchema: undefined,
-    });
-
-    for await (const _message of spawnCli(
-      args,
-      params.repoDir,
-      epiloguePrompt,
-      undefined,
-      CLI_REVIEW_EPILOGUE_TIMEOUT_MS
-    )) {
-      void _message;
+  /**
+   * @param sessionId - Codex session identifier
+   * @param repoDir - repository directory
+   * @param model - model identifier
+   * @returns nothing; drains the Codex epilogue stream
+   */
+  private async sendCodexEpilogue(sessionId: string, repoDir: string, model: string): Promise<void> {
+    const args = buildCodexCliArgs({ prompt: CLI_EPILOGUE_PROMPT, sessionId, model, cwd: repoDir });
+    const timeoutMs = CLI_REVIEW_EPILOGUE_TIMEOUT_MS;
+    for await (const _msg of spawnCodex(args, repoDir, CLI_EPILOGUE_PROMPT, undefined, timeoutMs)) {
+      void _msg;
     }
   }
 
-  private async cliChatTurn(params: {
-    stage: AgentStageName;
-    userMessage: string;
-    systemPrompt: string;
-    repoDir?: string;
-    session?: AgentChatSession;
-  }): Promise<{ content: string; session: AgentChatSession }> {
-    assertClaudeCliAvailable();
-
-    const model = this.resolveStageModel(params.stage);
-    const resolvedRepoDir = params.repoDir ?? process.cwd();
-    const allowInspection = Boolean(params.repoDir);
-
-    let sessionId: string | undefined = params.session?.sessionId;
-    let stalledPasses = 0;
-    let passNumber = 0;
-    let lastDiagnostics: string[] = [];
-
-    while (true) {
-      passNumber++;
-      const isResume = passNumber > 1 && sessionId;
-
-      const prompt = isResume
-        ? 'Your previous response did not include a usable result. Please respond with the requested content directly.'
-        : params.userMessage;
-
-      const args = buildCliArgs({
-        prompt,
-        appendSystemPrompt: params.systemPrompt,
-        model,
-        cwd: resolvedRepoDir,
-        sessionId: isResume ? sessionId : params.session?.sessionId,
-        tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [],
-        permissionMode: 'plan',
-      });
-
-      let result = '';
-      let resultSource: 'structured_output' | 'result' | 'assistant_text' | undefined;
-      let resultStopReason: string | undefined;
-      let lastAssistantText = '';
-      const cliDiagnostics: string[] = [];
-
-      const wallClockTimeoutMs = this.resolveStageTimeoutMs(params.stage);
-      for await (const message of spawnCli(args, resolvedRepoDir, prompt, undefined, wallClockTimeoutMs)) {
-        if (message.session_id) sessionId = message.session_id;
-
-        const assistantText = extractAssistantText(message);
-        if (assistantText) lastAssistantText = assistantText;
-
-        if (message.type === 'result' && !message.is_error) {
-          resultStopReason = message.stop_reason as string | undefined;
-          if (message.structured_output && typeof message.structured_output === 'object') {
-            result = JSON.stringify(message.structured_output);
-            resultSource = 'structured_output';
-          } else if (message.result) {
-            result = message.result;
-            resultSource = 'result';
-          }
-        }
-        const diagnostic = extractCliDiagnostic(message);
-        if (diagnostic) cliDiagnostics.push(diagnostic);
-      }
-
-      if (!result && lastAssistantText.trim()) {
-        result = lastAssistantText;
-        resultSource = 'assistant_text';
-      }
-
-      if (result) {
-        if (resultStopReason === 'max_tokens') {
-          throw new AIError(
-            `CLI response was truncated due to output token limit — the model ran out of space before `
-            + `completing the response. Increase stages.${params.stage}.maxTokens in wf.config.ts.`,
-            { stopReason: resultStopReason, stage: params.stage },
-            true
-          );
-        }
-        console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${resultSource} (pass ${passNumber})`));
-        return {
-          content: result.trim(),
-          session: {
-            provider: 'anthropic' as const,
-            backend: 'cli',
-            sessionId,
-          },
-        };
-      }
-
-      // Stall detection: stop when consecutive passes produce no content
-      const hadContent = lastAssistantText.trim().length > 0;
-      if (hadContent) {
-        stalledPasses = 0;
-      } else {
-        stalledPasses++;
-      }
-
-      if (stalledPasses >= CLI_STALL_THRESHOLD) {
-        const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
-        throw new AIError(
-          `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`,
-          null,
-          true
-        );
-      }
-
-      lastDiagnostics = cliDiagnostics;
-
-      console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${passNumber}: no usable result — resuming session`));
+  /**
+   * @param sessionId - Claude CLI session identifier
+   * @param repoDir - repository directory
+   * @param model - model identifier
+   * @param systemPrompt - system prompt for the review stage
+   * @param priorStageSummary - optional prior stage context
+   * @returns nothing; drains the Claude CLI epilogue stream
+   */
+  private async sendClaudeEpilogue(
+    sessionId: string, repoDir: string, model: string, systemPrompt: string, priorStageSummary?: string
+  ): Promise<void> {
+    const preamble = buildPriorStagePreamble(priorStageSummary);
+    const preambleWithNewline = preamble ? `${preamble}\n\n` : '';
+    const allowInspection = Boolean(repoDir);
+    const args = buildCliArgs({
+      prompt: CLI_EPILOGUE_PROMPT, appendSystemPrompt: `${preambleWithNewline}${systemPrompt}`,
+      model, sessionId, cwd: repoDir, permissionMode: 'plan',
+      tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [], jsonSchema: undefined,
+    });
+    for await (const _msg of spawnCli(args, repoDir, CLI_EPILOGUE_PROMPT, undefined, CLI_REVIEW_EPILOGUE_TIMEOUT_MS)) {
+      void _msg;
     }
+  }
+
+  private async cliChatTurn(params: ChatTurnParams): Promise<{ content: string; session: AgentChatSession }> {
+    assertClaudeCliAvailable();
+    const chatPassOpts: CliChatPassOpts = {
+      stage: params.stage, userMessage: params.userMessage, systemPrompt: params.systemPrompt,
+      model: this.resolveStageModel(params.stage), resolvedRepoDir: params.repoDir ?? process.cwd(),
+      allowInspection: Boolean(params.repoDir), initialSessionId: params.session?.sessionId,
+    };
+    const result = await this.runCliChatRetryLoop(chatPassOpts, params.stage, params.session?.sessionId);
+    return { content: result.content, session: { provider: 'anthropic' as const, backend: 'cli', sessionId: result.sessionId } };
+  }
+
+  /**
+   * @param passOpts - immutable chat pass options reused across iterations
+   * @param stage - stage name for error messages
+   * @param initialSessionId - session ID to start with
+   * @returns content and session ID from the first successful pass
+   */
+  private async runCliChatRetryLoop(
+    passOpts: CliChatPassOpts, stage: AgentStageName, initialSessionId?: string
+  ): Promise<{ content: string; sessionId?: string }> {
+    return this.runGenericCliRetryLoop(
+      stage, initialSessionId,
+      (sessionId, passNumber) => this.runCliChatPass({ ...passOpts, sessionId, passNumber })
+    );
+  }
+
+  /**
+   * @param opts - CLI chat pass configuration
+   * @returns result from a single CLI chat pass
+   */
+  private async runCliChatPass(
+    opts: CliChatPassOpts & { sessionId?: string; passNumber: number }
+  ): Promise<CliPassResult> {
+    const isResume = opts.passNumber > 1 && opts.sessionId;
+    const prompt = isResume ? CLI_CHAT_RETRY_PROMPT : opts.userMessage;
+    const args = buildCliArgs({
+      prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: opts.resolvedRepoDir,
+      sessionId: isResume ? opts.sessionId : opts.initialSessionId,
+      tools: opts.allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [], permissionMode: 'plan',
+    });
+    return processCliPassMessages(args, opts.resolvedRepoDir, prompt, this.resolveStageTimeoutMs(opts.stage));
   }
 }

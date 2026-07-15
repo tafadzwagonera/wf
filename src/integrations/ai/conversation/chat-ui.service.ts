@@ -5,6 +5,64 @@ import { ConversationMessage, ConversationContext, WorkflowStage } from './inter
 import { AiService, REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../ai.service';
 
 /**
+ * Format the header line for a chat intro given a stage and provider name.
+ *
+ * @param stage - Current workflow stage
+ * @param provider - Short provider name
+ * @returns Formatted header string
+ */
+const formatIntroHeader = (stage: WorkflowStage, provider: string): string =>
+  `Current Stage: ${stage.toUpperCase()} | Provider: ${provider}`;
+
+/**
+ * Build the inquirer prompt message for a given turn.
+ *
+ * @param turnNumber - Current turn number
+ * @param turnsLeft - Remaining turns
+ * @param maxTurns - Maximum allowed turns
+ * @returns Formatted chalk prompt string
+ */
+const buildPromptMessage = (turnNumber: number, turnsLeft: number, maxTurns: number): string =>
+  chalk.cyan(`💬 You [${turnsLeft} turns left (${turnNumber}/${maxTurns})]:`);
+
+/**
+ * Format a single line of assistant response content.
+ *
+ * @param line - Raw content line
+ * @returns Formatted string with chalk colour
+ */
+const formatResponseLine = (line: string): string => {
+  const trimmed = line.trim();
+  if (trimmed.startsWith('```')) return chalk.dim(line);
+  if (trimmed.startsWith('-') || trimmed.startsWith('*')) return chalk.cyan(line);
+  if (/^\d+\./.exec(trimmed)) return chalk.cyan(line);
+  if (trimmed.length > 0) return chalk.cyan(line);
+  return line;
+};
+
+/**
+ * Format a single token count display line.
+ *
+ * @param label - Display label
+ * @param count - Token count value
+ * @returns Formatted chalk dim string
+ */
+const formatTokenLine = (label: string, count: number): string => chalk.dim(`${label}: ${count}`);
+
+/**
+ * Format a single history entry for display.
+ *
+ * @param msg - Conversation message
+ * @param index - Zero-based message index
+ * @param providerName - Short provider name
+ * @returns Formatted prefix string for that message role
+ */
+const formatHistoryEntry = (msg: ConversationMessage, index: number, providerName: string): string =>
+  msg.role === 'user'
+    ? chalk.cyan(`💬 You [${index + 1}]:`)
+    : chalk.magenta(`🤖 ${providerName} [${index + 1}]:`);
+
+/**
  * Service for handling CLI UI for interactive chat sessions
  *
  * Manages user input, message display, and formatting for
@@ -23,23 +81,16 @@ export class ChatUIService {
    * @param context - Conversation context
    */
   displayChatIntro(stage: WorkflowStage, context: ConversationContext): void {
+    const provider = this.aiService.getProviderShortName();
     console.log(chalk.bold.cyan('\n💬 Interactive Chat Mode'));
     console.log(chalk.gray('─'.repeat(70)));
-    console.log(
-      chalk.gray(
-        `You can now discuss the output with ${this.aiService.getProviderShortName()}. Type "exit" to continue.`
-      )
-    );
+    console.log(chalk.gray(`You can now discuss the output with ${provider}. Type "exit" to continue.`));
     console.log();
     console.log(chalk.dim('Commands: Type your question, "history", "help", or "exit"'));
     console.log();
     console.log(chalk.gray('━'.repeat(70)));
-    console.log(chalk.bold(`Current Stage: ${stage.toUpperCase()}`));
-
-    if (context.stageOutput) {
-      this.displayStageContext(stage, context.stageOutput);
-    }
-
+    console.log(chalk.bold(formatIntroHeader(stage, provider)));
+    if (context.stageOutput) this.displayStageContext(stage, context.stageOutput);
     console.log(chalk.gray('━'.repeat(70)));
     console.log();
   }
@@ -79,19 +130,12 @@ export class ChatUIService {
       type: 'input',
       name: 'message',
       prefix: ' ',
-      message: chalk.cyan(`💬 You [${turnsLeft} turns left (${conversationTurn}/${maxTurns})]:`),
-      validate: (input: string) => {
-        if (!input.trim()) {
-          return 'Please enter a message or command';
-        }
-        return true;
-      },
+      message: buildPromptMessage(conversationTurn, turnsLeft, maxTurns),
+      validate: (input: string) => input.trim() ? true : 'Please enter a message or command',
     });
 
     const input = answer.message.trim();
-    const shouldExit = this.isExitCommand(input);
-
-    return { input, shouldExit };
+    return { input, shouldExit: this.isExitCommand(input) };
   }
 
   /**
@@ -114,28 +158,7 @@ export class ChatUIService {
     console.log();
     console.log(chalk.bold.magenta(`🤖 ${this.aiService.getProviderShortName()}:`));
     console.log();
-
-    // Split content into lines and format
-    const lines = message.content.split('\n');
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('```')) {
-        // Highlight code blocks
-        console.log(chalk.dim(line));
-      } else if (trimmed.startsWith('-') || trimmed.startsWith('*')) {
-        // Highlight bullet points
-        console.log(chalk.cyan(line));
-      } else if (trimmed.match(/^\d+\./)) {
-        // Highlight numbered lists
-        console.log(chalk.cyan(line));
-      } else if (trimmed.length > 0) {
-        // Highlight all other non-empty text
-        console.log(chalk.cyan(line));
-      } else {
-        console.log(line);
-      }
-    });
-
+    message.content.split('\n').forEach(line => console.log(formatResponseLine(line)));
     console.log();
   }
 
@@ -150,18 +173,31 @@ export class ChatUIService {
     totalUsage: { input: number; output: number }
   ): void {
     const current = currentUsage.inputTokens + currentUsage.outputTokens;
-
-    console.log(
-      chalk.dim(
-        `📊 Tokens: Input: ${currentUsage.inputTokens} | Output: ${currentUsage.outputTokens} | Total: ${current}`
-      )
-    );
-    console.log(
-      chalk.dim(
-        `   Conversation Total: ${totalUsage.input + totalUsage.output} (${totalUsage.input} in, ${totalUsage.output} out)`
-      )
-    );
+    const conversationTotal = totalUsage.input + totalUsage.output;
+    console.log(formatTokenLine(
+      `📊 Tokens: Input: ${currentUsage.inputTokens} | Output: ${currentUsage.outputTokens} | Total`,
+      current
+    ));
+    console.log(chalk.dim(
+      `   Conversation Total: ${conversationTotal} (${totalUsage.input} in, ${totalUsage.output} out)`
+    ));
     console.log();
+  }
+
+  /**
+   * Render a single history message to the console.
+   *
+   * @param msg - Conversation message to render
+   * @param index - Zero-based message index
+   * @param provider - Short provider name
+   */
+  private renderHistoryMessage(msg: ConversationMessage, index: number, provider: string): void {
+    const preview = msg.content.length > 150 ? `${msg.content.substring(0, 150)}...` : msg.content;
+    console.log();
+    console.log(formatHistoryEntry(msg, index, provider));
+    console.log(chalk.dim(`  ${msg.timestamp.toLocaleString()}`));
+    console.log(`  ${preview}`);
+    if (msg.tokenUsage) console.log(chalk.dim(`  Tokens: ${msg.tokenUsage.inputTokens + msg.tokenUsage.outputTokens}`));
   }
 
   /**
@@ -170,59 +206,30 @@ export class ChatUIService {
    * @param messages - All conversation messages
    */
   displayConversationHistory(messages: ConversationMessage[]): void {
-    console.log();
-    console.log(chalk.bold.cyan('📜 Conversation History'));
-    console.log(chalk.gray('─'.repeat(70)));
-
-    if (messages.length === 0) {
-      console.log(chalk.dim('No messages yet'));
-    } else {
-      messages.forEach((msg, index) => {
-        const prefix
-          = msg.role === 'user'
-            ? chalk.cyan(`💬 You [${index + 1}]:`)
-            : chalk.magenta(`🤖 ${this.aiService.getProviderShortName()} [${index + 1}]:`);
-
-        console.log();
-        console.log(prefix);
-        console.log(chalk.dim(`  ${msg.timestamp.toLocaleString()}`));
-
-        // Truncate long messages for history view
-        const preview = msg.content.length > 150 ? msg.content.substring(0, 150) + '...' : msg.content;
-
-        console.log(`  ${preview}`);
-
-        if (msg.tokenUsage) {
-          console.log(chalk.dim(`  Tokens: ${msg.tokenUsage.inputTokens + msg.tokenUsage.outputTokens}`));
-        }
-      });
-    }
-
-    console.log();
-    console.log(chalk.gray('─'.repeat(70)));
-    console.log();
+    const provider = this.aiService.getProviderShortName();
+    const sep = chalk.gray('─'.repeat(70));
+    console.log(`\n${chalk.bold.cyan('📜 Conversation History')}\n${sep}`);
+    if (messages.length === 0) console.log(chalk.dim('No messages yet'));
+    messages.forEach((msg, index) => this.renderHistoryMessage(msg, index, provider));
+    console.log(`\n${sep}\n`);
   }
 
   /**
    * Display help information
    */
   displayHelp(): void {
-    console.log();
-    console.log(chalk.bold.cyan('💡 Chat Commands'));
-    console.log(chalk.gray('─'.repeat(70)));
-    console.log();
-    console.log(chalk.white(`  • Type any question or message to chat with ${this.aiService.getProviderShortName()}`));
+    const provider = this.aiService.getProviderShortName();
+    const sep = chalk.gray('─'.repeat(70));
+    console.log(`\n${chalk.bold.cyan('💡 Chat Commands')}\n${sep}\n`);
+    console.log(chalk.white(`  • Type any question or message to chat with ${provider}`));
     console.log(chalk.white('  • "history" - View conversation history'));
     console.log(chalk.white('  • "help" - Show this help message'));
     console.log(chalk.white('  • "exit", "quit", "continue" - End chat and resume workflow'));
     console.log();
-    console.log(chalk.dim('Tips:'));
-    console.log(chalk.dim(`  - Ask ${this.aiService.getProviderShortName()} to explain steps in more detail`));
+    console.log(chalk.dim(`  - Ask ${provider} to explain steps in more detail`));
     console.log(chalk.dim('  - Discuss potential issues or alternative approaches'));
     console.log(chalk.dim('  - Request clarification on review findings'));
-    console.log();
-    console.log(chalk.gray('─'.repeat(70)));
-    console.log();
+    console.log(`\n${sep}\n`);
   }
 
   /**
