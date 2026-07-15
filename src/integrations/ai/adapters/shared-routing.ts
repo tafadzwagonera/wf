@@ -45,31 +45,40 @@ const CREATIVE_SEMANTIC_PATTERNS = [
 ];
 
 /**
+ * Counts how many steps match at least one pattern in the given list.
+ *
+ * @param steps - Plan steps to test
+ * @param patterns - Regular expressions to test against each step
+ * @returns Number of steps that matched at least one pattern
+ */
+const countPatternMatches = (steps: string[], patterns: RegExp[]): number =>
+  steps.filter(step => patterns.some(pattern => pattern.test(step))).length;
+
+/**
  * Counts semantic signal matches in plan steps.
  *
  * @param steps - Plan steps to analyze
  * @returns Object with mechanical and creative signal counts
  */
-const countSemanticSignals = (steps: string[]): { mechanical: number; creative: number } => {
-  let mechanical = 0;
-  let creative = 0;
+const countSemanticSignals = (steps: string[]): { mechanical: number; creative: number } => ({
+  mechanical: countPatternMatches(steps, MECHANICAL_SEMANTIC_PATTERNS),
+  creative: countPatternMatches(steps, CREATIVE_SEMANTIC_PATTERNS),
+});
 
+/**
+ * Returns the first keyword pattern that matches any plan step, or null.
+ *
+ * @param steps - Plan steps to test
+ * @returns The matched RegExp, or null when no keyword pattern matches
+ */
+const matchMechanicalKeyword = (steps: string[]): RegExp | null => {
   for (const step of steps) {
-    for (const pattern of MECHANICAL_SEMANTIC_PATTERNS) {
-      if (pattern.test(step)) {
-        mechanical++;
-        break;
-      }
-    }
-    for (const pattern of CREATIVE_SEMANTIC_PATTERNS) {
-      if (pattern.test(step)) {
-        creative++;
-        break;
-      }
+    const matched = MECHANICAL_KEYWORD_PATTERNS.find(pattern => pattern.test(step));
+    if (matched) {
+      return matched;
     }
   }
-
-  return { mechanical, creative };
+  return null;
 };
 
 /**
@@ -81,52 +90,16 @@ const countSemanticSignals = (steps: string[]): { mechanical: number; creative: 
 export const detectMechanicalTask = (plan: ResolutionPlan): { isMechanical: boolean; reason: string } => {
   const filesCount = plan.affectedFiles?.length ?? 0;
   const stepsCount = plan.steps.length;
-
-  // Step 1: Low complexity → mechanical immediately
-  if (plan.estimatedComplexity === 'low') {
-    return {
-      isMechanical: true,
-      reason: `low complexity task (${filesCount} files)`,
-    };
-  }
-
-  // Step 2: High complexity → creative immediately
-  if (plan.estimatedComplexity === 'high') {
-    return {
-      isMechanical: false,
-      reason: 'high complexity task',
-    };
-  }
-
-  // Step 3: File-to-step ratio check
-  if (stepsCount > 0 && filesCount > 3 && filesCount / stepsCount > 3) {
-    return {
-      isMechanical: true,
-      reason: `high file-to-step ratio: ${filesCount} files / ${stepsCount} steps`,
-    };
-  }
-
-  // Step 4: Keyword match against MECHANICAL_KEYWORD_PATTERNS
-  for (const step of plan.steps) {
-    const matched = MECHANICAL_KEYWORD_PATTERNS.find(pattern => pattern.test(step));
-    if (matched) {
-      return {
-        isMechanical: true,
-        reason: `pattern: "${matched.source}" in step "${step.slice(0, 60)}"`,
-      };
-    }
-  }
-
-  // Step 5: Semantic signals
+  if (plan.estimatedComplexity === 'low') return { isMechanical: true, reason: `low complexity task (${filesCount} files)` };
+  if (plan.estimatedComplexity === 'high') return { isMechanical: false, reason: 'high complexity task' };
+  const highRatio = stepsCount > 0 && filesCount > 3 && filesCount / stepsCount > 3;
+  if (highRatio) return { isMechanical: true, reason: `high file-to-step ratio: ${filesCount} files / ${stepsCount} steps` };
+  const matched = matchMechanicalKeyword(plan.steps);
+  const firstStep = matched ? (plan.steps.find(step => matched.test(step)) ?? '') : '';
+  if (matched) return { isMechanical: true, reason: `pattern: "${matched.source}" in step "${firstStep.slice(0, 60)}"` };
   const signals = countSemanticSignals(plan.steps);
-  if (signals.mechanical > 0 && signals.mechanical > signals.creative) {
-    return {
-      isMechanical: true,
-      reason: `semantic signals: ${signals.mechanical} mechanical vs ${signals.creative} creative`,
-    };
-  }
-
-  // Step 6: Fallback creative
+  const dominantMechanical = signals.mechanical > 0 && signals.mechanical > signals.creative;
+  if (dominantMechanical) return { isMechanical: true, reason: `semantic signals: ${signals.mechanical} mechanical vs ${signals.creative} creative` };
   return { isMechanical: false, reason: 'creative task' };
 };
 
@@ -137,68 +110,78 @@ export type ModelRoutingResult = {
 };
 
 /**
- * Resolves the model to use based on routing mode, config, and mechanical detection.
+ * Resolves the default and mechanical model names from config, with fallbacks.
  *
- * @param params - Routing context including the adapter label for log messages
- * @returns Selected model and an observability log message
+ * @param configService - NestJS config service instance
+ * @param fallbackDefaultModel - Fallback when no config default is set
+ * @param defaultMechanicalModel - Fallback when no config mechanical model is set
+ * @returns Resolved default and mechanical model names
  */
-export const resolveModelRouting = (params: {
+const MODEL_CONFIG_EXCLUSIVE_ERROR
+  = 'stages.implement.model and stages.implement.models are mutually exclusive.\n'
+    + '  Use stages.implement.model for a single model, or\n'
+    + '  Use stages.implement.models for routing-aware model selection (default + mechanical).';
+
+const resolveModelConfig = (
+  configService: ConfigService,
+  fallbackDefaultModel: string,
+  defaultMechanicalModel: string
+): { defaultModel: string; mechanicalModel: string } => {
+  const singleModel = configService.get<string>('stages.implement.model');
+  const modelsConfig
+    = configService.get<import('../../../config/public-config').WfImplementStageModelsConfig>('stages.implement.models');
+  if (singleModel && modelsConfig) throw new Error(MODEL_CONFIG_EXCLUSIVE_ERROR);
+  return {
+    defaultModel: modelsConfig?.default || singleModel || fallbackDefaultModel,
+    mechanicalModel: modelsConfig?.mechanical || defaultMechanicalModel,
+  };
+};
+
+/**
+ * Builds a ModelRoutingResult from a resolved model, default model, adapter label, and suffix.
+ *
+ * @param model - The selected model identifier
+ * @param defaultModel - The resolved default model identifier
+ * @param adapterLabel - Label used in log messages
+ * @param suffix - Descriptive routing suffix appended to the log message
+ * @returns Fully formed routing result with log message
+ */
+const buildRoutingResult = (
+  model: string,
+  defaultModel: string,
+  adapterLabel: string,
+  suffix: string
+): ModelRoutingResult => ({
+  model,
+  defaultModel,
+  logMessage: `[${adapterLabel}] Model routing: ${model} (${suffix})`,
+});
+
+export type ModelRoutingParams = {
   routing: ModelRouting;
   fallbackDefaultModel: string;
   defaultMechanicalModel: string;
   configService: ConfigService;
   plan: ResolutionPlan;
   adapterLabel: string;
-}): ModelRoutingResult => {
+};
+
+/**
+ * Resolves the model to use based on routing mode, config, and mechanical detection.
+ *
+ * @param params - Routing context including the adapter label for log messages
+ * @returns Selected model and an observability log message
+ */
+export const resolveModelRouting = (params: ModelRoutingParams): ModelRoutingResult => {
   const { routing, fallbackDefaultModel, defaultMechanicalModel, configService, plan, adapterLabel } = params;
-
-  const singleModel = configService.get<string>('stages.implement.model');
-  const modelsConfig
-    = configService.get<import('../../../config/public-config').WfImplementStageModelsConfig>('stages.implement.models');
-
-  // models is more specific than model — it takes precedence when both are set.
-  const defaultModel = modelsConfig?.default || singleModel || fallbackDefaultModel;
-  const mechanicalModel = modelsConfig?.mechanical || defaultMechanicalModel;
-
-  if (singleModel && modelsConfig) {
-    throw new Error(
-      'stages.implement.model and stages.implement.models are mutually exclusive.\n'
-      + '  Use stages.implement.model for a single model, or\n'
-      + '  Use stages.implement.models for routing-aware model selection (default + mechanical).'
-    );
-  }
-
-  if (routing === 'default') {
-    return {
-      model: defaultModel,
-      defaultModel,
-      logMessage: `[${adapterLabel}] Model routing: ${defaultModel} (default — user override)`,
-    };
-  }
-
-  if (routing === 'mechanical') {
-    return {
-      model: mechanicalModel,
-      defaultModel,
-      logMessage: `[${adapterLabel}] Model routing: ${mechanicalModel} (mechanical — user override)`,
-    };
-  }
-
-  // auto mode: detect from plan
+  const { defaultModel, mechanicalModel }
+    = resolveModelConfig(configService, fallbackDefaultModel, defaultMechanicalModel);
+  if (routing === 'default') return buildRoutingResult(defaultModel, defaultModel, adapterLabel, 'default — user override');
+  if (routing === 'mechanical') return buildRoutingResult(mechanicalModel, defaultModel, adapterLabel, 'mechanical — user override');
   const detection = detectMechanicalTask(plan);
-  if (detection.isMechanical) {
-    return {
-      model: mechanicalModel,
-      defaultModel,
-      logMessage: `[${adapterLabel}] Model routing: ${mechanicalModel} (auto — mechanical: ${detection.reason})`,
-    };
-  }
-
-  return {
-    model: defaultModel,
-    defaultModel,
-    logMessage: `[${adapterLabel}] Model routing: ${defaultModel} (auto — creative: ${detection.reason})`,
-  };
+  const autoModel = detection.isMechanical ? mechanicalModel : defaultModel;
+  const autoLabel = detection.isMechanical ? `auto — mechanical: ${detection.reason}` : `auto — creative: ${detection.reason}`;
+  return buildRoutingResult(autoModel, defaultModel, adapterLabel, autoLabel);
 };
 
 /**
@@ -264,15 +247,41 @@ export const stripRepoPrefix = (filePath: string, repoName: string): string => {
 export const isGlobPattern = (filePath: string): boolean => filePath.includes('*') || filePath.includes('?');
 
 /**
- * Builds the shared plan-context portion of the system prompt used by all
- * implementer adapters. Contains everything from the role description through
- * the verification commands list. Adapter-specific tool names, rules, and
- * summary templates are appended by each adapter separately.
+ * Formats a numbered list of plan steps for prompt inclusion.
  *
- * @param params - Plan context parameters
- * @returns Formatted plan-context prompt string
+ * @param steps - Plan step strings
+ * @returns Formatted numbered list, or fallback when empty
  */
-export const buildPlanContext = (params: {
+const formatPlanStepList = (steps: string[]): string =>
+  steps.length > 0 ? steps.map((step, i) => `  ${i + 1}. ${step}`).join('\n') : '  (none listed)';
+
+/**
+ * Formats a list of verification scripts as bullet points for prompt inclusion.
+ *
+ * @param scripts - Verification script definitions
+ * @returns Formatted bullet list, or fallback when empty
+ */
+const formatVerificationList = (scripts: VerificationScript[]): string =>
+  scripts.length > 0 ? scripts.map(script => `  - ${script.command}`).join('\n') : '  (none configured)';
+
+/**
+ * Returns a human-readable description of the plan action type.
+ *
+ * @param planAction - The action type from the plan
+ * @returns Sentence describing the action intent
+ */
+const describeAction = (planAction: 'fix' | 'feature' | 'investigate' | undefined): string => {
+  switch (planAction) {
+    case 'fix':
+      return 'This is a bug fix. Make minimal, targeted changes that resolve the issue without altering unrelated behavior.';
+    case 'feature':
+      return 'This is a new feature. Extend the codebase following existing patterns and conventions.';
+    default:
+      return '(not specified)';
+  }
+};
+
+export type BuildPlanContextParams = {
   ticketKey: string;
   repoDir: string;
   repoName: string;
@@ -284,58 +293,63 @@ export const buildPlanContext = (params: {
   planSummary?: string;
   planRisks?: string[];
   planAction?: 'fix' | 'feature' | 'investigate';
-}): string => {
+};
+
+type PlanContextDisplay = {
+  repoDir: string; ticketKey: string; planSummary: string; actionDesc: string;
+  planStepList: string; fileList: string; contextFileSection: string; trackedFileList: string; verificationList: string;
+};
+
+/**
+ * Assembles resolved plan-context values into the final prompt template.
+ *
+ * @param p - Pre-resolved display strings derived from plan context params
+ * @returns Formatted plan-context prompt string
+ */
+const assemblePlanContextPrompt = (p: PlanContextDisplay): string => `You are an expert software engineer implementing code changes inside a repository.
+
+Repository directory: ${p.repoDir}
+Ticket key: ${p.ticketKey}
+
+Plan summary:
+${p.planSummary}
+
+Action: ${p.actionDesc}
+
+Plan steps:
+${p.planStepList}
+
+Files to implement:
+${p.fileList}${p.contextFileSection}
+
+Tracked files:
+${p.trackedFileList}
+
+Verification commands:
+${p.verificationList}`;
+
+/**
+ * Builds the shared plan-context portion of the system prompt used by all
+ * implementer adapters. Contains everything from the role description through
+ * the verification commands list. Adapter-specific tool names, rules, and
+ * summary templates are appended by each adapter separately.
+ *
+ * @param params - Plan context parameters
+ * @returns Formatted plan-context prompt string
+ */
+export const buildPlanContext = (params: BuildPlanContextParams): string => {
   const fileList = formatRepoFileList(params.repoFiles, params.repoName);
   const trackedIdentical
     = params.repoFiles.length === params.trackedFilePaths.length
       && params.repoFiles.every((f, i) => f === params.trackedFilePaths[i]);
-  const trackedFileList = trackedIdentical
-    ? '  (same as files to implement)'
-    : formatRepoFileList(params.trackedFilePaths, params.repoName);
-  const verificationList
-    = params.verificationScripts.length > 0
-      ? params.verificationScripts.map(script => `  - ${script.command}`).join('\n')
-      : '  (none configured)';
-  const planStepList
-    = params.planSteps.length > 0
-      ? params.planSteps.map((step, i) => `  ${i + 1}. ${step}`).join('\n')
-      : '  (none listed)';
-
-  const contextFileSection
-    = params.contextFiles && params.contextFiles.length > 0
-      ? `\n\nFiles for context (read-only — do NOT edit these):\n${formatRepoFileList(params.contextFiles, params.repoName)}`
-      : '';
-
-  return `You are an expert software engineer implementing code changes inside a repository.
-
-Repository directory: ${params.repoDir}
-Ticket key: ${params.ticketKey}
-
-Plan summary:
-${params.planSummary || '(none)'}
-
-Action: ${(() => {
-  switch (params.planAction) {
-    case 'fix':
-      return 'This is a bug fix. Make minimal, targeted changes that resolve the issue without altering unrelated behavior.';
-    case 'feature':
-      return 'This is a new feature. Extend the codebase following existing patterns and conventions.';
-    default:
-      return '(not specified)';
-  }
-})()}
-
-Plan steps:
-${planStepList}
-
-Files to implement:
-${fileList}${contextFileSection}
-
-Tracked files:
-${trackedFileList}
-
-Verification commands:
-${verificationList}`;
+  const trackedFileList = trackedIdentical ? '  (same as files to implement)' : formatRepoFileList(params.trackedFilePaths, params.repoName);
+  const hasContextFiles = params.contextFiles && params.contextFiles.length > 0;
+  const contextFileSection = hasContextFiles ? `\n\nFiles for context (read-only — do NOT edit these):\n${formatRepoFileList(params.contextFiles ?? [], params.repoName)}` : '';
+  return assemblePlanContextPrompt({
+    repoDir: params.repoDir, ticketKey: params.ticketKey, planSummary: params.planSummary || '(none)',
+    actionDesc: describeAction(params.planAction), planStepList: formatPlanStepList(params.planSteps),
+    fileList, contextFileSection, trackedFileList, verificationList: formatVerificationList(params.verificationScripts),
+  });
 };
 
 const readOptionalFile = async (filePath: string): Promise<string | null> => {
@@ -344,10 +358,6 @@ const readOptionalFile = async (filePath: string): Promise<string | null> => {
   } catch {
     return null;
   }
-};
-
-const warnMissingClaudeFile = (filePath: string): void => {
-  console.log(chalk.yellow(`⚠️ Missing CLAUDE.md file at ${filePath}`));
 };
 
 /**
@@ -359,25 +369,29 @@ const warnMissingClaudeFile = (filePath: string): void => {
 export const loadClaudeContext = async (repoDir: string): Promise<string> => {
   const globalClaudePath = path.join(os.homedir(), '.claude', 'CLAUDE.md');
   const repoClaudePath = path.join(repoDir, 'CLAUDE.md');
-  const [rootClaude, dotClaude] = await Promise.all([
-    readOptionalFile(globalClaudePath),
-    readOptionalFile(repoClaudePath),
-  ]);
+  const [rootClaude, dotClaude]
+    = await Promise.all([readOptionalFile(globalClaudePath), readOptionalFile(repoClaudePath)]);
 
-  if (rootClaude === null) {
-    warnMissingClaudeFile(globalClaudePath);
-  }
+  if (rootClaude === null) console.log(chalk.yellow(`⚠️ Missing CLAUDE.md file at ${globalClaudePath}`));
+  if (dotClaude === null) console.log(chalk.yellow(`⚠️ Missing CLAUDE.md file at ${repoClaudePath}`));
 
-  if (dotClaude === null) {
-    warnMissingClaudeFile(repoClaudePath);
-  }
-
-  const sections = [
+  return [
     rootClaude && `## ~/.claude/CLAUDE.md\n${rootClaude.trimEnd()}`,
     dotClaude && `## CLAUDE.md\n${dotClaude.trimEnd()}`,
-  ].filter(Boolean);
+  ].filter(Boolean).join('\n\n');
+};
 
-  return sections.join('\n\n');
+/**
+ * Splits output lines and adds each non-empty trimmed line into a set.
+ *
+ * @param lines - Raw newline-delimited output string
+ * @param into - Target set to accumulate file paths
+ */
+const addNonEmptyLines = (lines: string, into: Set<string>): void => {
+  for (const line of lines.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed) into.add(trimmed);
+  }
 };
 
 /**
@@ -394,16 +408,9 @@ export const discoverChangedFiles = async (repoDir: string, existing: Set<string
       'git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null',
       { cwd: repoDir }
     );
-    for (const line of stdout.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed) {
-        existing.add(trimmed);
-      }
-    }
+    addNonEmptyLines(stdout, existing);
   } catch (error) {
-    console.log(
-      chalk.gray(`  git file discovery unavailable: ${error instanceof Error ? error.message : 'unknown error'}`)
-    );
+    console.log(chalk.gray(`  git file discovery unavailable: ${error instanceof Error ? error.message : 'unknown error'}`));
   }
   return existing;
 };

@@ -3,6 +3,33 @@ import * as path from 'path';
 import chalk from 'chalk';
 
 /**
+ * Reads a single config file and returns a labelled section string, or null if unreadable.
+ *
+ * @param filePath - Absolute path to the file to read.
+ * @param label - Section heading used in the returned string (e.g. `'Global Config'`).
+ * @returns Labelled markdown section string, or `null` if the file could not be read.
+ */
+const readConfigFile = async (filePath: string, label: string): Promise<string | null> => {
+  const content = await fs.readFile(filePath, 'utf-8').catch(() => null);
+  return content !== null ? `## ${label}\n${content}\n\n` : null;
+};
+
+/**
+ * Reads global and project config files concurrently and returns non-null sections.
+ *
+ * @param globalPath - Absolute path to the global config file, or `null` to skip.
+ * @param projectPath - Absolute path to the project-level config file.
+ * @returns Array of labelled section strings for files that were successfully read.
+ */
+const readConfigSections = async (globalPath: string | null, projectPath: string): Promise<string[]> => {
+  const [globalSection, projectSection] = await Promise.all([
+    globalPath ? readConfigFile(globalPath, 'Global Config') : Promise.resolve(null),
+    readConfigFile(projectPath, 'Project Config'),
+  ]);
+  return [globalSection, projectSection].filter((s): s is string => s !== null);
+};
+
+/**
  * Reads global and project-level config files for an AI provider and returns
  * a combined config block to prepend to system prompts.
  *
@@ -19,30 +46,10 @@ export const loadAiContextConfig = async (
   providerName: string,
   shouldWarnWhenMissing: boolean
 ): Promise<string> => {
-  const projectPath = path.join(process.cwd(), projectFileName);
-
-  const [globalContent, projectContent] = await Promise.all([
-    globalPath ? fs.readFile(globalPath, 'utf-8').catch(() => null) : Promise.resolve(null),
-    fs.readFile(projectPath, 'utf-8').catch(() => null),
-  ]);
-
-  if (globalContent === null && projectContent === null) {
-    // Warning fires for active providers only (explicit default, implicit
-    // first-entry default, or stage-override). Creating the provider's
-    // context file (e.g. ~/.openai/OPENAI.md) suppresses it.
-    if (shouldWarnWhenMissing) {
-      console.warn(chalk.yellow(`⚠️ No global or project-level configuration found for ${providerName}`));
-    }
-
+  const sections = await readConfigSections(globalPath, path.join(process.cwd(), projectFileName));
+  if (sections.length === 0 && shouldWarnWhenMissing) {
+    console.warn(chalk.yellow(`⚠️ No global or project-level configuration found for ${providerName}`));
     return '';
   }
-
-  let result = '';
-  if (globalContent !== null) {
-    result += `## Global Config\n${globalContent}\n\n`;
-  }
-  if (projectContent !== null) {
-    result += `## Project Config\n${projectContent}\n\n`;
-  }
-  return result;
+  return sections.join('');
 };

@@ -104,20 +104,25 @@ export class IssueTrackerService {
     }
 
     if (trackerName === 'bitbucket') {
-      return Boolean(
-        this.configService.get<string>('atlassian.email')?.trim()
-        && this.configService.get<string>('atlassian.bitbucket.apiToken')?.trim()
-      );
+      return this.hasAtlassianCredentials('atlassian.bitbucket.apiToken');
     }
 
     if (trackerName === 'jira') {
-      return Boolean(
-        this.configService.get<string>('atlassian.email')?.trim()
-        && (this.configService.get<string>('atlassian.jira.apiToken')?.trim()
-          || this.configService.get<string>('atlassian.apiToken')?.trim())
-      );
+      return this.hasAtlassianCredentials('atlassian.jira.apiToken', 'atlassian.apiToken');
     }
 
     return false;
+  }
+
+  /**
+   * Check that `atlassian.email` is set and at least one of the given token
+   * config keys has a non-empty value.
+   * @param tokenKeys One or more config key paths to check for a token value
+   * @returns True when email and any supplied token key are both present
+   */
+  private hasAtlassianCredentials(...tokenKeys: string[]): boolean {
+    const hasEmail = Boolean(this.configService.get<string>('atlassian.email')?.trim());
+    const hasToken = tokenKeys.some(key => Boolean(this.configService.get<string>(key)?.trim()));
+    return hasEmail && hasToken;
   }
 }
