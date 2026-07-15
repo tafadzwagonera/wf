@@ -22,6 +22,105 @@ const DEFAULT_MODEL = 'gemini-2.5-pro';
 // Ref: https://ai.google.dev/gemini-api/docs/thinking
 const MAX_TOKENS = 4096;
 
+type GeminiResponseShape = {
+  candidates?: Array<{
+    finishReason?: string;
+    content?: { parts?: Array<{ text?: string }> };
+  }>;
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+  };
+};
+
+type GeminiHistoryEntry = { role: string; parts: Array<{ text: string }> };
+
+/**
+ * Resolves the Gemini API key from config, emitting a one-time warning when absent.
+ * @param configService - NestJS ConfigService instance.
+ * @param logger - Logger used to emit the missing-key warning.
+ * @param didWarn - Whether the warning has already been emitted.
+ * @returns Tuple of [apiKey, updatedDidWarn].
+ */
+const resolveGeminiApiKey = (
+  configService: ConfigService,
+  logger: LoggerService,
+  didWarn: boolean
+): [string | undefined, boolean] => {
+  const apiKey = configService.get<string>('ai.geminiApiKey');
+  if (apiKey) return [apiKey, didWarn];
+  if (!didWarn) {
+    logger.warn('Gemini API key not configured. Add `ai: [{ provider: "google", apiKey: "..." }]` to wf.config.*.');
+  }
+  return [undefined, true];
+};
+
+/**
+ * Extracts token usage counts from a Gemini response.
+ * @param response - Raw Gemini response object.
+ * @returns Object with inputTokens and outputTokens.
+ */
+const extractUsageMetadata = (response: GeminiResponseShape): { inputTokens: number; outputTokens: number } => ({
+  inputTokens: response.usageMetadata?.promptTokenCount ?? 0,
+  outputTokens: response.usageMetadata?.candidatesTokenCount ?? 0,
+});
+
+/**
+ * Extracts content-type labels from a Gemini response's candidate parts.
+ * @param response - Raw Gemini response object.
+ * @returns Array of content-type strings, or undefined when no candidates exist.
+ */
+const extractContentParts = (response: GeminiResponseShape): string[] | undefined =>
+  response.candidates?.flatMap(candidate => {
+    const parts = candidate.content?.parts ?? [];
+    return parts.length === 0 ? ['text'] : parts.map(part => ('text' in part ? 'text' : 'unknown'));
+  });
+
+/**
+ * Computes the effective maxOutputTokens for a Gemini request.
+ * @param model - The Gemini model name.
+ * @param requestTokens - Per-request token override, if any.
+ * @param adapterTokens - Adapter-level default max tokens.
+ * @returns Effective maxOutputTokens value.
+ */
+const resolveMaxOutputTokens = (model: string, requestTokens: number | undefined, adapterTokens: number): number => {
+  const base = requestTokens ?? adapterTokens;
+  return model.startsWith('gemini-2.5') ? Math.max(base, MAX_TOKENS) : base;
+};
+
+/**
+ * Builds the generative model config for a Gemini request.
+ * @param client - GoogleGenerativeAI client instance.
+ * @param model - The Gemini model name.
+ * @param systemInstruction - Optional system prompt string.
+ * @param maxOutputTokens - Effective output token limit.
+ * @param temperature - Sampling temperature.
+ * @returns A configured generative model instance.
+ */
+const buildGeminiModel = (
+  client: GoogleGenerativeAI,
+  model: string,
+  systemInstruction: string | undefined,
+  maxOutputTokens: number,
+  temperature: number
+) =>
+  client.getGenerativeModel({
+    model,
+    systemInstruction,
+    generationConfig: { maxOutputTokens, temperature },
+  });
+
+/**
+ * Converts AIConversationRequest messages (excluding the last) to Gemini history format.
+ * @param messages - Full message list from the conversation request.
+ * @returns Array of Gemini history entries.
+ */
+const buildGeminiHistory = (messages: AIConversationRequest['messages']): GeminiHistoryEntry[] =>
+  messages.slice(0, -1).map(msg => ({
+    role: msg.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: msg.content }],
+  }));
+
 @Injectable()
 export class GeminiAdapter implements LlmAdapter, OnModuleInit {
   private client?: GoogleGenerativeAI;
@@ -49,26 +148,16 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
   }
 
   private initializeClient(): void {
-    if (this.client) {
-      return;
-    }
+    if (this.client) return;
 
-    const apiKey = this.configService.get<string>('ai.geminiApiKey');
+    const [apiKey, didWarn] = resolveGeminiApiKey(this.configService, this.logger, this.didWarnMissingConfig);
+    this.didWarnMissingConfig = didWarn;
 
-    if (!apiKey) {
-      if (!this.didWarnMissingConfig) {
-        this.logger.warn(
-          'Gemini API key not configured. Add `ai: [{ provider: "google", apiKey: "..." }]` to wf.config.*.'
-        );
-        this.didWarnMissingConfig = true;
-      }
-      return;
-    }
+    if (!apiKey) return;
 
     this.client = new GoogleGenerativeAI(apiKey);
     this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
     this.maxTokens = this.configService.get<number>('ai.maxTokens', 4096);
-
     this.logger.debug(`Initialized Gemini adapter with model: ${this.model}`);
   }
 
@@ -77,78 +166,42 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
     return this.contextConfig + (systemPrompt ?? '');
   }
 
-  private buildResponseMetadata(
-    content: string,
-    model: string,
-    response: {
-      candidates?: Array<{
-        finishReason?: string;
-        content?: {
-          parts?: Array<{ text?: string }>;
-        };
-      }>;
-      usageMetadata?: {
-        promptTokenCount?: number;
-        candidatesTokenCount?: number;
-      };
-    }
-  ): AIResponse {
-    const contentTypes = response.candidates?.flatMap(candidate => {
-      const parts = candidate.content?.parts ?? [];
-      if (parts.length === 0) {
-        return ['text'];
-      }
-
-      return parts.map(part => ('text' in part ? 'text' : 'unknown'));
-    });
-
+  private buildResponseMetadata(content: string, model: string, response: GeminiResponseShape): AIResponse {
     return {
       content,
       provider: 'google',
       model,
       finishReason: response.candidates?.[0]?.finishReason,
-      contentTypes,
-      usage: {
-        inputTokens: response.usageMetadata?.promptTokenCount ?? 0,
-        outputTokens: response.usageMetadata?.candidatesTokenCount ?? 0,
-      },
+      contentTypes: extractContentParts(response),
+      usage: extractUsageMetadata(response),
     };
+  }
+
+  private assertClient(): GoogleGenerativeAI {
+    if (this.client) return this.client;
+    throw new AIError(
+      'Gemini client not initialized. Configure `ai[].apiKey` for the `google` provider in wf.config.*.',
+      null,
+      false
+    );
+  }
+
+  private buildModel(client: GoogleGenerativeAI, request: AIRequest | AIConversationRequest) {
+    const model = request.model || this.model;
+    const maxOutputTokens = resolveMaxOutputTokens(model, request.maxTokens, this.maxTokens);
+    return { model, generativeModel: buildGeminiModel(
+      client, model, this.prependConfig(request.systemPrompt), maxOutputTokens, request.temperature ?? 0.7
+    ) };
   }
 
   async execute(request: AIRequest): Promise<AIResponse> {
     this.initializeClient();
-
-    if (!this.client) {
-      throw new AIError(
-        'Gemini client not initialized. Configure `ai[].apiKey` for the `google` provider in wf.config.*.',
-        null,
-        false
-      );
-    }
-
+    const client = this.assertClient();
     this.logger.debug('Executing AI request via Gemini');
-
     try {
-      const model = request.model || this.model;
-      const isThinkingModel = model.startsWith('gemini-2.5');
-      const maxOutputTokens = isThinkingModel
-        ? Math.max(request.maxTokens || this.maxTokens, MAX_TOKENS)
-        : request.maxTokens || this.maxTokens;
-
-      const generativeModel = this.client.getGenerativeModel({
-        model,
-        systemInstruction: this.prependConfig(request.systemPrompt),
-        generationConfig: {
-          maxOutputTokens,
-          temperature: request.temperature || 0.7,
-        },
-      });
-
+      const { model, generativeModel } = this.buildModel(client, request);
       const result = await generativeModel.generateContent(request.prompt);
-      const response = result.response;
-      const content = response.text();
-
-      return this.buildResponseMetadata(content, model, response);
+      return this.buildResponseMetadata(result.response.text(), model, result.response);
     } catch (error) {
       throw new AIError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true);
     }
@@ -156,46 +209,14 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
 
   async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
     this.initializeClient();
-
-    if (!this.client) {
-      throw new AIError(
-        'Gemini client not initialized. Configure `ai[].apiKey` for the `google` provider in wf.config.*.',
-        null,
-        false
-      );
-    }
-
+    const client = this.assertClient();
     this.logger.debug(`Executing conversation request with ${request.messages.length} messages via Gemini`);
-
     try {
-      const model = request.model || this.model;
-      const isThinkingModel = model.startsWith('gemini-2.5');
-      const maxOutputTokens = isThinkingModel
-        ? Math.max(request.maxTokens || this.maxTokens, MAX_TOKENS)
-        : request.maxTokens || this.maxTokens;
-
-      const generativeModel = this.client.getGenerativeModel({
-        model,
-        systemInstruction: this.prependConfig(request.systemPrompt),
-        generationConfig: {
-          maxOutputTokens,
-          temperature: request.temperature || 0.7,
-        },
-      });
-
-      // Gemini uses 'model' instead of 'assistant' and parts[] instead of content
-      const history = request.messages.slice(0, -1).map(msg => ({
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content }],
-      }));
-
+      const { model, generativeModel } = this.buildModel(client, request);
+      const history = buildGeminiHistory(request.messages);
       const lastMessage = request.messages[request.messages.length - 1];
-      const chat = generativeModel.startChat({ history });
-      const result = await chat.sendMessage(lastMessage.content);
-      const response = result.response;
-      const content = response.text();
-
-      return this.buildResponseMetadata(content, model, response);
+      const result = await generativeModel.startChat({ history }).sendMessage(lastMessage.content);
+      return this.buildResponseMetadata(result.response.text(), model, result.response);
     } catch (error) {
       throw new AIError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true);
     }

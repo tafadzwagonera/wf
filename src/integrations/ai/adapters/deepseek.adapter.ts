@@ -15,6 +15,107 @@ import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
 const DEFAULT_MODEL = 'deepseek-reasoner';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
 
+/**
+ * @param configService - NestJS config service
+ * @returns The resolved DeepSeek API key or undefined
+ */
+const resolveApiKey = (configService: ConfigService): string | undefined =>
+  configService.get<string>('ai.deepseekApiKey');
+
+/**
+ * @param apiKey - DeepSeek API key
+ * @returns OpenAI client constructor options with DeepSeek base URL
+ */
+const buildDeepSeekClientConfig = (apiKey: string): { apiKey: string; baseURL: string } => ({
+  apiKey,
+  baseURL: DEEPSEEK_BASE_URL,
+});
+
+/**
+ * @param response - Raw OpenAI chat completion response
+ * @param model - Model identifier used for the request
+ * @returns Normalized AIResponse
+ */
+const mapDeepSeekResponse = (response: OpenAI.Chat.ChatCompletion, model: string): AIResponse => {
+  const choice = response.choices[0];
+  return {
+    content: choice.message.content ?? '',
+    provider: 'deepseek',
+    model,
+    finishReason: choice.finish_reason ?? undefined,
+    refusal: choice.message.refusal ?? null,
+    usage: {
+      inputTokens: response.usage?.prompt_tokens ?? 0,
+      outputTokens: response.usage?.completion_tokens ?? 0,
+    },
+  };
+};
+
+/**
+ * @param request - AI request with prompt, model, and token settings
+ * @param messages - Pre-built message list (system + user messages)
+ * @param defaultModel - Fallback model if request does not specify one
+ * @param defaultMaxTokens - Fallback max tokens if request does not specify one
+ * @returns OpenAI chat completion create params
+ */
+const buildCompletionParams = (
+  request: AIRequest | AIConversationRequest,
+  messages: OpenAI.Chat.ChatCompletionMessageParam[],
+  defaultModel: string,
+  defaultMaxTokens: number
+): OpenAI.Chat.ChatCompletionCreateParamsNonStreaming => ({
+  model: request.model || defaultModel,
+  max_tokens: request.maxTokens || defaultMaxTokens,
+  temperature: request.temperature || 0.7,
+  messages,
+});
+
+/**
+ * @param request - Conversation request containing message history
+ * @param systemPrompt - Optional system prompt to prepend as first message
+ * @returns Ordered list of chat messages including system and history
+ */
+const buildMessageHistory = (
+  request: AIConversationRequest,
+  systemPrompt: string | undefined
+): OpenAI.Chat.ChatCompletionMessageParam[] => {
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+  if (systemPrompt) {
+    messages.push({ role: 'system', content: systemPrompt });
+  }
+  for (const msg of request.messages) {
+    messages.push({ role: msg.role, content: msg.content });
+  }
+  return messages;
+};
+
+/**
+ * @param error - Caught error from OpenAI client
+ * @param fallbackMessage - Human-readable fallback message for non-API errors
+ * @throws AIError always
+ */
+const throwDeepSeekError = (error: unknown, fallbackMessage: string): never => {
+  if (error instanceof OpenAI.APIError) {
+    throw new AIError(`DeepSeek API error: ${error.message}`, { status: error.status }, true);
+  }
+  throw new AIError(fallbackMessage, error);
+};
+
+/**
+ * @param request - Single-turn AI request with prompt and optional system prompt
+ * @param systemPrompt - Optional (already prepended) system prompt
+ * @returns Ordered message list for the completion call
+ */
+const buildSingleTurnMessages = (
+  request: AIRequest,
+  systemPrompt: string | undefined
+): OpenAI.Chat.ChatCompletionMessageParam[] => {
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+  messages.push({ role: 'user', content: request.prompt });
+  return messages;
+};
+
 @Injectable()
 export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
   private client?: OpenAI;
@@ -41,26 +142,23 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
     );
   }
 
+  private warnMissingApiKey(): void {
+    if (this.didWarnMissingConfig) return;
+    this.logger.warn(
+      'DeepSeek API key not configured. Add `ai: [{ provider: "deepseek", apiKey: "..." }]` to wf.config.*.'
+    );
+    this.didWarnMissingConfig = true;
+  }
+
   private initializeClient(): void {
-    if (this.client) {
-      return;
-    }
-
-    const apiKey = this.configService.get<string>('ai.deepseekApiKey');
-
+    if (this.client) return;
+    const apiKey = resolveApiKey(this.configService);
     if (!apiKey) {
-      if (!this.didWarnMissingConfig) {
-        this.logger.warn(
-          'DeepSeek API key not configured. Add `ai: [{ provider: "deepseek", apiKey: "..." }]` to wf.config.*.'
-        );
-        this.didWarnMissingConfig = true;
-      }
+      this.warnMissingApiKey();
       return;
     }
-
-    this.client = new OpenAI({ apiKey, baseURL: DEEPSEEK_BASE_URL });
+    this.client = new OpenAI(buildDeepSeekClientConfig(apiKey));
     this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
-
     this.logger.debug(`Initialized DeepSeek adapter with model: ${this.model}`);
   }
 
@@ -69,9 +167,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
     return this.contextConfig + (systemPrompt ?? '');
   }
 
-  async execute(request: AIRequest): Promise<AIResponse> {
-    this.initializeClient();
-
+  private assertClient(): asserts this is this & { client: OpenAI } {
     if (!this.client) {
       throw new AIError(
         'DeepSeek client not initialized. Configure `ai[].apiKey` for the `deepseek` provider in wf.config.*.',
@@ -79,111 +175,39 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
         false
       );
     }
+  }
 
+  async execute(request: AIRequest): Promise<AIResponse> {
+    this.initializeClient();
+    this.assertClient();
     this.logger.debug('Executing AI request via DeepSeek');
 
+    const systemPrompt = this.prependConfig(request.systemPrompt);
+    const messages = buildSingleTurnMessages(request, systemPrompt);
+    const params = buildCompletionParams(request, messages, this.model, this.maxTokens);
+
     try {
-      const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-
-      const systemPrompt = this.prependConfig(request.systemPrompt);
-      if (systemPrompt) {
-        messages.push({ role: 'system', content: systemPrompt });
-      }
-
-      messages.push({ role: 'user', content: request.prompt });
-      const model = request.model || this.model;
-
-      const response = await this.client.chat.completions.create({
-        model,
-        max_tokens: request.maxTokens || this.maxTokens,
-        temperature: request.temperature || 0.7,
-        messages,
-      });
-      const choice = response.choices[0];
-
-      return {
-        content: choice.message.content ?? '',
-        provider: 'deepseek',
-        model,
-        finishReason: choice.finish_reason ?? undefined,
-        refusal: choice.message.refusal ?? null,
-        usage: {
-          inputTokens: response.usage?.prompt_tokens ?? 0,
-          outputTokens: response.usage?.completion_tokens ?? 0,
-        },
-      };
+      const response = await this.client.chat.completions.create(params);
+      return mapDeepSeekResponse(response, params.model);
     } catch (error) {
-      if (error instanceof OpenAI.APIError) {
-        throw new AIError(
-          `DeepSeek API error: ${error.message}`,
-          {
-            status: error.status,
-          },
-          true
-        );
-      }
-
-      throw new AIError('Failed to execute AI request', error);
+      throwDeepSeekError(error, 'Failed to execute AI request');
     }
   }
 
   async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
     this.initializeClient();
-
-    if (!this.client) {
-      throw new AIError(
-        'DeepSeek client not initialized. Configure `ai[].apiKey` for the `deepseek` provider in wf.config.*.',
-        null,
-        false
-      );
-    }
-
+    this.assertClient();
     this.logger.debug(`Executing conversation request with ${request.messages.length} messages via DeepSeek`);
 
+    const systemPrompt = this.prependConfig(request.systemPrompt);
+    const messages = buildMessageHistory(request, systemPrompt);
+    const params = buildCompletionParams(request, messages, this.model, this.maxTokens);
+
     try {
-      const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-
-      const systemPrompt = this.prependConfig(request.systemPrompt);
-      if (systemPrompt) {
-        messages.push({ role: 'system', content: systemPrompt });
-      }
-
-      for (const msg of request.messages) {
-        messages.push({ role: msg.role, content: msg.content });
-      }
-      const model = request.model || this.model;
-
-      const response = await this.client.chat.completions.create({
-        model,
-        max_tokens: request.maxTokens || this.maxTokens,
-        temperature: request.temperature || 0.7,
-        messages,
-      });
-      const choice = response.choices[0];
-
-      return {
-        content: choice.message.content ?? '',
-        provider: 'deepseek',
-        model,
-        finishReason: choice.finish_reason ?? undefined,
-        refusal: choice.message.refusal ?? null,
-        usage: {
-          inputTokens: response.usage?.prompt_tokens ?? 0,
-          outputTokens: response.usage?.completion_tokens ?? 0,
-        },
-      };
+      const response = await this.client.chat.completions.create(params);
+      return mapDeepSeekResponse(response, params.model);
     } catch (error) {
-      if (error instanceof OpenAI.APIError) {
-        throw new AIError(
-          `DeepSeek API error: ${error.message}`,
-          {
-            status: error.status,
-          },
-          true
-        );
-      }
-
-      throw new AIError('Failed to execute conversation request', error);
+      throwDeepSeekError(error, 'Failed to execute conversation request');
     }
   }
 }
