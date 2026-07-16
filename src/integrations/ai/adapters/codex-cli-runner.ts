@@ -382,9 +382,6 @@ export async function* spawnCodex(
     rl.close();
     ctrl.kill();
   }
-  if (ctrl.timedOut()) {
-    yield buildTimeoutMessage(timeoutMs);
-    return;
-  }
+  if (ctrl.timedOut()) return void (yield buildTimeoutMessage(timeoutMs));
   collectCodexResult(yieldedRef[0], stderrChunks);
 }

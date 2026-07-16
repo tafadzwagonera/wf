@@ -147,8 +147,7 @@ export class SlackService {
       if (lastData.ok) return lastData;
       if (!isSlackRetryable(lastData, options, index, tokens.length)) this.ensureSlackResponseOk(lastData, channelId);
     }
-    this.ensureSlackResponseOk(lastData, channelId);
-    return lastData;
+    this.throwSlackError(lastData, channelId);
   }
 
   /**
@@ -182,8 +181,11 @@ export class SlackService {
    * @param responseData - Raw Slack API response body
    * @param channelId - Channel associated with the request
    */
-  private ensureSlackResponseOk(responseData: Record<string, unknown>, channelId: string): void {
-    if (responseData.ok) return;
+  private throwSlackError(responseData: Record<string, unknown>, channelId: string): never {
     throw new ExecutionError(formatSlackError(responseData.error as string, channelId));
+  }
+
+  private ensureSlackResponseOk(responseData: Record<string, unknown>, channelId: string): void {
+    if (!responseData.ok) this.throwSlackError(responseData, channelId);
   }
 }

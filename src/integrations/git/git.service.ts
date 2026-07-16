@@ -158,10 +158,8 @@ export class GitService {
     try {
       this.assertValidBranchName(branchName);
       const [status, branches] = await Promise.all([git.status(), git.branch()]);
-      if (branches.all.includes(branchName)) {
-        await this.checkoutExistingBranch(git, branchName);
-        return;
-      }
+      if (branches.all.includes(branchName))
+        return void (await this.checkoutExistingBranch(git, branchName));
       const base = resolveBaseBranch(branches, status.current, baseBranch);
       await git.checkout(['-b', branchName, base]);
       this.logger.success(`Created and checked out branch: ${branchName} from ${base}`);
