@@ -11,7 +11,7 @@ export const formatFieldNames = (fieldNames: string[]): string => {
   if (fieldNames.length === 1) return fieldNames[0];
   if (fieldNames.length === 2) return `${fieldNames[0]} and ${fieldNames[1]}`;
 
-  return `${fieldNames.slice(0, -1).join(', ')} and ${fieldNames[fieldNames.length - 1]}`;
+  return `${fieldNames.slice(0, -1).join(', ')} and ${fieldNames.at(-1)}`;
 };
 
 /**

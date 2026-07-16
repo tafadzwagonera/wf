@@ -22,9 +22,9 @@ jest.mock('chalk', () => {
       'gray',
       'grey',
     ];
-    colorNames.forEach(name => {
+    for (const name of colorNames) {
       chain[name] = identity;
-    });
+    }
     return chain;
   };
 

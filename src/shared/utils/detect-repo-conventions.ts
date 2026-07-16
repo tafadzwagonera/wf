@@ -91,7 +91,7 @@ export const detectRepoConventions = (repoDir: string): RepoConventionsContext =
   if (hasGoMod) {
     try {
       const raw = fs.readFileSync(path.join(repoDir, 'go.mod'), 'utf-8');
-      const moduleMatch = raw.match(/^module\s+(\S+)/m);
+      const moduleMatch = /^module\s+(\S+)/m.exec(raw);
       goCtx = { modulePath: moduleMatch ? moduleMatch[1] : '' };
     } catch {
       // leave null
@@ -111,13 +111,13 @@ export const detectRepoConventions = (repoDir: string): RepoConventionsContext =
         tool: 'pyproject',
         extract: raw => {
           const settings: Record<string, unknown> = {};
-          const ruffMatch = raw.match(/\[tool\.ruff\]/);
+          const ruffMatch = /\[tool\.ruff\]/.exec(raw);
           if (ruffMatch) settings['ruff'] = true;
-          const blackMatch = raw.match(/\[tool\.black\]/);
+          const blackMatch = /\[tool\.black\]/.exec(raw);
           if (blackMatch) settings['black'] = true;
-          const mypyMatch = raw.match(/\[tool\.mypy\]/);
+          const mypyMatch = /\[tool\.mypy\]/.exec(raw);
           if (mypyMatch) settings['mypy'] = true;
-          const pytestMatch = raw.match(/\[tool\.pytest/);
+          const pytestMatch = /\[tool\.pytest/.exec(raw);
           if (pytestMatch) settings['pytest'] = true;
           return settings;
         },
@@ -168,7 +168,7 @@ export const detectRepoConventions = (repoDir: string): RepoConventionsContext =
           for (const m of providerMatches) {
             if (!providers.includes(m[1])) providers.push(m[1]);
           }
-          const backendMatch = raw.match(/backend\s+"([^"]+)"/);
+          const backendMatch = /backend\s+"([^"]+)"/.exec(raw);
           if (backendMatch) backend = backendMatch[1];
         } catch {
           // skip unreadable .tf file

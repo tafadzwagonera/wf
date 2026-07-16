@@ -252,7 +252,7 @@ const normalizeFormat = (format: string): string =>
 const stripArtifactExtension = (fileName: string): string => fileName.replace(/\.[^.]+$/, '');
 
 const parseCanonicalStem = (stem: string): { datePrefix: string; hash: string; action: ResolutionAction } | null => {
-  const match = stem.match(CANONICAL_PLAN_STEM);
+  const match = CANONICAL_PLAN_STEM.exec(stem);
   if (!match) {
     return null;
   }
@@ -270,7 +270,7 @@ const parseCanonicalStem = (stem: string): { datePrefix: string; hash: string; a
 };
 
 const parseShortHashedStem = (stem: string): { hash: string; action: ResolutionAction } | null => {
-  const match = stem.match(SHORT_HASHED_PLAN_STEM);
+  const match = SHORT_HASHED_PLAN_STEM.exec(stem);
   if (!match) {
     return null;
   }
@@ -508,13 +508,13 @@ const parseMarkdownPlan = (content: string, filePath: string): ResolutionPlan =>
   const metadata = new Map<string, string>();
 
   for (const line of content.split('\n')) {
-    const metadataMatch = line.match(/^\*\*([^:]+):\*\*\s*(.+)$/);
+    const metadataMatch = /^\*\*([^:]+):\*\*\s*(.+)$/.exec(line);
     if (metadataMatch) {
       metadata.set(metadataMatch[1].trim().toLowerCase(), metadataMatch[2].trim());
       continue;
     }
 
-    const headingMatch = line.match(/^##\s+(.+)$/);
+    const headingMatch = /^##\s+(.+)$/.exec(line);
     if (headingMatch) {
       activeSection = headingMatch[1].trim().toLowerCase();
       sections.set(activeSection, []);
@@ -547,10 +547,10 @@ const parseMarkdownPlan = (content: string, filePath: string): ResolutionPlan =>
 const collapseSection = (lines?: string[]): string => (lines ?? []).join('\n').trim();
 
 const extractNumberedList = (lines?: string[]): string[] =>
-  (lines ?? []).map(line => line.match(/^\d+\.\s+(.+)$/)?.[1]?.trim() ?? '').filter(Boolean);
+  (lines ?? []).map(line => (/^\d+\.\s+(.+)$/.exec(line))?.[1]?.trim() ?? '').filter(Boolean);
 
 const extractBulletedList = (lines?: string[]): string[] =>
-  (lines ?? []).map(line => line.match(/^-\s+(.+)$/)?.[1]?.trim() ?? '').filter(Boolean);
+  (lines ?? []).map(line => (/^-\s+(.+)$/.exec(line))?.[1]?.trim() ?? '').filter(Boolean);
 
 const normalizeAction = (value: unknown, filePath: string): ResolutionAction => {
   if (typeof value === 'string' && VALID_ACTIONS.includes(value as ResolutionAction)) {

@@ -24,7 +24,7 @@ const RELEVANT_SCRIPT_PATTERN = /^test|^lint$|^typecheck$|^build$|^check$/;
  */
 const parseNodeMajor = (raw: string): number | null => {
   const trimmed = raw.trim().replace(/^v/i, '');
-  const match = trimmed.match(/(\d+)/);
+  const match = /(\d+)/.exec(trimmed);
   return match ? parseInt(match[1], 10) : null;
 };
 
@@ -226,7 +226,7 @@ const detectNode = (repoDir: string): NodeInfra | null => {
   if (nodeVersionMajor === null) {
     const pipelines = readFileOrNull(path.join(repoDir, 'bitbucket-pipelines.yml'));
     if (pipelines) {
-      const imageMatch = pipelines.match(/image:\s*node:(\d+)/);
+      const imageMatch = /image:\s*node:(\d+)/.exec(pipelines);
       if (imageMatch) {
         nodeVersionMajor = parseInt(imageMatch[1], 10);
       }

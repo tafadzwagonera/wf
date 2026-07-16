@@ -36,7 +36,7 @@ export class DryRunPreviewService {
     console.log(chalk.black(`     ↳ ${preview.description}`));
     if (preview.estimatedResponse) {
       const lines = preview.estimatedResponse.split('\n');
-      lines.forEach((line, i) => console.log(chalk.black(`     ${i === 0 ? '↳ Response: ' : ''}${line}`)));
+      for (const [i, line] of lines.entries()) console.log(chalk.black(`     ${i === 0 ? '↳ Response: ' : ''}${line}`));
     }
     if ((preview.payloadPreviewLines?.length ?? 0) > 0) {
       console.log(chalk.black('     ↳ Payload:'));
@@ -53,7 +53,7 @@ export class DryRunPreviewService {
     console.log(`  📝 ${opLabel} ${preview.filePath}`);
     if (preview.contentPreview) {
       const allLines = preview.contentPreview.split('\n');
-      allLines.slice(0, 10).forEach(line => console.log(chalk.black(`       ${line}`)));
+      for (const line of allLines.slice(0, 10)) console.log(chalk.black(`       ${line}`));
       if (allLines.length > 10) {
         console.log(chalk.black('       ...'));
       }
@@ -147,6 +147,6 @@ export class DryRunPreviewService {
   showTerminalOutput(lines: string[]): void {
     if (lines.length === 0) return;
     console.log(chalk.black('\n  Terminal output preview:'));
-    lines.forEach(line => console.log(chalk.black(`  │ ${line}`)));
+    for (const line of lines) console.log(chalk.black(`  │ ${line}`));
   }
 }

@@ -10,7 +10,7 @@ export type { CliExample };
  * @param examples - Array of CLI examples to display
  */
 export const printExamples = (examples: CliExample[]): void => {
-  examples.forEach(example => {
+  for (const example of examples) {
     // Print comment line
     console.log(chalk.gray(`  # ${example.comment}`));
 
@@ -19,5 +19,5 @@ export const printExamples = (examples: CliExample[]): void => {
 
     // Blank line after each example
     console.log('');
-  });
+  }
 };

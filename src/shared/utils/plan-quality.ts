@@ -36,7 +36,7 @@ const createViolation = (ruleId: PlanQualityViolation['ruleId'], message: string
 });
 
 const hasExplicitReplacementTarget = (step: string): boolean => {
-  const normalizedStep = step.replace(/\s+/g, ' ').trim();
+  const normalizedStep = step.replaceAll(/\s+/g, ' ').trim();
   return (
     EXPLICIT_REPLACEMENT_TARGET_PATTERN.test(normalizedStep) || NAMED_REPLACEMENT_TARGET_PATTERN.test(normalizedStep)
   );
@@ -44,13 +44,13 @@ const hasExplicitReplacementTarget = (step: string): boolean => {
 
 const normalizeRepoLocalVerificationCommand = (command: string, affectedRepositories?: string[]): string => {
   const trimmed = command.trim();
-  const cdPrefixMatch = trimmed.match(REPO_LOCAL_CD_PREFIX_PATTERN);
+  const cdPrefixMatch = REPO_LOCAL_CD_PREFIX_PATTERN.exec(trimmed);
   if (!cdPrefixMatch) {
     return trimmed;
   }
 
   const [, rawTarget, remainder] = cdPrefixMatch;
-  const target = rawTarget.trim().replace(/^['"]|['"]$/g, '');
+  const target = rawTarget.trim().replaceAll(/^['"]|['"]$/g, '');
   const repoNames = affectedRepositories?.map(repo => repo.trim()).filter(Boolean) ?? [];
   const isRepoLocalTarget = repoNames.some(repo => target === repo || target === `./${repo}`);
 
@@ -64,13 +64,13 @@ const normalizeRepoLocalVerificationCommand = (command: string, affectedReposito
 const detectRenameViolations = (steps: string[]): PlanQualityViolation[] => {
   const violations: PlanQualityViolation[] = [];
 
-  steps.forEach((step, index) => {
+  for (const [index, step] of steps.entries()) {
     if (!RENAME_STEP_PATTERN.test(step)) {
-      return;
+      continue;
     }
 
     if (hasExplicitReplacementTarget(step)) {
-      return;
+      continue;
     }
 
     violations.push(
@@ -79,7 +79,7 @@ const detectRenameViolations = (steps: string[]): PlanQualityViolation[] => {
         `Step ${index + 1} must state the replacement target explicitly: ${step}`
       )
     );
-  });
+  }
 
   return violations;
 };
@@ -89,7 +89,7 @@ const isNodeVerificationAllowed = (command: string, nodeInfra: NodeInfra | undef
     return true;
   }
 
-  const scriptMatch = command.match(PACKAGE_MANAGER_COMMAND_PATTERN);
+  const scriptMatch = PACKAGE_MANAGER_COMMAND_PATTERN.exec(command);
   if (!scriptMatch) {
     return false;
   }
@@ -143,19 +143,19 @@ const detectVerificationViolations = (
   const checks = verification?.targeted ?? [];
   const violations: PlanQualityViolation[] = [];
 
-  checks.forEach(check => {
+  for (const check of checks) {
     if (!check.run) {
-      return;
+      continue;
     }
 
     if (isVerificationCommandAllowed(check.run, testInfra, affectedRepositories)) {
-      return;
+      continue;
     }
 
     violations.push(
       createViolation('verification-allowlist', `Verification command must match the detected allowlist: ${check.run}`)
     );
-  });
+  }
 
   return violations;
 };
