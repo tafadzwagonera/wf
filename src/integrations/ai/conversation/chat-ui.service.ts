@@ -158,7 +158,7 @@ export class ChatUIService {
     console.log();
     console.log(chalk.bold.magenta(`🤖 ${this.aiService.getProviderShortName()}:`));
     console.log();
-    message.content.split('\n').forEach(line => console.log(formatResponseLine(line)));
+    for (const line of message.content.split('\n')) console.log(formatResponseLine(line));
     console.log();
   }
 
@@ -210,7 +210,7 @@ export class ChatUIService {
     const sep = chalk.gray('─'.repeat(70));
     console.log(`\n${chalk.bold.cyan('📜 Conversation History')}\n${sep}`);
     if (messages.length === 0) console.log(chalk.dim('No messages yet'));
-    messages.forEach((msg, index) => this.renderHistoryMessage(msg, index, provider));
+    for (const [index, msg] of messages.entries()) this.renderHistoryMessage(msg, index, provider);
     console.log(`\n${sep}\n`);
   }
 

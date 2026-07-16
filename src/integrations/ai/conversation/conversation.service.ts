@@ -45,9 +45,9 @@ const parseConversationFile = (raw: string): ConversationState => {
   const state = JSON.parse(raw) as ConversationState;
   state.createdAt = new Date(state.createdAt);
   state.updatedAt = new Date(state.updatedAt);
-  state.messages.forEach(msg => {
+  for (const msg of state.messages) {
     msg.timestamp = new Date(msg.timestamp);
-  });
+  }
   return state;
 };
 

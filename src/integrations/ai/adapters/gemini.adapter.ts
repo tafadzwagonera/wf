@@ -214,8 +214,8 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
     try {
       const { model, generativeModel } = this.buildModel(client, request);
       const history = buildGeminiHistory(request.messages);
-      const lastMessage = request.messages[request.messages.length - 1];
-      const result = await generativeModel.startChat({ history }).sendMessage(lastMessage.content);
+      const lastMessage = request.messages.at(-1);
+      const result = await generativeModel.startChat({ history }).sendMessage(lastMessage!.content);
       return this.buildResponseMetadata(result.response.text(), model, result.response);
     } catch (error) {
       throw new AIError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true);

@@ -1091,7 +1091,11 @@ export class StageAgentService {
   }
 
   async reviewCode(
-    diff: string, guidelines: string[], repoDir?: string, priorStageSummary?: string, resumeProviderSessionId?: string
+    diff: string,
+    guidelines: string[],
+    repoDir?: string,
+    priorStageSummary?: string,
+    resumeProviderSessionId?: string
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const { content: response, sessionId } = await this.runStagePrompt({
       stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines), systemPrompt: REVIEW_SYSTEM_PROMPT,
