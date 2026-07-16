@@ -26,6 +26,7 @@ import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { ConversationContext } from '../shared/types/conversation.types';
 import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
+import { retryOnTransient } from '../shared/utils/retry-on-transient';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -1040,25 +1041,22 @@ export class IssueReviewCommand extends CommandRunner {
     repoHint: string, missingRepoScopeErrors: string[]
   ): Promise<string[] | null> {
     const scope = repoHint ? ' (' + repoHint + ')' : '';
-    const maxAttempts = 2;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        return await adapter.findPullRequestsByTicketKey!(ticketKey, repoHint);
-      } catch (error: unknown) {
-        const isTransient = this.isTransientNetworkError(error);
-        if (isTransient && attempt < maxAttempts) {
-          const message = error instanceof Error ? error.message : String(error);
-          console.log(chalk.dim('⟳ Transient error for ' + adapterName + scope + ': ' + message + ' — retrying in 1s'));
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          continue;
-        }
-        if (this.isMissingPullRequestRepoScopeError(error)) missingRepoScopeErrors.push((error as Error).message);
-        const message = error instanceof Error ? error.message : String(error);
-        console.log(chalk.yellow('⚠️ PR discovery skipped for ' + adapterName + scope + ': ' + message));
-        return null;
-      }
+    try {
+      return await retryOnTransient(
+        () => adapter.findPullRequestsByTicketKey!(ticketKey, repoHint),
+        {
+          onRetry: error => {
+            const message = error instanceof Error ? error.message : String(error);
+            console.log(chalk.dim('⚠️ Transient error for ' + adapterName + scope + ': ' + message + ' — retrying in 1s'));
+          },
+        },
+      );
+    } catch (error: unknown) {
+      if (this.isMissingPullRequestRepoScopeError(error)) missingRepoScopeErrors.push((error as Error).message);
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(chalk.yellow('⚠️ PR discovery skipped for ' + adapterName + scope + ': ' + message));
+      return null;
     }
-    return null;
   }
 
   private registerDiscoveredPrs(
@@ -1140,17 +1138,6 @@ export class IssueReviewCommand extends CommandRunner {
       'No BitBucket repository specified.',
       'No GitHub repository specified and no default repository configured.',
     ].some(pattern => message.includes(pattern));
-  }
-
-  /**
-   * Detect transient network errors that are safe to retry.
-   * @param error - The caught error
-   * @returns `true` when the error message matches a known transient network pattern
-   */
-  private isTransientNetworkError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
-    return ['Premature close', 'ECONNRESET', 'socket hang up', 'ETIMEDOUT', 'ECONNREFUSED', 'fetch failed']
-      .some(pattern => message.includes(pattern));
   }
 
   /**
