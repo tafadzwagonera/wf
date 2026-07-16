@@ -86,9 +86,14 @@ describe('JiraService', () => {
   });
 
   describe('Markdown to ADF Conversion', () => {
+    type AdfNode = {
+      type?: string; content: any[]; attrs?: Record<string, unknown>;
+      marks?: any[]; text?: string; [key: string]: unknown;
+    };
+    type AdfDoc = { content: AdfNode[] };
     it('should convert simple text to ADF', () => {
       const markdown = 'Hello world';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf).toEqual({
         type: 'doc',
@@ -104,7 +109,7 @@ describe('JiraService', () => {
 
     it('should convert headers to ADF', () => {
       const markdown = '# Heading 1\n## Heading 2';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content).toHaveLength(2);
       expect(adf.content[0]).toEqual({
@@ -121,7 +126,7 @@ describe('JiraService', () => {
 
     it('should convert bold text to ADF', () => {
       const markdown = 'This is **bold** text';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content[0].content).toEqual([
         { type: 'text', text: 'This is ' },
@@ -132,7 +137,7 @@ describe('JiraService', () => {
 
     it('should convert italic text to ADF', () => {
       const markdown = 'This is *italic* text';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content[0].content).toEqual([
         { type: 'text', text: 'This is ' },
@@ -143,7 +148,7 @@ describe('JiraService', () => {
 
     it('should convert inline code delimiters to ADF code marks', () => {
       const markdown = 'Use `npm install` to install';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content[0].content).toEqual([
         { type: 'text', text: 'Use ' },
@@ -154,7 +159,7 @@ describe('JiraService', () => {
 
     it('should preserve inline code marks inside bullet list items', () => {
       const markdown = '- `service-document-task-role` has access to `/service-document/dev/config`';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content[0]).toEqual({
         type: 'bulletList',
@@ -186,7 +191,7 @@ describe('JiraService', () => {
 
     it('should convert code blocks to ADF', () => {
       const markdown = '```javascript\nconst x = 1;\n```';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content[0]).toEqual({
         type: 'codeBlock',
@@ -197,7 +202,7 @@ describe('JiraService', () => {
 
     it('should convert bullet lists to ADF', () => {
       const markdown = '- Item 1\n- Item 2\n- Item 3';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content[0].type).toBe('bulletList');
       expect(adf.content[0].content).toHaveLength(3);
@@ -205,7 +210,7 @@ describe('JiraService', () => {
 
     it('should normalize indented star bullets to a Jira bullet list', () => {
       const markdown = '  * Item 1\n    * Item 2';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content[0].type).toBe('bulletList');
       expect(adf.content[0].content).toHaveLength(2);
@@ -214,7 +219,7 @@ describe('JiraService', () => {
 
     it('should convert nested bullet lists to nested ADF bullet lists', () => {
       const markdown = ['- Parent item', '  - Child item 1', '  - Child item 2', '- Sibling item'].join('\n');
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content[0]).toEqual({
         type: 'bulletList',
@@ -266,7 +271,7 @@ describe('JiraService', () => {
 
     it('should convert ordered lists to ADF', () => {
       const markdown = '1. First\n2. Second\n3. Third';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content[0].type).toBe('orderedList');
       expect(adf.content[0].content).toHaveLength(3);
@@ -274,7 +279,7 @@ describe('JiraService', () => {
 
     it('should produce a single orderedList when items are separated by blank lines', () => {
       const markdown = '1. First\n\n2. Second\n\n3. Third';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content).toHaveLength(1);
       expect(adf.content[0].type).toBe('orderedList');
@@ -283,7 +288,7 @@ describe('JiraService', () => {
 
     it('should produce a single bulletList when items are separated by blank lines', () => {
       const markdown = '- Alpha\n\n- Beta\n\n- Gamma';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content).toHaveLength(1);
       expect(adf.content[0].type).toBe('bulletList');
@@ -292,7 +297,7 @@ describe('JiraService', () => {
 
     it('should degrade markdown tables to bullet lists', () => {
       const markdown = '| ID | Name |\n|---|---|\n| 1 | Alice |\n| 2 | Bob |';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content).toHaveLength(1);
       expect(adf.content[0].type).toBe('bulletList');
@@ -305,7 +310,7 @@ describe('JiraService', () => {
 
     it('should degrade a header-only table to bullet list of cells', () => {
       const markdown = '| Foo | Bar | Baz |';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content).toHaveLength(1);
       expect(adf.content[0].type).toBe('bulletList');
@@ -314,7 +319,7 @@ describe('JiraService', () => {
 
     it('should normalize Jira wiki code fences to ADF code blocks', () => {
       const markdown = '{code:json}\n{\n  "id": "123"\n}\n{code}';
-      const adf = service.markdownToADF(markdown);
+      const adf = service.markdownToADF(markdown) as AdfDoc;
 
       expect(adf.content[0]).toEqual({
         type: 'codeBlock',

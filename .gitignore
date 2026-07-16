@@ -9,6 +9,9 @@ node_modules/
 
 # Runtime logs / agent state
 .wf/
+
+# Tooling artifacts
+.superpowers/
 .env
 wf.config.*
 verification.policy.*

@@ -1144,4 +1144,60 @@ describe('IssueReviewCommand', () => {
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('review.txt'));
     });
   });
+
+  describe('transient network error retry in PR discovery', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('retries once on transient error and succeeds on second attempt', async () => {
+      const { command, adapters } = await buildCommand();
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey
+        .mockRejectedValueOnce(new Error('Premature close'))
+        .mockResolvedValueOnce(['https://bitbucket.org/workspace/repo/pull-requests/160']);
+      adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 160');
+      adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
+
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'], force: true });
+
+      expect(adapters.bitbucketAdapter.findPullRequestsByTicketKey).toHaveBeenCalledTimes(2);
+    }, 15000);
+
+    it('logs warning and returns null when transient error persists after retry', async () => {
+      const { command, adapters } = await buildCommand();
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+      jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(true);
+      jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('local diff');
+      const promptMock = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+      promptMock.mockResolvedValue({ decision: 'local' } as any);
+      setInteractiveSession();
+
+      const transientError = new Error('Premature close');
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockRejectedValue(transientError);
+      adapters.githubAdapter.findPullRequestsByTicketKey.mockRejectedValue(transientError);
+
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'], force: true });
+
+      expect(adapters.bitbucketAdapter.findPullRequestsByTicketKey).toHaveBeenCalledTimes(2);
+    }, 15000);
+
+    it('does not retry non-transient errors', async () => {
+      const { command, adapters } = await buildCommand();
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+      jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
+
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockRejectedValue(
+        new Error('No BitBucket repository specified.')
+      );
+      adapters.githubAdapter.findPullRequestsByTicketKey.mockRejectedValue(
+        new Error('No GitHub repository specified and no default repository configured.')
+      );
+
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'], force: true });
+
+      expect(adapters.bitbucketAdapter.findPullRequestsByTicketKey).toHaveBeenCalledTimes(1);
+    });
+  });
 });
