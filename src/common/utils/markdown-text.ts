@@ -7,9 +7,9 @@
  */
 export const stripInlineMarkdownDelimiters = (text: string): string =>
   text
-    .replace(/`([^`\n]+)`/g, '$1')
-    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
-    .replace(/\*([^*\n]+)\*/g, '$1')
+    .replaceAll(/`([^`\n]+)`/g, '$1')
+    .replaceAll(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replaceAll(/\*([^*\n]+)\*/g, '$1')
     .trim();
 
 /**

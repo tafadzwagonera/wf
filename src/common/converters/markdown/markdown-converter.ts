@@ -14,7 +14,7 @@ const SYNTHETIC_TITLE_LABEL_PATTERN = /^(?:title|heading)\s*:\s*(.+)$/i;
  * @returns Normalized title suitable for downstream ticket creation
  */
 const normalizeMarkdownTitle = (title: string): string => {
-  const match = title.trim().match(SYNTHETIC_TITLE_LABEL_PATTERN);
+  const match = SYNTHETIC_TITLE_LABEL_PATTERN.exec(title.trim());
   return stripInlineMarkdownDelimiters(match?.[1] ?? title);
 };
 
@@ -42,7 +42,7 @@ export class MarkdownConverter implements FormatConverter {
       // Parse title and key from first line (# [KEY]: Title or # Title)
       const titleLine = lines.find(l => l.trim().startsWith('#'));
       if (titleLine) {
-        const titleMatch = titleLine.match(/^#\s+(?:\[([^\]]+)\]:\s*)?(.+)$/);
+        const titleMatch = /^#\s+(?:\[([^\]]+)\]:\s*)?(.+)$/.exec(titleLine);
         if (titleMatch) {
           if (titleMatch[1]) {
             data.key = titleMatch[1].trim();
@@ -57,7 +57,7 @@ export class MarkdownConverter implements FormatConverter {
       }
 
       // Parse description section
-      const descriptionIndex = lines.findIndex(l => l.trim().match(/^##\s+Description$/i));
+      const descriptionIndex = lines.findIndex(l => /^##\s+Description$/i.exec(l.trim()));
       if (descriptionIndex !== -1) {
         const descriptionLines = lines.slice(descriptionIndex + 1);
         data.description = descriptionLines.join('\n').trim();
@@ -163,7 +163,7 @@ export class MarkdownConverter implements FormatConverter {
   validate(content: string): boolean {
     try {
       // Check if content has at least a title (starts with #)
-      const hasTitle = content.trim().match(/^#\s+/m);
+      const hasTitle = /^#\s+/m.exec(content.trim());
       return !!hasTitle;
     } catch {
       return false;
@@ -184,7 +184,7 @@ export class MarkdownConverter implements FormatConverter {
    * @param data - Partial ticket accumulator to mutate
    */
   private applyMetadataField(line: string, data: Partial<UniversalTicket>): void {
-    const metadataMatch = line.match(/^\*\*([^:]+):\*\*\s*(.+)$/);
+    const metadataMatch = /^\*\*([^:]+):\*\*\s*(.+)$/.exec(line);
     if (!metadataMatch) return;
 
     const field = metadataMatch[1].trim();

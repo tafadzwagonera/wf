@@ -79,12 +79,12 @@ export class JsonConverter implements FormatConverter {
   private toPlainObject(ticket: UniversalTicket): Record<string, any> {
     const plain: Record<string, any> = {};
 
-    Object.keys(ticket).forEach(key => {
+    for (const key of Object.keys(ticket)) {
       const value = ticket[key as keyof UniversalTicket];
       if (value !== undefined) {
         plain[key] = value;
       }
-    });
+    }
 
     return plain;
   }
