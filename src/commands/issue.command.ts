@@ -543,9 +543,7 @@ export class IssueCommand extends CommandRunner {
     const id = await this.promptProviderSessionId();
     if (!id) return sessionState;
     planArtifact.sessionId = id;
-    if (sessionState) {
-      sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'plan', id);
-    }
+    sessionState &&= await this.sessionService.recordProviderSessionId(sessionState, 'plan', id);
     return sessionState;
   }
 
@@ -1086,9 +1084,7 @@ export class IssueCommand extends CommandRunner {
     ticketArtifact: TicketArtifact, action: ResolutionAction,
     ctx: ResolvedWorkflowContext, sessionState: SessionState | undefined
   ): Promise<{ planArtifact: PlanArtifact; sessionState: SessionState | undefined }> {
-    if (sessionState) {
-      sessionState = await this.recordStageStart(sessionState, 'plan');
-    }
+    sessionState &&= await this.recordStageStart(sessionState, 'plan');
 
     const planArtifact = await this.generatePlanArtifact(ticketArtifact, action, ctx);
     await this.promptCachedPlanSession(planArtifact);
@@ -1221,9 +1217,7 @@ export class IssueCommand extends CommandRunner {
     if (sessionState && result?.type === 'implementation' && result.sessionId) {
       sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'implement', result.sessionId);
     }
-    if (sessionState) {
-      sessionState = await this.sessionService.recordStageComplete(sessionState, 'implement', null);
-    }
+    sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'implement', null);
     return sessionState;
   }
 
@@ -1245,9 +1239,7 @@ export class IssueCommand extends CommandRunner {
       ticketArtifact, planArtifact, repos, options, prepared.sessionContext, ticketKey
     );
 
-    if (sessionState) {
-      sessionState = await this.sessionService.recordStageComplete(sessionState, 'review', null);
-    }
+    sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'review', null);
     return { reviewArtifact, sessionState };
   }
 

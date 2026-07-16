@@ -3,7 +3,7 @@ jest.mock('chalk', () => {
   const identity = (s: any) => s;
   const makeChain = () => {
     const chain: any = identity;
-    [
+    for (const name of [
       'bold',
       'dim',
       'italic',
@@ -22,9 +22,9 @@ jest.mock('chalk', () => {
       'whiteBright',
       'gray',
       'grey',
-    ].forEach(name => {
+    ]) {
       chain[name] = identity;
-    });
+    }
     return chain;
   };
   const chalk = makeChain();

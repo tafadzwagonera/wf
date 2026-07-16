@@ -3,7 +3,7 @@ jest.mock('chalk', () => {
   const identity = (value: any) => value;
   const makeChain = () => {
     const chain: any = identity;
-    [
+    for (const name of [
       'bold',
       'dim',
       'italic',
@@ -20,9 +20,9 @@ jest.mock('chalk', () => {
       'white',
       'gray',
       'grey',
-    ].forEach(name => {
+    ]) {
       chain[name] = identity;
-    });
+    }
     return chain;
   };
   const chalk = makeChain();
@@ -143,7 +143,7 @@ async function buildCommand(): Promise<IssueCreateCommand> {
                 return { ...mockTicket };
               }
 
-              const titleMatch = content.match(/^# (.+)$/m);
+              const titleMatch = /^# (.+)$/m.exec(content);
               const title = titleMatch ? titleMatch[1] : mockTicket.title;
 
               const description = content

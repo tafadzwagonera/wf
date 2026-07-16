@@ -724,7 +724,7 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   private extractActionFromPath(filePath: string): string {
-    const match = path.basename(filePath).match(/-(feature|fix|investigate)[-.]/);
+    const match = /-(feature|fix|investigate)[-.]/.exec(path.basename(filePath));
     return match?.[1] ?? '';
   }
 
