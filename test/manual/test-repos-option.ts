@@ -68,7 +68,7 @@ async function testReposOption() {
       pass(`${cmd}: old comma-separated wording correctly absent`);
     }
 
-    if (help.includes('--repo ') || help.match(/--repo\b(?!s)/)) {
+    if (help.includes('--repo ') || (/--repo\b(?!s)/.exec(help))) {
       fail(`${cmd}: old --repo flag still present in --help`);
     } else {
       pass(`${cmd}: old --repo flag correctly absent`);

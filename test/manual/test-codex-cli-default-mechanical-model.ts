@@ -40,7 +40,7 @@ async function main(): Promise<void> {
   {
     const adapterPath = path.resolve(__dirname, '../../src/integrations/ai/adapters/codex-cli.adapter.ts');
     const source = fs.readFileSync(adapterPath, 'utf-8');
-    const match = source.match(/DEFAULT_MECHANICAL_MODEL\s*=\s*'([^']+)'/);
+    const match = /DEFAULT_MECHANICAL_MODEL\s*=\s*'([^']+)'/.exec(source);
 
     assert(match !== null, 'DEFAULT_MECHANICAL_MODEL constant exists in source', 'constant not found');
     assert(

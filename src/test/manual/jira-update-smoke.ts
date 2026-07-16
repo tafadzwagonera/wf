@@ -122,7 +122,7 @@ export const loadDescriptionFile = (descriptionFilePath: string): string => {
  * @returns Markdown starting at the first summary section when present
  */
 export const normalizeDescriptionMarkdown = (markdown: string): string => {
-  const summaryHeadingMatch = markdown.match(/^### Summary\s*$/m);
+  const summaryHeadingMatch = /^### Summary\s*$/m.exec(markdown);
   const trimmed = summaryHeadingMatch?.index ? markdown.slice(summaryHeadingMatch.index).trim() : markdown.trim();
 
   return stripRedundantSections(trimmed);

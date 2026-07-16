@@ -24,13 +24,11 @@ assert('isTemperatureRestricted method exists in source', adapterSource.includes
 
 console.log(chalk.cyan('\n  Regex pattern coverage'));
 
-const regexMatch = adapterSource.match(
-  /isTemperatureRestricted\(model: string\): boolean\s*\{\s*return\s+(.+)\.test\(model\);/
-);
+const regexMatch = /isTemperatureRestricted\(model: string\): boolean\s*\{\s*return\s+(.+)\.test\(model\);/.exec(adapterSource);
 assert('regex pattern is extractable from source', regexMatch !== null, 'could not extract regex');
 
 if (regexMatch) {
-  const regex = new RegExp(regexMatch[1].replace(/^\/|\/$/g, ''));
+  const regex = new RegExp(regexMatch[1].replaceAll(/^\/|\/$/g, ''));
 
   const shouldMatch = [
     'claude-opus-4-7',

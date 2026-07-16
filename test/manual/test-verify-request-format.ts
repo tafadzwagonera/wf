@@ -65,9 +65,9 @@ const walkNodes = (node: AdfNode, path: string, issues: ValidationIssue[]): void
   }
 
   if (Array.isArray(node.content)) {
-    node.content.forEach((child, i) => {
+    for (const [i, child] of node.content.entries()) {
       walkNodes(child, `${path}.content[${i}]`, issues);
-    });
+    }
   }
 };
 

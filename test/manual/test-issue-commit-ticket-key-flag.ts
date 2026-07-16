@@ -53,7 +53,7 @@ function suppressConsoleLog(): { restore: () => void } {
 }
 
 const extractLongFlag = (flags: string): string => {
-  const match = flags.match(/--([a-z][-a-z]*)/);
+  const match = /--([a-z][-a-z]*)/.exec(flags);
   return match ? match[1] : flags;
 };
 

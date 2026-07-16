@@ -85,7 +85,7 @@ function main(): void {
   // Test 4: Total tool count is 7
   console.log(chalk.bold('\nTest 4: Available tools section lists exactly 7 tools'));
   const toolLines = toolsSection.split('\n').filter(l => l.startsWith('- '));
-  const toolNames = toolLines.map(l => l.match(/^- (\w+)\(/)?.[1]).filter(Boolean);
+  const toolNames = toolLines.map(l => (/^- (\w+)\(/.exec(l))?.[1]).filter(Boolean);
   assert(
     `7 tools listed: ${toolNames.join(', ')}`,
     toolNames.length === 7,

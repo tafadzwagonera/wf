@@ -43,7 +43,7 @@ const getDescriptionColumns = (helpOutput: string): number[] => {
   const optionLines = lines.filter(line => line.startsWith('  --') || line.startsWith('  -'));
 
   return optionLines.map(line => {
-    const flagSection = line.match(/^ {2}.+?(?= {2,}\S)/);
+    const flagSection = /^ {2}.+?(?= {2,}\S)/.exec(line);
     if (!flagSection) {
       return -1;
     }

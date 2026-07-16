@@ -135,7 +135,7 @@ async function testIssueGenerate() {
     const longTitle = 'Plan: Tripcom Tour Sync Manual Test Script';
     const sanitized = longTitle
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
+      .replaceAll(/[^a-z0-9]+/g, '-')
       .slice(0, 30)
       .replace(/-+$/, '');
     if (!sanitized.endsWith('-')) {

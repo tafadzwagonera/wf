@@ -47,13 +47,11 @@ assert('all call sites use isTemperatureRestricted', !adapterSource.includes('th
 // ---------------------------------------------------------------------------
 console.log(chalk.cyan('\n  Regex pattern coverage'));
 
-const regexMatch = adapterSource.match(
-  /isTemperatureRestricted\(model: string\): boolean\s*\{\s*return\s+(.+)\.test\(model\);/
-);
+const regexMatch = /isTemperatureRestricted\(model: string\): boolean\s*\{\s*return\s+(.+)\.test\(model\);/.exec(adapterSource);
 assert('regex pattern is extractable from source', regexMatch !== null, 'could not extract regex');
 
 if (regexMatch) {
-  const regex = new RegExp(regexMatch[1].replace(/^\/|\/$/g, ''));
+  const regex = new RegExp(regexMatch[1].replaceAll(/^\/|\/$/g, ''));
 
   const shouldMatch = ['o1', 'o3', 'o4-mini', 'gpt-5', 'gpt-5.4', 'gpt-5.5', 'gpt-5.4-mini'];
   const shouldNotMatch = ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4o', 'claude-sonnet-4-6'];

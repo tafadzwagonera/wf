@@ -87,7 +87,7 @@ async function main() {
       fail('package.json missing engines.node field');
       failed += 1;
     } else {
-      const lowerBoundMatch = enginesNode.match(/(\d+)\.(\d+)/);
+      const lowerBoundMatch = /(\d+)\.(\d+)/.exec(enginesNode);
       const nvmrcMajorMinor = nvmrcContent.split('.').slice(0, 2).join('.');
 
       if (lowerBoundMatch) {

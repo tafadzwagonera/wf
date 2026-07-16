@@ -131,7 +131,7 @@ const pass = (label: string) => console.log(`  ✓ ${label}`);
   // Simulate what validateGeneratedPlan does: extractScriptName returns a name,
   // nodeEco is undefined, so the "package manager script in non-node repo" branch triggers
   const cmd = 'yarn test -- --bail';
-  const match = cmd.match(/^(?:yarn|npm run|pnpm|pnpm run|npx|nr)\s+([^\s]+)/);
+  const match = /^(?:yarn|npm run|pnpm|pnpm run|npx|nr)\s+([^\s]+)/.exec(cmd);
   assert.ok(match, 'Should extract script name');
   assert.equal(match[1], 'test');
   // With policy enforced and no nodeEco, this should be a validation error

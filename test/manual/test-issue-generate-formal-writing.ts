@@ -75,7 +75,7 @@ const CONTRACTION_PATTERN
  * @returns Pass/fail counters for aggregation
  */
 const assertNoContractions = (label: string, content: string): { passed: number; failed: number } => {
-  const match = content.match(CONTRACTION_PATTERN);
+  const match = CONTRACTION_PATTERN.exec(content);
   if (match) {
     fail(label, `Found contraction "${match[0]}" in serialized output`);
     return { passed: 0, failed: 1 };

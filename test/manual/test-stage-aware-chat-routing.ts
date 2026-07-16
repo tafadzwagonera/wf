@@ -241,8 +241,8 @@ async function run(): Promise<void> {
 
       // Verify assistant message persisted
       const state = service.getConversation(conv.conversationId);
-      const lastMsg = state!.messages[state!.messages.length - 1];
-      assert(lastMsg.role === 'assistant' && lastMsg.content === 'agent response', `Expected agent response persisted`);
+      const lastMsg = state!.messages.at(-1);
+      assert(lastMsg!.role === 'assistant' && lastMsg!.content === 'agent response', `Expected agent response persisted`);
 
       // Verify displayAssistantResponse received agent message
       const displayedMsg = displayAssistantResponse.tracked.calls[0][0];

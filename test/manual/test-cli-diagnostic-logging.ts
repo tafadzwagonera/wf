@@ -47,7 +47,7 @@ const assert = (label: string, condition: boolean, detail?: string): void => {
 };
 
 // eslint-disable-next-line no-control-regex
-const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
+const stripAnsi = (s: string): string => s.replaceAll(/\x1b\[[0-9;]*m/g, '');
 
 const makeParams = () => ({
   ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },

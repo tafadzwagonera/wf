@@ -33,7 +33,7 @@ const run = (command: string): string =>
  * @param text Raw CLI output that may contain line-wrapped phrases
  * @returns Text with all whitespace runs collapsed to a single space
  */
-const collapseWhitespace = (text: string): string => text.replace(/\s+/g, ' ');
+const collapseWhitespace = (text: string): string => text.replaceAll(/\s+/g, ' ');
 
 const pass = (message: string): void => {
   console.log(chalk.green(`  ✓ ${message}`));

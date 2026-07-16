@@ -23,7 +23,7 @@ const commandsDir = path.join(repoRoot, 'src', 'commands');
  * @returns The long flag name without dashes (e.g. "repos")
  */
 const extractLongFlag = (flags: string): string => {
-  const match = flags.match(/--([a-z][-a-z]*)/);
+  const match = /--([a-z][-a-z]*)/.exec(flags);
   return match ? match[1] : flags;
 };
 

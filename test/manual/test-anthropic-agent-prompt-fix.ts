@@ -155,11 +155,11 @@ async function main() {
   const summary = mockResult.trim();
   if (summary) {
     mockLogResult('  Summary:');
-    summary.split('\n').forEach(line => {
+    for (const line of summary.split('\n')) {
       if (line.trim()) {
         mockLogResult(`    ${line}`);
       }
-    });
+    }
   } else {
     mockLogResult('\n  File summary: no file changes were made.');
   }
@@ -184,11 +184,11 @@ async function main() {
   const emptySummary = ''.trim();
   if (emptySummary) {
     mockLogEmpty('  Summary:');
-    emptySummary.split('\n').forEach(line => {
+    for (const line of emptySummary.split('\n')) {
       if (line.trim()) {
         mockLogEmpty(`    ${line}`);
       }
-    });
+    }
   } else {
     mockLogEmpty('\n  File summary: no file changes were made.');
   }

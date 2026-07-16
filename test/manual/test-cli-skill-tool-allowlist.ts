@@ -47,7 +47,7 @@ function main(): void {
     path.join(process.cwd(), 'src/integrations/ai/adapters/claude-cli.adapter.ts'),
     'utf-8'
   );
-  const implementToolsMatch = adapterSource.match(/const IMPLEMENT_TOOLS\s*=\s*\[([^\]]+)\]/);
+  const implementToolsMatch = /const IMPLEMENT_TOOLS\s*=\s*\[([^\]]+)\]/.exec(adapterSource);
   const implementToolsValue = implementToolsMatch?.[1] ?? '';
   assert(
     'IMPLEMENT_TOOLS constant includes Skill',
@@ -92,7 +92,7 @@ function main(): void {
   );
 
   // 4. ANTHROPIC_STAGE_TOOLS does NOT include 'Skill' (baseline for non-CLI agent)
-  const stageToolsMatch = stageAgentSource.match(/const ANTHROPIC_STAGE_TOOLS\s*=\s*\[([^\]]+)\]/);
+  const stageToolsMatch = /const ANTHROPIC_STAGE_TOOLS\s*=\s*\[([^\]]+)\]/.exec(stageAgentSource);
   const stageToolsValue = stageToolsMatch?.[1] ?? '';
   assert(
     'ANTHROPIC_STAGE_TOOLS does not include Skill (agent baseline unchanged)',

@@ -139,13 +139,13 @@ function main(): void {
 
   // 10. parseNoBranch returns false (not true) so commander stores branch: false
   test('parseNoBranch returns false in issue.command.ts', () => {
-    const methodMatch = issueSource.match(/parseNoBranch\(\)[^{]*\{[^}]*return\s+(true|false)/);
+    const methodMatch = /parseNoBranch\(\)[^{]*\{[^}]*return\s+(true|false)/.exec(issueSource);
     assert.ok(methodMatch, 'Expected parseNoBranch method');
     assert.equal(methodMatch[1], 'false', 'parseNoBranch must return false');
   });
 
   test('parseNoBranch returns false in issue-implement.command.ts', () => {
-    const methodMatch = implementSource.match(/parseNoBranch\(\)[^{]*\{[^}]*return\s+(true|false)/);
+    const methodMatch = /parseNoBranch\(\)[^{]*\{[^}]*return\s+(true|false)/.exec(implementSource);
     assert.ok(methodMatch, 'Expected parseNoBranch method');
     assert.equal(methodMatch[1], 'false', 'parseNoBranch must return false');
   });

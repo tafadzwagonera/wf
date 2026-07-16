@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   {
     console.log(chalk.bold('Test 2: help output contains repo-scoped generation text'));
     const helpText = getHelpText(['issue:generate', '--help'], catalog);
-    const plainText = helpText.replace(/\n\s*/g, ' ');
+    const plainText = helpText.replaceAll(/\n\s*/g, ' ');
 
     assert(
       'Help text mentions repo-scoped artifact correlation',
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   {
     console.log(chalk.bold('Test 3: help output contains provider-aware diagnostics text'));
     const helpText = getHelpText(['issue:generate', '--help'], catalog);
-    const plainText = helpText.replace(/\n\s*/g, ' ');
+    const plainText = helpText.replaceAll(/\n\s*/g, ' ');
 
     assert(
       'Help text mentions provider-aware diagnostics',
@@ -114,7 +114,7 @@ async function main(): Promise<void> {
       'utf-8'
     );
 
-    const sigkillBlock = source.match(/setTimeout\(\(\)\s*=>\s*\{[^}]*SIGKILL[^}]*\}[^)]*\)[^;]*/s);
+    const sigkillBlock = /setTimeout\(\(\)\s*=>\s*\{[^}]*SIGKILL[^}]*\}[^)]*\)[^;]*/s.exec(source);
     assert(
       'SIGKILL grace setTimeout calls .unref()',
       sigkillBlock !== null && sigkillBlock[0].includes('.unref()'),

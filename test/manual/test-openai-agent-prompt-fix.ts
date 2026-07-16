@@ -196,7 +196,7 @@ async function main() {
 
   if (fileSummaryLines.length > 0) {
     mockLog('  File summary:');
-    fileSummaryLines.forEach(l => mockLog(l));
+    for (const l of fileSummaryLines) mockLog(l);
   } else {
     mockLog(chalk.gray('\n  File summary: no file changes were made.'));
   }
@@ -205,7 +205,7 @@ async function main() {
     'fallback message is emitted when no files changed',
     capturedLines.some(l => l.includes('no file changes were made'))
   );
-  assert('"File summary:" header is NOT emitted without changes', !capturedLines.some(l => l === '  File summary:'));
+  assert('"File summary:" header is NOT emitted without changes', !capturedLines.includes('  File summary:'));
 
   // ── Test 5: file summary header emitted when changes exist ─────────────
   console.log(chalk.bold.cyan('\n🧪 Part 5: File summary — changes present'));
@@ -216,7 +216,7 @@ async function main() {
 
   if (fileSummaryLinesWithChanges.length > 0) {
     linesWithChanges.push('  File summary:');
-    fileSummaryLinesWithChanges.forEach(l => linesWithChanges.push(l));
+    for (const l of fileSummaryLinesWithChanges) linesWithChanges.push(l);
   } else {
     linesWithChanges.push('\n  File summary: no file changes were made.');
   }

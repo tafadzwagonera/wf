@@ -61,10 +61,10 @@ async function diagnose() {
 
     // Check key permissions
     const keyPerms = ['BROWSE_PROJECTS', 'CREATE_ISSUES', 'EDIT_ISSUES'];
-    keyPerms.forEach(perm => {
+    for (const perm of keyPerms) {
       const hasPerm = response.data.permissions[perm]?.havePermission;
       console.log(chalk.gray(`  ${perm}:`), hasPerm ? chalk.green('✓') : chalk.red('✗'));
-    });
+    }
     console.log();
   } catch (error: any) {
     console.log(chalk.red('✗ Failed:'), error.response?.status, error.message);

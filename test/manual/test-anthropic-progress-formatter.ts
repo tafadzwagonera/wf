@@ -74,7 +74,7 @@ const assert = (message: string, condition: boolean, detail?: string): void => {
  * @param value Colored terminal output
  * @returns Plain-text representation
  */
-const stripAnsi = (value: string): string => value.replace(ANSI_PATTERN, '');
+const stripAnsi = (value: string): string => value.replaceAll(ANSI_PATTERN, '');
 
 /**
  * Collapse wrapped terminal output into a single normalized line.
@@ -82,7 +82,7 @@ const stripAnsi = (value: string): string => value.replace(ANSI_PATTERN, '');
  * @param value Terminal output that may contain line wraps
  * @returns Whitespace-normalized text
  */
-const normalizeWhitespace = (value: string): string => value.replace(/\s+/g, ' ').trim();
+const normalizeWhitespace = (value: string): string => value.replaceAll(/\s+/g, ' ').trim();
 
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n🧪 Agent progress formatter smoke test\n'));
