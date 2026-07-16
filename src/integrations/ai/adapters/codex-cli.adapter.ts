@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
-import * as path from 'path';
+import * as path from 'node:path';
 import type {
   TicketArtifact,
   PlanArtifact,
@@ -167,9 +167,9 @@ const logAgentSummary = (message: CodexCliMessage): void => {
   const summary = message.item.text?.trim();
   if (!summary) return;
   console.log(chalk.bold('\n  Summary:'));
-  summary.split('\n').forEach(line => {
+  for (const line of summary.split('\n')) {
     if (line.trim()) console.log(chalk.cyan(`    ${line}`));
-  });
+  }
 };
 
 /**
@@ -311,7 +311,7 @@ const runCodexStream = async (
  * Spawns the Codex CLI as a subprocess and streams progress messages.
  */
 export class CodexCliAdapter implements ImplementerBackend {
-  constructor(private configService: ConfigService) {}
+  constructor(private readonly configService: ConfigService) {}
 
   async generateAndVerify(params: GenerateAndVerifyParams): Promise<{ sessionId?: string }> {
     const repoDir = params.options.repoDir ?? process.cwd();

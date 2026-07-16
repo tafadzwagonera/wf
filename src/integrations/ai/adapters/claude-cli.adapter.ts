@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
-import * as path from 'path';
+import * as path from 'node:path';
 import type {
   TicketArtifact,
   PlanArtifact,
@@ -243,13 +243,13 @@ const checkStallCondition = (
 const logSdkProgressEvent = (message: ClaudeCliMessage, repoDir: string, activityState: ActivityState): boolean => {
   const progressLine = formatProgressMessage(message as never);
   if (!progressLine) return false;
-  const label = progressLine.replace(/\[claude-agent-sdk\]/, `[${CLI_ADAPTER_LABEL}]`);
+  const label = progressLine.replace(/\[claude-agent-sdk]/, `[${CLI_ADAPTER_LABEL}]`);
   const isWarning
     = (message.type === 'system' && message.subtype === 'api_retry')
       || (message.type === 'system' && message.subtype === 'status');
   console.log(isWarning ? chalk.yellow(label) : chalk.cyan(label));
   for (const line of formatActivityMessages(message as never, repoDir, activityState)) {
-    console.log(chalk.cyan(line.replace(/\[claude-agent-sdk\]/, `[${CLI_ADAPTER_LABEL}]`)));
+    console.log(chalk.cyan(line.replace(/\[claude-agent-sdk]/, `[${CLI_ADAPTER_LABEL}]`)));
   }
   return true;
 };
@@ -271,7 +271,7 @@ const logCliProgressEvent = (message: ClaudeCliMessage, repoDir: string, activit
   if (logSdkProgressEvent(message, repoDir, activityState)) return true;
   const activityLines = formatActivityMessages(message as never, repoDir, activityState);
   for (const line of activityLines) {
-    console.log(chalk.cyan(line.replace(/\[claude-agent-sdk\]/, `[${CLI_ADAPTER_LABEL}]`)));
+    console.log(chalk.cyan(line.replace(/\[claude-agent-sdk]/, `[${CLI_ADAPTER_LABEL}]`)));
   }
   return activityLines.length > 0;
 };
@@ -383,6 +383,7 @@ const buildImplementCliArgs = (p: CliSessionParams) =>
 /**
  * Builds CLI args for a single continuation pass.
  * @param p - Pass parameters including session ID, model, and paths.
+ * @param continuationPrompt
  * @returns CLI argument array for spawnCli.
  */
 const buildPassCliArgs = (p: SinglePassParams, continuationPrompt: string) =>
@@ -403,7 +404,7 @@ const buildPassCliArgs = (p: SinglePassParams, continuationPrompt: string) =>
  * and streams NDJSON progress messages.
  */
 export class ClaudeCliAdapter implements ImplementerBackend {
-  constructor(private configService: ConfigService) {}
+  constructor(private readonly configService: ConfigService) {}
 
   async generateAndVerify(params: GenerateAndVerifyParams): Promise<{ sessionId?: string }> {
     const { options, repoFiles, repoName } = params;
@@ -465,7 +466,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     const sessionId = await this.runContinuationLoop(p);
     if (p.touchedFiles.size > 0) {
       console.log(chalk.bold('\n  File summary:'));
-      [...p.touchedFiles].sort().forEach(f => console.log(chalk.cyan(`    - updated: ${f}`)));
+      for (const f of [...p.touchedFiles].sort((a, b) => a.localeCompare(b))) console.log(chalk.cyan(`    - updated: ${f}`));
     } else {
       console.log(chalk.gray('\n  File summary: no file changes were made.'));
     }

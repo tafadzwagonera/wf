@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import simpleGit, { SimpleGit, StatusResult, BranchSummary } from 'simple-git';
+import simpleGit, { BranchSummary, SimpleGit, StatusResult } from 'simple-git';
 import { GitError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
+import type { BranchInfo, CommitInfo, CommitOptions } from '../../shared/types/git.types';
 
 export type { BranchInfo, CommitOptions, CommitInfo } from '../../shared/types/git.types';
-import type { BranchInfo, CommitOptions, CommitInfo } from '../../shared/types/git.types';
 
 /**
  * Create a SimpleGit instance for `cwd` with LEFTHOOK disabled so automated
@@ -65,11 +65,11 @@ const resolveBaseBranch = (
   currentBranch: string | null,
   baseBranch?: string
 ): string => {
-  const devBranches = branches.all.filter(b => {
+  const devBranch = branches.all.find(b => {
     const name = b.includes('/') ? b.split('/').pop()! : b;
     return name.includes('dev');
   });
-  return baseBranch ?? devBranches[0] ?? currentBranch ?? 'HEAD';
+  return baseBranch ?? devBranch ?? currentBranch ?? 'HEAD';
 };
 
 /**
@@ -94,11 +94,11 @@ const checkIgnoredChunk = async (git: SimpleGit, chunk: string[]): Promise<strin
 
 @Injectable()
 export class GitService {
-  private git: SimpleGit;
+  private readonly git: SimpleGit;
 
   constructor(
-    private configService: ConfigService,
-    private logger: LoggerService
+    private readonly configService: ConfigService,
+    private readonly logger: LoggerService
   ) {
     this.git = simpleGit();
   }
@@ -159,7 +159,8 @@ export class GitService {
       this.assertValidBranchName(branchName);
       const [status, branches] = await Promise.all([git.status(), git.branch()]);
       if (branches.all.includes(branchName)) {
-        return void (await this.checkoutExistingBranch(git, branchName));
+        await this.checkoutExistingBranch(git, branchName);
+        return;
       }
       const base = resolveBaseBranch(branches, status.current, baseBranch);
       await git.checkout(['-b', branchName, base]);
@@ -277,8 +278,7 @@ export class GitService {
   async getDiff(staged: boolean = false, cwd?: string): Promise<string> {
     try {
       const git = cwd ? simpleGit(cwd) : this.git;
-      const diff = staged ? await git.diff(['--staged']) : await git.diff();
-      return diff;
+      return staged ? await git.diff(['--staged']) : await git.diff();
     } catch (error) {
       throw new GitError('Failed to get diff', error);
     }

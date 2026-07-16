@@ -8,7 +8,7 @@ import { IssueTrackerAdapter } from './issue-tracker-adapter.interface';
  */
 @Injectable()
 export class IssueTrackerService {
-  private adapters: Map<string, IssueTrackerAdapter> = new Map();
+  private readonly adapters: Map<string, IssueTrackerAdapter> = new Map();
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -50,28 +50,11 @@ export class IssueTrackerService {
   }
 
   /**
-   * Check if a tracker is registered
-   * @param trackerName Tracker identifier
-   * @returns true if registered, false otherwise
-   */
-  isRegistered(trackerName: string): boolean {
-    return this.adapters.has(trackerName);
-  }
-
-  /**
-   * Get list of all registered tracker names
+   * Get a list of all registered tracker names
    * @returns Array of tracker identifiers
    */
   getAvailableTrackers(): string[] {
     return Array.from(this.adapters.keys());
-  }
-
-  /**
-   * Get all registered adapters
-   * @returns Map of tracker name to adapter instance
-   */
-  getAllAdapters(): Map<string, IssueTrackerAdapter> {
-    return new Map(this.adapters);
   }
 
   /**

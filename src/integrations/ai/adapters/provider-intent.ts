@@ -22,9 +22,7 @@ export const hasProviderUsageIntent = (
   if (stageProviders.includes(providerName)) return true;
 
   const hasExplicitDefault = providers?.some(p => p.default);
-  if (!hasExplicitDefault && providers?.[0]?.provider === providerName) return true;
-
-  return false;
+  return !hasExplicitDefault && providers?.[0]?.provider === providerName;
 };
 
 /**

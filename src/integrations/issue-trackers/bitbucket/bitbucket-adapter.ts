@@ -13,8 +13,8 @@ import { IssueTrackerConfigService } from '../issue-tracker-config.service';
 
 @Injectable()
 export class BitBucketAdapter implements IssueTrackerAdapter {
-  private bitbucket: InstanceType<typeof Bitbucket>;
-  private defaultWorkspace?: string;
+  private readonly bitbucket: InstanceType<typeof Bitbucket>;
+  private readonly defaultWorkspace?: string;
 
   constructor(
     private readonly configService: ConfigService,
@@ -270,8 +270,8 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
   }
 
   private extractPullRequestId(url: string): number {
-    const match = url.match(/pull-requests\/(\d+)/);
-    return match ? parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
+    const match = new RegExp(/pull-requests\/(\d+)/).exec(url);
+    return match ? Number.parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
   }
 
   /**
@@ -308,7 +308,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     if (reference.includes('/') && reference.includes('#')) {
       const [workspaceRepo, id] = reference.split('#');
       const [workspace, repo] = workspaceRepo.split('/');
-      return { workspace, repo, issueId: parseInt(id, 10) };
+      return { workspace, repo, issueId: Number.parseInt(id, 10) };
     }
 
     throw new Error(`Invalid BitBucket issue reference: "${reference}". Expected format: workspace/repo#123`);
@@ -323,7 +323,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     prId: number;
   } {
     // Format: https://bitbucket.org/workspace/repo/pull-requests/123
-    const match = url.match(/bitbucket\.org\/([^/]+)\/([^/]+)\/pull-requests\/(\d+)/);
+    const match = new RegExp(/bitbucket\.org\/([^/]+)\/([^/]+)\/pull-requests\/(\d+)/).exec(url);
     if (!match) {
       throw new Error(`Invalid BitBucket PR URL: ${url}`);
     }
@@ -331,7 +331,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     return {
       workspace: match[1],
       repo: match[2],
-      prId: parseInt(match[3], 10),
+      prId: Number.parseInt(match[3], 10),
     };
   }
 

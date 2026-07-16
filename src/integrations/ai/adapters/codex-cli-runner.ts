@@ -1,5 +1,5 @@
-import { ChildProcess, execSync, spawn } from 'child_process';
-import { createInterface } from 'readline';
+import { ChildProcess, execSync, spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { parseNdjsonLine } from './claude-cli-runner';
 
 export interface CodexCliMessage {
@@ -382,6 +382,9 @@ export async function* spawnCodex(
     rl.close();
     ctrl.kill();
   }
-  if (ctrl.timedOut()) return void (yield buildTimeoutMessage(timeoutMs));
+  if (ctrl.timedOut()) {
+    yield buildTimeoutMessage(timeoutMs);
+    return;
+  }
   collectCodexResult(yieldedRef[0], stderrChunks);
 }

@@ -1,5 +1,5 @@
-import { execSync, spawn } from 'child_process';
-import { createInterface } from 'readline';
+import { execSync, spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 
 export interface ClaudeCliMessage {
   type: string;
@@ -71,7 +71,7 @@ interface TimeoutManager {
  * Returns null when the string does not contain a recognisable semver triple.
  *
  * @param raw - Raw stdout from `claude --version` (e.g. "2.1.80 (Claude Code)")
- * @returns Parsed version object, or null if the format is unrecognisable
+ * @returns Parsed version object, or null if the format is unrecognizable
  */
 export const parseClaudeCliVersion = (raw: string): { major: number; minor: number; patch: number } | null => {
   const match = /^(\d+)\.(\d+)\.(\d+)/.exec(raw.trim());
@@ -80,7 +80,7 @@ export const parseClaudeCliVersion = (raw: string): { major: number; minor: numb
 };
 
 /**
- * Asserts that a binary is available on PATH; throws with install instructions if not.
+ * Asserts that a binary is available on PATH; throws with installation instructions if not.
  *
  * @param name - Binary name to check (e.g. "claude")
  * @param installUrl - URL shown in the error message when binary is missing
@@ -153,7 +153,7 @@ const validateVersionRange = (
 /**
  * Asserts that the Claude CLI binary is installed and meets the minimum version requirement.
  * Throws with install/upgrade instructions when the binary is missing or incompatible.
- * Set WF_SKIP_CLI_VERSION_CHECK=1 to bypass the version check (e.g. in CI).
+ * Set WF_SKIP_CLI_VERSION_CHECK=1 to bypass the version check (e.g., in CI).
  */
 export const assertClaudeCliAvailable = (): void => {
   assertBinaryExists('claude', CLAUDE_INSTALL_URL);
@@ -170,7 +170,7 @@ export const assertClaudeCliAvailable = (): void => {
 };
 
 /**
- * Appends a flag and its value to args when value is defined and non-empty.
+ * Appends a flag and its value to args when the value is defined and non-empty.
  *
  * @param args - Mutable argument array to append to
  * @param flag - CLI flag string (e.g. "--model")
@@ -187,7 +187,8 @@ const appendOptionalArg = (args: string[], flag: string, value: string | undefin
  * @param dirs - Optional list of directories to add
  */
 const appendAddDirs = (args: string[], dirs: string[] | undefined): void => {
-  dirs?.forEach(dir => args.push('--add-dir', dir));
+  if (!dirs) return;
+  for (const dir of dirs) args.push('--add-dir', dir);
 };
 
 /**
@@ -439,14 +440,14 @@ interface CliSession {
 }
 
 /**
- * Initialises all runtime state needed by spawnCli and starts the timeout timers.
+ * Initializes all runtime state needed by spawnCli and starts the timeout timers.
  *
  * @param args - CLI argument array
  * @param cwd - Working directory for the subprocess
  * @param prompt - Optional prompt written to stdin
  * @param env - Optional environment variable overrides
  * @param timeoutMs - Wall-clock timeout in ms
- * @param inactivityMs - Inactivity timeout in ms
+ * @param inactivityTimeoutMs
  * @returns Initialised CliSession with timers running
  */
 const initCliSession = (
@@ -499,7 +500,7 @@ async function* runCliStream(session: CliSession): AsyncGenerator<ClaudeCliMessa
 
 /**
  * Spawns the Claude CLI as a subprocess and yields parsed NDJSON messages.
- * The prompt is written to stdin and the stream is closed, since positional
+ * The prompt is written to stdin, and the stream is closed, since positional
  * arguments can be misinterpreted when `--allowedTools` is present.
  *
  * @param args - CLI arguments (built via `buildCliArgs`)

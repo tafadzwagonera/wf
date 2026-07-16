@@ -21,9 +21,9 @@ const getLabelName = (label: string | { name: string }): string =>
 
 @Injectable()
 export class GitHubAdapter implements IssueTrackerAdapter {
-  private octokit: Octokit;
-  private defaultOwner?: string;
-  private defaultRepo?: string;
+  private readonly octokit: Octokit;
+  private readonly defaultOwner?: string;
+  private readonly defaultRepo?: string;
 
   constructor(
     private readonly configService: ConfigService,
@@ -41,7 +41,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
   }
 
   /**
-   * Initialise the Octokit client, warning when the token is absent.
+   * Initialize the Octokit client, warning when the token is absent.
    * @param token - GitHub personal access token
    * @param hasPartialConfig - Whether any GitHub config key is set
    * @returns Configured Octokit instance
@@ -111,7 +111,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
   }
 
   /**
-   * Get platform name
+   * Get a platform name
    */
   getTrackerName(): string {
     return 'github';
@@ -220,14 +220,14 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     if (reference.includes('/') && reference.includes('#')) {
       const [ownerRepo, number] = reference.split('#');
       const [owner, repo] = ownerRepo.split('/');
-      return { owner, repo, issueNumber: parseInt(number, 10) };
+      return { owner, repo, issueNumber: Number.parseInt(number, 10) };
     }
 
     if (/^\d+$/.test(reference)) {
       if (!this.defaultOwner || !this.defaultRepo) {
         throw new Error('Cannot use issue number without default repository configured');
       }
-      return { owner: this.defaultOwner, repo: this.defaultRepo, issueNumber: parseInt(reference, 10) };
+      return { owner: this.defaultOwner, repo: this.defaultRepo, issueNumber: Number.parseInt(reference, 10) };
     }
 
     throw new Error(`Invalid GitHub issue reference: ${reference}`);
@@ -242,7 +242,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     prNumber: number;
   } {
     // Format: https://github.com/owner/repo/pull/123
-    const match = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+    const match = new RegExp(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/).exec(url);
     if (!match) {
       throw new Error(`Invalid GitHub PR URL: ${url}`);
     }
@@ -250,13 +250,13 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     return {
       owner: match[1],
       repo: match[2],
-      prNumber: parseInt(match[3], 10),
+      prNumber: Number.parseInt(match[3], 10),
     };
   }
 
   private extractPullRequestNumber(url: string): number {
-    const match = url.match(/\/pull\/(\d+)/);
-    return match ? parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
+    const match = new RegExp(/\/pull\/(\d+)/).exec(url);
+    return match ? Number.parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
   }
 
   /**
@@ -296,7 +296,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
   }
 
   /**
-   * Build labels array including type and priority
+   * Build a label array including type and priority
    */
   private buildLabels(ticket: UniversalTicket): string[] {
     const labels = [...(ticket.labels || [])];

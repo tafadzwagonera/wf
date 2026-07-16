@@ -1,10 +1,10 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
-import { exec } from 'child_process';
-import * as fs from 'fs/promises';
-import * as os from 'os';
-import * as path from 'path';
-import { promisify } from 'util';
+import { exec } from 'node:child_process';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { promisify } from 'node:util';
 import type { ResolutionPlan } from '../ai.service';
 import type { VerificationScript, ModelRouting } from '../../../agents/interfaces';
 

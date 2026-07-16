@@ -147,7 +147,8 @@ export class SlackService {
       if (lastData.ok) return lastData;
       if (!isSlackRetryable(lastData, options, index, tokens.length)) this.ensureSlackResponseOk(lastData, channelId);
     }
-    return this.ensureSlackResponseOk(lastData, channelId) as never;
+    this.ensureSlackResponseOk(lastData, channelId);
+    return lastData;
   }
 
   /**
@@ -159,7 +160,7 @@ export class SlackService {
   private getSlackToken(tokenType: 'bot' | 'user'): string | undefined {
     const configKey = tokenType === 'bot' ? 'slack.botToken' : 'slack.userToken';
     const token = this.configService.get<string>(configKey)?.trim();
-    return token ? token : undefined;
+    return token || undefined;
   }
 
   /**

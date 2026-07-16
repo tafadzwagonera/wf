@@ -13,26 +13,26 @@ import { formatProgressMessage as formatAnthropicProgressMessage } from './adapt
 import { formatProgressMessage as formatOpenAiProgressMessage } from './adapters/openai-agent.adapter';
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
-import { assertClaudeCliAvailable, buildCliArgs, spawnCli, type ClaudeCliMessage } from './adapters/claude-cli-runner';
+import { assertClaudeCliAvailable, buildCliArgs, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
 import {
   assertCodexCliAvailable,
   buildCodexCliArgs,
-  spawnCodex,
   type CodexCliMessage,
+  spawnCodex,
 } from './adapters/codex-cli-runner';
 import type { WfBackendMode } from '../../config/public-config';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import {
   CodeReview,
-  requireAiResponseContent,
   parseJsonResponse,
+  requireAiResponseContent,
   requireReviewResponseContent,
   ResolutionPlan,
   sanitizeCodeReviewTrace,
 } from './ai.service';
 import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import { AIError, isAIErrorLike } from '../../shared/utils/errors';
-import type { TestInfraContext } from '../../shared/utils/detect-test-infra';
+import type { TestInfraContext } from '../../shared/types/detection.types';
 import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 import {
@@ -40,15 +40,16 @@ import {
   type RepoConventionsContext,
 } from '../../shared/utils/detect-repo-conventions';
 import {
-  formatPriorPlansPromptSection,
   formatPlanCorrelationPromptSection,
-  type PriorPlanContext,
+  formatPriorPlansPromptSection,
   type PlanCorrelationResult,
+  type PriorPlanContext,
 } from '../../shared/utils/detect-prior-plans';
 import {
-  formatCrossRepoPatternsPromptSection,
   type CrossRepoContext,
+  formatCrossRepoPatternsPromptSection,
 } from '../../shared/utils/detect-cross-repo-patterns';
+import type { AgentStageName, StageProgressCallback } from '../../shared/types/agent.types';
 
 const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
@@ -100,36 +101,36 @@ const CLI_CHAT_RETRY_PROMPT
   = 'Your previous response did not include a usable result. Please respond with the requested content directly.';
 
 type CliPassResult = {
+  diagnostics: string[];
+  hadContent: boolean;
   result: string;
+  sessionId: string | undefined;
   source: 'structured_output' | 'result' | 'assistant_text' | undefined;
   stopReason: string | undefined;
-  sessionId: string | undefined;
-  hadContent: boolean;
-  diagnostics: string[];
 };
 
 type CliChatPassOpts = {
-  stage: AgentStageName;
-  userMessage: string;
-  systemPrompt: string;
-  model: string;
-  resolvedRepoDir: string;
   allowInspection: boolean;
   initialSessionId?: string;
+  model: string;
+  resolvedRepoDir: string;
+  stage: AgentStageName;
+  systemPrompt: string;
+  userMessage: string;
 };
 
 type CliStagePassOpts = {
-  stage: AgentStageName;
-  prompt: string;
-  systemPrompt: string;
-  model: string;
-  resolvedRepoDir: string;
   allowInspection: boolean;
   jsonSchema?: string;
-  sessionId?: string;
-  passNumber?: number;
-  resumeProviderSessionId?: string;
+  model: string;
   onProgress?: StageProgressCallback;
+  passNumber?: number;
+  prompt: string;
+  resolvedRepoDir: string;
+  resumeProviderSessionId?: string;
+  sessionId?: string;
+  stage: AgentStageName;
+  systemPrompt: string;
 };
 
 const PLAN_SYSTEM_PROMPT = `You are an expert software engineer creating detailed resolution plans.
@@ -219,17 +220,15 @@ const extractAssistantText = (message: ClaudeCliMessage): string | undefined => 
   return turnText || undefined;
 };
 
-import type { StageProgressCallback, AgentStageName } from '../../shared/types/agent.types';
-
 export type { StageProgressCallback, AgentStageName } from '../../shared/types/agent.types';
 
 export type AgentChatSession = {
-  provider: 'anthropic' | 'openai';
-  backend?: 'agent' | 'cli';
-  sessionId?: string;
-  runState?: unknown;
   agent?: unknown;
+  backend?: 'agent' | 'cli';
+  provider: 'anthropic' | 'openai';
+  runState?: unknown;
   runner?: unknown;
+  sessionId?: string;
 };
 
 type OpenAiStageContext = {
@@ -237,21 +236,21 @@ type OpenAiStageContext = {
 };
 
 type StagePromptParams = {
-  stage: AgentStageName;
-  prompt: string;
-  systemPrompt: string;
-  repoDir?: string;
   onProgress?: StageProgressCallback;
   priorStageSummary?: string;
+  prompt: string;
+  repoDir?: string;
   resumeProviderSessionId?: string;
+  stage: AgentStageName;
+  systemPrompt: string;
 };
 
 type ChatTurnParams = {
-  stage: AgentStageName;
-  userMessage: string;
-  systemPrompt: string;
   repoDir?: string;
   session?: AgentChatSession;
+  stage: AgentStageName;
+  systemPrompt: string;
+  userMessage: string;
 };
 
 const resolveStagePromptRepoExample = (repositories?: string[]): string => {
@@ -264,15 +263,15 @@ const isReadOnlyCommand = (command: string): boolean =>
 
 type GeneratePlanParams = {
   action: 'fix' | 'feature' | 'investigate';
-  issueContent: string;
-  ticketKey?: string;
   affectedRepositories?: string[];
-  planQualityFeedback?: string[];
-  testInfra?: TestInfraContext;
   conventions?: RepoConventionsContext;
-  priorPlans?: PriorPlanContext;
-  planCorrelation?: PlanCorrelationResult;
   crossRepoPatterns?: CrossRepoContext;
+  issueContent: string;
+  planCorrelation?: PlanCorrelationResult;
+  planQualityFeedback?: string[];
+  priorPlans?: PriorPlanContext;
+  testInfra?: TestInfraContext;
+  ticketKey?: string;
 };
 
 /**
@@ -456,15 +455,15 @@ const PLAN_MINIMAL_CHANGE_INSTRUCTIONS = `Minimal-change principles — apply to
 
 type PlanPromptBodyOpts = {
   action: string;
-  issueContent: string;
-  ticketKey?: string;
   affectedRepositories?: string[];
+  discoveryBlock: string;
+  issueContent: string;
   repoExample: string;
   retryFeedbackBlock: string;
-  discoveryBlock: string;
-  testInfraSection: string;
-  testConventionsBlock: string;
   shellSafetyBlock: string;
+  testConventionsBlock: string;
+  testInfraSection: string;
+  ticketKey?: string;
 };
 
 /**
@@ -609,8 +608,8 @@ ${REVIEW_JSON_SCHEMA}`;
 const derivePlanSource = (provider: string, model: string): string => {
   const prefixMap: Record<string, string> = {
     anthropic: 'claude-',
-    google: 'gemini-',
     deepseek: 'deepseek-',
+    google: 'gemini-',
     openai: 'gpt-',
   };
   const prefix = prefixMap[provider] ?? '';
@@ -648,10 +647,10 @@ const resolveEffectiveSystemPrompt = (systemPrompt: string, allowInspection: boo
  * @returns sandbox configuration object for the Anthropic agent SDK
  */
 const buildAnthropicSandboxConfig = (repoDir: string, allowInspection: boolean) => ({
-  enabled: true,
-  failIfUnavailable: true,
   allowUnsandboxedCommands: false,
   autoAllowBashIfSandboxed: true,
+  enabled: true,
+  failIfUnavailable: true,
   filesystem: {
     allowRead: allowInspection ? [repoDir] : [],
     allowWrite: [],
@@ -668,15 +667,15 @@ const buildPriorStagePreamble = (priorStageSummary?: string): string => {
 };
 
 type AnthropicStageOpts = {
-  prompt: string;
-  model: string;
-  apiKey: string;
-  resolvedRepoDir: string;
   allowInspection: boolean;
-  systemPrompt: string;
-  priorStageSummary?: string;
   anthropicContext: string;
+  apiKey: string;
+  model: string;
+  priorStageSummary?: string;
+  prompt: string;
+  resolvedRepoDir: string;
   resumeProviderSessionId?: string;
+  systemPrompt: string;
 };
 
 /**
@@ -691,12 +690,12 @@ type AnthropicStageOpts = {
 const buildAnthropicBaseOptions = (opts: AnthropicStageOpts, systemAppend: string) => {
   const tools = opts.allowInspection ? [...ANTHROPIC_STAGE_TOOLS] : [];
   return {
-    cwd: opts.resolvedRepoDir, model: opts.model, tools, allowedTools: tools,
-    permissionMode: 'acceptEdits' as const,
-    systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const, append: systemAppend },
     canUseTool: anthropicReadOnlyToolGuard,
+    cwd: opts.resolvedRepoDir, model: opts.model, tools, allowedTools: tools,
     env: { ...process.env, ANTHROPIC_API_KEY: opts.apiKey },
+    permissionMode: 'acceptEdits' as const,
     sandbox: buildAnthropicSandboxConfig(opts.resolvedRepoDir, opts.allowInspection),
+    systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const, append: systemAppend },
   };
 };
 
@@ -772,12 +771,12 @@ const extractCliResultContent = (
 };
 
 type CliPassAccumulator = {
+  diagnostics: string[];
+  lastAssistantText: string;
   result: string;
+  sessionId: string | undefined;
   source: CliPassResult['source'];
   stopReason: string | undefined;
-  sessionId: string | undefined;
-  lastAssistantText: string;
-  diagnostics: string[];
 };
 
 /**
@@ -874,14 +873,14 @@ const checkCliStallCondition = (stalledPasses: number, passNumber: number, lastD
 };
 
 type AnthropicChatOpts = {
-  prompt: string;
-  model: string;
-  apiKey: string;
-  resolvedRepoDir: string;
   allowInspection: boolean;
-  systemPrompt: string;
   anthropicContext: string;
+  apiKey: string;
+  model: string;
+  prompt: string;
+  resolvedRepoDir: string;
   resumeSessionId?: string;
+  systemPrompt: string;
 };
 
 /**
@@ -1562,10 +1561,9 @@ export class StageAgentService {
    */
   private async sendCodexEpilogue(sessionId: string, repoDir: string, model: string): Promise<void> {
     const args = buildCodexCliArgs({ prompt: CLI_EPILOGUE_PROMPT, sessionId, model, cwd: repoDir });
-    const timeoutMs = CLI_REVIEW_EPILOGUE_TIMEOUT_MS;
-    for await (const _msg of spawnCodex(args, repoDir, CLI_EPILOGUE_PROMPT, undefined, timeoutMs)) {
-      void _msg;
-    }
+    const stream = spawnCodex(args, repoDir, CLI_EPILOGUE_PROMPT, undefined, CLI_REVIEW_EPILOGUE_TIMEOUT_MS);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _ of stream) { /* drain */ }
   }
 
   /**
@@ -1587,9 +1585,9 @@ export class StageAgentService {
       model, sessionId, cwd: repoDir, permissionMode: 'plan',
       tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [], jsonSchema: undefined,
     });
-    for await (const _msg of spawnCli(args, repoDir, CLI_EPILOGUE_PROMPT, undefined, CLI_REVIEW_EPILOGUE_TIMEOUT_MS)) {
-      void _msg;
-    }
+    const stream = spawnCli(args, repoDir, CLI_EPILOGUE_PROMPT, undefined, CLI_REVIEW_EPILOGUE_TIMEOUT_MS);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _ of stream) { /* drain */ }
   }
 
   private async cliChatTurn(params: ChatTurnParams): Promise<{ content: string; session: AgentChatSession }> {

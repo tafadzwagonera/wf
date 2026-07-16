@@ -16,13 +16,13 @@ import {
 import type { StreamedRunResult, RunState } from '@openai/agents';
 import { OpenAIResponsesCompactionSession } from '@openai/agents-openai';
 import chalk from 'chalk';
-import * as fs from 'fs/promises';
-import { exec } from 'child_process';
+import * as fs from 'node:fs/promises';
+import { exec } from 'node:child_process';
 import { glob } from 'glob';
 import OpenAI from 'openai';
-import * as os from 'os';
-import * as path from 'path';
-import { promisify } from 'util';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { promisify } from 'node:util';
 import { z } from 'zod';
 import type {
   TicketArtifact,
@@ -62,9 +62,7 @@ const STATE_PRUNING_TOKEN_CEILING = 120_000;
 const STATE_PRUNING_KEEP_TAIL_ITEMS = 20;
 const MAX_CONSECUTIVE_RATE_LIMIT_RETRIES = 5;
 
-const shellEscape = (value: string): string => `'${value.replace(/'/g, '\'\\\'\'')}'`;
-
-// ── Types ──────────────────────────────────────────────────────────────────
+const shellEscape = (value: string): string => "'" + value.replaceAll("'", String.raw`'\''`) + "'";
 
 type WorkspaceRoot = { name: string; root: string };
 
@@ -146,8 +144,6 @@ type GenerateAndVerifyParams = {
   repoName: string;
   trackedFilePaths: string[];
 };
-
-// ── State pruning ──────────────────────────────────────────────────────────
 
 /**
  * Finds a safe prune cut index that avoids orphaning reasoning/function_call pairs.
@@ -238,8 +234,6 @@ const truncateOutput = (output: string, maxLines: number): string => {
   const kept = lines.slice(-maxLines);
   return `[... ${lines.length - maxLines} lines truncated — showing last ${maxLines} lines ...]\n${kept.join('\n')}`;
 };
-
-// ── Workspace roots ────────────────────────────────────────────────────────
 
 /**
  * Deduplicates workspace roots by composite key.
@@ -354,8 +348,6 @@ const getToolContext = (runContext: RunContext<unknown> | undefined): OpenAiImpl
   return ctx;
 };
 
-// ── Usage extraction ───────────────────────────────────────────────────────
-
 /**
  * Parses usage fields from a response_done response object.
  *
@@ -396,8 +388,6 @@ export const extractUsageFromEvent = (event: unknown): OpenAiUsageSummary | null
   const response = extractResponseDone(event);
   return response ? parseResponseUsage(response) : null;
 };
-
-// ── Error classification ───────────────────────────────────────────────────
 
 /**
  * Classifies an HTTP status code error.
@@ -472,27 +462,25 @@ export const classifyAgentError = (error: unknown): AgentClassification => {
 export const parseRetryDelayMs = (error: unknown): number => {
   const DEFAULT_DELAY_MS = 30_000;
   if (!(error instanceof Error)) return DEFAULT_DELAY_MS;
-  const match = error.message.match(/try again in (\d+(?:\.\d+)?)\s*(ms|s|seconds?)?/i);
+  const match = new RegExp(/try again in (\d+(?:\.\d+)?)\s*(ms|s|seconds?)?/i).exec(error.message);
   if (!match) return DEFAULT_DELAY_MS;
-  const value = parseFloat(match[1]);
+  const value = Number.parseFloat(match[1]);
   if (Number.isNaN(value) || value <= 0) return DEFAULT_DELAY_MS;
   const unit = (match[2] ?? 's').toLowerCase();
   return unit === 'ms' ? Math.ceil(value) : Math.ceil(value * 1000);
 };
 
-// ── Cost estimation ────────────────────────────────────────────────────────
-
 type OpenAiModelPricing = { inputPerMToken: number; cachedInputPerMToken: number; outputPerMToken: number };
 
 const OPENAI_PRICING: Record<string, OpenAiModelPricing> = {
-  'gpt-4.1': { inputPerMToken: 2.0, cachedInputPerMToken: 0.5, outputPerMToken: 8.0 },
+  'gpt-4.1': { inputPerMToken: 2, cachedInputPerMToken: 0.5, outputPerMToken: 8 },
   'gpt-4.1-mini': { inputPerMToken: 0.4, cachedInputPerMToken: 0.1, outputPerMToken: 1.6 },
   'gpt-4.1-nano': { inputPerMToken: 0.1, cachedInputPerMToken: 0.025, outputPerMToken: 0.4 },
   'o4-mini': { inputPerMToken: 1.1, cachedInputPerMToken: 0.275, outputPerMToken: 4.4 },
-  'gpt-4o': { inputPerMToken: 2.5, cachedInputPerMToken: 1.25, outputPerMToken: 10.0 },
+  'gpt-4o': { inputPerMToken: 2.5, cachedInputPerMToken: 1.25, outputPerMToken: 10 },
   'gpt-4o-mini': { inputPerMToken: 0.15, cachedInputPerMToken: 0.075, outputPerMToken: 0.6 },
-  'gpt-5-mini': { inputPerMToken: 1.0, cachedInputPerMToken: 0.25, outputPerMToken: 4.0 },
-  'gpt-5.1-codex-mini': { inputPerMToken: 0.5, cachedInputPerMToken: 0.125, outputPerMToken: 2.0 },
+  'gpt-5-mini': { inputPerMToken: 1, cachedInputPerMToken: 0.25, outputPerMToken: 4 },
+  'gpt-5.1-codex-mini': { inputPerMToken: 0.5, cachedInputPerMToken: 0.125, outputPerMToken: 2 },
 };
 
 /**
@@ -514,8 +502,6 @@ export const estimateOpenAiCostUsd = (
     + (cachedInputTokens / 1_000_000) * pricing.cachedInputPerMToken
     + (outputTokens / 1_000_000) * pricing.outputPerMToken;
 };
-
-// ── TypeScript validation ──────────────────────────────────────────────────
 
 /**
  * Checks a class declaration for duplicate constructor bodies.
@@ -593,8 +579,6 @@ export const validateTypeScriptEdit = (filePath: string, content: string): strin
   }
   return visitTsNode(sf, ts);
 };
-
-// ── System prompt ──────────────────────────────────────────────────────────
 
 const AVAILABLE_TOOLS_BLOCK = `Available tools:
 - read_file(path, offset?, limit?): read a file with optional line range (default: first ${MAX_READ_LINES} lines)
@@ -705,8 +689,6 @@ const buildSystemPrompt = (p: SystemPromptParams): string => {
   return `${plan}\n\n${AVAILABLE_TOOLS_BLOCK}\n\n${rules}\n\n${SUMMARY_TEMPLATE}\n\n${risks}\n\nTicket context:\n${p.ticketContext}`;
 };
 
-// ── Usage accumulation ─────────────────────────────────────────────────────
-
 /**
  * Accumulates raw token counts into a running summary.
  *
@@ -745,8 +727,6 @@ const accumulateUsage = (p: AccumulateUsageParams): number => {
   }
   return observed;
 };
-
-// ── Progress formatting ────────────────────────────────────────────────────
 
 /**
  * Formats a response_done event into a progress message.
@@ -862,8 +842,6 @@ const formatSummarySection = (title: string, filePaths: string[], label: string)
   return [`  ${title}:`, ...filePaths.map(fp => `    - ${label}: ${fp}`)];
 };
 
-// ── Tool execute functions ─────────────────────────────────────────────────
-
 /**
  * Builds a JSON result for a read_file operation.
  *
@@ -899,7 +877,7 @@ const executeReadFile = async (
   const ctx = getToolContext(runContext);
   const abs = resolveReadablePath(input.path, ctx);
   const content = await fs.readFile(abs, 'utf-8');
-  const offset = input.offset > 0 ? input.offset : 0;
+  const offset = Math.max(input.offset, 0);
   const limit = input.limit > 0 ? input.limit : MAX_READ_LINES;
   return buildReadFileResult(path.relative(ctx.repoDir, abs), content.split('\n'), offset, limit);
 };
@@ -957,10 +935,9 @@ const executeWriteFile = async (
 /**
  * Executes the delete_file tool.
  *
- * @param input - Tool input
- * @param runContext - OpenAI agent run context
- * @param mutable - Shared mutable state
  * @returns JSON string
+ * @param repoDir
+ * @param abs
  */
 const buildMissingFileResult = (repoDir: string, abs: string): string =>
   JSON.stringify({ path: path.relative(repoDir, abs), status: 'missing', message: 'File does not exist.' }, null, 2);
@@ -976,8 +953,6 @@ const executeDeleteFile = async (
   recordFileChange(rel, 'deleted', mutable);
   return JSON.stringify({ path: rel, status: 'deleted' });
 };
-
-// ── Verification tool helpers ──────────────────────────────────────────────
 
 /**
  * Builds a verification snapshot and progress signal.
@@ -1126,8 +1101,6 @@ const executeVerifyCommand = async (
   return runVerificationCommand(command, ctx, vs);
 };
 
-// ── Search/find tool helpers ───────────────────────────────────────────────
-
 /**
  * Parses a single grep output line into a match object.
  *
@@ -1143,7 +1116,7 @@ const parseGrepLine = (
   if (c1 === -1 || c2 === -1) return { file: line, line: 0, content: '' };
   return {
     file: path.relative(repoDir, line.slice(0, c1)),
-    line: parseInt(line.slice(c1 + 1, c2), 10),
+    line: Number.parseInt(line.slice(c1 + 1, c2), 10),
     content: line.slice(c2 + 1).slice(0, MAX_GREP_LINE_LENGTH),
   };
 };
@@ -1243,8 +1216,6 @@ const executeFindFiles = async (
   return JSON.stringify({ pattern: input.pattern, files, truncated });
 };
 
-// ── Edit tool helpers ──────────────────────────────────────────────────────
-
 /**
  * Builds a code context snippet around a specific line.
  *
@@ -1273,7 +1244,8 @@ const recordValidationFailure = (
   content: string, rel: string, valErr: string, line: number | undefined, failures: ValidationFailure[]
 ): string => {
   failures.push({ path: rel, error: valErr, line });
-  console.log(chalk.yellow(`  [openai-agent] Edit validation failed: ${rel}${line ? `:${line}` : ''}`));
+  const location = line ? rel + ':' + line : rel;
+  console.log(chalk.yellow('  [openai-agent] Edit validation failed: ' + location));
   if (!line) return JSON.stringify({ error: valErr });
   return JSON.stringify({
     error: valErr,
@@ -1371,8 +1343,6 @@ const executeEditFile = async (
   return applyValidEdit(abs, updated, rel, mutable);
 };
 
-// ── Tool factory functions ─────────────────────────────────────────────────
-
 /**
  * Creates the read_file tool.
  *
@@ -1463,8 +1433,6 @@ const createEditFileTool = (m: ToolMutableState) => tool({
   parameters: z.object({ path: z.string().min(1), old_string: z.string().min(1), new_string: z.string() }),
   execute: (input, ctx) => executeEditFile(input, ctx, m),
 });
-
-// ── Stream loop helpers ────────────────────────────────────────────────────
 
 /**
  * Processes events from a streamed run segment.
@@ -1604,8 +1572,6 @@ const throwOnRunError = (
   throwAgentError(classifyAgentError(run.error), label);
 };
 
-// ── Completion logging ─────────────────────────────────────────────────────
-
 /**
  * Logs token usage and estimated cost.
  *
@@ -1628,9 +1594,9 @@ const logUsageSummary = (summary: OpenAiUsageSummary, model: string): void => {
 const logFinalOutput = (finalOutput: string): void => {
   if (!finalOutput) return;
   console.log(chalk.bold('\n  Summary:'));
-  finalOutput.split('\n').forEach(line => {
+  for (const line of finalOutput.split('\n')) {
     if (line.trim()) console.log(chalk.cyan(`    ${line}`));
-  });
+  }
 };
 
 /**
@@ -1651,8 +1617,6 @@ const logCompletion = (
   console.log(chalk.green('\n✓ OpenAI agent implementation complete'));
   logFinalOutput(typeof run.finalOutput === 'string' ? run.finalOutput.trim() : '');
 };
-
-// ── Continuation loop ──────────────────────────────────────────────────────
 
 /**
  * Computes the current incomplete workload.
@@ -1684,7 +1648,10 @@ const formatUniqueFailures = (failures: ValidationFailure[]): string => {
     const key = `${f.path}:${f.error}`;
     if (!unique.has(key)) unique.set(key, f);
   }
-  return [...unique.values()].map(f => `- ${f.path}${f.line ? `:${f.line}` : ''} — ${f.error}`).join('\n');
+  return [...unique.values()].map(f => {
+    const location = f.line ? f.path + ':' + f.line : f.path;
+    return '- ' + location + ' — ' + f.error;
+  }).join('\n');
 };
 
 /**
@@ -1700,10 +1667,10 @@ const buildIncompleteWorkSections = (
 ): string[] => {
   const sections: string[] = [];
   if (failureCount > 0) {
-    sections.push(`Structural edit failures (read each file, then merge changes correctly):\n${formatUniqueFailures(failures)}`);
+    sections.push('Structural edit failures (read each file, then merge changes correctly):\n' + formatUniqueFailures(failures));
   }
   if (unvisited.length > 0) {
-    sections.push(`Planned files not yet modified:\n${unvisited.map(f => `- ${f}`).join('\n')}`);
+    sections.push('Planned files not yet modified:\n' + unvisited.map(f => '- ' + f).join('\n'));
   }
   return sections;
 };
@@ -1843,7 +1810,6 @@ const shouldStopContinuation = (
   if (state.stalled < 2) return false;
   logStalledWorkload(wl.unvisited, wl.failureCount);
   return true;
-  return false;
 };
 
 /**
@@ -1863,8 +1829,6 @@ const runContinuationLoop = async (p: ContinuationLoopParams): Promise<void> => 
   }
 };
 
-// ── File summary logging ───────────────────────────────────────────────────
-
 /**
  * Collects file paths by status.
  *
@@ -1873,7 +1837,7 @@ const runContinuationLoop = async (p: ContinuationLoopParams): Promise<void> => 
  * @returns Sorted list of paths
  */
 const collectSummaryPaths = (map: Map<string, string>, status: string): string[] =>
-  [...map.entries()].filter(([, s]) => s === status).map(([p]) => p).sort();
+  [...map.entries()].filter(([, s]) => s === status).map(([p]) => p).sort((a, b) => a.localeCompare(b));
 
 /**
  * Logs the file change summary.
@@ -1898,7 +1862,7 @@ const logFileSummary = (status: Map<string, string>, scripts: VerificationScript
   const lines = buildFileSummaryLines(status);
   if (lines.length > 0) {
     console.log(chalk.bold('\n  File summary:'));
-    lines.forEach(l => console.log(chalk.cyan(l)));
+    for (const l of lines) console.log(chalk.cyan(l));
   } else {
     console.log(chalk.gray('\n  File summary: no file changes were made.'));
   }
@@ -1906,8 +1870,6 @@ const logFileSummary = (status: Map<string, string>, scripts: VerificationScript
     console.log(chalk.gray(`  Verification whitelist respected: ${[...allowed].join(', ') || '(none)'}`));
   }
 };
-
-// ── Agent construction helpers ─────────────────────────────────────────────
 
 /**
  * Builds the prior-stage preamble if available.
@@ -1982,6 +1944,7 @@ const createAllTools = (mutable: ToolMutableState, vs: VerifyCommandState) => [
  *
  * @param configService - NestJS config service
  * @param modelRouting - Routing override
+ * @param plan
  * @returns Resolved model name and log message
  */
 const resolveModel = (
@@ -2051,15 +2014,13 @@ const buildCompactionSession = (
   });
 };
 
-// ── Main adapter class ─────────────────────────────────────────────────────
-
 /**
  * OpenAI Agents SDK-backed implementer backend.
  * The SDK drives the edit loop while this adapter owns the filesystem
  * and verification boundaries.
  */
 export class OpenAIAgentAdapter implements ImplementerBackend {
-  constructor(private configService: ConfigService) {}
+  constructor(private readonly configService: ConfigService) {}
 
   /**
    * Generates code changes and verifies them using a host-controlled tool set.
@@ -2115,6 +2076,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
    * Initializes provider, client, and model routing.
    *
    * @param options - Implementer options
+   * @param plan
    * @returns Provider components
    */
   private initProvider(options: ImplementerOptions, plan?: ResolutionPlan) {

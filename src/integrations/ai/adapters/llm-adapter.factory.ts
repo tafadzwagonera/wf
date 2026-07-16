@@ -52,13 +52,12 @@ export const LlmAdapterFactory = {
   provide: LLM_ADAPTER,
   useFactory: (
     configService: ConfigService,
-    logger: LoggerService,
+    _logger: LoggerService,
     anthropicAdapter: AnthropicAdapter,
     openaiAdapter: OpenAIAdapter,
     geminiAdapter: GeminiAdapter,
     deepseekAdapter: DeepSeekAdapter
   ): LlmAdapter => {
-    void logger;
     return buildRoutingAdapter({ configService, anthropicAdapter, openaiAdapter, geminiAdapter, deepseekAdapter });
   },
   inject: [ConfigService, LoggerService, AnthropicAdapter, OpenAIAdapter, GeminiAdapter, DeepSeekAdapter],

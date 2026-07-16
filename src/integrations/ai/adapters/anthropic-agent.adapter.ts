@@ -5,9 +5,10 @@ import {
   type SDKResultMessage,
   type Settings,
   type SettingSource,
+  SDKMessage
 } from '@anthropic-ai/claude-agent-sdk';
 import chalk from 'chalk';
-import * as path from 'path';
+import * as path from 'node:path';
 import type {
   TicketArtifact,
   PlanArtifact,
@@ -16,7 +17,6 @@ import type {
   VerificationScript,
 } from '../../../agents/interfaces';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
-import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import {
   resolveModelRouting,
   normalizeCommand,
@@ -178,17 +178,17 @@ export const formatProgressMessage = (message: SDKMessage, label: string = ANTHR
 };
 
 const extractVerificationCommand = (summary: string, fallbackCommand?: string): string => {
-  const backtickMatch = summary.match(/`([^`]+)`/);
+  const backtickMatch = new RegExp(/`([^`]+)`/).exec(summary);
   if (backtickMatch?.[1]) {
     return backtickMatch[1].trim();
   }
 
-  const quoteMatch = summary.match(/["']([^"']+)["']/);
+  const quoteMatch = new RegExp(/["']([^"']+)["']/).exec(summary);
   if (quoteMatch?.[1]) {
     return quoteMatch[1].trim();
   }
 
-  const ranMatch = summary.match(/(?:ran|run|executed)\s+([a-z0-9:_./@=-]+(?:\s+[a-z0-9:_./@=-]+)*)/i);
+  const ranMatch = new RegExp(/(?:ran|run|executed)\s+([a-z0-9:_./@=-]+(?:\s+[a-z0-9:_./@=-]+)*)/i).exec(summary);
   if (ranMatch?.[1]) {
     return ranMatch[1].trim().replace(/[.]+$/, '');
   }
@@ -505,7 +505,7 @@ const handleSdkMessage = (
 ): SDKResultMessage | undefined => {
   if (logProgressMessage(message)) return undefined;
   collectPersistedFiles(message, repoDir, touchedFiles);
-  formatActivityMessages(message, repoDir, activityState).forEach(m => console.log(chalk.cyan(m)));
+  for (const m of formatActivityMessages(message, repoDir, activityState)) console.log(chalk.cyan(m));
   return message.type === 'result' ? message : undefined;
 };
 
@@ -552,7 +552,7 @@ const runSdkSession = async (
 const logSdkUsage = (result: SDKResultMessage): void => {
   const usage = result.usage;
   if (usage) {
-    const cachedLabel = usage.cache_read_input_tokens != null ? ` (${usage.cache_read_input_tokens} cached)` : '';
+    const cachedLabel = usage.cache_read_input_tokens == null ? '' : ` (${usage.cache_read_input_tokens} cached)`;
     console.log(chalk.cyan(`  [${ANTHROPIC_AGENT_LABEL}] Usage: ${usage.input_tokens} input${cachedLabel} / ${usage.output_tokens} output tokens`));
   }
   if (result.total_cost_usd > 0) {
@@ -570,13 +570,13 @@ const logSdkSummaryAndFiles = (result: SDKResultMessage, touchedFiles: Set<strin
   const summary = result.subtype === 'success' ? result.result.trim() : '';
   if (summary) {
     console.log(chalk.bold('\n  Summary:'));
-    summary.split('\n').forEach(line => {
+    for (const line of summary.split('\n')) {
       if (line.trim()) console.log(chalk.cyan(`    ${line}`));
-    });
+    }
   }
   if (touchedFiles.size > 0) {
     console.log(chalk.bold('\n  File summary:'));
-    [...touchedFiles].sort().forEach(f => console.log(chalk.cyan(`    - updated: ${f}`)));
+    for (const f of [...touchedFiles].sort((a, b) => a.localeCompare(b))) console.log(chalk.cyan(`    - updated: ${f}`));
   } else {
     console.log(chalk.gray('\n  File summary: no file changes were made.'));
   }

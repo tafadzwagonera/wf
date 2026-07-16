@@ -1,8 +1,8 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
-import * as os from 'os';
-import * as path from 'path';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { AIConversationRequest, AIRequest, AIResponse } from '../ai.service';
 import type { LlmAdapter } from '../llm-adapter.interface';
 import { AIError } from '../../../shared/utils/errors';
@@ -128,13 +128,13 @@ const callMessages = async (
 export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
   private client?: Anthropic;
   private model = DEFAULT_MODEL;
-  private maxTokens = 4096;
+  private readonly maxTokens = 4096;
   private contextConfig = '';
   private didWarnMissingConfig = false;
 
   constructor(
-    private configService: ConfigService,
-    private logger: LoggerService
+    private readonly configService: ConfigService,
+    private readonly logger: LoggerService
   ) {}
 
   async onModuleInit(): Promise<void> {

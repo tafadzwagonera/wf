@@ -48,7 +48,7 @@ const DEFAULT_FINDINGS_MAX_TOKENS = 16384 as const;
 const DEFAULT_REVIEW_MAX_TOKENS = 16384 as const;
 
 /**
- * Strips a single wrapping markdown code fence from LLM output.
+ * Strips a single wrapping Markdown code fence from LLM output.
  * Handles ```typescript, ```ts, ```js, ```json, and plain ``` fences.
  * When the model adds preamble or trailing text around the fence, the first
  * embedded fence block is extracted instead.
@@ -56,10 +56,10 @@ const DEFAULT_REVIEW_MAX_TOKENS = 16384 as const;
  * @returns File content without the outermost code fence, or the original string if none is present
  */
 export const stripCodeFences = (content: string): string => {
-  const exactMatch = /^```[\w]*\n?([\s\S]*?)```\s*$/.exec(content);
+  const exactMatch = /^```\w*\n?([\s\S]*?)```\s*$/.exec(content);
   if (exactMatch) return exactMatch[1];
 
-  const embeddedMatch = /```[\w]*\n([\s\S]*?)```/.exec(content);
+  const embeddedMatch = /```\w*\n([\s\S]*?)```/.exec(content);
   if (embeddedMatch) return embeddedMatch[1];
 
   return content;
@@ -363,10 +363,6 @@ export const requireAiResponseContent = (response: ResponseContentDiagnostics, m
  */
 export const normalizeFileEntries = (raw: (string | FileEntry)[]): FileEntry[] =>
   raw.map(entry => (typeof entry === 'string' ? { filePath: entry, status: 'found' as const } : entry));
-
-// ---------------------------------------------------------------------------
-// Plan prompt helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Collect non-empty discovery prompt sections for the given context.
@@ -715,10 +711,6 @@ const throwIfTruncated = (response: AIResponse, stage: string): void => {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Review prompt helpers
-// ---------------------------------------------------------------------------
-
 const PLAN_SYSTEM_PROMPT = `You are an expert software engineer creating detailed resolution plans.
 Your task is to analyze the issue and create a structured plan with clear, actionable steps.
 Return your response as a JSON object matching the ResolutionPlan interface.`;
@@ -837,10 +829,6 @@ const retryOnBlankResponse = async (executeFn: () => Promise<AIResponse>, maxRet
   return response;
 };
 
-// ---------------------------------------------------------------------------
-// Findings prompt helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Build the findings prompt from an investigation plan.
  * @param plan The investigation plan to summarize
@@ -861,10 +849,6 @@ Return ONLY a valid JSON object:
   "recommendations": ["recommendation 1", ...],
   "conclusion": "Overall conclusion and suggested next steps"
 }`;
-
-// ---------------------------------------------------------------------------
-// Commit prompt helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Resolve the commit format instructions string for the given format.
@@ -899,10 +883,6 @@ const buildCommitPrompt = (
   const styleRule = detectedFormat === 'conventional' ? 'Follows conventional commits format' : 'Follows the existing commit message style';
   return `\n${ticketContextSection}Git Diff:\n\`\`\`\n${diffSection}\n\`\`\`\n\nRecent Commit History:\n${commitHistory.slice(0, 5).join('\n')}\n\n${formatInstructions}\n\nGenerate a commit message that:\n1. Reflects the ticket's intent, not just the code change pattern\n2. Follows the repository's commit message style\n3. Is concise but informative\n4. ${styleRule}\n\nDo NOT include ticket IDs, issue keys, or project codes in your message (e.g. WBP-1234, TAD-575). The ticket prefix is added automatically.\nReturn ONLY the commit message description, nothing else.`;
 };
-
-// ---------------------------------------------------------------------------
-// Stage override helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Read the provider value for a stage from config, trying both key locations.

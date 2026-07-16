@@ -2,24 +2,24 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { CreateTicketRequest, JiraTicket, UpdateTicketRequest, JiraSearchRequest } from './dto/jira.dto';
+import { CreateTicketRequest, JiraSearchRequest, JiraTicket, UpdateTicketRequest } from './dto/jira.dto';
 import { JiraApiError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { IssueTrackerConfigService } from '../issue-trackers/issue-tracker-config.service';
 import { stripInlineMarkdownDelimiters } from '../../common/utils/markdown-text';
 
 const DEFAULT_SEARCH_FIELDS = [
-  'summary',
-  'description',
-  'status',
-  'issuetype',
-  'priority',
   'assignee',
-  'reporter',
-  'created',
-  'updated',
-  'labels',
   'components',
+  'created',
+  'description',
+  'issuetype',
+  'labels',
+  'priority',
+  'reporter',
+  'status',
+  'summary',
+  'updated',
 ] as const;
 
 /**
@@ -31,13 +31,13 @@ const DEFAULT_SEARCH_FIELDS = [
  */
 const normalizeMarkdownForADF = (markdown: string): string =>
   markdown
-    .replace(/\{code(?::([^}\n]+))?\}([\s\S]*?)\{code\}/g, (_match, language: string | undefined, code: string) => {
+    .replaceAll(/\{code(?::([^}\n]+))?}([\s\S]*?)\{code}/g, (_match, language: string | undefined, code: string) => {
       const lang = language?.trim() ?? '';
       return `\`\`\`${lang}\n${code.trim()}\n\`\`\``;
     })
-    .replace(/\{noformat\}([\s\S]*?)\{noformat\}/g, (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``)
-    .replace(/^[ \t]*\*\s+/gm, '- ')
-    .replace(/\{\{([^}]+)\}\}/g, (_match, content: string) => `\`${content}\``);
+    .replaceAll(/\{noformat}([\s\S]*?)\{noformat}/g, (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``)
+    .replaceAll(/^[ \t]*\*\s+/gm, '- ')
+    .replaceAll(/\{\{([^}]+)}}/g, (_match, content: string) => `\`${content}\``);
 
 /**
  * Convert Jira wiki markup patterns embedded in ADF text content into
@@ -48,17 +48,17 @@ const normalizeMarkdownForADF = (markdown: string): string =>
  */
 const normalizeWikiMarkupInMarkdown = (text: string): string =>
   text
-    .replace(/\{code(?::([^}\n]+))?\}([\s\S]*?)\{code\}/g, (_match, language: string | undefined, code: string) => {
+    .replaceAll(/\{code(?::([^}\n]+))?}([\s\S]*?)\{code}/g, (_match, language: string | undefined, code: string) => {
       const lang = language?.trim() ?? '';
       return `\`\`\`${lang}\n${code.trim()}\n\`\`\``;
     })
-    .replace(/\{noformat\}([\s\S]*?)\{noformat\}/g, (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``)
-    .replace(/\{\{([^}]+)\}\}/g, (_match, content: string) => `\`${content}\``)
-    .replace(/^(# .+(?:\n# .+)+)$/gm, block => {
+    .replaceAll(/\{noformat}([\s\S]*?)\{noformat}/g, (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``)
+    .replaceAll(/\{\{([^}]+)}}/g, (_match, content: string) => `\`${content}\``)
+    .replaceAll(/^(# .+(?:\n# .+)+)$/gm, block => {
       const items = block.split('\n');
       return items.map((line, i) => `${i + 1}. ${line.replace(/^#\s+/, '')}`).join('\n');
     })
-    .replace(/^\*\s+/gm, '- ');
+    .replaceAll(/^\*\s+/gm, '- ');
 
 /**
  * Map an HTTP status code to a domain-specific Jira API error.
@@ -279,10 +279,10 @@ export class JiraService {
   private defaultProject?: string;
 
   constructor(
-    private configService: ConfigService,
-    private httpService: HttpService,
-    private logger: LoggerService,
-    private issueTrackerConfig: IssueTrackerConfigService
+    private readonly configService: ConfigService,
+    private readonly httpService: HttpService,
+    private readonly logger: LoggerService,
+    private readonly issueTrackerConfig: IssueTrackerConfigService
   ) {
     this.loadAtlassianConfig();
   }
@@ -424,14 +424,11 @@ export class JiraService {
       return [];
     }
 
-    return issueTypes.filter((issueType): issueType is JiraCreateIssueType =>
-      Boolean(
-        issueType
-        && typeof issueType === 'object'
-        && typeof (issueType as JiraCreateIssueType).id === 'string'
-        && typeof (issueType as JiraCreateIssueType).name === 'string'
-      )
-    );
+    return issueTypes.filter((issueType): issueType is JiraCreateIssueType => {
+      if (!issueType || typeof issueType !== 'object') return false;
+      const { id, name } = issueType as JiraCreateIssueType;
+      return typeof id === 'string' && typeof name === 'string';
+    });
   }
 
   /**
@@ -461,8 +458,7 @@ export class JiraService {
 
     const createField = field;
     const fieldKey = createField.key ?? createField.fieldId;
-    const isPriority = fieldKey === 'priority' || createField.name?.toLowerCase() === 'priority';
-    return isPriority;
+    return fieldKey === 'priority' || createField.name?.toLowerCase() === 'priority';
   }
 
   /**
@@ -493,7 +489,7 @@ export class JiraService {
     }
 
     const aliasNames = PRIORITY_ALIAS_NAMES[lowerRequestedPriority as keyof typeof PRIORITY_ALIAS_NAMES] ?? [];
-    const lowerAliasNames = new Set(aliasNames.map(aliasName => aliasName.toLowerCase()));
+    const lowerAliasNames = new Set(aliasNames.map((aliasName: string) => aliasName.toLowerCase()));
     return allowedPriorities.find(priority => lowerAliasNames.has(priority.name.toLowerCase()))?.name;
   }
 
@@ -603,7 +599,7 @@ export class JiraService {
     const project = request.project || this.defaultProject;
     if (!project) throw new JiraApiError('No project specified and no default project configured');
 
-    const priorityName = Object.prototype.hasOwnProperty.call(options, 'priorityName')
+    const priorityName = Object.hasOwn(options, 'priorityName')
       ? options.priorityName
       : request.priority;
 
@@ -939,7 +935,7 @@ export class JiraService {
       const resumed = this.skipBlankLinesIf(
         lines, index, m => m.indent === rootMatch.indent && m.listType === rootMatch.listType
       );
-      return resumed != null ? { action: 'skip', nextIndex: resumed } : { action: 'break' };
+      return resumed == null ? { action: 'break' } : { action: 'skip', nextIndex: resumed };
     }
     if (match.indent < rootMatch.indent) return { action: 'break' };
     if (match.indent > rootMatch.indent || match.listType !== rootMatch.listType) return { action: 'break' };
@@ -1027,7 +1023,7 @@ export class JiraService {
     const nested = this.matchListItem(lines[index]);
     if (!nested) {
       const resumed = this.skipBlankLinesIf(lines, index, m => m.indent > rootMatch.indent);
-      return resumed != null ? { action: 'skip', nextIndex: resumed } : { action: 'break' };
+      return resumed == null ? { action: 'break' } : { action: 'skip', nextIndex: resumed };
     }
     return nested.indent <= rootMatch.indent ? { action: 'break' } : { action: 'match', match: nested };
   }
@@ -1110,7 +1106,7 @@ export class JiraService {
   }
 
   adfToMarkdown(adf: any): string {
-    if (!adf || !adf.content) return '';
+    if (!adf?.content) return '';
 
     const raw = adf.content.map((node: any) => this.processADFNode(node)).join('');
 

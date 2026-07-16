@@ -1,5 +1,5 @@
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import chalk from 'chalk';
 
 /**
@@ -11,7 +11,7 @@ import chalk from 'chalk';
  */
 const readConfigFile = async (filePath: string, label: string): Promise<string | null> => {
   const content = await fs.readFile(filePath, 'utf-8').catch(() => null);
-  return content !== null ? `## ${label}\n${content}\n\n` : null;
+  return content === null ? null : `## ${label}\n${content}\n\n`;
 };
 
 /**
