@@ -156,6 +156,8 @@ const aiStageTargetSchema = z.object({
   model: z.string().min(1).optional(),
   backend: z.enum(backendModes).optional(),
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
+  timeoutMs: z.number().int().min(1000).optional(),
+  inactivityTimeoutMs: z.number().int().min(1000).optional(),
 });
 
 const createStageSchema = z.object({
@@ -628,6 +630,8 @@ const normalizeStageTarget = ({
     model,
     backend,
     outputFormat: stageTarget.outputFormat,
+    timeoutMs: stageTarget.timeoutMs,
+    inactivityTimeoutMs: stageTarget.inactivityTimeoutMs,
   };
 };
 

@@ -13,7 +13,7 @@ import { formatProgressMessage as formatAnthropicProgressMessage } from './adapt
 import { formatProgressMessage as formatOpenAiProgressMessage } from './adapters/openai-agent.adapter';
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
-import { assertClaudeCliAvailable, buildCliArgs, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
+import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
 import {
   assertCodexCliAvailable,
   buildCodexCliArgs,
@@ -830,15 +830,21 @@ const finalizeCliPass = (acc: CliPassAccumulator): CliPassResult => {
  * @param args - CLI arguments
  * @param repoDir - repository directory
  * @param prompt - prompt text
- * @param wallClockTimeoutMs - timeout in milliseconds
+ * @param wallClockTimeoutMs - wall-clock timeout in milliseconds
+ * @param inactivityTimeoutMs - optional inactivity timeout in milliseconds; falls back to CLI_INACTIVITY_TIMEOUT_MS
  * @param onProgress - optional progress callback
  * @returns aggregated result from a single CLI pass
  */
 const processCliPassMessages = async (
-  args: string[], repoDir: string, prompt: string, wallClockTimeoutMs: number, onProgress?: StageProgressCallback
+  args: string[],
+  repoDir: string,
+  prompt: string,
+  wallClockTimeoutMs: number,
+  inactivityTimeoutMs?: number,
+  onProgress?: StageProgressCallback
 ): Promise<CliPassResult> => {
   const acc: CliPassAccumulator = { result: '', source: undefined, stopReason: undefined, sessionId: undefined, lastAssistantText: '', diagnostics: [] };
-  for await (const message of spawnCli(args, repoDir, prompt, undefined, wallClockTimeoutMs)) {
+  for await (const message of spawnCli(args, repoDir, prompt, undefined, wallClockTimeoutMs, inactivityTimeoutMs)) {
     accumulateCliMessage(acc, message, onProgress);
   }
   return finalizeCliPass(acc);
@@ -1203,6 +1209,10 @@ export class StageAgentService {
     return this.configService.get<number>(`stages.${stage}.timeoutMs`, DEFAULT_CLI_WALL_CLOCK_TIMEOUT_MS);
   }
 
+  private resolveStageInactivityTimeoutMs(stage: AgentStageName): number {
+    return this.configService.get<number>(`stages.${stage}.inactivityTimeoutMs`, CLI_INACTIVITY_TIMEOUT_MS);
+  }
+
   private async runStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     const backend = this.resolveStageBackend(params.stage);
     if (backend === 'cli') return this.dispatchCliStagePrompt(params);
@@ -1511,7 +1521,8 @@ export class StageAgentService {
       permissionMode: 'plan', sessionId: isResume ? opts.sessionId : undefined, jsonSchema: opts.jsonSchema,
     });
     const timeoutMs = this.resolveStageTimeoutMs(opts.stage);
-    return processCliPassMessages(args, opts.resolvedRepoDir, prompt, timeoutMs, opts.onProgress);
+    const inactivityTimeoutMs = this.resolveStageInactivityTimeoutMs(opts.stage);
+    return processCliPassMessages(args, opts.resolvedRepoDir, prompt, timeoutMs, inactivityTimeoutMs, opts.onProgress);
   }
 
   private async runCodexCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
@@ -1630,6 +1641,7 @@ export class StageAgentService {
       sessionId: isResume ? opts.sessionId : opts.initialSessionId,
       tools: opts.allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [], permissionMode: 'plan',
     });
-    return processCliPassMessages(args, opts.resolvedRepoDir, prompt, this.resolveStageTimeoutMs(opts.stage));
+    return processCliPassMessages(args, opts.resolvedRepoDir, prompt,
+      this.resolveStageTimeoutMs(opts.stage), this.resolveStageInactivityTimeoutMs(opts.stage));
   }
 }

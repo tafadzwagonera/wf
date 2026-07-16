@@ -17,6 +17,8 @@ export const wfAiStageTargetConfigSchema = z.object({
   model: z.string().optional(),
   backend: wfBackendModeSchema.optional(),
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
+  timeoutMs: z.number().int().min(1000).optional(),
+  inactivityTimeoutMs: z.number().int().min(1000).optional(),
 });
 
 export const wfVerificationConditionsConfigSchema = z.object({
@@ -119,6 +121,8 @@ export const normalizedAiStageTargetConfigSchema = z.object({
   model: z.string(),
   backend: wfBackendModeSchema,
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
+  timeoutMs: z.number().int().min(1000).optional(),
+  inactivityTimeoutMs: z.number().int().min(1000).optional(),
 });
 
 export const normalizedVerificationConditionsConfigSchema = z.object({
