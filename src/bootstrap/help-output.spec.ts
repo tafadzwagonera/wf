@@ -24,8 +24,8 @@ import { getHelpText } from './help-output';
 import { getCommandHelpCatalog } from './help-catalog-parser';
 
 const catalog = getCommandHelpCatalog(path.join(__dirname, '..', 'commands'));
-const stripStyleTags = (value: string): string => value.replace(/<\/?(?:cyan|yellow|green|gray|bold-cyan)>/g, '');
-const normalizeWrappedText = (value: string): string => stripStyleTags(value).replace(/\n\s*/g, ' ');
+const stripStyleTags = (value: string): string => value.replaceAll(/<\/?(?:cyan|yellow|green|gray|bold-cyan)>/g, '');
+const normalizeWrappedText = (value: string): string => stripStyleTags(value).replaceAll(/\n\s*/g, ' ');
 
 describe('getHelpText', () => {
   it('returns top-level help when no command is requested', () => {

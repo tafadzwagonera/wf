@@ -8,11 +8,11 @@ const STRING_LITERAL_PATTERN = /'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)"|`((?:\\.|[^`
 
 const unquoteStringLiteral = (value: string): string =>
   value
-    .replace(/^['"`]|['"`]$/g, '')
-    .replace(/\\'/g, '\'')
-    .replace(/\\"/g, '"')
-    .replace(/\\`/g, '`')
-    .replace(/\\n/g, '\n');
+    .replaceAll(/^['"`]|['"`]$/g, '')
+    .replaceAll('\\\'', '\'')
+    .replaceAll('\\"', '"')
+    .replaceAll('\\`', '`')
+    .replaceAll('\\n', '\n');
 
 const evaluateStringExpression = (expression?: string): string | undefined => {
   if (!expression) return undefined;
@@ -177,7 +177,7 @@ const parseObjectProperties = (block: string): Map<string, string> => {
 };
 
 const extractExamples = (source: string): CommandHelpExample[] => {
-  const examplesArrayMatch = source.match(/const\s+\w+_EXAMPLES\s*:\s*CliExample\[\]\s*=\s*\[(.*?)\];/s);
+  const examplesArrayMatch = /const\s+\w+_EXAMPLES\s*:\s*CliExample\[\]\s*=\s*\[(.*?)\];/s.exec(source);
   if (!examplesArrayMatch) {
     return [];
   }
@@ -271,7 +271,7 @@ export const getCommandHelpCatalog = (commandsDir: string): Record<string, Comma
       }))
       .filter((option): option is CommandHelpOption => Boolean(option.flags && option.description))
       .sort((a, b) => {
-        const longFlag = (f: string): string => (f.match(/--([a-z][\w-]*)/)?.[1] ?? f).toLowerCase();
+        const longFlag = (f: string): string => ((/--([a-z][\w-]*)/.exec(f))?.[1] ?? f).toLowerCase();
         return longFlag(a.flags).localeCompare(longFlag(b.flags));
       });
 

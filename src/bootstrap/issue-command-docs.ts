@@ -30,7 +30,7 @@ const renderExamples = (entry: CommandHelpEntry): string => {
     lines.push(example.command, '');
   }
 
-  if (lines[lines.length - 1] === '') {
+  if (lines.at(-1) === '') {
     lines.pop();
   }
 
@@ -46,7 +46,7 @@ const renderOptions = (entry: CommandHelpEntry): string => {
   const lines = ['**Options:**', '', '| Flag | Description |', '| ---- | ----------- |'];
 
   for (const option of entry.options) {
-    lines.push(`| \`${option.flags}\` | ${option.description.replace(/\|/g, '\\|')} |`);
+    lines.push(`| \`${option.flags}\` | ${option.description.replaceAll('|', '\\|')} |`);
   }
 
   return lines.join('\n');

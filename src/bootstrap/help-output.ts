@@ -38,7 +38,7 @@ const splitPlainLongToken = (token: string, maxTokenWidth: number): string[] => 
   while (remaining.length > maxTokenWidth) {
     const candidate = remaining.slice(0, maxTokenWidth);
     const splitMatches = Array.from(candidate.matchAll(preferredSplitPattern));
-    const splitIndex = splitMatches.length > 0 ? (splitMatches[splitMatches.length - 1].index ?? 0) + 1 : maxTokenWidth;
+    const splitIndex = splitMatches.length > 0 ? (splitMatches.at(-1)!.index ?? 0) + 1 : maxTokenWidth;
 
     chunks.push(remaining.slice(0, splitIndex));
     remaining = remaining.slice(splitIndex);
