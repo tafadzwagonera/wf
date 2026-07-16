@@ -58,6 +58,7 @@ export class ReviewStageService {
         ];
 
     const segments = splitDiffByFile(diff);
+
     const summariseCallback = async (patch: string, file: string) => {
       const prompt
         = `Summarise the following diff for ${file} into concise bullet points that capture every `

@@ -1,5 +1,6 @@
 // src/agents/reviewer.agent.ts
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as fs from 'node:fs';
 import chalk from 'chalk';
 import type { CodeReview } from '../shared/types/review.types';
@@ -13,7 +14,8 @@ import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
 export class ReviewerAgent {
   constructor(
     private readonly gitService: GitService,
-    private readonly reviewStageService: ReviewStageService
+    private readonly reviewStageService: ReviewStageService,
+    private readonly configService: ConfigService
   ) {}
 
   /**

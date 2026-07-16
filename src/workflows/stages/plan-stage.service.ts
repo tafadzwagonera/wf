@@ -251,7 +251,7 @@ export class PlanStageService {
   }
 
   extractSummary(content: string): string {
-    const match = content.match(/^#\s+[A-Z]+-\d+:\s+(.+)$/m);
+    const match = /^#\s+[A-Z]+-\d+:\s+(.+)$/m.exec(content);
     return match ? match[1] : 'Implementation';
   }
 

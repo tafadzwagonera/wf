@@ -45,8 +45,8 @@ export class CommitStageService {
   ): string {
     let message = rawMessage.trim();
     message = message
-      .replace(/```[a-z]*\n?/g, '')
-      .replace(/```/g, '')
+      .replaceAll(/```[a-z]*\n?/g, '')
+      .replaceAll('```', '')
       .trim();
 
     if (stripConventionalPrefix) {

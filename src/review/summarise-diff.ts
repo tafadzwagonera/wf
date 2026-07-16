@@ -23,7 +23,7 @@ export const splitDiffByFile = (diff: string): DiffSegment[] => {
     const trimmed = part.trim();
     if (!trimmed) continue;
 
-    const headerMatch = trimmed.match(/^diff --git a\/(.+?) b\//);
+    const headerMatch = /^diff --git a\/(.+?) b\//.exec(trimmed);
     const file = headerMatch ? headerMatch[1] : 'unknown';
     segments.push({ file, patch: trimmed });
   }
@@ -81,9 +81,7 @@ export const summariseDiff = async (
 
   // Fill any remaining unsummarised segments
   for (let i = 0; i < segments.length; i++) {
-    if (!results[i]) {
-      results[i] = segments[i].patch;
-    }
+    results[i] ||= segments[i].patch;
   }
 
   return results.join('\n');

@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { ReviewerAgent } from './reviewer.agent';
 import { GitService } from '../integrations/git/git.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
@@ -36,6 +37,12 @@ describe('ReviewerAgent', () => {
               path: '/tmp/.wf/repo/jira/WBP-123-review.md',
               approved: true,
             }),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue(undefined),
           },
         },
       ],
@@ -84,6 +91,12 @@ describe('ReviewerAgent', () => {
             createReviewArtifact: jest.fn(),
           },
         },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue(undefined),
+          },
+        },
       ],
     }).compile();
 
@@ -117,6 +130,12 @@ describe('ReviewerAgent', () => {
           useValue: {
             reviewDiff: jest.fn(),
             createReviewArtifact: jest.fn(),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue(undefined),
           },
         },
       ],

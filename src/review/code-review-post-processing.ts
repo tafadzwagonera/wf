@@ -67,14 +67,14 @@ const collectDiffFileInfo = (diff: string): Map<string, DiffFileInfo> => {
   let currentDestinationLine: number | null = null;
 
   for (const line of diff.split('\n')) {
-    const diffHeaderMatch = line.match(DIFF_HEADER_PATTERN);
+    const diffHeaderMatch = DIFF_HEADER_PATTERN.exec(line);
     if (diffHeaderMatch) {
       currentFile = normalizeFilePath(diffHeaderMatch[2]);
       currentDestinationLine = null;
       continue;
     }
 
-    const destinationFileMatch = line.match(DESTINATION_FILE_PATTERN);
+    const destinationFileMatch = DESTINATION_FILE_PATTERN.exec(line);
     if (destinationFileMatch) {
       const destinationFilePath = destinationFileMatch[1]?.trim();
       currentFile
@@ -83,7 +83,7 @@ const collectDiffFileInfo = (diff: string): Map<string, DiffFileInfo> => {
       continue;
     }
 
-    const hunkHeaderMatch = line.match(HUNK_HEADER_PATTERN);
+    const hunkHeaderMatch = HUNK_HEADER_PATTERN.exec(line);
     if (hunkHeaderMatch) {
       const startLine = Number.parseInt(hunkHeaderMatch[1] ?? '', 10);
       const lineCount = hunkHeaderMatch[2] ? Number.parseInt(hunkHeaderMatch[2], 10) : 1;
@@ -130,7 +130,7 @@ const collectDiffFileInfo = (diff: string): Map<string, DiffFileInfo> => {
     result.set(filePath, {
       changedLines: [...changedLines].sort((left, right) => left.line - right.line),
       hunkSpanFirst: span?.first ?? changedLines[0]?.line ?? 0,
-      hunkSpanLast: span?.last ?? changedLines[changedLines.length - 1]?.line ?? 0,
+      hunkSpanLast: span?.last ?? changedLines.at(-1)?.line ?? 0,
     });
   }
 
