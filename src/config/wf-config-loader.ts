@@ -868,9 +868,7 @@ export const initializeWfConfig = async (cwd: string = process.cwd()): Promise<N
  * @returns Normalized config object
  */
 export const getLoadedWfConfig = (): NormalizedWfConfig => {
-  if (!loadedConfig) {
-    loadedConfig = normalizeWfConfig({});
-  }
+  loadedConfig ||= normalizeWfConfig({});
 
   return loadedConfig;
 };
