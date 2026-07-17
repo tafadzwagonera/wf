@@ -90,7 +90,7 @@ const buildCodexRawSystemPrompt = (params: GenerateAndVerifyParams, repoDir: str
 const buildCodexImplementPrompt = (params: GenerateAndVerifyParams, repoDir: string): string => {
   const systemPrompt = buildCodexRawSystemPrompt(params, repoDir);
   const preamble = buildPriorStagePreamble(params.options);
-  return `${preamble}${systemPrompt}\n\nImplement the changes described above now. Read existing files, apply changes, and run each verification step.`;
+  return `${preamble}${systemPrompt}\n\nImplement the changes described above now. Read existing files, apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands.`;
 };
 
 /**

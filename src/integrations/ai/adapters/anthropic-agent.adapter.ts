@@ -887,7 +887,7 @@ const resolveSessionOptions = async (input: SessionOptionsInput) => {
  * @param activityState - Mutable activity state
  * @returns The validated final SDK result message
  */
-const INITIAL_SESSION_PROMPT = 'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes, then Bash for each verification step. Do not output any text or plan before making your first tool call.' as const;
+const INITIAL_SESSION_PROMPT = 'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order, using Bash. Do not modify or pipe the commands. Do not output any text or plan before making your first tool call.' as const;
 
 type InitialSessionParams = {
   query: SdkQueryFn;

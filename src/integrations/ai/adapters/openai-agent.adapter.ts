@@ -1902,7 +1902,7 @@ const buildInitialPrompt = (contextMd: string | null, ticketKey: string, stepCou
   [
     contextMd ? contextMd.trimEnd() : '',
     `Ticket key: ${ticketKey}`,
-    `Implement ALL ${stepCount} plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. Output text only as the final summary after all work is done.`,
+    `Implement ALL ${stepCount} plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. Output text only as the final summary after all work is done.`,
   ].filter(Boolean).join('\n\n');
 
 /**

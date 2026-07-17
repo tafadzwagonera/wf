@@ -256,13 +256,24 @@ const formatPlanStepList = (steps: string[]): string =>
   steps.length > 0 ? steps.map((step, i) => `  ${i + 1}. ${step}`).join('\n') : '  (none listed)';
 
 /**
- * Formats a list of verification scripts as bullet points for prompt inclusion.
+ * Formats verification scripts as a numbered runbook for the AI to execute verbatim.
  *
  * @param scripts - Verification script definitions
- * @returns Formatted bullet list, or fallback when empty
+ * @returns Formatted numbered runbook, or fallback when empty
  */
-const formatVerificationList = (scripts: VerificationScript[]): string =>
-  scripts.length > 0 ? scripts.map(script => `  - ${script.command}`).join('\n') : '  (none configured)';
+const formatVerificationList = (scripts: VerificationScript[]): string => {
+  if (scripts.length === 0) return '  (none configured)';
+  const numbered = scripts
+    .map((script, i) => `  ${i + 1}. ${script.command}`)
+    .join('\n');
+  return `${numbered}
+
+IMPORTANT: After completing ALL code edits, you MUST run each verification
+command above exactly as written, in order. Do NOT modify, abbreviate, or
+pipe the commands. Run each one verbatim using Bash. If a command fails,
+fix the code and re-run that same command until it passes before moving
+to the next one.`;
+};
 
 /**
  * Returns a human-readable description of the plan action type.
