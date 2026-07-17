@@ -1040,4 +1040,24 @@ describe('StageAgentService', () => {
       });
     });
   });
+
+  it('forwards onProgress callback to runStagePrompt when reviewing code', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        summary: 'Looks good',
+        issues: [],
+        suggestions: [],
+        approved: true,
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    const onProgress = jest.fn();
+    await service.reviewCode('diff --git a/f b/f', [], undefined, undefined, undefined, onProgress);
+
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(expect.objectContaining({ onProgress }));
+
+    jest.restoreAllMocks();
+  });
 });

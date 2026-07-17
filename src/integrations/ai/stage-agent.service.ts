@@ -1095,11 +1095,12 @@ export class StageAgentService {
     guidelines: string[],
     repoDir?: string,
     priorStageSummary?: string,
-    resumeProviderSessionId?: string
+    resumeProviderSessionId?: string,
+    onProgress?: StageProgressCallback
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const { content: response, sessionId } = await this.runStagePrompt({
       stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines), systemPrompt: REVIEW_SYSTEM_PROMPT,
-      repoDir, priorStageSummary, resumeProviderSessionId,
+      repoDir, priorStageSummary, resumeProviderSessionId, onProgress,
     });
     return this.parseStageReviewResponse(response, sessionId, repoDir, REVIEW_SYSTEM_PROMPT, priorStageSummary);
   }

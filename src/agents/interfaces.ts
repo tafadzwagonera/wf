@@ -54,6 +54,7 @@ export interface ReviewerOptions {
   silent?: boolean;
   resumeProviderSessionId?: string;
   priorStageSummary?: string;
+  onProgress?: (line: string) => void;
 }
 
 /**

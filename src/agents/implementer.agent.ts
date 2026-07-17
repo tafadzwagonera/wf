@@ -168,7 +168,7 @@ export class ImplementerAgent {
 
   private logCompletionStatus(planArtifact: PlanArtifact): void {
     if ((planArtifact.plan.affectedRepositories?.length ?? 0) > 0) {
-      console.log(chalk.bold('\n  Repositories affected:'));
+      console.log(chalk.bold('\n  Affected repositories:'));
       for (const repo of planArtifact.plan.affectedRepositories ?? []) {
         console.log(chalk.gray(`    - ${repo}`));
       }

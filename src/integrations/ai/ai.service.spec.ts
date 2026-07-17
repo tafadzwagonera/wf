@@ -1036,4 +1036,20 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       );
     });
   });
+
+  describe('review progress callback', () => {
+    it('should invoke onProgress with Synthesizing review message', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const onProgress = jest.fn();
+
+      await service.reviewCode('diff', ['guideline'], onProgress);
+
+      expect(onProgress).toHaveBeenCalledWith('Synthesizing review...');
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+  });
 });

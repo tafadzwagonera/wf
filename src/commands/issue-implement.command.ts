@@ -435,7 +435,7 @@ export class IssueImplementCommand extends CommandRunner {
         '🔧 Implementation Guide', '─'.repeat(70),
         '  Steps:', '    1. <step from plan>', '    2. ...', '',
         '  Files to modify:', '    - <file>', '',
-        '  Repositories affected:', '    - <repo>', '',
+        '  Affected repositories:', '    - <repo>', '',
         '  Status:', '    Ready to implement — create your branch before starting',
       ],
     });
@@ -456,7 +456,7 @@ export class IssueImplementCommand extends CommandRunner {
 
     this.dryRunPreview.showSummary({
       apiCallCount: 0, fileCreatedCount: 0, fileModifiedCount: 0, gitOperationCount: 0,
-      terminalOutputLines: ['', 'Plan Summary:', '  Action: ' + action, '  Complexity: <medium|high|low>', '  Steps: <n>', '  Files affected: <n>', '  Repositories affected: <n>'],
+      terminalOutputLines: ['', 'Plan Summary:', '  Action: ' + action, '  Complexity: <medium|high|low>', '  Steps: <n>', '  Files affected: <n>', '  Affected repositories: <n>'],
     });
     this.dryRunPreview.showValidationResult();
   }

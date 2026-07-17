@@ -450,14 +450,14 @@ export class IssueReviewCommand extends CommandRunner {
     }
     const adapter = this.resolveTicketAdapter(options?.tracker);
     const reviewPath = this.resolveTicketReviewArtifactPath(
-      options.ticketKey!, repoInputs, adapter.getTrackerName()
+      options.ticketKey || '', repoInputs, adapter.getTrackerName()
     );
     if (this.serveCachedReview(reviewPath, repoInputs, options)) {
       return { targets: [], reviewPath, earlyExit: true };
     }
-    const ticket = await this.fetchTicketForReview(options.ticketKey!, adapter, options);
+    const ticket = await this.fetchTicketForReview(options.ticketKey || '', adapter, options);
     const ticketCtx = this.buildTicketContext(ticket);
-    const targets = await this.collectTicketTargets(options.ticketKey!, ticketCtx, repoInputs, options);
+    const targets = await this.collectTicketTargets(options.ticketKey || '', ticketCtx, repoInputs, options);
     if (!targets) return { targets: [], reviewPath, earlyExit: true };
     return { targets, reviewPath };
   }
@@ -538,17 +538,23 @@ export class IssueReviewCommand extends CommandRunner {
     }
     const targets: ReviewTarget[] = [];
     for (const pr of pullRequests) {
-      try {
-        const diff = await this.reviewPullRequest(pr.commentRef);
-        targets.push({
-          title: pr.title, diff, context: ticketCtx + '\n\n' + pr.context,
-          repoDir: pr.repoDir, adapterName: pr.adapterName, commentRef: pr.commentRef,
-        });
-      } catch (error: any) {
-        console.log(chalk.yellow('⚠️ Skipping ' + pr.title + ': ' + error.message));
-      }
+      await this.tryAddPrReviewTarget(targets, pr, ticketCtx);
     }
     return targets;
+  }
+
+  private async tryAddPrReviewTarget(
+    targets: ReviewTarget[], pr: DiscoveredPullRequestTarget, ticketCtx: string
+  ): Promise<void> {
+    try {
+      const diff = await this.reviewPullRequest(pr.commentRef);
+      targets.push({
+        title: pr.title, diff, context: ticketCtx + '\n\n' + pr.context,
+        repoDir: pr.repoDir, adapterName: pr.adapterName, commentRef: pr.commentRef,
+      });
+    } catch (error: any) {
+      console.log(chalk.yellow('⚠️ Skipping ' + pr.title + ': ' + error.message));
+    }
   }
 
   private async fallbackToLocalReview(
@@ -593,11 +599,13 @@ export class IssueReviewCommand extends CommandRunner {
     targets: ReviewTarget[], extraCriteria: string[] | null, options?: IssueReviewOptions
   ): Promise<ReviewedTarget[]> {
     const reviewed: ReviewedTarget[] = [];
+    const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(`  ${line}`));
     for (const target of targets) {
       const review = await this.reviewStageService.reviewDiff(target.diff, {
         context: target.context, extraCriteria: extraCriteria ?? undefined,
         replaceCriteria: Boolean(options?.replaceCriteria),
         repoDir: target.repoDir, resumeProviderSessionId: options?.sessionId,
+        onProgress,
       });
       reviewed.push({ ...target, review });
       if (!options?.silent) this.displayReview(review, target.title);
@@ -624,7 +632,8 @@ export class IssueReviewCommand extends CommandRunner {
       message: 'Would you like to discuss the review?', prefix: ' ', default: false,
     }]);
     if (!startChat) return;
-    const last = reviewed.at(-1)!;
+    const last = reviewed.at(-1);
+    if (!last) return;
     await this.startInteractiveChat(last.review, last.context, last.repoDir ?? process.cwd());
   }
 
@@ -902,7 +911,7 @@ export class IssueReviewCommand extends CommandRunner {
     console.log(chalk.cyan('💬 Posting ' + issues.length + ' inline comment(s) to ' + title + '...\n'));
     for (const issue of issues) {
       try {
-        await adapter.createInlineComment(ref, issue.file!, issue.line!, issue.message);
+        await adapter.createInlineComment(ref, issue.file || '', issue.line || 0, issue.message);
       } catch (error: any) {
         console.log(chalk.yellow('⚠️ Inline comment skipped (' + issue.file + ':' + issue.line + '): ' + error.message));
       }
@@ -991,7 +1000,10 @@ export class IssueReviewCommand extends CommandRunner {
     }
 
     const adapter = this.issueTrackerService.getAdapter(adapterName);
-    return await adapter.getPullRequestDiff!(url);
+    if (!adapter.getPullRequestDiff) {
+      throw new ValidationError(`${adapterName} does not support retrieving PR diffs`);
+    }
+    return await adapter.getPullRequestDiff(url);
   }
 
   private buildRepoContext(repoDirs: string[], label: string): string {
@@ -1041,22 +1053,31 @@ export class IssueReviewCommand extends CommandRunner {
     repoHint: string, missingRepoScopeErrors: string[]
   ): Promise<string[] | null> {
     const scope = repoHint ? ' (' + repoHint + ')' : '';
-    try {
-      return await retryOnTransient(
-        () => adapter.findPullRequestsByTicketKey!(ticketKey, repoHint),
-        {
-          onRetry: error => {
-            const message = error instanceof Error ? error.message : String(error);
-            console.log(chalk.dim('⚠️ Transient error for ' + adapterName + scope + ': ' + message + ' — retrying in 1s'));
-          },
-        },
-      );
-    } catch (error: unknown) {
-      if (this.isMissingPullRequestRepoScopeError(error)) missingRepoScopeErrors.push((error as Error).message);
-      const message = error instanceof Error ? error.message : String(error);
-      console.log(chalk.yellow('⚠️ PR discovery skipped for ' + adapterName + scope + ': ' + message));
+    if (!adapter.findPullRequestsByTicketKey) {
       return null;
     }
+    try {
+      return await retryOnTransient(
+        () => adapter.findPullRequestsByTicketKey(ticketKey, repoHint),
+        { onRetry: error => this.logTransientError(error, adapterName, scope) },
+      );
+    } catch (error: unknown) {
+      this.handlePrDiscoveryError(error, adapterName, scope, missingRepoScopeErrors);
+      return null;
+    }
+  }
+
+  private logTransientError(error: any, adapterName: string, scope: string): void {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(chalk.dim('⚠️ Transient error for ' + adapterName + scope + ': ' + message + ' — retrying in 1s'));
+  }
+
+  private handlePrDiscoveryError(
+    error: unknown, adapterName: string, scope: string, missingRepoScopeErrors: string[]
+  ): void {
+    if (this.isMissingPullRequestRepoScopeError(error)) missingRepoScopeErrors.push((error as Error).message);
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(chalk.yellow('⚠️ PR discovery skipped for ' + adapterName + scope + ': ' + message));
   }
 
   private registerDiscoveredPrs(
@@ -1443,29 +1464,44 @@ export class IssueReviewCommand extends CommandRunner {
    * @returns Pretty-printed and colorized text
    */
   private colorizeTraceLine(line: string): string {
-    if (!line.trim()) {
-      return line;
-    }
-
-    const branchMatch = new RegExp(/^(\s*)(├─|└─)\s*(.*)$/).exec(line);
-    if (branchMatch) {
-      const [, indent, branch, rest] = branchMatch;
-      return indent + this.colorizeBranch(branch) + ' ' + chalk.gray(rest);
-    }
-
-    const labelMatch = new RegExp(/^(\s*)(from|to|captured|changes):\s*(.*)$/).exec(line);
-    if (labelMatch) {
-      const [, indent, label, rest] = labelMatch;
-      return (indent + chalk.cyan(label + ':') + ' ' + (rest ? chalk.gray(rest) : '')).trimEnd();
-    }
-
-    const keyValueMatch = new RegExp(/^(\s*)(.+?)\s*=\s*(.*)$/).exec(line);
-    if (keyValueMatch) {
-      const [, indent, key, rest] = keyValueMatch;
-      return indent + chalk.cyan(key) + ' = ' + chalk.gray(rest);
-    }
-
+    if (!line.trim()) return line;
+    if (this.isBranchLine(line)) return this.colorizeBranchLine(line);
+    if (this.isLabelLine(line)) return this.colorizeLabelLine(line);
+    if (this.isKeyValueLine(line)) return this.colorizeKeyValueLine(line);
     return chalk.gray(line);
+  }
+
+  private isBranchLine(line: string): boolean {
+    return /^(\s*)(├─|└─)\s*(.*)$/.test(line);
+  }
+
+  private isLabelLine(line: string): boolean {
+    return /^(\s*)(from|to|captured|changes):\s*(.*)$/.test(line);
+  }
+
+  private isKeyValueLine(line: string): boolean {
+    return /^(\s*)(.+?)\s*=\s*(.*)$/.test(line);
+  }
+
+  private colorizeBranchLine(line: string): string {
+    const match = /^(\s*)(├─|└─)\s*(.*)$/.exec(line);
+    if (!match) return chalk.gray(line);
+    const [, indent, branch, rest] = match;
+    return indent + this.colorizeBranch(branch) + ' ' + chalk.gray(rest);
+  }
+
+  private colorizeLabelLine(line: string): string {
+    const match = /^(\s*)(from|to|captured|changes):\s*(.*)$/.exec(line);
+    if (!match) return chalk.gray(line);
+    const [, indent, label, rest] = match;
+    return (indent + chalk.cyan(label + ':') + ' ' + (rest ? chalk.gray(rest) : '')).trimEnd();
+  }
+
+  private colorizeKeyValueLine(line: string): string {
+    const match = /^(\s*)(.+?)\s*=\s*(.*)$/.exec(line);
+    if (!match) return chalk.gray(line);
+    const [, indent, key, rest] = match;
+    return indent + chalk.cyan(key) + ' = ' + chalk.gray(rest);
   }
 
   /**

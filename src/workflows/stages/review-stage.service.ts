@@ -16,6 +16,7 @@ import { buildCodeReviewPresentation } from '../../review/code-review-post-proce
 import { splitDiffByFile, summariseDiff, MAX_REVIEW_DIFF_LENGTH } from '../../review/summarise-diff';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import { deriveReviewArtifactPath } from '../../shared/utils/plan-artifact';
+import { StageProgressCallback } from '../../shared/types/agent.types';
 
 const DEFAULT_REVIEW_GUIDELINES = [
   'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
@@ -38,6 +39,7 @@ interface ReviewDiffOptions {
   repoDir?: string;
   priorStageSummary?: string;
   resumeProviderSessionId?: string;
+  onProgress?: StageProgressCallback;
 }
 
 @Injectable()
@@ -49,55 +51,87 @@ export class ReviewStageService {
   ) {}
 
   async reviewDiff(diff: string, options: ReviewDiffOptions): Promise<CodeReview> {
-    const guidelines = options.replaceCriteria
+    const guidelines = this.buildReviewGuidelines(options);
+    const segments = splitDiffByFile(diff);
+    const summariseCallback = this.createSummariseCallback(options);
+    const processedDiff = await summariseDiff(segments, MAX_REVIEW_DIFF_LENGTH, summariseCallback);
+    return this.executeReview(processedDiff, guidelines, options);
+  }
+
+  private buildReviewGuidelines(options: ReviewDiffOptions): string[] {
+    return options.replaceCriteria
       ? [...(options.extraCriteria ?? [])]
       : [
           ...DEFAULT_REVIEW_GUIDELINES,
           `Relevancy: Does the feature or fix work? (This is very important — context: ${options.context})`,
           ...(options.extraCriteria ?? []),
         ];
+  }
 
-    const segments = splitDiffByFile(diff);
-
-    const summariseCallback = async (patch: string, file: string) => {
-      const prompt
-        = `Summarise the following diff for ${file} into concise bullet points that capture every `
-          + `changed function, added/removed import, modified signature, and behavioural change. `
-          + `Do not omit technical details (identifiers, types, values). `
-          + `Return ONLY a Markdown bullet list (- item).\n\n`
-          + `\`\`\`diff\n${patch}\n\`\`\``;
-
-      // Always use the direct API for summarisation — no tools needed,
-      // and spawning a CLI process per file segment is prohibitively slow.
+  private createSummariseCallback(
+    options: ReviewDiffOptions
+  ): (patch: string, file: string) => Promise<string> {
+    return async (patch: string, file: string) => {
+      options.onProgress?.(`Summarising changes in ${file}...`);
+      const prompt = this.buildSummarisationPrompt(file, patch);
       const response = await this.aiService.execute({
         prompt,
         maxTokens: 2048,
         stage: 'review',
       });
-
       return requireAiResponseContent(response, 'AI provider returned an empty review summary response');
     };
+  }
 
-    const processedDiff = await summariseDiff(segments, MAX_REVIEW_DIFF_LENGTH, summariseCallback);
+  private buildSummarisationPrompt(file: string, patch: string): string {
+    return `Summarise the following diff for ${file} into concise bullet points that capture every `
+      + `changed function, added/removed import, modified signature, and behavioural change. `
+      + `Do not omit technical details (identifiers, types, values). `
+      + `Return ONLY a Markdown bullet list (- item).\n\n`
+      + `\`\`\`diff\n${patch}\n\`\`\``;
+  }
 
-    const review = this.stageAgentService.isEnabledForStage('review')
-      ? (
-          await this.stageAgentService.reviewCode(
-            processedDiff,
-            guidelines,
-            options.repoDir,
-            options.priorStageSummary,
-            options.resumeProviderSessionId
-          )
-        ).review
-      : await this.aiService.reviewCode(processedDiff, guidelines);
+  private async executeReview(
+    diff: string,
+    guidelines: string[],
+    options: ReviewDiffOptions
+  ): Promise<CodeReview> {
+    const review = await this.performReview(diff, guidelines, options);
+    return this.ensureExecutionModeSet(review);
+  }
 
+  private async performReview(
+    diff: string,
+    guidelines: string[],
+    options: ReviewDiffOptions
+  ): Promise<CodeReview> {
+    return this.stageAgentService.isEnabledForStage('review')
+      ? await this.reviewViaAgent(diff, guidelines, options)
+      : await this.aiService.reviewCode(diff, guidelines, options.onProgress);
+  }
+
+  private async reviewViaAgent(
+    diff: string,
+    guidelines: string[],
+    options: ReviewDiffOptions
+  ): Promise<CodeReview> {
+    const result = await this.stageAgentService.reviewCode(
+      diff,
+      guidelines,
+      options.repoDir,
+      options.priorStageSummary,
+      options.resumeProviderSessionId,
+      options.onProgress
+    );
+    return result.review;
+  }
+
+  private ensureExecutionModeSet(review: CodeReview): CodeReview {
     if (review.executionMode) {
       return review;
     }
 
     const backend = this.configService.get<string>('stages.review.backend', resolveDefaultStageBackend('review'));
-
     return {
       ...review,
       executionMode: backend === 'agent' ? 'agent' : 'standard',
@@ -118,47 +152,62 @@ export class ReviewStageService {
 
   private formatReviewMarkdown(ticketKey: string, review: CodeReview): string {
     const presentation = buildCodeReviewPresentation(review);
-    const callStackSection = this.formatCallStackMarkdown(review.callStack);
-    const stateTransitionSection = this.formatStateTransitionMarkdown(review.stateTransition);
-    const provenanceSection = this.formatTraceProvenance(review);
-    const issuesSection
-      = presentation.issueRows.length > 0
-        ? presentation.issueRows
-            .map(({ issue, suggestion }) =>
-              [
-                `- [${issue.severity}] ${issue.message}${issue.file ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})` : ''}`,
-                suggestion ? `  - Suggestion: ${suggestion}` : null,
-              ]
-                .filter((line): line is string => line != null)
-                .join('\n')
-            )
-            .join('\n')
-        : '- None';
-    const trailingSuggestionsSection
-      = presentation.unmatchedSuggestions.length > 0
-        ? `\n## Suggestions\n${presentation.unmatchedSuggestions.map(suggestion => `- ${suggestion}`).join('\n')}\n`
-        : '\n';
+    const sections = this.collectReviewSections(review, presentation);
+    return this.buildReviewMarkdownString(ticketKey, review, sections);
+  }
 
-    return `# Code Review: ${ticketKey}
+  private collectReviewSections(
+    review: CodeReview,
+    presentation: ReturnType<typeof buildCodeReviewPresentation>
+  ): Record<string, string> {
+    return {
+      callStack: this.formatCallStackMarkdown(review.callStack),
+      stateTransition: this.formatStateTransitionMarkdown(review.stateTransition),
+      provenance: this.formatTraceProvenance(review),
+      issues: this.formatIssuesSection(presentation),
+      suggestions: this.formatTrailingSuggestionsSection(presentation),
+    };
+  }
 
-## Summary
-${review.summary}
+  private buildReviewMarkdownString(
+    ticketKey: string,
+    review: CodeReview,
+    sections: Record<string, string>
+  ): string {
+    const parts = [
+      `# Code Review: ${ticketKey}\n\n## Summary\n${review.summary}\n`,
+      `## Issues\n${sections.issues}\n`,
+      `## Call Stack\n${sections.provenance}\n${sections.callStack}\n`,
+      `## State Transition\n${sections.provenance}\n${sections.stateTransition}\n${sections.suggestions}\n`,
+      this.buildApprovalStatusLine(review),
+    ];
+    return parts.join('\n');
+  }
 
-## Issues
-${issuesSection}
+  private buildApprovalStatusLine(review: CodeReview): string {
+    const status = review.approved ? `✓ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`;
+    return `## Approval Status\n${status}`;
+  }
 
-## Call Stack
-${provenanceSection}
-${callStackSection}
+  private formatIssuesSection(presentation: ReturnType<typeof buildCodeReviewPresentation>): string {
+    return presentation.issueRows.length > 0
+      ? presentation.issueRows
+          .map(({ issue, suggestion }) =>
+            [
+              `- [${issue.severity}] ${issue.message}${issue.file ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})` : ''}`,
+              suggestion ? `  - Suggestion: ${suggestion}` : null,
+            ]
+              .filter((line): line is string => line != null)
+              .join('\n')
+          )
+          .join('\n')
+      : '- None';
+  }
 
-## State Transition
-${provenanceSection}
-${stateTransitionSection}
-${trailingSuggestionsSection}
-
-## Approval Status
-${review.approved ? `✓ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`}
-`;
+  private formatTrailingSuggestionsSection(presentation: ReturnType<typeof buildCodeReviewPresentation>): string {
+    return presentation.unmatchedSuggestions.length > 0
+      ? `\n## Suggestions\n${presentation.unmatchedSuggestions.map(suggestion => `- ${suggestion}`).join('\n')}\n`
+      : '\n';
   }
 
   private resolveTraceProvenance(review: CodeReview): string {
@@ -179,25 +228,36 @@ ${review.approved ? `✓ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHA
 
   private formatTraceProvenance(review: CodeReview): string {
     const provenance = this.resolveTraceProvenance(review);
+    const executionMode = review.executionMode ?? 'standard';
 
     if (provenance === 'evidence-based') {
-      return [
-        `> Execution mode: ${review.executionMode ?? 'standard'}.`,
-        '> Provenance: evidence-based (code-path trace backed by the execution backend).',
-        '> Evidence: the trace is grounded in the changed code path.',
-      ].join('\n');
+      return this.formatEvidenceBasedTrace(executionMode);
     }
 
-    if (provenance === 'best-effort') {
-      return [
-        `> Execution mode: ${review.executionMode ?? 'standard'}.`,
-        '> Provenance: best-effort (code-path trace inferred from the diff and AI output).',
-        '> Hindrance: there is no runtime execution trace backend in this path.',
-      ].join('\n');
-    }
+    return provenance === 'best-effort'
+      ? this.formatBestEffortTrace(executionMode)
+      : this.formatUnavailableTrace(executionMode);
+  }
 
+  private formatEvidenceBasedTrace(executionMode: string): string {
     return [
-      `> Execution mode: ${review.executionMode ?? 'standard'}.`,
+      `> Execution mode: ${executionMode}.`,
+      '> Provenance: evidence-based (code-path trace backed by the execution backend).',
+      '> Evidence: the trace is grounded in the changed code path.',
+    ].join('\n');
+  }
+
+  private formatBestEffortTrace(executionMode: string): string {
+    return [
+      `> Execution mode: ${executionMode}.`,
+      '> Provenance: best-effort (code-path trace inferred from the diff and AI output).',
+      '> Hindrance: there is no runtime execution trace backend in this path.',
+    ].join('\n');
+  }
+
+  private formatUnavailableTrace(executionMode: string): string {
+    return [
+      `> Execution mode: ${executionMode}.`,
       '> Provenance: unavailable (no concrete code-path trace could be inferred from the diff).',
       '> Hindrance: the review pipeline did not return a code-path trace payload.',
     ].join('\n');

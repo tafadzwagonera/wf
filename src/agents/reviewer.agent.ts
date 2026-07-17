@@ -87,6 +87,7 @@ export class ReviewerAgent {
       repoDir: options.repoDir,
       resumeProviderSessionId: options.resumeProviderSessionId,
       priorStageSummary: options.priorStageSummary,
+      onProgress: options.onProgress,
     });
   }
 

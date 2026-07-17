@@ -166,6 +166,7 @@ describe('ReviewStageService', () => {
           provide: AiService,
           useValue: {
             reviewCode: jest.fn().mockResolvedValue(mockReview),
+            execute: jest.fn().mockResolvedValue({ content: '- summary item' }),
           },
         },
         {
@@ -209,7 +210,8 @@ describe('ReviewStageService', () => {
         expect.stringContaining('Scope'),
         expect.stringContaining('ticket WBP-123: Fix auth callback'),
         'Accessibility: keyboard flow still works',
-      ])
+      ]),
+      undefined
     );
   });
 
@@ -224,7 +226,8 @@ describe('ReviewStageService', () => {
 
       expect(aiService.reviewCode).toHaveBeenCalledWith(
         'diff --git a/file b/file',
-        expect.arrayContaining([expect.stringContaining(criterion)])
+        expect.arrayContaining([expect.stringContaining(criterion)]),
+        undefined
       );
     }
   );
@@ -336,6 +339,7 @@ describe('ReviewStageService', () => {
       expect.any(Array),
       '/tmp/repo',
       undefined,
+      undefined,
       undefined
     );
     expect(aiService.reviewCode).not.toHaveBeenCalled();
@@ -374,6 +378,7 @@ describe('ReviewStageService', () => {
       'diff --git a/file b/file',
       expect.any(Array),
       '/tmp/repo',
+      undefined,
       undefined,
       undefined
     );
@@ -456,5 +461,60 @@ describe('ReviewStageService', () => {
         model: 'gemini-2.5-pro',
       }),
     });
+  });
+
+  it('should invoke onProgress during diff summarisation when threshold exceeded', async () => {
+    const { service, aiService } = await buildService({ agentEnabled: false });
+    const onProgress = jest.fn();
+    // Create a large diff to trigger summarisation (exceeding MAX_REVIEW_DIFF_LENGTH of 80000)
+    const largeFile = 'x'.repeat(50000);
+    const diff = `diff --git a/file b/file
+--- a/file
++++ b/file
+@@ -1 +1 @@
+-${largeFile}
++${largeFile}y`;
+
+    await service.reviewDiff(diff, {
+      context: 'test context',
+      onProgress,
+    });
+
+    expect(onProgress).toHaveBeenCalledWith(expect.stringMatching(/Summarising changes in/));
+  });
+
+  it('should forward onProgress to stageAgentService.reviewCode when agent backend is enabled', async () => {
+    const { service, stageAgentService } = await buildService({ agentEnabled: true });
+    const onProgress = jest.fn();
+
+    await service.reviewDiff('diff --git a/file b/file', {
+      context: 'test context',
+      onProgress,
+    });
+
+    expect(stageAgentService.reviewCode).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      undefined,
+      undefined,
+      undefined,
+      onProgress
+    );
+  });
+
+  it('should forward onProgress to aiService.reviewCode when agent backend is disabled', async () => {
+    const { service, aiService } = await buildService({ agentEnabled: false });
+    const onProgress = jest.fn();
+
+    await service.reviewDiff('diff --git a/file b/file', {
+      context: 'test context',
+      onProgress,
+    });
+
+    expect(aiService.reviewCode).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      onProgress
+    );
   });
 });

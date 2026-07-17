@@ -30,6 +30,7 @@ import type {
   ResolutionPlan,
 } from '../../shared/types/ai.types';
 import type { CodeReview } from '../../shared/types/review.types';
+import type { StageProgressCallback } from '../../shared/types/agent.types';
 
 export type {
   AIRequest,
@@ -408,8 +409,9 @@ const buildAgentAnalysisBlock = (context?: Record<string, unknown>): string =>
 type PlanFeedbackBlocks = { repoHint: string; retryFeedbackBlock: string };
 
 const buildPlanFeedbackBlocks = (context?: Record<string, unknown>): PlanFeedbackBlocks => {
-  const repoHint = (context?.affectedRepositories as string[] | undefined)?.length
-    ? `Affected repositories (hint): ${(context!.affectedRepositories as string[]).join(', ')}\n\n`
+  const repos = context?.affectedRepositories as string[] | undefined;
+  const repoHint = repos?.length
+    ? `Affected repositories (hint): ${repos.join(', ')}\n\n`
     : '';
   const qualityFeedback = context?.planQualityFeedback;
   const retryFeedbackBlock
@@ -975,7 +977,8 @@ export class AiService {
     return requireAiResponseContent(response, 'AI provider returned an empty commit message response');
   }
 
-  async reviewCode(diff: string, guidelines: string[]): Promise<CodeReview> {
+  async reviewCode(diff: string, guidelines: string[], onProgress?: StageProgressCallback): Promise<CodeReview> {
+    onProgress?.('Synthesizing review...');
     const reviewMaxTokens = this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
     const executeReview = () =>
       this.execute({ prompt: buildReviewPrompt(diff, guidelines), systemPrompt: REVIEW_SYSTEM_PROMPT, temperature: 0.3, maxTokens: reviewMaxTokens, stage: 'review' });
