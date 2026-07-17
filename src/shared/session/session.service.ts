@@ -190,13 +190,12 @@ export class SessionService {
     const existingRecord = session.stages[nextStage];
     if (existingRecord) {
       if (existingRecord.completedAt) {
-        // 2a. Already completed
+        // 2a. Already completed — warn but allow prior-stage session lookup below
         warnings.push(
           `Stage ${nextStage} was already completed at ${existingRecord.completedAt}. Re-running will overwrite.`
         );
-        canResume = false;
       } else {
-        // 2b. Interrupted
+        // 2b. Interrupted — try to resume this stage's own session
         if (
           existingRecord.config.provider === currentFingerprint.provider
           && existingRecord.config.backend === currentFingerprint.backend
@@ -213,29 +212,29 @@ export class SessionService {
           );
         }
       }
-    } else {
-      // 3. No existing record — try to resume from prior stage
-      if (nextIndex > 0) {
-        for (let i = nextIndex - 1; i >= 0; i--) {
-          const priorStageName = STAGE_ORDER[i];
-          const priorRecord = session.stages[priorStageName];
-          if (!priorRecord?.completedAt) continue;
+    }
 
-          if (
-            priorRecord.config.provider === currentFingerprint.provider
-            && priorRecord.providerSessionId
-          ) {
-            canResume = true;
-            resumableProviderSessionId = priorRecord.providerSessionId;
-          } else if (
-            priorRecord.config.provider !== currentFingerprint.provider
-          ) {
-            warnings.push(
-              `Provider for ${nextStage} (${currentFingerprint.provider}) differs from ${priorStageName} (${priorRecord.config.provider}). Prior stage summary will still be available as context.`
-            );
-          }
-          break;
+    // 3. No session found yet — try to resume from prior stage
+    if (!resumableProviderSessionId && nextIndex > 0) {
+      for (let i = nextIndex - 1; i >= 0; i--) {
+        const priorStageName = STAGE_ORDER[i];
+        const priorRecord = session.stages[priorStageName];
+        if (!priorRecord?.completedAt) continue;
+
+        if (
+          priorRecord.config.provider === currentFingerprint.provider
+          && priorRecord.providerSessionId
+        ) {
+          canResume = true;
+          resumableProviderSessionId = priorRecord.providerSessionId;
+        } else if (
+          priorRecord.config.provider !== currentFingerprint.provider
+        ) {
+          warnings.push(
+            `Provider for ${nextStage} (${currentFingerprint.provider}) differs from ${priorStageName} (${priorRecord.config.provider}). Prior stage summary will still be available as context.`
+          );
         }
+        break;
       }
     }
 
