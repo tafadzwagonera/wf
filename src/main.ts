@@ -25,7 +25,15 @@ export async function bootstrap(): Promise<void> {
   await initializeWfConfig(resolveConfigCwd(argv));
 
   const { AppModule } = moduleRequire('./app.module');
+
+  let sigintReceived = false;
+  process.on('SIGINT', () => {
+    if (sigintReceived) process.exit(130);
+    sigintReceived = true;
+  });
+
   await CommandFactory.run(AppModule, ['warn', 'error']);
+  process.exit(0);
 }
 
 /**

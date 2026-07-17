@@ -191,7 +191,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('allowMultiRepoScope bypasses the multi-repo count guard', async () => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
 
       await expect(
         agent.execute(
@@ -210,7 +210,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('allowMultiRepoScope bypasses the offending-paths guard', async () => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
 
       await expect(
         agent.execute(
@@ -231,7 +231,7 @@ describe('ImplementerAgent', () => {
 
   describe('custom branch slug', () => {
     it('uses the custom branch slug when provided for non-ticket execution contexts', async () => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
 
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: [] }), {
         trackerName: 'jira',
@@ -247,7 +247,7 @@ describe('ImplementerAgent', () => {
     it('delegates to AnthropicAgentAdapter when provider is anthropic', async () => {
       const adapterSpy = jest
         .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue({ sessionId: undefined });
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
 
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira',
@@ -258,7 +258,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('logs the selected anthropic-agent backend', async () => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -269,6 +269,27 @@ describe('ImplementerAgent', () => {
 
       const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
       expect(logCalls.some(message => message.includes('Implement backend: anthropic-agent'))).toBe(true);
+    });
+
+    it('includes verificationOutcomes from adapter in the returned ImplementerResult', async () => {
+      const mockOutcomes = [
+        { id: 'lint', command: 'yarn lint', policy: 'enforced' as const, status: 'passed' as const },
+      ];
+      jest
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: 'sess-abc', verificationOutcomes: mockOutcomes });
+
+      const result = await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true }
+      );
+
+      expect(result.type).toBe('implementation');
+      if (result.type === 'implementation') {
+        expect(result.verificationOutcomes).toEqual(mockOutcomes);
+        expect(result.sessionId).toBe('sess-abc');
+      }
     });
 
     it('fails fast when provider is unsupported', async () => {
@@ -406,7 +427,7 @@ describe('ImplementerAgent', () => {
       const openaiAgent = module.get(ImplementerAgent);
       const openaiAdapterSpy = jest
         .spyOn(OpenAIAgentAdapter.prototype, 'generateAndVerify')
-        .mockResolvedValue({ sessionId: undefined });
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
       jest
         .spyOn(require('fs'), 'existsSync')
         .mockImplementation((p: string) => ['/tmp/repo-a/package.json', '/tmp/repo-a/src/example.ts'].includes(p));
@@ -432,7 +453,7 @@ describe('ImplementerAgent', () => {
 
   describe('branch workflow', () => {
     beforeEach(() => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
@@ -646,7 +667,9 @@ describe('ImplementerAgent', () => {
       expect(gitService.checkoutBranch).not.toHaveBeenCalled();
       expect(gitService.createBranch).not.toHaveBeenCalled();
       expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
-      expect(result).toEqual({ type: 'implementation', branchName: 'main' });
+      expect(result).toEqual({
+        type: 'implementation', branchName: 'main', sessionId: undefined, verificationOutcomes: [],
+      });
     });
 
     it('stays on current branch when user selects stay interactively', async () => {
@@ -662,7 +685,9 @@ describe('ImplementerAgent', () => {
         silent: true,
       });
 
-      expect(result).toEqual({ type: 'implementation', branchName: 'main' });
+      expect(result).toEqual({
+        type: 'implementation', branchName: 'main', sessionId: undefined, verificationOutcomes: [],
+      });
       expect(gitService.getBranchInfo).not.toHaveBeenCalled();
       expect(gitService.checkoutBranch).not.toHaveBeenCalled();
       expect(gitService.createBranch).not.toHaveBeenCalled();
@@ -709,7 +734,9 @@ describe('ImplementerAgent', () => {
       expect(gitService.getBranchInfo).not.toHaveBeenCalled();
       expect(gitService.createBranch).not.toHaveBeenCalled();
       expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
-      expect(result).toEqual({ type: 'implementation', branchName: 'main' });
+      expect(result).toEqual({
+        type: 'implementation', branchName: 'main', sessionId: undefined, verificationOutcomes: [],
+      });
     });
 
     it('skips stash when user declines pull in stay path', async () => {
@@ -877,7 +904,7 @@ describe('ImplementerAgent', () => {
 
   describe('tracked file validation', () => {
     beforeEach(() => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
@@ -939,7 +966,7 @@ describe('ImplementerAgent', () => {
 
   describe('affectedFilesContext / contextFiles', () => {
     beforeEach(() => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
@@ -1095,7 +1122,7 @@ describe('ImplementerAgent', () => {
     it('warns when repoFiles is empty after filtering', async () => {
       jest.spyOn(require('fs'), 'existsSync').mockImplementation(() => false);
 
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: [] }), {
@@ -1111,7 +1138,7 @@ describe('ImplementerAgent', () => {
 
   describe('plan step filtering', () => {
     beforeEach(() => {
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 

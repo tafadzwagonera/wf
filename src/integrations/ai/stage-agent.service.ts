@@ -1066,7 +1066,7 @@ export class StageAgentService {
       return { plan, sessionId };
     } catch (error) {
       if (isAIErrorLike(error)) throw error;
-      throw new AIError('Failed to parse resolution plan from agent response', { response, error });
+      throw new AIError('Failed to parse resolution plan from agent response', { response, error, sessionId });
     }
   }
 

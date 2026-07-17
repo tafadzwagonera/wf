@@ -95,6 +95,8 @@ export class PlanStageService {
               ? error.details.response
               : undefined;
 
+          const sessionId = typeof error.details?.sessionId === 'string' ? error.details.sessionId : undefined;
+
           const label = agentProse ? 'Agent returned prose' : 'Agent returned no result';
           console.log(chalk.yellow(`  \u26A0\uFE0F ${label}   \u2014 falling back to structured completion`));
           const action = options.action as 'fix' | 'implement' | 'investigate';
@@ -112,7 +114,7 @@ export class PlanStageService {
           }
 
           console.log(chalk.green('  ✓ Fallback produced valid plan'));
-          return { plan: fallbackResult };
+          return { plan: fallbackResult, sessionId };
         }
       }
 

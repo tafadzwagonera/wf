@@ -7,7 +7,9 @@ import type {
   ImplementerOptions,
   ImplementerBackend,
   VerificationScript,
+  VerificationOutcome,
 } from '../../../agents/interfaces';
+import { resolveSkippedSteps, printVerificationReport } from './verification-report';
 import {
   resolveModelRouting,
   stripRepoPrefix,
@@ -26,6 +28,7 @@ const IMPLEMENT_PROMPT
 
 type ActivityState = {
   lastVerificationCommand?: string;
+  verificationOutcomes: VerificationOutcome[];
 };
 
 type ToolBlock = {
@@ -61,6 +64,7 @@ type CliSessionParams = {
   additionalRepoDirs: string[];
   appendSystemPrompt: string;
   model: string;
+  verificationScripts: VerificationScript[];
 };
 
 type ContinuationLoopParams = {
@@ -73,6 +77,7 @@ type ContinuationLoopParams = {
   repoDir: string;
   additionalRepoDirs: string[];
   activityState: ActivityState;
+  verificationScripts: VerificationScript[];
 };
 
 type SinglePassParams = {
@@ -85,6 +90,7 @@ type SinglePassParams = {
   additionalRepoDirs: string[];
   touchedFiles: Set<string>;
   activityState: ActivityState;
+  verificationScripts: VerificationScript[];
 };
 
 type ToolBlockLogParams = {
@@ -335,20 +341,40 @@ const logReadEvent = (toolName: string, input: Record<string, unknown>): void =>
 /**
  * Applies the verification outcome log for one tool_result block.
  * @param block - The result block to evaluate.
- * @param activityState - Mutable state tracking the last verification command.
+ * @param activityState - Mutable state tracking the last verification command and outcomes.
+ * @param verificationScripts - Configured verification scripts for resolving id and policy.
  */
-const applyToolResultOutcome = (block: ResultBlock, activityState: ActivityState): void => {
+const applyToolResultOutcome = (
+  block: ResultBlock,
+  activityState: ActivityState,
+  verificationScripts: VerificationScript[]
+): void => {
   const content = typeof block.content === 'string' ? block.content : '';
   if (!content || !activityState.lastVerificationCommand) return;
   const hasFailure = block.is_error || /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(content);
   const hasSuccess = /(passed|success|succeeded|completed successfully|exit code 0)/i.test(content);
+  const command = activityState.lastVerificationCommand;
   if (hasFailure) {
-    console.log(chalk.red(`  [${CLI_ADAPTER_LABEL}] Verification failed: ${activityState.lastVerificationCommand}`));
+    console.log(chalk.red(`  [${CLI_ADAPTER_LABEL}] Verification failed: ${command}`));
+    const script = verificationScripts.find(s => command.includes(s.command) || s.command.includes(command));
+    activityState.verificationOutcomes.push({
+      id: script?.id ?? 'unknown',
+      command,
+      policy: script?.policy ?? 'best_effort',
+      status: 'failed',
+    });
     activityState.lastVerificationCommand = undefined;
     return;
   }
   if (hasSuccess) {
-    console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Verification passed: ${activityState.lastVerificationCommand}`));
+    console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Verification passed: ${command}`));
+    const script = verificationScripts.find(s => command.includes(s.command) || s.command.includes(command));
+    activityState.verificationOutcomes.push({
+      id: script?.id ?? 'unknown',
+      command,
+      policy: script?.policy ?? 'best_effort',
+      status: 'passed',
+    });
     activityState.lastVerificationCommand = undefined;
   }
 };
@@ -406,8 +432,10 @@ const buildPassCliArgs = (p: SinglePassParams, continuationPrompt: string) =>
 export class ClaudeCliAdapter implements ImplementerBackend {
   constructor(private readonly configService: ConfigService) {}
 
-  async generateAndVerify(params: GenerateAndVerifyParams): Promise<{ sessionId?: string }> {
-    const { options, repoFiles, repoName } = params;
+  async generateAndVerify(
+    params: GenerateAndVerifyParams,
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
+    const { options, repoFiles, repoName, verificationScripts } = params;
     const repoDir = options.repoDir ?? process.cwd();
     assertClaudeCliAvailable();
     const modelRoutingResult = this.resolveCliModelRouting(options, params.planArtifact);
@@ -419,6 +447,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       options, repoFiles, repoName, repoDir,
       appendSystemPrompt, model: modelRoutingResult.model,
       additionalRepoDirs: options.additionalRepoDirs ?? [],
+      verificationScripts,
     });
   }
 
@@ -448,21 +477,25 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     });
   }
 
-  private async runCliSession(p: CliSessionParams): Promise<{ sessionId?: string }> {
+  private async runCliSession(
+    p: CliSessionParams,
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
     const cliArgs = buildImplementCliArgs(p);
     console.log(chalk.bold.cyan(`\n  [${CLI_ADAPTER_LABEL}] Running CLI agent in ${p.repoDir}...`));
     const touchedFiles = new Set<string>();
-    const activityState: ActivityState = {};
+    const activityState: ActivityState = { verificationOutcomes: [] };
     let sessionId: string | undefined = p.options.resumeProviderSessionId;
     for await (const message of spawnCli(cliArgs, p.repoDir, IMPLEMENT_PROMPT)) {
-      this.logCliMessage(message, p.repoDir, activityState, touchedFiles);
+      this.logCliMessage(message, p.repoDir, activityState, touchedFiles, p.verificationScripts);
       sessionId = processCliStream(message, p.repoDir, sessionId, touchedFiles);
     }
     await discoverChangedFiles(p.repoDir, touchedFiles);
     return this.finalizeCliSession({ ...p, sessionId, touchedFiles, activityState });
   }
 
-  private async finalizeCliSession(p: ContinuationLoopParams): Promise<{ sessionId?: string }> {
+  private async finalizeCliSession(
+    p: ContinuationLoopParams,
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
     const sessionId = await this.runContinuationLoop(p);
     if (p.touchedFiles.size > 0) {
       console.log(chalk.bold('\n  File summary:'));
@@ -470,7 +503,9 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     } else {
       console.log(chalk.gray('\n  File summary: no file changes were made.'));
     }
-    return { sessionId };
+    const verificationOutcomes = resolveSkippedSteps(p.verificationScripts, p.activityState.verificationOutcomes);
+    printVerificationReport(verificationOutcomes);
+    return { sessionId, verificationOutcomes };
   }
 
   private async runContinuationLoop(p: ContinuationLoopParams): Promise<string | undefined> {
@@ -495,23 +530,25 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     sessionId: string,
     currentUnvisited: string[]
   ): Promise<string | undefined> {
-    const { appendSystemPrompt, model, repoDir, additionalRepoDirs, touchedFiles, activityState } = p;
+    const {
+      appendSystemPrompt, model, repoDir, additionalRepoDirs, touchedFiles, activityState, verificationScripts,
+    } = p;
     console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`));
     const nextSession = await this.runSinglePass({
       passNumber, sessionId, currentUnvisited,
-      appendSystemPrompt, model, repoDir, additionalRepoDirs, touchedFiles, activityState,
+      appendSystemPrompt, model, repoDir, additionalRepoDirs, touchedFiles, activityState, verificationScripts,
     });
     await discoverChangedFiles(repoDir, touchedFiles);
     return nextSession;
   }
 
   private async runSinglePass(p: SinglePassParams): Promise<string | undefined> {
-    const { passNumber, currentUnvisited, repoDir, touchedFiles, activityState } = p;
+    const { passNumber, currentUnvisited, repoDir, touchedFiles, activityState, verificationScripts } = p;
     const continuationPrompt = buildContinuationPrompt(currentUnvisited);
     const continueArgs = buildPassCliArgs(p, continuationPrompt);
     let sessionId: string | undefined = p.sessionId;
     for await (const message of spawnCli(continueArgs, repoDir, continuationPrompt)) {
-      this.logCliMessage(message, repoDir, activityState, touchedFiles);
+      this.logCliMessage(message, repoDir, activityState, touchedFiles, verificationScripts);
       sessionId = processCliStream(message, repoDir, sessionId, touchedFiles);
       logContinuationPassResult(passNumber, message);
     }
@@ -522,14 +559,15 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     message: ClaudeCliMessage,
     repoDir: string,
     activityState: ActivityState,
-    touchedFiles?: Set<string>
+    touchedFiles?: Set<string>,
+    verificationScripts: VerificationScript[] = []
   ): void {
     if (logCliProgressEvent(message, repoDir, activityState)) return;
     if (message.type === 'assistant') {
       this.logCliAssistantMessage(message, repoDir, activityState, touchedFiles);
       return;
     }
-    if (message.type === 'user') this.logCliToolResult(message, activityState);
+    if (message.type === 'user') this.logCliToolResult(message, activityState, verificationScripts);
   }
 
   private logCliAssistantMessage(
@@ -560,11 +598,15 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     if (skillName) console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] Skill: ${skillName}`));
   }
 
-  private logCliToolResult(message: ClaudeCliMessage, activityState: ActivityState): void {
+  private logCliToolResult(
+    message: ClaudeCliMessage,
+    activityState: ActivityState,
+    verificationScripts: VerificationScript[],
+  ): void {
     const contentBlocks = (message.message as { content?: ResultBlock[] } | undefined)?.content;
     if (!Array.isArray(contentBlocks)) return;
     for (const block of contentBlocks) {
-      if (block.type === 'tool_result') applyToolResultOutcome(block, activityState);
+      if (block.type === 'tool_result') applyToolResultOutcome(block, activityState, verificationScripts);
     }
   }
 }

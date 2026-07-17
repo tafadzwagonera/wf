@@ -30,7 +30,9 @@ import type {
   ImplementerOptions,
   ImplementerBackend,
   VerificationScript,
+  VerificationOutcome,
 } from '../../../agents/interfaces';
+import { resolveSkippedSteps, printVerificationReport } from './verification-report';
 import {
   buildVerificationCommandOrder,
   buildVerificationProgressSignal,
@@ -84,6 +86,8 @@ type VerifyCommandState = {
   verificationCommandOrder: Map<string, number>;
   previousSnapshot: ImplementProgressVerificationSnapshot | undefined;
   changedFiles: Set<string>;
+  verificationScripts: VerificationScript[];
+  verificationOutcomes: VerificationOutcome[];
 };
 
 export type OpenAiUsageSummary = {
@@ -1022,6 +1026,8 @@ const handleVerifySuccess = (
 ): string => {
   const progress = buildSnapshot(command, idx, 0, stdout, stderr, vs);
   console.log(chalk.cyan(`  [openai-agent] Verification passed: ${command}`));
+  const script = vs.verificationScripts.find(s => command.includes(s.command) || s.command.includes(command));
+  vs.verificationOutcomes.push({ id: script?.id ?? 'unknown', command, policy: script?.policy ?? 'best_effort', status: 'passed' });
   return JSON.stringify({ command, allowed: true, exitCode: 0, progress });
 };
 
@@ -1040,6 +1046,8 @@ const handleVerifyFailure = (command: string, idx: number, err: ExecError, vs: V
   const exitCode = err.code ?? 1;
   const progress = buildSnapshot(command, idx, exitCode, stdout, stderr, vs);
   console.log(chalk.red(`  [openai-agent] Verification failed: ${command}`));
+  const script = vs.verificationScripts.find(s => command.includes(s.command) || s.command.includes(command));
+  vs.verificationOutcomes.push({ id: script?.id ?? 'unknown', command, policy: script?.policy ?? 'best_effort', status: 'failed' });
   return JSON.stringify({
     command, allowed: true, exitCode,
     stdout: truncateOutput(stdout, MAX_VERIFICATION_OUTPUT_LINES),
@@ -2030,7 +2038,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
    */
   async generateAndVerify(
     params: GenerateAndVerifyParams & { options: ImplementerOptions }
-  ): Promise<{ sessionId?: string }> {
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
     const repoDir = params.options.repoDir ?? process.cwd();
     const c = await this.buildRunComponents(params, repoDir, params.options);
     return this.executeAgentRun(params, c);
@@ -2046,7 +2054,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
   private async executeAgentRun(
     params: GenerateAndVerifyParams & { options: ImplementerOptions },
     c: Awaited<ReturnType<OpenAIAgentAdapter['buildRunComponents']>>
-  ): Promise<{ sessionId?: string }> {
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
     let run = await this.startInitialRun(c);
     run = await runStreamWithRetry(run, c.config, c.loop, '');
     throwOnRunError(run, '');
@@ -2055,7 +2063,9 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const failures = c.mutable.validationFailures;
     await runContinuationLoop({ run, config: c.config, loop: c.loop, repoFiles, repoName, failures });
     logFileSummary(c.mutable.fileChangeStatus, verificationScripts, buildAllowedCommands(verificationScripts));
-    return { sessionId: undefined };
+    const verificationOutcomes = resolveSkippedSteps(verificationScripts, c.vs.verificationOutcomes);
+    printVerificationReport(verificationOutcomes);
+    return { sessionId: undefined, verificationOutcomes };
   }
 
   /**
@@ -2101,6 +2111,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const vs: VerifyCommandState = {
       verificationCommandOrder: buildVerificationCommandOrder(scripts),
       previousSnapshot: undefined, changedFiles: mutable.changedFilesSinceLastVerification,
+      verificationScripts: scripts, verificationOutcomes: [],
     };
     return { mutable, vs };
   }
@@ -2122,7 +2133,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const compaction = buildCompactionSession(client, model, params.planArtifact.plan.steps.length, loop);
     const runner = new Runner({ modelProvider: provider });
     const config: StreamRunConfig = { runner, agent, context, maxTurns: 500, compaction };
-    return { model, config, loop, mutable, agent, prompt, context };
+    return { model, config, loop, mutable, vs, agent, prompt, context };
   }
 
   /**

@@ -15,8 +15,10 @@ import type {
   ImplementerOptions,
   ImplementerBackend,
   VerificationScript,
+  VerificationOutcome,
 } from '../../../agents/interfaces';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
+import { resolveSkippedSteps, printVerificationReport } from './verification-report';
 import {
   resolveModelRouting,
   normalizeCommand,
@@ -35,6 +37,8 @@ const FALLBACK_VERIFICATION_LABEL = 'verification command';
 
 type ActivityState = {
   lastVerificationCommand?: string;
+  verificationScripts?: VerificationScript[];
+  verificationOutcomes?: VerificationOutcome[];
 };
 
 /**
@@ -489,6 +493,31 @@ const buildSdkOptions = (params: SdkOptionsParams) => {
 };
 
 /**
+ * Records a verification outcome into activityState.verificationOutcomes when the message is a tool_use_summary.
+ * Uses activityState.lastVerificationCommand (set by formatToolUseSummaryMessage) for the command name.
+ *
+ * @param message - The SDK message to inspect
+ * @param activityState - Mutable activity state containing verification tracking data
+ */
+const trackVerificationOutcome = (message: SDKMessage, activityState: ActivityState): void => {
+  if (message.type !== 'tool_use_summary') return;
+  if (!activityState.verificationOutcomes) return;
+  const summary = (message as { summary?: string }).summary ?? '';
+  const status = extractVerificationOutcome(summary);
+  if (!status) return;
+  const command = activityState.lastVerificationCommand ?? 'unknown command';
+  const script = activityState.verificationScripts?.find(
+    s => command.includes(s.command) || s.command.includes(command)
+  );
+  activityState.verificationOutcomes.push({
+    id: script?.id ?? 'unknown',
+    command,
+    policy: script?.policy ?? 'best_effort',
+    status,
+  });
+};
+
+/**
  * Process a single SDK message, logging progress and persisted files.
  *
  * @param message - The SDK message to handle
@@ -506,6 +535,7 @@ const handleSdkMessage = (
   if (logProgressMessage(message)) return undefined;
   collectPersistedFiles(message, repoDir, touchedFiles);
   for (const m of formatActivityMessages(message, repoDir, activityState)) console.log(chalk.cyan(m));
+  trackVerificationOutcome(message, activityState);
   return message.type === 'result' ? message : undefined;
 };
 
@@ -942,9 +972,14 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     return apiKey;
   }
 
-  async generateAndVerify(params: GenerateAndVerifyParams): Promise<{ sessionId?: string }> {
+  async generateAndVerify(
+    params: GenerateAndVerifyParams,
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
     const allowedCommands = buildAllowedCommands(params.verificationScripts);
-    const activityState: ActivityState = {};
+    const activityState: ActivityState = {
+      verificationScripts: params.verificationScripts,
+      verificationOutcomes: [],
+    };
     const { repoDir, sdkOptions } = await resolveSessionOptions(
       { params, configService: this.configService, allowedCommands, activityState, apiKey: this.resolveApiKey() }
     );
@@ -954,6 +989,10 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
       query: query as SdkQueryFn, sdkOptions: sdkOptions as Record<string, unknown>,
       params, repoDir, touchedFiles, activityState,
     });
-    return { sessionId };
+    const verificationOutcomes = resolveSkippedSteps(
+      params.verificationScripts, activityState.verificationOutcomes ?? []
+    );
+    printVerificationReport(verificationOutcomes);
+    return { sessionId, verificationOutcomes };
   }
 }

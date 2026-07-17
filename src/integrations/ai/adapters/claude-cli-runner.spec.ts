@@ -370,4 +370,59 @@ describe('claude-cli-runner', () => {
       expect(timeoutMsg!.result).toMatch(/no output/i);
     });
   });
+
+  describe('SIGINT handling', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+      mockSpawn.mockReset();
+    });
+
+    it('registers a SIGINT listener when the generator starts and removes it after completion', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const listenersBefore = process.listenerCount('SIGINT');
+
+      const gen = spawnCli(['-p'], '/repo', 'hello');
+
+      // Push one message then end stream to complete naturally
+      const tickPromise = (async () => {
+        await new Promise(resolve => setImmediate(resolve));
+        child.stdout.push(JSON.stringify({ type: 'result', subtype: 'success', result: 'done' }) + '\n');
+        await new Promise(resolve => setImmediate(resolve));
+        child.stdout.push(null);
+      })();
+
+      const messages: unknown[] = [];
+      for await (const msg of gen) {
+        messages.push(msg);
+      }
+
+      await tickPromise;
+
+      const listenersAfter = process.listenerCount('SIGINT');
+      expect(listenersAfter).toBe(listenersBefore);
+    });
+
+    it('kills child process when SIGINT fires during stream', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'hello');
+
+      // Start consuming without ending — emit SIGINT
+      const consumePromise = (async () => {
+        for await (const _msg of gen) {
+          break;
+        }
+      })();
+
+      await new Promise(resolve => setImmediate(resolve));
+      process.emit('SIGINT', 'SIGINT');
+
+      await consumePromise;
+
+      expect(child.kill).toHaveBeenCalled();
+    });
+  });
 });

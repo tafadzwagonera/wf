@@ -287,7 +287,7 @@ describe('PlanStageService', () => {
       affectedRepositories: ['repo-a'],
     });
 
-    expect(result).toEqual({ plan: mockPlan });
+    expect(result).toEqual({ plan: mockPlan, sessionId: undefined });
     expect(aiService.generatePlan).toHaveBeenCalledWith(
       'fix',
       'Ticket body',
@@ -295,6 +295,23 @@ describe('PlanStageService', () => {
         agentAnalysis: 'Here is my analysis of the codebase. The auth module needs updating...',
       })
     );
+  });
+
+  it('preserves sessionId from AIError details in fallback result', async () => {
+    const { service, stageAgentService } = await buildService(true);
+    const proseError = new AIError('Failed to parse resolution plan from agent response', {
+      response: 'Some prose analysis...',
+      sessionId: 'test-session-123',
+    });
+    (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(proseError);
+
+    const result = await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-400',
+      affectedRepositories: ['repo-a'],
+    });
+
+    expect(result.sessionId).toBe('test-session-123');
   });
 
   it('re-throws non-parsing AIErrors without falling back', async () => {

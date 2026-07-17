@@ -17,6 +17,7 @@ import type {
   verificationFailureClassificationSchema,
   verificationScriptSchema,
 } from '../schemas/agent.schema';
+import type { verificationOutcomeSchema } from '../schemas/verification.schema';
 
 export type AgentStageName = z.infer<typeof agentStageNameSchema>;
 export type FindingsArtifact = z.infer<typeof findingsArtifactSchema>;
@@ -35,3 +36,4 @@ export type VerificationAttemptArtifact = z.infer<typeof verificationAttemptArti
 export type VerificationFailureCategory = z.infer<typeof verificationFailureCategorySchema>;
 export type VerificationFailureClassification = z.infer<typeof verificationFailureClassificationSchema>;
 export type VerificationScript = z.infer<typeof verificationScriptSchema>;
+export type VerificationOutcome = z.infer<typeof verificationOutcomeSchema>;

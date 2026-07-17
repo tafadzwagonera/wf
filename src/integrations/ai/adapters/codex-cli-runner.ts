@@ -375,9 +375,15 @@ export async function* spawnCodex(
 ): AsyncGenerator<CodexCliMessage, void, undefined> {
   const child = spawnCodexProcess(args, cwd, env, prompt);
   const { rl, stderrChunks, ctrl, yieldedRef } = buildCodexSession(child, timeoutMs);
+  const onSigint = () => {
+    child.kill('SIGINT');
+    rl.close();
+  };
+  process.on('SIGINT', onSigint);
   try {
     yield* readCodexLines(rl, yieldedRef);
   } finally {
+    process.off('SIGINT', onSigint);
     if (ctrl.timeoutHandle) clearTimeout(ctrl.timeoutHandle);
     rl.close();
     ctrl.kill();

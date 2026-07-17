@@ -5,10 +5,12 @@ import type {
   PlanArtifact,
   ImplementerOptions,
   VerificationScript,
+  VerificationOutcome,
 } from '../shared/types/agent.types';
 
 export type {
   VerificationScript,
+  VerificationOutcome,
   ImplementBackendName,
   ImplementBackendSelection,
   VerificationFailureCategory,
@@ -26,7 +28,7 @@ export type {
 } from '../shared/types/agent.types';
 
 export type ImplementerResult
-  = | { type: 'implementation'; branchName: string | null; sessionId?: string }
+  = | { type: 'implementation'; branchName: string | null; sessionId?: string; verificationOutcomes: VerificationOutcome[] }
     | { type: 'investigation'; artifact: FindingsArtifact };
 
 export interface FetcherOptions {
@@ -70,5 +72,5 @@ export interface ImplementerBackend {
     contextFiles?: string[];
     repoName: string;
     trackedFilePaths: string[];
-  }): Promise<{ sessionId?: string }>;
+  }): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }>;
 }

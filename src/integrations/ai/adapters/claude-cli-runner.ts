@@ -486,6 +486,11 @@ const throwIfStderrOnly = (yieldedAny: boolean, stderrChunks: Buffer[]): void =>
  */
 async function* runCliStream(session: CliSession): AsyncGenerator<ClaudeCliMessage, CliSession, undefined> {
   const { rl, killChild, tm } = session;
+  const onSigint = () => {
+    killChild();
+    rl.close();
+  };
+  process.on('SIGINT', onSigint);
   try {
     for await (const message of parseLineMessages(rl)) {
       session.yieldedAny = true;
@@ -493,6 +498,7 @@ async function* runCliStream(session: CliSession): AsyncGenerator<ClaudeCliMessa
       tm.resetInactivity();
     }
   } finally {
+    process.off('SIGINT', onSigint);
     cleanupCliStream(tm, rl, killChild);
   }
   return session;

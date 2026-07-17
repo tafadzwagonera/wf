@@ -7,6 +7,7 @@ import type {
   ImplementerOptions,
   ImplementerBackend,
   VerificationScript,
+  VerificationOutcome,
 } from '../../../agents/interfaces';
 import { resolveModelRouting, discoverChangedFiles } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
@@ -313,7 +314,10 @@ const runCodexStream = async (
 export class CodexCliAdapter implements ImplementerBackend {
   constructor(private readonly configService: ConfigService) {}
 
-  async generateAndVerify(params: GenerateAndVerifyParams): Promise<{ sessionId?: string }> {
+  // TODO: implement verification outcome tracking for codex adapter
+  async generateAndVerify(
+    params: GenerateAndVerifyParams,
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
     const repoDir = params.options.repoDir ?? process.cwd();
     assertCodexCliAvailable();
     const model = resolveCodexModel(params.options, params.planArtifact, this.configService);
@@ -322,6 +326,6 @@ export class CodexCliAdapter implements ImplementerBackend {
     await discoverChangedFiles(repoDir, touchedFiles);
     logTouchedFiles(touchedFiles);
     if (sessionId) console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] Provider session: ${sessionId}`));
-    return { sessionId };
+    return { sessionId, verificationOutcomes: [] };
   }
 }

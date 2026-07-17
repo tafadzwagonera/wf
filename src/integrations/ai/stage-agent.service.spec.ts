@@ -999,4 +999,45 @@ describe('StageAgentService', () => {
       expect(spawnCli).not.toHaveBeenCalled();
     });
   });
+
+  describe('parseStagePlanResponse fallback — sessionId preserved in AIError', () => {
+    const createCliConfigService = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.plan.backend': 'cli',
+            'stages.plan.provider': 'anthropic',
+            'stages.plan.model': 'claude-sonnet-4-6',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-6',
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('includes sessionId in the thrown AIError when plan parsing fails', async () => {
+      const fakeSessionId = 'sess_plan_fallback_test';
+      async function* fakeSpawn() {
+        yield { type: 'result', subtype: 'success', result: 'this is not json', session_id: fakeSessionId };
+      }
+      spawnCli.mockReturnValue(fakeSpawn());
+
+      const service = new StageAgentService(createCliConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await expect(
+        service.generatePlan({
+          action: 'fix',
+          issueContent: 'Fix the bug',
+        })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to parse resolution plan'),
+        details: expect.objectContaining({ sessionId: fakeSessionId }),
+      });
+    });
+  });
 });

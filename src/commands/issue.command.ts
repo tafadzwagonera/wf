@@ -32,6 +32,7 @@ import {
   ReviewArtifact,
   ResolutionAction,
   ImplementerResult,
+  VerificationOutcome,
 } from '../agents/interfaces';
 import type { ModelRouting } from '../agents/interfaces';
 import { SessionService } from '../shared/session/session.service';
@@ -1152,6 +1153,10 @@ export class IssueCommand extends CommandRunner {
     const result = await this.runImplementLoop(ticketArtifact, planArtifact, repos, options, sessionContext);
     if (result.earlyReturn) return { ...result, sessionState };
 
+    if (result.implementerResult?.type === 'implementation') {
+      this.assertEnforcedVerificationsPassed(result.implementerResult.verificationOutcomes);
+    }
+
     sessionState = await this.finalizeImplementSession(sessionState, result.implementerResult);
     return { implementerResult: result.implementerResult, sessionState, earlyReturn: false };
   }
@@ -1219,6 +1224,31 @@ export class IssueCommand extends CommandRunner {
     }
     sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'implement', null);
     return sessionState;
+  }
+
+  /**
+   * Checks verification outcomes and throws if any enforced verification failed.
+   * Best-effort failures are logged as warnings but do not block progression.
+   *
+   * @param outcomes - The verification outcomes from the implement stage.
+   * @throws Error if any outcome with policy 'enforced' has status 'failed'.
+   */
+  private assertEnforcedVerificationsPassed(outcomes: VerificationOutcome[]): void {
+    const enforcedFailures = outcomes.filter(o => o.policy === 'enforced' && o.status === 'failed');
+    const bestEffortFailures = outcomes.filter(o => o.policy === 'best_effort' && o.status === 'failed');
+
+    for (const failure of bestEffortFailures) {
+      console.warn(chalk.yellow(`  ⚠️  Best-effort verification failed (non-blocking): ${failure.command}`));
+    }
+
+    if (enforcedFailures.length === 0) return;
+
+    for (const failure of enforcedFailures) {
+      console.error(chalk.red(`  ❌ Enforced verification FAILED: ${failure.command}`));
+    }
+    throw new Error(
+      `${enforcedFailures.length} enforced verification(s) failed. Workflow cannot proceed. Re-run with: wf issue --from implement`
+    );
   }
 
   private async executeReviewStage(

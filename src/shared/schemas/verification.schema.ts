@@ -23,3 +23,10 @@ export const planVerificationConfigSchema = z.object({
   targeted: z.array(verificationStepSchema).optional(),
   waivers: z.array(verificationWaiverSchema).optional(),
 });
+
+export const verificationOutcomeSchema = z.object({
+  id: z.string(),
+  command: z.string(),
+  policy: verificationPolicySchema,
+  status: z.enum(['passed', 'failed', 'skipped']),
+});

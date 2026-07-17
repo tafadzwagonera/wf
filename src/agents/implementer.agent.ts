@@ -150,7 +150,7 @@ export class ImplementerAgent {
     });
 
     this.logCompletionStatus(planArtifact);
-    return { type: 'implementation', branchName, sessionId: result.sessionId };
+    return { type: 'implementation', branchName, sessionId: result.sessionId, verificationOutcomes: result.verificationOutcomes };
   }
 
   private async alignTrackedFiles(
