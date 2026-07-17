@@ -173,9 +173,6 @@ export class ImplementerAgent {
         console.log(chalk.gray(`    - ${repo}`));
       }
     }
-    console.log(chalk.bold('\n  Status:'));
-    console.log(chalk.cyan('    Changes generated, verified, and written to disk'));
-    console.log(chalk.cyan('    issue:implement completed for the selected repository'));
   }
 
   private resolveRepoFiles(planArtifact: PlanArtifact, repoName: string, repoDir: string): string[] {

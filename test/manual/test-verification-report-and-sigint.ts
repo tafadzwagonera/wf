@@ -148,30 +148,35 @@ async function main(): Promise<void> {
     fail('ImplementerAgent.runBackend does not return verificationOutcomes');
   }
 
-  // ── Test 8: assertEnforcedVerificationsPassed blocks on enforced failures ──
+  // ── Test 8: logVerificationSummary warns but does not throw ──
 
-  console.log('\nTest 8: assertEnforcedVerificationsPassed blocks on enforced failures');
+  console.log('\nTest 8: logVerificationSummary warns without throwing');
   const issueCommandSource = require('fs').readFileSync(
     require('path').join(__dirname, '..', '..', 'src', 'commands', 'issue.command.ts'), 'utf-8'
   ) as string;
-  const hasEnforcedCheck = issueCommandSource.includes('assertEnforcedVerificationsPassed')
-    && issueCommandSource.includes("policy === 'enforced'")
-    && issueCommandSource.includes("status === 'failed'");
-  if (hasEnforcedCheck) {
-    pass('assertEnforcedVerificationsPassed checks enforced + failed');
+  const hasNonThrowingSummary = issueCommandSource.includes('logVerificationSummary')
+    && !issueCommandSource.includes('assertEnforcedVerificationsPassed');
+  if (hasNonThrowingSummary) {
+    pass('logVerificationSummary replaced assertEnforcedVerificationsPassed');
   } else {
-    fail('assertEnforcedVerificationsPassed missing or incomplete');
+    fail('assertEnforcedVerificationsPassed still present or logVerificationSummary missing');
   }
 
-  // ── Test 9: assertEnforcedVerificationsPassed allows best_effort failures ──
+  // ── Test 9: verification fix loop exists in adapters ──
 
-  console.log('\nTest 9: best_effort failures do not block');
-  const allowsBestEffort = issueCommandSource.includes('best_effort')
-    && !issueCommandSource.includes("policy === 'best_effort' && status === 'failed'");
-  if (allowsBestEffort) {
-    pass('best_effort failures are warned, not blocked');
+  console.log('\nTest 9: verification fix loop exists in both adapters');
+  const claudeAdapterSource = require('fs').readFileSync(
+    require('path').join(__dirname, '..', '..', 'src', 'integrations', 'ai', 'adapters', 'claude-cli.adapter.ts'), 'utf-8'
+  ) as string;
+  const codexAdapterSource = require('fs').readFileSync(
+    require('path').join(__dirname, '..', '..', 'src', 'integrations', 'ai', 'adapters', 'codex-cli.adapter.ts'), 'utf-8'
+  ) as string;
+  const claudeHasFixLoop = claudeAdapterSource.includes('runVerificationFixLoop');
+  const codexHasFixLoop = codexAdapterSource.includes('runCodexVerificationFixLoop');
+  if (claudeHasFixLoop && codexHasFixLoop) {
+    pass('Both adapters have verification fix loops');
   } else {
-    fail('best_effort handling unclear');
+    fail(`Claude: ${claudeHasFixLoop}, Codex: ${codexHasFixLoop}`);
   }
 
   await app.close();

@@ -1854,7 +1854,7 @@ describe('IssueCommand', () => {
     });
   });
 
-  describe('assertEnforcedVerificationsPassed', () => {
+  describe('logVerificationSummary', () => {
     afterEach(() => {
       jest.restoreAllMocks();
     });
@@ -1865,43 +1865,33 @@ describe('IssueCommand', () => {
         { id: 'lint', command: 'yarn lint', policy: 'enforced' as const, status: 'passed' as const },
         { id: 'build', command: 'yarn build', policy: 'best_effort' as const, status: 'passed' as const },
       ];
-      expect(() => (command as any).assertEnforcedVerificationsPassed(outcomes)).not.toThrow();
+      expect(() => (command as any).logVerificationSummary(outcomes)).not.toThrow();
     });
 
-    it('throws when an enforced verification failed', async () => {
+    it('warns but does not throw for enforced failures', async () => {
       const command = await buildCommand();
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const outcomes = [
         { id: 'lint', command: 'yarn lint', policy: 'enforced' as const, status: 'failed' as const },
         { id: 'build', command: 'yarn build', policy: 'enforced' as const, status: 'passed' as const },
       ];
-      expect(() => (command as any).assertEnforcedVerificationsPassed(outcomes)).toThrow(
-        /enforced verification\(s\) failed/
-      );
+      expect(() => (command as any).logVerificationSummary(outcomes)).not.toThrow();
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('yarn lint'));
     });
 
-    it('does not throw for best_effort failures, only warns', async () => {
+    it('warns for best_effort failures', async () => {
       const command = await buildCommand();
       const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const outcomes = [
         { id: 'typecheck', command: 'yarn typecheck', policy: 'best_effort' as const, status: 'failed' as const },
       ];
-      expect(() => (command as any).assertEnforcedVerificationsPassed(outcomes)).not.toThrow();
+      expect(() => (command as any).logVerificationSummary(outcomes)).not.toThrow();
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('yarn typecheck'));
-    });
-
-    it('throws with a message referencing wf issue --from implement', async () => {
-      const command = await buildCommand();
-      const outcomes = [
-        { id: 'lint', command: 'yarn lint', policy: 'enforced' as const, status: 'failed' as const },
-      ];
-      expect(() => (command as any).assertEnforcedVerificationsPassed(outcomes)).toThrow(
-        /--from implement/
-      );
     });
 
     it('does not throw when outcomes is empty', async () => {
       const command = await buildCommand();
-      expect(() => (command as any).assertEnforcedVerificationsPassed([])).not.toThrow();
+      expect(() => (command as any).logVerificationSummary([])).not.toThrow();
     });
   });
 });

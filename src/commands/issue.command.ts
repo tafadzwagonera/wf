@@ -1154,7 +1154,7 @@ export class IssueCommand extends CommandRunner {
     if (result.earlyReturn) return { ...result, sessionState };
 
     if (result.implementerResult?.type === 'implementation') {
-      this.assertEnforcedVerificationsPassed(result.implementerResult.verificationOutcomes);
+      this.logVerificationSummary(result.implementerResult.verificationOutcomes);
     }
 
     sessionState = await this.finalizeImplementSession(sessionState, result.implementerResult);
@@ -1227,28 +1227,24 @@ export class IssueCommand extends CommandRunner {
   }
 
   /**
-   * Checks verification outcomes and throws if any enforced verification failed.
-   * Best-effort failures are logged as warnings but do not block progression.
+   * Logs a post-implement verification summary without blocking workflow progression.
+   * The adapter's fix loop is the enforcement mechanism — if failures remain after
+   * exhausting fix passes, they are reported here as warnings so the review stage
+   * can reference them.
    *
    * @param outcomes - The verification outcomes from the implement stage.
-   * @throws Error if any outcome with policy 'enforced' has status 'failed'.
    */
-  private assertEnforcedVerificationsPassed(outcomes: VerificationOutcome[]): void {
+  private logVerificationSummary(outcomes: VerificationOutcome[]): void {
     const enforcedFailures = outcomes.filter(o => o.policy === 'enforced' && o.status === 'failed');
     const bestEffortFailures = outcomes.filter(o => o.policy === 'best_effort' && o.status === 'failed');
 
     for (const failure of bestEffortFailures) {
-      console.warn(chalk.yellow(`  ⚠️  Best-effort verification failed (non-blocking): ${failure.command}`));
+      console.warn(chalk.yellow(`  ⚠️  Best-effort verification failed: ${failure.command}`));
     }
-
-    if (enforcedFailures.length === 0) return;
 
     for (const failure of enforcedFailures) {
-      console.error(chalk.red(`  ❌ Enforced verification FAILED: ${failure.command}`));
+      console.warn(chalk.yellow(`  ⚠️  Enforced verification unresolved after fix passes: ${failure.command}`));
     }
-    throw new Error(
-      `${enforcedFailures.length} enforced verification(s) failed. Workflow cannot proceed. Re-run with: wf issue --from implement`
-    );
   }
 
   private async executeReviewStage(
