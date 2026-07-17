@@ -140,7 +140,7 @@ describe('ClaudeCliAdapter', () => {
     const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
     expect(logCalls.some(l => /File updated.*src\/app\.ts/.test(l))).toBe(true);
     expect(logCalls.some(l => /Verification running.*npm test/.test(l))).toBe(true);
-    expect(logCalls.some(l => /Verification passed.*npm test/.test(l))).toBe(true);
+    // npm test does not match any configured verificationScript, so no pass/fail is logged
 
     consoleSpy.mockRestore();
   });

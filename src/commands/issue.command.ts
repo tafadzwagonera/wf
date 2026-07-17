@@ -32,7 +32,6 @@ import {
   ReviewArtifact,
   ResolutionAction,
   ImplementerResult,
-  VerificationOutcome,
 } from '../agents/interfaces';
 import type { ModelRouting } from '../agents/interfaces';
 import { SessionService } from '../shared/session/session.service';
@@ -1153,10 +1152,6 @@ export class IssueCommand extends CommandRunner {
     const result = await this.runImplementLoop(ticketArtifact, planArtifact, repos, options, sessionContext);
     if (result.earlyReturn) return { ...result, sessionState };
 
-    if (result.implementerResult?.type === 'implementation') {
-      this.logVerificationSummary(result.implementerResult.verificationOutcomes);
-    }
-
     sessionState = await this.finalizeImplementSession(sessionState, result.implementerResult);
     return { implementerResult: result.implementerResult, sessionState, earlyReturn: false };
   }
@@ -1224,27 +1219,6 @@ export class IssueCommand extends CommandRunner {
     }
     sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'implement', null);
     return sessionState;
-  }
-
-  /**
-   * Logs a post-implement verification summary without blocking workflow progression.
-   * The adapter's fix loop is the enforcement mechanism — if failures remain after
-   * exhausting fix passes, they are reported here as warnings so the review stage
-   * can reference them.
-   *
-   * @param outcomes - The verification outcomes from the implement stage.
-   */
-  private logVerificationSummary(outcomes: VerificationOutcome[]): void {
-    const enforcedFailures = outcomes.filter(o => o.policy === 'enforced' && o.status === 'failed');
-    const bestEffortFailures = outcomes.filter(o => o.policy === 'best_effort' && o.status === 'failed');
-
-    for (const failure of bestEffortFailures) {
-      console.warn(chalk.yellow(`  ⚠️  Best-effort verification failed: ${failure.command}`));
-    }
-
-    for (const failure of enforcedFailures) {
-      console.warn(chalk.yellow(`  ⚠️  Enforced verification unresolved after fix passes: ${failure.command}`));
-    }
   }
 
   private async executeReviewStage(

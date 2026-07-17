@@ -507,13 +507,11 @@ const trackVerificationOutcome = (message: SDKMessage, activityState: ActivitySt
   if (!status) return;
   const command = activityState.lastVerificationCommand ?? 'unknown command';
   const script = activityState.verificationScripts?.find(
-    s => command.includes(s.command) || s.command.includes(command)
+    s => command.includes(s.command) || s.command.includes(command),
   );
+  if (!script) return;
   activityState.verificationOutcomes.push({
-    id: script?.id ?? 'unknown',
-    command,
-    policy: script?.policy ?? 'best_effort',
-    status,
+    id: script.id, command, policy: script.policy, status,
   });
 };
 

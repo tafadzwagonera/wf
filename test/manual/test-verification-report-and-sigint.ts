@@ -148,18 +148,18 @@ async function main(): Promise<void> {
     fail('ImplementerAgent.runBackend does not return verificationOutcomes');
   }
 
-  // ── Test 8: logVerificationSummary warns but does not throw ──
+  // ── Test 8: no throwing verification gate in issue command ──
 
-  console.log('\nTest 8: logVerificationSummary warns without throwing');
+  console.log('\nTest 8: no throwing verification gate in issue command');
   const issueCommandSource = require('fs').readFileSync(
     require('path').join(__dirname, '..', '..', 'src', 'commands', 'issue.command.ts'), 'utf-8'
   ) as string;
-  const hasNonThrowingSummary = issueCommandSource.includes('logVerificationSummary')
-    && !issueCommandSource.includes('assertEnforcedVerificationsPassed');
-  if (hasNonThrowingSummary) {
-    pass('logVerificationSummary replaced assertEnforcedVerificationsPassed');
+  const noThrowingGate = !issueCommandSource.includes('assertEnforcedVerificationsPassed')
+    && !issueCommandSource.includes('logVerificationSummary');
+  if (noThrowingGate) {
+    pass('No verification gate or duplicate summary in issue command');
   } else {
-    fail('assertEnforcedVerificationsPassed still present or logVerificationSummary missing');
+    fail('assertEnforcedVerificationsPassed or logVerificationSummary still present');
   }
 
   // ── Test 9: verification fix loop exists in adapters ──

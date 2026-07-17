@@ -223,17 +223,15 @@ export class SessionService {
 
           if (
             priorRecord.config.provider === currentFingerprint.provider
-            && priorRecord.config.backend === currentFingerprint.backend
             && priorRecord.providerSessionId
           ) {
             canResume = true;
             resumableProviderSessionId = priorRecord.providerSessionId;
           } else if (
             priorRecord.config.provider !== currentFingerprint.provider
-            || priorRecord.config.backend !== currentFingerprint.backend
           ) {
             warnings.push(
-              `Provider/backend for ${nextStage} (${currentFingerprint.provider}/${currentFingerprint.backend}) differs from ${priorStageName} (${priorRecord.config.provider}/${priorRecord.config.backend}). Prior stage summary will still be available as context.`
+              `Provider for ${nextStage} (${currentFingerprint.provider}) differs from ${priorStageName} (${priorRecord.config.provider}). Prior stage summary will still be available as context.`
             );
           }
           break;

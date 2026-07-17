@@ -253,7 +253,7 @@ describe('SessionService', () => {
       expect(result.priorSummary).toBe('Plan done');
     });
 
-    it('prevents cross-backend resume (anthropic/agent to anthropic/cli)', async () => {
+    it('allows cross-backend resume when provider matches (anthropic/agent to anthropic/cli)', async () => {
       let session = createMockSessionState();
       session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-sonnet-4-20250514');
       session = await service.recordProviderSessionId(session, 'plan', 'sid-1');
@@ -262,8 +262,8 @@ describe('SessionService', () => {
       const cliFingerprint: StageConfigFingerprint = { provider: 'anthropic', backend: 'cli' };
       const result = service.validateForStage(session, 'implement', cliFingerprint, _s => cliFingerprint);
 
-      expect(result.canResume).toBe(false);
-      expect(result.warnings.some(w => w.includes('backend') || w.includes('portable'))).toBe(true);
+      expect(result.canResume).toBe(true);
+      expect(result.resumableProviderSessionId).toBe('sid-1');
       expect(result.priorSummary).toBe('Plan done');
     });
 

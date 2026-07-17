@@ -1853,45 +1853,4 @@ describe('IssueCommand', () => {
       expect(inquirer.prompt).not.toHaveBeenCalled();
     });
   });
-
-  describe('logVerificationSummary', () => {
-    afterEach(() => {
-      jest.restoreAllMocks();
-    });
-
-    it('does not throw when all outcomes passed', async () => {
-      const command = await buildCommand();
-      const outcomes = [
-        { id: 'lint', command: 'yarn lint', policy: 'enforced' as const, status: 'passed' as const },
-        { id: 'build', command: 'yarn build', policy: 'best_effort' as const, status: 'passed' as const },
-      ];
-      expect(() => (command as any).logVerificationSummary(outcomes)).not.toThrow();
-    });
-
-    it('warns but does not throw for enforced failures', async () => {
-      const command = await buildCommand();
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      const outcomes = [
-        { id: 'lint', command: 'yarn lint', policy: 'enforced' as const, status: 'failed' as const },
-        { id: 'build', command: 'yarn build', policy: 'enforced' as const, status: 'passed' as const },
-      ];
-      expect(() => (command as any).logVerificationSummary(outcomes)).not.toThrow();
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('yarn lint'));
-    });
-
-    it('warns for best_effort failures', async () => {
-      const command = await buildCommand();
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      const outcomes = [
-        { id: 'typecheck', command: 'yarn typecheck', policy: 'best_effort' as const, status: 'failed' as const },
-      ];
-      expect(() => (command as any).logVerificationSummary(outcomes)).not.toThrow();
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('yarn typecheck'));
-    });
-
-    it('does not throw when outcomes is empty', async () => {
-      const command = await buildCommand();
-      expect(() => (command as any).logVerificationSummary([])).not.toThrow();
-    });
-  });
 });

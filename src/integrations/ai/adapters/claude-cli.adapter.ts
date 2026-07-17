@@ -356,29 +356,29 @@ const applyToolResultOutcome = (
 ): void => {
   const content = typeof block.content === 'string' ? block.content : '';
   if (!content || !activityState.lastVerificationCommand) return;
-  const hasFailure = block.is_error || /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(content);
-  const hasSuccess = /(passed|success|succeeded|completed successfully|exit code 0)/i.test(content);
   const command = activityState.lastVerificationCommand;
+  const script = verificationScripts.find(
+    s => command.includes(s.command) || s.command.includes(command),
+  );
+  if (!script) {
+    activityState.lastVerificationCommand = undefined;
+    return;
+  }
+  const hasFailure = block.is_error
+    || /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(content);
+  const hasSuccess = /(passed|success|succeeded|completed successfully|exit code 0)/i.test(content);
   if (hasFailure) {
     console.log(chalk.red(`  [${CLI_ADAPTER_LABEL}] Verification failed: ${command}`));
-    const script = verificationScripts.find(s => command.includes(s.command) || s.command.includes(command));
     activityState.verificationOutcomes.push({
-      id: script?.id ?? 'unknown',
-      command,
-      policy: script?.policy ?? 'best_effort',
-      status: 'failed',
+      id: script.id, command, policy: script.policy, status: 'failed',
     });
     activityState.lastVerificationCommand = undefined;
     return;
   }
   if (hasSuccess) {
     console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Verification passed: ${command}`));
-    const script = verificationScripts.find(s => command.includes(s.command) || s.command.includes(command));
     activityState.verificationOutcomes.push({
-      id: script?.id ?? 'unknown',
-      command,
-      policy: script?.policy ?? 'best_effort',
-      status: 'passed',
+      id: script.id, command, policy: script.policy, status: 'passed',
     });
     activityState.lastVerificationCommand = undefined;
   }
