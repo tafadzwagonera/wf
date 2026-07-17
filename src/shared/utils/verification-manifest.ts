@@ -86,6 +86,26 @@ export const mergeVerificationSteps = (
   return [...mergedById.values()];
 };
 
+const DEPRECATED_FLAG_REWRITES: [RegExp, string][] = [
+  [/--testPathPattern(?==|\s)/g, '--testPathPatterns'],
+  [/--forceExit(?=\s|$)/g, '--forceExit'],
+];
+
+/**
+ * Rewrites known deprecated CLI flags in targeted verification commands.
+ * Only applied to AI-generated targeted steps, not user-authored baselines.
+ *
+ * @param command - The raw command string from a targeted step.
+ * @returns The command with deprecated flags replaced.
+ */
+export const normalizeTargetedStepCommand = (command: string): string => {
+  let result = command;
+  for (const [pattern, replacement] of DEPRECATED_FLAG_REWRITES) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+};
+
 export const normalizePlanVerification = (value: unknown, filePath: string): PlanVerificationConfig | undefined => {
   if (value === undefined) {
     return undefined;

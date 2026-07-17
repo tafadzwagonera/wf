@@ -21,7 +21,7 @@ import { getWfStateDir } from '../shared/utils/wf-paths';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
-import { loadVerificationManifest, mergeVerificationSteps, type VerificationStep } from '../shared/utils/verification-manifest';
+import { loadVerificationManifest, mergeVerificationSteps, normalizeTargetedStepCommand, type VerificationStep } from '../shared/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import { ClaudeCliAdapter } from '../integrations/ai/adapters/claude-cli.adapter';
@@ -452,12 +452,16 @@ export class ImplementerAgent {
   ): VerificationScript[] {
     const packageScripts = this.readPackageScripts(repoDir);
     const baselineSteps = this.resolveBaselineVerificationSteps(repoDir, verificationConditions);
+    const baselineIds = new Set(baselineSteps.map(s => s.id));
     const waiverIds = new Set((planVerification?.waivers ?? []).map(w => w.id));
     const targetedSteps = planVerification?.targeted ?? [];
 
     return mergeVerificationSteps(baselineSteps, targetedSteps)
       .filter(step => !waiverIds.has(step.id))
-      .map(step => this.toVerificationScript(step, repoDir, packageScripts));
+      .map(step => {
+        const normalizedRun = baselineIds.has(step.id) ? step.run : normalizeTargetedStepCommand(step.run);
+        return this.toVerificationScript({ ...step, run: normalizedRun }, repoDir, packageScripts);
+      });
   }
 
   private toVerificationScript(

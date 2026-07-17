@@ -54,9 +54,13 @@ export function runProgrammaticVerification(
       console.log(chalk.green(`    ✅ ${script.command}`));
       outcomes.push({ id: script.id, command: script.command, policy: script.policy, status: 'passed' });
     } catch (error: unknown) {
-      const output = error instanceof Error && 'stderr' in error
-        ? String((error as { stderr: unknown }).stderr).slice(0, 2000)
+      const stderr = error instanceof Error && 'stderr' in error
+        ? String((error as { stderr: unknown }).stderr)
         : '';
+      const stdout = error instanceof Error && 'stdout' in error
+        ? String((error as { stdout: unknown }).stdout)
+        : '';
+      const output = [stdout, stderr].filter(Boolean).join('\n').slice(0, 4000);
       console.log(chalk.red(`    ❌ ${script.command}`));
       outcomes.push({ id: script.id, command: script.command, policy: script.policy, status: 'failed', output });
     }
@@ -88,6 +92,47 @@ export function printVerificationReport(outcomes: VerificationOutcome[]): void {
  */
 export function getEnforcedFailures(outcomes: VerificationOutcome[]): VerificationOutcome[] {
   return outcomes.filter(o => o.policy === 'enforced' && o.status === 'failed');
+}
+
+const COMMAND_FAILURE_PATTERNS = [
+  /unrecognized option/i,
+  /unknown option/i,
+  /unrecognized CLI parameter/i,
+  /was replaced by/i,
+  /command not found/i,
+  /no such file or directory/i,
+  /not a valid option/i,
+];
+
+/**
+ * Classifies a failed verification outcome as a command-level failure
+ * (broken command that the AI cannot fix) or a code-level failure
+ * (fixable by changing source code).
+ *
+ * @param outcome - A failed verification outcome with captured output.
+ * @returns True if the failure is command-level (unfixable by AI).
+ */
+export function isCommandFailure(outcome: VerificationOutcome): boolean {
+  const output = (outcome as { output?: string }).output ?? '';
+  return COMMAND_FAILURE_PATTERNS.some(p => p.test(output));
+}
+
+/**
+ * Splits enforced failures into code failures (fixable) and command failures (unfixable).
+ *
+ * @param failures - Enforced-failed outcomes.
+ * @returns Partitioned failures.
+ */
+export function partitionFailures(
+  failures: VerificationOutcome[],
+): { codeFailures: VerificationOutcome[]; commandFailures: VerificationOutcome[] } {
+  const codeFailures: VerificationOutcome[] = [];
+  const commandFailures: VerificationOutcome[] = [];
+  for (const f of failures) {
+    const target = isCommandFailure(f) ? commandFailures : codeFailures;
+    target.push(f);
+  }
+  return { codeFailures, commandFailures };
 }
 
 /**

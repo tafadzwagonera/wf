@@ -12,7 +12,7 @@ import type {
 import {
   printVerificationReport, getEnforcedFailures,
   buildVerificationFixPrompt, runProgrammaticVerification,
-  checkVerificationStall,
+  checkVerificationStall, partitionFailures,
 } from './verification-report';
 import {
   resolveModelRouting,
@@ -515,19 +515,24 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       const failures = getEnforcedFailures(outcomes);
       if (failures.length === 0) return outcomes;
       if (!sessionId) return outcomes;
+      const { codeFailures, commandFailures } = partitionFailures(failures);
+      for (const cf of commandFailures) {
+        console.log(chalk.gray(`    [${CLI_ADAPTER_LABEL}] Skipping unfixable command: ${cf.command}`));
+      }
+      if (codeFailures.length === 0) return outcomes;
       stalledPasses = checkVerificationStall(
-        failures.length, previousFailureCount, stalledPasses, CLI_ADAPTER_LABEL,
+        codeFailures.length, previousFailureCount, stalledPasses, CLI_ADAPTER_LABEL,
       );
       if (stalledPasses === -1) return outcomes;
-      previousFailureCount = failures.length;
+      previousFailureCount = codeFailures.length;
       console.log(chalk.yellow(
         `\n  [${CLI_ADAPTER_LABEL}] Fix pass ${passNumber}: `
-        + `${failures.length} enforced verification(s) failed — sending back for resolution`,
+        + `${codeFailures.length} enforced verification(s) failed — sending back for resolution`,
       ));
       sessionId = await this.runSinglePass({
         passNumber: 100 + passNumber, sessionId,
         currentUnvisited: [],
-        promptOverride: buildVerificationFixPrompt(failures),
+        promptOverride: buildVerificationFixPrompt(codeFailures),
         appendSystemPrompt: p.appendSystemPrompt, model: p.model,
         repoDir: p.repoDir, additionalRepoDirs: p.additionalRepoDirs,
         touchedFiles: p.touchedFiles, activityState: p.activityState,

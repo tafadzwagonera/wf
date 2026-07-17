@@ -15,7 +15,7 @@ import { assertCodexCliAvailable, buildCodexCliArgs, spawnCodex, type CodexCliMe
 import {
   printVerificationReport, getEnforcedFailures,
   buildVerificationFixPrompt, runProgrammaticVerification,
-  checkVerificationStall,
+  checkVerificationStall, partitionFailures,
 } from './verification-report';
 
 const DEFAULT_MECHANICAL_MODEL = 'gpt-5.4-mini';
@@ -409,16 +409,21 @@ export class CodexCliAdapter implements ImplementerBackend {
       const failures = getEnforcedFailures(outcomes);
       if (failures.length === 0) return outcomes;
       if (!sessionId) return outcomes;
+      const { codeFailures, commandFailures } = partitionFailures(failures);
+      for (const cf of commandFailures) {
+        console.log(chalk.gray(`    [${CODEX_ADAPTER_LABEL}] Skipping unfixable command: ${cf.command}`));
+      }
+      if (codeFailures.length === 0) return outcomes;
       stalledPasses = checkVerificationStall(
-        failures.length, previousFailureCount, stalledPasses, CODEX_ADAPTER_LABEL,
+        codeFailures.length, previousFailureCount, stalledPasses, CODEX_ADAPTER_LABEL,
       );
       if (stalledPasses === -1) return outcomes;
-      previousFailureCount = failures.length;
+      previousFailureCount = codeFailures.length;
       console.log(chalk.yellow(
         `\n  [${CODEX_ADAPTER_LABEL}] Fix pass ${passNumber}: `
-        + `${failures.length} enforced verification(s) failed — sending back for resolution`,
+        + `${codeFailures.length} enforced verification(s) failed — sending back for resolution`,
       ));
-      const fixPrompt = buildVerificationFixPrompt(failures);
+      const fixPrompt = buildVerificationFixPrompt(codeFailures);
       const fixArgs = buildCodexCliArgs({
         prompt: fixPrompt, model, cwd: repoDir,
         permissionMode: 'full-auto', sessionId,

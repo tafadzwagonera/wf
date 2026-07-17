@@ -429,8 +429,9 @@ const formatTestInfraPromptSection = (ctx: TestInfraContext): string => {
 
   const nodeEco = ctx.ecosystems.find((e): e is NodeInfra => e.ecosystem === 'node');
   if (nodeEco) {
+    const filterFlag = nodeEco.frameworks.includes('jest') ? '--testPathPatterns' : '--testPathPattern';
     lines.push(
-      '- Prefer existing scripts with a filter (e.g., "yarn test -- --testPathPattern=pricing") over bare "yarn test".'
+      `- Prefer existing scripts with a filter (e.g., "yarn test -- ${filterFlag}=pricing") over bare "yarn test".`
     );
     lines.push(
       '- When no matching script exists, prefer inline: node -e "const assert = require(\'node:assert\'); ..."'
