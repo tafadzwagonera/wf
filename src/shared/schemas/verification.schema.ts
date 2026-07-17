@@ -29,4 +29,5 @@ export const verificationOutcomeSchema = z.object({
   command: z.string(),
   policy: verificationPolicySchema,
   status: z.enum(['passed', 'failed', 'skipped']),
+  output: z.string().optional(),
 });

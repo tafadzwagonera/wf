@@ -4,8 +4,8 @@
  * Run: nr test:manual -- test-verification-report-and-sigint
  *
  * Verifies:
- *   1. resolveSkippedSteps fills missing verification scripts as 'skipped'
- *   2. resolveSkippedSteps preserves existing passed/failed outcomes
+ *   1. runProgrammaticVerification runs each configured script and records pass/fail
+ *   2. runProgrammaticVerification records correct id and status per script
  *   3. printVerificationReport prints nothing when outcomes is empty
  *   4. printVerificationReport prints a row per outcome
  *   5. main.ts SIGINT handler does not exit on first signal (graceful shutdown)
@@ -17,8 +17,8 @@
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
-import { resolveSkippedSteps, printVerificationReport } from '../../src/integrations/ai/adapters/verification-report';
-import type { VerificationOutcome, VerificationScript } from '../../src/shared/types/agent.types';
+import { runProgrammaticVerification, printVerificationReport } from '../../src/integrations/ai/adapters/verification-report';
+import type { VerificationScript } from '../../src/shared/types/agent.types';
 
 let passed = 0;
 let failed = 0;
@@ -42,39 +42,28 @@ const mockScripts: VerificationScript[] = [
 async function main(): Promise<void> {
   console.log('\n=== Test: Verification report, SIGINT, and session ID ===\n');
 
-  // ── Test 1: resolveSkippedSteps fills missing scripts ──
+  // ── Test 1: runProgrammaticVerification runs each script ──
 
-  console.log('Test 1: resolveSkippedSteps fills missing scripts as skipped');
-  const outcomes1 = resolveSkippedSteps(mockScripts, []);
-  if (outcomes1.length === 3) {
-    pass('All 3 scripts filled as skipped');
-  } else {
-    fail(`Expected 3 skipped outcomes, got ${outcomes1.length}`);
-  }
-  const allSkipped = outcomes1.every(o => o.status === 'skipped');
-  if (allSkipped) {
-    pass('All outcomes have status "skipped"');
-  } else {
-    fail('Not all outcomes are skipped');
-  }
-
-  // ── Test 2: resolveSkippedSteps preserves existing outcomes ──
-
-  console.log('\nTest 2: resolveSkippedSteps preserves existing passed/failed outcomes');
-  const existing: VerificationOutcome[] = [
-    { id: 'lint', command: 'yarn lint', policy: 'enforced', status: 'passed' },
+  console.log('Test 1: runProgrammaticVerification runs each configured script');
+  const echoScripts: VerificationScript[] = [
+    { id: 'echo-pass', name: 'echo-pass', command: 'echo ok', policy: 'enforced', aliases: [] },
+    { id: 'echo-fail', name: 'echo-fail', command: 'false', policy: 'enforced', aliases: [] },
   ];
-  const outcomes2 = resolveSkippedSteps(mockScripts, existing);
-  if (outcomes2.length === 3) {
-    pass('Total outcomes = 3 (1 existing + 2 skipped)');
+  const outcomes1 = runProgrammaticVerification(echoScripts, process.cwd());
+  if (outcomes1.length === 2) {
+    pass('One outcome per configured script');
   } else {
-    fail(`Expected 3 outcomes, got ${outcomes2.length}`);
+    fail(`Expected 2 outcomes, got ${outcomes1.length}`);
   }
-  const lintOutcome = outcomes2.find(o => o.id === 'lint');
-  if (lintOutcome?.status === 'passed') {
-    pass('Existing lint outcome preserved as passed');
+  if (outcomes1[0].status === 'passed' && outcomes1[0].id === 'echo-pass') {
+    pass('Passing command recorded as passed');
   } else {
-    fail(`Expected lint status "passed", got "${lintOutcome?.status}"`);
+    fail(`Expected passed, got ${outcomes1[0].status}`);
+  }
+  if (outcomes1[1].status === 'failed' && outcomes1[1].id === 'echo-fail') {
+    pass('Failing command recorded as failed');
+  } else {
+    fail(`Expected failed, got ${outcomes1[1].status}`);
   }
 
   // ── Test 3: printVerificationReport with empty outcomes ──
@@ -102,11 +91,11 @@ async function main(): Promise<void> {
   };
   printVerificationReport(outcomes1);
   console.log = originalLog;
-  // 1 header + 3 rows = 4
-  if (captured.length === 4) {
-    pass('4 lines printed (1 header + 3 outcomes)');
+  // 1 header + 2 rows = 3 (echoScripts has 2 entries)
+  if (captured.length === 3) {
+    pass('3 lines printed (1 header + 2 outcomes)');
   } else {
-    fail(`Expected 4 lines, got ${captured.length}`);
+    fail(`Expected 3 lines, got ${captured.length}`);
   }
 
   // ── Test 5: main.ts SIGINT handler does not exit on first signal ──
@@ -164,17 +153,17 @@ async function main(): Promise<void> {
 
   // ── Test 9: verification fix loop exists in adapters ──
 
-  console.log('\nTest 9: verification fix loop exists in both adapters');
+  console.log('\nTest 9: programmatic verification loop exists in both adapters');
   const claudeAdapterSource = require('fs').readFileSync(
     require('path').join(__dirname, '..', '..', 'src', 'integrations', 'ai', 'adapters', 'claude-cli.adapter.ts'), 'utf-8'
   ) as string;
   const codexAdapterSource = require('fs').readFileSync(
     require('path').join(__dirname, '..', '..', 'src', 'integrations', 'ai', 'adapters', 'codex-cli.adapter.ts'), 'utf-8'
   ) as string;
-  const claudeHasFixLoop = claudeAdapterSource.includes('runVerificationFixLoop');
-  const codexHasFixLoop = codexAdapterSource.includes('runCodexVerificationFixLoop');
+  const claudeHasFixLoop = claudeAdapterSource.includes('runProgrammaticVerificationLoop');
+  const codexHasFixLoop = codexAdapterSource.includes('runProgrammaticVerificationLoop');
   if (claudeHasFixLoop && codexHasFixLoop) {
-    pass('Both adapters have verification fix loops');
+    pass('Both adapters have programmatic verification loops');
   } else {
     fail(`Claude: ${claudeHasFixLoop}, Codex: ${codexHasFixLoop}`);
   }

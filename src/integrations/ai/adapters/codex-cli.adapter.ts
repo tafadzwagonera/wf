@@ -13,9 +13,9 @@ import { resolveModelRouting, discoverChangedFiles } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
 import { assertCodexCliAvailable, buildCodexCliArgs, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
 import {
-  resolveSkippedSteps, printVerificationReport,
-  getEnforcedFailures, clearEnforcedFailures,
-  buildVerificationFixPrompt, VERIFICATION_FIX_PASS_LIMIT,
+  printVerificationReport, getEnforcedFailures,
+  buildVerificationFixPrompt, runProgrammaticVerification,
+  checkVerificationStall,
 } from './verification-report';
 
 const DEFAULT_MECHANICAL_MODEL = 'gpt-5.4-mini';
@@ -380,38 +380,45 @@ export class CodexCliAdapter implements ImplementerBackend {
     sessionId: string | undefined,
     model: string,
   ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
-    const resolvedSessionId = await this.runCodexVerificationFixLoop(
-      params, activityState, touchedFiles, sessionId, model,
-    );
     logTouchedFiles(touchedFiles);
-    if (resolvedSessionId) {
-      console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] Provider session: ${resolvedSessionId}`));
+    if (sessionId) {
+      console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] Provider session: ${sessionId}`));
     }
-    const verificationOutcomes = resolveSkippedSteps(
-      params.verificationScripts, activityState.verificationOutcomes,
+    const repoDir = params.options.repoDir ?? process.cwd();
+    const verificationOutcomes = await this.runProgrammaticVerificationLoop(
+      params, activityState, touchedFiles, sessionId, model, repoDir,
     );
     printVerificationReport(verificationOutcomes);
-    return { sessionId: resolvedSessionId, verificationOutcomes };
+    return { sessionId, verificationOutcomes };
   }
 
-  private async runCodexVerificationFixLoop(
+  private async runProgrammaticVerificationLoop(
     params: GenerateAndVerifyParams,
     activityState: ActivityState,
     touchedFiles: Set<string>,
     sessionId: string | undefined,
     model: string,
-  ): Promise<string | undefined> {
-    const repoDir = params.options.repoDir ?? process.cwd();
-    for (let attempt = 0; attempt < VERIFICATION_FIX_PASS_LIMIT && sessionId; attempt++) {
-      const failures = getEnforcedFailures(activityState.verificationOutcomes);
-      if (failures.length === 0) break;
-      const failedList = failures.map(o => `- ${o.command}`).join('\n');
+    repoDir: string,
+  ): Promise<VerificationOutcome[]> {
+    let previousFailureCount = Infinity;
+    let stalledPasses = 0;
+    let passNumber = 0;
+    while (true) {
+      console.log(chalk.bold(`\n  Running verification (pass ${++passNumber})...`));
+      const outcomes = runProgrammaticVerification(params.verificationScripts, repoDir);
+      const failures = getEnforcedFailures(outcomes);
+      if (failures.length === 0) return outcomes;
+      if (!sessionId) return outcomes;
+      stalledPasses = checkVerificationStall(
+        failures.length, previousFailureCount, stalledPasses, CODEX_ADAPTER_LABEL,
+      );
+      if (stalledPasses === -1) return outcomes;
+      previousFailureCount = failures.length;
       console.log(chalk.yellow(
-        `\n  [${CODEX_ADAPTER_LABEL}] Fix pass ${attempt + 1}: `
+        `\n  [${CODEX_ADAPTER_LABEL}] Fix pass ${passNumber}: `
         + `${failures.length} enforced verification(s) failed — sending back for resolution`,
       ));
-      clearEnforcedFailures(activityState.verificationOutcomes);
-      const fixPrompt = buildVerificationFixPrompt(failedList);
+      const fixPrompt = buildVerificationFixPrompt(failures);
       const fixArgs = buildCodexCliArgs({
         prompt: fixPrompt, model, cwd: repoDir,
         permissionMode: 'full-auto', sessionId,
@@ -423,6 +430,5 @@ export class CodexCliAdapter implements ImplementerBackend {
       sessionId = await processCodexStream(ctx, sessionId);
       if (sessionId) await discoverChangedFiles(repoDir, touchedFiles);
     }
-    return sessionId;
   }
 }

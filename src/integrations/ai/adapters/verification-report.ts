@@ -1,8 +1,10 @@
+import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import type { VerificationOutcome, VerificationScript } from '../../../shared/types/agent.types';
 
 /**
  * Fills in 'skipped' entries for verification scripts that have no matching outcome.
+ * Used by agent backends that track outcomes during the AI session.
  *
  * @param scripts - The full list of configured verification scripts.
  * @param outcomes - The outcomes collected during the session.
@@ -29,6 +31,38 @@ const STATUS_ICONS: Record<VerificationOutcome['status'], string> = {
   failed: chalk.red('❌'),
   skipped: chalk.yellow('⏭'),
 };
+
+const SCRIPT_TIMEOUT_MS = 120_000;
+
+/**
+ * Runs each configured verification script programmatically via execSync.
+ * Returns one outcome per script with the exact configured command.
+ *
+ * @param scripts - Configured verification scripts to execute.
+ * @param repoDir - Working directory for command execution.
+ * @returns One outcome per script, in order.
+ */
+export function runProgrammaticVerification(
+  scripts: VerificationScript[],
+  repoDir: string,
+): VerificationOutcome[] {
+  if (scripts.length === 0) return [];
+  const outcomes: VerificationOutcome[] = [];
+  for (const script of scripts) {
+    try {
+      execSync(script.command, { cwd: repoDir, stdio: 'pipe', timeout: SCRIPT_TIMEOUT_MS });
+      console.log(chalk.green(`    ✅ ${script.command}`));
+      outcomes.push({ id: script.id, command: script.command, policy: script.policy, status: 'passed' });
+    } catch (error: unknown) {
+      const output = error instanceof Error && 'stderr' in error
+        ? String((error as { stderr: unknown }).stderr).slice(0, 2000)
+        : '';
+      console.log(chalk.red(`    ❌ ${script.command}`));
+      outcomes.push({ id: script.id, command: script.command, policy: script.policy, status: 'failed', output });
+    }
+  }
+  return outcomes;
+}
 
 /**
  * Prints a deterministic verification report to the console.
@@ -57,40 +91,47 @@ export function getEnforcedFailures(outcomes: VerificationOutcome[]): Verificati
 }
 
 /**
- * Removes enforced-failed outcomes from the array in place, keeping all others.
- * This allows a fix pass to record fresh results without duplicating prior failures.
- *
- * @param outcomes - Mutable outcomes array to prune.
- * @returns The same array reference after removal.
- */
-export function clearEnforcedFailures(outcomes: VerificationOutcome[]): VerificationOutcome[] {
-  for (let i = outcomes.length - 1; i >= 0; i--) {
-    if (outcomes[i].policy === 'enforced' && outcomes[i].status === 'failed') {
-      outcomes.splice(i, 1);
-    }
-  }
-  return outcomes;
-}
-
-const MAX_VERIFICATION_FIX_PASSES = 2;
-
-/**
- * Maximum number of fix passes the adapter should attempt before giving up.
- */
-export const VERIFICATION_FIX_PASS_LIMIT = MAX_VERIFICATION_FIX_PASSES;
-
-/**
  * Builds a prompt instructing the AI to fix enforced verification failures.
+ * Includes truncated command output so the AI can diagnose root causes.
  *
- * @param failedCommands - Bullet list of failed command strings.
+ * @param failures - Enforced-failed outcomes with captured output.
  * @returns The prompt string for the fix pass.
  */
-export function buildVerificationFixPrompt(failedCommands: string): string {
+export function buildVerificationFixPrompt(failures: VerificationOutcome[]): string {
+  const sections = failures.map(f => {
+    const output = (f as { output?: string }).output ?? '';
+    const truncated = output.length > 500 ? `...${output.slice(-500)}` : output;
+    return `Command: ${f.command}\nOutput:\n${truncated || '(no output captured)'}`;
+  });
   return (
-    `The following enforced verification commands failed:\n\n${failedCommands}\n\n`
-    + `Read the error output carefully, identify the root cause of each failure, `
+    `The following enforced verification commands failed:\n\n${sections.join('\n\n')}\n\n`
+    + `Read the error output above, identify the root cause of each failure, `
     + `and fix the code so all listed commands pass. `
-    + `After making your changes, re-run each failed command to confirm it passes. `
+    + `Do not re-run the verification commands yourself — they will be re-run automatically after your changes. `
     + `Do not output any text or plan before making your first tool call.`
   );
+}
+
+/**
+ * Checks whether the verification failure count is decreasing.
+ * Returns -1 to signal the loop should stop (stalled for 2 consecutive passes).
+ *
+ * @param currentFailures - Number of enforced failures in this pass.
+ * @param previousFailures - Number of enforced failures in the prior pass.
+ * @param stalledPasses - Running count of non-decreasing passes.
+ * @param adapterLabel - Adapter label for log messages.
+ * @returns Updated stalledPasses count, or -1 to signal the loop should break.
+ */
+export function checkVerificationStall(
+  currentFailures: number,
+  previousFailures: number,
+  stalledPasses: number,
+  adapterLabel: string,
+): number {
+  const updated = currentFailures < previousFailures ? 0 : stalledPasses + 1;
+  if (updated < 2) return updated;
+  console.log(chalk.yellow(
+    `\n  [${adapterLabel}] Verification failures not decreasing after 2 passes — stopping`,
+  ));
+  return -1;
 }
