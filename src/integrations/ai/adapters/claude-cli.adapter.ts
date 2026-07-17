@@ -9,7 +9,11 @@ import type {
   VerificationScript,
   VerificationOutcome,
 } from '../../../agents/interfaces';
-import { resolveSkippedSteps, printVerificationReport } from './verification-report';
+import {
+  resolveSkippedSteps, printVerificationReport,
+  getEnforcedFailures, clearEnforcedFailures,
+  buildVerificationFixPrompt, VERIFICATION_FIX_PASS_LIMIT,
+} from './verification-report';
 import {
   resolveModelRouting,
   stripRepoPrefix,
@@ -84,6 +88,7 @@ type SinglePassParams = {
   passNumber: number;
   sessionId: string;
   currentUnvisited: string[];
+  promptOverride?: string;
   appendSystemPrompt: string;
   model: string;
   repoDir: string;
@@ -496,16 +501,47 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   private async finalizeCliSession(
     p: ContinuationLoopParams,
   ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
-    const sessionId = await this.runContinuationLoop(p);
-    if (p.touchedFiles.size > 0) {
-      console.log(chalk.bold('\n  File summary:'));
-      for (const f of [...p.touchedFiles].sort((a, b) => a.localeCompare(b))) console.log(chalk.cyan(`    - updated: ${f}`));
-    } else {
-      console.log(chalk.gray('\n  File summary: no file changes were made.'));
-    }
+    let sessionId = await this.runContinuationLoop(p);
+    sessionId = await this.runVerificationFixLoop(p, sessionId);
+    this.logFileSummary(p.touchedFiles);
     const verificationOutcomes = resolveSkippedSteps(p.verificationScripts, p.activityState.verificationOutcomes);
     printVerificationReport(verificationOutcomes);
     return { sessionId, verificationOutcomes };
+  }
+
+  private logFileSummary(touchedFiles: Set<string>): void {
+    if (touchedFiles.size > 0) {
+      console.log(chalk.bold('\n  File summary:'));
+      for (const f of [...touchedFiles].sort((a, b) => a.localeCompare(b))) console.log(chalk.cyan(`    - updated: ${f}`));
+    } else {
+      console.log(chalk.gray('\n  File summary: no file changes were made.'));
+    }
+  }
+
+  private async runVerificationFixLoop(
+    p: ContinuationLoopParams, sessionId: string | undefined,
+  ): Promise<string | undefined> {
+    for (let attempt = 0; attempt < VERIFICATION_FIX_PASS_LIMIT && sessionId; attempt++) {
+      const failures = getEnforcedFailures(p.activityState.verificationOutcomes);
+      if (failures.length === 0) break;
+      const failedList = failures.map(o => `- ${o.command}`).join('\n');
+      console.log(chalk.yellow(
+        `\n  [${CLI_ADAPTER_LABEL}] Fix pass ${attempt + 1}: `
+        + `${failures.length} enforced verification(s) failed — sending back for resolution`,
+      ));
+      clearEnforcedFailures(p.activityState.verificationOutcomes);
+      sessionId = await this.runSinglePass({
+        passNumber: 100 + attempt + 1, sessionId,
+        currentUnvisited: [],
+        promptOverride: buildVerificationFixPrompt(failedList),
+        appendSystemPrompt: p.appendSystemPrompt, model: p.model,
+        repoDir: p.repoDir, additionalRepoDirs: p.additionalRepoDirs,
+        touchedFiles: p.touchedFiles, activityState: p.activityState,
+        verificationScripts: p.verificationScripts,
+      });
+      if (sessionId) await discoverChangedFiles(p.repoDir, p.touchedFiles);
+    }
+    return sessionId;
   }
 
   private async runContinuationLoop(p: ContinuationLoopParams): Promise<string | undefined> {
@@ -544,7 +580,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   private async runSinglePass(p: SinglePassParams): Promise<string | undefined> {
     const { passNumber, currentUnvisited, repoDir, touchedFiles, activityState, verificationScripts } = p;
-    const continuationPrompt = buildContinuationPrompt(currentUnvisited);
+    const continuationPrompt = p.promptOverride ?? buildContinuationPrompt(currentUnvisited);
     const continueArgs = buildPassCliArgs(p, continuationPrompt);
     let sessionId: string | undefined = p.sessionId;
     for await (const message of spawnCli(continueArgs, repoDir, continuationPrompt)) {

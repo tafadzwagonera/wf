@@ -12,6 +12,11 @@ import type {
 import { resolveModelRouting, discoverChangedFiles } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
 import { assertCodexCliAvailable, buildCodexCliArgs, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
+import {
+  resolveSkippedSteps, printVerificationReport,
+  getEnforcedFailures, clearEnforcedFailures,
+  buildVerificationFixPrompt, VERIFICATION_FIX_PASS_LIMIT,
+} from './verification-report';
 
 const DEFAULT_MECHANICAL_MODEL = 'gpt-5.4-mini';
 const CODEX_ADAPTER_LABEL = 'codex-cli';
@@ -30,7 +35,19 @@ type GenerateAndVerifyParams = {
 
 type AssistantBlock = { type: string; name?: string; input?: Record<string, unknown> };
 
-type StreamContext = { cliArgs: string[]; repoDir: string; implementPrompt: string; touchedFiles: Set<string> };
+type ActivityState = {
+  lastVerificationCommand?: string;
+  verificationOutcomes: VerificationOutcome[];
+};
+
+type StreamContext = {
+  cliArgs: string[];
+  repoDir: string;
+  implementPrompt: string;
+  touchedFiles: Set<string>;
+  activityState: ActivityState;
+  verificationScripts: VerificationScript[];
+};
 
 /**
  * Builds the prior-stage preamble string from the options.
@@ -202,6 +219,30 @@ const logAgentMessageText = (message: CodexCliMessage): boolean => {
 };
 
 /**
+ * Tracks verification outcomes from command_execution items.
+ * @param message - The Codex CLI message to inspect.
+ * @param activityState - Mutable state tracking outcomes.
+ * @param verificationScripts - Configured verification scripts.
+ */
+const applyCodexVerificationOutcome = (
+  message: CodexCliMessage,
+  activityState: ActivityState,
+  verificationScripts: VerificationScript[],
+): void => {
+  if (message.type !== 'item.completed' || message.item?.type !== 'command_execution') return;
+  const command = message.item.command;
+  if (!command || message.item.exit_code == null) return;
+  const script = verificationScripts.find(
+    s => command.includes(s.command) || s.command.includes(command),
+  );
+  if (!script) return;
+  const status = message.item.exit_code === 0 ? 'passed' : 'failed';
+  activityState.verificationOutcomes.push({
+    id: script.id, command, policy: script.policy, status,
+  });
+};
+
+/**
  * Processes a single message from the Codex CLI stream.
  * @param message - The Codex CLI message to process.
  * @param ctx - Stream context containing repoDir and touchedFiles.
@@ -217,6 +258,7 @@ const processCodexMessage = (message: CodexCliMessage, ctx: StreamContext): stri
   logCodexAssistantBlocks(message, ctx.repoDir, ctx.touchedFiles);
   trackMessageFiles(message, ctx.repoDir, ctx.touchedFiles);
   logAgentSummary(message);
+  applyCodexVerificationOutcome(message, ctx.activityState, ctx.verificationScripts);
   return message.type === 'thread.started' ? message.thread_id : undefined;
 };
 
@@ -298,11 +340,15 @@ const runCodexStream = async (
   params: GenerateAndVerifyParams,
   repoDir: string,
   model: string,
+  activityState: ActivityState,
 ): Promise<RunCodexStreamResult> => {
   const implementPrompt = buildCodexImplementPrompt(params, repoDir);
   const cliArgs = buildCodexCliArgs({ prompt: implementPrompt, model, cwd: repoDir, permissionMode: 'full-auto', sessionId: params.options.resumeProviderSessionId });
   const touchedFiles = new Set<string>();
-  const ctx: StreamContext = { cliArgs, repoDir, implementPrompt, touchedFiles };
+  const ctx: StreamContext = {
+    cliArgs, repoDir, implementPrompt, touchedFiles,
+    activityState, verificationScripts: params.verificationScripts,
+  };
   const sessionId = await processCodexStream(ctx, params.options.resumeProviderSessionId);
   return { sessionId, touchedFiles };
 };
@@ -314,7 +360,6 @@ const runCodexStream = async (
 export class CodexCliAdapter implements ImplementerBackend {
   constructor(private readonly configService: ConfigService) {}
 
-  // TODO: implement verification outcome tracking for codex adapter
   async generateAndVerify(
     params: GenerateAndVerifyParams,
   ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
@@ -322,10 +367,62 @@ export class CodexCliAdapter implements ImplementerBackend {
     assertCodexCliAvailable();
     const model = resolveCodexModel(params.options, params.planArtifact, this.configService);
     console.log(chalk.bold.cyan(`\n  [${CODEX_ADAPTER_LABEL}] Running Codex CLI agent in ${repoDir}...`));
-    const { sessionId, touchedFiles } = await runCodexStream(params, repoDir, model);
+    const activityState: ActivityState = { verificationOutcomes: [] };
+    const { sessionId, touchedFiles } = await runCodexStream(params, repoDir, model, activityState);
     await discoverChangedFiles(repoDir, touchedFiles);
+    return this.finalizeCodexSession(params, activityState, touchedFiles, sessionId, model);
+  }
+
+  private async finalizeCodexSession(
+    params: GenerateAndVerifyParams,
+    activityState: ActivityState,
+    touchedFiles: Set<string>,
+    sessionId: string | undefined,
+    model: string,
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
+    const resolvedSessionId = await this.runCodexVerificationFixLoop(
+      params, activityState, touchedFiles, sessionId, model,
+    );
     logTouchedFiles(touchedFiles);
-    if (sessionId) console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] Provider session: ${sessionId}`));
-    return { sessionId, verificationOutcomes: [] };
+    if (resolvedSessionId) {
+      console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] Provider session: ${resolvedSessionId}`));
+    }
+    const verificationOutcomes = resolveSkippedSteps(
+      params.verificationScripts, activityState.verificationOutcomes,
+    );
+    printVerificationReport(verificationOutcomes);
+    return { sessionId: resolvedSessionId, verificationOutcomes };
+  }
+
+  private async runCodexVerificationFixLoop(
+    params: GenerateAndVerifyParams,
+    activityState: ActivityState,
+    touchedFiles: Set<string>,
+    sessionId: string | undefined,
+    model: string,
+  ): Promise<string | undefined> {
+    const repoDir = params.options.repoDir ?? process.cwd();
+    for (let attempt = 0; attempt < VERIFICATION_FIX_PASS_LIMIT && sessionId; attempt++) {
+      const failures = getEnforcedFailures(activityState.verificationOutcomes);
+      if (failures.length === 0) break;
+      const failedList = failures.map(o => `- ${o.command}`).join('\n');
+      console.log(chalk.yellow(
+        `\n  [${CODEX_ADAPTER_LABEL}] Fix pass ${attempt + 1}: `
+        + `${failures.length} enforced verification(s) failed — sending back for resolution`,
+      ));
+      clearEnforcedFailures(activityState.verificationOutcomes);
+      const fixPrompt = buildVerificationFixPrompt(failedList);
+      const fixArgs = buildCodexCliArgs({
+        prompt: fixPrompt, model, cwd: repoDir,
+        permissionMode: 'full-auto', sessionId,
+      });
+      const ctx: StreamContext = {
+        cliArgs: fixArgs, repoDir, implementPrompt: fixPrompt,
+        touchedFiles, activityState, verificationScripts: params.verificationScripts,
+      };
+      sessionId = await processCodexStream(ctx, sessionId);
+      if (sessionId) await discoverChangedFiles(repoDir, touchedFiles);
+    }
+    return sessionId;
   }
 }
