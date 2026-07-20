@@ -1070,17 +1070,19 @@ export class AiService {
   /**
    * Stamp provider metadata onto a parsed plan in place.
    * @param plan Mutable ResolutionPlan to annotate
+   * @param response AIResponse metadata from the adapter; falls back to
+   *   resolveAiTarget('plan') when either field is absent, honouring stage overrides
    */
-  private stampPlanMetadata(plan: ResolutionPlan & { repositoriesAffected?: string[] }): void {
-    if (!plan.affectedRepositories && plan.repositoriesAffected) {
-      plan.affectedRepositories = plan.repositoriesAffected;
-    }
+  private stampPlanMetadata(
+    plan: ResolutionPlan & { repositoriesAffected?: string[] },
+    response: { provider?: string; model?: string }
+  ): void {
+    if (!plan.affectedRepositories && plan.repositoriesAffected) plan.affectedRepositories = plan.repositoriesAffected;
     delete plan.repositoriesAffected;
     plan.steps = normalizePlanSteps(Array.isArray(plan.steps) ? plan.steps : []);
-    const provider = this.configService.get<string>('ai.provider', 'anthropic');
-    const model = this.configService.get<string>('ai.model', '');
-    plan.provider = provider;
-    plan.source = deriveModelSource(provider, model);
+    const { provider, model } = response.provider && response.model ? { provider: response.provider, model: response.model } : this.resolveAiTarget('plan');
+    plan.provider = provider ?? 'anthropic';
+    plan.source = deriveModelSource(plan.provider, model ?? '');
     plan.timestamp = dayjs().toISOString();
   }
 
@@ -1095,7 +1097,7 @@ export class AiService {
       const plan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
         requireAiResponseContent(response, 'AI provider returned an empty plan response')
       );
-      this.stampPlanMetadata(plan);
+      this.stampPlanMetadata(plan, response);
       return plan;
     } catch (error) {
       if (isAIErrorLike(error)) throw error;

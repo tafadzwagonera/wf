@@ -43,8 +43,8 @@ function runCopiedRunnerIn(tmpDir: string): { exitCode: number; stderr: string }
   let source = fs.readFileSync(RUNNER_SOURCE, 'utf8');
 
   // Rewrite relative moduleRequire paths to absolute so they resolve from the temp dir
-  source = source.replace(
-    /moduleRequire\('\.\/src\//g,
+  source = source.replaceAll(
+    'moduleRequire(\'./src/',
     `moduleRequire('${WF_ROOT}/src/`,
   );
 

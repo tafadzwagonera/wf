@@ -59,6 +59,8 @@ describe('AiService', () => {
           suggestions: [],
           approved: true,
         }),
+        provider: 'openai',
+        model: 'gpt-5.4',
       }),
       executeWithHistory: jest.fn().mockResolvedValue({ content: 'ok' }),
     }) as unknown as jest.Mocked<LlmAdapter>;
@@ -146,6 +148,8 @@ describe('AiService', () => {
               ],
             },
           }),
+          provider: 'openai',
+          model: 'gpt-5.4',
         }),
         executeWithHistory: jest.fn().mockResolvedValue({ content: 'ok' }),
       } as unknown as jest.Mocked<LlmAdapter>;
@@ -190,6 +194,8 @@ describe('AiService', () => {
           affectedFiles: ['repo-a/src/commands/issue-review.command.ts'],
           affectedRepositories: ['repo-a'],
         }),
+        provider: 'openai',
+        model: 'gpt-5.4',
       });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
@@ -265,6 +271,8 @@ describe('AiService', () => {
           affectedFiles: ['repo-a/src/example.ts'],
           affectedRepositories: ['repo-a'],
         }),
+        provider: 'openai',
+        model: 'gpt-5.4',
       });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
@@ -297,6 +305,8 @@ describe('AiService', () => {
           affectedFiles: ['repo-a/src/auth.ts'],
           affectedRepositories: ['repo-a'],
         }),
+        provider: 'openai',
+        model: 'gpt-5.4',
       });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
@@ -321,6 +331,8 @@ describe('AiService', () => {
           affectedFiles: ['repo-a/src/auth.ts'],
           affectedRepositories: ['repo-a'],
         }),
+        provider: 'openai',
+        model: 'gpt-5.4',
       });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
@@ -343,6 +355,8 @@ describe('AiService', () => {
           affectedFiles: ['repo-a/src/example.ts'],
           affectedRepositories: ['repo-a'],
         }),
+        provider: 'openai',
+        model: 'gpt-5.4',
       });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
@@ -384,6 +398,8 @@ describe('AiService', () => {
           affectedFiles: ['repo-a/main.tf'],
           affectedRepositories: ['repo-a'],
         }),
+        provider: 'openai',
+        model: 'gpt-5.4',
       });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
@@ -405,6 +421,52 @@ describe('AiService', () => {
       expect(executeCall.prompt).not.toContain(
         'Verification commands MUST be shell-safe by construction. For inline `node -e`, prefer'
       );
+    });
+
+    it('stamps plan provider and source from the API response metadata', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Use response metadata',
+          steps: ['Step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: ['repo/src/file.ts'],
+          affectedRepositories: ['repo'],
+        }),
+        provider: 'anthropic',
+        model: 'claude-opus-4-6',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const plan = await service.generatePlan('fix', '# Fix metadata', {
+        affectedRepositories: ['repo'],
+      });
+
+      expect(plan.provider).toBe('anthropic');
+      expect(plan.source).toBe('opus-4-6');
+    });
+
+    it('falls back to stage-resolved provider when response has no metadata', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'No response metadata',
+          steps: ['Step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: ['repo/src/file.ts'],
+          affectedRepositories: ['repo'],
+        }),
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const plan = await service.generatePlan('fix', '# Fix metadata fallback', {
+        affectedRepositories: ['repo'],
+      });
+
+      expect(plan.provider).toBe('openai');
+      expect(plan.source).toBe('5.4');
     });
 
     it('raises an AIError with provider metadata when the plan response is blank', async () => {
