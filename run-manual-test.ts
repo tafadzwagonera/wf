@@ -13,13 +13,36 @@ import * as path from 'path';
 import { createRequire } from 'module';
 
 const moduleRequire = createRequire(__filename);
+const { ExecutionError } = moduleRequire('./src/shared/errors/app.error');
+
+/**
+ * Verify that the runner is executing from the wf project root.
+ *
+ * @throws ExecutionError if not in the wf project root
+ */
+function assertWfProjectRoot(): void {
+  const packageJsonPath = path.join(__dirname, 'package.json');
+  const isWfProject
+    = fs.existsSync(packageJsonPath)
+      && JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).name === 'wf';
+
+  if (!isWfProject) {
+    throw new ExecutionError(
+      `Manual tests must be run from the wf project root. Current directory: ${__dirname}`,
+    );
+  }
+}
 
 /**
  * Resolve and execute a manual test file after loading wf config.
  *
  * @returns Resolves when the manual test module has been required
+ * @throws ExecutionError when not executed from the wf project root
  */
+// eslint-disable-next-line max-lines-per-function
 export const runManualTest = async (): Promise<void> => {
+  assertWfProjectRoot();
+
   const testName = process.argv[2];
 
   if (!testName) {
@@ -33,7 +56,7 @@ export const runManualTest = async (): Promise<void> => {
     path.join(__dirname, 'test', 'manual', `${testName}.ts`),
   ];
 
-  const resolvedTestPath = candidatePaths.find((candidatePath) =>
+  const resolvedTestPath = candidatePaths.find(candidatePath =>
     fs.existsSync(candidatePath),
   );
 
@@ -52,4 +75,7 @@ export const runManualTest = async (): Promise<void> => {
   require(resolvedTestPath);
 };
 
-void runManualTest();
+runManualTest().catch(error => {
+  console.error(error.message ?? error);
+  process.exit(1);
+});
