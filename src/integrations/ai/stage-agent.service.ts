@@ -31,6 +31,7 @@ import {
   sanitizeCodeReviewTrace,
 } from './ai.service';
 import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
+import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import { AIError, isAIErrorLike } from '../../shared/utils/errors';
 import type { TestInfraContext } from '../../shared/types/detection.types';
 import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
@@ -1133,8 +1134,10 @@ export class StageAgentService {
    * @returns parsed and post-processed code review
    */
   private parseAndProcessReview(response: string): CodeReview {
-    const parsed = parseJsonResponse<CodeReview>(
-      requireReviewResponseContent({ content: response, provider: this.resolveStageProvider('review'), model: this.resolveStageModel('review') })
+    const parsed = codeReviewSchema.parse(
+      parseJsonResponse<CodeReview>(
+        requireReviewResponseContent({ content: response, provider: this.resolveStageProvider('review'), model: this.resolveStageModel('review') })
+      )
     );
     return postProcessCodeReview(sanitizeCodeReviewTrace(parsed, response), response).review;
   }

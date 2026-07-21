@@ -669,6 +669,50 @@ describe('StageAgentService', () => {
     expect(service.isEnabledForStage('review')).toBe(true);
   });
 
+  describe('review JSON validation', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('throws AIError when LLM response is missing suggestions field', async () => {
+      const configService = createConfigService();
+      const service = new StageAgentService(configService);
+      const mockReviewJson = JSON.stringify({
+        summary: 'Review summary',
+        issues: [],
+        approved: true,
+        // Missing suggestions field
+      });
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest
+        .fn()
+        .mockResolvedValue({ content: mockReviewJson, sessionId: undefined });
+
+      await expect(service.reviewCode('diff --git a/f b/f', [])).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to parse code review'),
+      });
+    });
+
+    it('parses successfully when all required fields are present', async () => {
+      const configService = createConfigService();
+      const service = new StageAgentService(configService);
+      const mockReviewJson = JSON.stringify({
+        summary: 'Review complete',
+        issues: [],
+        suggestions: ['Consider adding tests'],
+        approved: true,
+      });
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest
+        .fn()
+        .mockResolvedValue({ content: mockReviewJson, sessionId: undefined });
+
+      const { review } = await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(review.summary).toBe('Review complete');
+      expect(review.suggestions).toEqual(['Consider adding tests']);
+      expect(review.approved).toBe(true);
+    });
+  });
+
   describe('Codex CLI stage prompt', () => {
     const makeCodexStream = (...messages: object[]) =>
       async function* () {

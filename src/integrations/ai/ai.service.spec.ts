@@ -664,13 +664,22 @@ describe('AiService', () => {
   "summary": "ok",
   "issues": [],
   "traceProvenance": "evidence-based",
-  "callStack": ["eventPaymentRecorded()", "addPaymentToBooking()"],
+  "callStack": [
+    {
+      "frame": "eventPaymentRecorded()",
+      "children": [
+        {
+          "frame": "addPaymentToBooking()"
+        }
+      ]
+    }
+  ],
   "stateTransition": {
     "from": "eventPaymentRecorded",
     "to": "addPaymentToBooking",
     "steps": [
       {
-        "state": "eventPaymentRecorded",
+        "frame": "eventPaymentRecorded()",
         "next": "addPaymentToBooking"
       }
     ]
@@ -699,7 +708,16 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       expect(review.summary).toBe('ok');
       expect(review.approved).toBe(true);
-      expect(review.callStack).toEqual(['eventPaymentRecorded()', 'addPaymentToBooking()']);
+      expect(review.callStack).toEqual([
+        {
+          frame: 'eventPaymentRecorded()',
+          children: [
+            {
+              frame: 'addPaymentToBooking()',
+            },
+          ],
+        },
+      ]);
     });
 
     it('asks for code-path traces and rejects reviewer-analysis language in the prompt', async () => {
@@ -1096,6 +1114,52 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
           prompt: expect.stringContaining('"suggestions": ["general follow-up suggestion 1", ...]'),
         })
       );
+    });
+  });
+
+  describe('review JSON validation', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('throws AIError when LLM response is missing suggestions field', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: 'Review summary',
+          issues: [],
+          approved: true,
+          // Missing suggestions field
+        }),
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(service.reviewCode('diff', ['guideline'])).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to parse code review'),
+      });
+    });
+
+    it('parses successfully when all required fields are present', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: 'Review complete',
+          issues: [],
+          suggestions: ['Consider adding tests'],
+          approved: true,
+        }),
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const review = await service.reviewCode('diff', ['guideline']);
+
+      expect(review.summary).toBe('Review complete');
+      expect(review.suggestions).toEqual(['Consider adding tests']);
+      expect(review.approved).toBe(true);
     });
   });
 

@@ -30,6 +30,7 @@ import type {
   ResolutionPlan,
 } from '../../shared/types/ai.types';
 import type { CodeReview } from '../../shared/types/review.types';
+import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import type { StageProgressCallback } from '../../shared/types/agent.types';
 
 export type {
@@ -1133,7 +1134,9 @@ export class AiService {
    */
   private parseReviewResponse(response: AIResponse, diff: string): CodeReview {
     try {
-      const parsed = parseJsonResponse<CodeReview>(requireReviewResponseContent(response));
+      const parsed = codeReviewSchema.parse(
+        parseJsonResponse<CodeReview>(requireReviewResponseContent(response))
+      );
       const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
       return { ...processedReview.review, executionMode: 'standard' };
     } catch (error) {
