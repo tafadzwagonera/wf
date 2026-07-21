@@ -634,4 +634,306 @@ describe('PlanStageService', () => {
       await expect(service.loadPlanArtifact(ticketPath, 'fix')).rejects.toThrow(/mismatch/i);
     });
   });
+
+  describe('plan quality validation on disk-loaded plans', () => {
+    const tempDirs: string[] = [];
+
+    afterEach(() => {
+      for (const dir of tempDirs) {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+      tempDirs.length = 0;
+    });
+
+    const createTempDir = () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-quality-'));
+      tempDirs.push(dir);
+      return dir;
+    };
+
+    it('createPlanArtifact throws ValidationError on cached plan with rename steps missing targets', async () => {
+      const { service } = await buildService();
+      const tempDir = createTempDir();
+      const ticketPath = path.join(tempDir, 'WBP-QUALITY.md');
+      fs.writeFileSync(ticketPath, '# WBP-QUALITY: Test');
+
+      const hash = hashPlanArtifactSources(['WBP-QUALITY']);
+      const createdAt = new Date('2026-04-16T00:00:00.000Z');
+      const planFilename = buildPlanArtifactFilename({
+        createdAt,
+        hash,
+        action: 'fix',
+        format: 'json',
+      });
+      const planPath = path.join(tempDir, planFilename);
+      const invalidPlan = {
+        ...mockPlan,
+        action: 'fix',
+        steps: ['Rename AuthService in src/auth.ts'],
+        affectedRepositories: ['repo-a'],
+      };
+      fs.writeFileSync(planPath, JSON.stringify(invalidPlan, null, 2));
+      const manifest = buildPlanArtifactManifest(
+        planPath,
+        'fix',
+        'json',
+        hash,
+        'WBP-QUALITY',
+        'ticket',
+        createdAt
+      );
+      writePlanArtifactManifest(manifest);
+
+      await expect(
+        service.createPlanArtifact(
+          { ticketKey: 'WBP-QUALITY', content: '# WBP-QUALITY: Test', path: ticketPath },
+          { action: 'fix', skipExisting: true }
+        )
+      ).rejects.toThrow(ValidationError);
+
+      await expect(
+        service.createPlanArtifact(
+          { ticketKey: 'WBP-QUALITY', content: '# WBP-QUALITY: Test', path: ticketPath },
+          { action: 'fix', skipExisting: true }
+        )
+      ).rejects.toThrow(/rename-target-required/);
+    });
+
+    it('createPlanArtifact throws ValidationError on cached plan with disallowed verification commands', async () => {
+      const { service } = await buildService();
+      const tempDir = createTempDir();
+      const ticketPath = path.join(tempDir, 'WBP-QUALITY-2.md');
+      fs.writeFileSync(ticketPath, '# WBP-QUALITY-2: Test');
+
+      const hash = hashPlanArtifactSources(['WBP-QUALITY-2']);
+      const createdAt = new Date('2026-04-16T00:00:00.000Z');
+      const planFilename = buildPlanArtifactFilename({
+        createdAt,
+        hash,
+        action: 'fix',
+        format: 'json',
+      });
+      const planPath = path.join(tempDir, planFilename);
+      const invalidPlan = {
+        ...mockPlan,
+        action: 'fix',
+        verification: {
+          targeted: [
+            {
+              id: 'disallowed-command',
+              run: 'curl http://localhost:3000',
+              policy: 'enforced' as const,
+            },
+          ],
+        },
+        affectedRepositories: ['repo-a'],
+      };
+      fs.writeFileSync(planPath, JSON.stringify(invalidPlan, null, 2));
+      const manifest = buildPlanArtifactManifest(
+        planPath,
+        'fix',
+        'json',
+        hash,
+        'WBP-QUALITY-2',
+        'ticket',
+        createdAt
+      );
+      writePlanArtifactManifest(manifest);
+
+      await expect(
+        service.createPlanArtifact(
+          { ticketKey: 'WBP-QUALITY-2', content: '# WBP-QUALITY-2: Test', path: ticketPath },
+          { action: 'fix', skipExisting: true }
+        )
+      ).rejects.toThrow(ValidationError);
+
+      await expect(
+        service.createPlanArtifact(
+          { ticketKey: 'WBP-QUALITY-2', content: '# WBP-QUALITY-2: Test', path: ticketPath },
+          { action: 'fix', skipExisting: true }
+        )
+      ).rejects.toThrow(/verification-allowlist/);
+    });
+
+    it('loadPlanArtifact throws ValidationError on loaded plan with rename steps missing targets', async () => {
+      const { service } = await buildService();
+      const tempDir = createTempDir();
+      const ticketPath = path.join(tempDir, 'WBP-QUALITY-3.md');
+      fs.writeFileSync(ticketPath, '# WBP-QUALITY-3: Test');
+
+      const hash = hashPlanArtifactSources(['WBP-QUALITY-3']);
+      const createdAt = new Date('2026-04-16T00:00:00.000Z');
+      const planFilename = buildPlanArtifactFilename({
+        createdAt,
+        hash,
+        action: 'fix',
+        format: 'json',
+      });
+      const planPath = path.join(tempDir, planFilename);
+      const invalidPlan = {
+        ...mockPlan,
+        action: 'fix',
+        steps: ['Rename AuthService in src/auth.ts'],
+        affectedRepositories: ['repo-a'],
+      };
+      fs.writeFileSync(planPath, JSON.stringify(invalidPlan, null, 2));
+      const manifest = buildPlanArtifactManifest(
+        planPath,
+        'fix',
+        'json',
+        hash,
+        'WBP-QUALITY-3',
+        'ticket',
+        createdAt
+      );
+      writePlanArtifactManifest(manifest);
+
+      await expect(service.loadPlanArtifact(ticketPath)).rejects.toThrow(ValidationError);
+      await expect(service.loadPlanArtifact(ticketPath)).rejects.toThrow(/rename-target-required/);
+    });
+
+    it('loadPlanArtifact throws ValidationError on loaded plan with disallowed verification commands', async () => {
+      const { service } = await buildService();
+      const tempDir = createTempDir();
+      const ticketPath = path.join(tempDir, 'WBP-QUALITY-4.md');
+      fs.writeFileSync(ticketPath, '# WBP-QUALITY-4: Test');
+
+      const hash = hashPlanArtifactSources(['WBP-QUALITY-4']);
+      const createdAt = new Date('2026-04-16T00:00:00.000Z');
+      const planFilename = buildPlanArtifactFilename({
+        createdAt,
+        hash,
+        action: 'fix',
+        format: 'json',
+      });
+      const planPath = path.join(tempDir, planFilename);
+      const invalidPlan = {
+        ...mockPlan,
+        action: 'fix',
+        verification: {
+          targeted: [
+            {
+              id: 'disallowed-command',
+              run: 'curl http://localhost:3000',
+              policy: 'enforced' as const,
+            },
+          ],
+        },
+        affectedRepositories: ['repo-a'],
+      };
+      fs.writeFileSync(planPath, JSON.stringify(invalidPlan, null, 2));
+      const manifest = buildPlanArtifactManifest(
+        planPath,
+        'fix',
+        'json',
+        hash,
+        'WBP-QUALITY-4',
+        'ticket',
+        createdAt
+      );
+      writePlanArtifactManifest(manifest);
+
+      await expect(service.loadPlanArtifact(ticketPath)).rejects.toThrow(ValidationError);
+      await expect(service.loadPlanArtifact(ticketPath)).rejects.toThrow(/verification-allowlist/);
+    });
+
+    it('createPlanArtifact returns cached plan when quality checks pass', async () => {
+      const { service } = await buildService();
+      const tempDir = createTempDir();
+      const ticketPath = path.join(tempDir, 'WBP-QUALITY-5.md');
+      fs.writeFileSync(ticketPath, '# WBP-QUALITY-5: Test');
+
+      const hash = hashPlanArtifactSources(['WBP-QUALITY-5']);
+      const createdAt = new Date('2026-04-16T00:00:00.000Z');
+      const planFilename = buildPlanArtifactFilename({
+        createdAt,
+        hash,
+        action: 'fix',
+        format: 'json',
+      });
+      const planPath = path.join(tempDir, planFilename);
+      const validPlan = {
+        ...mockPlan,
+        action: 'fix',
+        steps: ['Rename AuthService to AuthSessionService in src/auth.ts.'],
+        verification: {
+          targeted: [
+            {
+              id: 'test-script',
+              run: 'yarn test',
+              policy: 'enforced' as const,
+            },
+          ],
+        },
+        affectedRepositories: ['repo-a'],
+      };
+      fs.writeFileSync(planPath, JSON.stringify(validPlan, null, 2));
+      const manifest = buildPlanArtifactManifest(
+        planPath,
+        'fix',
+        'json',
+        hash,
+        'WBP-QUALITY-5',
+        'ticket',
+        createdAt
+      );
+      writePlanArtifactManifest(manifest);
+
+      const artifact = await service.createPlanArtifact(
+        { ticketKey: 'WBP-QUALITY-5', content: '# WBP-QUALITY-5: Test', path: ticketPath },
+        { action: 'fix', skipExisting: true }
+      );
+
+      expect(artifact.fromCache).toBe(true);
+      expect(artifact.plan.action).toBe('fix');
+    });
+
+    it('loadPlanArtifact returns loaded plan when quality checks pass', async () => {
+      const { service } = await buildService();
+      const tempDir = createTempDir();
+      const ticketPath = path.join(tempDir, 'WBP-QUALITY-6.md');
+      fs.writeFileSync(ticketPath, '# WBP-QUALITY-6: Test');
+
+      const hash = hashPlanArtifactSources(['WBP-QUALITY-6']);
+      const createdAt = new Date('2026-04-16T00:00:00.000Z');
+      const planFilename = buildPlanArtifactFilename({
+        createdAt,
+        hash,
+        action: 'fix',
+        format: 'json',
+      });
+      const planPath = path.join(tempDir, planFilename);
+      const validPlan = {
+        ...mockPlan,
+        action: 'fix',
+        steps: ['Rename AuthService to AuthSessionService in src/auth.ts.'],
+        verification: {
+          targeted: [
+            {
+              id: 'test-script',
+              run: 'yarn test',
+              policy: 'enforced' as const,
+            },
+          ],
+        },
+        affectedRepositories: ['repo-a'],
+      };
+      fs.writeFileSync(planPath, JSON.stringify(validPlan, null, 2));
+      const manifest = buildPlanArtifactManifest(
+        planPath,
+        'fix',
+        'json',
+        hash,
+        'WBP-QUALITY-6',
+        'ticket',
+        createdAt
+      );
+      writePlanArtifactManifest(manifest);
+
+      const artifact = await service.loadPlanArtifact(ticketPath);
+
+      expect(artifact.fromCache).toBe(true);
+      expect(artifact.plan.action).toBe('fix');
+    });
+  });
 });

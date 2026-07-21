@@ -16,7 +16,7 @@ import {
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
 import { AIError, isAIErrorLike, ValidationError } from '../../shared/utils/errors';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
-import { validatePlanQuality } from '../../shared/utils/plan-quality';
+import { createPlanQualityError, validatePlanQuality } from '../../shared/utils/plan-quality';
 import type { RepoConventionsContext } from '../../shared/utils/detect-repo-conventions';
 import type { PriorPlanContext, PlanCorrelationResult } from '../../shared/utils/detect-prior-plans';
 import type { CrossRepoContext } from '../../shared/utils/detect-cross-repo-patterns';
@@ -43,6 +43,7 @@ export class PlanStageService {
     private readonly stageAgentService: StageAgentService
   ) {}
 
+  // eslint-disable-next-line max-lines-per-function
   async generatePlan(
     ticketContent: string,
     options: GeneratePlanOptions
@@ -60,6 +61,7 @@ export class PlanStageService {
       crossRepoPatterns: options.crossRepoPatterns,
     };
 
+    // eslint-disable-next-line max-lines-per-function
     const generatePlanAttempt = async (
       planQualityFeedback?: string[]
     ): Promise<{ plan: ResolutionPlan; sessionId?: string }> => {
@@ -167,6 +169,7 @@ export class PlanStageService {
     return retryAttempt;
   }
 
+  // eslint-disable-next-line max-lines-per-function
   async createPlanArtifact(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {
     const artifactDir = path.dirname(ticket.path);
     const sourceName = ticket.ticketKey;
@@ -181,6 +184,7 @@ export class PlanStageService {
         const plan = this.readPlan(existing.artifactPath);
 
         if (plan.action === options.action) {
+          this.validateLoadedPlan(plan, artifactDir);
           return { plan, action: plan.action, path: existing.artifactPath, fromCache: true };
         }
 
@@ -189,6 +193,7 @@ export class PlanStageService {
         );
 
         if (resolvedAction === plan.action) {
+          this.validateLoadedPlan(plan, artifactDir);
           return { plan, action: plan.action, path: existing.artifactPath, fromCache: true };
         }
 
@@ -225,6 +230,7 @@ export class PlanStageService {
     return { plan, action: options.action, path: planPath, fromCache: false, sessionId };
   }
 
+  // eslint-disable-next-line max-lines-per-function
   async loadPlanArtifact(ticketPath: string, action?: ResolutionAction): Promise<PlanArtifact> {
     const artifactDir = path.dirname(ticketPath);
     const sourceName = path.basename(ticketPath, '.md');
@@ -237,12 +243,14 @@ export class PlanStageService {
     const filename = path.basename(resolved.artifactPath);
 
     if (!action || plan.action === action) {
+      this.validateLoadedPlan(plan, artifactDir);
       return { plan, action: plan.action, path: resolved.artifactPath, fromCache: true };
     }
 
     const resolvedAction = await this.resolveActionMismatch(plan.action, action, filename);
 
     if (resolvedAction === plan.action) {
+      this.validateLoadedPlan(plan, artifactDir);
       return { plan, action: plan.action, path: resolved.artifactPath, fromCache: true };
     }
 
@@ -266,6 +274,26 @@ export class PlanStageService {
   }
 
   /**
+   * Validate a plan loaded from disk against quality rules.
+   *
+   * @param plan - The parsed plan from disk
+   * @param repoDir - Repository directory for test infrastructure detection
+   * @throws ValidationError when the plan contains quality violations
+   */
+  private validateLoadedPlan(plan: ResolutionPlan, repoDir?: string): void {
+    const testInfra = detectTestInfra(repoDir ?? process.cwd());
+    const violations = validatePlanQuality({
+      plan,
+      affectedRepositories: plan.affectedRepositories,
+      testInfra,
+    });
+
+    if (violations.length > 0) {
+      throw createPlanQualityError(violations);
+    }
+  }
+
+  /**
    * Warn about a cached plan action mismatch and let the user pick the correct action.
    *
    * @param planAction - The action stored inside the cached plan file
@@ -274,6 +302,7 @@ export class PlanStageService {
    * @returns The action the user selected
    * @throws ValidationError when the session is non-interactive
    */
+  // eslint-disable-next-line max-lines-per-function
   private async resolveActionMismatch(
     planAction: ResolutionAction,
     requestedAction: ResolutionAction,
@@ -311,6 +340,7 @@ export class PlanStageService {
     return Boolean(process.stdin.isTTY && process.stdout.isTTY);
   }
 
+  // eslint-disable-next-line max-lines-per-function
   private deleteStalePlanArtifacts(
     artifactDir: string,
     sourceHash: string,
