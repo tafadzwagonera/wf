@@ -61,6 +61,7 @@ const normalizeRepoLocalVerificationCommand = (command: string, affectedReposito
   return trimmed;
 };
 
+// eslint-disable-next-line max-lines-per-function
 const detectRenameViolations = (steps: string[]): PlanQualityViolation[] => {
   const violations: PlanQualityViolation[] = [];
 
@@ -102,6 +103,7 @@ const isNodeVerificationAllowed = (command: string, nodeInfra: NodeInfra | undef
   return nodeInfra.allScriptNames.includes(scriptName);
 };
 
+// eslint-disable-next-line max-lines-per-function
 const isVerificationCommandAllowed = (
   command: string,
   testInfra?: TestInfraContext,
@@ -135,6 +137,7 @@ const isVerificationCommandAllowed = (
   return false;
 };
 
+// eslint-disable-next-line max-lines-per-function
 const detectVerificationViolations = (
   verification: ResolutionPlan['verification'] | undefined,
   testInfra?: TestInfraContext,
@@ -160,6 +163,7 @@ const detectVerificationViolations = (
   return violations;
 };
 
+// eslint-disable-next-line max-lines-per-function
 const detectTestConventionViolations = (steps: string[], testInfra?: TestInfraContext): PlanQualityViolation[] => {
   const nodeInfra = testInfra?.ecosystems.find((ecosystem): ecosystem is NodeInfra => ecosystem.ecosystem === 'node');
   const testPatterns = nodeInfra?.testPatterns;
@@ -172,24 +176,26 @@ const detectTestConventionViolations = (steps: string[], testInfra?: TestInfraCo
   const violations: PlanQualityViolation[] = [];
 
   if (testPatterns.fileSuffix === '.spec' && /\.test\.(ts|tsx|js|jsx)\b/.test(stepText)) {
-    violations.push(createViolation('test-file-suffix', 'Plan test snippets must use the detected *.spec.* suffix.'));
+    violations.push(createViolation('test-file-suffix', 'Snippets must use the detected *.spec.* suffix.'));
   }
 
   if (testPatterns.fileSuffix === '.test' && /\.spec\.(ts|tsx|js|jsx)\b/.test(stepText)) {
-    violations.push(createViolation('test-file-suffix', 'Plan test snippets must use the detected *.test.* suffix.'));
+    violations.push(createViolation('test-file-suffix', 'Snippets must use the detected *.test.* suffix.'));
   }
 
   if (testPatterns.mockCleanup) {
+    const { namespace, method } = testPatterns.mockCleanup;
     const mismatchedCleanup = ['restoreAllMocks', 'resetAllMocks', 'clearAllMocks'].find(
-      cleanupName =>
-        cleanupName !== testPatterns.mockCleanup && new RegExp(`jest\\.${cleanupName}\\(\\)`).test(stepText)
+      candidateMethod =>
+        candidateMethod !== method
+        && new RegExp(`\\b\\w+\\.${candidateMethod}\\(\\)`).test(stepText)
     );
 
     if (mismatchedCleanup) {
       violations.push(
         createViolation(
           'mock-cleanup-convention',
-          `Plan test snippets must use jest.${testPatterns.mockCleanup}() instead of jest.${mismatchedCleanup}().`
+          `Snippets must use ${namespace}.${method}() instead of ${mismatchedCleanup}().`
         )
       );
     }
@@ -204,7 +210,7 @@ const detectTestConventionViolations = (steps: string[], testInfra?: TestInfraCo
       violations.push(
         createViolation(
           'mock-factory-prefix',
-          `Plan test snippets must use the detected factory prefix "${expectedFactoryPrefix}" instead of "${mismatchedFactory}".`
+          `Snippets must use the detected factory prefix "${expectedFactoryPrefix}" instead of "${mismatchedFactory}".`
         )
       );
     }

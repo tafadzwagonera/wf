@@ -679,8 +679,7 @@ describe('AiService', () => {
     "to": "addPaymentToBooking",
     "steps": [
       {
-        "frame": "eventPaymentRecorded()",
-        "next": "addPaymentToBooking"
+        "frame": "eventPaymentRecorded()"
       }
     ]
   },

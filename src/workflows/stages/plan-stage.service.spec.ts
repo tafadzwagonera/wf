@@ -95,7 +95,7 @@ describe('PlanStageService', () => {
             mockFactoryPrefix: 'createMock',
             describeStyle: 'flat',
             helperPaths: ['src/test/helpers.ts'],
-            mockCleanup: 'restoreAllMocks',
+            mockCleanup: { namespace: 'jest', method: 'restoreAllMocks' },
             diSetupPattern: 'testing-module',
             errorHandlerExits: true,
           },
@@ -408,6 +408,7 @@ describe('PlanStageService', () => {
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Plan quality violations persisted after retry'));
 
     expect(result.plan.risks).toBeDefined();
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect(result.plan.risks!.some(r => r.includes('[plan-quality]'))).toBe(true);
   });
 

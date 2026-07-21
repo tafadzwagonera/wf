@@ -7,6 +7,8 @@
  *   1. mockCleanup detects dominant restoreAllMocks from test files
  *   2. mockCleanup returns null when no cleanup calls exist
  *   3. mockCleanup counts unique files (not call-site occurrences)
+ *   3a. mockCleanup detects vi namespace when Vitest dominates
+ *   3b. formatTestInfraPromptSection renders vi.restoreAllMocks for Vitest projects
  *   4. diSetupPattern detects testing-module from Test.createTestingModule
  *   5. diSetupPattern detects factory-function from buildCommand/buildAgent
  *   6. diSetupPattern returns null when no pattern is found
@@ -48,7 +50,6 @@ const createTempRepo = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'wf-h
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n  Test-pattern heuristics smoke test\n'));
 
-  // ── 1. mockCleanup detects dominant restoreAllMocks ───────────────────
   console.log(chalk.bold('mockCleanup detection'));
   {
     const dir = createTempRepo();
@@ -64,12 +65,11 @@ async function main(): Promise<void> {
     const result = detectTestPatterns(dir);
     check(
       'detects restoreAllMocks as dominant',
-      result?.mockCleanup === 'restoreAllMocks',
-      `got: ${result?.mockCleanup}`
+      result?.mockCleanup?.method === 'restoreAllMocks' && result?.mockCleanup?.namespace === 'jest',
+      `got: ${JSON.stringify(result?.mockCleanup)}`
     );
   }
 
-  // ── 2. mockCleanup null when absent ───────────────────────────────────
   {
     const dir = createTempRepo();
     fs.mkdirSync(path.join(dir, 'src'));
@@ -79,37 +79,82 @@ async function main(): Promise<void> {
     check(
       'mockCleanup is null when no cleanup calls exist',
       result?.mockCleanup === null,
-      `got: ${result?.mockCleanup}`
+      `got: ${JSON.stringify(result?.mockCleanup)}`
     );
   }
 
-  // ── 3. mockCleanup counts unique files ────────────────────────────────
   {
     const dir = createTempRepo();
     fs.mkdirSync(path.join(dir, 'src'));
-    // 2 files with restoreAllMocks only
     for (let i = 0; i < 2; i++) {
       fs.writeFileSync(
         path.join(dir, 'src', `restore${i}.spec.ts`),
         'afterEach(() => { jest.restoreAllMocks(); }); it("x", () => {})'
       );
     }
-    // 1 file with BOTH restoreAllMocks and resetAllMocks
     fs.writeFileSync(
       path.join(dir, 'src', 'mixed.spec.ts'),
       'afterEach(() => { jest.restoreAllMocks(); jest.resetAllMocks(); }); it("x", () => {})'
     );
 
     const result = detectTestPatterns(dir);
-    // 3 unique files with cleanup; restoreAllMocks appears in 3/3 = 100% → should win
     check(
       'restoreAllMocks wins even with mixed file (unique-file counting)',
-      result?.mockCleanup === 'restoreAllMocks',
-      `got: ${result?.mockCleanup}`
+      result?.mockCleanup?.method === 'restoreAllMocks' && result?.mockCleanup?.namespace === 'jest',
+      `got: ${JSON.stringify(result?.mockCleanup)}`
     );
   }
 
-  // ── 4. diSetupPattern detects testing-module ──────────────────────────
+  {
+    const dir = createTempRepo();
+    fs.mkdirSync(path.join(dir, 'src'));
+    for (let i = 0; i < 3; i++) {
+      fs.writeFileSync(
+        path.join(dir, 'src', `cmp${i}.spec.ts`),
+        'afterEach(() => { vi.restoreAllMocks(); }); it("x", () => {})'
+      );
+    }
+
+    const result = detectTestPatterns(dir);
+    check(
+      'detects vi namespace when Vitest cleanup dominates',
+      result?.mockCleanup?.method === 'restoreAllMocks' && result?.mockCleanup?.namespace === 'vi',
+      `got: ${JSON.stringify(result?.mockCleanup)}`
+    );
+  }
+
+  {
+    const output = formatTestInfraPromptSection({
+      ecosystems: [
+        {
+          ecosystem: 'node',
+          nodeVersionMajor: 22,
+          hasNodeTest: false,
+          frameworks: ['vitest'],
+          scripts: { test: 'vitest' },
+          allScriptNames: ['test'],
+          testPatterns: {
+            fileSuffix: '.spec',
+            mockPrefix: 'mock',
+            mockFactoryPrefix: null,
+            describeStyle: 'flat',
+            helperPaths: [],
+            mockCleanup: { namespace: 'vi', method: 'restoreAllMocks' },
+            diSetupPattern: null,
+            errorHandlerExits: false,
+          },
+        },
+      ],
+      primary: 'node',
+    });
+
+    check(
+      'renders vi.restoreAllMocks (not jest.restoreAllMocks) for Vitest',
+      output.includes('vi.restoreAllMocks()') && !output.includes('jest.restoreAllMocks()'),
+      `prompt contains: ${output.includes('vi.restoreAllMocks()') ? 'vi.restoreAllMocks' : 'MISSING vi.restoreAllMocks'}; ${output.includes('jest.restoreAllMocks()') ? 'UNEXPECTED jest.restoreAllMocks' : 'no jest.restoreAllMocks (correct)'}`
+    );
+  }
+
   console.log(chalk.bold('\ndiSetupPattern detection'));
   {
     const dir = createTempRepo();
@@ -123,7 +168,6 @@ async function main(): Promise<void> {
     check('detects testing-module', result?.diSetupPattern === 'testing-module', `got: ${result?.diSetupPattern}`);
   }
 
-  // ── 5. diSetupPattern detects factory-function ────────────────────────
   {
     const dir = createTempRepo();
     fs.mkdirSync(path.join(dir, 'src'));
@@ -137,7 +181,6 @@ async function main(): Promise<void> {
     );
   }
 
-  // ── 6. diSetupPattern null when absent ────────────────────────────────
   {
     const dir = createTempRepo();
     fs.mkdirSync(path.join(dir, 'src'));
@@ -151,7 +194,6 @@ async function main(): Promise<void> {
     );
   }
 
-  // ── 7. errorHandlerExits detects co-location ─────────────────────────
   console.log(chalk.bold('\nerrorHandlerExits detection'));
   {
     const dir = createTempRepo();
@@ -170,10 +212,8 @@ async function main(): Promise<void> {
     );
   }
 
-  // ── 8. errorHandlerExits false when no src/ ───────────────────────────
   {
     const dir = createTempRepo();
-    // Test file at root, no src/ directory
     fs.writeFileSync(path.join(dir, 'root.spec.ts'), 'it("x", () => {})');
 
     const result = detectTestPatterns(dir);
@@ -184,7 +224,6 @@ async function main(): Promise<void> {
     );
   }
 
-  // ── 9. formatTestInfraPromptSection renders assumption-stating guidance ─
   console.log(chalk.bold('\nPrompt rendering'));
   {
     const output = formatTestInfraPromptSection({
@@ -202,7 +241,7 @@ async function main(): Promise<void> {
             mockFactoryPrefix: null,
             describeStyle: 'nested',
             helperPaths: [],
-            mockCleanup: 'restoreAllMocks',
+            mockCleanup: { namespace: 'jest', method: 'restoreAllMocks' },
             diSetupPattern: 'testing-module',
             errorHandlerExits: true,
           },
@@ -234,7 +273,6 @@ async function main(): Promise<void> {
     );
   }
 
-  // ── 10. formatTestInfraPromptSection renders factory-function guidance ─
   {
     const output = formatTestInfraPromptSection({
       ecosystems: [
@@ -277,7 +315,6 @@ async function main(): Promise<void> {
     );
   }
 
-  // ── Summary ──────────────────────────────────────────────────────────
   console.log(chalk.bold('\nSummary'));
   console.log(`  Passed: ${passed}`);
   console.log(`  Failed: ${failed}`);

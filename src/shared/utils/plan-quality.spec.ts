@@ -1,5 +1,5 @@
 import { createPlanQualityError, validatePlanQuality } from './plan-quality';
-import type { TestInfraContext } from '../types/detection.types';
+import type { NodeInfra, TestInfraContext } from '../types/detection.types';
 
 describe('validatePlanQuality', () => {
   const repoName = 'wf';
@@ -24,7 +24,7 @@ describe('validatePlanQuality', () => {
           mockFactoryPrefix: 'createMock',
           describeStyle: 'flat' as const,
           helperPaths: ['test/fixtures/sample-plan.json'],
-          mockCleanup: 'restoreAllMocks' as const,
+          mockCleanup: { namespace: 'jest', method: 'restoreAllMocks' as const },
           diSetupPattern: 'testing-module' as const,
           errorHandlerExits: true,
         },
@@ -186,6 +186,35 @@ describe('validatePlanQuality', () => {
         }),
       ])
     );
+  });
+
+  it('flags vi.resetAllMocks when convention is vi.restoreAllMocks', () => {
+    const result = validatePlanQuality({
+      plan: {
+        action: 'fix',
+        summary: 'Add vitest test',
+        estimatedComplexity: 'low',
+        steps: ['Add test with afterEach(() => vi.resetAllMocks()).'],
+        affectedRepositories: [repoName],
+      },
+      affectedRepositories: [repoName],
+      testInfra: {
+        ...mockTestInfra,
+        ecosystems: [{
+          ...(mockTestInfra.ecosystems[0] as NodeInfra),
+          frameworks: ['vitest'] as NodeInfra['frameworks'],
+          testPatterns: {
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            ...(mockTestInfra.ecosystems[0] as NodeInfra).testPatterns!,
+            mockCleanup: { namespace: 'vi', method: 'restoreAllMocks' as const },
+          },
+        }],
+      },
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({ ruleId: 'mock-cleanup-convention' }),
+    ]);
   });
 });
 

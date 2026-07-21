@@ -385,7 +385,7 @@ describe('formatTestInfraPromptSection', () => {
             mockFactoryPrefix: null,
             describeStyle: 'flat',
             helperPaths: [],
-            mockCleanup: 'restoreAllMocks',
+            mockCleanup: { namespace: 'jest', method: 'restoreAllMocks' },
             diSetupPattern: null,
             errorHandlerExits: false,
           },
@@ -701,7 +701,7 @@ describe('detectTestPatterns', () => {
 
       const result = detectTestPatterns(dir);
 
-      expect(result?.mockCleanup).toBe('restoreAllMocks');
+      expect(result?.mockCleanup).toEqual({ namespace: 'jest', method: 'restoreAllMocks' });
     });
 
     it('returns null mockCleanup when no cleanup calls exist', () => {
@@ -726,7 +726,7 @@ describe('detectTestPatterns', () => {
 
       const result = detectTestPatterns(dir);
 
-      expect(result?.mockCleanup).toBe('resetAllMocks');
+      expect(result?.mockCleanup).toEqual({ namespace: 'jest', method: 'resetAllMocks' });
     });
 
     it('detects clearAllMocks when it dominates', () => {
@@ -741,7 +741,22 @@ describe('detectTestPatterns', () => {
 
       const result = detectTestPatterns(dir);
 
-      expect(result?.mockCleanup).toBe('clearAllMocks');
+      expect(result?.mockCleanup).toEqual({ namespace: 'jest', method: 'clearAllMocks' });
+    });
+
+    it('detects vi.restoreAllMocks when vitest namespace dominates', () => {
+      const dir = createTempRepo();
+      fs.mkdirSync(path.join(dir, 'src'));
+      for (let i = 0; i < 3; i++) {
+        fs.writeFileSync(
+          path.join(dir, 'src', `file${i}.spec.ts`),
+          'afterEach(() => { vi.restoreAllMocks(); }); it("x", () => {})'
+        );
+      }
+
+      const result = detectTestPatterns(dir);
+
+      expect(result?.mockCleanup).toEqual({ namespace: 'vi', method: 'restoreAllMocks' });
     });
   });
 

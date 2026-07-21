@@ -1132,6 +1132,7 @@ export class StageAgentService {
   /**
    * @param response - raw AI response content
    * @returns parsed and post-processed code review
+   * @throws AIError when the response JSON is missing required fields (summary, issues, suggestions, approved)
    */
   private parseAndProcessReview(response: string): CodeReview {
     const parsed = codeReviewSchema.parse(

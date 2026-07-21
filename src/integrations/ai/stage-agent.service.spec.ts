@@ -227,7 +227,7 @@ describe('StageAgentService', () => {
               mockFactoryPrefix: 'createMock',
               describeStyle: 'flat',
               helperPaths: ['src/test/helpers.ts'],
-              mockCleanup: 'restoreAllMocks',
+              mockCleanup: { namespace: 'jest', method: 'restoreAllMocks' },
               diSetupPattern: 'testing-module',
               errorHandlerExits: true,
             },

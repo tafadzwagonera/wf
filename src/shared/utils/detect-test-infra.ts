@@ -40,6 +40,7 @@ const readFileOrNull = (filePath: string): string | null => {
 };
 
 const TEST_FILE_PATTERN = /\.(spec|test)\.(ts|tsx|js|jsx)$/;
+const CLEANUP_CALL_PATTERN = /(\w+)\.(restoreAllMocks|resetAllMocks|clearAllMocks)\(\)/g;
 const HELPER_PATTERNS = [/test-utils/, /test-helper/, /__mocks__/, /fixtures/, /test-setup/];
 
 /**
@@ -48,6 +49,7 @@ const HELPER_PATTERNS = [/test-utils/, /test-helper/, /__mocks__/, /fixtures/, /
  * @param repoDir - Absolute path to the repository root
  * @returns Detected test pattern data, or undefined when no test files are found
  */
+// eslint-disable-next-line max-lines-per-function
 const detectTestPatterns = (repoDir: string): NodeInfra['testPatterns'] => {
   const scanRoot = fs.existsSync(path.join(repoDir, 'src')) ? path.join(repoDir, 'src') : repoDir;
   const skipDirs = buildSkipDirs(repoDir);
@@ -76,6 +78,7 @@ const detectTestPatterns = (repoDir: string): NodeInfra['testPatterns'] => {
   let diSetupPattern: 'testing-module' | 'factory-function' | null = null;
   const cleanupCounts: Record<string, number> = { restoreAllMocks: 0, resetAllMocks: 0, clearAllMocks: 0 };
   const filesWithCleanup = new Set<string>();
+  const namespaceCounts: Record<string, number> = {};
   const contentCache = new Map<string, string>();
 
   for (const f of testFiles) {
@@ -96,16 +99,13 @@ const detectTestPatterns = (repoDir: string): NodeInfra['testPatterns'] => {
     if (matches && matches.length >= 2) nestedCount++;
 
     // mockCleanup detection
-    if (/jest\.restoreAllMocks\(\)/.test(content)) {
-      cleanupCounts.restoreAllMocks++;
-      filesWithCleanup.add(f);
-    }
-    if (/jest\.resetAllMocks\(\)/.test(content)) {
-      cleanupCounts.resetAllMocks++;
-      filesWithCleanup.add(f);
-    }
-    if (/jest\.clearAllMocks\(\)/.test(content)) {
-      cleanupCounts.clearAllMocks++;
+    const seenMethods = new Set<string>();
+    for (const [, namespace, method] of content.matchAll(new RegExp(CLEANUP_CALL_PATTERN.source, 'g'))) {
+      if (!seenMethods.has(method)) {
+        cleanupCounts[method]++;
+        seenMethods.add(method);
+      }
+      namespaceCounts[namespace] = (namespaceCounts[namespace] ?? 0) + 1;
       filesWithCleanup.add(f);
     }
 
@@ -118,12 +118,18 @@ const detectTestPatterns = (repoDir: string): NodeInfra['testPatterns'] => {
   const describeStyle: 'flat' | 'nested' = nestedCount > testFiles.length / 2 ? 'nested' : 'flat';
 
   // Determine mockCleanup: whichever variant appears in >= 50% of unique files with any cleanup wins
-  let mockCleanup: 'restoreAllMocks' | 'resetAllMocks' | 'clearAllMocks' | null = null;
+  const CLEANUP_METHODS = ['restoreAllMocks', 'resetAllMocks', 'clearAllMocks'] as const;
+
+  let mockCleanup: { namespace: string; method: (typeof CLEANUP_METHODS)[number] } | null = null;
   if (filesWithCleanup.size > 0) {
     const threshold = filesWithCleanup.size * 0.5;
-    if (cleanupCounts.restoreAllMocks >= threshold) mockCleanup = 'restoreAllMocks';
-    else if (cleanupCounts.resetAllMocks >= threshold) mockCleanup = 'resetAllMocks';
-    else if (cleanupCounts.clearAllMocks >= threshold) mockCleanup = 'clearAllMocks';
+    const dominantMethod = CLEANUP_METHODS.find(m => cleanupCounts[m] >= threshold) ?? null;
+
+    if (dominantMethod) {
+      const dominantNamespace = Object.entries(namespaceCounts)
+        .sort(([, a], [, b]) => b - a)[0][0];
+      mockCleanup = { namespace: dominantNamespace, method: dominantMethod };
+    }
   }
 
   // Determine diSetupPattern: if no testing-module match was found, check for factory patterns
@@ -175,6 +181,7 @@ const detectTestPatterns = (repoDir: string): NodeInfra['testPatterns'] => {
 /**
  * Detect Node.js test infrastructure from a repository directory.
  */
+// eslint-disable-next-line max-lines-per-function
 const detectNode = (repoDir: string): NodeInfra | null => {
   const packageJsonPath = path.join(repoDir, 'package.json');
   const raw = readFileOrNull(packageJsonPath);
@@ -247,6 +254,7 @@ const detectNode = (repoDir: string): NodeInfra | null => {
 /**
  * Detect Terraform infrastructure from a repository directory.
  */
+// eslint-disable-next-line max-lines-per-function
 const detectTerraform = (repoDir: string): TerraformInfra | null => {
   let entries: string[];
   try {
@@ -273,6 +281,7 @@ const detectTerraform = (repoDir: string): TerraformInfra | null => {
 /**
  * Detect Python test infrastructure from a repository directory.
  */
+// eslint-disable-next-line max-lines-per-function
 const detectPython = (repoDir: string): PythonInfra | null => {
   const hasSetupPy = fs.existsSync(path.join(repoDir, 'setup.py'));
   const hasPyproject = fs.existsSync(path.join(repoDir, 'pyproject.toml'));
@@ -334,6 +343,7 @@ const detectTestInfra = (repoDir: string): TestInfraContext => {
  * @param ctx - Test infrastructure context from `detectTestInfra()`
  * @returns Multi-line string for injection into AI prompts
  */
+// eslint-disable-next-line max-lines-per-function
 const formatTestInfraPromptSection = (ctx: TestInfraContext): string => {
   if (ctx.ecosystems.length === 0) {
     return 'No test infrastructure detected — use only POSIX shell commands.';
@@ -381,7 +391,7 @@ const formatTestInfraPromptSection = (ctx: TestInfraContext): string => {
           }
           if (eco.testPatterns.mockCleanup) {
             lines.push(
-              `- Mock isolation: always prescribe \`jest.${eco.testPatterns.mockCleanup}()\` in afterEach() — do NOT leave cleanup steps as conditional; prescribe the exact call`
+              `- Mock isolation: always prescribe \`${eco.testPatterns.mockCleanup.namespace}.${eco.testPatterns.mockCleanup.method}()\` in afterEach() — do NOT leave cleanup steps as conditional; prescribe the exact call`
             );
           }
           if (eco.testPatterns.diSetupPattern === 'testing-module') {
