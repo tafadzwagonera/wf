@@ -1763,113 +1763,175 @@ describe('IssueCommand', () => {
   });
 
   describe('review stage skip on empty implement', () => {
-    it('skips review and logs when implementerResult.hasChanges is false', async () => {
-      const command = await buildCommand();
-      const orchestratorMock = command.orchestrator as unknown as any;
+    const planHash = hashPlanArtifactSources(['WBP-SKIP']);
+    const planFilename = `2026-07-22-${planHash}-fix-plan.json`;
+    const customDir = path.join(os.homedir(), '.wf', 'consumer-app');
+    const planPath = path.join(customDir, planFilename);
+    const manifestPath = buildPlanArtifactManifestPath(planPath);
 
-      orchestratorMock.executeImplementStage = jest.fn().mockResolvedValue({
-        implementerResult: {
-          type: 'implementation',
-          hasChanges: false,
-          branchName: null,
-          sessionId: undefined,
-          verificationOutcomes: [],
-        },
-        sessionState: undefined,
-        earlyReturn: false,
+    const planJson = JSON.stringify({
+      action: 'fix',
+      summary: 'Test plan',
+      estimatedComplexity: 'low',
+      steps: ['Step 1'],
+      affectedFiles: ['src/test.ts'],
+      affectedRepositories: [],
+    });
+
+    const manifestJson = JSON.stringify({
+      artifactPath: planPath,
+      action: 'fix',
+      createdAt: new Date('2026-07-22T00:00:00.000Z').toISOString(),
+      format: 'json',
+      hash: planHash,
+      sourceKind: 'custom',
+      sourceName: 'WBP-SKIP',
+    });
+
+    const buildTestCommand = async (mockOrchestrator: Record<string, unknown>): Promise<IssueCommand> => {
+      const module = await Test.createTestingModule({
+        providers: [
+          IssueCommand,
+          { provide: ConversationService, useValue: {} },
+          {
+            provide: LoggerService,
+            useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+          },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn((key: string, defaultValue?: string) => {
+                if (key === 'tracker') return 'jira';
+                if (key === 'ai.provider') return 'openai';
+                return defaultValue;
+              }),
+            },
+          },
+          {
+            provide: DryRunPreviewService,
+            useValue: {
+              showHeader: jest.fn(),
+              showStageHeader: jest.fn(),
+              showSummary: jest.fn(),
+              showValidationResult: jest.fn(),
+              showSkipped: jest.fn(),
+              showNoSideEffects: jest.fn(),
+              previewApiCall: jest.fn(),
+              previewFileRead: jest.fn(),
+              previewFileWrite: jest.fn(),
+            },
+          },
+          { provide: AgentOrchestrator, useValue: mockOrchestrator },
+          {
+            provide: AiService,
+            useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+          },
+          { provide: SessionService, useValue: mockSessionService },
+          { provide: SummaryService, useValue: mockSummaryService },
+        ],
+      }).compile();
+      return module.get(IssueCommand);
+    };
+
+    const stubFs = (): void => {
+      jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation(
+        (input: string) => String(input) === planPath || String(input) === manifestPath,
+      );
+      jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
+        const p = String(input);
+        if (p === manifestPath) return manifestJson;
+        if (p === planPath) return planJson;
+        return '';
       });
+    };
 
-      const executeReviewStageSpy = jest.spyOn(orchestratorMock, 'executeReviewStage');
-      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
 
-      const planArtifact = {
-        action: 'fix',
-        path: '/tmp/.wf/WBP-24-plan-fix.json',
-        plan: {
-          action: 'fix',
-          summary: 'Test plan',
-          steps: [],
-          estimatedComplexity: 'low',
-          affectedFiles: [],
-          affectedRepositories: [],
+    it('skips review and logs when implementerResult.hasChanges is false', async () => {
+      const mockReviewerExecute = jest.fn();
+      const mockOrchestrator = {
+        fetcher: {
+          loadFromDisk: jest.fn().mockReturnValue({
+            ticketKey: 'WBP-SKIP', content: '# WBP-SKIP\n\nTest',
+            path: path.join('/tmp/consumer-app', 'jira', 'WBP-SKIP.md'),
+          }),
         },
+        implementer: {
+          execute: jest.fn().mockResolvedValue({
+            type: 'implementation', hasChanges: false, branchName: null,
+            sessionId: undefined, verificationOutcomes: [],
+          }),
+        },
+        reviewer: { execute: mockReviewerExecute },
       };
 
-      await command.run(['WBP-24'], { from: 'implement', to: 'review', action: 'fix', plan: planArtifact });
+      const command = await buildTestCommand(mockOrchestrator);
+      stubFs();
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      expect(executeReviewStageSpy).not.toHaveBeenCalled();
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Skipping review'));
-      jest.restoreAllMocks();
+      await command.run([planFilename], { from: 'implement', to: 'review' });
+
+      expect(mockReviewerExecute).not.toHaveBeenCalled();
+      const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+      expect(logCalls.some(msg => msg.includes('Skipping review'))).toBe(true);
     });
 
     it('runs review normally when implementerResult.hasChanges is true', async () => {
-      const command = await buildCommand();
-      const orchestratorMock = command.orchestrator as unknown as any;
-
-      orchestratorMock.executeImplementStage = jest.fn().mockResolvedValue({
-        implementerResult: {
-          type: 'implementation',
-          hasChanges: true,
-          branchName: null,
-          sessionId: undefined,
-          verificationOutcomes: [],
+      const mockReviewerExecute = jest.fn().mockResolvedValue(null);
+      const mockOrchestrator = {
+        fetcher: {
+          loadFromDisk: jest.fn().mockReturnValue({
+            ticketKey: 'WBP-SKIP', content: '# WBP-SKIP\n\nTest',
+            path: path.join('/tmp/consumer-app', 'jira', 'WBP-SKIP.md'),
+          }),
         },
-        sessionState: undefined,
-        earlyReturn: false,
-      });
-
-      orchestratorMock.executeReviewStage = jest.fn().mockResolvedValue({
-        sessionState: undefined,
-      });
-
-      const executeReviewStageSpy = jest.spyOn(orchestratorMock, 'executeReviewStage');
-
-      const planArtifact = {
-        action: 'fix',
-        path: '/tmp/.wf/WBP-24-plan-fix.json',
-        plan: {
-          action: 'fix',
-          summary: 'Test plan',
-          steps: [],
-          estimatedComplexity: 'low',
-          affectedFiles: [],
-          affectedRepositories: [],
+        implementer: {
+          execute: jest.fn().mockResolvedValue({
+            type: 'implementation', hasChanges: true, branchName: null,
+            sessionId: undefined, verificationOutcomes: [],
+          }),
         },
+        reviewer: { execute: mockReviewerExecute },
       };
 
-      await command.run(['WBP-24'], { from: 'implement', to: 'review', action: 'fix', plan: planArtifact });
+      const command = await buildTestCommand(mockOrchestrator);
+      stubFs();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      expect(executeReviewStageSpy).toHaveBeenCalled();
-      jest.restoreAllMocks();
+      await command.run([planFilename], { from: 'implement', to: 'review' });
+
+      expect(mockReviewerExecute).toHaveBeenCalled();
     });
 
     it('runs review normally when implementerResult is undefined (standalone review)', async () => {
-      const command = await buildCommand();
-      const orchestratorMock = command.orchestrator as unknown as any;
-
-      orchestratorMock.executeReviewStage = jest.fn().mockResolvedValue({
-        sessionState: undefined,
-      });
-
-      const executeReviewStageSpy = jest.spyOn(orchestratorMock, 'executeReviewStage');
-
-      const planArtifact = {
-        action: 'fix',
-        path: '/tmp/.wf/WBP-24-plan-fix.json',
-        plan: {
-          action: 'fix',
-          summary: 'Test plan',
-          steps: [],
-          estimatedComplexity: 'low',
-          affectedFiles: [],
-          affectedRepositories: [],
+      const mockReviewerExecute = jest.fn().mockResolvedValue(null);
+      const mockOrchestrator = {
+        fetcher: {
+          loadFromDisk: jest.fn().mockReturnValue({
+            ticketKey: 'WBP-SKIP', content: '# WBP-SKIP\n\nTest',
+            path: path.join('/tmp/consumer-app', 'jira', 'WBP-SKIP.md'),
+          }),
         },
+        planner: {
+          loadFromDisk: jest.fn().mockReturnValue({
+            action: 'fix',
+            path: planPath,
+            plan: JSON.parse(planJson),
+          }),
+        },
+        reviewer: { execute: mockReviewerExecute },
       };
 
-      await command.run(['WBP-24'], { from: 'review', to: 'review', action: 'fix', plan: planArtifact });
+      const command = await buildTestCommand(mockOrchestrator);
+      stubFs();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      expect(executeReviewStageSpy).toHaveBeenCalled();
-      jest.restoreAllMocks();
+      await command.run([planFilename], { from: 'review', to: 'review' });
+
+      expect(mockReviewerExecute).toHaveBeenCalled();
     });
   });
 

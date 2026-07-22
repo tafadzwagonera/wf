@@ -327,6 +327,7 @@ describe('ImplementerAgent', () => {
                 renamed: [],
                 conflicted: [],
                 not_added: [],
+                files: [],
               }),
               getBranchInfo: jest.fn().mockResolvedValue({
                 current: 'main',
@@ -398,6 +399,7 @@ describe('ImplementerAgent', () => {
                 renamed: [],
                 conflicted: [],
                 not_added: [],
+                files: [],
               }),
               getBranchInfo: jest.fn().mockResolvedValue({
                 current: 'main',
@@ -462,8 +464,13 @@ describe('ImplementerAgent', () => {
         renamed: [],
         conflicted: [],
         not_added: [],
+        created: [],
         files: [{ path: 'src/a.ts', index: 'M', working_dir: ' ' }],
-      });
+        current: 'main',
+        ahead: 0,
+        behind: 0,
+        tracking: 'origin/main',
+      } as any);
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: 'test', verificationOutcomes: [] });
 
       const result = await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
@@ -487,8 +494,13 @@ describe('ImplementerAgent', () => {
         renamed: [],
         conflicted: [],
         not_added: [],
+        created: [],
         files: [],
-      });
+        current: 'main',
+        ahead: 0,
+        behind: 0,
+        tracking: 'origin/main',
+      } as any);
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: 'test', verificationOutcomes: [] });
 
       const result = await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
@@ -523,6 +535,7 @@ describe('ImplementerAgent', () => {
         renamed: [],
         conflicted: [],
         not_added: [],
+        files: [],
       } as any);
 
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
@@ -544,6 +557,7 @@ describe('ImplementerAgent', () => {
         renamed: [],
         conflicted: ['.gitignore'],
         not_added: [],
+        files: [],
       } as any);
 
       await expect(
@@ -566,6 +580,7 @@ describe('ImplementerAgent', () => {
         renamed: [],
         conflicted: [],
         not_added: ['.wf/state/session.json'],
+        files: [],
       } as any);
 
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
@@ -599,6 +614,7 @@ describe('ImplementerAgent', () => {
         renamed: [],
         conflicted: [],
         not_added: [],
+        files: [],
       } as any);
 
       const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
@@ -721,7 +737,7 @@ describe('ImplementerAgent', () => {
       expect(gitService.createBranch).not.toHaveBeenCalled();
       expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
       expect(result).toEqual({
-        type: 'implementation', branchName: 'main', sessionId: undefined, verificationOutcomes: [],
+        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [],
       });
     });
 
@@ -739,7 +755,7 @@ describe('ImplementerAgent', () => {
       });
 
       expect(result).toEqual({
-        type: 'implementation', branchName: 'main', sessionId: undefined, verificationOutcomes: [],
+        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [],
       });
       expect(gitService.getBranchInfo).not.toHaveBeenCalled();
       expect(gitService.checkoutBranch).not.toHaveBeenCalled();
@@ -788,7 +804,7 @@ describe('ImplementerAgent', () => {
       expect(gitService.createBranch).not.toHaveBeenCalled();
       expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
       expect(result).toEqual({
-        type: 'implementation', branchName: 'main', sessionId: undefined, verificationOutcomes: [],
+        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [],
       });
     });
 
@@ -802,6 +818,7 @@ describe('ImplementerAgent', () => {
         renamed: [],
         conflicted: [],
         not_added: [],
+        files: [],
       } as any);
       const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
       mockPrompt.mockResolvedValueOnce({ shouldPull: false } as any);
@@ -827,6 +844,7 @@ describe('ImplementerAgent', () => {
         renamed: [],
         conflicted: [],
         not_added: [],
+        files: [],
       } as any);
       const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
       mockPrompt.mockResolvedValueOnce({ shouldPull: true } as any);
@@ -904,6 +922,7 @@ describe('ImplementerAgent', () => {
         renamed: [],
         conflicted: [],
         not_added: [],
+        files: [],
       } as any);
       gitService.stashChanges.mockRejectedValue(new GitError('Failed to stash changes'));
 
@@ -925,6 +944,7 @@ describe('ImplementerAgent', () => {
         renamed: [],
         conflicted: [],
         not_added: [],
+        files: [],
       } as any);
       gitService.stashPop.mockRejectedValue(new Error('CONFLICT'));
 

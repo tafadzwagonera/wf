@@ -147,7 +147,7 @@ export class ImplementerAgent {
       ticketContext: ticket.content, contextFiles, repoName, ...tracked,
     });
     this.logCompletionStatus(planArtifact);
-    return { type: 'implementation', hasChanges: (await this.gitService.getStatus(options.repoDir)).files.length > 0, branchName, ...result };
+    return { type: 'implementation', hasChanges: (await this.gitService.getStatus(options.repoDir)).files.length > 0, branchName, sessionId: result.sessionId, verificationOutcomes: result.verificationOutcomes };
   }
 
   private async alignTrackedFiles(
