@@ -1114,6 +1114,84 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
         })
       );
     });
+
+    it('retries a prose review response once and returns the second valid review', async () => {
+      const adapter = createAdapter();
+      adapter.execute
+        .mockResolvedValueOnce({
+          content: 'The code looks good overall. Nice work on the refactoring.',
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: JSON.stringify({
+            summary: 'ok',
+            issues: [],
+            traceProvenance: 'unavailable',
+            callStack: [],
+            stateTransition: {},
+            suggestions: [],
+            approved: true,
+          }),
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const review = await service.reviewCode('diff', ['guideline']);
+
+      expect(adapter.execute).toHaveBeenCalledTimes(2);
+      expect(review.summary).toBe('ok');
+    });
+
+    it('raises an AIError with prose message when both attempts return prose', async () => {
+      const adapter = createAdapter();
+      adapter.execute
+        .mockResolvedValueOnce({
+          content: 'The code looks good overall.',
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: 'I recommend improving the error handling.',
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(service.reviewCode('diff', ['guideline'])).rejects.toMatchObject({
+        message: 'AI provider returned a prose review response without JSON',
+        details: expect.objectContaining({
+          provider: 'openai',
+          model: 'gpt-5.4',
+        }),
+      });
+      expect(adapter.execute).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry prose responses when provider metadata indicates content_filter', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: 'I cannot review this code.',
+        provider: 'openai',
+        model: 'gpt-5.4',
+        finishReason: 'content_filter',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(service.reviewCode('diff', ['guideline'])).rejects.toMatchObject({
+        message: 'AI provider returned a prose review response without JSON',
+        details: expect.objectContaining({
+          provider: 'openai',
+          finishReason: 'content_filter',
+        }),
+      });
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('review JSON validation', () => {

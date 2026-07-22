@@ -156,6 +156,7 @@ const extractOutermostJsonObject = (content: string): string | null => {
  * @param content Raw content that should be a JSON object
  * @returns Repaired content string, or null when repair is not possible
  */
+// eslint-disable-next-line max-lines-per-function
 const repairExtraBrace = (content: string): string | null => {
   try {
     JSON.parse(content);
@@ -355,6 +356,8 @@ const BLANK_REVIEW_FINISH_REASONS = new Set([
 
 const isBlankReviewResponse = (response: ReviewResponseDiagnostics): boolean => response.content.trim().length === 0;
 
+const hasJsonContent = (content: string): boolean => findFirstBrace(content) !== -1;
+
 /**
  * Return true when the finish/stop reason or refusal signals a non-retriable failure.
  * @param response Adapter response diagnostics
@@ -416,6 +419,35 @@ const buildEmptyResponseError = (response: ResponseContentDiagnostics, message: 
 export const requireAiResponseContent = (response: ResponseContentDiagnostics, message: string): string => {
   if (!isBlankReviewResponse(response)) return response.content.trim();
   throw buildEmptyResponseError(response, message);
+};
+
+/**
+ * Validates that a review-stage response contains JSON-bearing text.
+ * Composes with the blank-content check, then adds a JSON-presence check.
+ *
+ * @param response - Adapter or stage-agent response plus diagnostics
+ * @returns Trimmed response content when it contains at least one `{`
+ * @throws AIError when the provider returned blank output (delegated to requireReviewResponseContent)
+ * @throws AIError when the provider returned non-blank prose without any JSON
+ */
+// eslint-disable-next-line max-lines-per-function -- parity with buildEmptyResponseError detail fields
+const requireReviewJsonContent = (response: ReviewResponseDiagnostics): string => {
+  const content = requireReviewResponseContent(response);
+  if (hasJsonContent(content)) return content;
+  throw new AIError(
+    'AI provider returned a prose review response without JSON',
+    {
+      provider: response.provider,
+      model: response.model,
+      finishReason: response.finishReason,
+      stopReason: response.stopReason,
+      refusal: response.refusal,
+      contentTypes: response.contentTypes,
+      usage: response.usage,
+      response: content,
+    },
+    hasRecoverableBlankReviewMetadata(response)
+  );
 };
 
 /**
@@ -871,19 +903,21 @@ const buildReviewPrompt = (diff: string, guidelines: string[]): string =>
   ].join('\n');
 
 /**
- * Execute one review attempt with blank-response retry logic.
+ * Execute one review attempt with unusable-response retry logic.
+ * Retries when the response is blank or non-blank prose without JSON.
  * @param executeFn Async function that performs a single AI review call
  * @param maxRetries Maximum number of recoverable retries
- * @returns Final AIResponse after retries are exhausted or a non-blank response arrives
+ * @returns Final AIResponse after retries are exhausted or a usable response arrives
  */
-const retryOnBlankResponse = async (executeFn: () => Promise<AIResponse>, maxRetries: number): Promise<AIResponse> => {
+// eslint-disable-next-line max-lines-per-function
+const retryOnUnusableResponse = async (executeFn: () => Promise<AIResponse>, maxRetries: number): Promise<AIResponse> => { // eslint-disable-line max-len
   let response = await executeFn();
   let attemptCount = 0;
 
   while (attemptCount < maxRetries) {
     try {
-      requireReviewResponseContent(response);
-      break;
+      requireReviewJsonContent(response);
+      return response;
     } catch (error) {
       if (!isAIErrorLike(error) || !error.recoverable) throw error;
       attemptCount += 1;
@@ -891,6 +925,8 @@ const retryOnBlankResponse = async (executeFn: () => Promise<AIResponse>, maxRet
     }
   }
 
+  // Validate one final time after exhausting retries
+  requireReviewJsonContent(response);
   return response;
 };
 
@@ -1045,7 +1081,7 @@ export class AiService {
     const reviewMaxTokens = this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
     const executeReview = () =>
       this.execute({ prompt: buildReviewPrompt(diff, guidelines), systemPrompt: REVIEW_SYSTEM_PROMPT, temperature: 0.3, maxTokens: reviewMaxTokens, stage: 'review' });
-    const response = await retryOnBlankResponse(executeReview, REVIEW_EMPTY_RESPONSE_RETRY_LIMIT);
+    const response = await retryOnUnusableResponse(executeReview, REVIEW_EMPTY_RESPONSE_RETRY_LIMIT);
     throwIfTruncated(response, 'Review');
     return this.parseReviewResponse(response, diff);
   }
