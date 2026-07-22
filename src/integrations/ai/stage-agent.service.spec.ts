@@ -292,6 +292,11 @@ describe('StageAgentService', () => {
     );
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
       expect.objectContaining({
+        prompt: expect.stringContaining('strongest viable positive assertion'),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
         prompt: expect.stringContaining('Silent error swallowing without coverage is a latent bug'),
       })
     );

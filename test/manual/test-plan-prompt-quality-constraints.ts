@@ -23,7 +23,11 @@ import type { LlmAdapter } from '../../src/integrations/ai/llm-adapter.interface
 import type { LoggerService } from '../../src/shared/logger/logger.service';
 import type { TestInfraContext } from '../../src/shared/utils/detect-test-infra';
 
-const pass = (label: string) => console.log(`  \u2713 ${label}`);
+let assertions = 0;
+const pass = (label: string) => {
+  console.log(`  \u2713 ${label}`);
+  assertions += 1;
+};
 
 // ---------------------------------------------------------------------------
 // Helpers — no jest dependency; plain call-recording spies
@@ -38,6 +42,7 @@ const NODE_SHELL_SAFETY = 'Verification commands MUST be shell-safe by construct
 const FLAG_VERSION_CHECK = 'cross-check flag names against the installed framework version';
 const RETURN_TYPE_CALLSITE = 'plan MUST derive';
 const SUBSTRING_VERIFICATION = 'perform an exact substring check';
+const MOCK_PATH_TRACING = 'strongest viable positive assertion';
 
 const mockPlanResponse = JSON.stringify({
   action: 'fix',
@@ -153,6 +158,9 @@ const mockTerraformInfra: TestInfraContext = {
 
     assert.ok(prompt.includes(SUBSTRING_VERIFICATION), 'AiService prompt must contain substring verification rule');
     pass('AiService: substring verification rule present');
+
+    assert.ok(prompt.includes(MOCK_PATH_TRACING), 'AiService prompt must contain mock path tracing rule');
+    pass('AiService: mock path tracing rule present');
   }
 
   // Test 2: AiService — conditional constraints present (with testInfra)
@@ -235,6 +243,12 @@ const mockTerraformInfra: TestInfraContext = {
       'StageAgentService prompt must contain substring verification rule'
     );
     pass('StageAgentService: substring verification rule present');
+
+    assert.ok(
+      prompt.includes(MOCK_PATH_TRACING),
+      'StageAgentService prompt must contain mock path tracing rule'
+    );
+    pass('StageAgentService: mock path tracing rule present');
   }
 
   // Test 4: StageAgentService — conditional constraints present (with testInfra)
@@ -285,5 +299,5 @@ const mockTerraformInfra: TestInfraContext = {
     pass('StageAgentService: node shell-safety guidance absent with non-node testInfra');
   }
 
-  console.log('\n  24/24 assertions passed');
+  console.log(`\n  ${assertions}/${assertions} assertions passed`);
 })();

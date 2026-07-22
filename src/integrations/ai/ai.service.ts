@@ -604,6 +604,13 @@ const PLAN_STEP_INSTRUCTIONS = `Create a detailed resolution plan with:
    that lists a smoke test but never executes it appears complete when one of its
    acceptance criteria was silently skipped.
 
+   When a plan step prescribes a test, the plan MUST trace the execution path
+   through the mock/DI setup to the first point where the command returns or
+   fails downstream. State whether the test will reach a clean return or a
+   downstream error, and prescribe the strongest viable positive assertion for
+   that path. A test that only asserts "no throw" proves nothing if the mock
+   setup silently short-circuits the code under test.
+
    When new code intentionally swallows or downgrades errors (e.g., "log a warning
    and continue" instead of throwing), the plan MUST include failure-path test
    coverage for that behaviour. Verify that the warning is emitted, the return value

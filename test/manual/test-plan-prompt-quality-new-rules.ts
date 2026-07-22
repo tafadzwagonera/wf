@@ -4,7 +4,7 @@
  * Run: nr test:manual -- test-plan-prompt-quality-new-rules
  *
  * Verifies that both AiService.generatePlan and StageAgentService.generatePlan
- * include the four new prompt-quality guardrail rules (unconditional) and that
+ * include the five new prompt-quality guardrail rules (unconditional) and that
  * testInfra convention lines for mockCleanup, diSetupPattern, and errorHandlerExits
  * appear when their respective fields are populated.
  */
@@ -20,13 +20,14 @@ import type { TestInfraContext } from '../../src/shared/utils/detect-test-infra'
 const pass = (label: string) => console.log(`  \u2713 ${label}`);
 
 // ---------------------------------------------------------------------------
-// Substring constants — four new unconditional rules
+// Substring constants — five new unconditional rules
 // ---------------------------------------------------------------------------
 
 const CLI_OPTION_DRIFT = 'help/doc text drift';
 const CLEAN_STATE_HANDOFF = 'verification of both working-tree and staged/index state';
 const SMOKE_TEST_COMPLETION = 'explicitly mark it as incomplete with a reason';
 const ERROR_SWALLOWING_COVERAGE = 'Silent error swallowing without coverage is a latent bug';
+const MOCK_PATH_TRACING = 'strongest viable positive assertion';
 
 // Substring constants — testInfra convention lines (conditional)
 const MOCK_CLEANUP_DISCRIMINATING = 'Mock isolation: always prescribe';
@@ -144,9 +145,16 @@ const mockTestInfraWithConventions: TestInfraContext = {
     );
     pass('AiService: error swallowing coverage rule present');
     assertions += 1;
+
+    assert.ok(
+      prompt.includes(MOCK_PATH_TRACING),
+      'AiService prompt must contain mock path tracing rule'
+    );
+    pass('AiService: mock path tracing rule present');
+    assertions += 1;
   }
 
-  // Test 2: StageAgentService — four new unconditional rules present
+  // Test 2: StageAgentService — five new unconditional rules present
   {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = createSpy(Promise.resolve({ content: mockPlanResponse }));
@@ -176,6 +184,13 @@ const mockTestInfraWithConventions: TestInfraContext = {
       'StageAgentService prompt must contain error swallowing coverage rule'
     );
     pass('StageAgentService: error swallowing coverage rule present');
+    assertions += 1;
+
+    assert.ok(
+      prompt.includes(MOCK_PATH_TRACING),
+      'StageAgentService prompt must contain mock path tracing rule'
+    );
+    pass('StageAgentService: mock path tracing rule present');
     assertions += 1;
   }
 
