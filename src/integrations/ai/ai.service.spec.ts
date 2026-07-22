@@ -1194,6 +1194,27 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(result.approved).toBe(true);
     });
 
+    it('repairs JSON with an extra ]} pair from deeply nested callStack', () => {
+      // The AI produced an extra nesting level in callStack, adding one excess ]}
+      // pair. JSON.parse considers the outer object complete at the premature },
+      // leaving suggestions and approved orphaned after the "valid" object.
+      // The repair candidate removes the }] at the failure boundary.
+      const response
+        = '{"summary": "ok", "issues": [], "callStack": ['
+          + '{"frame": "a()", "children": ['
+          + '{"frame": "b()", "children": ['
+          + '{"frame": "c()", "children": []}'
+          + ']}'
+          + ']}'
+          + ']}' // extra ]} — closes the outer object prematurely
+          + '], "suggestions": ["fix it"], "approved": false}';
+
+      const result = parseJsonResponse<{ suggestions: string[]; approved: boolean }>(response);
+
+      expect(result.suggestions).toEqual(['fix it']);
+      expect(result.approved).toBe(false);
+    });
+
     it('parses clean JSON, code-fenced JSON, and standard prose+JSON without regression', () => {
       const clean = '{"key": "value", "approved": true}';
       expect(parseJsonResponse<{ key: string; approved: boolean }>(clean)).toEqual({

@@ -148,6 +148,49 @@ const extractOutermostJsonObject = (content: string): string | null => {
 };
 
 /**
+ * Attempt to repair a JSON string that has excess closing tokens from a deeply
+ * nested structure. When JSON.parse reports "unexpected character after JSON at
+ * position N", the '}' at N-1 prematurely closed the outer object — typically
+ * because the AI produced an extra nesting level (extra `]}` pair).
+ * Tries removing `}`, `]}`, and `}]` patterns around the failure point.
+ * @param content Raw content that should be a JSON object
+ * @returns Repaired content string, or null when repair is not possible
+ */
+const repairExtraBrace = (content: string): string | null => {
+  try {
+    JSON.parse(content);
+    return content;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) return null;
+    const match = /position (\d+)/.exec(error.message);
+    if (!match) return null;
+    const failPos = Number(match[1]);
+    if (failPos < 2 || content[failPos - 1] !== '}') return null;
+
+    const removals = [
+      content.slice(0, failPos - 1) + content.slice(failPos),
+      failPos >= 2 && content[failPos - 2] === ']'
+        ? content.slice(0, failPos - 2) + content.slice(failPos)
+        : null,
+      content[failPos] === ']'
+        ? content.slice(0, failPos - 1) + content.slice(failPos + 1)
+        : null,
+    ];
+
+    for (const candidate of removals) {
+      if (!candidate) continue;
+      try {
+        JSON.parse(candidate);
+        return candidate;
+      } catch {
+        // try next
+      }
+    }
+    return null;
+  }
+};
+
+/**
  * Build the ordered list of candidate strings to attempt JSON parsing against.
  * @param content Raw LLM response content
  * @returns Ordered array of candidate strings (non-empty)
@@ -157,6 +200,7 @@ const buildJsonCandidates = (content: string): string[] => {
   const stripped = stripCodeFences(trimmed);
   return [
     stripped,
+    repairExtraBrace(stripped),
     extractOutermostJsonObject(stripped),
     extractFirstJsonObject(stripped),
     extractFirstJsonObject(trimmed),

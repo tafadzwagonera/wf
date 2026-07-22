@@ -6,10 +6,11 @@
  * Verifies:
  *   1. parseJsonResponse extracts deeply nested JSON with prose preamble via greedy candidate.
  *   2. parseJsonResponse falls through from greedy to conservative when prose after JSON has a stray brace.
- *   3. parseJsonResponse handles clean, code-fenced, and prose+JSON inputs without regression.
- *   4. ReviewerAgent creates a default onProgress callback when none is provided and silent is false.
- *   5. ReviewerAgent uses caller-provided onProgress instead of the default.
- *   6. ReviewerAgent suppresses progress when silent is true.
+ *   3. parseJsonResponse repairs JSON with an extra ]} pair from deeply nested callStack.
+ *   4. parseJsonResponse handles clean, code-fenced, and prose+JSON inputs without regression.
+ *   5. ReviewerAgent creates a default onProgress callback when none is provided and silent is false.
+ *   6. ReviewerAgent uses caller-provided onProgress instead of the default.
+ *   7. ReviewerAgent suppresses progress when silent is true.
  *
  * @returns Promise that resolves when the smoke test completes
  */
@@ -131,7 +132,32 @@ async function main(): Promise<void> {
     );
   }
 
-  console.log(chalk.bold('\nTest 3: no regression on clean JSON, code-fenced JSON, and prose+JSON'));
+  console.log(chalk.bold('\nTest 3: repair candidate fixes JSON with extra ]} pair from nested callStack'));
+  {
+    const response
+      = '{"summary": "ok", "issues": [], "callStack": ['
+        + '{"frame": "a()", "children": ['
+        + '{"frame": "b()", "children": ['
+        + '{"frame": "c()", "children": []}'
+        + ']}'
+        + ']}'
+        + ']}'
+        + '], "suggestions": ["fix it"], "approved": false}';
+
+    const result = parseJsonResponse<{ suggestions: string[]; approved: boolean }>(response);
+    assert(
+      'suggestions recovered via repair candidate',
+      Array.isArray(result.suggestions) && result.suggestions[0] === 'fix it',
+      `got: ${JSON.stringify(result.suggestions)}`
+    );
+    assert(
+      'approved recovered via repair candidate',
+      result.approved === false,
+      `got: ${String(result.approved)}`
+    );
+  }
+
+  console.log(chalk.bold('\nTest 4: no regression on clean JSON, code-fenced JSON, and prose+JSON'));
   {
     const clean = '{"key": "value"}';
     const cleanResult = parseJsonResponse<{ key: string }>(clean);
@@ -146,7 +172,7 @@ async function main(): Promise<void> {
     assert('prose+JSON parses', proseResult.key === 'prose', `got: ${String(proseResult.key)}`);
   }
 
-  console.log(chalk.bold('\nTest 4: default onProgress callback created when not provided and silent=false'));
+  console.log(chalk.bold('\nTest 5: default onProgress callback created when not provided and silent=false'));
   {
     const tracker = createTrackingReviewDiff();
     const agent = createAgent(tracker.fn);
@@ -175,7 +201,7 @@ async function main(): Promise<void> {
     );
   }
 
-  console.log(chalk.bold('\nTest 5: caller-provided onProgress takes precedence'));
+  console.log(chalk.bold('\nTest 6: caller-provided onProgress takes precedence'));
   {
     const tracker = createTrackingReviewDiff();
     const agent = createAgent(tracker.fn);
@@ -205,7 +231,7 @@ async function main(): Promise<void> {
     );
   }
 
-  console.log(chalk.bold('\nTest 6: silent mode suppresses progress'));
+  console.log(chalk.bold('\nTest 7: silent mode suppresses progress'));
   {
     const tracker = createTrackingReviewDiff();
     const agent = createAgent(tracker.fn);
