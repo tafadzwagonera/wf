@@ -41,7 +41,10 @@ export class ReviewerAgent {
     if (await this.hasNoChanges(options)) return null;
     if (!options.silent) console.log(chalk.bold('  Analyzing changes...'));
 
-    const review = await this.stageAndReview(ticket, options);
+    const onProgress = options.onProgress
+      ?? (options.silent ? undefined : (line: string) => console.log(chalk.gray(`  ${line}`)));
+
+    const review = await this.stageAndReview(ticket, options, onProgress);
     if (!options.silent) this.logReview(review);
 
     const artifact = this.reviewStageService.createReviewArtifact(ticket, review);
@@ -78,7 +81,11 @@ export class ReviewerAgent {
     return true;
   }
 
-  private async stageAndReview(ticket: TicketArtifact, options: ReviewerOptions): Promise<CodeReview> {
+  private async stageAndReview(
+    ticket: TicketArtifact,
+    options: ReviewerOptions,
+    onProgress?: (line: string) => void
+  ): Promise<CodeReview> {
     await this.gitService.stageAll(options.repoDir);
     const diff = await this.gitService.getDiff(true, options.repoDir);
 
@@ -87,7 +94,7 @@ export class ReviewerAgent {
       repoDir: options.repoDir,
       resumeProviderSessionId: options.resumeProviderSessionId,
       priorStageSummary: options.priorStageSummary,
-      onProgress: options.onProgress,
+      onProgress,
     });
   }
 

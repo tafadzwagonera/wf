@@ -133,6 +133,21 @@ const extractFirstJsonObject = (content: string): string | null => {
 };
 
 /**
+ * Extract the outermost JSON object by slicing from the first '{' to the last '}'.
+ * Greedy — captures the longest possible substring. This handles responses where
+ * the conservative brace-depth scanner returns a truncated result because prose
+ * preamble contains its own balanced brace pair (e.g. "{fix}"), causing
+ * findFirstBrace to anchor on the wrong opening brace.
+ * @param content Raw content that may contain a JSON object
+ * @returns Outermost brace-delimited substring, or null when no valid boundary pair exists
+ */
+const extractOutermostJsonObject = (content: string): string | null => {
+  const first = content.indexOf('{');
+  const last = content.lastIndexOf('}');
+  return first !== -1 && last > first ? content.slice(first, last + 1) : null;
+};
+
+/**
  * Build the ordered list of candidate strings to attempt JSON parsing against.
  * @param content Raw LLM response content
  * @returns Ordered array of candidate strings (non-empty)
@@ -140,9 +155,12 @@ const extractFirstJsonObject = (content: string): string | null => {
 const buildJsonCandidates = (content: string): string[] => {
   const trimmed = content.trim();
   const stripped = stripCodeFences(trimmed);
-  return [stripped, extractFirstJsonObject(stripped), extractFirstJsonObject(trimmed)].filter(
-    (c): c is string => Boolean(c)
-  );
+  return [
+    stripped,
+    extractOutermostJsonObject(stripped),
+    extractFirstJsonObject(stripped),
+    extractFirstJsonObject(trimmed),
+  ].filter((c): c is string => Boolean(c));
 };
 
 /**

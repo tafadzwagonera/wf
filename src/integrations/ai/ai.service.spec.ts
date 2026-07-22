@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { AiService } from './ai.service';
+import { AiService, parseJsonResponse } from './ai.service';
 import { LoggerService } from '../../shared/logger/logger.service';
 import type { LlmAdapter } from './llm-adapter.interface';
 import { AIError } from '../../shared/utils/errors';
@@ -1159,6 +1159,59 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(review.summary).toBe('Review complete');
       expect(review.suggestions).toEqual(['Consider adding tests']);
       expect(review.approved).toBe(true);
+    });
+  });
+
+  describe('parseJsonResponse greedy extraction', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('extracts deeply nested JSON with brace-containing string values and escaped quotes via greedy candidate', () => {
+      const response
+        = 'Here is my code review:\n'
+          + '{"summary": "ok", "issues": [], "traceProvenance": "evidence-based",'
+          + ' "callStack": [{"frame": "toPageId(\\"tour\\")", "children": [],'
+          + ' "typeInfo": "Record<string, AggregateRating> | {}"}],'
+          + ' "stateTransition": {"from": "start", "to": "end", "steps": []},'
+          + ' "suggestions": ["Add tests"], "approved": false}';
+
+      const result = parseJsonResponse<{ suggestions: string[]; approved: boolean }>(response);
+
+      expect(result.suggestions).toEqual(['Add tests']);
+      expect(result.approved).toBe(false);
+    });
+
+    it('falls through from greedy to conservative when prose after JSON contains a stray brace', () => {
+      const response
+        = 'Here is my review:\n'
+          + '{"summary": "ok", "issues": [], "suggestions": [], "approved": true}'
+          + '\n\nSee config}';
+
+      const result = parseJsonResponse<{ summary: string; approved: boolean }>(response);
+
+      expect(result.summary).toBe('ok');
+      expect(result.approved).toBe(true);
+    });
+
+    it('parses clean JSON, code-fenced JSON, and standard prose+JSON without regression', () => {
+      const clean = '{"key": "value", "approved": true}';
+      expect(parseJsonResponse<{ key: string; approved: boolean }>(clean)).toEqual({
+        key: 'value',
+        approved: true,
+      });
+
+      const fenced = '```json\n{"key": "fenced", "approved": false}\n```';
+      expect(parseJsonResponse<{ key: string; approved: boolean }>(fenced)).toEqual({
+        key: 'fenced',
+        approved: false,
+      });
+
+      const proseAndJson = 'Sure, here you go:\n{"key": "prose", "approved": true}';
+      expect(parseJsonResponse<{ key: string; approved: boolean }>(proseAndJson)).toEqual({
+        key: 'prose',
+        approved: true,
+      });
     });
   });
 

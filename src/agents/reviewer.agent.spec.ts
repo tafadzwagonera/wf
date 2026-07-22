@@ -6,6 +6,10 @@ import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import * as fs from 'fs';
 
 describe('ReviewerAgent', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('delegates review generation to ReviewStageService', async () => {
     const module = await Test.createTestingModule({
       providers: [
@@ -152,5 +156,175 @@ describe('ReviewerAgent', () => {
     );
 
     expect(artifact).toBeNull();
+  });
+
+  it('streams progress via default callback when no onProgress is provided and silent is false', async () => {
+    const mockReviewDiff = jest.fn().mockImplementation(
+      (_diff: string, opts: { onProgress?: (line: string) => void }) => {
+        opts.onProgress?.('Synthesizing review...');
+        return Promise.resolve({
+          summary: 'ok',
+          issues: [],
+          suggestions: [],
+          approved: true,
+        });
+      }
+    );
+
+    const module = await Test.createTestingModule({
+      providers: [
+        ReviewerAgent,
+        {
+          provide: GitService,
+          useValue: {
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            stageAll: jest.fn().mockResolvedValue(undefined),
+            getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+          },
+        },
+        {
+          provide: ReviewStageService,
+          useValue: {
+            reviewDiff: mockReviewDiff,
+            createReviewArtifact: jest.fn().mockReturnValue({
+              review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+              path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+              approved: true,
+            }),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue(undefined) },
+        },
+      ],
+    }).compile();
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const agent = module.get(ReviewerAgent);
+
+    await agent.execute(
+      { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+      { repoDir: '/tmp/repo', silent: false }
+    );
+
+    const grayProgressCalls = consoleSpy.mock.calls.filter(
+      args => typeof args[0] === 'string' && args[0].includes('Synthesizing review...')
+    );
+    expect(grayProgressCalls.length).toBeGreaterThan(0);
+  });
+
+  it('uses caller-provided onProgress instead of default', async () => {
+    const mockOnProgress = jest.fn();
+    const mockReviewDiff = jest.fn().mockImplementation(
+      (_diff: string, opts: { onProgress?: (line: string) => void }) => {
+        opts.onProgress?.('Synthesizing review...');
+        return Promise.resolve({
+          summary: 'ok',
+          issues: [],
+          suggestions: [],
+          approved: true,
+        });
+      }
+    );
+
+    const module = await Test.createTestingModule({
+      providers: [
+        ReviewerAgent,
+        {
+          provide: GitService,
+          useValue: {
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            stageAll: jest.fn().mockResolvedValue(undefined),
+            getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+          },
+        },
+        {
+          provide: ReviewStageService,
+          useValue: {
+            reviewDiff: mockReviewDiff,
+            createReviewArtifact: jest.fn().mockReturnValue({
+              review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+              path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+              approved: true,
+            }),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue(undefined) },
+        },
+      ],
+    }).compile();
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const agent = module.get(ReviewerAgent);
+
+    await agent.execute(
+      { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+      { repoDir: '/tmp/repo', silent: false, onProgress: mockOnProgress }
+    );
+
+    expect(mockOnProgress).toHaveBeenCalledWith('Synthesizing review...');
+    const grayProgressCalls = consoleSpy.mock.calls.filter(
+      args => typeof args[0] === 'string' && args[0].includes('Synthesizing review...')
+    );
+    expect(grayProgressCalls.length).toBe(0);
+  });
+
+  it('suppresses progress when silent is true and no onProgress is provided', async () => {
+    const mockReviewDiff = jest.fn().mockImplementation(
+      (_diff: string, opts: { onProgress?: (line: string) => void }) => {
+        opts.onProgress?.('Synthesizing review...');
+        return Promise.resolve({
+          summary: 'ok',
+          issues: [],
+          suggestions: [],
+          approved: true,
+        });
+      }
+    );
+
+    const module = await Test.createTestingModule({
+      providers: [
+        ReviewerAgent,
+        {
+          provide: GitService,
+          useValue: {
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            stageAll: jest.fn().mockResolvedValue(undefined),
+            getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+          },
+        },
+        {
+          provide: ReviewStageService,
+          useValue: {
+            reviewDiff: mockReviewDiff,
+            createReviewArtifact: jest.fn().mockReturnValue({
+              review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+              path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+              approved: true,
+            }),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue(undefined) },
+        },
+      ],
+    }).compile();
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const agent = module.get(ReviewerAgent);
+
+    await agent.execute(
+      { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+      { repoDir: '/tmp/repo', silent: true }
+    );
+
+    const progressCalls = consoleSpy.mock.calls.filter(
+      args => typeof args[0] === 'string' && args[0].includes('Synthesizing review...')
+    );
+    expect(progressCalls.length).toBe(0);
   });
 });
