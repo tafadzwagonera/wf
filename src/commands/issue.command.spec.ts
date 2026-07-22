@@ -1762,6 +1762,117 @@ describe('IssueCommand', () => {
     expect(inquirer.prompt).not.toHaveBeenCalled();
   });
 
+  describe('review stage skip on empty implement', () => {
+    it('skips review and logs when implementerResult.hasChanges is false', async () => {
+      const command = await buildCommand();
+      const orchestratorMock = command.orchestrator as unknown as any;
+
+      orchestratorMock.executeImplementStage = jest.fn().mockResolvedValue({
+        implementerResult: {
+          type: 'implementation',
+          hasChanges: false,
+          branchName: null,
+          sessionId: undefined,
+          verificationOutcomes: [],
+        },
+        sessionState: undefined,
+        earlyReturn: false,
+      });
+
+      const executeReviewStageSpy = jest.spyOn(orchestratorMock, 'executeReviewStage');
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const planArtifact = {
+        action: 'fix',
+        path: '/tmp/.wf/WBP-24-plan-fix.json',
+        plan: {
+          action: 'fix',
+          summary: 'Test plan',
+          steps: [],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: [],
+        },
+      };
+
+      await command.run(['WBP-24'], { from: 'implement', to: 'review', action: 'fix', plan: planArtifact });
+
+      expect(executeReviewStageSpy).not.toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Skipping review'));
+      jest.restoreAllMocks();
+    });
+
+    it('runs review normally when implementerResult.hasChanges is true', async () => {
+      const command = await buildCommand();
+      const orchestratorMock = command.orchestrator as unknown as any;
+
+      orchestratorMock.executeImplementStage = jest.fn().mockResolvedValue({
+        implementerResult: {
+          type: 'implementation',
+          hasChanges: true,
+          branchName: null,
+          sessionId: undefined,
+          verificationOutcomes: [],
+        },
+        sessionState: undefined,
+        earlyReturn: false,
+      });
+
+      orchestratorMock.executeReviewStage = jest.fn().mockResolvedValue({
+        sessionState: undefined,
+      });
+
+      const executeReviewStageSpy = jest.spyOn(orchestratorMock, 'executeReviewStage');
+
+      const planArtifact = {
+        action: 'fix',
+        path: '/tmp/.wf/WBP-24-plan-fix.json',
+        plan: {
+          action: 'fix',
+          summary: 'Test plan',
+          steps: [],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: [],
+        },
+      };
+
+      await command.run(['WBP-24'], { from: 'implement', to: 'review', action: 'fix', plan: planArtifact });
+
+      expect(executeReviewStageSpy).toHaveBeenCalled();
+      jest.restoreAllMocks();
+    });
+
+    it('runs review normally when implementerResult is undefined (standalone review)', async () => {
+      const command = await buildCommand();
+      const orchestratorMock = command.orchestrator as unknown as any;
+
+      orchestratorMock.executeReviewStage = jest.fn().mockResolvedValue({
+        sessionState: undefined,
+      });
+
+      const executeReviewStageSpy = jest.spyOn(orchestratorMock, 'executeReviewStage');
+
+      const planArtifact = {
+        action: 'fix',
+        path: '/tmp/.wf/WBP-24-plan-fix.json',
+        plan: {
+          action: 'fix',
+          summary: 'Test plan',
+          steps: [],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: [],
+        },
+      };
+
+      await command.run(['WBP-24'], { from: 'review', to: 'review', action: 'fix', plan: planArtifact });
+
+      expect(executeReviewStageSpy).toHaveBeenCalled();
+      jest.restoreAllMocks();
+    });
+  });
+
   describe('resolveCustomPlanToken action mismatch', () => {
     afterEach(() => {
       jest.restoreAllMocks();

@@ -139,18 +139,15 @@ export class ImplementerAgent {
     const { repoName, contextFiles } = resolved;
     const verificationScripts = this.buildVerificationScripts(options.repoDir, planArtifact);
     const tracked = await this.alignTrackedFiles(resolved.repoFiles, repoName, options.repoDir);
-
     const backendSelection = this.resolveImplementBackendSelection();
     console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));
     this.writeRunArtifact(ticket, options, backendSelection, verificationScripts);
-
     const result = await this.createAdapter(backendSelection).generateAndVerify({
       ticket, planArtifact, options, verificationScripts,
       ticketContext: ticket.content, contextFiles, repoName, ...tracked,
     });
-
     this.logCompletionStatus(planArtifact);
-    return { type: 'implementation', branchName, sessionId: result.sessionId, verificationOutcomes: result.verificationOutcomes };
+    return { type: 'implementation', hasChanges: (await this.gitService.getStatus(options.repoDir)).files.length > 0, branchName, ...result };
   }
 
   private async alignTrackedFiles(

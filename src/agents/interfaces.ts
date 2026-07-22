@@ -28,7 +28,7 @@ export type {
 } from '../shared/types/agent.types';
 
 export type ImplementerResult
-  = | { type: 'implementation'; branchName: string | null; sessionId?: string; verificationOutcomes: VerificationOutcome[] }
+  = | { type: 'implementation'; hasChanges: boolean; branchName: string | null; sessionId?: string; verificationOutcomes: VerificationOutcome[] }
     | { type: 'investigation'; artifact: FindingsArtifact };
 
 export interface FetcherOptions {

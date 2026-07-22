@@ -80,6 +80,7 @@ describe('ImplementerAgent', () => {
               renamed: [],
               conflicted: [],
               not_added: [],
+              files: [],
             }),
             getBranchInfo: jest.fn().mockResolvedValue({
               current: 'main',
@@ -448,6 +449,58 @@ describe('ImplementerAgent', () => {
       const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
       expect(logCalls.some(message => message.includes('Implement backend: openai-agent'))).toBe(true);
       expect(openaiAdapterSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('hasChanges derivation', () => {
+    it('runBackend returns hasChanges: true when git status reports files', async () => {
+      gitService.getStatus.mockResolvedValue({
+        isClean: () => false,
+        modified: ['src/a.ts'],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: [],
+        files: [{ path: 'src/a.ts', index: 'M', working_dir: ' ' }],
+      });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: 'test', verificationOutcomes: [] });
+
+      const result = await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      expect(result.type).toBe('implementation');
+      if (result.type === 'implementation') {
+        expect(result.hasChanges).toBe(true);
+      }
+    });
+
+    it('runBackend returns hasChanges: false when git status reports empty', async () => {
+      gitService.getStatus.mockResolvedValue({
+        isClean: () => true,
+        modified: [],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: [],
+        files: [],
+      });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: 'test', verificationOutcomes: [] });
+
+      const result = await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      expect(result.type).toBe('implementation');
+      if (result.type === 'implementation') {
+        expect(result.hasChanges).toBe(false);
+      }
     });
   });
 

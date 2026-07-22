@@ -564,12 +564,17 @@ export class IssueCommand extends CommandRunner {
       if (result.earlyReturn) return { sessionState, earlyReturn: true };
     }
 
-    if (stagesToRun.includes(WorkflowStage.REVIEW) && planArtifact?.action !== 'investigate') {
+    const skipReview = implementerResult?.type === 'implementation'
+      && !implementerResult.hasChanges;
+
+    if (stagesToRun.includes(WorkflowStage.REVIEW) && planArtifact?.action !== 'investigate' && !skipReview) {
       const result = await this.executeReviewStage(
         ticketArtifact, planArtifact, ctx.repos, options, sessionState,
         implementerResult, ctx.ticketKey
       );
       sessionState = result.sessionState;
+    } else if (skipReview && !options?.silent) {
+      console.log(chalk.gray('\n  Skipping review -- no file changes from implementation'));
     }
 
     if (stagesToRun.includes(WorkflowStage.COMMIT) && planArtifact?.action !== 'investigate') {
