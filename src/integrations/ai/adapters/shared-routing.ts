@@ -185,6 +185,22 @@ export const resolveModelRouting = (params: ModelRoutingParams): ModelRoutingRes
 };
 
 /**
+ * Resolves the model configured for a specific provider from the ai.providers array.
+ * Falls back to the provided default when the provider is not found or has no model.
+ *
+ * @param configService - NestJS config service
+ * @param providerName - Provider name to look up (e.g. 'anthropic', 'openai')
+ * @param fallback - Default model when lookup fails
+ * @returns The provider's configured model or the fallback
+ */
+export const resolveProviderModel = (
+  configService: ConfigService, providerName: string, fallback: string,
+): string => {
+  const providers = configService.get<Array<{ provider: string; model?: string }>>('ai.providers') ?? [];
+  return providers.find(p => p.provider === providerName)?.model ?? fallback;
+};
+
+/**
  * Normalizes a command value to a trimmed string.
  *
  * @param command - The raw command value

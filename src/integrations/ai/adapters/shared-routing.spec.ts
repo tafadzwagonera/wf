@@ -1,4 +1,4 @@
-import { buildPlanContext, resolveModelRouting } from './shared-routing';
+import { buildPlanContext, resolveModelRouting, resolveProviderModel } from './shared-routing';
 import { normalizeFileEntries } from '../ai.service';
 import type { VerificationScript } from '../../../agents/interfaces';
 import type { ResolutionPlan } from '../ai.service';
@@ -206,5 +206,40 @@ describe('resolveModelRouting', () => {
 
     expect(result.model).toBe('claude-opus-4-6');
     expect(result.logMessage).toContain('default — user override');
+  });
+});
+
+describe('resolveProviderModel', () => {
+  const createMockConfigService = (configMap: Record<string, unknown>): ConfigService => {
+    const mockService = new ConfigService();
+    jest.spyOn(mockService, 'get').mockImplementation((key: string) => configMap[key]);
+    return mockService;
+  };
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('returns the model for the matching provider', () => {
+    const configService = createMockConfigService({
+      'ai.providers': [
+        { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+        { provider: 'openai', model: 'gpt-5.4' },
+      ],
+    });
+    expect(resolveProviderModel(configService, 'anthropic', 'fallback')).toBe('claude-sonnet-4-6');
+    expect(resolveProviderModel(configService, 'openai', 'fallback')).toBe('gpt-5.4');
+  });
+
+  it('returns fallback when provider is not in the array', () => {
+    const configService = createMockConfigService({
+      'ai.providers': [{ provider: 'openai', model: 'gpt-5.4' }],
+    });
+    expect(resolveProviderModel(configService, 'anthropic', 'claude-sonnet-4-6')).toBe('claude-sonnet-4-6');
+  });
+
+  it('returns fallback when ai.providers is undefined', () => {
+    const configService = createMockConfigService({ 'ai.providers': undefined });
+    expect(resolveProviderModel(configService, 'anthropic', 'claude-sonnet-4-6')).toBe('claude-sonnet-4-6');
   });
 });

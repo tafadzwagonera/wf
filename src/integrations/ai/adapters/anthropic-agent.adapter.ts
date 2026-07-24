@@ -21,6 +21,7 @@ import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import { resolveSkippedSteps, printVerificationReport } from './verification-report';
 import {
   resolveModelRouting,
+  resolveProviderModel,
   normalizeCommand,
   buildAllowedCommands,
   stripRepoPrefix,
@@ -842,7 +843,7 @@ const resolveModelAndPrompt = (
   configService: ConfigService,
   repoDir: string
 ): { model: string; systemPromptBody: string } => {
-  const fallbackDefaultModel = configService.get<string>('ai.model') || 'claude-sonnet-4-6';
+  const fallbackDefaultModel = resolveProviderModel(configService, 'anthropic', 'claude-sonnet-4-6');
   const modelRoutingResult = resolveModelRouting({
     routing: params.options.modelRouting ?? 'auto', fallbackDefaultModel,
     defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL, configService,

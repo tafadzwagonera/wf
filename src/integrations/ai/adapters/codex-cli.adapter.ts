@@ -9,7 +9,7 @@ import type {
   VerificationScript,
   VerificationOutcome,
 } from '../../../agents/interfaces';
-import { resolveModelRouting, discoverChangedFiles } from './shared-routing';
+import { resolveModelRouting, resolveProviderModel, discoverChangedFiles } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
 import { assertCodexCliAvailable, buildCodexCliArgs, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
 import {
@@ -303,7 +303,7 @@ const resolveCodexModelRouting = (
 ) =>
   resolveModelRouting({
     routing: options.modelRouting ?? 'auto',
-    fallbackDefaultModel: configService.get<string>('ai.model') || 'gpt-4.1',
+    fallbackDefaultModel: resolveProviderModel(configService, 'openai', 'gpt-4.1'),
     defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL,
     configService,
     plan: planArtifact.plan,

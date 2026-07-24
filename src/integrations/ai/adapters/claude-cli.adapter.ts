@@ -16,6 +16,7 @@ import {
 } from './verification-report';
 import {
   resolveModelRouting,
+  resolveProviderModel,
   stripRepoPrefix,
   isGlobPattern,
   loadClaudeContext,
@@ -448,7 +449,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   private resolveCliModelRouting(options: ImplementerOptions, planArtifact: PlanArtifact) {
     return resolveModelRouting({
       routing: options.modelRouting ?? 'auto',
-      fallbackDefaultModel: this.configService.get<string>('ai.model') || 'claude-sonnet-4-6',
+      fallbackDefaultModel: resolveProviderModel(this.configService, 'anthropic', 'claude-sonnet-4-6'),
       defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL,
       configService: this.configService,
       plan: planArtifact.plan,
