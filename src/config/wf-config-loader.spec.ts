@@ -413,6 +413,77 @@ describe('wf-config-loader', () => {
       ).toThrow(/validation failed for.*stages\.implement/i);
     });
 
+    it('strips provider-level model when models is present', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'anthropic',
+            apiKey: 'anthropic-key',
+            model: 'claude-sonnet-4-20250514',
+            default: true,
+          },
+        ],
+        stages: {
+          implement: {
+            provider: 'anthropic',
+            models: {
+              default: 'claude-opus-4-6',
+              mechanical: 'claude-haiku-4-5-20251001',
+            },
+          },
+        },
+      });
+
+      expect(config.stages.implement?.models).toEqual({
+        default: 'claude-opus-4-6',
+        mechanical: 'claude-haiku-4-5-20251001',
+      });
+      expect(config.stages.implement?.model).toBeUndefined();
+    });
+
+    it('preserves model when models is not present', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'anthropic',
+            apiKey: 'anthropic-key',
+            model: 'claude-sonnet-4-20250514',
+            default: true,
+          },
+        ],
+        stages: {
+          implement: {
+            provider: 'anthropic',
+            model: 'claude-opus-4-6',
+          },
+        },
+      });
+
+      expect(config.stages.implement?.model).toBe('claude-opus-4-6');
+      expect(config.stages.implement?.models).toBeUndefined();
+    });
+
+    it('falls back to provider model when neither model nor models is set', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'anthropic',
+            apiKey: 'anthropic-key',
+            model: 'claude-sonnet-4-20250514',
+            default: true,
+          },
+        ],
+        stages: {
+          implement: {
+            provider: 'anthropic',
+          },
+        },
+      });
+
+      expect(config.stages.implement?.model).toBe('claude-sonnet-4-20250514');
+      expect(config.stages.implement?.models).toBeUndefined();
+    });
+
     it('defaults stage backend to standard when omitted', () => {
       const config = normalizeWfConfig({
         ai: [
@@ -519,8 +590,8 @@ describe('wf-config-loader', () => {
       });
 
       expect(config.stages.create).toBeDefined();
-      expect(config.stages.create!.provider).toBeUndefined();
-      expect(config.stages.create!.verificationConditions).toEqual({
+      expect(config.stages.create?.provider).toBeUndefined();
+      expect(config.stages.create?.verificationConditions).toEqual({
         policyFile: undefined,
         scripts: {
           testVerifyRequestFormat: 'nr test:manual -- test-verify-request-format',
@@ -551,8 +622,8 @@ describe('wf-config-loader', () => {
       });
 
       expect(config.stages.create).toBeDefined();
-      expect(config.stages.create!.provider).toBe('openai');
-      expect(config.stages.create!.verificationConditions).toEqual({
+      expect(config.stages.create?.provider).toBe('openai');
+      expect(config.stages.create?.verificationConditions).toEqual({
         policyFile: undefined,
         scripts: {
           format: 'nr test:manual -- test-verify-request-format',
@@ -582,8 +653,8 @@ describe('wf-config-loader', () => {
       });
 
       expect(config.stages.create).toBeDefined();
-      expect(config.stages.create!.provider).toBeUndefined();
-      expect(config.stages.create!.verificationConditions).toEqual({
+      expect(config.stages.create?.provider).toBeUndefined();
+      expect(config.stages.create?.verificationConditions).toEqual({
         policyFile: undefined,
         scripts: {
           testVerifyRequestFormat: 'nr test:manual -- test-verify-request-format',

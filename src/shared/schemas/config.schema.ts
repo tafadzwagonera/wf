@@ -132,8 +132,8 @@ export const normalizedVerificationConditionsConfigSchema = z.object({
 
 export const normalizedImplementStageConfigSchema = z.object({
   provider: wfAiProviderNameSchema,
-  model: z.string(),
-  models: z.object({ mechanical: z.string().optional() }).optional(),
+  model: z.string().optional(),
+  models: z.object({ default: z.string().optional(), mechanical: z.string().optional() }).optional(),
   backend: wfBackendModeSchema,
   verificationConditions: normalizedVerificationConditionsConfigSchema.optional(),
 });

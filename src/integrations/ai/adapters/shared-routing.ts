@@ -133,7 +133,7 @@ const resolveModelConfig = (
   if (singleModel && modelsConfig) throw new Error(MODEL_CONFIG_EXCLUSIVE_ERROR);
   return {
     defaultModel: modelsConfig?.default || singleModel || fallbackDefaultModel,
-    mechanicalModel: modelsConfig?.mechanical || defaultMechanicalModel,
+    mechanicalModel: modelsConfig?.mechanical || singleModel || defaultMechanicalModel,
   };
 };
 

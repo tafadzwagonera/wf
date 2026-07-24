@@ -642,7 +642,12 @@ describe('OpenAIAgentAdapter', () => {
         config: {},
       }));
 
-      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      const adapter = new OpenAIAgentAdapter(
+        makeConfigService({
+          'stages.implement.model': undefined,
+          'stages.implement.models': { mechanical: 'gpt-5.1-codex-mini' },
+        })
+      );
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       const params = {
@@ -704,7 +709,12 @@ describe('OpenAIAgentAdapter', () => {
         config: {},
       }));
 
-      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      const adapter = new OpenAIAgentAdapter(
+        makeConfigService({
+          'stages.implement.model': undefined,
+          'stages.implement.models': { mechanical: 'gpt-5.1-codex-mini' },
+        })
+      );
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       const params = {

@@ -1,6 +1,8 @@
-import { buildPlanContext } from './shared-routing';
+import { buildPlanContext, resolveModelRouting } from './shared-routing';
 import { normalizeFileEntries } from '../ai.service';
 import type { VerificationScript } from '../../../agents/interfaces';
+import type { ResolutionPlan } from '../ai.service';
+import { ConfigService } from '@nestjs/config';
 
 describe('normalizeFileEntries', () => {
   it('converts string entries to FileEntry with status found', () => {
@@ -105,5 +107,104 @@ describe('buildPlanContext', () => {
       planSummary: undefined,
     });
     expect(result).toContain('Plan summary:\n(none)');
+  });
+});
+
+describe('resolveModelRouting', () => {
+  const defaultMechanicalModel = 'claude-haiku-4-5-20251001';
+  const fallbackDefaultModel = 'claude-sonnet-4-6';
+
+  const createMockPlan = (estimatedComplexity: 'low' | 'medium' | 'high'): ResolutionPlan => ({
+    action: 'fix' as const,
+    summary: 'Test plan',
+    steps: ['Step 1'],
+    estimatedComplexity,
+    affectedFiles: estimatedComplexity === 'low' ? Array(5).fill({ filePath: 'src/test.ts', status: 'found' as const }) : [],
+  });
+
+  const createMockConfigService = (configMap: Record<string, unknown>): ConfigService => {
+    const mockService = new ConfigService();
+    jest.spyOn(mockService, 'get').mockImplementation((key: string) => configMap[key]);
+    return mockService;
+  };
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('singleModel overrides mechanical fallback on auto-routing', () => {
+    const mockConfigService = createMockConfigService({
+      'stages.implement.model': 'claude-opus-4-6',
+      'stages.implement.models': undefined,
+    });
+
+    const result = resolveModelRouting({
+      routing: 'auto',
+      fallbackDefaultModel,
+      defaultMechanicalModel,
+      configService: mockConfigService,
+      plan: createMockPlan('low'),
+      adapterLabel: 'test-adapter',
+    });
+
+    expect(result.model).toBe('claude-opus-4-6');
+    expect(result.logMessage).toContain('claude-opus-4-6');
+  });
+
+  it('models.mechanical takes precedence over singleModel', () => {
+    const mockConfigService = createMockConfigService({
+      'stages.implement.model': undefined,
+      'stages.implement.models': { mechanical: 'claude-haiku-custom' },
+    });
+
+    const result = resolveModelRouting({
+      routing: 'auto',
+      fallbackDefaultModel,
+      defaultMechanicalModel,
+      configService: mockConfigService,
+      plan: createMockPlan('low'),
+      adapterLabel: 'test-adapter',
+    });
+
+    expect(result.model).toBe('claude-haiku-custom');
+    expect(result.logMessage).toContain('claude-haiku-custom');
+  });
+
+  it('uses hardcoded default when no config is set', () => {
+    const mockConfigService = createMockConfigService({
+      'stages.implement.model': undefined,
+      'stages.implement.models': undefined,
+    });
+
+    const result = resolveModelRouting({
+      routing: 'auto',
+      fallbackDefaultModel,
+      defaultMechanicalModel,
+      configService: mockConfigService,
+      plan: createMockPlan('low'),
+      adapterLabel: 'test-adapter',
+    });
+
+    expect(result.model).toBe(defaultMechanicalModel);
+    expect(result.logMessage).toContain(defaultMechanicalModel);
+  });
+
+  it('routing default forces default model and skips mechanical detection', () => {
+    const mockConfigService = createMockConfigService({
+      'stages.implement.model': 'claude-opus-4-6',
+      'stages.implement.models': undefined,
+    });
+
+    const result = resolveModelRouting({
+      routing: 'default',
+      fallbackDefaultModel,
+      defaultMechanicalModel,
+      configService: mockConfigService,
+      plan: createMockPlan('low'),
+      adapterLabel: 'test-adapter',
+    });
+
+    expect(result.model).toBe('claude-opus-4-6');
+    expect(result.logMessage).toContain('default — user override');
   });
 });

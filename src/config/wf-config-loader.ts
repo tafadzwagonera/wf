@@ -14,6 +14,8 @@ import type {
   WfAiProviderName,
   WfBackendMode,
   WfConfig,
+  WfImplementStageConfig,
+  WfCreateStageConfig,
   NormalizedAiStageTargetConfig,
   NormalizedVerificationConditionsConfig,
   NormalizedImplementStageConfig,
@@ -320,6 +322,7 @@ const readConfigModule = async (filePath: string): Promise<WfConfig> => {
   return unwrapModuleExport(loaded);
 };
 
+// eslint-disable-next-line max-lines-per-function
 const detectNearestPackageType = (filePath: string): 'module' | 'commonjs' | null => {
   let currentDir = path.dirname(filePath);
   const { root } = path.parse(currentDir);
@@ -378,6 +381,7 @@ const evaluateEsmDefaultConfigSource = (filePath: string, sourceText: string): W
   return unwrapModuleExport(evaluateConfigScript(filePath, executableSource));
 };
 
+// eslint-disable-next-line max-lines-per-function
 const readJavaScriptConfigModule = async (filePath: string): Promise<WfConfig> => {
   const sourceText = fs.readFileSync(filePath, 'utf-8');
   const nearestPackageType = detectNearestPackageType(filePath);
@@ -439,6 +443,7 @@ const readTypeScriptConfigFromRegisteredExtension = (filePath: string, cwd: stri
   }
 };
 
+// eslint-disable-next-line max-lines-per-function
 const loadJitiFromProject = (cwd: string): ((filePath: string) => unknown) | null => {
   try {
     const requireFromProject = createRequire(path.join(cwd, 'package.json'));
@@ -490,6 +495,7 @@ export const discoverWfConfigPath = (cwd: string): string | null => {
  * @param options - Runtime and loader overrides used for Node/Bun/Deno support
  * @returns Parsed config object
  */
+// eslint-disable-next-line max-lines-per-function
 export const loadTypeScriptConfig = async (
   filePath: string,
   options: TypeScriptConfigLoadOptions = {}
@@ -585,8 +591,10 @@ const normalizeVerificationConditionsConfig = (
  * @param stageName - Workflow stage name for error messages
  * @param stageTarget - Consumer-authored stage target
  * @param configuredProviderNames - Providers declared in ai[]
+ * @param configuredProvidersByName - Map from provider name to its configured model
  * @returns Normalized stage target or undefined when absent
  */
+// eslint-disable-next-line max-lines-per-function
 const normalizeStageTarget = ({
   stageName,
   stageTarget,
@@ -636,11 +644,45 @@ const normalizeStageTarget = ({
 };
 
 /**
+ * Normalize the implement stage configuration, handling both single-model and multi-model configs.
+ * When models is present, strips the injected provider-level model to prevent conflicts.
+ */
+const normalizeImplementStageConfig = (
+  implementStageConfig: WfImplementStageConfig | undefined,
+  implementTarget: NormalizedAiStageTargetConfig | undefined
+): NormalizedImplementStageConfig | undefined => {
+  if (!implementStageConfig || !implementTarget) return undefined;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { model: _model, ...implementTargetWithoutModel } = implementTarget;
+  const base = implementStageConfig.models ? implementTargetWithoutModel : implementTarget;
+  return {
+    ...base,
+    ...(implementStageConfig.models && { models: implementStageConfig.models }),
+    verificationConditions: normalizeVerificationConditionsConfig(implementStageConfig.verificationConditions),
+  };
+};
+
+// Normalize create stage configuration, supporting validation-only mode.
+const normalizeCreateStageConfig = (
+  createStageConfig: WfCreateStageConfig | undefined,
+  configuredProviderNames: Set<WfAiProviderName>,
+  configuredProvidersByName: Map<WfAiProviderName, { model: string }>
+): NormalizedCreateStageConfig | undefined => {
+  if (!createStageConfig) return undefined;
+  const vc = normalizeVerificationConditionsConfig(createStageConfig.verificationConditions);
+  if (!createStageConfig.provider) return { verificationConditions: vc };
+  const stageTarget = createStageConfig as WfAiStageTargetConfig;
+  const ct = normalizeStageTarget({ stageName: 'create', stageTarget, configuredProviderNames, configuredProvidersByName });
+  return ct ? { ...ct, verificationConditions: vc } : undefined;
+};
+
+/**
  * Normalize user config into the runtime shape consumed by Nest ConfigService.
  *
  * @param rawConfig - Consumer-authored config object
  * @returns Normalized config with defaults applied
  */
+// eslint-disable-next-line max-lines-per-function
 export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig => {
   const result = configSchema.safeParse(rawConfig);
   if (!result.success) {
@@ -705,63 +747,22 @@ export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig 
     {} as Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>
   );
 
-  const normalizedImplementStage = (() => {
-    const implementStageConfig = validatedConfig.stages?.implement;
-    if (!implementStageConfig) {
-      return undefined;
-    }
-
-    const implementTarget = normalizeStageTarget({
-      stageName: 'implement',
-      stageTarget: implementStageConfig,
-      configuredProviderNames,
-      configuredProvidersByName,
-    });
-
-    if (!implementTarget) {
-      return undefined;
-    }
-
-    return {
-      ...implementTarget,
-      ...(implementStageConfig.models && {
-        models: implementStageConfig.models,
-      }),
-      verificationConditions: normalizeVerificationConditionsConfig(implementStageConfig.verificationConditions),
-    };
-  })();
-
-  const normalizedCreateStage = (() => {
-    const createStageConfig = validatedConfig.stages?.create;
-
-    if (!createStageConfig) {
-      return undefined;
-    }
-
-    // The create stage supports validation-only mode (no provider needed).
-    // Only resolve provider/model when one is explicitly configured.
-    if (createStageConfig.provider) {
-      const createTarget = normalizeStageTarget({
-        stageName: 'create',
-        stageTarget: createStageConfig as WfAiStageTargetConfig,
+  const implementStageConfig = validatedConfig.stages?.implement;
+  const implementTarget = implementStageConfig
+    ? normalizeStageTarget({
+        stageName: 'implement',
+        stageTarget: implementStageConfig,
         configuredProviderNames,
         configuredProvidersByName,
-      });
+      })
+    : undefined;
+  const normalizedImplementStage = normalizeImplementStageConfig(implementStageConfig, implementTarget);
 
-      if (!createTarget) {
-        return undefined;
-      }
-
-      return {
-        ...createTarget,
-        verificationConditions: normalizeVerificationConditionsConfig(createStageConfig.verificationConditions),
-      };
-    }
-
-    return {
-      verificationConditions: normalizeVerificationConditionsConfig(createStageConfig.verificationConditions),
-    };
-  })();
+  const normalizedCreateStage = normalizeCreateStageConfig(
+    validatedConfig.stages?.create,
+    configuredProviderNames,
+    configuredProvidersByName
+  );
 
   const providerMap = new Map(providers.map(provider => [provider.provider, provider]));
   const anthropicProvider = providerMap.get('anthropic');

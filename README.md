@@ -789,7 +789,7 @@ stages:
       mechanical: gpt-5.4-mini
 ```
 
-The primary model resolves from `stages.implement.models.default` → `stages.implement.model` → `ai.$.model` → provider default. The mechanical model resolves from `stages.implement.models.mechanical` → provider default mechanical. When both `model` and `models` are set, `models` takes precedence (it is more specific) and a warning displays the effective configuration.
+The primary model resolves from `stages.implement.models.default` → `stages.implement.model` → `ai.$.model` → provider default. The mechanical model resolves from `stages.implement.models.mechanical` → `stages.implement.model` → provider default mechanical. Setting `stages.implement.model` acts as a floor for both routing outcomes; use `stages.implement.models` with explicit `default` and `mechanical` keys for per-route control. `model` and `models` are mutually exclusive — setting both throws a configuration error.
 
 #### Context compaction
 

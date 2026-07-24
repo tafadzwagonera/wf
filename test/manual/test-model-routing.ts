@@ -68,7 +68,6 @@ const assert = (message: string, condition: boolean, detail?: string): void => {
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n🧪 Model routing and mechanical task detection smoke test\n'));
 
-  // ── OpenAI detectMechanicalTask ──────────────────────────────────────
   console.log(chalk.bold('Test 1: OpenAI — step language pattern'));
   const openAi1 = openAiDetect({
     action: 'fix',
@@ -128,7 +127,6 @@ async function main(): Promise<void> {
   );
   assert('reason is "high complexity task"', openAi4.reason === 'high complexity task');
 
-  // ── Anthropic detectMechanicalTask ───────────────────────────────────
   console.log(chalk.bold('\nTest 5: Anthropic — step language pattern'));
   const anthropic1 = anthropicDetect({
     action: 'fix',
@@ -167,7 +165,6 @@ async function main(): Promise<void> {
   });
   assert('returns creative for focused plan', anthropic3.isMechanical === false);
 
-  // ── Type-level checks ────────────────────────────────────────────────
   console.log(chalk.bold('\nTest 8: ModelRouting type values'));
   const validValues: ModelRouting[] = ['auto', 'default', 'mechanical'];
   assert(
@@ -187,7 +184,6 @@ async function main(): Promise<void> {
   const optsNoRouting: ImplementerOptions = { trackerName: 'jira' };
   assert('ImplementerOptions allows undefined modelRouting', optsNoRouting.modelRouting === undefined);
 
-  // ── Summary ──────────────────────────────────────────────────────────
   console.log(chalk.bold('\nSummary'));
   console.log(`  Passed: ${passed}`);
   console.log(`  Failed: ${failed}`);
