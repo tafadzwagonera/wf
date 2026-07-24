@@ -463,7 +463,7 @@ describe('wf-config-loader', () => {
       expect(config.stages.implement?.models).toBeUndefined();
     });
 
-    it('falls back to provider model when neither model nor models is set', () => {
+    it('strips provider-injected model when user did not explicitly set model or models', () => {
       const config = normalizeWfConfig({
         ai: [
           {
@@ -480,7 +480,7 @@ describe('wf-config-loader', () => {
         },
       });
 
-      expect(config.stages.implement?.model).toBe('claude-sonnet-4-20250514');
+      expect(config.stages.implement?.model).toBeUndefined();
       expect(config.stages.implement?.models).toBeUndefined();
     });
 

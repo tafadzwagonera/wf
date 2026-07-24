@@ -645,7 +645,9 @@ const normalizeStageTarget = ({
 
 /**
  * Normalize the implement stage configuration, handling both single-model and multi-model configs.
- * When models is present, strips the injected provider-level model to prevent conflicts.
+ * Strips the provider-injected model when the user didn't explicitly set it, so that
+ * resolveModelConfig falls through to the hardcoded mechanical default for auto-routing.
+ * When models is present, always strips the injected model to prevent conflicts.
  */
 const normalizeImplementStageConfig = (
   implementStageConfig: WfImplementStageConfig | undefined,
@@ -653,11 +655,14 @@ const normalizeImplementStageConfig = (
 ): NormalizedImplementStageConfig | undefined => {
   if (!implementStageConfig || !implementTarget) return undefined;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { model: _model, ...implementTargetWithoutModel } = implementTarget;
-  const base = implementStageConfig.models ? implementTargetWithoutModel : implementTarget;
+  const { model: _model, ...targetWithoutModel } = implementTarget;
+  const useModelConfig = implementStageConfig.model !== undefined;
+  const useModelsConfig = implementStageConfig.models !== undefined;
+  const keepModel = useModelConfig && !useModelsConfig;
+  const base = keepModel ? implementTarget : targetWithoutModel;
   return {
     ...base,
-    ...(implementStageConfig.models && { models: implementStageConfig.models }),
+    ...(useModelsConfig && { models: implementStageConfig.models }),
     verificationConditions: normalizeVerificationConditionsConfig(implementStageConfig.verificationConditions),
   };
 };
