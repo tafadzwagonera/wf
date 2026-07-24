@@ -970,23 +970,30 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     return apiKey;
   }
 
-  async generateAndVerify(
+  private buildActivityState(params: GenerateAndVerifyParams): ActivityState {
+    return { verificationScripts: params.verificationScripts, verificationOutcomes: [] };
+  }
+
+  private async buildAndExecuteSession(
     params: GenerateAndVerifyParams,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
+  ): Promise<{ sessionId: string; activityState: ActivityState }> {
+    const activityState = this.buildActivityState(params);
     const allowedCommands = buildAllowedCommands(params.verificationScripts);
-    const activityState: ActivityState = {
-      verificationScripts: params.verificationScripts,
-      verificationOutcomes: [],
-    };
     const { repoDir, sdkOptions } = await resolveSessionOptions(
       { params, configService: this.configService, allowedCommands, activityState, apiKey: this.resolveApiKey() }
     );
     const { query } = await loadAnthropicAgentSdk();
-    const touchedFiles = new Set<string>();
     const sessionId = await executeAgentSession({
       query: query as SdkQueryFn, sdkOptions: sdkOptions as Record<string, unknown>,
-      params, repoDir, touchedFiles, activityState,
+      params, repoDir, touchedFiles: new Set<string>(), activityState,
     });
+    return { sessionId, activityState };
+  }
+
+  async generateAndVerify(
+    params: GenerateAndVerifyParams,
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
+    const { sessionId, activityState } = await this.buildAndExecuteSession(params);
     const verificationOutcomes = resolveSkippedSteps(
       params.verificationScripts, activityState.verificationOutcomes ?? []
     );

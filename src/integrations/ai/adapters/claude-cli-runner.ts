@@ -62,8 +62,8 @@ interface TimeoutState {
 /** Return type for the timeout manager. */
 interface TimeoutManager {
   timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-  inactivityHandle: ReturnType<typeof setTimeout> | undefined;
   resetInactivity: () => void;
+  clearInactivity: () => void;
 }
 
 /**
@@ -266,9 +266,9 @@ const spawnChild = (
  * @param prompt - Optional prompt text to write
  */
 const pipePrompt = (child: ReturnType<typeof spawn>, prompt: string | undefined): void => {
-  if (!prompt) return;
-  child.stdin!.write(prompt);
-  child.stdin!.end();
+  if (!prompt || !child.stdin) return;
+  child.stdin.write(prompt);
+  child.stdin.end();
 };
 
 /**
@@ -288,9 +288,11 @@ const spawnChildProcess = (
 ): ChildBundle => {
   const child = spawnChild(args, cwd, env);
   pipePrompt(child, prompt);
-  const rl = createInterface({ input: child.stdout! });
+  if (!child.stdout) throw new Error('claude child process stdout not available');
+  if (!child.stderr) throw new Error('claude child process stderr not available');
+  const rl = createInterface({ input: child.stdout });
   const stderrChunks: Buffer[] = [];
-  child.stderr!.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+  child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
   return { child, rl, stderrChunks };
 };
 
@@ -335,13 +337,14 @@ const makeInactivityTimer = (
   killFn: () => void,
   state: TimeoutState,
   inactivityMs: number
-): { handle: ReturnType<typeof setTimeout> | undefined; reset: () => void } => {
+): { reset: () => void; clear: () => void } => {
   let handle: ReturnType<typeof setTimeout> | undefined;
   const reset = () => {
     if (handle) clearTimeout(handle);
     handle = inactivityMs > 0 ? setTimeout(() => fireInactivity(state, killFn), inactivityMs) : undefined;
   };
-  return { handle, reset };
+  const clear = () => clearTimeout(handle);
+  return { reset, clear };
 };
 
 /**
@@ -373,7 +376,8 @@ const createTimeoutManager = (
   const timeoutHandle = wallMs > 0 ? setTimeout(() => fireWallClock(state, killFn), wallMs) : undefined;
   const inactivity = makeInactivityTimer(killFn, state, inactivityMs);
   const resetInactivity = () => inactivity.reset();
-  return { timeoutHandle, inactivityHandle: inactivity.handle, resetInactivity };
+  const clearInactivity = () => inactivity.clear();
+  return { timeoutHandle, resetInactivity, clearInactivity };
 };
 
 /**
@@ -399,7 +403,7 @@ const cleanupCliStream = (
   killFn: () => void
 ): void => {
   if (tm.timeoutHandle) clearTimeout(tm.timeoutHandle);
-  if (tm.inactivityHandle) clearTimeout(tm.inactivityHandle);
+  tm.clearInactivity();
   rl.close();
   killFn();
 };
@@ -484,13 +488,18 @@ const throwIfStderrOnly = (yieldedAny: boolean, stderrChunks: Buffer[]): void =>
  * @param session - Initialised CLI session (child process, readline, timers)
  * @returns Async generator yielding ClaudeCliMessage objects; returns the session on completion
  */
-async function* runCliStream(session: CliSession): AsyncGenerator<ClaudeCliMessage, CliSession, undefined> {
-  const { rl, killChild, tm } = session;
+const installSigintHandler = (killChild: () => void, rl: ReturnType<typeof createInterface>): () => void => {
   const onSigint = () => {
     killChild();
     rl.close();
   };
   process.on('SIGINT', onSigint);
+  return onSigint;
+};
+
+async function* runCliStream(session: CliSession): AsyncGenerator<ClaudeCliMessage, CliSession, undefined> {
+  const { rl, killChild, tm } = session;
+  const onSigint = installSigintHandler(killChild, rl);
   try {
     for await (const message of parseLineMessages(rl)) {
       session.yieldedAny = true;

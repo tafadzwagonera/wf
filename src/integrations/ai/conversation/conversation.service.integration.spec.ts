@@ -217,16 +217,16 @@ describe('ConversationService Integration Tests', () => {
       const service2 = module2.get<ConversationService>(ConversationService);
       const conv2 = await service2.loadConversation(testTicketKey, testRepoDir);
 
-      expect(conv2).toBeDefined();
-      await service2.addUserMessage(conv2!.conversationId, 'Second message');
+      if (!conv2) throw new Error('expected conv2');
+      await service2.addUserMessage(conv2.conversationId, 'Second message');
 
       claudeService.executeWithHistory.mockResolvedValue({
         content: 'Response',
         usage: { inputTokens: 100, outputTokens: 50 },
       });
 
-      await service2.getAssistantResponse(conv2!.conversationId);
-      await service2.saveConversation(conv2!);
+      await service2.getAssistantResponse(conv2.conversationId);
+      await service2.saveConversation(conv2);
 
       // Third session: verify full history
       const module3: TestingModule = await Test.createTestingModule({
@@ -290,16 +290,17 @@ describe('ConversationService Integration Tests', () => {
 
       expect(conv2?.totalTokensUsed).toEqual({ input: 100, output: 50 });
 
-      await service2.addUserMessage(conv2!.conversationId, 'Another message');
+      if (!conv2) throw new Error('expected conv2');
+      await service2.addUserMessage(conv2.conversationId, 'Another message');
 
       claudeService.executeWithHistory.mockResolvedValue({
         content: 'Response 2',
         usage: { inputTokens: 120, outputTokens: 60 },
       });
 
-      await service2.getAssistantResponse(conv2!.conversationId);
+      await service2.getAssistantResponse(conv2.conversationId);
 
-      expect(conv2?.totalTokensUsed).toEqual({ input: 220, output: 110 });
+      expect(conv2.totalTokensUsed).toEqual({ input: 220, output: 110 });
     });
   });
 

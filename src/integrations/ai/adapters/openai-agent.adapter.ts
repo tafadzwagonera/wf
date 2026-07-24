@@ -2051,6 +2051,16 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
    * @param c - Run components
    * @returns Session result
    */
+  private buildRunResult(
+    c: Awaited<ReturnType<OpenAIAgentAdapter['buildRunComponents']>>,
+    verificationScripts: VerificationScript[],
+  ): { sessionId?: string; verificationOutcomes: VerificationOutcome[] } {
+    logFileSummary(c.mutable.fileChangeStatus, verificationScripts, buildAllowedCommands(verificationScripts));
+    const verificationOutcomes = resolveSkippedSteps(verificationScripts, c.vs.verificationOutcomes);
+    printVerificationReport(verificationOutcomes);
+    return { sessionId: undefined, verificationOutcomes };
+  }
+
   private async executeAgentRun(
     params: GenerateAndVerifyParams & { options: ImplementerOptions },
     c: Awaited<ReturnType<OpenAIAgentAdapter['buildRunComponents']>>
@@ -2062,10 +2072,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const { repoFiles, repoName, verificationScripts } = params;
     const failures = c.mutable.validationFailures;
     await runContinuationLoop({ run, config: c.config, loop: c.loop, repoFiles, repoName, failures });
-    logFileSummary(c.mutable.fileChangeStatus, verificationScripts, buildAllowedCommands(verificationScripts));
-    const verificationOutcomes = resolveSkippedSteps(verificationScripts, c.vs.verificationOutcomes);
-    printVerificationReport(verificationOutcomes);
-    return { sessionId: undefined, verificationOutcomes };
+    return this.buildRunResult(c, verificationScripts);
   }
 
   /**

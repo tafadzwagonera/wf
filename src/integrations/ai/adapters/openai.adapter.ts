@@ -150,7 +150,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
     return this.contextConfig ? this.contextConfig + (systemPrompt ?? '') : systemPrompt;
   }
 
-  private assertClient(): void {
+  private assertClient(): OpenAI {
     if (!this.client) {
       throw new AIError(
         'OpenAI client not initialized. Configure `ai[].apiKey` for the `openai` provider in wf.config.*.',
@@ -158,6 +158,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
         false
       );
     }
+    return this.client;
   }
 
   /**
@@ -171,10 +172,10 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
   private async invokeCompletion(
     params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
     model: string,
-    errorMsg: string
+    errorMsg: string,
   ): Promise<AIResponse> {
     try {
-      const response = await this.client!.chat.completions.create(params);
+      const response = await this.assertClient().chat.completions.create(params);
       return mapOpenAiResponse(response, model);
     } catch (error) {
       if (error instanceof OpenAI.APIError) {

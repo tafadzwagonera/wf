@@ -66,7 +66,7 @@ const resolveBaseBranch = (
   baseBranch?: string
 ): string => {
   const devBranch = branches.all.find(b => {
-    const name = b.includes('/') ? b.split('/').pop()! : b;
+    const name = b.includes('/') ? b.split('/').at(-1) ?? b : b;
     return name.includes('dev');
   });
   return baseBranch ?? devBranch ?? currentBranch ?? 'HEAD';
@@ -127,7 +127,7 @@ export class GitService {
 
   detectDevelopmentBranches(branches: string[]): string[] {
     return branches.filter(b => {
-      const name = b.includes('/') ? b.split('/').pop()! : b;
+      const name = b.includes('/') ? b.split('/').at(-1) ?? b : b;
       return name.includes('dev');
     });
   }
@@ -153,16 +153,19 @@ export class GitService {
     }
   }
 
+  private async checkoutOrCreateBranch(git: SimpleGit, branchName: string, baseBranch?: string): Promise<void> {
+    const [status, branches] = await Promise.all([git.status(), git.branch()]);
+    if (branches.all.includes(branchName)) return this.checkoutExistingBranch(git, branchName);
+    const base = resolveBaseBranch(branches, status.current, baseBranch);
+    await git.checkout(['-b', branchName, base]);
+    this.logger.success(`Created and checked out branch: ${branchName} from ${base}`);
+  }
+
   async createBranch(branchName: string, baseBranch?: string, cwd?: string): Promise<void> {
     const git = cwd ? simpleGit(cwd) : this.git;
     try {
       this.assertValidBranchName(branchName);
-      const [status, branches] = await Promise.all([git.status(), git.branch()]);
-      if (branches.all.includes(branchName))
-        return void (await this.checkoutExistingBranch(git, branchName));
-      const base = resolveBaseBranch(branches, status.current, baseBranch);
-      await git.checkout(['-b', branchName, base]);
-      this.logger.success(`Created and checked out branch: ${branchName} from ${base}`);
+      await this.checkoutOrCreateBranch(git, branchName, baseBranch);
     } catch (error) {
       wrapGitError(error, `Failed to create branch: ${branchName}`);
     }

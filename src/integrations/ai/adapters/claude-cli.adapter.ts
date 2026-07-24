@@ -89,7 +89,7 @@ type SinglePassParams = {
   sessionId: string;
   currentUnvisited: string[];
   promptOverride?: string;
-  appendSystemPrompt: string;
+  appendSystemPrompt?: string;
   model: string;
   repoDir: string;
   additionalRepoDirs: string[];
@@ -349,25 +349,24 @@ const logReadEvent = (toolName: string, input: Record<string, unknown>): void =>
  * @param block - The result block to evaluate.
  * @param activityState - Mutable state tracking the last verification command.
  */
+const detectVerificationStatus = (content: string, isError: boolean | undefined): 'failed' | 'passed' | undefined => {
+  if (isError || /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(content)) return 'failed';
+  if (/(passed|success|succeeded|completed successfully|exit code 0)/i.test(content)) return 'passed';
+  return undefined;
+};
+
 const logToolResultVerification = (
   block: ResultBlock,
   activityState: ActivityState,
 ): void => {
   const content = typeof block.content === 'string' ? block.content : '';
   if (!content || !activityState.lastVerificationCommand) return;
+  const status = detectVerificationStatus(content, block.is_error);
+  if (!status) return;
   const command = activityState.lastVerificationCommand;
-  const hasFailure = block.is_error
-    || /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(content);
-  const hasSuccess = /(passed|success|succeeded|completed successfully|exit code 0)/i.test(content);
-  if (hasFailure) {
-    console.log(chalk.red(`  [${CLI_ADAPTER_LABEL}] Verification failed: ${command}`));
-    activityState.lastVerificationCommand = undefined;
-    return;
-  }
-  if (hasSuccess) {
-    console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Verification passed: ${command}`));
-    activityState.lastVerificationCommand = undefined;
-  }
+  const color = status === 'failed' ? chalk.red : chalk.green;
+  console.log(color(`  [${CLI_ADAPTER_LABEL}] Verification ${status}: ${command}`));
+  activityState.lastVerificationCommand = undefined;
 };
 
 /**
@@ -426,20 +425,24 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   async generateAndVerify(
     params: GenerateAndVerifyParams,
   ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
+    assertClaudeCliAvailable();
+    return this.runCliSession(await this.buildCliSessionParams(params));
+  }
+
+  private async buildCliSessionParams(params: GenerateAndVerifyParams): Promise<CliSessionParams> {
     const { options, repoFiles, repoName, verificationScripts } = params;
     const repoDir = options.repoDir ?? process.cwd();
-    assertClaudeCliAvailable();
     const modelRoutingResult = this.resolveCliModelRouting(options, params.planArtifact);
     console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
     const appendSystemPrompt = buildCliSystemPrompt(
       options.priorStageSummary, await loadClaudeContext(repoDir), this.buildCliImplementerPrompt(params)
     );
-    return this.runCliSession({
+    return {
       options, repoFiles, repoName, repoDir,
       appendSystemPrompt, model: modelRoutingResult.model,
       additionalRepoDirs: options.additionalRepoDirs ?? [],
       verificationScripts,
-    });
+    };
   }
 
   private resolveCliModelRouting(options: ImplementerOptions, planArtifact: PlanArtifact) {
@@ -503,41 +506,51 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     }
   }
 
+  private async runVerificationFixPass(
+    p: ContinuationLoopParams, passNumber: number, sessionId: string, codeFailures: VerificationOutcome[],
+  ): Promise<string | undefined> {
+    const nextSession = await this.runSinglePass({
+      passNumber: 100 + passNumber, sessionId, currentUnvisited: [],
+      promptOverride: buildVerificationFixPrompt(codeFailures),
+      appendSystemPrompt: undefined, model: p.model,
+      repoDir: p.repoDir, additionalRepoDirs: p.additionalRepoDirs,
+      touchedFiles: p.touchedFiles, activityState: p.activityState,
+    });
+    if (nextSession) await discoverChangedFiles(p.repoDir, p.touchedFiles);
+    return nextSession;
+  }
+
+  private evaluateVerificationPass(
+    scripts: VerificationScript[], repoDir: string,
+  ): { outcomes: VerificationOutcome[]; codeFailures: VerificationOutcome[] } {
+    const outcomes = runProgrammaticVerification(scripts, repoDir);
+    const { codeFailures, commandFailures } = partitionFailures(getEnforcedFailures(outcomes));
+    for (const cf of commandFailures) {
+      console.log(chalk.gray(`    [${CLI_ADAPTER_LABEL}] Skipping unfixable command: ${cf.command}`));
+    }
+    return { outcomes, codeFailures };
+  }
+
+  private logFixPassStart(passNumber: number, failureCount: number): void {
+    console.log(chalk.yellow(
+      `\n  [${CLI_ADAPTER_LABEL}] Fix pass ${passNumber}: `
+      + `${failureCount} enforced verification(s) failed — sending back for resolution`,
+    ));
+  }
+
   private async runProgrammaticVerificationLoop(
     p: ContinuationLoopParams, sessionId: string | undefined,
   ): Promise<VerificationOutcome[]> {
-    let previousFailureCount = Infinity;
-    let stalledPasses = 0;
-    let passNumber = 0;
+    let prevFails = Infinity, stalled = 0, passNumber = 0;
     while (true) {
       console.log(chalk.bold(`\n  Running verification (pass ${++passNumber})...`));
-      const outcomes = runProgrammaticVerification(p.verificationScripts, p.repoDir);
-      const failures = getEnforcedFailures(outcomes);
-      if (failures.length === 0) return outcomes;
-      if (!sessionId) return outcomes;
-      const { codeFailures, commandFailures } = partitionFailures(failures);
-      for (const cf of commandFailures) {
-        console.log(chalk.gray(`    [${CLI_ADAPTER_LABEL}] Skipping unfixable command: ${cf.command}`));
-      }
-      if (codeFailures.length === 0) return outcomes;
-      stalledPasses = checkVerificationStall(
-        codeFailures.length, previousFailureCount, stalledPasses, CLI_ADAPTER_LABEL,
-      );
-      if (stalledPasses === -1) return outcomes;
-      previousFailureCount = codeFailures.length;
-      console.log(chalk.yellow(
-        `\n  [${CLI_ADAPTER_LABEL}] Fix pass ${passNumber}: `
-        + `${codeFailures.length} enforced verification(s) failed — sending back for resolution`,
-      ));
-      sessionId = await this.runSinglePass({
-        passNumber: 100 + passNumber, sessionId,
-        currentUnvisited: [],
-        promptOverride: buildVerificationFixPrompt(codeFailures),
-        appendSystemPrompt: p.appendSystemPrompt, model: p.model,
-        repoDir: p.repoDir, additionalRepoDirs: p.additionalRepoDirs,
-        touchedFiles: p.touchedFiles, activityState: p.activityState,
-      });
-      if (sessionId) await discoverChangedFiles(p.repoDir, p.touchedFiles);
+      const { outcomes, codeFailures } = this.evaluateVerificationPass(p.verificationScripts, p.repoDir);
+      if (codeFailures.length === 0 || !sessionId) return outcomes;
+      stalled = checkVerificationStall(codeFailures.length, prevFails, stalled, CLI_ADAPTER_LABEL);
+      if (stalled === -1) return outcomes;
+      prevFails = codeFailures.length;
+      this.logFixPassStart(passNumber, codeFailures.length);
+      sessionId = await this.runVerificationFixPass(p, passNumber, sessionId, codeFailures);
     }
   }
 
@@ -558,20 +571,15 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   }
 
   private async executePassAndDiscover(
-    p: ContinuationLoopParams,
-    passNumber: number,
-    sessionId: string,
-    currentUnvisited: string[]
+    p: ContinuationLoopParams, passNumber: number, sessionId: string, currentUnvisited: string[],
   ): Promise<string | undefined> {
-    const {
-      appendSystemPrompt, model, repoDir, additionalRepoDirs, touchedFiles, activityState,
-    } = p;
     console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`));
     const nextSession = await this.runSinglePass({
       passNumber, sessionId, currentUnvisited,
-      appendSystemPrompt, model, repoDir, additionalRepoDirs, touchedFiles, activityState,
+      appendSystemPrompt: undefined, model: p.model, repoDir: p.repoDir,
+      additionalRepoDirs: p.additionalRepoDirs, touchedFiles: p.touchedFiles, activityState: p.activityState,
     });
-    await discoverChangedFiles(repoDir, touchedFiles);
+    await discoverChangedFiles(p.repoDir, p.touchedFiles);
     return nextSession;
   }
 

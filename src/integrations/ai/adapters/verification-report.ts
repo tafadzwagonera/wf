@@ -35,6 +35,29 @@ const STATUS_ICONS: Record<VerificationOutcome['status'], string> = {
 const SCRIPT_TIMEOUT_MS = 120_000;
 
 /**
+ * Extracts stdout and stderr from an execSync error, capped at 4000 chars.
+ *
+ * @param error - The caught error from execSync.
+ * @returns Combined stdout + stderr output string.
+ */
+const extractErrorOutput = (error: unknown): string => {
+  const stderr = error instanceof Error && 'stderr' in error ? String((error as { stderr: unknown }).stderr) : '';
+  const stdout = error instanceof Error && 'stdout' in error ? String((error as { stdout: unknown }).stdout) : '';
+  return [stdout, stderr].filter(Boolean).join('\n').slice(0, 4000);
+};
+
+const runSingleScript = (script: VerificationScript, repoDir: string): VerificationOutcome => {
+  try {
+    execSync(script.command, { cwd: repoDir, stdio: 'pipe', timeout: SCRIPT_TIMEOUT_MS });
+    console.log(chalk.green(`    ✅ ${script.command}`));
+    return { id: script.id, command: script.command, policy: script.policy, status: 'passed' };
+  } catch (error: unknown) {
+    console.log(chalk.red(`    ❌ ${script.command}`));
+    return { id: script.id, command: script.command, policy: script.policy, status: 'failed', output: extractErrorOutput(error) };
+  }
+};
+
+/**
  * Runs each configured verification script programmatically via execSync.
  * Returns one outcome per script with the exact configured command.
  *
@@ -47,25 +70,7 @@ export function runProgrammaticVerification(
   repoDir: string,
 ): VerificationOutcome[] {
   if (scripts.length === 0) return [];
-  const outcomes: VerificationOutcome[] = [];
-  for (const script of scripts) {
-    try {
-      execSync(script.command, { cwd: repoDir, stdio: 'pipe', timeout: SCRIPT_TIMEOUT_MS });
-      console.log(chalk.green(`    ✅ ${script.command}`));
-      outcomes.push({ id: script.id, command: script.command, policy: script.policy, status: 'passed' });
-    } catch (error: unknown) {
-      const stderr = error instanceof Error && 'stderr' in error
-        ? String((error as { stderr: unknown }).stderr)
-        : '';
-      const stdout = error instanceof Error && 'stdout' in error
-        ? String((error as { stdout: unknown }).stdout)
-        : '';
-      const output = [stdout, stderr].filter(Boolean).join('\n').slice(0, 4000);
-      console.log(chalk.red(`    ❌ ${script.command}`));
-      outcomes.push({ id: script.id, command: script.command, policy: script.policy, status: 'failed', output });
-    }
-  }
-  return outcomes;
+  return scripts.map(script => runSingleScript(script, repoDir));
 }
 
 /**
@@ -139,10 +144,11 @@ export function partitionFailures(
  * Builds a prompt instructing the AI to fix enforced verification failures.
  * Includes truncated command output so the AI can diagnose root causes.
  *
- * @param failures - Enforced-failed outcomes with captured output.
- * @returns The prompt string for the fix pass.
+ * @param failures - Enforced-failed outcomes with captured output. Must be non-empty.
+ * @returns The prompt string for the fix pass, or empty string if failures is empty.
  */
 export function buildVerificationFixPrompt(failures: VerificationOutcome[]): string {
+  if (failures.length === 0) return '';
   const sections = failures.map(f => {
     const output = (f as { output?: string }).output ?? '';
     const truncated = output.length > 500 ? `...${output.slice(-500)}` : output;

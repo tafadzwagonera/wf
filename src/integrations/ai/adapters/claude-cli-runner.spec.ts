@@ -225,6 +225,16 @@ describe('claude-cli-runner', () => {
 
       expect(args).not.toContain('--json-schema');
     });
+
+    it('omits --append-system-prompt when appendSystemPrompt is undefined', () => {
+      const args = buildCliArgs({
+        prompt: 'test',
+        model: 'claude-sonnet-4-6',
+        cwd: '/repo',
+        appendSystemPrompt: undefined,
+      });
+      expect(args).not.toContain('--append-system-prompt');
+    });
   });
 
   describe('parseNdjsonLine', () => {
@@ -273,9 +283,9 @@ describe('claude-cli-runner', () => {
       }
 
       const timeoutMsg = messages.find(m => m.type === 'error' && m.subtype === 'timeout');
-      expect(timeoutMsg).toBeDefined();
-      expect(timeoutMsg!.is_error).toBe(true);
-      expect(timeoutMsg!.result).toMatch(/wall-clock limit/i);
+      if (!timeoutMsg) throw new Error('expected timeoutMsg');
+      expect(timeoutMsg.is_error).toBe(true);
+      expect(timeoutMsg.result).toMatch(/wall-clock limit/i);
     });
 
     it('yields parsed NDJSON messages from stdout', async () => {
@@ -364,10 +374,10 @@ describe('claude-cli-runner', () => {
       }
 
       const timeoutMsg = messages.find(m => m.type === 'error' && m.subtype === 'timeout');
-      expect(timeoutMsg).toBeDefined();
-      expect(timeoutMsg!.is_error).toBe(true);
-      expect(timeoutMsg!.result).toMatch(/stalled/i);
-      expect(timeoutMsg!.result).toMatch(/no output/i);
+      if (!timeoutMsg) throw new Error('expected timeoutMsg');
+      expect(timeoutMsg.is_error).toBe(true);
+      expect(timeoutMsg.result).toMatch(/stalled/i);
+      expect(timeoutMsg.result).toMatch(/no output/i);
     });
   });
 

@@ -313,7 +313,8 @@ const buildTimeoutMessage = (timeoutMs: number): CodexCliMessage => ({
  */
 const attachStderrCollector = (proc: ChildProcess): Buffer[] => {
   const chunks: Buffer[] = [];
-  proc.stderr!.on('data', (chunk: Buffer) => chunks.push(chunk));
+  if (!proc.stderr) throw new Error('codex child process stderr not available');
+  proc.stderr.on('data', (chunk: Buffer) => chunks.push(chunk));
   return chunks;
 };
 
@@ -332,12 +333,15 @@ interface CodexSession {
  * @param timeoutMs - Milliseconds before the kill controller fires
  * @returns Fully initialised `CodexSession` ready for the generator loop
  */
-const buildCodexSession = (child: ChildProcess, timeoutMs: number): CodexSession => ({
-  rl: createInterface({ input: child.stdout! }),
-  stderrChunks: attachStderrCollector(child),
-  ctrl: buildKillController(child, timeoutMs),
-  yieldedRef: [false],
-});
+const buildCodexSession = (child: ChildProcess, timeoutMs: number): CodexSession => {
+  if (!child.stdout) throw new Error('codex child process stdout not available');
+  return {
+    rl: createInterface({ input: child.stdout }),
+    stderrChunks: attachStderrCollector(child),
+    ctrl: buildKillController(child, timeoutMs),
+    yieldedRef: [false],
+  };
+};
 
 /**
  * Reads NDJSON lines from a readline interface and yields parsed messages.
@@ -370,24 +374,43 @@ async function* readCodexLines(
  * @param timeoutMs - Subprocess timeout in milliseconds (default: 10 minutes)
  * @returns Async generator yielding `CodexCliMessage` objects
  */
-export async function* spawnCodex(
-  args: string[], cwd: string, prompt?: string, env?: Record<string, string>, timeoutMs = CLI_TIMEOUT_MS
-): AsyncGenerator<CodexCliMessage, void, undefined> {
-  const child = spawnCodexProcess(args, cwd, env, prompt);
-  const { rl, stderrChunks, ctrl, yieldedRef } = buildCodexSession(child, timeoutMs);
+const installCodexSigintHandler = (child: ChildProcess, rl: ReturnType<typeof createInterface>): () => void => {
   const onSigint = () => {
     child.kill('SIGINT');
     rl.close();
   };
   process.on('SIGINT', onSigint);
+  return onSigint;
+};
+
+const cleanupCodexSession = (
+  onSigint: () => void, ctrl: KillController, rl: ReturnType<typeof createInterface>,
+): void => {
+  process.off('SIGINT', onSigint);
+  if (ctrl.timeoutHandle) clearTimeout(ctrl.timeoutHandle);
+  rl.close();
+  ctrl.kill();
+};
+
+async function* runCodexStream(
+  session: CodexSession, onSigint: () => void,
+): AsyncGenerator<CodexCliMessage, void, undefined> {
   try {
-    yield* readCodexLines(rl, yieldedRef);
+    yield* readCodexLines(session.rl, session.yieldedRef);
   } finally {
-    process.off('SIGINT', onSigint);
-    if (ctrl.timeoutHandle) clearTimeout(ctrl.timeoutHandle);
-    rl.close();
-    ctrl.kill();
+    cleanupCodexSession(onSigint, session.ctrl, session.rl);
   }
-  if (ctrl.timedOut()) return void (yield buildTimeoutMessage(timeoutMs));
-  collectCodexResult(yieldedRef[0], stderrChunks);
+}
+
+export async function* spawnCodex(
+  args: string[], cwd: string, prompt?: string, env?: Record<string, string>, timeoutMs = CLI_TIMEOUT_MS,
+): AsyncGenerator<CodexCliMessage, void, undefined> {
+  const child = spawnCodexProcess(args, cwd, env, prompt);
+  const session = buildCodexSession(child, timeoutMs);
+  yield* runCodexStream(session, installCodexSigintHandler(child, session.rl));
+  if (session.ctrl.timedOut()) {
+    yield buildTimeoutMessage(timeoutMs);
+    return;
+  }
+  collectCodexResult(session.yieldedRef[0], session.stderrChunks);
 }

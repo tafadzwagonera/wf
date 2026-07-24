@@ -266,9 +266,9 @@ const renderStateNode = (node: ReviewTraceStateNode, prefix = '', isLast = true)
   const hasCaptured = Boolean(node.captured && Object.keys(node.captured).length > 0);
   return [
     `${prefix}${branch} ${node.frame}`,
-    ...(hasCaptured ? renderCapturedSection(node.captured!, childPrefix, hasChanges || hasChildren) : []),
-    ...(hasChanges ? renderChangesSection(node.changes!, childPrefix, hasChildren) : []),
-    ...(hasChildren ? renderStateNodes(node.children!, childPrefix) : []),
+    ...(hasCaptured ? renderCapturedSection(node.captured ?? {}, childPrefix, hasChanges || hasChildren) : []),
+    ...(hasChanges ? renderChangesSection(node.changes ?? {}, childPrefix, hasChildren) : []),
+    ...(hasChildren ? renderStateNodes(node.children ?? [], childPrefix) : []),
   ];
 };
 
@@ -321,7 +321,7 @@ const buildStructuredTransitionLines = (structured: ReviewTraceStateTransition):
     header.push(`to: ${structured.to}`);
   }
   const separator = header.length > 0 ? [''] : [];
-  return [...header, ...separator, ...renderStateNodes(structured.steps!)];
+  return [...header, ...separator, ...renderStateNodes(structured.steps ?? [])];
 };
 
 /**

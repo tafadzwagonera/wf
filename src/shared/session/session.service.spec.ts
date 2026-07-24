@@ -55,12 +55,12 @@ describe('SessionService', () => {
     const loaded = await service.load(session.sessionId);
 
     expect(loaded).not.toBeNull();
-    expect(loaded!.sessionId).toBe(session.sessionId);
-    expect(loaded!.ticketKey).toBe(session.ticketKey);
-    expect(loaded!.createdAt).toBe(session.createdAt);
-    expect(loaded!.updatedAt).toBe(session.updatedAt);
-    expect(loaded!.completedAt).toBe(session.completedAt);
-    expect(loaded!.stages).toEqual(session.stages);
+    expect(loaded?.sessionId).toBe(session.sessionId);
+    expect(loaded?.ticketKey).toBe(session.ticketKey);
+    expect(loaded?.createdAt).toBe(session.createdAt);
+    expect(loaded?.updatedAt).toBe(session.updatedAt);
+    expect(loaded?.completedAt).toBe(session.completedAt);
+    expect(loaded?.stages).toEqual(session.stages);
   });
 
   it('findByTicketKey returns the active session', async () => {
@@ -78,7 +78,7 @@ describe('SessionService', () => {
     const found = await service.findByTicketKey('PROJ-123');
 
     expect(found).not.toBeNull();
-    expect(found!.sessionId).toBe('active-session');
+    expect(found?.sessionId).toBe('active-session');
   });
 
   it('recordStageStart creates a stage record with provider/backend/model', async () => {
