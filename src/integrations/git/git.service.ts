@@ -17,6 +17,8 @@ export type { BranchInfo, CommitOptions, CommitInfo } from '../../shared/types/g
 const createCommitGit = (cwd: string): SimpleGit =>
   simpleGit(cwd).env({ ...process.env, LEFTHOOK: '0' });
 
+const DEFAULT_PROTECTED_BRANCHES = ['main', 'master', 'develop'];
+
 /**
  * Re-throw `error` as a {@link GitError} unless it already is one, extracting
  * the most descriptive detail available from the raw error object.
@@ -413,9 +415,40 @@ export class GitService {
     }
   }
 
+  /**
+   * Returns the configured protected branch list, or the module-level default
+   * when none is configured.
+   *
+   * @returns Array of branch name strings to protect
+   */
+  private resolveProtectedBranches(): string[] {
+    const configured = this.configService.get<string[]>('git.protectedBranches');
+    return configured ?? DEFAULT_PROTECTED_BRANCHES;
+  }
+
+  /**
+   * Throw a {@link GitError} if `branch` (after stripping remote prefixes)
+   * matches any protected branch name.
+   *
+   * @param branch - The resolved branch name to check
+   */
+  private assertNotProtectedBranch(branch: string): void {
+    const protectedBranches = this.resolveProtectedBranches();
+    const bare = branch.replace(/^(remotes\/origin\/|origin\/)/, '');
+    const isProtected = protectedBranches.some(
+      p => p.toLowerCase() === bare.toLowerCase()
+    );
+    if (isProtected) {
+      throw new GitError(
+        `Refusing to push directly to protected branch '${branch}'. Use a pull request instead.`
+      );
+    }
+  }
+
   async push(remote: string = 'origin', branch?: string, setUpstream: boolean = false): Promise<void> {
     try {
       const currentBranch = branch || (await this.getCurrentBranch());
+      this.assertNotProtectedBranch(currentBranch);
 
       if (setUpstream) {
         await this.git.push(['-u', remote, currentBranch]);
@@ -425,7 +458,7 @@ export class GitService {
         this.logger.success(`Pushed to ${remote}/${currentBranch}`);
       }
     } catch (error) {
-      throw new GitError('Failed to push changes', error);
+      wrapGitError(error, 'Failed to push changes');
     }
   }
 

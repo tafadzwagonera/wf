@@ -108,6 +108,7 @@ export default defineConfig({
     commitFormat: 'auto',
     branchNamePattern:
       '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$',
+    protectedBranches: ['main', 'master', 'develop'],
   },
   log: {
     level: 'info',
@@ -177,6 +178,7 @@ atlassian:
 git:
   commitFormat: auto
   branchNamePattern: "^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$"
+  protectedBranches: [main, master, develop]
 log:
   level: info
 slack:
@@ -266,6 +268,7 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - Manifest baseline checks run in declaration order. Recommended sequence: `format` → `lint --fix` → `lint` → `build`. This removes formatting noise before the final lint/build gate and makes retries focus on real code issues.
 - Prefer portable wrappers such as `yarn lint`, `bash ./scripts/verify.sh`, or `node ./scripts/verify.mjs` instead of relying on executable bits or shell-specific features.
 - `git.branchNamePattern` sets a regex used to validate branch names during `issue:implement`. `git.branchPrefixMapping` overrides the prefix per action type (`feature`, `fix`, `investigate`).
+- `git.protectedBranches` lists branches that `push()` refuses to target directly (defaults to `['main', 'master', 'develop']`). Set to `[]` to disable the guard.
 - `slack.botToken` and `slack.userToken` are used by `issue:generate` to fetch Slack thread content from permalinks.
 - `fetch` cannot be overridden.
 - `wf config get` and `wf config list` read the normalized runtime config.

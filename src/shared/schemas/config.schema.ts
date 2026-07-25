@@ -84,6 +84,7 @@ export const wfConfigSchema = z.object({
           investigate: z.string().optional(),
         })
         .optional(),
+      protectedBranches: z.array(z.string()).optional(),
     })
     .optional(),
   log: z
