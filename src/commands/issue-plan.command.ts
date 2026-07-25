@@ -25,7 +25,7 @@ import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { detectTestInfra } from '../shared/utils/detect-test-infra';
 import type { TestInfraContext, NodeInfra } from '../shared/types/detection.types';
-import { createPlanQualityError, validatePlanQuality } from '../shared/utils/plan-quality';
+import { validatePlanQuality } from '../shared/utils/plan-quality';
 import { detectRepoConventions } from '../shared/utils/detect-repo-conventions';
 import { detectPriorPlans, correlatePlans } from '../shared/utils/detect-prior-plans';
 import { detectCrossRepoPatterns } from '../shared/utils/detect-cross-repo-patterns';
@@ -311,6 +311,7 @@ export class IssuePlanCommand extends CommandRunner {
 
       if (options?.customPlan) return this.executeCustomPlan(options);
 
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       await this.executeTicketPlan(options!.ticketKey!, options!);
     } });
   }
@@ -337,6 +338,7 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   private async executeCustomPlan(options: IssuePlanOptions): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     if (!options.customPlan!.toLowerCase().endsWith('.md')) {
       throw new ValidationError('--custom-plan only accepts Markdown (.md) sources');
     }
@@ -364,12 +366,14 @@ export class IssuePlanCommand extends CommandRunner {
   private resolveCustomPlanContext(options: IssuePlanOptions) {
     const baseDir = resolveRepoBasePath(options?.repos?.[0]);
     const format = this.resolvePlanFormat(options);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const stem = path.basename(options.customPlan!, '.md');
     const hash = hashPlanArtifactSources([stem]);
     const artifactDir = resolveCustomArtifactDir(baseDir);
     const extension = getPlanArtifactExtension(format);
     const planFilename = buildPlanArtifactFilename({ hash, action: options.action, format: extension });
     const planPath = path.join(artifactDir, planFilename);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const sourcePath = resolveCustomSourcePath(options.customPlan!, baseDir, options?.repos);
     return { baseDir, format, stem, hash, artifactDir, planFilename, planPath, sourcePath };
   }
@@ -469,6 +473,7 @@ export class IssuePlanCommand extends CommandRunner {
     const priorPlans = detectPriorPlans(path.basename(baseDir));
     const planCorrelation = correlatePlans(content, priorPlans, baseDir);
     const crossRepoPatterns = (options?.repos?.length ?? 0) > 1
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       ? detectCrossRepoPatterns(baseDir, options.repos!.slice(1).map(r => resolveRepoBasePath(r)))
       : undefined;
     return { conventions, priorPlans, planCorrelation, crossRepoPatterns };
@@ -624,23 +629,27 @@ export class IssuePlanCommand extends CommandRunner {
     if (!verification?.targeted?.length && !verification?.waivers?.length) return '';
     let md = '## Verification\n\n';
     if (verification.targeted?.length) {
-      md += '### Targeted Checks\n\n';
-      for (const check of verification.targeted) {
-        const parts = [
-          '- `' + check.id + '`',
-          check.policy ? 'policy: `' + check.policy + '`' : '',
-          check.run ? 'run: `' + check.run + '`' : '',
-          check.reason ? 'reason: ' + check.reason : '',
-        ].filter(Boolean);
-        md += parts.join(' | ') + '\n';
-      }
-      md += '\n';
+      md += this.formatTargetedChecks(verification.targeted);
     }
     if (verification.waivers?.length) {
       md += '### Waivers\n\n';
       md += verification.waivers.map(w => '- `' + w.id + '` — ' + w.reason).join('\n') + '\n\n';
     }
     return md;
+  }
+
+  private formatTargetedChecks(checks: NonNullable<z.infer<typeof planVerificationConfigSchema>['targeted']>): string {
+    let md = '### Targeted Checks\n\n';
+    for (const check of checks) {
+      const parts = [
+        '- `' + check.id + '`',
+        check.policy ? 'policy: `' + check.policy + '`' : '',
+        check.run ? 'run: `' + check.run + '`' : '',
+        check.reason ? 'reason: ' + check.reason : '',
+      ].filter(Boolean);
+      md += parts.join(' | ') + '\n';
+    }
+    return md + '\n';
   }
 
   /**
@@ -810,23 +819,31 @@ export class IssuePlanCommand extends CommandRunner {
 
   private verifyFileStatuses(affected: any[], context: any[], selectedRepoDir: string): void {
     const repoBaseDir = path.dirname(selectedRepoDir);
-    for (const entry of [...affected, ...context]) {
-      const [repoPrefix, ...rest] = entry.filePath.split('/');
-      const fullPath = path.join(repoBaseDir, repoPrefix, ...rest);
-      const exists = fs.existsSync(fullPath);
-      if (exists && entry.status === 'to-create') {
-        console.log(chalk.yellow(`  ⚠️ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`));
-        entry.status = 'found';
-      }
-      if (!exists && entry.status === 'found') {
-        console.log(chalk.yellow(`  ⚠️ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`));
-        entry.status = 'not-found';
-      }
-    }
     const all = [...affected, ...context];
-    const notFound = all.filter(e => e.status === 'not-found').length;
-    if (all.length > 0 && notFound / all.length > 0.5) {
-      console.log(chalk.yellow(`  ⚠️ More than 50% of file entries are unresolvable (${notFound}/${all.length}) — the plan may contain hallucinated paths.`));
+    for (const entry of all) {
+      this.correctFileStatus(entry, repoBaseDir);
+    }
+    this.warnIfManyUnresolvable(all);
+  }
+
+  private correctFileStatus(entry: any, repoBaseDir: string): void {
+    const [repoPrefix, ...rest] = entry.filePath.split('/');
+    const fullPath = path.join(repoBaseDir, repoPrefix, ...rest);
+    const exists = fs.existsSync(fullPath);
+    if (exists && entry.status === 'to-create') {
+      console.log(chalk.yellow(`  ⚠️ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`));
+      entry.status = 'found';
+    }
+    if (!exists && entry.status === 'found') {
+      console.log(chalk.yellow(`  ⚠️ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`));
+      entry.status = 'not-found';
+    }
+  }
+
+  private warnIfManyUnresolvable(entries: any[]): void {
+    const notFound = entries.filter(e => e.status === 'not-found').length;
+    if (entries.length > 0 && notFound / entries.length > 0.5) {
+      console.log(chalk.yellow(`  ⚠️ More than 50% of file entries are unresolvable (${notFound}/${entries.length}) — the plan may contain hallucinated paths.`));
     }
   }
 
@@ -908,6 +925,11 @@ export class IssuePlanCommand extends CommandRunner {
 
   private validatePlanQualityRules(plan: RepoAwarePlan, repos: string[], testInfra?: TestInfraContext): void {
     const violations = validatePlanQuality({ plan: plan as any, affectedRepositories: repos, testInfra });
-    if (violations.length > 0) throw createPlanQualityError(violations);
+    if (violations.length === 0) return;
+
+    const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);
+    console.log(chalk.yellow(`  ⚠️ Plan quality violations:\n${formatted.map(v => `    • ${v}`).join('\n')}`));
+    const existingRisks = (plan as RepoAwarePlan & { risks?: string[] }).risks ?? [];
+    (plan as RepoAwarePlan & { risks?: string[] }).risks = [...existingRisks, ...formatted.map(v => `[plan-quality] ${v}`)];
   }
 }

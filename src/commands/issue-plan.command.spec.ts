@@ -751,7 +751,7 @@ describe('IssuePlanCommand', () => {
 
   it('rejects rename steps that omit the replacement target', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
     fetchStageService.fetchArtifact.mockResolvedValue({
@@ -774,17 +774,22 @@ describe('IssuePlanCommand', () => {
 
     await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
-    expect(writeFileSpy).not.toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('rename-target-required');
+    expect(writeFileSpy).toHaveBeenCalled();
+    expect(exitSpy).not.toHaveBeenCalledWith(1);
+    expect(consoleLogSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('rename-target-required');
 
-    consoleErrorSpy.mockRestore();
+    const savedPlanContent = writeFileSpy.mock.calls[0][1] as string;
+    const savedPlan = JSON.parse(savedPlanContent);
+    expect(savedPlan.risks).toBeDefined();
+    expect(savedPlan.risks.some((r: string) => /\[plan-quality\].*rename-target-required/.test(r))).toBe(true);
+
+    consoleLogSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
   it('rejects targeted verification commands outside the detected allowlist', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
     fetchStageService.fetchArtifact.mockResolvedValue({
@@ -816,17 +821,22 @@ describe('IssuePlanCommand', () => {
 
     await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
-    expect(writeFileSpy).not.toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('verification-allowlist');
+    expect(writeFileSpy).toHaveBeenCalled();
+    expect(exitSpy).not.toHaveBeenCalledWith(1);
+    expect(consoleLogSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('verification-allowlist');
 
-    consoleErrorSpy.mockRestore();
+    const savedPlanContent = writeFileSpy.mock.calls[0][1] as string;
+    const savedPlan = JSON.parse(savedPlanContent);
+    expect(savedPlan.risks).toBeDefined();
+    expect(savedPlan.risks.some((r: string) => /\[plan-quality\].*verification-allowlist/.test(r))).toBe(true);
+
+    consoleLogSpy.mockRestore();
     exitSpy.mockRestore();
   });
 
   it('rejects test guidance that conflicts with detected repo conventions', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
     const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-quality-'));
     const repoPath = path.join(repoDir, 'repo-a');
@@ -862,11 +872,16 @@ describe('IssuePlanCommand', () => {
 
     await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
 
-    expect(writeFileSpy).not.toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('mock-cleanup-convention');
+    expect(writeFileSpy).toHaveBeenCalled();
+    expect(exitSpy).not.toHaveBeenCalledWith(1);
+    expect(consoleLogSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('mock-cleanup-convention');
 
-    consoleErrorSpy.mockRestore();
+    const savedPlanContent = writeFileSpy.mock.calls[0][1] as string;
+    const savedPlan = JSON.parse(savedPlanContent);
+    expect(savedPlan.risks).toBeDefined();
+    expect(savedPlan.risks.some((r: string) => /\[plan-quality\].*mock-cleanup-convention/.test(r))).toBe(true);
+
+    consoleLogSpy.mockRestore();
     exitSpy.mockRestore();
   });
 

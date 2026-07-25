@@ -8,7 +8,7 @@
  *   2. Placeholder repository metadata is rejected before artifact write
  *   3. Expected-failure verification commands must be wrapped so success exits 0
  *   4. Retry feedback markers are wired into prompt-building code paths
- *   5. Persisted plans must satisfy semantic quality gates
+ *   5. Plan quality violations are downgraded to risks, not rejected
  */
 
 import { Test } from '@nestjs/testing';
@@ -391,7 +391,7 @@ const main = async (): Promise<void> => {
     }
   }
 
-  console.log('\n🧪 Test 5: semantic plan quality gates control artifact writes\n');
+  console.log('\n🧪 Test 5: plan quality violations are downgraded to risks\n');
   {
     const { command, fetchArtifact, generatePlan } = await buildCommand();
 
@@ -465,38 +465,53 @@ const main = async (): Promise<void> => {
       },
     } as never);
 
-    let invalidArtifactWriteCallCount = -1;
-    let invalidManifestWriteCallCount = -1;
-    const { output, exitCodes } = await captureCommandOutput(async () => {
-      const writes = await captureArtifactWrites(() =>
-        command.run([], {
-          ticketKey: 'PLAN-5',
-          action: 'fix',
-          repos: [repoName],
-        })
-      );
-      invalidArtifactWriteCallCount = writes.artifactWriteCallCount;
-      invalidManifestWriteCallCount = writes.manifestWriteCallCount;
+    let invalidWritePayload = '';
+    let invalidArtifactWriteCallCount = 0;
+    let invalidManifestWriteCallCount = 0;
+    const originalWriteFile2 = fs.promises.writeFile;
+    const originalWriteManifest2 = mutablePlanArtifactUtils.writePlanArtifactManifest;
+    fs.promises.writeFile = (async (_filePath: fs.PathLike, data: string | NodeJS.ArrayBufferView) => {
+      invalidArtifactWriteCallCount += 1;
+      invalidWritePayload = typeof data === 'string' ? data : String(data);
+      return undefined;
+    }) as typeof fs.promises.writeFile;
+    mutablePlanArtifactUtils.writePlanArtifactManifest = ((..._args: unknown[]) => {
+      invalidManifestWriteCallCount += 1;
+      return '/tmp/mock-plan-manifest.json';
+    }) as typeof planArtifactUtils.writePlanArtifactManifest;
+
+    const { output } = await captureCommandOutput(async () => {
+      await command.run([], {
+        ticketKey: 'PLAN-5',
+        action: 'fix',
+        repos: [repoName],
+      });
     });
+
+    fs.promises.writeFile = originalWriteFile2;
+    mutablePlanArtifactUtils.writePlanArtifactManifest = originalWriteManifest2;
+
+    const invalidPlanHasRisks = invalidWritePayload.includes('[plan-quality]')
+      && invalidWritePayload.includes('rename-target-required');
 
     if (
       validPlanSaved
-      && invalidArtifactWriteCallCount === 0
-      && invalidManifestWriteCallCount === 0
-      && exitCodes.includes(1)
-      && output.includes('Generated plan failed quality checks')
+      && invalidArtifactWriteCallCount === 1
+      && invalidManifestWriteCallCount === 1
+      && output.includes('Plan quality violations')
       && output.includes('rename-target-required')
+      && invalidPlanHasRisks
     ) {
-      pass('Only semantically valid plans are persisted; invalid plans are rejected before artifact write');
+      pass('Valid plans are persisted; violating plans are saved with violations downgraded to risks');
     } else {
       fail(
-        'Semantic plan quality gates did not control artifact writes as expected',
+        'Semantic plan quality gates did not downgrade violations to risks as expected',
         JSON.stringify({
           validPlanSaved,
           output,
-          exitCodes,
           invalidArtifactWriteCallCount,
           invalidManifestWriteCallCount,
+          invalidPlanHasRisks,
         })
       );
     }
