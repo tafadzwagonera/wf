@@ -1105,6 +1105,7 @@ export class IssueCommand extends CommandRunner {
       action, skipExisting: ctx.skipExisting,
       affectedRepositories: ctx.options?.repos ?? [path.basename(ctx.repoBaseDir)],
       silent: ctx.options?.silent,
+      sourceKind: ctx.customSourcePath ? 'custom' : 'ticket',
     });
     if (ctx.options?.silent) console.log(planArtifact.path);
     return planArtifact;

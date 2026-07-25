@@ -471,6 +471,34 @@ describe('PlanStageService', () => {
     });
   });
 
+  it('writes manifest with sourceKind custom when sourceKind option is custom', async () => {
+    const { service } = await buildService();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-'));
+    const ticketPath = path.join(tempDir, 'my-custom-plan.md');
+    fs.writeFileSync(ticketPath, '# Custom plan content');
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-16T00:00:00.000Z'));
+
+    const artifact = await service.createPlanArtifact(
+      {
+        ticketKey: 'my-custom-plan',
+        content: '# Custom plan content',
+        path: ticketPath,
+      },
+      {
+        action: 'fix',
+        affectedRepositories: ['repo-a'],
+        sourceKind: 'custom',
+      }
+    );
+    jest.useRealTimers();
+
+    const manifestPath = buildPlanArtifactManifestPath(artifact.path);
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    expect(manifest.sourceKind).toBe('custom');
+    expect(manifest.customArtifactName).toBe('my-custom-plan');
+    expect(manifest.ticketKey).toBeUndefined();
+  });
+
   describe('action mismatch handling', () => {
     const mockInquirer = require('inquirer').default as { prompt: jest.Mock };
 

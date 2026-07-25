@@ -44,6 +44,7 @@ export interface PlannerOptions {
   skipExisting?: boolean;
   affectedRepositories?: string[];
   silent?: boolean;
+  sourceKind?: 'ticket' | 'custom';
   onProgress?: (line: string) => void;
 }
 

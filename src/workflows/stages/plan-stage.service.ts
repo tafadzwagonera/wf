@@ -225,7 +225,7 @@ export class PlanStageService {
 
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
     writePlanArtifactManifest(
-      buildPlanArtifactManifest(planPath, options.action, 'json', planHash, sourceName, 'ticket', createdAt)
+      buildPlanArtifactManifest(planPath, options.action, 'json', planHash, sourceName, options.sourceKind ?? 'ticket', createdAt)
     );
     this.deleteStalePlanArtifacts(artifactDir, planHash, options.action, planPath);
     return { plan, action: options.action, path: planPath, fromCache: false, sessionId };
