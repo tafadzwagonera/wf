@@ -643,6 +643,7 @@ describe('PlanStageService', () => {
         fs.rmSync(dir, { recursive: true, force: true });
       }
       tempDirs.length = 0;
+      jest.restoreAllMocks();
     });
 
     const createTempDir = () => {
@@ -651,7 +652,7 @@ describe('PlanStageService', () => {
       return dir;
     };
 
-    it('createPlanArtifact throws ValidationError on cached plan with rename steps missing targets', async () => {
+    it('createPlanArtifact downgrades violations to risks on cached plan with rename steps missing targets', async () => {
       const { service } = await buildService();
       const tempDir = createTempDir();
       const ticketPath = path.join(tempDir, 'WBP-QUALITY.md');
@@ -684,22 +685,17 @@ describe('PlanStageService', () => {
       );
       writePlanArtifactManifest(manifest);
 
-      await expect(
-        service.createPlanArtifact(
-          { ticketKey: 'WBP-QUALITY', content: '# WBP-QUALITY: Test', path: ticketPath },
-          { action: 'fix', skipExisting: true }
-        )
-      ).rejects.toThrow(ValidationError);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+      const result = await service.createPlanArtifact(
+        { ticketKey: 'WBP-QUALITY', content: '# WBP-QUALITY: Test', path: ticketPath },
+        { action: 'fix', skipExisting: true }
+      );
 
-      await expect(
-        service.createPlanArtifact(
-          { ticketKey: 'WBP-QUALITY', content: '# WBP-QUALITY: Test', path: ticketPath },
-          { action: 'fix', skipExisting: true }
-        )
-      ).rejects.toThrow(/rename-target-required/);
+      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.stringMatching(/\[plan-quality\].*rename-target-required/)]));
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('rename-target-required'));
     });
 
-    it('createPlanArtifact throws ValidationError on cached plan with disallowed verification commands', async () => {
+    it('createPlanArtifact downgrades violations to risks on cached plan with disallowed verification commands', async () => {
       const { service } = await buildService();
       const tempDir = createTempDir();
       const ticketPath = path.join(tempDir, 'WBP-QUALITY-2.md');
@@ -740,22 +736,17 @@ describe('PlanStageService', () => {
       );
       writePlanArtifactManifest(manifest);
 
-      await expect(
-        service.createPlanArtifact(
-          { ticketKey: 'WBP-QUALITY-2', content: '# WBP-QUALITY-2: Test', path: ticketPath },
-          { action: 'fix', skipExisting: true }
-        )
-      ).rejects.toThrow(ValidationError);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+      const result = await service.createPlanArtifact(
+        { ticketKey: 'WBP-QUALITY-2', content: '# WBP-QUALITY-2: Test', path: ticketPath },
+        { action: 'fix', skipExisting: true }
+      );
 
-      await expect(
-        service.createPlanArtifact(
-          { ticketKey: 'WBP-QUALITY-2', content: '# WBP-QUALITY-2: Test', path: ticketPath },
-          { action: 'fix', skipExisting: true }
-        )
-      ).rejects.toThrow(/verification-allowlist/);
+      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.stringMatching(/\[plan-quality\].*verification-allowlist/)]));
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('verification-allowlist'));
     });
 
-    it('loadPlanArtifact throws ValidationError on loaded plan with rename steps missing targets', async () => {
+    it('loadPlanArtifact downgrades violations to risks on loaded plan with rename steps missing targets', async () => {
       const { service } = await buildService();
       const tempDir = createTempDir();
       const ticketPath = path.join(tempDir, 'WBP-QUALITY-3.md');
@@ -788,11 +779,14 @@ describe('PlanStageService', () => {
       );
       writePlanArtifactManifest(manifest);
 
-      await expect(service.loadPlanArtifact(ticketPath)).rejects.toThrow(ValidationError);
-      await expect(service.loadPlanArtifact(ticketPath)).rejects.toThrow(/rename-target-required/);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+      const result = await service.loadPlanArtifact(ticketPath);
+
+      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.stringMatching(/\[plan-quality\].*rename-target-required/)]));
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('rename-target-required'));
     });
 
-    it('loadPlanArtifact throws ValidationError on loaded plan with disallowed verification commands', async () => {
+    it('loadPlanArtifact downgrades violations to risks on loaded plan with disallowed verification commands', async () => {
       const { service } = await buildService();
       const tempDir = createTempDir();
       const ticketPath = path.join(tempDir, 'WBP-QUALITY-4.md');
@@ -833,8 +827,11 @@ describe('PlanStageService', () => {
       );
       writePlanArtifactManifest(manifest);
 
-      await expect(service.loadPlanArtifact(ticketPath)).rejects.toThrow(ValidationError);
-      await expect(service.loadPlanArtifact(ticketPath)).rejects.toThrow(/verification-allowlist/);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+      const result = await service.loadPlanArtifact(ticketPath);
+
+      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.stringMatching(/\[plan-quality\].*verification-allowlist/)]));
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('verification-allowlist'));
     });
 
     it('createPlanArtifact returns cached plan when quality checks pass', async () => {

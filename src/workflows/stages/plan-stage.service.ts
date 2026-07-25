@@ -16,7 +16,7 @@ import {
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
 import { AIError, isAIErrorLike, ValidationError } from '../../shared/utils/errors';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
-import { createPlanQualityError, validatePlanQuality } from '../../shared/utils/plan-quality';
+import { validatePlanQuality } from '../../shared/utils/plan-quality';
 import type { RepoConventionsContext } from '../../shared/utils/detect-repo-conventions';
 import type { PriorPlanContext, PlanCorrelationResult } from '../../shared/utils/detect-prior-plans';
 import type { CrossRepoContext } from '../../shared/utils/detect-cross-repo-patterns';
@@ -199,6 +199,7 @@ export class PlanStageService {
 
         // User chose the requested action — fall through to regeneration below.
       } catch (error) {
+        // Re-throw any ValidationError from resolveActionMismatch (validateLoadedPlan no longer throws).
         if (error instanceof ValidationError) throw error;
         // No existing plan artifact could be resolved; fall through to generation.
       }
@@ -275,10 +276,10 @@ export class PlanStageService {
 
   /**
    * Validate a plan loaded from disk against quality rules.
+   * Violations are downgraded to plan.risks[] with a warning log.
    *
    * @param plan - The parsed plan from disk
    * @param repoDir - Repository directory for test infrastructure detection
-   * @throws ValidationError when the plan contains quality violations
    */
   private validateLoadedPlan(plan: ResolutionPlan, repoDir?: string): void {
     const testInfra = detectTestInfra(repoDir ?? process.cwd());
@@ -288,9 +289,13 @@ export class PlanStageService {
       testInfra,
     });
 
-    if (violations.length > 0) {
-      throw createPlanQualityError(violations);
-    }
+    if (violations.length === 0) return;
+
+    const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);
+    const bullets = formatted.map(v => '    • ' + v).join('\n');
+    console.log(chalk.yellow('  ⚠️ Plan quality violations (loaded plan):\n' + bullets));
+    const existingRisks = plan.risks ?? [];
+    plan.risks = [...existingRisks, ...formatted.map(v => `[plan-quality] ${v}`)];
   }
 
   /**
