@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { discoverWfConfigPath, loadTypeScriptConfig, loadWfConfig, normalizeWfConfig } from './wf-config-loader';
+import { ValidationError } from '../shared/utils/errors';
 
 describe('wf-config-loader', () => {
   const tempRoots: string[] = [];
@@ -937,6 +938,37 @@ describe('wf-config-loader', () => {
         model: 'gpt-5.4',
         backend: 'agent',
       });
+    });
+
+    it('wraps SyntaxError from CJS config evaluation with file path context', async () => {
+      const projectRoot = createProjectRoot();
+
+      fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ type: 'module' }, null, 2));
+      fs.writeFileSync(
+        path.join(projectRoot, 'wf.config.js'),
+        'module.exports = { ai: [{ provider: : }] };\n'
+      );
+
+      const error = await loadWfConfig({ cwd: projectRoot }).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as ValidationError).message).toMatch(/Failed to evaluate config file.*wf\.config\.js/);
+    });
+
+    // Jest runs in CJS mode so import() fails and falls back to the VM evaluation path.
+    it('wraps ReferenceError from ESM-fallback config evaluation with file path context', async () => {
+      const projectRoot = createProjectRoot();
+
+      fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ type: 'module' }, null, 2));
+      fs.writeFileSync(
+        path.join(projectRoot, 'wf.config.js'),
+        'export default { ai: undeclaredVariable };\n'
+      );
+
+      const error = await loadWfConfig({ cwd: projectRoot }).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as ValidationError).message).toMatch(/Failed to evaluate config file/);
     });
 
     it('defaults git.branchNamePattern to the Atlassian regex', () => {

@@ -350,6 +350,7 @@ const detectNearestPackageType = (filePath: string): 'module' | 'commonjs' | nul
 
 const hasCommonJsExportSyntax = (sourceText: string): boolean => /\bmodule\.exports\b|\bexports\./.test(sourceText);
 
+// eslint-disable-next-line max-lines-per-function
 const evaluateConfigScript = (filePath: string, sourceText: string): unknown => {
   const requireFromConfig = createRequire(filePath);
   const module = { exports: {} as unknown };
@@ -361,7 +362,18 @@ const evaluateConfigScript = (filePath: string, sourceText: string): unknown => 
     __dirname: path.dirname(filePath),
   });
 
-  new vm.Script(sourceText, { filename: filePath }).runInContext(context);
+  try {
+    new vm.Script(sourceText, { filename: filePath }).runInContext(context);
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      throw error;
+    }
+
+    const originalMessage = error instanceof Error ? error.message : String(error);
+    throw new ValidationError(
+      `Failed to evaluate config file "${filePath}": ${originalMessage}`
+    );
+  }
 
   return module.exports;
 };
@@ -649,6 +661,7 @@ const normalizeStageTarget = ({
  * resolveModelConfig falls through to the hardcoded mechanical default for auto-routing.
  * When models is present, always strips the injected model to prevent conflicts.
  */
+// eslint-disable-next-line max-lines-per-function
 const normalizeImplementStageConfig = (
   implementStageConfig: WfImplementStageConfig | undefined,
   implementTarget: NormalizedAiStageTargetConfig | undefined
