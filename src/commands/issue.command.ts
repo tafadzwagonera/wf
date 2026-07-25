@@ -518,7 +518,9 @@ export class IssueCommand extends CommandRunner {
     const needsPlan = ctx.stagesToRun.some(s => planConsumers.has(s));
     if (planArtifact || !needsPlan) return { planArtifact, sessionState };
 
-    const loaded = await this.agents.planner.loadFromDisk(ticketArtifact.path, action, ctx.options?.silent);
+    const loaded = await this.agents.planner.loadFromDisk(
+      ticketArtifact.path, action, ctx.options?.silent, ctx.repoBaseDir
+    );
     sessionState = await this.promptAndRecordSkippedPlanSession(loaded, sessionState);
     return { planArtifact: loaded, sessionState };
   }
@@ -1104,6 +1106,7 @@ export class IssueCommand extends CommandRunner {
     const planArtifact = await this.agents.planner.execute(ticketArtifact, {
       action, skipExisting: ctx.skipExisting,
       affectedRepositories: ctx.options?.repos ?? [path.basename(ctx.repoBaseDir)],
+      repoDir: ctx.repoBaseDir,
       silent: ctx.options?.silent,
       sourceKind: ctx.customSourcePath ? 'custom' : 'ticket',
     });

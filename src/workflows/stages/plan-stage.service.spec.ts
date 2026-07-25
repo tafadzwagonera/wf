@@ -960,5 +960,79 @@ describe('PlanStageService', () => {
       expect(artifact.fromCache).toBe(true);
       expect(artifact.plan.action).toBe('fix');
     });
+
+    it('calls detectTestInfra with the provided repoDir instead of the artifact directory', async () => {
+      const { service } = await buildService();
+      const tempDir = createTempDir();
+      const repoDir = createTempDir();
+      const ticketPath = path.join(tempDir, 'WBP-QUALITY-CWD.md');
+      fs.writeFileSync(ticketPath, '# WBP-QUALITY-CWD: Test');
+
+      const hash = hashPlanArtifactSources(['WBP-QUALITY-CWD']);
+      const createdAt = new Date('2026-04-16T00:00:00.000Z');
+      const planFilename = buildPlanArtifactFilename({
+        createdAt, hash, action: 'fix', format: 'json',
+      });
+      const planPath = path.join(tempDir, planFilename);
+      fs.writeFileSync(planPath, JSON.stringify({ ...mockPlan, action: 'fix' }, null, 2));
+      const manifest = buildPlanArtifactManifest(
+        planPath, 'fix', 'json', hash, 'WBP-QUALITY-CWD', 'ticket', createdAt
+      );
+      writePlanArtifactManifest(manifest);
+
+      jest.spyOn(console, 'log').mockImplementation();
+      await service.loadPlanArtifact(ticketPath, undefined, repoDir);
+
+      expect(mockDetectTestInfra).toHaveBeenCalledWith(repoDir);
+    });
+
+    it('falls back to process.cwd() when repoDir is omitted', async () => {
+      const { service } = await buildService();
+      const tempDir = createTempDir();
+      const ticketPath = path.join(tempDir, 'WBP-QUALITY-FALLBACK.md');
+      fs.writeFileSync(ticketPath, '# WBP-QUALITY-FALLBACK: Test');
+
+      const hash = hashPlanArtifactSources(['WBP-QUALITY-FALLBACK']);
+      const createdAt = new Date('2026-04-16T00:00:00.000Z');
+      const planFilename = buildPlanArtifactFilename({
+        createdAt, hash, action: 'fix', format: 'json',
+      });
+      const planPath = path.join(tempDir, planFilename);
+      fs.writeFileSync(planPath, JSON.stringify({ ...mockPlan, action: 'fix' }, null, 2));
+      const manifest = buildPlanArtifactManifest(
+        planPath, 'fix', 'json', hash, 'WBP-QUALITY-FALLBACK', 'ticket', createdAt
+      );
+      writePlanArtifactManifest(manifest);
+
+      jest.spyOn(console, 'log').mockImplementation();
+      await service.loadPlanArtifact(ticketPath);
+
+      expect(mockDetectTestInfra).toHaveBeenCalledWith(process.cwd());
+    });
+
+    it('throws ValidationError when repoDir does not exist on disk', async () => {
+      const { service } = await buildService();
+      const tempDir = createTempDir();
+      const ticketPath = path.join(tempDir, 'WBP-QUALITY-BAD.md');
+      fs.writeFileSync(ticketPath, '# WBP-QUALITY-BAD: Test');
+
+      const hash = hashPlanArtifactSources(['WBP-QUALITY-BAD']);
+      const createdAt = new Date('2026-04-16T00:00:00.000Z');
+      const planFilename = buildPlanArtifactFilename({
+        createdAt, hash, action: 'fix', format: 'json',
+      });
+      const planPath = path.join(tempDir, planFilename);
+      fs.writeFileSync(planPath, JSON.stringify({ ...mockPlan, action: 'fix' }, null, 2));
+      const manifest = buildPlanArtifactManifest(
+        planPath, 'fix', 'json', hash, 'WBP-QUALITY-BAD', 'ticket', createdAt
+      );
+      writePlanArtifactManifest(manifest);
+
+      const bogusDir = path.join(os.tmpdir(), 'wf-nonexistent-' + Date.now());
+      await expect(service.loadPlanArtifact(ticketPath, undefined, bogusDir))
+        .rejects.toThrow(ValidationError);
+      await expect(service.loadPlanArtifact(ticketPath, undefined, bogusDir))
+        .rejects.toThrow(/not a valid directory/);
+    });
   });
 });

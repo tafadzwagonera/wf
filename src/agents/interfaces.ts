@@ -43,6 +43,7 @@ export interface PlannerOptions {
   action: ResolutionAction;
   skipExisting?: boolean;
   affectedRepositories?: string[];
+  repoDir?: string;
   silent?: boolean;
   sourceKind?: 'ticket' | 'custom';
   onProgress?: (line: string) => void;

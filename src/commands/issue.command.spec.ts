@@ -471,7 +471,7 @@ describe('IssueCommand', () => {
       path.join('/tmp/consumer-app', 'repo-a'),
       undefined,
     );
-    expect(mockOrchestrator.planner.loadFromDisk).toHaveBeenCalledWith(ticketPath, undefined, undefined);
+    expect(mockOrchestrator.planner.loadFromDisk).toHaveBeenCalledWith(ticketPath, undefined, undefined, path.join('/tmp/consumer-app', 'repo-a'));
     expect(mockOrchestrator.implementer.execute).toHaveBeenCalledWith(
       expect.objectContaining({ ticketKey: 'WBP-1' }),
       expect.objectContaining({ action: 'fix', path: planPath }),

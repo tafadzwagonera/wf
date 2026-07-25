@@ -184,7 +184,7 @@ export class PlanStageService {
         const plan = this.readPlan(existing.artifactPath);
 
         if (plan.action === options.action) {
-          this.validateLoadedPlan(plan, artifactDir);
+          this.validateLoadedPlan(plan, options.repoDir);
           return { plan, action: plan.action, path: existing.artifactPath, fromCache: true };
         }
 
@@ -193,7 +193,7 @@ export class PlanStageService {
         );
 
         if (resolvedAction === plan.action) {
-          this.validateLoadedPlan(plan, artifactDir);
+          this.validateLoadedPlan(plan, options.repoDir);
           return { plan, action: plan.action, path: existing.artifactPath, fromCache: true };
         }
 
@@ -232,7 +232,7 @@ export class PlanStageService {
   }
 
   // eslint-disable-next-line max-lines-per-function
-  async loadPlanArtifact(ticketPath: string, action?: ResolutionAction): Promise<PlanArtifact> {
+  async loadPlanArtifact(ticketPath: string, action?: ResolutionAction, repoDir?: string): Promise<PlanArtifact> {
     const artifactDir = path.dirname(ticketPath);
     const sourceName = path.basename(ticketPath, '.md');
     const resolved = resolvePlanArtifactReference(sourceName, {
@@ -244,14 +244,14 @@ export class PlanStageService {
     const filename = path.basename(resolved.artifactPath);
 
     if (!action || plan.action === action) {
-      this.validateLoadedPlan(plan, artifactDir);
+      this.validateLoadedPlan(plan, repoDir);
       return { plan, action: plan.action, path: resolved.artifactPath, fromCache: true };
     }
 
     const resolvedAction = await this.resolveActionMismatch(plan.action, action, filename);
 
     if (resolvedAction === plan.action) {
-      this.validateLoadedPlan(plan, artifactDir);
+      this.validateLoadedPlan(plan, repoDir);
       return { plan, action: plan.action, path: resolved.artifactPath, fromCache: true };
     }
 
@@ -279,10 +279,18 @@ export class PlanStageService {
    * Violations are downgraded to plan.risks[] with a warning log.
    *
    * @param plan - The parsed plan from disk
-   * @param repoDir - Repository directory for test infrastructure detection
+   * @param repoDir - Repository root for test infrastructure detection; falls back to process.cwd()
+   * @throws ValidationError when the resolved directory does not exist on disk
    */
   private validateLoadedPlan(plan: ResolutionPlan, repoDir?: string): void {
-    const testInfra = detectTestInfra(repoDir ?? process.cwd());
+    const resolvedDir = repoDir ?? process.cwd();
+    if (!fs.existsSync(resolvedDir) || !fs.statSync(resolvedDir).isDirectory()) {
+      throw new ValidationError(
+        `Plan validation failed: '${resolvedDir}' is not a valid directory. `
+        + `Pass --repos with a local repository path.`
+      );
+    }
+    const testInfra = detectTestInfra(resolvedDir);
     const violations = validatePlanQuality({
       plan,
       affectedRepositories: plan.affectedRepositories,
