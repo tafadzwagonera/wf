@@ -23,7 +23,7 @@ import chalk from 'chalk';
 import { ConfigService } from '@nestjs/config';
 import { normalizeWfConfig } from '../../src/config/wf-config-loader';
 import { resolveProviderModel, resolveModelRouting } from '../../src/integrations/ai/adapters/shared-routing';
-import type { ResolutionPlan } from '../../src/integrations/ai/ai.service';
+import type { ResolutionPlan } from '../../src/shared/types/ai.types';
 
 let passed = 0;
 let failed = 0;
