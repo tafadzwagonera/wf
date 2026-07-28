@@ -204,10 +204,10 @@ async function run(): Promise<void> {
     throw new Error('Expected State Transition output to include nested trace content.');
   }
 
-  console.log('✅ Manual smoke test passed: issue:review trace alignment');
+  console.log('✓ Manual smoke test passed: issue:review trace alignment');
 }
 
 run().catch(error => {
-  console.error(`❌ Manual smoke test failed: ${error.message}`);
+  console.error(`✗ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

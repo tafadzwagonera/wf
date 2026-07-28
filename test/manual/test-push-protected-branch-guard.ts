@@ -17,10 +17,10 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { GitService } from '../../src/integrations/git/git.service';
 import { GitError } from '../../src/shared/errors/app.error';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 
 let passed = 0;
 let failed = 0;
@@ -30,11 +30,33 @@ const pass = (msg: string) => {
   passed++;
 };
 const fail = (msg: string, detail?: string) => {
-  console.error(`  \u2717 ${msg}${detail ? `\n    -> ${detail}` : ''}`);
+  const suffix = detail ? `\n    -> ${detail}` : '';
+  console.error(`  \u2717 ${msg}${suffix}`);
   failed++;
 };
 
-async function main() {
+async function assertPushRefused(
+  gitService: GitService,
+  branch: string,
+  label: string
+): Promise<void> {
+  try {
+    await gitService.push('origin', branch);
+    fail(label, `Expected GitError but push() resolved for branch '${branch}'`);
+  } catch (err) {
+    const isGuardError
+      = err instanceof GitError
+        && err.message.includes('Refusing to push directly to protected branch');
+    if (isGuardError) {
+      pass(label);
+      return;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    fail(label, `Wrong error type or message: ${msg}`);
+  }
+}
+
+(async () => {
   let tmpDir: string | undefined;
   let bareDir: string | undefined;
   const origCwd = process.cwd();
@@ -43,7 +65,7 @@ async function main() {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-push-guard-'));
     bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-push-guard-bare-'));
 
-    const git = (cmd: string, cwd: string = tmpDir!) =>
+    const git = (cmd: string, cwd: string = tmpDir ?? '') =>
       execSync(`git ${cmd}`, { cwd, stdio: 'pipe', encoding: 'utf-8' });
 
     git('init --bare', bareDir);
@@ -61,7 +83,6 @@ async function main() {
     git('commit -m "feature work"');
     git('checkout main');
 
-    // chdir so simpleGit() inside GitService picks up the temp repo
     process.chdir(tmpDir);
 
     const app = await NestFactory.createApplicationContext(AppModule, {
@@ -89,6 +110,18 @@ async function main() {
     }
 
     await app.close();
+
+    console.log('\n' + '\u2501'.repeat(60));
+    console.log(`Results: ${passed} passed   ${failed} failed`);
+    if (failed === 0) {
+      console.log('All tests passed!');
+    }
+    console.log('\u2501'.repeat(60));
+
+    if (failed > 0) process.exit(1);
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
   } finally {
     process.chdir(origCwd);
     if (tmpDir && fs.existsSync(tmpDir)) {
@@ -98,39 +131,4 @@ async function main() {
       fs.rmSync(bareDir, { recursive: true, force: true });
     }
   }
-
-  console.log('\n' + '\u2501'.repeat(60));
-  console.log(`Results: ${passed} passed   ${failed} failed`);
-  if (failed === 0) {
-    console.log('All tests passed!');
-  }
-  console.log('\u2501'.repeat(60));
-
-  if (failed > 0) process.exit(1);
-}
-
-async function assertPushRefused(
-  gitService: GitService,
-  branch: string,
-  label: string
-): Promise<void> {
-  try {
-    await gitService.push('origin', branch);
-    fail(label, `Expected GitError but push() resolved for branch '${branch}'`);
-  } catch (err) {
-    const isGuardError
-      = err instanceof GitError
-        && err.message.includes('Refusing to push directly to protected branch');
-    if (isGuardError) {
-      pass(label);
-    } else {
-      const msg = err instanceof Error ? err.message : String(err);
-      fail(label, `Wrong error type or message: ${msg}`);
-    }
-  }
-}
-
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+})();

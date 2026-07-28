@@ -4,7 +4,7 @@
 
 import axios from 'axios';
 
-async function testAuth() {
+void (async () => {
   const JIRA_BASE_URL = 'https://touraxis.atlassian.net';
   const JIRA_EMAIL = 'tafadzwa.gonera@touraxis.com';
   const JIRA_API_TOKEN
@@ -13,7 +13,6 @@ async function testAuth() {
   console.log('Testing Jira API Authentication...\n');
 
   try {
-    // Test 1: Get current user
     console.log('Test 1: Get current user');
     const userResponse = await axios.get(`${JIRA_BASE_URL}/rest/api/3/myself`, {
       auth: {
@@ -30,7 +29,6 @@ async function testAuth() {
     console.log('Email:', userResponse.data.emailAddress);
     console.log();
 
-    // Test 2: Search for recent issues
     console.log('Test 2: Search for recent WBP issues');
     const searchResponse = await axios.post(
       `${JIRA_BASE_URL}/rest/api/3/search`,
@@ -53,9 +51,9 @@ async function testAuth() {
 
     console.log(`✓ Found ${searchResponse.data.total} issues`);
     console.log('\nRecent issues:');
-    searchResponse.data.issues.forEach((issue: any) => {
+    for (const issue of searchResponse.data.issues) {
       console.log(`  - ${issue.key}: ${issue.fields.summary}`);
-    });
+    }
     console.log();
   } catch (error: any) {
     console.error('✗ Error:', error.message);
@@ -64,6 +62,4 @@ async function testAuth() {
       console.error('Data:', JSON.stringify(error.response.data, null, 2));
     }
   }
-}
-
-testAuth();
+})();

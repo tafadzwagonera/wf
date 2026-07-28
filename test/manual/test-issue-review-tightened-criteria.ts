@@ -89,7 +89,7 @@ async function run(): Promise<void> {
     }
   }
 
-  console.log('  ✅ Part 1: All 11 expected criteria are present');
+  console.log('  ✓ Part 1: All 11 expected criteria are present');
 
   // ── Part 2: Removed criteria are absent ──
 
@@ -101,7 +101,7 @@ async function run(): Promise<void> {
   }
 
   console.log(
-    '  ✅ Part 2: Removed criteria (Deletability, Simplicity, Proportionality, Quality, Structure) are absent'
+    '  ✓ Part 2: Removed criteria (Deletability, Simplicity, Proportionality, Quality, Structure) are absent'
   );
 
   // ── Part 3: Guidelines are alphabetically ordered ──
@@ -120,7 +120,7 @@ async function run(): Promise<void> {
     );
   }
 
-  console.log('  ✅ Part 3: Guidelines are alphabetically ordered');
+  console.log('  ✓ Part 3: Guidelines are alphabetically ordered');
 
   // ── Part 4: Second-order (Contracts) and third-order (Ripple effects) criteria have specific phrasing ──
 
@@ -134,7 +134,7 @@ async function run(): Promise<void> {
     throw new Error('Ripple effects criterion must mention "downstream consumers" for third-order thinking.');
   }
 
-  console.log('  ✅ Part 4: Second-order (Contracts) and third-order (Ripple effects) phrasing verified');
+  console.log('  ✓ Part 4: Second-order (Contracts) and third-order (Ripple effects) phrasing verified');
 
   // ── Part 5: replaceCriteria bypasses defaults entirely ──
 
@@ -192,12 +192,12 @@ async function run(): Promise<void> {
     throw new Error('replaceCriteria=true should include the custom criterion.');
   }
 
-  console.log('  ✅ Part 5: replaceCriteria bypasses defaults entirely');
+  console.log('  ✓ Part 5: replaceCriteria bypasses defaults entirely');
 
-  console.log('\n✅ Manual smoke test passed: tightened review criteria + second/third-order thinking');
+  console.log('\n✓ Manual smoke test passed: tightened review criteria + second/third-order thinking');
 }
 
 run().catch(error => {
-  console.error(`❌ Manual smoke test failed: ${error.message}`);
+  console.error(`✗ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

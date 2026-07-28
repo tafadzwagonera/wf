@@ -58,7 +58,7 @@ async function run(): Promise<void> {
   assertNoEmbeddedNewlines(arrayResult, 'Test 1: array values must not contain embedded newlines');
   assertConsistentPrefix(arrayResult, '', 'Test 1: all lines must be plain single lines');
 
-  console.log('  ✅ Test 1 passed: array values have no embedded newlines\n');
+  console.log('  ✓ Test 1 passed: array values have no embedded newlines\n');
 
   // Test 2: Object values in changes section
   console.log('Test 2: changes section with object before/after');
@@ -84,7 +84,7 @@ async function run(): Promise<void> {
 
   assertNoEmbeddedNewlines(objectResult, 'Test 2: object values must not contain embedded newlines');
 
-  console.log('  ✅ Test 2 passed: object values have no embedded newlines\n');
+  console.log('  ✓ Test 2 passed: object values have no embedded newlines\n');
 
   // Test 3: Nested children with multiline values
   console.log('Test 3: nested children with multiline captured values');
@@ -116,12 +116,12 @@ async function run(): Promise<void> {
 
   assertNoEmbeddedNewlines(nestedResult, 'Test 3: nested multiline values must not contain embedded newlines');
 
-  console.log('  ✅ Test 3 passed: nested values have no embedded newlines\n');
+  console.log('  ✓ Test 3 passed: nested values have no embedded newlines\n');
 
-  console.log('✅ Manual smoke test passed: review-trace multiline value alignment');
+  console.log('✓ Manual smoke test passed: review-trace multiline value alignment');
 }
 
 run().catch(error => {
-  console.error(`❌ Manual smoke test failed: ${error.message}`);
+  console.error(`✗ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

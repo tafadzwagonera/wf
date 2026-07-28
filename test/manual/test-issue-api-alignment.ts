@@ -227,9 +227,9 @@ async function main() {
   // ── Summary ───────────────────────────────────────────────────────────────
 
   console.log(chalk.gray('─'.repeat(60)));
-  console.log(`Results: ${chalk.green(`✅ ${passed} passed`)}   ${chalk.red(`❌ ${failed} failed`)}`);
+  console.log(`Results: ${chalk.green(`✓ ${passed} passed`)}   ${chalk.red(`✗ ${failed} failed`)}`);
   if (failed === 0) {
-    console.log(chalk.bold.green('✅ All tests passed!\n'));
+    console.log(chalk.bold.green('✓ All tests passed!\n'));
   }
   console.log(chalk.gray('─'.repeat(60)));
 

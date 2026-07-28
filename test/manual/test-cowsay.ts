@@ -23,11 +23,11 @@ async function testCowsay() {
   let failed = 0;
 
   const pass = (msg: string) => {
-    console.log(`  ✅ PASS  ${msg}`);
+    console.log(`  ✓ PASS  ${msg}`);
     passed++;
   };
   const fail = (msg: string) => {
-    console.error(`  ❌ FAIL  ${msg}`);
+    console.error(`  ✗ FAIL  ${msg}`);
     failed++;
   };
 

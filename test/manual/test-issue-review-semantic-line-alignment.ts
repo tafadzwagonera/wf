@@ -43,7 +43,7 @@ async function run(): Promise<void> {
     throw new Error(`Expected semantic remap to line 121, received ${processed.review.issues[0]?.line}`);
   }
 
-  console.log('  ✅ Test 1 passed: message-only anchors remap correctly\n');
+  console.log('  ✓ Test 1 passed: message-only anchors remap correctly\n');
 
   // Test 2: Suggestion text provides anchors when message has none
   console.log('Test 2: suggestion-based anchor extraction');
@@ -80,7 +80,7 @@ async function run(): Promise<void> {
     );
   }
 
-  console.log('  ✅ Test 2 passed: suggestion anchors remap correctly\n');
+  console.log('  ✓ Test 2 passed: suggestion anchors remap correctly\n');
 
   // Test 3: Zero-score anchors omit line instead of preserving wrong line
   console.log('Test 3: zero-score anchor omission');
@@ -116,7 +116,7 @@ async function run(): Promise<void> {
     );
   }
 
-  console.log('  ✅ Test 3 passed: zero-score anchors omit line\n');
+  console.log('  ✓ Test 3 passed: zero-score anchors omit line\n');
 
   // Test 4: Preserve model line when anchors score zero but line is within hunk span
   console.log('Test 4: hunk-span preservation');
@@ -155,12 +155,12 @@ async function run(): Promise<void> {
     );
   }
 
-  console.log('  ✅ Test 4 passed: hunk-span preserves in-range model line\n');
+  console.log('  ✓ Test 4 passed: hunk-span preserves in-range model line\n');
 
-  console.log('✅ Manual smoke test passed: issue:review semantic line alignment');
+  console.log('✓ Manual smoke test passed: issue:review semantic line alignment');
 }
 
 run().catch(error => {
-  console.error(`❌ Manual smoke test failed: ${error.message}`);
+  console.error(`✗ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

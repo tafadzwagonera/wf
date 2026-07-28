@@ -61,5 +61,5 @@ for (const file of srcFiles) {
 }
 if (!importFound) pass('No imports of validation.schema in src/');
 
-console.log(`\n${failures === 0 ? '✅ All checks passed' : `❌ ${failures} check(s) failed`}`);
+console.log(`\n${failures === 0 ? '✓ All checks passed' : `✗ ${failures} check(s) failed`}`);
 process.exit(failures === 0 ? 0 : 1);

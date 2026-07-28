@@ -133,10 +133,10 @@ async function run(): Promise<void> {
   );
   console.log('  ✓ Single source of truth in review.types.ts');
 
-  console.log('\n✅ Manual smoke test passed: review verdict constants');
+  console.log('\n✓ Manual smoke test passed: review verdict constants');
 }
 
 run().catch(error => {
-  console.error(`\n❌ Manual smoke test failed: ${error.message}`);
+  console.error(`\n✗ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

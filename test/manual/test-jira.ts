@@ -70,13 +70,13 @@ console.log(x);
     console.log('  Description length:', ticket.description.length, 'chars\n');
     */
 
-    console.log('✅ All manual tests completed successfully!\n');
+    console.log('✓ All manual tests completed successfully!\n');
     console.log('To test actual Jira API calls:');
     console.log('1. Configure wf.config.* with your Jira credentials');
     console.log('2. Uncomment the API tests in this file');
     console.log('3. Run again\n');
   } catch (error) {
-    console.error('❌ Test failed:', error.message);
+    console.error('✗ Test failed:', error.message);
     if (error.details) {
       console.error('Details:', error.details);
     }

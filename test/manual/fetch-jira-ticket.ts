@@ -77,9 +77,9 @@ ${ticket.description}
     const filePath = path.join(jiraDir, `${ticket.key}.md`);
     fs.writeFileSync(filePath, markdown, 'utf-8');
 
-    console.log(chalk.green(`\n✅ Ticket saved to: ${filePath}\n`));
+    console.log(chalk.green(`\n✓ Ticket saved to: ${filePath}\n`));
   } catch (error: any) {
-    console.error(chalk.red('\n❌ Error:'), error.message);
+    console.error(chalk.red('\n✗ Error:'), error.message);
     if (error.details) {
       console.error(chalk.gray('Details:'), error.details);
     }

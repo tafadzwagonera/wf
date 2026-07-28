@@ -139,7 +139,7 @@ async function main() {
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(chalk.gray('\n' + '─'.repeat(60)));
   if (failed === 0) {
-    console.log(chalk.bold.green(`\n✅ All ${passed} tests passed\n`));
+    console.log(chalk.bold.green(`\n✓ All ${passed} tests passed\n`));
   } else {
     console.log(chalk.bold.red(`\n✗ ${failed} of ${passed + failed} tests failed\n`));
     process.exit(1);

@@ -78,7 +78,7 @@ function run(): void {
     throw new Error('Case 1 FAILED: callStack was wiped despite code identifiers');
   }
 
-  console.log('  ✅ Case 1: code-identifier trace preserved');
+  console.log('  ✓ Case 1: code-identifier trace preserved');
 
   // Case 2: "generating suggestions" narration should be sanitized
   const narrationTrace: CodeReview = {
@@ -115,7 +115,7 @@ function run(): void {
     throw new Error('Case 2 FAILED: callStack was not wiped for narration trace');
   }
 
-  console.log('  ✅ Case 2: narration-phrase trace sanitized');
+  console.log('  ✓ Case 2: narration-phrase trace sanitized');
 
   // Case 3: "providing suggestions" narration should also be sanitized
   const providingTrace: CodeReview = {
@@ -150,9 +150,9 @@ function run(): void {
     );
   }
 
-  console.log('  ✅ Case 3: "providing suggestions" narration sanitized');
+  console.log('  ✓ Case 3: "providing suggestions" narration sanitized');
 
-  console.log('\n✅ Manual smoke test passed: sanitizeCodeReviewTrace suggestion false-positive');
+  console.log('\n✓ Manual smoke test passed: sanitizeCodeReviewTrace suggestion false-positive');
 }
 
 run();

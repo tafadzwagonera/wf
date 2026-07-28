@@ -147,10 +147,10 @@ async function run(): Promise<void> {
     throw new Error('Expected legacy detached suggestions to render only in the trailing Suggestions section.');
   }
 
-  console.log('✅ Manual smoke test passed: issue:review legacy detached suggestions');
+  console.log('✓ Manual smoke test passed: issue:review legacy detached suggestions');
 }
 
 run().catch(error => {
-  console.error(`❌ Manual smoke test failed: ${error.message}`);
+  console.error(`✗ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

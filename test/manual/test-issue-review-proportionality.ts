@@ -90,7 +90,7 @@ async function run(): Promise<void> {
     throw new Error('Expected "unrelated refactors" phrasing in the Scope guideline.');
   }
 
-  console.log('  ✅ Part 1: Scope guideline is present in defaults');
+  console.log('  ✓ Part 1: Scope guideline is present in defaults');
 
   // ── Part 2: Terminal output renders suggestion text ──
 
@@ -197,7 +197,7 @@ async function run(): Promise<void> {
     throw new Error('Expected trailing suggestion about smallest effective fix in terminal output.');
   }
 
-  console.log('  ✅ Part 2: Terminal output renders scope feedback');
+  console.log('  ✓ Part 2: Terminal output renders scope feedback');
 
   // ── Part 3: PR comment includes suggestion text ──
 
@@ -214,12 +214,12 @@ async function run(): Promise<void> {
     throw new Error('Expected trailing suggestion in the PR comment body.');
   }
 
-  console.log('  ✅ Part 3: PR comment includes human-friendly suggestions');
+  console.log('  ✓ Part 3: PR comment includes human-friendly suggestions');
 
-  console.log('\n✅ Manual smoke test passed: issue:review scope + suggestions');
+  console.log('\n✓ Manual smoke test passed: issue:review scope + suggestions');
 }
 
 run().catch(error => {
-  console.error(`❌ Manual smoke test failed: ${error.message}`);
+  console.error(`✗ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

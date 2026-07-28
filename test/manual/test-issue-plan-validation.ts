@@ -518,9 +518,9 @@ const main = async (): Promise<void> => {
   }
 
   console.log('\n' + '━'.repeat(60));
-  console.log(`Results: ✅ ${passed} passed   ❌ ${failed} failed`);
+  console.log(`Results: ✓ ${passed} passed   ✗ ${failed} failed`);
   if (failed === 0) {
-    console.log('✅ All tests passed!');
+    console.log('✓ All tests passed!');
   }
   console.log('━'.repeat(60));
 

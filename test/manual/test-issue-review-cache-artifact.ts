@@ -151,10 +151,10 @@ async function run(): Promise<void> {
     }
   }
 
-  console.log('✅ Manual smoke test passed: issue:review cache artifact behavior');
+  console.log('✓ Manual smoke test passed: issue:review cache artifact behavior');
 }
 
 run().catch(error => {
-  console.error(`❌ Manual smoke test failed: ${error.message}`);
+  console.error(`✗ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

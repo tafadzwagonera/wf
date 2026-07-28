@@ -67,7 +67,7 @@ async function run(): Promise<void> {
     }
   }
 
-  console.log('  ✅ Bug 1 verified: │ connectors between sibling changes\n');
+  console.log('  ✓ Bug 1 verified: │ connectors between sibling changes\n');
 
   // ── Bug 2: captured section uses '   ' when last ──
   console.log('Test 2: captured section continuation when last');
@@ -136,12 +136,12 @@ async function run(): Promise<void> {
     }
   }
 
-  console.log('  ✅ Bug 2 verified: captured continuation matches section position\n');
+  console.log('  ✓ Bug 2 verified: captured continuation matches section position\n');
 
-  console.log('✅ Manual smoke test passed: review-trace state transition rendering');
+  console.log('✓ Manual smoke test passed: review-trace state transition rendering');
 }
 
 run().catch(error => {
-  console.error(`❌ Manual smoke test failed: ${error.message}`);
+  console.error(`✗ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

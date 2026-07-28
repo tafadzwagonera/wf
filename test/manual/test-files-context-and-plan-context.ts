@@ -18,13 +18,12 @@
  * @returns Promise that resolves when the smoke test completes
  */
 import chalk from 'chalk';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as os from 'os';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import {
   normalizeFileEntries,
   type FileEntry,
-  type FileStatus,
   type ResolutionPlan,
 } from '../../src/integrations/ai/ai.service';
 import { buildPlanContext } from '../../src/integrations/ai/adapters/shared-routing';
@@ -34,14 +33,22 @@ import type { VerificationScript } from '../../src/agents/interfaces';
 let passed = 0;
 let failed = 0;
 
+const pass = (label: string): void => {
+  console.log(chalk.green(`  \u2713 ${label}`));
+  passed++;
+};
+
+const fail = (label: string): void => {
+  console.log(chalk.red(`  \u2717 ${label}`));
+  failed++;
+};
+
 const assert = (label: string, condition: boolean): void => {
   if (condition) {
-    console.log(chalk.green(`  \u2713 ${label}`));
-    passed++;
-  } else {
-    console.log(chalk.red(`  \u2717 ${label}`));
-    failed++;
+    pass(label);
+    return;
   }
+  fail(label);
 };
 
 const run = async (): Promise<void> => {
@@ -115,7 +122,7 @@ const run = async (): Promise<void> => {
   };
   assert(
     'ResolutionPlan accepts affectedFilesContext and mixed affectedFiles',
-    plan.affectedFilesContext!.length === 1 && plan.affectedFiles!.length === 2
+    plan.affectedFilesContext?.length === 1 && plan.affectedFiles?.length === 2
   );
 
   // 9 & 10. Plan artifact parser preserves FileEntry objects and legacy strings
@@ -153,7 +160,6 @@ const run = async (): Promise<void> => {
     parsedContext.length === 1 && typeof firstContext === 'object' && firstContext.filePath === 'repo/package.json'
   );
 
-  // Cleanup
   fs.rmSync(tmpDir, { recursive: true });
 
   console.log(chalk.bold(`\n  ${passed} passed, ${failed} failed\n`));

@@ -192,10 +192,10 @@ async function run(): Promise<void> {
     throw new Error('Expected an inline comment to be posted with the normalized destination-side line.');
   }
 
-  console.log('✅ Manual smoke test passed: issue:review presentation');
+  console.log('✓ Manual smoke test passed: issue:review presentation');
 }
 
 run().catch(error => {
-  console.error(`❌ Manual smoke test failed: ${error.message}`);
+  console.error(`✗ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

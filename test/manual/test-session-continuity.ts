@@ -81,4 +81,4 @@ if (itemsFile) {
   console.log(`\n✓ Items file found: ${itemsFile} (${items.length} items)`);
 }
 
-console.log('\n✅ Session continuity verification complete\n');
+console.log('\n✓ Session continuity verification complete\n');

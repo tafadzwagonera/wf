@@ -32,7 +32,7 @@ async function searchTickets() {
       console.log();
     }
   } catch (error: any) {
-    console.error(chalk.red('❌ Error:'), error.message);
+    console.error(chalk.red('✗ Error:'), error.message);
     if (error.details) {
       console.error(chalk.gray('Details:'), JSON.stringify(error.details, null, 2));
     }

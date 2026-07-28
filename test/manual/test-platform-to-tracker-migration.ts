@@ -137,7 +137,7 @@ const run = () => {
   }
   console.log('  ✓ Help catalog shows --tracker for all tracker-aware commands');
 
-  console.log('\n✅ All migration smoke tests passed');
+  console.log('\n✓ All migration smoke tests passed');
 };
 
 run();

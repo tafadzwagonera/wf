@@ -26,7 +26,7 @@ async function testReviewArtifactPathDerivation() {
     passed++;
   };
   const fail = (msg: string) => {
-    console.error(`❌ ${msg}\n`);
+    console.error(`✗ ${msg}\n`);
     failed++;
   };
 
@@ -80,9 +80,9 @@ async function testReviewArtifactPathDerivation() {
   fs.rmSync(tempDir, { recursive: true, force: true });
 
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`Results: ✅ ${passed} passed   ❌ ${failed} failed`);
+  console.log(`Results: ✓ ${passed} passed   ✗ ${failed} failed`);
   if (failed === 0) {
-    console.log('✅ All tests passed!');
+    console.log('✓ All tests passed!');
   }
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 }

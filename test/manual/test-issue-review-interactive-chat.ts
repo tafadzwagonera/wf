@@ -203,7 +203,7 @@ async function run(): Promise<void> {
       throw new Error(`Expected stage 'review', got '${context.stage}'`);
     }
 
-    console.log('  ✅ Test 1 passed: chat prompt triggers startChatSession');
+    console.log('  ✓ Test 1 passed: chat prompt triggers startChatSession');
   }
 
   // --- Test 2: Chat prompt skipped in silent mode ---
@@ -225,7 +225,7 @@ async function run(): Promise<void> {
       throw new Error('Expected startChatSession NOT to be called in silent mode');
     }
 
-    console.log('  ✅ Test 2 passed: chat prompt skipped in silent mode');
+    console.log('  ✓ Test 2 passed: chat prompt skipped in silent mode');
   }
 
   // --- Test 3: Chat prompt skipped in non-interactive session ---
@@ -246,7 +246,7 @@ async function run(): Promise<void> {
       throw new Error('Expected startChatSession NOT to be called in non-TTY mode');
     }
 
-    console.log('  ✅ Test 3 passed: chat prompt skipped in non-interactive session');
+    console.log('  ✓ Test 3 passed: chat prompt skipped in non-interactive session');
   }
 
   // --- Test 4: System prompt includes review context ---
@@ -284,13 +284,13 @@ async function run(): Promise<void> {
       throw new Error('Expected system prompt to include file:line reference');
     }
 
-    console.log('  ✅ Test 4 passed: system prompt includes review context');
+    console.log('  ✓ Test 4 passed: system prompt includes review context');
   }
 
-  console.log('\n✅ All interactive chat smoke tests passed');
+  console.log('\n✓ All interactive chat smoke tests passed');
 }
 
 run().catch(error => {
-  console.error(`\n❌ Manual smoke test failed: ${error.message}`);
+  console.error(`\n✗ Manual smoke test failed: ${error.message}`);
   process.exit(1);
 });

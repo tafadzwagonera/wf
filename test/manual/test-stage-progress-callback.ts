@@ -25,7 +25,8 @@ const pass = (message: string): void => {
 };
 
 const fail = (message: string, detail?: string): void => {
-  console.error(chalk.red(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`));
+  const suffix = detail ? `\n    → ${detail}` : '';
+  console.error(chalk.red(`  ✗ ${message}${suffix}`));
   failed += 1;
 };
 
@@ -54,16 +55,15 @@ const createConfigService = (): ConfigService =>
     },
   }) as unknown as ConfigService;
 
-async function main(): Promise<void> {
+void (async () => {
   console.log(chalk.bold.cyan('\n🧪 Stage progress callback threading smoke test\n'));
 
-  // Test 1: generatePlan forwards onProgress
   console.log(chalk.bold('Test 1: generatePlan forwards onProgress'));
   {
     const service = new StageAgentService(createConfigService());
-    let capturedParams: Record<string, unknown> | null = null;
+    const captured: { params: Record<string, unknown> | null } = { params: null };
     (service as any).runStagePrompt = async (params: Record<string, unknown>) => {
-      capturedParams = params;
+      captured.params = params;
       return JSON.stringify({
         action: 'fix',
         summary: 'Fix it',
@@ -74,48 +74,45 @@ async function main(): Promise<void> {
       });
     };
 
-    const onProgress = (line: string) => void line;
+    const onProgress = (_line: string): void => {};
     await service.generatePlan({
       action: 'fix',
       issueContent: 'Fix callback handling',
       onProgress,
     });
 
-    assert('onProgress is forwarded to runStagePrompt', capturedParams!.onProgress === onProgress);
+    assert('onProgress is forwarded to runStagePrompt', captured.params !== null && captured.params.onProgress === onProgress);
   }
 
-  // Test 2: generateFromPrompt forwards onProgress
   console.log(chalk.bold('\nTest 2: generateFromPrompt forwards onProgress'));
   {
     const service = new StageAgentService(createConfigService());
-    let capturedParams: Record<string, unknown> | null = null;
+    const captured: { params: Record<string, unknown> | null } = { params: null };
     (service as any).runStagePrompt = async (params: Record<string, unknown>) => {
-      capturedParams = params;
+      captured.params = params;
       return 'Generated content';
     };
 
-    const onProgress = (line: string) => void line;
+    const onProgress = (_line: string): void => {};
     await service.generateFromPrompt('Summarise this', onProgress);
 
-    assert('onProgress is forwarded to runStagePrompt', capturedParams!.onProgress === onProgress);
+    assert('onProgress is forwarded to runStagePrompt', captured.params !== null && captured.params.onProgress === onProgress);
   }
 
-  // Test 3: generateFromPrompt defaults onProgress to undefined
   console.log(chalk.bold('\nTest 3: generateFromPrompt defaults onProgress to undefined'));
   {
     const service = new StageAgentService(createConfigService());
-    let capturedParams: Record<string, unknown> | null = null;
+    const captured: { params: Record<string, unknown> | null } = { params: null };
     (service as any).runStagePrompt = async (params: Record<string, unknown>) => {
-      capturedParams = params;
+      captured.params = params;
       return 'Generated content';
     };
 
     await service.generateFromPrompt('Summarise this');
 
-    assert('onProgress is undefined when not provided', capturedParams!.onProgress === undefined);
+    assert('onProgress is undefined when not provided', captured.params !== null && captured.params.onProgress === undefined);
   }
 
-  // Test 4: onProgress callback shape accepted
   console.log(chalk.bold('\nTest 4: onProgress callback with correct shape is accepted'));
   {
     const service = new StageAgentService(createConfigService());
@@ -142,7 +139,6 @@ async function main(): Promise<void> {
     assert('generatePlan completed with onProgress callback', wasCalled);
   }
 
-  // Test 5: stage property set correctly
   console.log(chalk.bold('\nTest 5: runStagePrompt receives correct stage names'));
   {
     const service = new StageAgentService(createConfigService());
@@ -163,6 +159,4 @@ async function main(): Promise<void> {
   if (failed > 0) {
     process.exit(1);
   }
-}
-
-void main();
+})();

@@ -66,14 +66,14 @@ async function testIssueReview() {
     };
     try {
       await fn();
-      console.error(`❌ ${label}: expected process.exit but none occurred\n`);
+      console.error(`✗ ${label}: expected process.exit but none occurred\n`);
       return false;
     } catch (err: any) {
       if (exited) {
         console.log(`✓ ${label}\n`);
         return true;
       }
-      console.error(`❌ ${label}: unexpected error: ${err.message}\n`);
+      console.error(`✗ ${label}: unexpected error: ${err.message}\n`);
       return false;
     } finally {
       process.exit = originalExit;
@@ -93,7 +93,7 @@ async function testIssueReview() {
     passed++;
   };
   const fail = (msg: string) => {
-    console.error(`❌ ${msg}\n`);
+    console.error(`✗ ${msg}\n`);
     failed++;
   };
 
@@ -256,13 +256,13 @@ async function testIssueReview() {
 
     // ── Summary ───────────────────────────────────────────────────────────
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`Results: ✅ ${passed} passed   ❌ ${failed} failed`);
+    console.log(`Results: ✓ ${passed} passed   ✗ ${failed} failed`);
     if (failed === 0) {
-      console.log('✅ All tests passed!');
+      console.log('✓ All tests passed!');
     }
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   } catch (err: any) {
-    console.error('❌ Unexpected top-level error:', err.message);
+    console.error('✗ Unexpected top-level error:', err.message);
     if (err.stack) console.error(err.stack);
   } finally {
     fs.rmSync(nonGitDir, { recursive: true, force: true });

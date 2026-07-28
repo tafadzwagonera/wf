@@ -70,7 +70,7 @@ Rules:
 <Bullet list of actual edits made. If nothing was changed, write: "No file content changes were required.">
 
 ### Verification run
-<Bullet list of commands run with ✅ (pass) or ❌ (fail). Omit if no commands ran.>
+<Bullet list of commands run with ✓ (pass) or ✗ (fail). Omit if no commands ran.>
 
 ### Files
 - **Updated:** <comma-separated list or "none">
@@ -202,7 +202,7 @@ async function main() {
   // ── Summary ──────────────────────────────────────────────────────────────
   console.log(chalk.gray('\n' + '─'.repeat(60)));
   if (failed === 0) {
-    console.log(chalk.bold.green(`\n✅ All ${passed} tests passed\n`));
+    console.log(chalk.bold.green(`\n✓ All ${passed} tests passed\n`));
   } else {
     console.log(chalk.bold.red(`\n✗ ${failed} of ${passed + failed} tests failed\n`));
     process.exit(1);

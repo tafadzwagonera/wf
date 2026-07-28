@@ -77,7 +77,7 @@ async function run() {
   };
 
   const fail = (msg: string, detail?: string) => {
-    console.error(`❌ ${msg}${detail ? `\n   → ${detail}` : ''}`);
+    console.error(`✗ ${msg}${detail ? `\n   → ${detail}` : ''}`);
     failed++;
   };
 
@@ -182,9 +182,9 @@ async function run() {
   }
 
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`Results: ✅ ${passed} passed   ❌ ${failed} failed`);
+  console.log(`Results: ✓ ${passed} passed   ✗ ${failed} failed`);
   if (failed === 0) {
-    console.log('✅ All tests passed!');
+    console.log('✓ All tests passed!');
   }
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 

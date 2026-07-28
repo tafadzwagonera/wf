@@ -118,5 +118,5 @@ if (fs.existsSync(catalogPath)) {
   fail('Help catalog exists');
 }
 
-console.log(`\n${failures === 0 ? '✅ All checks passed' : `❌ ${failures} check(s) failed`}`);
+console.log(`\n${failures === 0 ? '✓ All checks passed' : `✗ ${failures} check(s) failed`}`);
 process.exit(failures === 0 ? 0 : 1);
