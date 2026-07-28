@@ -27,7 +27,7 @@ export function resolveSkippedSteps(
 }
 
 const STATUS_ICONS: Record<VerificationOutcome['status'], string> = {
-  passed: chalk.green('✅'),
+  passed: chalk.green('✔'),
   failed: chalk.red('✖'),
   skipped: chalk.yellow('⏭'),
 };
@@ -49,7 +49,7 @@ const extractErrorOutput = (error: unknown): string => {
 const runSingleScript = (script: VerificationScript, repoDir: string): VerificationOutcome => {
   try {
     execSync(script.command, { cwd: repoDir, stdio: 'pipe', timeout: SCRIPT_TIMEOUT_MS });
-    console.log(chalk.green(`    ✅ ${script.command}`));
+    console.log(chalk.green(`    ✔ ${script.command}`));
     return { id: script.id, command: script.command, policy: script.policy, status: 'passed' };
   } catch (error: unknown) {
     console.log(chalk.red(`    ✖ ${script.command}`));
@@ -75,7 +75,7 @@ export function runProgrammaticVerification(
 
 /**
  * Prints a deterministic verification report to the console.
- * Each step is printed with a status icon: ✅ passed, ✖ failed, ⏭ skipped.
+ * Each step is printed with a status icon: ✔ passed, ✖ failed, ⏭ skipped.
  *
  * @param outcomes - The complete list of verification outcomes.
  */

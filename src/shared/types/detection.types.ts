@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import type {
   crossRepoContextSchema,
   crossRepoPatternSchema,
+  diSetupPatternSchema,
   ecosystemInfraSchema,
   ecosystemSchema,
   goInfraSchema,
@@ -20,6 +21,7 @@ import type {
 } from '../schemas/detection.schema';
 
 export type CrossRepoContext = z.infer<typeof crossRepoContextSchema>;
+export type DiSetupPattern = z.infer<typeof diSetupPatternSchema>;
 export type CrossRepoPattern = z.infer<typeof crossRepoPatternSchema>;
 export type Ecosystem = z.infer<typeof ecosystemSchema>;
 export type EcosystemInfra = z.infer<typeof ecosystemInfraSchema>;

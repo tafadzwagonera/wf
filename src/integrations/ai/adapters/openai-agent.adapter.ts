@@ -605,7 +605,7 @@ const SUMMARY_TEMPLATE = `### What I changed
 <Bullet list of actual edits made. If nothing was changed, write: "No file content changes were required.">
 
 ### Verification run
-<Bullet list of commands run with ✅ (pass) or ✖ (fail). Omit if no commands ran.>
+<Bullet list of commands run with ✔ (pass) or ✖ (fail). Omit if no commands ran.>
 
 ### Files
 - **Updated:** <comma-separated list or "none">

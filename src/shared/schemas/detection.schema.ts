@@ -5,6 +5,8 @@ export const ecosystemSchema = z.enum(['node', 'terraform', 'python', 'go']);
 
 export const nodeFrameworkSchema = z.enum(['jest', 'vitest', 'mocha', 'tap', 'ava']);
 
+export const diSetupPatternSchema = z.enum(['testing-module', 'factory-function']).nullable();
+
 export const nodeInfraSchema = z.object({
   ecosystem: z.literal('node'),
   nodeVersionMajor: z.number().nullable(),
@@ -23,7 +25,7 @@ export const nodeInfraSchema = z.object({
         namespace: z.string(),
         method: z.enum(['restoreAllMocks', 'resetAllMocks', 'clearAllMocks']),
       }).nullable(),
-      diSetupPattern: z.enum(['testing-module', 'factory-function']).nullable(),
+      diSetupPattern: diSetupPatternSchema,
       errorHandlerExits: z.boolean(),
     })
     .optional(),
