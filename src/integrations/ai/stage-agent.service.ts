@@ -271,6 +271,7 @@ type GeneratePlanParams = {
   planCorrelation?: PlanCorrelationResult;
   planQualityFeedback?: string[];
   priorPlans?: PriorPlanContext;
+  skillNames?: string[];
   testInfra?: TestInfraContext;
   ticketKey?: string;
 };
@@ -340,6 +341,7 @@ const buildStagePlanPrompt = (params: GeneratePlanParams): string => {
     testInfraSection: params.testInfra ? formatTestInfraPromptSection(params.testInfra) : '',
     testConventionsBlock: buildPlanTestConventionsBlock(params),
     shellSafetyBlock: buildPlanShellSafetyBlock(hasNodeTestInfra),
+    skillNames: params.skillNames,
   });
 };
 
@@ -469,6 +471,7 @@ type PlanPromptBodyOpts = {
   repoExample: string;
   retryFeedbackBlock: string;
   shellSafetyBlock: string;
+  skillNames?: string[];
   testConventionsBlock: string;
   testInfraSection: string;
   ticketKey?: string;
@@ -517,6 +520,13 @@ Return ONLY a valid JSON object with these fields:
   "affectedRepositories": ["${opts.repoExample}"],
 ${PLAN_JSON_SCHEMA_TAIL}`;
 
+const buildPlanSkillSection = (skillNames: string[] | undefined): string => {
+  if (!skillNames?.length) return '';
+  return '\n\nSkill-specific instructions:\nBefore starting work, invoke each of the following skills using the Skill tool:\n'
+    + skillNames.map(s => `- Skill('${s}')`).join('\n')
+    + '\nFollow each skill\'s instructions fully before proceeding.';
+};
+
 /**
  * @param opts - pre-computed prompt fragments
  * @returns the raw plan prompt body string
@@ -530,6 +540,7 @@ const buildPlanPromptBody = (opts: PlanPromptBodyOpts): string => [
   opts.shellSafetyBlock,
   PLAN_VERIFICATION_TAIL,
   buildPlanJsonSchemaExample(opts),
+  buildPlanSkillSection(opts.skillNames),
 ].join('\n');
 
 const REVIEW_INSTRUCTIONS = `Provide a code review with:
@@ -593,20 +604,21 @@ IMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.`;
 /**
  * @param diff - unified diff string
  * @param guidelines - review guidelines list
+ * @param skillNames - optional skill IDs to inject into the prompt
  * @returns the fully assembled review prompt string
  */
-const buildStageReviewPrompt = (diff: string, guidelines: string[]): string => `
-Code Changes:
-\`\`\`
-${diff}
-\`\`\`
+const buildStageReviewSkillSection = (skillNames: string[]): string =>
+  '\nSkill-specific instructions:\nBefore starting review, invoke each of the following skills using the Skill tool:\n'
+  + skillNames.map(s => `- Skill('${s}')`).join('\n')
+  + '\nFollow each skill\'s instructions fully before proceeding.\n';
 
-Review Guidelines:
-${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}
-
-${REVIEW_INSTRUCTIONS}
-
-${REVIEW_JSON_SCHEMA}`;
+const buildStageReviewPrompt = (diff: string, guidelines: string[], skillNames?: string[]): string => [
+  `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
+  `\nReview Guidelines:\n${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}`,
+  `\n${REVIEW_INSTRUCTIONS}`,
+  ...(skillNames?.length ? [buildStageReviewSkillSection(skillNames)] : []),
+  `\n${REVIEW_JSON_SCHEMA}`,
+].join('\n');
 
 /**
  * @param provider - AI provider name
@@ -1104,10 +1116,11 @@ export class StageAgentService {
     repoDir?: string,
     priorStageSummary?: string,
     resumeProviderSessionId?: string,
-    onProgress?: StageProgressCallback
+    onProgress?: StageProgressCallback,
+    skillNames?: string[]
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const { content: response, sessionId } = await this.runStagePrompt({
-      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines), systemPrompt: REVIEW_SYSTEM_PROMPT,
+      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, skillNames), systemPrompt: REVIEW_SYSTEM_PROMPT,
       repoDir, priorStageSummary, resumeProviderSessionId, onProgress,
     });
     return this.parseStageReviewResponse(response, sessionId, repoDir, REVIEW_SYSTEM_PROMPT, priorStageSummary);

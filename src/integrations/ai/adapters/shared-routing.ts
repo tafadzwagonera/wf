@@ -320,6 +320,7 @@ export type BuildPlanContextParams = {
   planSummary?: string;
   planRisks?: string[];
   planAction?: 'fix' | 'feature' | 'investigate';
+  skillNames?: string[];
 };
 
 type PlanContextDisplay = {
@@ -355,6 +356,44 @@ ${p.trackedFileList}
 Verification commands:
 ${p.verificationList}`;
 
+export type ImplementerToolNames = {
+  read: string;
+  write: string;
+  edit: string;
+  search: string;
+  glob: string;
+  verify: string;
+};
+
+/**
+ * Builds the tool-agnostic implementer rules section parameterised by adapter tool names.
+ *
+ * @param t - Adapter-specific tool name mapping
+ * @returns Combined rules and workflow rules string
+ */
+export const buildImplementerRulesSection = (t: ImplementerToolNames): string => `Rules:
+- NEVER output free-form text, commentary, or planning at any point during the run. Every response you produce MUST contain at least one tool call. The ONLY exception is the final summary (using the exact template below) which you output after ALL work is done and ALL verification passes. If you feel the urge to describe what you will do next, call a tool instead. Text output without a tool call terminates the run immediately.
+- ALWAYS use ${t.edit} instead of ${t.write} for existing files. ${t.write} should only be used for creating new files. Using ${t.write} on existing files wastes context on unchanged lines.
+- Use ${t.search} to find relevant line numbers, then ${t.read} with offset/limit to read only the section you need. Avoid reading entire large files.
+- For mechanical migrations (e.g. replacing Logger with PinoLogger across many files): use ${t.search} to find all call sites, then apply ${t.edit} to each file without re-reading the full file — the search results show enough context.
+- Use ${t.glob} to discover file paths instead of guessing.
+- ${t.verify} is the only way to execute a shell command, and it will reject any command outside the verification whitelist.
+- Never invent or call any other shell command tool.
+- Never duplicate a function. To add a parameter, modify the existing function signature. To change behavior, edit the existing function body. This applies to constructors, methods, and standalone functions alike.
+- NEVER add eslint-disable comments (inline, block, or file-level) to files you create or modify. If a lint rule fails in a file you are editing, fix the underlying code so the rule passes. Suppressing lint errors masks real problems. Do not fix or modify lint issues in files outside your changeset.
+- You MUST implement ALL plan steps listed above. Do not stop after completing only the core infrastructure — continue through every step until all tasks are done.
+- Treat the returned progress signal as a heuristic only — never use a 'complete' verdict as a reason to stop. The verdict reflects a single verification command, not overall plan completion.
+- Use verification commands as intermediate checkpoints to catch regressions. After each passing verification, check whether ALL plan steps are done. If any migration or refactoring work remains, continue working.
+- After verification passes, run ${t.search} to count remaining instances of the patterns you are migrating (e.g. 'new Logger('). If the search returns ANY matches, you MUST continue editing those files — do NOT output a summary or any text. Producing a summary that says "remaining work needed" or "follow-up required" is a failure. Keep calling ${t.edit} until the search returns zero matches.
+- Only stop when the migration search confirms zero remaining instances AND all verification commands pass (exit 0) — or when you determine no file changes are required. Then output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.`;
+
+const buildImplementSkillSection = (skillNames: string[] | undefined): string => {
+  if (!skillNames?.length) return '';
+  return '\n\nSkill-specific instructions:\nBefore starting work, invoke each of the following skills using the Skill tool:\n'
+    + skillNames.map(s => `- Skill('${s}')`).join('\n')
+    + '\nFollow each skill\'s instructions fully before proceeding.';
+};
+
 /**
  * Builds the shared plan-context portion of the system prompt used by all
  * implementer adapters. Contains everything from the role description through
@@ -372,11 +411,12 @@ export const buildPlanContext = (params: BuildPlanContextParams): string => {
   const trackedFileList = trackedIdentical ? '  (same as files to implement)' : formatRepoFileList(params.trackedFilePaths, params.repoName);
   const hasContextFiles = params.contextFiles && params.contextFiles.length > 0;
   const contextFileSection = hasContextFiles ? `\n\nFiles for context (read-only — do NOT edit these):\n${formatRepoFileList(params.contextFiles ?? [], params.repoName)}` : '';
+  const skillSection = buildImplementSkillSection(params.skillNames);
   return assemblePlanContextPrompt({
     repoDir: params.repoDir, ticketKey: params.ticketKey, planSummary: params.planSummary || '(none)',
     actionDesc: describeAction(params.planAction), planStepList: formatPlanStepList(params.planSteps),
     fileList, contextFileSection, trackedFileList, verificationList: formatVerificationList(params.verificationScripts),
-  });
+  }) + skillSection;
 };
 
 const readOptionalFile = async (filePath: string): Promise<string | null> => {

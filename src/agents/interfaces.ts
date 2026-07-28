@@ -70,10 +70,10 @@ export interface ImplementerBackend {
     planArtifact: PlanArtifact;
     options: ImplementerOptions;
     verificationScripts: VerificationScript[];
-    ticketContext: string;
     repoFiles: string[];
     contextFiles?: string[];
     repoName: string;
     trackedFilePaths: string[];
+    skillNames?: string[];
   }): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }>;
 }

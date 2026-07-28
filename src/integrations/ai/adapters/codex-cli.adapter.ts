@@ -26,11 +26,11 @@ type GenerateAndVerifyParams = {
   planArtifact: PlanArtifact;
   options: ImplementerOptions;
   verificationScripts: VerificationScript[];
-  ticketContext: string;
   repoFiles: string[];
   contextFiles?: string[];
   repoName: string;
   trackedFilePaths: string[];
+  skillNames?: string[];
 };
 
 type AssistantBlock = { type: string; name?: string; input?: Record<string, unknown> };
@@ -83,11 +83,10 @@ const buildCodexRawSystemPrompt = (params: GenerateAndVerifyParams, repoDir: str
     contextFiles: params.contextFiles,
     trackedFilePaths: params.trackedFilePaths,
     verificationScripts: params.verificationScripts,
-    ticketContext: params.ticketContext,
     planSteps: params.planArtifact.plan.steps,
     planSummary: params.planArtifact.plan.summary,
-    planRisks: params.planArtifact.plan.risks,
-    planAction: params.planArtifact.plan.action,
+    planRisks: params.planArtifact.plan.risks, planAction: params.planArtifact.plan.action,
+    skillNames: params.skillNames,
   });
 
 /**

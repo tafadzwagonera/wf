@@ -7,6 +7,7 @@ import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
 import { formatTestInfraPromptSection, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
+import { resolveSkills } from '../../skills';
 import {
   formatRepoConventionsPromptSection,
   type RepoConventionsContext,
@@ -31,7 +32,7 @@ import type {
 } from '../../shared/types/ai.types';
 import type { CodeReview } from '../../shared/types/review.types';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
-import type { StageProgressCallback } from '../../shared/types/agent.types';
+import type { ResolutionAction, StageProgressCallback } from '../../shared/types/agent.types';
 
 export type {
   AIRequest,
@@ -147,48 +148,63 @@ const extractOutermostJsonObject = (content: string): string | null => {
   return first !== -1 && last > first ? content.slice(first, last + 1) : null;
 };
 
+/** Tri-state result from {@link detectBraceFailurePos}. */
+const BRACE_POS_VALID = -1;
+const BRACE_POS_UNREPAIRABLE = -2;
+
+/**
+ * Detect the character position of a JSON syntax failure caused by an excess closing brace.
+ * @param content Raw JSON string to probe
+ * @returns Positive failure position when repairable, {@link BRACE_POS_VALID} when content
+ *          parses successfully, or {@link BRACE_POS_UNREPAIRABLE} when the error is not a
+ *          brace-repair candidate.
+ */
+const detectBraceFailurePos = (content: string): number => {
+  try {
+    JSON.parse(content);
+    return BRACE_POS_VALID;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) return BRACE_POS_UNREPAIRABLE;
+    const match = /position (\d+)/.exec(error.message);
+    if (!match) return BRACE_POS_UNREPAIRABLE;
+    const pos = Number(match[1]);
+    return pos >= 2 && content[pos - 1] === '}' ? pos : BRACE_POS_UNREPAIRABLE;
+  }
+};
+
+/**
+ * Build removal candidates around a failure position and return the first that parses.
+ * @param content Raw JSON string
+ * @param failPos Character position reported by JSON.parse
+ * @returns Repaired string, or null when no candidate parses
+ */
+const tryBraceRemovals = (content: string, failPos: number): string | null => {
+  const candidates = [
+    content.slice(0, failPos - 1) + content.slice(failPos),
+    content[failPos - 2] === ']' ? content.slice(0, failPos - 2) + content.slice(failPos) : null,
+    content[failPos] === ']' ? content.slice(0, failPos - 1) + content.slice(failPos + 1) : null,
+  ];
+  for (const c of candidates) {
+    if (!c) continue;
+    try {
+      JSON.parse(c);
+      return c;
+    } catch { /* candidate did not parse */ }
+  }
+  return null;
+};
+
 /**
  * Attempt to repair a JSON string that has excess closing tokens from a deeply
- * nested structure. When JSON.parse reports "unexpected character after JSON at
- * position N", the '}' at N-1 prematurely closed the outer object — typically
- * because the AI produced an extra nesting level (extra `]}` pair).
- * Tries removing `}`, `]}`, and `}]` patterns around the failure point.
+ * nested structure. Tries removing `}`, `]}`, and `}]` patterns around the failure point.
  * @param content Raw content that should be a JSON object
  * @returns Repaired content string, or null when repair is not possible
  */
-// eslint-disable-next-line max-lines-per-function
 const repairExtraBrace = (content: string): string | null => {
-  try {
-    JSON.parse(content);
-    return content;
-  } catch (error) {
-    if (!(error instanceof SyntaxError)) return null;
-    const match = /position (\d+)/.exec(error.message);
-    if (!match) return null;
-    const failPos = Number(match[1]);
-    if (failPos < 2 || content[failPos - 1] !== '}') return null;
-
-    const removals = [
-      content.slice(0, failPos - 1) + content.slice(failPos),
-      failPos >= 2 && content[failPos - 2] === ']'
-        ? content.slice(0, failPos - 2) + content.slice(failPos)
-        : null,
-      content[failPos] === ']'
-        ? content.slice(0, failPos - 1) + content.slice(failPos + 1)
-        : null,
-    ];
-
-    for (const candidate of removals) {
-      if (!candidate) continue;
-      try {
-        JSON.parse(candidate);
-        return candidate;
-      } catch {
-        // try next
-      }
-    }
-    return null;
-  }
+  const failPos = detectBraceFailurePos(content);
+  if (failPos === BRACE_POS_VALID) return content;
+  if (failPos === BRACE_POS_UNREPAIRABLE) return null;
+  return tryBraceRemovals(content, failPos);
 };
 
 /**
@@ -205,7 +221,7 @@ const buildJsonCandidates = (content: string): string[] => {
     extractOutermostJsonObject(stripped),
     extractFirstJsonObject(stripped),
     extractFirstJsonObject(trimmed),
-  ].filter((c): c is string => Boolean(c));
+  ].filter((c): c is string => c !== null);
 };
 
 /**
@@ -473,7 +489,7 @@ const collectDiscoverySections = (context: Record<string, unknown>): string[] =>
     context.planCorrelation && formatPlanCorrelationPromptSection(context.planCorrelation as PlanCorrelationResult),
     context.priorPlans && formatPriorPlansPromptSection(context.priorPlans as PriorPlanContext),
   ];
-  return candidates.filter((s): s is string => Boolean(s));
+  return candidates.filter((s): s is string => typeof s === 'string');
 };
 
 /**
@@ -524,7 +540,7 @@ const buildPlanFeedbackBlocks = (context?: Record<string, unknown>): PlanFeedbac
  * @returns Preamble string
  */
 const buildPlanPreamble = (
-  action: 'fix' | 'implement' | 'investigate',
+  action: ResolutionAction,
   issueContent: string,
   context?: Record<string, unknown>
 ): string => {
@@ -710,7 +726,7 @@ const PLAN_OUTPUT_SCHEMA_VERIFICATION = `  "verification": {
  * @param repoExample Example repository name
  * @returns Output schema string
  */
-const buildPlanOutputSchema = (action: 'fix' | 'implement' | 'investigate', repoExample: string): string => {
+const buildPlanOutputSchema = (action: ResolutionAction, repoExample: string): string => {
   const filesSection = PLAN_OUTPUT_SCHEMA_TEMPLATE_FILES.replaceAll('REPO', repoExample);
   return `Return ONLY a valid JSON object with these fields:\n{\n  "action": "${action}",\n  "summary": "...",\n  "steps": ["step 1", "step 2", ...],\n  "estimatedComplexity": "low|medium|high",\n${filesSection}\n  "affectedRepositories": ["${repoExample}"],\n  "risks": ["risk 1", ...],\n${PLAN_OUTPUT_SCHEMA_VERIFICATION}\n}`;
 };
@@ -722,6 +738,7 @@ const buildPlanOutputSchema = (action: 'fix' | 'implement' | 'investigate', repo
  * @param testSections Pre-built test infra and conventions sections
  * @param verificationBlock Pre-built verification instructions
  * @param outputSchema Pre-built output schema
+ * @param skillSection Pre-built skill invocation hints block (empty string when no skills apply)
  * @returns Complete prompt string
  */
 const assemblePlanPrompt = (
@@ -729,9 +746,18 @@ const assemblePlanPrompt = (
   discoveryBlock: string,
   testSections: [string, string],
   verificationBlock: string,
-  outputSchema: string
+  outputSchema: string,
+  skillSection: string
 ): string =>
-  [preamble, discoveryBlock, PLAN_STEP_INSTRUCTIONS, '\n', ...testSections, PLAN_MINIMAL_CHANGE, '\n', verificationBlock, '\n', outputSchema].join('');
+  [preamble, discoveryBlock, PLAN_STEP_INSTRUCTIONS, skillSection, '\n', ...testSections, PLAN_MINIMAL_CHANGE, '\n', verificationBlock, '\n', outputSchema].join('');
+
+const buildSkillSection = (context: Record<string, unknown> | undefined): string => {
+  const skillNames = Array.isArray(context?.skillNames) ? (context.skillNames as string[]) : [];
+  if (!skillNames.length) return '';
+  return '\n\nSkill-specific instructions:\nBefore starting work, invoke each of the following skills using the Skill tool:\n'
+    + skillNames.map((s: string) => `- Skill('${s}')`).join('\n')
+    + '\nFollow each skill\'s instructions fully before proceeding.';
+};
 
 /**
  * Build the full plan prompt body including instructions, test infra, and output schema.
@@ -744,19 +770,20 @@ const assemblePlanPrompt = (
  * @returns Complete prompt string
  */
 const buildPlanPromptBody = (
-  action: 'fix' | 'implement' | 'investigate',
+  action: ResolutionAction,
   issueContent: string,
   context: Record<string, unknown> | undefined,
-  repoExample: string,
-  discoveryBlock: string,
+  repoExample: string, discoveryBlock: string,
   hasNodeTestInfra: boolean
-): string => assemblePlanPrompt(
-  buildPlanPreamble(action, issueContent, context),
-  discoveryBlock,
-  [context?.testInfra ? formatTestInfraPromptSection(context.testInfra as TestInfraContext) : '', context?.testInfra ? PLAN_TEST_CONVENTIONS : ''],
-  buildVerificationBlock(hasNodeTestInfra),
-  buildPlanOutputSchema(action, repoExample)
-);
+): string =>
+  assemblePlanPrompt(
+    buildPlanPreamble(action, issueContent, context),
+    discoveryBlock,
+    [context?.testInfra ? formatTestInfraPromptSection(context.testInfra as TestInfraContext) : '', context?.testInfra ? PLAN_TEST_CONVENTIONS : ''],
+    buildVerificationBlock(hasNodeTestInfra),
+    buildPlanOutputSchema(action, repoExample),
+    buildSkillSection(context)
+  );
 
 /**
  * Detect whether the context describes a Node.js test ecosystem.
@@ -897,17 +924,44 @@ const REVIEW_PROMPT_OUTPUT_SCHEMA = `    Return ONLY a valid JSON object:
  * Build the user-facing code review prompt.
  * @param diff Git diff text to review
  * @param guidelines Ordered review guideline strings
+ * @param skillNames Optional skill IDs to include as Skill-tool invocation hints in the prompt
  * @returns Full review prompt string
  */
-const buildReviewPrompt = (diff: string, guidelines: string[]): string =>
-  [
-    `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\`\n`,
-    `    Review Guidelines:\n${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}\n`,
-    `    Provide a code review with:\n    1. A brief summary of the changes\n    2. Any issues found (errors, warnings, or info)\n    3. A trace provenance label: evidence-based, best-effort, or unavailable\n    4. A nested tree-like call stack that walks the changed code path, starting from concrete functions, handlers, or methods in the diff\n    5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack, not the reviewer's analysis flow\n    6. A suggestion for each issue when remediation is clear — each suggestion must recommend the smallest effective fix (the minimum change that resolves the issue without introducing unnecessary scope). Write suggestions in plain, human-friendly language: be concise, use everyday phrasing, and avoid jargon-heavy or robotic sentences.\n    7. Optional trailing suggestions for general follow-up work that is not tied to a single issue — each must also prefer the smallest effective fix and use the same concise, human-friendly tone\n    8. Whether the code is approved\n`,
+const formatReviewGuidelines = (guidelines: string[]): string =>
+  guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
+
+const formatReviewSkillSection = (skillNames?: string[]): string => {
+  if (!skillNames?.length) return '';
+  const items = skillNames.map(s => '- Skill(\'' + s + '\')').join('\n');
+  return '\nSkill-specific instructions:\nBefore starting review, invoke each of the following skills using the Skill tool:\n'
+    + items + '\nFollow each skill\'s instructions fully before proceeding.\n';
+};
+
+const REVIEW_PROMPT_INSTRUCTIONS = `    Provide a code review with:
+    1. A brief summary of the changes
+    2. Any issues found (errors, warnings, or info)
+    3. A trace provenance label: evidence-based, best-effort, or unavailable
+    4. A nested tree-like call stack that walks the changed code path, starting from concrete functions, handlers, or methods in the diff
+    5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack, not the reviewer's analysis flow
+    6. A suggestion for each issue when remediation is clear — each suggestion must recommend the smallest effective fix (the minimum change that resolves the issue without introducing unnecessary scope). Write suggestions in plain, human-friendly language: be concise, use everyday phrasing, and avoid jargon-heavy or robotic sentences.
+    7. Optional trailing suggestions for general follow-up work that is not tied to a single issue — each must also prefer the smallest effective fix and use the same concise, human-friendly tone
+    8. Whether the code is approved
+`;
+
+const buildReviewPrompt = (diff: string, guidelines: string[], skillNames?: string[]): string => {
+  const codeSection = '\nCode Changes:\n```\n' + diff + '\n```\n';
+  const guidelinesSection = '    Review Guidelines:\n' + formatReviewGuidelines(guidelines) + '\n';
+  const skillSection = formatReviewSkillSection(skillNames);
+  return [
+    codeSection,
+    guidelinesSection,
+    REVIEW_PROMPT_INSTRUCTIONS,
+    ...(skillSection ? [skillSection] : []),
     REVIEW_PROMPT_TRACE_RULES,
     '\n',
     REVIEW_PROMPT_OUTPUT_SCHEMA,
   ].join('\n');
+};
 
 /**
  * Execute one review attempt with unusable-response retry logic.
@@ -1015,9 +1069,9 @@ const resolveStageModel = (configService: ConfigService, stage: string): string 
 @Injectable()
 export class AiService {
   constructor(
-    private logger: LoggerService,
-    @Inject(LLM_ADAPTER) private adapter: LlmAdapter,
-    private configService: ConfigService
+    private readonly logger: LoggerService,
+    @Inject(LLM_ADAPTER) private readonly adapter: LlmAdapter,
+    private readonly configService: ConfigService
   ) {}
 
   async execute(request: AIRequest): Promise<AIResponse> {
@@ -1042,7 +1096,7 @@ export class AiService {
   }
 
   async generatePlan(
-    action: 'fix' | 'implement' | 'investigate',
+    action: ResolutionAction,
     issueContent: string,
     context?: Record<string, unknown>
   ): Promise<ResolutionPlan> {
@@ -1086,8 +1140,12 @@ export class AiService {
   async reviewCode(diff: string, guidelines: string[], onProgress?: StageProgressCallback): Promise<CodeReview> {
     onProgress?.('Synthesizing review...');
     const reviewMaxTokens = this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
+    const reviewSkillIds = this.configService.get<string[]>('stages.review.skills') ?? [];
+    const reviewSkillNames = reviewSkillIds.length
+      ? (await resolveSkills(reviewSkillIds, { interactive: false, stage: 'review' })).map(s => s.id)
+      : [];
     const executeReview = () =>
-      this.execute({ prompt: buildReviewPrompt(diff, guidelines), systemPrompt: REVIEW_SYSTEM_PROMPT, temperature: 0.3, maxTokens: reviewMaxTokens, stage: 'review' });
+      this.execute({ prompt: buildReviewPrompt(diff, guidelines, reviewSkillNames.length ? reviewSkillNames : undefined), systemPrompt: REVIEW_SYSTEM_PROMPT, temperature: 0.3, maxTokens: reviewMaxTokens, stage: 'review' });
     const response = await retryOnUnusableResponse(executeReview, REVIEW_EMPTY_RESPONSE_RETRY_LIMIT);
     throwIfTruncated(response, 'Review');
     return this.parseReviewResponse(response, diff);

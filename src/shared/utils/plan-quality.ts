@@ -1,14 +1,10 @@
 import type { ResolutionPlan } from '../types/ai.types';
 import type { NodeInfra, TestInfraContext } from '../types/detection.types';
 import { ValidationError } from '../errors/app.error';
+import type { SkillQualityRule } from '../../skills/skill.types';
 
 export interface PlanQualityViolation {
-  ruleId:
-    | 'rename-target-required'
-    | 'verification-allowlist'
-    | 'test-file-suffix'
-    | 'mock-cleanup-convention'
-    | 'mock-factory-prefix';
+  ruleId: string;
   message: string;
 }
 
@@ -16,6 +12,7 @@ interface ValidatePlanQualityParams {
   plan: Partial<ResolutionPlan>;
   affectedRepositories?: string[];
   testInfra?: TestInfraContext;
+  skillRules?: SkillQualityRule[];
 }
 
 const PACKAGE_MANAGER_COMMAND_PATTERN = /^(?:yarn|npm run|pnpm|pnpm run|npx|nr)\s+([^\s]+)/;
@@ -236,10 +233,15 @@ const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViol
     ? params.plan.steps.filter((step): step is string => typeof step === 'string')
     : [];
 
+  const skillViolations: PlanQualityViolation[] = (params.skillRules ?? []).flatMap(rule =>
+    rule.validate(params.plan).map(message => ({ ruleId: rule.ruleId, message }))
+  );
+
   return uniqueViolations([
     ...detectRenameViolations(steps),
     ...detectVerificationViolations(params.plan.verification, params.testInfra, params.affectedRepositories),
     ...detectTestConventionViolations(steps, params.testInfra),
+    ...skillViolations,
   ]);
 };
 

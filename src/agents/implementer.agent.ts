@@ -16,6 +16,7 @@ import {
 } from './interfaces';
 import { extractSummary, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
 import { ConfigurationError, GitError, ValidationError } from '../shared/utils/errors';
+import { resolveSkills } from '../skills';
 import { formatBackendSelection, writeImplementVerificationRunFile } from '../shared/utils/implement-verification';
 import { getWfStateDir } from '../shared/utils/wf-paths';
 import * as fs from 'node:fs';
@@ -129,9 +130,15 @@ export class ImplementerAgent {
     });
   }
 
+  private async resolveImplementSkillNames(): Promise<string[] | undefined> {
+    const ids = this.configService.get<string[]>('stages.implement.skills') ?? [];
+    if (!ids.length) return undefined;
+    const skills = await resolveSkills(ids, { interactive: this.isInteractiveSession(), stage: 'implement' });
+    return skills.map(s => s.id);
+  }
+
   private async runBackend(
-    ticket: TicketArtifact,
-    planArtifact: PlanArtifact,
+    ticket: TicketArtifact, planArtifact: PlanArtifact,
     options: ImplementerOptions,
     branchName: string | null,
     resolved: FileResolution
@@ -144,7 +151,8 @@ export class ImplementerAgent {
     this.writeRunArtifact(ticket, options, backendSelection, verificationScripts);
     const result = await this.createAdapter(backendSelection).generateAndVerify({
       ticket, planArtifact, options, verificationScripts,
-      ticketContext: ticket.content, contextFiles, repoName, ...tracked,
+      contextFiles, repoName, ...tracked,
+      skillNames: await this.resolveImplementSkillNames(),
     });
     this.logCompletionStatus(planArtifact);
     return { type: 'implementation', hasChanges: (await this.gitService.getStatus(options.repoDir)).files.length > 0, branchName, sessionId: result.sessionId, verificationOutcomes: result.verificationOutcomes };
@@ -873,27 +881,28 @@ export class ImplementerAgent {
     return branch;
   }
 
-  private async pullLatestFromSource(
-    sourceBranch: string,
-    currentBranch: string,
-    cwd: string | undefined
+  private async ensureOnSourceBranch(
+    sourceBranch: string, currentBranch: string, cwd: string | undefined
   ): Promise<void> {
-    const isRemote = sourceBranch.startsWith('remotes/') || sourceBranch.startsWith('origin/');
-    if (isRemote) {
+    if (currentBranch === sourceBranch) return;
+    const switched = await this.tryCheckoutSource(sourceBranch, cwd);
+    if (!switched) {
+      throw new GitError(
+        `Cannot switch to source branch '${sourceBranch}' — working tree has conflicting changes.\n`
+        + `Stash or commit your changes in ${cwd ?? 'the current directory'}, then retry.`,
+        { sourceBranch, cwd },
+      );
+    }
+  }
+
+  private async pullLatestFromSource(
+    sourceBranch: string, currentBranch: string, cwd: string | undefined
+  ): Promise<void> {
+    if (sourceBranch.startsWith('remotes/') || sourceBranch.startsWith('origin/')) {
       console.log(chalk.gray(`  Skipping pull — ${sourceBranch} is a remote tracking ref`));
       return;
     }
-
-    if (currentBranch !== sourceBranch) {
-      const switched = await this.tryCheckoutSource(sourceBranch, cwd);
-      if (!switched) {
-        throw new GitError(
-          `Cannot switch to source branch '${sourceBranch}' — working tree has conflicting changes.\n`
-          + `Stash or commit your changes in ${cwd ?? 'the current directory'}, then retry.`,
-          { sourceBranch, cwd },
-        );
-      }
-    }
+    await this.ensureOnSourceBranch(sourceBranch, currentBranch, cwd);
     await this.pullSafe(sourceBranch, cwd);
   }
 

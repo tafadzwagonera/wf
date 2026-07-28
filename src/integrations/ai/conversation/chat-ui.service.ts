@@ -251,7 +251,7 @@ export class ChatUIService {
    */
   displayError(message: string): void {
     console.log();
-    console.log(chalk.red(`❌ Error: ${message}`));
+    console.log(chalk.red(`✖ Error: ${message}`));
     console.log();
   }
 

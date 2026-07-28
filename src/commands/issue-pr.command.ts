@@ -101,7 +101,7 @@ export class IssuePrCommand extends CommandRunner {
     if (!options?.silent) this.printPrHeader(ticketKey, prParams.head, prParams.base, prParams.title);
 
     const prUrl = await adapter.createPullRequest!(prParams);
-    console.log(options?.silent ? prUrl : chalk.bold.cyan(`\n✅ Pull request created: ${prUrl}\n`));
+    console.log(options?.silent ? prUrl : chalk.bold.cyan(`\n✔ Pull request created: ${prUrl}\n`));
   }
 
   private async buildPrParams(ticketKey: string, plan: any, planPath: string, options?: IssuePrOptions) {

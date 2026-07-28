@@ -236,3 +236,66 @@ describe('createPlanQualityError', () => {
     expect(error.message).toContain('[verification-allowlist]');
   });
 });
+
+describe('validatePlanQuality with skillRules', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('accepts arbitrary string ruleIds from skill rules', () => {
+    const result = validatePlanQuality({
+      plan: { steps: ['Do work'] },
+      skillRules: [{ ruleId: 'skill:custom-rule', validate: () => ['violation message'] }],
+    });
+
+    expect(result).toEqual([
+      { ruleId: 'skill:custom-rule', message: 'violation message' },
+    ]);
+  });
+
+  it('merges skill violations with built-in violations', () => {
+    const result = validatePlanQuality({
+      plan: {
+        steps: ['Rename AuthService in wf/src/auth.ts.'],
+      },
+      affectedRepositories: ['wf'],
+      skillRules: [{ ruleId: 'custom-skill-rule', validate: () => ['skill says no'] }],
+    });
+
+    const ruleIds = result.map(v => v.ruleId);
+    expect(ruleIds).toContain('rename-target-required');
+    expect(ruleIds).toContain('custom-skill-rule');
+  });
+
+  it('deduplicates identical skill violations via uniqueViolations', () => {
+    const duplicateRule = {
+      ruleId: 'dupe-rule',
+      validate: () => ['same message', 'same message'],
+    };
+
+    const result = validatePlanQuality({
+      plan: { steps: ['Clean step'] },
+      skillRules: [duplicateRule],
+    });
+
+    const dupes = result.filter(v => v.ruleId === 'dupe-rule');
+    expect(dupes).toHaveLength(1);
+  });
+
+  it('returns no skill violations when skillRules is empty', () => {
+    const result = validatePlanQuality({
+      plan: { steps: ['Clean step'] },
+      skillRules: [],
+    });
+
+    expect(result).toEqual([]);
+  });
+
+  it('returns no violations when skillRules is omitted', () => {
+    const result = validatePlanQuality({
+      plan: { steps: ['Clean step'] },
+    });
+
+    expect(result).toEqual([]);
+  });
+});

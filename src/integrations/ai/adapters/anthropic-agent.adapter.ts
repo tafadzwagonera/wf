@@ -29,6 +29,7 @@ import {
   loadClaudeContext,
   discoverChangedFiles,
   buildPlanContext,
+  buildImplementerRulesSection,
 } from './shared-routing';
 
 const CLAUDE_CODE_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'] as const;
@@ -290,35 +291,24 @@ const logProgressMessage = (message: SDKMessage): boolean => {
   return true;
 };
 
-const IMPLEMENTER_RULES_SECTION = `Available tools:
+const ANTHROPIC_TOOLS_BLOCK = `Available tools:
 - Read(file_path, offset?, limit?): read a file with optional line range
 - Write(file_path, content): write a full file into the primary repository only
 - Edit(file_path, old_string, new_string): surgically replace a unique string in a file
 - Glob(pattern, path?): find files by glob pattern
 - Grep(pattern, path?, glob?): search file contents by regex
 - Bash(command): run a verification command only if it is on the whitelist
-- Skill(skill, args?): invoke a specialized skill (e.g. plan-quality, executing-plans) when one applies to the current task
+- Skill(skill, args?): invoke a specialized skill (e.g. plan-quality, executing-plans) when one applies to the current task`;
 
-Rules:
-- NEVER output free-form text, commentary, or planning at any point during the run. Every response you produce MUST contain at least one tool call. The ONLY exception is the final summary (using the exact template below) which you output after ALL work is done and ALL verification passes. If you feel the urge to describe what you will do next, call a tool instead. Text output without a tool call terminates the run immediately.
-- ALWAYS use Edit instead of Write for existing files. Write should only be used for creating new files. Using Write on existing files wastes context on unchanged lines.
-- Use Grep to find relevant line numbers, then Read with offset/limit to read only the section you need. Avoid reading entire large files.
-- For mechanical migrations (e.g. replacing Logger with PinoLogger across many files): use Grep to find all call sites, then apply Edit to each file without re-reading the full file — the search results show enough context.
-- Use Glob to discover file paths instead of guessing.
-- Bash is the only way to execute a shell command, and it will reject any command outside the verification whitelist.
-- Never invent or call any other shell command tool.
-- Never duplicate a function. To add a parameter, modify the existing function signature. To change behavior, edit the existing function body. This applies to constructors, methods, and standalone functions alike.
-- You MUST implement ALL plan steps listed above. Do not stop after completing only the core infrastructure — continue through every step until all tasks are done.
-- Treat the returned progress signal as a heuristic only — never use a 'complete' verdict as a reason to stop. The verdict reflects a single verification command, not overall plan completion.
-- Use verification commands as intermediate checkpoints to catch regressions. After each passing verification, check whether ALL plan steps are done. If any migration or refactoring work remains, continue working.
-- After verification passes, run Grep to count remaining instances of the patterns you are migrating (e.g. 'new Logger('). If the search returns ANY matches, you MUST continue editing those files — do NOT output a summary or any text. Producing a summary that says "remaining work needed" or "follow-up required" is a failure. Keep calling Edit until the search returns zero matches.
-- Only stop when the migration search confirms zero remaining instances AND all verification commands pass (exit 0) — or when you determine no file changes are required. Then output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.` as const;
+const implementerRulesSection = buildImplementerRulesSection({
+  read: 'Read', write: 'Write', edit: 'Edit', search: 'Grep', glob: 'Glob', verify: 'Bash',
+});
 
 const IMPLEMENTER_SUMMARY_TEMPLATE = `### What I changed
 <Bullet list of actual edits made. If nothing was changed, write: "No file content changes were required.">
 
 ### Verification run
-<Bullet list of commands run with ✅ (pass) or ❌ (fail). Omit if no commands ran.>
+<Bullet list of commands run with ✔ (pass) or ✖ (fail). Omit if no commands ran.>
 
 ### Files
 - **Updated:** <comma-separated list or "none">
@@ -336,11 +326,11 @@ type SystemPromptParams = {
   contextFiles?: string[];
   trackedFilePaths: string[];
   verificationScripts: VerificationScript[];
-  ticketContext: string;
   planSteps: string[];
   planSummary?: string;
   planRisks?: string[];
   planAction?: 'fix' | 'feature' | 'investigate';
+  skillNames?: string[];
 };
 
 /**
@@ -360,23 +350,20 @@ const formatRisksSection = (planRisks?: string[]): string =>
  * @param planContext - Pre-built plan context string from `buildPlanContext`
  * @param repoDir - Repository root used in scoping rules
  * @param planRisks - Optional risk list to render
- * @param ticketContext - Raw ticket context string appended at the end
  * @returns The full joined system prompt string
  */
 const assembleSystemPrompt = (
   planContext: string,
   repoDir: string,
   planRisks: string[] | undefined,
-  ticketContext: string
 ): string =>
   [
     planContext,
     `\nWrites must stay scoped to the primary repository (${repoDir}).`,
     `Reads may target ${repoDir} and any configured read-only sibling repositories.\n`,
-    IMPLEMENTER_RULES_SECTION,
+    `${ANTHROPIC_TOOLS_BLOCK}\n\n${implementerRulesSection}`,
     IMPLEMENTER_SUMMARY_TEMPLATE,
     `Risks and guardrails:\n${formatRisksSection(planRisks)}`,
-    `Ticket context:\n${ticketContext}`,
   ].join('\n\n');
 
 export const buildSystemPrompt = (p: SystemPromptParams): string => {
@@ -385,8 +372,9 @@ export const buildSystemPrompt = (p: SystemPromptParams): string => {
     contextFiles: p.contextFiles, trackedFilePaths: p.trackedFilePaths,
     verificationScripts: p.verificationScripts, planSteps: p.planSteps,
     planSummary: p.planSummary, planRisks: p.planRisks, planAction: p.planAction,
+    skillNames: p.skillNames,
   });
-  return assembleSystemPrompt(planContext, p.repoDir, p.planRisks, p.ticketContext);
+  return assembleSystemPrompt(planContext, p.repoDir, p.planRisks);
 };
 
 type SdkOptionsParams = {
@@ -797,11 +785,11 @@ type GenerateAndVerifyParams = {
   planArtifact: PlanArtifact;
   options: ImplementerOptions;
   verificationScripts: VerificationScript[];
-  ticketContext: string;
   repoFiles: string[];
   contextFiles?: string[];
   repoName: string;
   trackedFilePaths: string[];
+  skillNames?: string[];
 };
 
 /**
@@ -833,9 +821,10 @@ const buildSystemPromptParams = (params: GenerateAndVerifyParams, repoDir: strin
   ticketKey: params.ticket.ticketKey,
   repoDir, repoName: params.repoName, repoFiles: params.repoFiles,
   contextFiles: params.contextFiles, trackedFilePaths: params.trackedFilePaths,
-  verificationScripts: params.verificationScripts, ticketContext: params.ticketContext,
+  verificationScripts: params.verificationScripts,
   planSteps: params.planArtifact.plan.steps, planSummary: params.planArtifact.plan.summary,
   planRisks: params.planArtifact.plan.risks, planAction: params.planArtifact.plan.action,
+  skillNames: params.skillNames,
 });
 
 const resolveModelAndPrompt = (

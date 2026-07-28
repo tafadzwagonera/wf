@@ -113,7 +113,7 @@ export class IssueCommitCommand extends CommandRunner {
     this.dryRunPreview.showSummary({
       apiCallCount: options?.message ? 0 : 1, fileCreatedCount: 0, fileModifiedCount: 0, gitOperationCount: 1,
       terminalOutputLines: [
-        '✅ Commit created successfully!', '', 'Commit hash: <short-sha>',
+        '✔ Commit created successfully!', '', 'Commit hash: <short-sha>',
         `Message: ${prefix}<AI-generated message>`, '',
         '💡 Tip: Use "git push" to push your commit to remote',
       ],
@@ -159,7 +159,7 @@ export class IssueCommitCommand extends CommandRunner {
   private async createAndPrintCommit(commitMessage: string, repoBaseDir: string): Promise<void> {
     console.log(chalk.cyan('📦 Creating commit...\n'));
     const commitHash = await this.gitService.commit({ message: commitMessage, cwd: repoBaseDir });
-    console.log(chalk.green('✅ Commit created successfully!\n'));
+    console.log(chalk.green('✔ Commit created successfully!\n'));
     console.log(chalk.bold('Commit hash:'), chalk.cyan(commitHash));
     console.log(chalk.bold('Message:'), chalk.bold.cyan(commitMessage.split('\n')[0]));
     console.log(chalk.gray('\n💡 Tip: Use "git push" to push your commit to remote\n'));

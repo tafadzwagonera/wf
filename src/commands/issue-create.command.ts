@@ -323,7 +323,7 @@ export class IssueCreateCommand extends CommandRunner {
     });
     this.dryRunPreview.showSummary({
       apiCallCount: 1, fileCreatedCount: 0, fileModifiedCount: 0, gitOperationCount: 0,
-      terminalOutputLines: ['✅ Ticket created successfully!', '', `Platform: ${trackerName}`,
+      terminalOutputLines: ['✔ Ticket created successfully!', '', `Platform: ${trackerName}`,
         'Key: <tracker-assigned-key>', 'ID: <tracker-assigned-id>', 'URL: <tracker-ticket-url>'],
     });
     this.dryRunPreview.showValidationResult();
@@ -338,7 +338,7 @@ export class IssueCreateCommand extends CommandRunner {
       console.log(reference.key);
       return;
     }
-    console.log(chalk.green('✅ Ticket created successfully!\n'));
+    console.log(chalk.green('✔ Ticket created successfully!\n'));
     console.log(chalk.bold('Tracker:'), chalk.cyan(reference.tracker));
     console.log(chalk.bold('Key:'), chalk.bold.cyan(reference.key));
     console.log(chalk.bold('ID:'), chalk.cyan(reference.id));

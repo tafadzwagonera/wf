@@ -48,7 +48,9 @@ import {
   stripRepoPrefix,
   isGlobPattern,
   buildPlanContext,
+  buildImplementerRulesSection,
 } from './shared-routing';
+import { buildSkillPromptFragment } from '../../../skills/skill-content';
 import type { ResolutionPlan } from '../ai.service';
 
 const execAsync = promisify(exec);
@@ -142,11 +144,11 @@ type GenerateAndVerifyParams = {
   ticket: TicketArtifact;
   planArtifact: PlanArtifact;
   verificationScripts: VerificationScript[];
-  ticketContext: string;
   repoFiles: string[];
   contextFiles?: string[];
   repoName: string;
   trackedFilePaths: string[];
+  skillNames?: string[];
 };
 
 /**
@@ -593,28 +595,17 @@ const AVAILABLE_TOOLS_BLOCK = `Available tools:
 - find_files(pattern, path?, max_results?): find files by glob pattern
 - verify_command(command): run a verification command only if it is on the whitelist`;
 
-const RULES_BLOCK = `Rules:
-- NEVER output free-form text, commentary, or planning at any point during the run. Every response you produce MUST contain at least one tool call. The ONLY exception is the final summary (using the exact template below) which you output after ALL work is done and ALL verification passes. If you feel the urge to describe what you will do next, call a tool instead. Text output without a tool call terminates the run immediately.
-- ALWAYS use edit_file instead of write_file for existing files. write_file should only be used for creating new files. Using write_file on existing files wastes context on unchanged lines.
-- Use search_files to find relevant line numbers, then read_file with offset/limit to read only the section you need. Avoid reading entire large files.
-- For mechanical migrations (e.g. replacing Logger with PinoLogger across many files): use search_files to find all call sites, then apply edit_file to each file without re-reading the full file — the search results show enough context.
-- Use find_files to discover file paths instead of guessing.
-- Use delete_file only when a file should be removed.
-- verify_command is the only way to execute a shell command, and it will reject any command outside the verification whitelist.
-- Never invent or call any other shell command tool.
-- Never duplicate a function. To add a parameter, modify the existing function signature. To change behavior, edit the existing function body. This applies to constructors, methods, and standalone functions alike.`;
-
-const WORKFLOW_RULES = `- You MUST implement ALL plan steps listed above. Do not stop after completing only the core infrastructure — continue through every step until all tasks are done.
-- Treat the returned progress signal as a heuristic only — never use a 'complete' verdict as a reason to stop. The verdict reflects a single verification command, not overall plan completion.
-- Use verification commands as intermediate checkpoints to catch regressions. After each passing verification, check whether ALL plan steps are done. If any migration or refactoring work remains, continue working.
-- After verification passes, run search_files to count remaining instances of the patterns you are migrating (e.g. 'new Logger('). If the search returns ANY matches, you MUST continue editing those files — do NOT output a summary or any text. Producing a summary that says "remaining work needed" or "follow-up required" is a failure. Keep calling edit_file until the search returns zero matches.
-- Only stop when the migration search confirms zero remaining instances AND all verification commands pass (exit 0) — or when you determine no file changes are required. Then output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.`;
+const implementerRulesSection = buildImplementerRulesSection({
+  read: 'read_file', write: 'write_file', edit: 'edit_file',
+  search: 'search_files', glob: 'find_files', verify: 'verify_command',
+})
++ '\n- Use delete_file only when a file should be removed.';
 
 const SUMMARY_TEMPLATE = `### What I changed
 <Bullet list of actual edits made. If nothing was changed, write: "No file content changes were required.">
 
 ### Verification run
-<Bullet list of commands run with ✅ (pass) or ❌ (fail). Omit if no commands ran.>
+<Bullet list of commands run with ✅ (pass) or ✖ (fail). Omit if no commands ran.>
 
 ### Files
 - **Updated:** <comma-separated list or "none">
@@ -644,10 +635,9 @@ const buildRisksBlock = (planRisks?: string[]): string => {
  * @returns Combined rules text
  */
 const buildScopedRules = (repoDir: string): string => [
-  RULES_BLOCK,
+  implementerRulesSection,
   `- Writes must stay scoped to the primary repository (${repoDir}).`,
   `- Reads may target ${repoDir} and any configured read-only sibling repositories.`,
-  WORKFLOW_RULES,
 ].join('\n');
 
 type SystemPromptParams = {
@@ -658,11 +648,11 @@ type SystemPromptParams = {
   contextFiles?: string[];
   trackedFilePaths: string[];
   verificationScripts: VerificationScript[];
-  ticketContext: string;
   planSteps: string[];
   planSummary?: string;
   planRisks?: string[];
   planAction?: 'fix' | 'feature' | 'investigate';
+  skillNames?: string[];
 };
 
 /**
@@ -678,6 +668,7 @@ const buildPlanSection = (p: SystemPromptParams): string =>
     trackedFilePaths: p.trackedFilePaths, verificationScripts: p.verificationScripts,
     planSteps: p.planSteps, planSummary: p.planSummary,
     planRisks: p.planRisks, planAction: p.planAction,
+    skillNames: p.skillNames,
   });
 
 /**
@@ -690,7 +681,7 @@ const buildSystemPrompt = (p: SystemPromptParams): string => {
   const plan = buildPlanSection(p);
   const rules = buildScopedRules(p.repoDir);
   const risks = buildRisksBlock(p.planRisks);
-  return `${plan}\n\n${AVAILABLE_TOOLS_BLOCK}\n\n${rules}\n\n${SUMMARY_TEMPLATE}\n\n${risks}\n\nTicket context:\n${p.ticketContext}`;
+  return `${plan}\n\n${AVAILABLE_TOOLS_BLOCK}\n\n${rules}\n\n${SUMMARY_TEMPLATE}\n\n${risks}`;
 };
 
 /**
@@ -1929,9 +1920,10 @@ const buildSystemPromptFromParams = (p: GenerateAndVerifyParams, repoDir: string
     ticketKey: p.ticket.ticketKey, repoDir, repoName: p.repoName,
     repoFiles: p.repoFiles, contextFiles: p.contextFiles,
     trackedFilePaths: p.trackedFilePaths, verificationScripts: p.verificationScripts,
-    ticketContext: p.ticketContext, planSteps: p.planArtifact.plan.steps,
+    planSteps: p.planArtifact.plan.steps,
     planSummary: p.planArtifact.plan.summary, planRisks: p.planArtifact.plan.risks,
     planAction: p.planArtifact.plan.action,
+    skillNames: p.skillNames,
   });
 
 /**
@@ -2047,8 +2039,8 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
   /**
    * Executes the agent run and continuation loop.
    *
-   * @param params - Full params
    * @param c - Run components
+   * @param verificationScripts
    * @returns Session result
    */
   private buildRunResult(
@@ -2175,7 +2167,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     params: GenerateAndVerifyParams, repoDir: string, model: string,
     mutable: ToolMutableState, vs: VerifyCommandState, options: ImplementerOptions
   ) {
-    const agent = this.createAgent(params, repoDir, model, mutable, vs, options);
+    const agent = await this.createAgent(params, repoDir, model, mutable, vs, options);
     const contextMd = await loadAiContextConfig(
       path.join(os.homedir(), '.openai', 'OPENAI.md'), '.openai/OPENAI.md', 'openai', true
     );
@@ -2185,6 +2177,8 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
 
   /**
    * Creates the agent with tools and system prompt.
+   * When skillNames are provided, SKILL.md content is loaded from disk and
+   * appended to the system prompt since the OpenAI Agent SDK has no native Skill tool.
    *
    * @param params - Core params
    * @param repoDir - Primary repo directory
@@ -2194,19 +2188,20 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
    * @param options - Implementer options
    * @returns Configured agent
    */
-  private createAgent(
+  private async createAgent(
     params: GenerateAndVerifyParams, repoDir: string, model: string,
     mutable: ToolMutableState, vs: VerifyCommandState, options: ImplementerOptions
-  ): OaiAgent {
+  ): Promise<OaiAgent> {
     const tools = createAllTools(mutable, vs);
     const sysPrompt = buildSystemPromptFromParams(params, repoDir);
     const preamble = buildPriorStagePreamble(options.priorStageSummary);
+    const skillFragment = params.skillNames?.length ? await buildSkillPromptFragment(params.skillNames) : '';
     if (options.resumeProviderSessionId) {
       console.log(chalk.yellow(
         '  [openai-agent] Session resumption is not yet supported for the OpenAI agent backend. Starting fresh.'
       ));
     }
-    return buildAgent(model, `${preamble}${sysPrompt}`, tools);
+    return buildAgent(model, `${preamble}${sysPrompt}${skillFragment}`, tools);
   }
 
   /**

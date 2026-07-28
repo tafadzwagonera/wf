@@ -160,12 +160,14 @@ const aiStageTargetSchema = z.object({
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
   timeoutMs: z.number().int().min(1000).optional(),
   inactivityTimeoutMs: z.number().int().min(1000).optional(),
+  skills: z.array(z.string()).optional(),
 });
 
 const createStageSchema = z.object({
   provider: z.enum(providerNames).optional(),
   model: z.string().min(1).optional(),
   backend: z.enum(backendModes).optional(),
+  skills: z.array(z.string()).optional(),
   verificationConditions: verificationConditionsSchema.optional(),
 });
 
@@ -180,6 +182,7 @@ const implementStageSchema = z
       })
       .optional(),
     backend: z.enum(backendModes).optional(),
+    skills: z.array(z.string()).optional(),
     verificationConditions: verificationConditionsSchema.optional(),
   })
   .strict();
@@ -652,6 +655,7 @@ const normalizeStageTarget = ({
     outputFormat: stageTarget.outputFormat,
     timeoutMs: stageTarget.timeoutMs,
     inactivityTimeoutMs: stageTarget.inactivityTimeoutMs,
+    skills: stageTarget.skills,
   };
 };
 

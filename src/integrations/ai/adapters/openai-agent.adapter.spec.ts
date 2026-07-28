@@ -188,7 +188,6 @@ const makeParams = (repoDir: string, verificationScripts: VerificationScript[] =
     additionalRepoDirs: ['/repo/shared'],
   },
   verificationScripts,
-  ticketContext: 'implement it',
   repoFiles: [],
   repoName: 'primary',
   trackedFilePaths: [],

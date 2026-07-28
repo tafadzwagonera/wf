@@ -108,6 +108,31 @@ describe('buildPlanContext', () => {
     });
     expect(result).toContain('Plan summary:\n(none)');
   });
+
+  it('includes skill invocation hints when skillNames are provided', () => {
+    const result = buildPlanContext({
+      ...baseParams,
+      skillNames: ['writing-plans', 'test-driven-development'],
+    });
+
+    expect(result).toContain("Skill('writing-plans')");
+    expect(result).toContain("Skill('test-driven-development')");
+    expect(result).toContain('Skill-specific instructions:');
+  });
+
+  it('omits skill section when skillNames is an empty array', () => {
+    const result = buildPlanContext({
+      ...baseParams,
+      skillNames: [],
+    });
+
+    expect(result).not.toContain('Skill-specific instructions:');
+  });
+
+  it('omits skill section when skillNames is omitted', () => {
+    const result = buildPlanContext(baseParams);
+    expect(result).not.toContain('Skill-specific instructions:');
+  });
 });
 
 describe('resolveModelRouting', () => {

@@ -8,6 +8,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { AIError } from '../../shared/utils/errors';
+import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
+import type { SkillDefinition } from '../../skills/skill.types';
 
 describe('ReviewStageService', () => {
   const mockReview = {
@@ -144,10 +146,12 @@ describe('ReviewStageService', () => {
   const buildService = async ({
     agentEnabled = false,
     reviewBackend,
+    reviewSkills,
     mockStageExecutionMode = 'agent',
   }: {
     agentEnabled?: boolean;
     reviewBackend?: 'agent' | 'cli' | 'standard';
+    reviewSkills?: string[];
     mockStageExecutionMode?: 'agent' | 'cli';
   } = {}) => {
     const module = await Test.createTestingModule({
@@ -158,6 +162,7 @@ describe('ReviewStageService', () => {
           useValue: {
             get: jest.fn((key: string, fallback?: unknown) => {
               if (key === 'stages.review.backend') return reviewBackend ?? fallback;
+              if (key === 'stages.review.skills') return reviewSkills;
               return fallback;
             }),
           },
@@ -340,6 +345,7 @@ describe('ReviewStageService', () => {
       '/tmp/repo',
       undefined,
       undefined,
+      undefined,
       undefined
     );
     expect(aiService.reviewCode).not.toHaveBeenCalled();
@@ -378,6 +384,7 @@ describe('ReviewStageService', () => {
       'diff --git a/file b/file',
       expect.any(Array),
       '/tmp/repo',
+      undefined,
       undefined,
       undefined,
       undefined
@@ -498,7 +505,8 @@ describe('ReviewStageService', () => {
       undefined,
       undefined,
       undefined,
-      onProgress
+      onProgress,
+      undefined
     );
   });
 
@@ -516,5 +524,74 @@ describe('ReviewStageService', () => {
       expect.any(Array),
       onProgress
     );
+  });
+
+  describe('skill integration', () => {
+    const createMockReviewSkill = (id: string): SkillDefinition => ({ id, stages: ['review'] });
+    let savedSkills: Map<string, SkillDefinition>;
+
+    beforeEach(() => {
+      savedSkills = new Map(KNOWN_SKILLS);
+      KNOWN_SKILLS.clear();
+    });
+
+    afterEach(() => {
+      KNOWN_SKILLS.clear();
+      for (const [k, v] of savedSkills) KNOWN_SKILLS.set(k, v);
+    });
+
+    it('passes resolved skillNames to stageAgentService.reviewCode when agent backend is enabled', async () => {
+      registerSkill(createMockReviewSkill('receiving-code-review'));
+      const { service, stageAgentService } = await buildService({
+        agentEnabled: true,
+        reviewSkills: ['receiving-code-review'],
+      });
+
+      await service.reviewDiff('diff --git a/file b/file', {
+        context: 'ticket WBP-SKILL: Skill review',
+        repoDir: '/tmp/repo',
+      });
+
+      expect(stageAgentService.reviewCode).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Array),
+        '/tmp/repo',
+        undefined,
+        undefined,
+        undefined,
+        ['receiving-code-review']
+      );
+    });
+
+    it('passes undefined skillNames to agent when no skills are configured', async () => {
+      const { service, stageAgentService } = await buildService({ agentEnabled: true });
+
+      await service.reviewDiff('diff --git a/file b/file', {
+        context: 'ticket WBP-NO-SKILL: No skills',
+        repoDir: '/tmp/repo',
+      });
+
+      expect(stageAgentService.reviewCode).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Array),
+        '/tmp/repo',
+        undefined,
+        undefined,
+        undefined,
+        undefined
+      );
+    });
+
+    it('throws ConfigurationError when a skill does not support the review stage', async () => {
+      registerSkill({ id: 'plan-only-skill', stages: ['plan'] });
+      const { service } = await buildService({
+        agentEnabled: true,
+        reviewSkills: ['plan-only-skill'],
+      });
+
+      await expect(
+        service.reviewDiff('diff --git a/file b/file', { context: 'mismatch test' })
+      ).rejects.toThrow('does not support the "review" stage');
+    });
   });
 });

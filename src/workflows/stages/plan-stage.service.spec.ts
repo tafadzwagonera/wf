@@ -1,7 +1,9 @@
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { AiService } from '../../integrations/ai/ai.service';
 import { PlanStageService } from './plan-stage.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
+import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
 import {
   buildPlanArtifactManifest,
   buildPlanArtifactManifestPath,
@@ -63,6 +65,10 @@ describe('PlanStageService', () => {
             isEnabledForStage: jest.fn().mockReturnValue(agentEnabled),
             generatePlan: jest.fn().mockResolvedValue({ plan: mockPlan, sessionId: undefined }),
           },
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue(undefined) },
         },
       ],
     }).compile();
@@ -1033,6 +1039,104 @@ describe('PlanStageService', () => {
         .rejects.toThrow(ValidationError);
       await expect(service.loadPlanArtifact(ticketPath, undefined, bogusDir))
         .rejects.toThrow(/not a valid directory/);
+    });
+  });
+
+  describe('skill integration', () => {
+    let savedSkills: Map<string, import('../../skills/skill.types').SkillDefinition>;
+
+    beforeEach(() => {
+      savedSkills = new Map(KNOWN_SKILLS);
+      KNOWN_SKILLS.clear();
+    });
+
+    afterEach(() => {
+      KNOWN_SKILLS.clear();
+      for (const [k, v] of savedSkills) KNOWN_SKILLS.set(k, v);
+    });
+
+    it('passes skillNames in context when plan skills are configured', async () => {
+      registerSkill({ id: 'test-driven-development', stages: ['plan', 'implement'] });
+      registerSkill({ id: 'writing-plans', stages: ['plan'] });
+      const module = await Test.createTestingModule({
+        providers: [
+          PlanStageService,
+          {
+            provide: AiService,
+            useValue: { generatePlan: jest.fn().mockResolvedValue(mockPlan) },
+          },
+          {
+            provide: StageAgentService,
+            useValue: {
+              isEnabledForStage: jest.fn().mockReturnValue(false),
+              generatePlan: jest.fn(),
+            },
+          },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn((key: string) => {
+                if (key === 'stages.plan.skills') return ['test-driven-development', 'writing-plans'];
+                return undefined;
+              }),
+            },
+          },
+        ],
+      }).compile();
+
+      const service = module.get(PlanStageService);
+      const aiService = module.get(AiService);
+
+      await service.generatePlan('# WBP-SKILL: Test', { action: 'fix' });
+
+      expect(aiService.generatePlan).toHaveBeenCalledWith(
+        'fix',
+        '# WBP-SKILL: Test',
+        expect.objectContaining({
+          skillNames: ['test-driven-development', 'writing-plans'],
+        })
+      );
+    });
+
+    it('throws ConfigurationError when a plan skill does not support the plan stage', async () => {
+      registerSkill({ id: 'receiving-code-review', stages: ['review', 'implement'] });
+      const module = await Test.createTestingModule({
+        providers: [
+          PlanStageService,
+          {
+            provide: AiService,
+            useValue: { generatePlan: jest.fn() },
+          },
+          {
+            provide: StageAgentService,
+            useValue: { isEnabledForStage: jest.fn().mockReturnValue(false), generatePlan: jest.fn() },
+          },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn((key: string) => {
+                if (key === 'stages.plan.skills') return ['receiving-code-review'];
+                return undefined;
+              }),
+            },
+          },
+        ],
+      }).compile();
+
+      const service = module.get(PlanStageService);
+      await expect(service.generatePlan('body', { action: 'fix' }))
+        .rejects.toThrow('does not support the "plan" stage');
+    });
+
+    it('omits skillNames from context when no skills are configured', async () => {
+      const { service, aiService } = await buildService();
+      await service.generatePlan('# WBP-EMPTY: Test', { action: 'fix' });
+
+      expect(aiService.generatePlan).toHaveBeenCalledWith(
+        'fix',
+        '# WBP-EMPTY: Test',
+        expect.objectContaining({ skillNames: undefined })
+      );
     });
   });
 });

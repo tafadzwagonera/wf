@@ -19,6 +19,7 @@ export const wfAiStageTargetConfigSchema = z.object({
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
   timeoutMs: z.number().int().min(1000).optional(),
   inactivityTimeoutMs: z.number().int().min(1000).optional(),
+  skills: z.array(z.string()).optional(),
 });
 
 export const wfVerificationConditionsConfigSchema = z.object({
@@ -124,6 +125,7 @@ export const normalizedAiStageTargetConfigSchema = z.object({
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
   timeoutMs: z.number().int().min(1000).optional(),
   inactivityTimeoutMs: z.number().int().min(1000).optional(),
+  skills: z.array(z.string()).optional(),
 });
 
 export const normalizedVerificationConditionsConfigSchema = z.object({
@@ -137,6 +139,7 @@ export const normalizedImplementStageConfigSchema = z.object({
   models: z.object({ default: z.string().optional(), mechanical: z.string().optional() }).optional(),
   backend: wfBackendModeSchema,
   verificationConditions: normalizedVerificationConditionsConfigSchema.optional(),
+  skills: z.array(z.string()).optional(),
 });
 
 export const normalizedCreateStageConfigSchema = z.object({

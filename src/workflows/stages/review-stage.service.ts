@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   AiService,
   CodeReview,
@@ -17,6 +17,7 @@ import { splitDiffByFile, summariseDiff, MAX_REVIEW_DIFF_LENGTH } from '../../re
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import { deriveReviewArtifactPath } from '../../shared/utils/plan-artifact';
 import { StageProgressCallback } from '../../shared/types/agent.types';
+import { resolveSkills } from '../../skills';
 
 const DEFAULT_REVIEW_GUIDELINES = [
   'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
@@ -40,6 +41,7 @@ interface ReviewDiffOptions {
   priorStageSummary?: string;
   resumeProviderSessionId?: string;
   onProgress?: StageProgressCallback;
+  skillNames?: string[];
 }
 
 @Injectable()
@@ -100,14 +102,23 @@ export class ReviewStageService {
     return this.ensureExecutionModeSet(review);
   }
 
+  private async resolveReviewSkillNames(): Promise<string[] | undefined> {
+    const ids = this.configService.get<string[]>('stages.review.skills') ?? [];
+    if (!ids.length) return undefined;
+    const skills = await resolveSkills(ids, { interactive: this.isInteractiveSession(), stage: 'review' });
+    return skills.map(s => s.id);
+  }
+
   private async performReview(
     diff: string,
     guidelines: string[],
     options: ReviewDiffOptions
   ): Promise<CodeReview> {
-    return this.stageAgentService.isEnabledForStage('review')
-      ? await this.reviewViaAgent(diff, guidelines, options)
-      : await this.aiService.reviewCode(diff, guidelines, options.onProgress);
+    if (!this.stageAgentService.isEnabledForStage('review')) {
+      return this.aiService.reviewCode(diff, guidelines, options.onProgress);
+    }
+    const skillNames = await this.resolveReviewSkillNames();
+    return this.reviewViaAgent(diff, guidelines, { ...options, skillNames });
   }
 
   private async reviewViaAgent(
@@ -116,14 +127,15 @@ export class ReviewStageService {
     options: ReviewDiffOptions
   ): Promise<CodeReview> {
     const result = await this.stageAgentService.reviewCode(
-      diff,
-      guidelines,
-      options.repoDir,
-      options.priorStageSummary,
-      options.resumeProviderSessionId,
-      options.onProgress
+      diff, guidelines, options.repoDir, options.priorStageSummary,
+      options.resumeProviderSessionId, options.onProgress,
+      options.skillNames
     );
     return result.review;
+  }
+
+  private isInteractiveSession(): boolean {
+    return Boolean(process.stdin.isTTY && process.stdout.isTTY);
   }
 
   private ensureExecutionModeSet(review: CodeReview): CodeReview {

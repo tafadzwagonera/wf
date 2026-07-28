@@ -45,7 +45,6 @@ function main(): void {
     repoFiles: ['repo/src/index.ts'],
     trackedFilePaths: ['repo/src/index.ts'],
     verificationScripts: [{ id: 'build', name: 'build', command: 'yarn build', policy: 'enforced', aliases: [] }],
-    ticketContext: '# TEST-1: Smoke test\n',
     planSteps: ['Step one'],
     planSummary: 'Test summary',
     planAction: 'fix' as const,

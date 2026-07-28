@@ -13,7 +13,7 @@ export class ErrorHandler {
   }
 
   private static handleAppError(error: AppError): void {
-    console.error(chalk.red.bold(`\n❌ ${error.name}`));
+    console.error(chalk.red.bold(`\n✖ ${error.name}`));
     console.error(chalk.red(error.message));
 
     if (error.details) {
@@ -35,7 +35,7 @@ export class ErrorHandler {
   }
 
   private static handleUnknownError(error: Error): void {
-    console.error(chalk.red.bold('\n❌ Unexpected Error'));
+    console.error(chalk.red.bold('\n✖ Unexpected Error'));
     console.error(chalk.red(error.message));
     if (error.stack) {
       console.error(chalk.gray('\nStack trace:'));

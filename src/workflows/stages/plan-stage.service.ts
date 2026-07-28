@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { AiService, ResolutionPlan } from '../../integrations/ai/ai.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
+import { resolveSkills, collectQualityRules } from '../../skills';
+import type { SkillQualityRule } from '../../skills/skill.types';
 import {
   buildPlanArtifactFilename,
   buildPlanArtifactManifest,
@@ -17,9 +20,9 @@ import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '
 import { AIError, isAIErrorLike, ValidationError } from '../../shared/utils/errors';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { validatePlanQuality } from '../../shared/utils/plan-quality';
-import type { RepoConventionsContext } from '../../shared/utils/detect-repo-conventions';
-import type { PriorPlanContext, PlanCorrelationResult } from '../../shared/utils/detect-prior-plans';
-import type { CrossRepoContext } from '../../shared/utils/detect-cross-repo-patterns';
+import type { RepoConventionsContext } from '../../shared/types/detection.types';
+import type { PriorPlanContext, PlanCorrelationResult } from '../../shared/types/detection.types';
+import type { CrossRepoContext } from '../../shared/types/detection.types';
 
 interface GeneratePlanOptions {
   action: ResolutionAction;
@@ -40,7 +43,8 @@ interface GeneratePlanOptions {
 export class PlanStageService {
   constructor(
     private readonly aiService: AiService,
-    private readonly stageAgentService: StageAgentService
+    private readonly stageAgentService: StageAgentService,
+    private readonly configService: ConfigService
   ) {}
 
   // eslint-disable-next-line max-lines-per-function
@@ -49,6 +53,11 @@ export class PlanStageService {
     options: GeneratePlanOptions
   ): Promise<{ plan: ResolutionPlan; sessionId?: string }> {
     const testInfra = detectTestInfra(options.repoDir ?? process.cwd());
+    const skillIds = this.configService.get<string[]>('stages.plan.skills') ?? [];
+    const skills = skillIds.length
+      ? await resolveSkills(skillIds, { interactive: this.isInteractiveSession(), stage: 'plan' })
+      : [];
+    const skillRules = collectQualityRules(skills);
 
     const standardContext = {
       ticketKey: options.ticketKey,
@@ -59,6 +68,7 @@ export class PlanStageService {
       priorPlans: options.priorPlans,
       planCorrelation: options.planCorrelation,
       crossRepoPatterns: options.crossRepoPatterns,
+      skillNames: skillIds.length ? skillIds : undefined,
     };
 
     // eslint-disable-next-line max-lines-per-function
@@ -78,6 +88,7 @@ export class PlanStageService {
             priorPlans: options.priorPlans,
             planCorrelation: options.planCorrelation,
             crossRepoPatterns: options.crossRepoPatterns,
+            skillNames: skillIds.length ? skillIds : undefined,
             onProgress: options.onProgress,
             priorStageSummary: options.priorStageSummary,
             resumeProviderSessionId: options.resumeProviderSessionId,
@@ -101,8 +112,7 @@ export class PlanStageService {
 
           const label = agentProse ? 'Agent returned prose' : 'Agent returned no result';
           console.log(chalk.yellow(`  \u26A0\uFE0F ${label}   \u2014 falling back to structured completion`));
-          const action = options.action as 'fix' | 'implement' | 'investigate';
-          const fallbackResult = await this.aiService.generatePlan(action, ticketContent, {
+          const fallbackResult = await this.aiService.generatePlan(options.action, ticketContent, {
             ...standardContext,
             planQualityFeedback,
             ...(agentProse ? { agentAnalysis: agentProse } : {}),
@@ -121,7 +131,7 @@ export class PlanStageService {
       }
 
       const plan = await this.aiService.generatePlan(
-        options.action as 'fix' | 'implement' | 'investigate',
+        options.action,
         ticketContent,
         {
           ...standardContext,
@@ -136,6 +146,7 @@ export class PlanStageService {
         plan,
         affectedRepositories: options.affectedRepositories,
         testInfra,
+        skillRules,
       });
       return violations.map(violation => `[${violation.ruleId}] ${violation.message}`);
     };
@@ -153,7 +164,7 @@ export class PlanStageService {
     if (retryViolations.length > 0) {
       console.log(
         chalk.yellow(
-          `  ⚠️ Plan quality violations persisted after retry:\n${retryViolations.map(v => `    • ${v}`).join('\n')}`
+          `  ⚠️ Plan quality violations persisted after retry:\n${retryViolations.map(v => `      ${v}`).join('\n')}`
         )
       );
       const existingRisks = retryAttempt.plan.risks ?? [];
@@ -169,66 +180,67 @@ export class PlanStageService {
     return retryAttempt;
   }
 
-  // eslint-disable-next-line max-lines-per-function
+  private async returnValidatedCachedPlan(
+    plan: ResolutionPlan, artifactPath: string, repoDir?: string
+  ): Promise<PlanArtifact> {
+    await this.validateLoadedPlan(plan, repoDir);
+    return { plan, action: plan.action, path: artifactPath, fromCache: true };
+  }
+
+  private async resolveCachedPlan(
+    ticket: TicketArtifact, options: PlannerOptions, artifactDir: string
+  ): Promise<PlanArtifact | null> {
+    const existing = resolvePlanArtifactReference(ticket.ticketKey, { artifactDir, action: options.action });
+    const plan = this.readPlan(existing.artifactPath);
+    if (plan.action !== options.action) {
+      const picked = await this.resolveActionMismatch(
+        plan.action, options.action, path.basename(existing.artifactPath)
+      );
+      if (picked !== plan.action) return null;
+    }
+    return this.returnValidatedCachedPlan(plan, existing.artifactPath, options.repoDir);
+  }
+
+  private async tryReuseCachedPlan(
+    ticket: TicketArtifact, options: PlannerOptions, artifactDir: string
+  ): Promise<PlanArtifact | null> {
+    if (!options.skipExisting) return null;
+    try {
+      return await this.resolveCachedPlan(ticket, options, artifactDir);
+    } catch (error) {
+      if (error instanceof ValidationError) throw error;
+      return null;
+    }
+  }
+
+  private persistPlanArtifact(
+    plan: ResolutionPlan, action: ResolutionAction, artifactDir: string,
+    planHash: string, sourceName: string, sourceKind: 'ticket' | 'custom' | undefined
+  ): PlanArtifact {
+    const createdAt = new Date();
+    const filename = buildPlanArtifactFilename({ createdAt, hash: planHash, action, format: 'json' });
+    const planPath = path.join(artifactDir, filename);
+    fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
+    const manifest = buildPlanArtifactManifest(planPath, action, 'json', planHash, sourceName, sourceKind ?? 'ticket', createdAt);
+    writePlanArtifactManifest(manifest);
+    this.deleteStalePlanArtifacts(artifactDir, planHash, action, planPath);
+    return { plan, action, path: planPath, fromCache: false };
+  }
+
   async createPlanArtifact(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {
     const artifactDir = path.dirname(ticket.path);
     const sourceName = ticket.ticketKey;
     const planHash = hashPlanArtifactSources([sourceName]);
-
-    if (options.skipExisting) {
-      try {
-        const existing = resolvePlanArtifactReference(sourceName, {
-          artifactDir,
-          action: options.action,
-        });
-        const plan = this.readPlan(existing.artifactPath);
-
-        if (plan.action === options.action) {
-          this.validateLoadedPlan(plan, options.repoDir);
-          return { plan, action: plan.action, path: existing.artifactPath, fromCache: true };
-        }
-
-        const resolvedAction = await this.resolveActionMismatch(
-          plan.action, options.action, path.basename(existing.artifactPath)
-        );
-
-        if (resolvedAction === plan.action) {
-          this.validateLoadedPlan(plan, options.repoDir);
-          return { plan, action: plan.action, path: existing.artifactPath, fromCache: true };
-        }
-
-        // User chose the requested action — fall through to regeneration below.
-      } catch (error) {
-        // Re-throw any ValidationError from resolveActionMismatch (validateLoadedPlan no longer throws).
-        if (error instanceof ValidationError) throw error;
-        // No existing plan artifact could be resolved; fall through to generation.
-      }
-    }
-
+    const cached = await this.tryReuseCachedPlan(ticket, options, artifactDir);
+    if (cached) return cached;
     const { plan, sessionId } = await this.generatePlan(ticket.content, {
-      action: options.action,
-      ticketKey: ticket.ticketKey,
-      affectedRepositories: options.affectedRepositories,
-      onProgress: options.onProgress,
+      action: options.action, ticketKey: ticket.ticketKey,
+      affectedRepositories: options.affectedRepositories, onProgress: options.onProgress,
     });
-
-    const createdAt = new Date();
-    const planPath = path.join(
-      artifactDir,
-      buildPlanArtifactFilename({
-        createdAt,
-        hash: planHash,
-        action: options.action,
-        format: 'json',
-      })
+    const result = this.persistPlanArtifact(
+      plan, options.action, artifactDir, planHash, sourceName, options.sourceKind
     );
-
-    fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
-    writePlanArtifactManifest(
-      buildPlanArtifactManifest(planPath, options.action, 'json', planHash, sourceName, options.sourceKind ?? 'ticket', createdAt)
-    );
-    this.deleteStalePlanArtifacts(artifactDir, planHash, options.action, planPath);
-    return { plan, action: options.action, path: planPath, fromCache: false, sessionId };
+    return { ...result, sessionId };
   }
 
   // eslint-disable-next-line max-lines-per-function
@@ -244,14 +256,14 @@ export class PlanStageService {
     const filename = path.basename(resolved.artifactPath);
 
     if (!action || plan.action === action) {
-      this.validateLoadedPlan(plan, repoDir);
+      await this.validateLoadedPlan(plan, repoDir);
       return { plan, action: plan.action, path: resolved.artifactPath, fromCache: true };
     }
 
     const resolvedAction = await this.resolveActionMismatch(plan.action, action, filename);
 
     if (resolvedAction === plan.action) {
-      this.validateLoadedPlan(plan, repoDir);
+      await this.validateLoadedPlan(plan, repoDir);
       return { plan, action: plan.action, path: resolved.artifactPath, fromCache: true };
     }
 
@@ -278,32 +290,37 @@ export class PlanStageService {
    * Validate a plan loaded from disk against quality rules.
    * Violations are downgraded to plan.risks[] with a warning log.
    *
-   * @param plan - The parsed plan from disk
-   * @param repoDir - Repository root for test infrastructure detection; falls back to process.cwd()
    * @throws ValidationError when the resolved directory does not exist on disk
    */
-  private validateLoadedPlan(plan: ResolutionPlan, repoDir?: string): void {
-    const resolvedDir = repoDir ?? process.cwd();
-    if (!fs.existsSync(resolvedDir) || !fs.statSync(resolvedDir).isDirectory()) {
+  private async resolveSkillRulesForPlan(): Promise<SkillQualityRule[]> {
+    const skillIds = this.configService.get<string[]>('stages.plan.skills') ?? [];
+    if (!skillIds.length) return [];
+    const skills = await resolveSkills(skillIds, { interactive: this.isInteractiveSession(), stage: 'plan' });
+    return collectQualityRules(skills);
+  }
+
+  private resolveRepoDirOrThrow(repoDir: string | undefined): string {
+    const resolved = repoDir ?? process.cwd();
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
       throw new ValidationError(
-        `Plan validation failed: '${resolvedDir}' is not a valid directory. `
+        `Plan validation failed: '${resolved}' is not a valid directory. `
         + `Pass --repos with a local repository path.`
       );
     }
-    const testInfra = detectTestInfra(resolvedDir);
+    return resolved;
+  }
+
+  private async validateLoadedPlan(plan: ResolutionPlan, repoDir?: string): Promise<void> {
+    const testInfra = detectTestInfra(this.resolveRepoDirOrThrow(repoDir));
+    const skillRules = await this.resolveSkillRulesForPlan();
     const violations = validatePlanQuality({
-      plan,
-      affectedRepositories: plan.affectedRepositories,
-      testInfra,
+      plan, affectedRepositories: plan.affectedRepositories, testInfra, skillRules,
     });
-
     if (violations.length === 0) return;
-
     const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);
-    const bullets = formatted.map(v => '    • ' + v).join('\n');
+    const bullets = formatted.map(v => '      ' + v).join('\n');
     console.log(chalk.yellow('  ⚠️ Plan quality violations (loaded plan):\n' + bullets));
-    const existingRisks = plan.risks ?? [];
-    plan.risks = [...existingRisks, ...formatted.map(v => `[plan-quality] ${v}`)];
+    plan.risks = [...(plan.risks ?? []), ...formatted.map(v => `[plan-quality] ${v}`)];
   }
 
   /**
@@ -315,72 +332,53 @@ export class PlanStageService {
    * @returns The action the user selected
    * @throws ValidationError when the session is non-interactive
    */
-  // eslint-disable-next-line max-lines-per-function
-  private async resolveActionMismatch(
-    planAction: ResolutionAction,
-    requestedAction: ResolutionAction,
-    filename: string
+  private async promptActionChoice(
+    planAction: ResolutionAction, requestedAction: ResolutionAction
   ): Promise<ResolutionAction> {
-    console.log(
-      chalk.yellow(
-        `  ⚠️  Cached plan action mismatch for ${filename}: plan contains '${planAction}', requested '${requestedAction}'.`
-      )
-    );
-
-    if (!this.isInteractiveSession()) {
-      throw new ValidationError(
-        `Cached plan action mismatch: '${filename}' contains '${planAction}' but '${requestedAction}' was requested. `
-        + `Re-run with --from plan to regenerate, or re-run interactively to choose.`
-      );
-    }
-
     const { selectedAction } = await inquirer.prompt<{ selectedAction: ResolutionAction }>([{
-      type: 'list',
-      name: 'selectedAction',
-      message: 'Which action should be used?',
-      prefix: ' ',
+      type: 'list', name: 'selectedAction',
+      message: 'Which action should be used?', prefix: ' ',
       choices: [
         { name: `Use '${planAction}' (from cached plan)`, value: planAction },
         { name: `Use '${requestedAction}' (requested — may require re-running from plan stage)`, value: requestedAction },
       ],
       default: planAction,
     }]);
-
     return selectedAction;
+  }
+
+  private async resolveActionMismatch(
+    planAction: ResolutionAction, requestedAction: ResolutionAction, filename: string
+  ): Promise<ResolutionAction> {
+    console.log(chalk.yellow(`  ⚠️  Cached plan action mismatch for ${filename}: plan contains '${planAction}', requested '${requestedAction}'.`));
+    if (!this.isInteractiveSession()) {
+      throw new ValidationError(
+        `Cached plan action mismatch: '${filename}' contains '${planAction}' but '${requestedAction}' was requested. `
+        + `Re-run with --from plan to regenerate, or re-run interactively to choose.`
+      );
+    }
+    return this.promptActionChoice(planAction, requestedAction);
   }
 
   private isInteractiveSession(): boolean {
     return Boolean(process.stdin.isTTY && process.stdout.isTTY);
   }
 
-  // eslint-disable-next-line max-lines-per-function
+  private removeArtifactAndManifest(filePath: string): void {
+    fs.unlinkSync(filePath);
+    const manifestPath = filePath.replace(/\.[^.]+$/, '.sources.json');
+    if (fs.existsSync(manifestPath)) fs.unlinkSync(manifestPath);
+  }
+
   private deleteStalePlanArtifacts(
-    artifactDir: string,
-    sourceHash: string,
-    action: ResolutionAction,
-    retainedPlanPath: string
+    artifactDir: string, sourceHash: string, action: ResolutionAction, retainedPlanPath: string
   ): void {
-    if (!fs.existsSync(artifactDir)) {
-      return;
-    }
-
-    const candidateFiles = fs.readdirSync(artifactDir).filter(name => name.endsWith('.json'));
+    if (!fs.existsSync(artifactDir)) return;
     const stalePattern = new RegExp(`^(?:\\d{4}-\\d{2}-\\d{2}-)?${sourceHash}-${action}-plan\\.json$`, 'i');
-
-    for (const name of candidateFiles) {
-      if (!stalePattern.test(name)) {
-        continue;
-      }
+    for (const name of fs.readdirSync(artifactDir).filter(n => n.endsWith('.json'))) {
+      if (!stalePattern.test(name)) continue;
       const siblingPath = path.join(artifactDir, name);
-      if (siblingPath === retainedPlanPath || !fs.existsSync(siblingPath)) {
-        continue;
-      }
-
-      fs.unlinkSync(siblingPath);
-      const manifestPath = siblingPath.replace(/\.[^.]+$/, '.sources.json');
-      if (fs.existsSync(manifestPath)) {
-        fs.unlinkSync(manifestPath);
-      }
+      if (siblingPath !== retainedPlanPath && fs.existsSync(siblingPath)) this.removeArtifactAndManifest(siblingPath);
     }
   }
 }

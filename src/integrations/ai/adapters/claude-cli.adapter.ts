@@ -54,11 +54,11 @@ type GenerateAndVerifyParams = {
   planArtifact: PlanArtifact;
   options: ImplementerOptions;
   verificationScripts: VerificationScript[];
-  ticketContext: string;
   repoFiles: string[];
   contextFiles?: string[];
   repoName: string;
   trackedFilePaths: string[];
+  skillNames?: string[];
 };
 
 type CliSessionParams = {
@@ -458,17 +458,18 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   }
 
   private buildCliImplementerPrompt(params: GenerateAndVerifyParams): string {
-    const { ticket, planArtifact, options, verificationScripts, ticketContext } = params;
+    const { ticket, planArtifact, options, verificationScripts } = params;
     const { repoFiles, contextFiles, repoName, trackedFilePaths } = params;
     return buildSystemPrompt({
       ticketKey: ticket.ticketKey,
       repoDir: options.repoDir ?? process.cwd(),
       repoName, repoFiles, contextFiles, trackedFilePaths,
-      verificationScripts, ticketContext,
+      verificationScripts,
       planSteps: planArtifact.plan.steps,
       planSummary: planArtifact.plan.summary,
       planRisks: planArtifact.plan.risks,
       planAction: planArtifact.plan.action,
+      skillNames: params.skillNames,
     });
   }
 

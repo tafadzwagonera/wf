@@ -588,7 +588,7 @@ export class IssueCommand extends CommandRunner {
 
   private printWorkflowComplete(ctx: ResolvedWorkflowContext): void {
     if (ctx.options?.silent) return;
-    console.log(chalk.bold.green('\n✅ Workflow Complete!'));
+    console.log(chalk.bold.green('\n✔ Workflow Complete!'));
     console.log(chalk.gray('═'.repeat(70)));
     console.log(chalk.bold.cyan('\n🎯 Done!\n'));
     if (ctx.options?.pr) {

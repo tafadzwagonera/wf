@@ -8,6 +8,7 @@ import { AiService } from '../integrations/ai/ai.service';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, TicketArtifact } from './interfaces';
+import { KNOWN_SKILLS, registerSkill } from '../skills/skill-registry';
 
 jest.mock('inquirer');
 
@@ -15,6 +16,7 @@ describe('ImplementerAgent', () => {
   let agent: ImplementerAgent;
   let gitService: jest.Mocked<GitService>;
   let aiService: jest.Mocked<AiService>;
+  let configService: ConfigService;
 
   const ticketArtifact: TicketArtifact = {
     ticketKey: 'WBP-1000',
@@ -111,6 +113,7 @@ describe('ImplementerAgent', () => {
     agent = module.get(ImplementerAgent);
     gitService = module.get(GitService);
     aiService = module.get(AiService);
+    configService = module.get(ConfigService);
 
     jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined as any);
     jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => {
@@ -1206,6 +1209,69 @@ describe('ImplementerAgent', () => {
 
       const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
       expect(logCalls.some(msg => msg.includes('No planned files to implement'))).toBe(true);
+    });
+  });
+
+  describe('skill integration', () => {
+    let savedSkills: Map<string, import('../skills/skill.types').SkillDefinition>;
+
+    beforeEach(() => {
+      savedSkills = new Map(KNOWN_SKILLS);
+      KNOWN_SKILLS.clear();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      KNOWN_SKILLS.clear();
+      for (const [k, v] of savedSkills) KNOWN_SKILLS.set(k, v);
+    });
+
+    it('passes resolved skillNames to the adapter when implement skills are configured', async () => {
+      registerSkill({ id: 'test-driven-development', stages: ['plan', 'implement'] });
+      const configGet = configService.get as jest.Mock;
+      configGet.mockImplementation((key: string, fallback?: unknown) => {
+        if (key === 'stages.implement.skills') return ['test-driven-development'];
+        if (key === 'stages.implement.provider') return 'anthropic';
+        if (key === 'stages.implement.verificationConditions') return undefined;
+        if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+        return fallback;
+      });
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true,
+      });
+
+      expect(adapterSpy.mock.calls[0][0].skillNames).toEqual(['test-driven-development']);
+    });
+
+    it('throws ConfigurationError when skill does not support the implement stage', async () => {
+      registerSkill({ id: 'writing-plans', stages: ['plan'] });
+      const configGet = configService.get as jest.Mock;
+      configGet.mockImplementation((key: string, fallback?: unknown) => {
+        if (key === 'stages.implement.skills') return ['writing-plans'];
+        if (key === 'stages.implement.provider') return 'anthropic';
+        if (key === 'stages.implement.verificationConditions') return undefined;
+        if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+        return fallback;
+      });
+
+      await expect(
+        agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+          trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true,
+        })
+      ).rejects.toThrow('does not support the "implement" stage');
+    });
+
+    it('passes undefined skillNames when no skills are configured', async () => {
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true,
+      });
+
+      expect(adapterSpy.mock.calls[0][0].skillNames).toBeUndefined();
     });
   });
 
