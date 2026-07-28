@@ -1,4 +1,4 @@
-import { buildPlanContext, resolveModelRouting, resolveProviderModel } from './shared-routing';
+import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel } from './shared-routing';
 import { normalizeFileEntries } from '../ai.service';
 import type { VerificationScript } from '../../../agents/interfaces';
 import type { ResolutionPlan } from '../ai.service';
@@ -107,6 +107,14 @@ describe('buildPlanContext', () => {
       planSummary: undefined,
     });
     expect(result).toContain('Plan summary:\n(none)');
+  });
+
+  it('includes unplanned-file verification warning in implementer rules', () => {
+    const rules = buildImplementerRulesSection({
+      read: 'Read', write: 'Write', edit: 'Edit', search: 'Grep', glob: 'Glob', verify: 'Bash',
+    });
+    expect(rules).toContain('file not listed in "Files to implement"');
+    expect(rules).toContain('verification whitelist is frozen');
   });
 
   it('includes skill invocation hints when skillNames are provided', () => {

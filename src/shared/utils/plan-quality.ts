@@ -22,10 +22,11 @@ const PYTHON_COMMAND_PATTERN = /^(pytest|python -m pytest)\b/;
 const GO_COMMAND_PATTERN = /^go (test|vet)\b/;
 const TERRAFORM_COMMAND_PATTERN = /^terraform (validate|plan|fmt)\b/;
 const REPO_LOCAL_CD_PREFIX_PATTERN = /^cd\s+(.+?)\s*&&\s*(.+)$/;
+const QUOTED_OR_BARE_VALUE = /(?:`[^`]+`|'[^']+'|"[^"]+"|[\w./-]+)/;
 const EXPLICIT_REPLACEMENT_TARGET_PATTERN
-  = /\b(?:rename|move|refactor)\b[\s\S]{0,240}\b(?:to|into)\s+(?:`[^`]+`|'[^']+'|"[^"]+"|[A-Za-z0-9_./-]+)/i;
+  = new RegExp(`\\b(?:rename|move|refactor)\\b[\\s\\S]{0,240}\\b(?:to|into)\\s+${QUOTED_OR_BARE_VALUE.source}`, 'i');
 const NAMED_REPLACEMENT_TARGET_PATTERN
-  = /\b(?:new name|new path)\b\s*(?::|=|\bis\b)?\s*(?:`[^`]+`|'[^']+'|"[^"]+"|[A-Za-z0-9_./-]+)/i;
+  = new RegExp(`\\b(?:new name|new path)\\b\\s*(?::|=|\\bis\\b)?\\s*${QUOTED_OR_BARE_VALUE.source}`, 'i');
 
 const createViolation = (ruleId: PlanQualityViolation['ruleId'], message: string): PlanQualityViolation => ({
   ruleId,
@@ -47,7 +48,7 @@ const normalizeRepoLocalVerificationCommand = (command: string, affectedReposito
   }
 
   const [, rawTarget, remainder] = cdPrefixMatch;
-  const target = rawTarget.trim().replaceAll(/^['"]|['"]$/g, '');
+  const target = rawTarget.trim().replaceAll(/(^['"])|(['"]$)/g, '');
   const repoNames = affectedRepositories?.map(repo => repo.trim()).filter(Boolean) ?? [];
   const isRepoLocalTarget = repoNames.some(repo => target === repo || target === `./${repo}`);
 
@@ -127,11 +128,100 @@ const isVerificationCommandAllowed = (
     return true;
   }
 
-  if (testInfra?.ecosystems.some(ecosystem => ecosystem.ecosystem === 'go') && GO_COMMAND_PATTERN.test(trimmed)) {
-    return true;
-  }
+  return !!(testInfra?.ecosystems.some(ecosystem => ecosystem.ecosystem === 'go') && GO_COMMAND_PATTERN.test(trimmed));
+};
 
-  return false;
+/**
+ * Extracts file paths embedded inside a `node -e` inline script.
+ *
+ * Looks for string-literal arrays whose variable name contains "allowed" or "files",
+ * then pulls out values that look like relative file paths (contain a `/` and end
+ * with an extension).
+ *
+ * @param command - The full verification command string
+ * @returns Array of file-path-like strings found inside the script, empty when none match
+ */
+const extractInlineAllowedPaths = (command: string): string[] => {
+  if (!INLINE_COMMAND_PATTERN.test(command.trim())) return [];
+  const arrayPattern = /(?:allowed|files)\s*=\s*\[([^\]]+)]/gi;
+  const paths: string[] = [];
+  let arrayMatch: RegExpExecArray | null;
+  while ((arrayMatch = arrayPattern.exec(command)) !== null) {
+    const elements = arrayMatch[1].matchAll(/['"]([^'"]+)['"]/g);
+    for (const element of elements) {
+      if (element[1].includes('/') && /\.\w+$/.test(element[1])) {
+        paths.push(element[1]);
+      }
+    }
+  }
+  return paths;
+};
+
+/**
+ * Normalizes an affectedFiles entry to a plain file path string.
+ *
+ * @param entry - Either a string path or a FileEntry object
+ * @returns The file path string
+ */
+const toFilePath = (entry: string | { filePath: string }): string =>
+  typeof entry === 'string' ? entry : entry.filePath;
+
+/**
+ * Builds a set of planned file paths with repo prefixes stripped.
+ *
+ * @param affectedFiles - The plan's declared affected files
+ * @param repos - Repository names used to strip path prefixes
+ * @returns Set of repo-relative file paths
+ */
+const buildPlannedPathSet = (
+  affectedFiles: NonNullable<ResolutionPlan['affectedFiles']>,
+  repos: string[]
+): Set<string> => {
+  const strip = (p: string): string => {
+    const match = repos.find(repo => p.startsWith(`${repo}/`));
+    return match ? p.slice(match.length + 1) : p;
+  };
+  return new Set(affectedFiles.map(entry => strip(toFilePath(entry))));
+};
+
+/**
+ * Returns drift violations for a single verification check against planned paths.
+ *
+ * @param check - A single targeted verification step
+ * @param plannedPaths - Set of repo-relative planned file paths
+ * @returns Violations for each orphaned path
+ */
+const findOrphanedPathViolations = (
+  check: { id?: string; run?: string },
+  plannedPaths: Set<string>
+): PlanQualityViolation[] => {
+  if (!check.run) return [];
+  return extractInlineAllowedPaths(check.run)
+    .filter(p => !plannedPaths.has(p))
+    .map(orphaned => createViolation(
+      'verification-inline-allowlist-drift',
+      `Verification "${check.id}" references "${orphaned}" which is not in affectedFiles. `
+      + 'Add the file to affectedFiles or remove it from the inline allowlist.'
+    ));
+};
+
+/**
+ * Detects inline verification commands whose embedded file-path allowlists
+ * reference files not declared in the plan's affectedFiles.
+ *
+ * @param verification - The plan's verification config
+ * @param affectedFiles - The plan's declared affected files
+ * @param affectedRepositories - Repository names used to strip path prefixes
+ * @returns Violations for each orphaned path found in an inline allowlist
+ */
+const detectInlineAllowlistDrift = (
+  verification: ResolutionPlan['verification'] | undefined,
+  affectedFiles: ResolutionPlan['affectedFiles'] | undefined,
+  affectedRepositories?: string[]
+): PlanQualityViolation[] => {
+  if (!affectedFiles || affectedFiles.length === 0) return [];
+  const plannedPaths = buildPlannedPathSet(affectedFiles, affectedRepositories ?? []);
+  return (verification?.targeted ?? []).flatMap(check => findOrphanedPathViolations(check, plannedPaths));
 };
 
 // eslint-disable-next-line max-lines-per-function
@@ -200,7 +290,7 @@ const detectTestConventionViolations = (steps: string[], testInfra?: TestInfraCo
 
   if (testPatterns.mockFactoryPrefix) {
     const expectedFactoryPrefix = testPatterns.mockFactoryPrefix;
-    const factoryIdentifiers = stepText.match(/\bcreate[A-Za-z0-9_]*(?:Mock|Stub|Fake|Spy)[A-Za-z0-9_]*/g) ?? [];
+    const factoryIdentifiers = stepText.match(/\bcreate\w*(?:Mock|Stub|Fake|Spy)\w*/g) ?? [];
     const mismatchedFactory = factoryIdentifiers.find(identifier => !identifier.startsWith(expectedFactoryPrefix));
 
     if (mismatchedFactory) {
@@ -230,7 +320,7 @@ const uniqueViolations = (violations: PlanQualityViolation[]): PlanQualityViolat
 
 const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViolation[] => {
   const steps = Array.isArray(params.plan.steps)
-    ? params.plan.steps.filter((step): step is string => typeof step === 'string')
+    ? params.plan.steps.filter((step): step is string => true)
     : [];
 
   const skillViolations: PlanQualityViolation[] = (params.skillRules ?? []).flatMap(rule =>
@@ -240,6 +330,7 @@ const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViol
   return uniqueViolations([
     ...detectRenameViolations(steps),
     ...detectVerificationViolations(params.plan.verification, params.testInfra, params.affectedRepositories),
+    ...detectInlineAllowlistDrift(params.plan.verification, params.plan.affectedFiles, params.affectedRepositories),
     ...detectTestConventionViolations(steps, params.testInfra),
     ...skillViolations,
   ]);

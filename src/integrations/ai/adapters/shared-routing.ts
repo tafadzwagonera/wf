@@ -377,10 +377,10 @@ export const buildImplementerRulesSection = (t: ImplementerToolNames): string =>
 - Use ${t.search} to find relevant line numbers, then ${t.read} with offset/limit to read only the section you need. Avoid reading entire large files.
 - For mechanical migrations (e.g. replacing Logger with PinoLogger across many files): use ${t.search} to find all call sites, then apply ${t.edit} to each file without re-reading the full file — the search results show enough context.
 - Use ${t.glob} to discover file paths instead of guessing.
-- ${t.verify} is the only way to execute a shell command, and it will reject any command outside the verification whitelist.
-- Never invent or call any other shell command tool.
+- ${t.verify} is the only way to execute a shell command, and it will reject any command outside the verification whitelist. Never invent or call any other shell command tool.
 - Never duplicate a function. To add a parameter, modify the existing function signature. To change behavior, edit the existing function body. This applies to constructors, methods, and standalone functions alike.
 - NEVER add eslint-disable comments (inline, block, or file-level) to files you create or modify. If a lint rule fails in a file you are editing, fix the underlying code so the rule passes. Suppressing lint errors masks real problems. Do not fix or modify lint issues in files outside your changeset.
+- If you need to create a file not listed in "Files to implement", first check whether any verification command contains an inline allowlist of file paths. If it does, the new file must not cause that check to fail. Creating an unplanned file that is caught by a verification grep or assertion will block you — the verification whitelist is frozen and cannot be changed during this session.
 - You MUST implement ALL plan steps listed above. Do not stop after completing only the core infrastructure — continue through every step until all tasks are done.
 - Treat the returned progress signal as a heuristic only — never use a 'complete' verdict as a reason to stop. The verdict reflects a single verification command, not overall plan completion.
 - Use verification commands as intermediate checkpoints to catch regressions. After each passing verification, check whether ALL plan steps are done. If any migration or refactoring work remains, continue working.

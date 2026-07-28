@@ -188,6 +188,124 @@ describe('validatePlanQuality', () => {
     );
   });
 
+  it('flags inline allowlist paths not in affectedFiles', () => {
+    const result = validatePlanQuality({
+      plan: {
+        action: 'feature',
+        summary: 'Add config',
+        estimatedComplexity: 'low',
+        steps: ['Add config fields'],
+        affectedFiles: [
+          { filePath: `${repoName}/src/config/configuration.ts`, status: 'found' },
+          { filePath: `${repoName}/src/factory.ts`, status: 'to-create' },
+        ],
+        affectedRepositories: [repoName],
+        verification: {
+          targeted: [
+            {
+              id: 'no-secrets',
+              run: `node -e "const allowed = ['src/config/configuration.ts', 'src/factory.ts', 'src/factory.spec.ts']; console.log('OK')"`,
+              policy: 'enforced',
+            },
+          ],
+        },
+      },
+      affectedRepositories: [repoName],
+      testInfra: mockTestInfra,
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        ruleId: 'verification-inline-allowlist-drift',
+        message: expect.stringContaining('src/factory.spec.ts'),
+      }),
+    ]);
+  });
+
+  it('passes when all inline allowlist paths are in affectedFiles', () => {
+    const result = validatePlanQuality({
+      plan: {
+        action: 'feature',
+        summary: 'Add config',
+        estimatedComplexity: 'low',
+        steps: ['Add config fields'],
+        affectedFiles: [
+          { filePath: `${repoName}/src/config/configuration.ts`, status: 'found' },
+          { filePath: `${repoName}/src/factory.ts`, status: 'to-create' },
+          { filePath: `${repoName}/src/factory.spec.ts`, status: 'to-create' },
+        ],
+        affectedRepositories: [repoName],
+        verification: {
+          targeted: [
+            {
+              id: 'no-secrets',
+              run: `node -e "const allowed = ['src/config/configuration.ts', 'src/factory.ts', 'src/factory.spec.ts']; console.log('OK')"`,
+              policy: 'enforced',
+            },
+          ],
+        },
+      },
+      affectedRepositories: [repoName],
+      testInfra: mockTestInfra,
+    });
+
+    const driftViolations = result.filter(v => v.ruleId === 'verification-inline-allowlist-drift');
+    expect(driftViolations).toEqual([]);
+  });
+
+  it('skips inline allowlist drift check when affectedFiles is empty', () => {
+    const result = validatePlanQuality({
+      plan: {
+        action: 'feature',
+        summary: 'Add config',
+        estimatedComplexity: 'low',
+        steps: ['Add config fields'],
+        affectedRepositories: [repoName],
+        verification: {
+          targeted: [
+            {
+              id: 'no-secrets',
+              run: `node -e "const allowed = ['src/config/configuration.ts']; console.log('OK')"`,
+              policy: 'enforced',
+            },
+          ],
+        },
+      },
+      affectedRepositories: [repoName],
+      testInfra: mockTestInfra,
+    });
+
+    const driftViolations = result.filter(v => v.ruleId === 'verification-inline-allowlist-drift');
+    expect(driftViolations).toEqual([]);
+  });
+
+  it('ignores non-inline verification commands for allowlist drift', () => {
+    const result = validatePlanQuality({
+      plan: {
+        action: 'feature',
+        summary: 'Add config',
+        estimatedComplexity: 'low',
+        steps: ['Add config fields'],
+        affectedFiles: [{ filePath: `${repoName}/src/config.ts`, status: 'found' }],
+        affectedRepositories: [repoName],
+        verification: {
+          targeted: [
+            {
+              id: 'unit-tests',
+              run: 'yarn test -- src/config.spec.ts',
+              policy: 'enforced',
+            },
+          ],
+        },
+      },
+      affectedRepositories: [repoName],
+      testInfra: mockTestInfra,
+    });
+
+    const driftViolations = result.filter(v => v.ruleId === 'verification-inline-allowlist-drift');
+    expect(driftViolations).toEqual([]);
+  });
+
   it('flags vi.resetAllMocks when convention is vi.restoreAllMocks', () => {
     const result = validatePlanQuality({
       plan: {
