@@ -171,11 +171,17 @@ const readStdin = (): Promise<string> =>
     });
   });
 
+const logFileInput = (filePath: string): void => {
+  console.log(chalk.bold.cyan(`\n📋 Creating Ticket from Input\n`));
+  console.log(chalk.gray(`  Input file: ${filePath}`));
+};
+
 const warnOnIgnoredRepos = (repos?: string[]): void => {
-  if ((repos?.length ?? 0) > 1) {
+  if (repos?.length) {
+    const ignoredRepos = repos.slice(1).join(', ');
     console.log(
       chalk.yellow(
-        `⚠️ Only the first repository will be used for issue:create artifact lookup. Ignoring: ${repos!.slice(1).join(', ')}`
+        `⚠️ Only the first repository will be used for issue:create artifact lookup. Ignoring: ${ignoredRepos}`
       )
     );
   }
@@ -252,9 +258,9 @@ export class IssueCreateCommand extends CommandRunner {
     }
 
     const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
-    const { content, format } = stdinAvailable
-      ? await this.readFromStdin(options)
-      : this.readFromFile(inputPath!, trackerName, options);
+    const { content, format } = inputPath
+      ? this.readFromFile(inputPath, trackerName, options)
+      : await this.readFromStdin(options);
 
     const converter = this.formatConverterService.getConverter(format);
     const ticket = converter.parse(content);
@@ -284,27 +290,19 @@ export class IssueCreateCommand extends CommandRunner {
   private readFromFile(
     inputPath: string, trackerName: string, options?: IssueCreateOptions,
   ): { content: string; format: string } {
-    const resolved = path.resolve(inputPath);
     const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
-    const artifactPath = path.join(resolveArtifactDir(repoBaseDir, trackerName), path.basename(inputPath));
-    let inputFilePath = resolved;
-    if (!fs.existsSync(resolved) && fs.existsSync(artifactPath)) inputFilePath = artifactPath;
-
+    const inputFilePath = path.isAbsolute(inputPath)
+      ? inputPath
+      : path.join(resolveArtifactDir(repoBaseDir, trackerName), path.basename(inputPath));
     if (!fs.existsSync(inputFilePath)) {
       throw new FileSystemError(`Input file not found: ${inputFilePath}. Verify the file path and try again.`);
     }
-
-    if (!options?.silent) {
-      console.log(chalk.bold.cyan(`\n📋 Creating Ticket from Input\n`));
-      console.log(chalk.gray(`  Input file: ${inputFilePath}`));
-    }
-
+    if (!options?.silent) logFileInput(inputFilePath);
     const content = fs.readFileSync(inputFilePath, 'utf-8');
     const format = options?.format ?? this.formatConverterService.detectFormat(inputFilePath);
     if (!format) {
       throw new ValidationError(`Unable to detect format from file extension in '${inputFilePath}'. Use --format to specify explicitly.`);
     }
-
     if (!options?.silent) console.log(chalk.gray(`  Detected format: ${format}`));
     return { content, format };
   }
