@@ -46,4 +46,5 @@ export const chatSessionOptionsSchema = z.object({
   exitCommands: z.array(z.string()).optional(),
   stage: workflowStageSchema.optional(),
   repoDir: z.string().optional(),
+  resumeProviderSessionId: z.string().optional(),
 });

@@ -634,7 +634,7 @@ export class IssueReviewCommand extends CommandRunner {
     if (!startChat) return;
     const last = reviewed.at(-1);
     if (!last) return;
-    await this.startInteractiveChat(last.review, last.context, last.repoDir ?? process.cwd());
+    await this.startInteractiveChat(last.review, last.context, last.repoDir ?? process.cwd(), options?.sessionId);
   }
 
   private saveReviewOutput(
@@ -1202,8 +1202,11 @@ export class IssueReviewCommand extends CommandRunner {
    * @param review - The code review result
    * @param reviewContext - Context string used during the review
    * @param repoDir - Repository directory for conversation persistence
+   * @param resumeProviderSessionId - Provider session ID to resume, if available
    */
-  private async startInteractiveChat(review: CodeReview, reviewContext: string, repoDir: string): Promise<void> {
+  private async startInteractiveChat(
+    review: CodeReview, reviewContext: string, repoDir: string, resumeProviderSessionId?: string
+  ): Promise<void> {
     const context = this.buildChatConversationContext(review, reviewContext, repoDir);
     const conversation = await this.conversationService.loadConversation('review', repoDir)
       ?? await this.conversationService.createConversation('review', context);
@@ -1211,6 +1214,7 @@ export class IssueReviewCommand extends CommandRunner {
       systemPrompt: this.buildChatSystemPrompt(review, reviewContext),
       maxTurns: 20, exitCommands: ['exit', 'quit', 'continue'],
       stage: 'review', repoDir,
+      resumeProviderSessionId,
     });
   }
 

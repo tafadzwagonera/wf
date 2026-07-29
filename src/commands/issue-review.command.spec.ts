@@ -792,6 +792,26 @@ describe('IssueReviewCommand', () => {
     });
   });
 
+  describe('interactive chat session ID forwarding', () => {
+    it('should forward sessionId to startChatSession when interactive chat is accepted', async () => {
+      const { command, promptMock, conversationService } = await buildCommand();
+      jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('diff content');
+      setInteractiveSession();
+
+      promptMock.mockResolvedValue({ startChat: true } as any);
+
+      await command.run([], { sessionId: 'sess-abc-123' });
+
+      expect(conversationService.startChatSession).toHaveBeenCalledWith(
+        'mock-conv-id',
+        expect.objectContaining({
+          resumeProviderSessionId: 'sess-abc-123',
+          stage: 'review',
+        })
+      );
+    });
+  });
+
   describe('saved output', () => {
     it('--force has no effect on local diff reviews', async () => {
       const { command, reviewStageService } = await buildCommand();

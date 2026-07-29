@@ -352,6 +352,43 @@ describe('ConversationService', () => {
       );
     });
 
+    it('should seed agent chat session with resumeProviderSessionId on first turn', async () => {
+      const context: ConversationContext = {
+        ticketKey: 'TEST-123',
+        stage: 'review',
+        repoDir: '/projects/repo',
+        workflowState: { ticketContent: 'Test' },
+      };
+
+      const conversation = await service.createConversation('TEST-123', context);
+
+      stageAgentService.isEnabledForStage.mockReturnValue(true);
+      stageAgentService.chatTurn.mockResolvedValue({
+        content: 'Resumed response',
+        session: { provider: 'anthropic', sessionId: 'sess-resumed' },
+      });
+
+      chatUIService.promptUserInput
+        .mockResolvedValueOnce({ input: 'follow-up question', shouldExit: false })
+        .mockResolvedValueOnce({ input: '', shouldExit: true });
+
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      await service.startChatSession(conversation.conversationId, {
+        systemPrompt: 'system',
+        stage: 'review',
+        repoDir: '/projects/repo',
+        resumeProviderSessionId: 'sess-from-review',
+      });
+
+      expect(stageAgentService.chatTurn).toHaveBeenCalledTimes(1);
+      expect(stageAgentService.chatTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          session: expect.objectContaining({ sessionId: 'sess-from-review' }),
+        })
+      );
+    });
+
     it('should fall back to standard path when no stage is provided', async () => {
       const context: ConversationContext = {
         ticketKey: 'TEST-123',

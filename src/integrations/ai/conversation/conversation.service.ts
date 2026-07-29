@@ -374,9 +374,9 @@ export class ConversationService {
 
   private async runChatLoop(
     conversationId: string, state: ConversationState,
-    options: ResolvedSessionOptions, useAgentBackend: boolean
+    options: ResolvedSessionOptions, useAgentBackend: boolean, initialAgentSession?: AgentChatSession
   ): Promise<number> {
-    let agentSession: AgentChatSession | undefined, turn = 1;
+    let agentSession: AgentChatSession | undefined = initialAgentSession, turn = 1;
     while (turn <= options.maxTurns) {
       try {
         const result = await this.executeTurn(turn, conversationId, state, options, useAgentBackend, agentSession);
@@ -399,12 +399,27 @@ export class ConversationService {
     if (!state) throw new Error(`Conversation not found: ${conversationId}`);
     const resolvedOptions = { maxTurns: 20, ...options };
     const useAgentBackend = this.resolveAgentBackend(resolvedOptions.stage);
+    const initialAgentSession = useAgentBackend && resolvedOptions.resumeProviderSessionId
+      ? this.buildSeedAgentSession(resolvedOptions.resumeProviderSessionId)
+      : undefined;
     this.chatUI.displayChatIntro(state.context.stage, state.context);
-    const turn = await this.runChatLoop(conversationId, state, resolvedOptions, useAgentBackend);
+    const turn = await this.runChatLoop(conversationId, state, resolvedOptions, useAgentBackend, initialAgentSession);
     if (turn > resolvedOptions.maxTurns) this.chatUI.displayMaxTurnsReached(resolvedOptions.maxTurns);
     await this.saveConversation(state);
     const filePath = this.getConversationFilePath(state.ticketKey, state.context.repoDir, state.context.trackerName);
     this.chatUI.displayChatEnd(filePath);
+  }
+
+  /**
+   * Build a minimal agent session that carries only the provider session ID for resumption.
+   * The provider field is metadata — chatTurn re-resolves the actual provider from stage
+   * config at stage-agent.service.ts:1370, so the value here does not affect routing.
+   *
+   * @param sessionId - Provider session ID from the initial review pass
+   * @returns Seed AgentChatSession with sessionId populated
+   */
+  private buildSeedAgentSession(sessionId: string): AgentChatSession {
+    return { provider: 'anthropic', sessionId };
   }
 
   /**
