@@ -9,9 +9,6 @@ pre-commit:
       run: yarn test:ci
     docs-drift:
       run: yarn generated-docs:sync
-  scripts:
-    warn-wf-files.sh:
-      runner: sh
 
 pre-push:
   commands:
