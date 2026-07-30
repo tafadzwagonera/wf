@@ -8,13 +8,13 @@ import type { BranchInfo, CommitInfo, CommitOptions } from '../../shared/types/g
 export type { BranchInfo, CommitOptions, CommitInfo } from '../../shared/types/git.types';
 
 /**
- * Create a SimpleGit instance with unsafe pager access enabled.
+ * Create a SimpleGit instance pointed at the given directory.
  *
  * @param cwd - Optional repository working directory
  * @returns A configured SimpleGit instance
  */
 const createGit = (cwd?: string): SimpleGit =>
-  simpleGit({ baseDir: cwd, unsafe: { allowUnsafePager: true, allowUnsafeEditor: true } });
+  simpleGit({ baseDir: cwd });
 
 /**
  * Create a SimpleGit instance for `cwd` with LEFTHOOK disabled so automated
