@@ -8,6 +8,15 @@ import type { BranchInfo, CommitInfo, CommitOptions } from '../../shared/types/g
 export type { BranchInfo, CommitOptions, CommitInfo } from '../../shared/types/git.types';
 
 /**
+ * Create a SimpleGit instance with unsafe pager access enabled.
+ *
+ * @param cwd - Optional repository working directory
+ * @returns A configured SimpleGit instance
+ */
+const createGit = (cwd?: string): SimpleGit =>
+  simpleGit({ baseDir: cwd, unsafe: { allowUnsafePager: true, allowUnsafeEditor: true } });
+
+/**
  * Create a SimpleGit instance for `cwd` with LEFTHOOK disabled so automated
  * commit flows are not blocked by git hooks.
  *
@@ -15,7 +24,7 @@ export type { BranchInfo, CommitOptions, CommitInfo } from '../../shared/types/g
  * @returns A SimpleGit instance with LEFTHOOK=0 in its environment
  */
 const createCommitGit = (cwd: string): SimpleGit =>
-  simpleGit(cwd).env({ ...process.env, LEFTHOOK: '0' });
+  createGit(cwd).env({ ...process.env, LEFTHOOK: '0' });
 
 const DEFAULT_PROTECTED_BRANCHES = ['main', 'master', 'develop'];
 
@@ -102,11 +111,11 @@ export class GitService {
     private readonly configService: ConfigService,
     private readonly logger: LoggerService
   ) {
-    this.git = simpleGit();
+    this.git = createGit();
   }
 
   async isGitRepository(cwd?: string): Promise<boolean> {
-    const git = cwd ? simpleGit(cwd) : this.git;
+    const git = cwd ? createGit(cwd) : this.git;
     try {
       await git.status();
       return true;
@@ -116,7 +125,7 @@ export class GitService {
   }
 
   async getBranchInfo(cwd?: string): Promise<BranchInfo> {
-    const git = cwd ? simpleGit(cwd) : this.git;
+    const git = cwd ? createGit(cwd) : this.git;
     try {
       const status: StatusResult = await git.status();
       const branches: BranchSummary = await git.branch();
@@ -146,7 +155,7 @@ export class GitService {
   }
 
   async hasUpstream(branchName: string, cwd?: string): Promise<boolean> {
-    const git = cwd ? simpleGit(cwd) : this.git;
+    const git = cwd ? createGit(cwd) : this.git;
     try {
       await git.raw(['rev-parse', '--abbrev-ref', `${branchName}@{upstream}`]);
       return true;
@@ -164,7 +173,7 @@ export class GitService {
   }
 
   async createBranch(branchName: string, baseBranch?: string, cwd?: string): Promise<void> {
-    const git = cwd ? simpleGit(cwd) : this.git;
+    const git = cwd ? createGit(cwd) : this.git;
     try {
       this.assertValidBranchName(branchName);
       await this.checkoutOrCreateBranch(git, branchName, baseBranch);
@@ -264,7 +273,7 @@ export class GitService {
 
   async getRecentCommits(count: number = 10, cwd?: string): Promise<CommitInfo[]> {
     try {
-      const git = cwd ? simpleGit(cwd) : this.git;
+      const git = cwd ? createGit(cwd) : this.git;
       const log = await git.log({ maxCount: count });
 
       return log.all.map(commit => ({
@@ -280,7 +289,7 @@ export class GitService {
 
   async getDiff(staged: boolean = false, cwd?: string): Promise<string> {
     try {
-      const git = cwd ? simpleGit(cwd) : this.git;
+      const git = cwd ? createGit(cwd) : this.git;
       return staged ? await git.diff(['--staged']) : await git.diff();
     } catch (error) {
       throw new GitError('Failed to get diff', error);
@@ -312,7 +321,7 @@ export class GitService {
    */
   async stageAll(cwd?: string): Promise<void> {
     try {
-      const git = cwd ? simpleGit(cwd) : this.git;
+      const git = cwd ? createGit(cwd) : this.git;
       const status = await git.status();
       const filesToAdd = this.filterStageable(status.files.map(f => f.path));
       if (filesToAdd.length > 0) await git.add(filesToAdd);
@@ -356,7 +365,7 @@ export class GitService {
 
   async stashChanges(message?: string, cwd?: string): Promise<void> {
     try {
-      const git = cwd ? simpleGit(cwd) : this.git;
+      const git = cwd ? createGit(cwd) : this.git;
       await git.stash(['push', '-m', message || 'Auto-stashed by wf']);
       this.logger.success('Stashed uncommitted changes');
     } catch (error) {
@@ -367,7 +376,7 @@ export class GitService {
 
   async stashPop(cwd?: string): Promise<void> {
     try {
-      const git = cwd ? simpleGit(cwd) : this.git;
+      const git = cwd ? createGit(cwd) : this.git;
       await git.stash(['pop']);
       this.logger.success('Restored stashed changes');
     } catch (error) {
@@ -377,7 +386,7 @@ export class GitService {
 
   async getStatus(cwd?: string): Promise<StatusResult> {
     try {
-      const git = cwd ? simpleGit(cwd) : this.git;
+      const git = cwd ? createGit(cwd) : this.git;
       return await git.status();
     } catch (error) {
       throw new GitError('Failed to get git status', error);
@@ -386,7 +395,7 @@ export class GitService {
 
   async getCurrentBranch(cwd?: string): Promise<string> {
     try {
-      const git = cwd ? simpleGit(cwd) : this.git;
+      const git = cwd ? createGit(cwd) : this.git;
       const status = await git.status();
       return status.current || 'HEAD';
     } catch (error) {
@@ -396,7 +405,7 @@ export class GitService {
 
   async checkoutBranch(branchName: string, cwd?: string): Promise<void> {
     try {
-      const git = cwd ? simpleGit(cwd) : this.git;
+      const git = cwd ? createGit(cwd) : this.git;
       await git.checkout(branchName);
       this.logger.success(`Checked out branch: ${branchName}`);
     } catch (error) {
@@ -405,7 +414,7 @@ export class GitService {
   }
 
   async pull(remote: string = 'origin', branch?: string, cwd?: string): Promise<void> {
-    const git = cwd ? simpleGit(cwd) : this.git;
+    const git = cwd ? createGit(cwd) : this.git;
     try {
       const currentBranch = branch || (await this.getCurrentBranch(cwd));
       await git.pull(remote, currentBranch);
@@ -475,7 +484,7 @@ export class GitService {
   async checkIgnored(paths: string[], cwd?: string): Promise<string[]> {
     if (paths.length === 0) return [];
 
-    const git = cwd ? simpleGit(cwd) : this.git;
+    const git = cwd ? createGit(cwd) : this.git;
     const CHUNK_SIZE = 100;
     const results = await Promise.all(
       Array.from({ length: Math.ceil(paths.length / CHUNK_SIZE) }, (_, i) =>
