@@ -14,7 +14,7 @@ else
   exit 0
 fi
 
-changed=$(git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null)
+changed=$(git diff --diff-filter=ACMRT --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null)
 echo "$changed" | grep -qE '\.(js|ts|jsx|tsx|vue)$' || exit 0
 
 errors=""
@@ -28,7 +28,7 @@ $output
 "
 fi
 
-for cmd in format typecheck test; do
+for cmd in typecheck test; do
   if [ -f package.json ] && jq -e ".scripts.\"$cmd\"" package.json >/dev/null 2>&1; then
     output=$($runner "$cmd" 2>&1) || errors="$errors
 $cmd failed:

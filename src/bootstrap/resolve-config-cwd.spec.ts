@@ -3,6 +3,7 @@ jest.mock('fs', () => ({
 }));
 
 import * as fs from 'fs';
+import { ConfigurationError } from '../shared/errors/app.error';
 import { resolveConfigCwd } from './resolve-config-cwd';
 
 describe('resolveConfigCwd', () => {
@@ -18,6 +19,7 @@ describe('resolveConfigCwd', () => {
 
   afterEach(() => {
     cwdSpy.mockRestore();
+    jest.restoreAllMocks();
   });
 
   it('uses the first repo passed via -r when it resolves locally', () => {
@@ -42,8 +44,20 @@ describe('resolveConfigCwd', () => {
     expect(resolveConfigCwd(['issue', 'WBP-3054', '--repos=service-tourv3'])).toBe('/current/service-tourv3');
   });
 
-  it('falls back to process.cwd when the repo override is not a local checkout', () => {
-    expect(resolveConfigCwd(['issue:review', 'CTRL-280', '--repos=api-gateway-v1'])).toBe('/current/wf');
+  it('throws ConfigurationError when the repo override is not a local checkout', () => {
+    expect(() => resolveConfigCwd(['issue:review', 'CTRL-280', '--repos=api-gateway-v1'])).toThrow(ConfigurationError);
+  });
+
+  it('includes searched paths in the error message when -r repo is unresolvable', () => {
+    expect(() => resolveConfigCwd(['issue:review', 'CTRL-280', '-r', 'api-gateway-v1'])).toThrow(
+      /Repository 'api-gateway-v1' not found/
+    );
+    expect(() => resolveConfigCwd(['issue:review', 'CTRL-280', '-r', 'api-gateway-v1'])).toThrow(
+      /\/current\/wf\/api-gateway-v1/
+    );
+    expect(() => resolveConfigCwd(['issue:review', 'CTRL-280', '-r', 'api-gateway-v1'])).toThrow(
+      /\/current\/api-gateway-v1/
+    );
   });
 
   it('falls back to process.cwd when no repo override is present', () => {

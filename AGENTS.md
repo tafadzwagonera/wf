@@ -68,7 +68,7 @@ After every fix or feature, run a manual test from `test/manual/` via `yarn test
 ## Common Pitfalls
 - **Stale dist**: TypeScript changes have no effect until `nest build` runs. Manual tests use `ts-node` so they bypass dist — but CLI commands (`wf ...`) use `dist/`.
 - **Unstaged files**: `ImplementerAgent` writes files to disk but does not run `git add` — the `CommitterAgent` expects a staged diff, so files must be staged between implement and commit.
-- **Config not found**: `resolveConfigCwd` redirects config discovery to the target repo directory. If `wf.config.ts` doesn't exist there, config silently fails to load.
+- **Config not found**: `resolveConfigCwd` redirects config discovery to the target repo directory. When `-r`/`--repos` is provided but the repo cannot be resolved locally, bootstrap throws `ConfigurationError` with searched paths. Without `-r`, config falls back to cwd silently.
 - **`.wf/` in commits**: `.wf/state/` and `.wf/logs/` are tooling artifacts created inside target repos — they must never be committed. Nothing in `.gitignore` protects them by default.
 
 ## Active Technologies
