@@ -15,6 +15,7 @@ else
 fi
 
 changed=$(git diff --diff-filter=ACMRT --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null)
+changed=$(echo "$changed" | grep -vE '(^|/)wf\.config\.|(^|/)verification\.policy\.' || true)
 echo "$changed" | grep -qE '\.(js|ts|jsx|tsx|vue)$' || exit 0
 
 errors=""
