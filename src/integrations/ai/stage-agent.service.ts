@@ -878,10 +878,12 @@ type CliRetryState = { sessionId?: string; stalledPasses: number; passNumber: nu
  * @param passResult - result from the latest CLI pass
  */
 const advanceCliRetryState = (state: CliRetryState, passResult: CliPassResult): void => {
-  state.stalledPasses = passResult.hadContent ? 0 : state.stalledPasses + 1;
+  const madeProgress = passResult.hadContent && passResult.source !== 'assistant_text';
+  state.stalledPasses = madeProgress ? 0 : state.stalledPasses + 1;
   checkCliStallCondition(state.stalledPasses, state.passNumber, state.lastDiagnostics);
   state.lastDiagnostics = passResult.diagnostics;
-  console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${state.passNumber}: no usable result — resuming session`));
+  const sourceHint = passResult.source === 'assistant_text' ? ' (assistant_text demoted)' : '';
+  console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${state.passNumber}: no usable result${sourceHint} — resuming session`));
 };
 
 /**
@@ -1512,12 +1514,13 @@ export class StageAgentService {
    * @param stage - stage name for error context
    * @param passNumber - current pass number
    * @param sessionId - current session ID
-   * @returns finalized result if the pass produced content, undefined otherwise
+   * @returns finalized result if the pass produced a structured or result-typed answer;
+   *   undefined if the result is absent or sourced from raw assistant text
    */
   private tryFinalizeCliPass(
     passResult: CliPassResult, stage: AgentStageName, passNumber: number, sessionId?: string
   ): { content: string; sessionId?: string } | undefined {
-    if (!passResult.result) return undefined;
+    if (!passResult.result || passResult.source === 'assistant_text') return undefined;
     this.checkCliMaxTokens(passResult.stopReason, stage);
     console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${passResult.source} (pass ${passNumber})`));
     if (sessionId) console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Provider session: ${sessionId}`));

@@ -493,6 +493,10 @@ describe('StageAgentService', () => {
         }),
       }) as unknown as ConfigService;
 
+    beforeEach(() => {
+      spawnCli.mockClear();
+    });
+
     it('logs provider session ID when CLI backend returns one', async () => {
       const sessionId = 'sess_abc123';
       async function* fakeSpawn() {
@@ -555,6 +559,82 @@ describe('StageAgentService', () => {
           sessionId: 'sess_abc123',
         })
       );
+
+      logSpy.mockRestore();
+    });
+
+    it('rejects assistant_text and retries', async () => {
+      async function* firstPass() {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Let me think about this...' }] }, session_id: 'sess_abc123' };
+      }
+      async function* secondPass() {
+        yield { type: 'result', subtype: 'success', result: '{"action":"fix"}', session_id: 'sess_abc123' };
+      }
+      spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
+
+      const service = new StageAgentService(createCliConfigService());
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
+
+      expect(result).toMatchObject({ content: '{"action":"fix"}' });
+      const demotedLogs = logSpy.mock.calls.filter(call => String(call[0]).includes('assistant_text demoted'));
+      expect(demotedLogs.length).toBeGreaterThanOrEqual(1);
+      expect(spawnCli).toHaveBeenCalledTimes(2);
+
+      logSpy.mockRestore();
+    });
+
+    it('terminates after stall threshold with consecutive assistant_text passes', async () => {
+      async function* firstPass() {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Still thinking...' }] }, session_id: 'sess_abc123' };
+      }
+      async function* secondPass() {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Still thinking...' }] }, session_id: 'sess_abc123' };
+      }
+      spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
+
+      const service = new StageAgentService(createCliConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      await expect(runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' })).rejects.toThrow(/workload not decreasing/);
+      expect(spawnCli).toHaveBeenCalledTimes(2);
+    });
+
+    it('accepts structured_output on pass 1 without retry', async () => {
+      async function* fakeSpawn() {
+        yield { type: 'result', subtype: 'success', structured_output: { action: 'fix' }, session_id: 'sess_abc123' };
+      }
+      spawnCli.mockReturnValue(fakeSpawn());
+
+      const service = new StageAgentService(createCliConfigService());
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
+
+      expect(result).toMatchObject({ content: '{"action":"fix"}' });
+      expect(spawnCli).toHaveBeenCalledTimes(1);
+
+      logSpy.mockRestore();
+    });
+
+    it('accepts result on pass 1 without retry', async () => {
+      async function* fakeSpawn() {
+        yield { type: 'result', subtype: 'success', result: '{"action":"fix"}', session_id: 'sess_abc123' };
+      }
+      spawnCli.mockReturnValue(fakeSpawn());
+
+      const service = new StageAgentService(createCliConfigService());
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
+
+      expect(result).toMatchObject({ content: '{"action":"fix"}' });
+      expect(spawnCli).toHaveBeenCalledTimes(1);
 
       logSpy.mockRestore();
     });

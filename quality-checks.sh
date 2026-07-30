@@ -23,7 +23,7 @@ errors=""
 # Lint only changed files (aligned with verification command)
 changed_lint=$(echo "$changed" | grep -E '\.(js|ts|jsx|tsx|vue)$' || true)
 if [ -n "$changed_lint" ]; then
-  output=$(echo "$changed_lint" | xargs "$runner" eslint --max-warnings 0 2>&1) || errors="$errors
+  output=$(echo "$changed_lint" | xargs npx --no-install eslint --max-warnings 0 2>&1) || errors="$errors
 lint failed:
 $output
 "

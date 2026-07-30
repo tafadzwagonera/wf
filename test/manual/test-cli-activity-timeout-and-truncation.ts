@@ -1,5 +1,5 @@
 /**
- * Manual smoke test: activity-based timeout and truncation detection
+ * Manual smoke test: activity-based timeout detection
  *
  * Run: nr test:manual -- test-cli-activity-timeout-and-truncation
  *
@@ -7,8 +7,9 @@
  *   1. spawnCli yields inactivity timeout when no messages arrive
  *   2. spawnCli yields wall-clock timeout with updated message format
  *   3. spawnCli resets inactivity timer on each message (no false timeout)
- *   4. Truncation detection: stop_reason max_tokens triggers AIError in stage-agent pattern
- *   5. Truncation detection: absent stop_reason does not trigger AIError
+ *
+ * Truncation detection tests (stop_reason max_tokens) moved to
+ * stage-agent.service.spec.ts.
  *
  * @returns void
  */
@@ -252,35 +253,6 @@ async function main(): Promise<void> {
       `Got ${messages.length} messages, inactivityTimedOut=${state.inactivityTimedOut}`
     );
     assert('All 3 messages received without timeout', messages.length >= 3, `Got ${messages.length} messages`);
-  }
-
-  // --- Test 4: Truncation detection — stop_reason max_tokens ---
-  {
-    const resultMessage: Record<string, unknown> = {
-      type: 'result',
-      result: '{"action":"fix"}',
-      stop_reason: 'max_tokens',
-    };
-
-    const resultStopReason = resultMessage.stop_reason as string | undefined;
-    const result = resultMessage.result as string;
-
-    const truncationDetected = !!(result && resultStopReason === 'max_tokens');
-    assert('Truncation detected when stop_reason is max_tokens', truncationDetected);
-  }
-
-  // --- Test 5: No truncation when stop_reason is absent ---
-  {
-    const resultMessage: Record<string, unknown> = {
-      type: 'result',
-      result: '{"action":"fix"}',
-    };
-
-    const resultStopReason = resultMessage.stop_reason as string | undefined;
-    const result = resultMessage.result as string;
-
-    const truncationDetected = !!(result && resultStopReason === 'max_tokens');
-    assert('No truncation detected when stop_reason is absent', !truncationDetected);
   }
 
   // Summary
