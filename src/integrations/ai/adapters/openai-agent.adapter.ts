@@ -32,7 +32,7 @@ import type {
   VerificationScript,
   VerificationOutcome,
 } from '../../../agents/interfaces';
-import { resolveSkippedSteps, printVerificationReport } from './verification-report';
+import { resolveSkippedSteps, printVerificationReport, DEFAULT_STALL_THRESHOLD } from './verification-report';
 import {
   buildVerificationCommandOrder,
   buildVerificationProgressSignal,
@@ -49,6 +49,7 @@ import {
   isGlobPattern,
   buildPlanContext,
   buildImplementerRulesSection,
+  type PlanPhase,
 } from './shared-routing';
 import { buildSkillPromptFragment } from '../../../skills/skill-content';
 import type { ResolutionPlan } from '../ai.service';
@@ -65,6 +66,8 @@ const COMPACTION_INPUT_TOKEN_CEILING = 80_000;
 const STATE_PRUNING_TOKEN_CEILING = 120_000;
 const STATE_PRUNING_KEEP_TAIL_ITEMS = 20;
 const MAX_CONSECUTIVE_RATE_LIMIT_RETRIES = 5;
+const MAX_CONTINUATION_PASSES = 15;
+const MAX_CONSECUTIVE_IDLE_PASSES = 3;
 
 const shellEscape = (value: string): string => "'" + value.replaceAll("'", String.raw`'\''`) + "'";
 
@@ -653,6 +656,7 @@ type SystemPromptParams = {
   planRisks?: string[];
   planAction?: 'fix' | 'feature' | 'investigate';
   skillNames?: string[];
+  phases?: PlanPhase[];
 };
 
 /**
@@ -668,7 +672,7 @@ const buildPlanSection = (p: SystemPromptParams): string =>
     trackedFilePaths: p.trackedFilePaths, verificationScripts: p.verificationScripts,
     planSteps: p.planSteps, planSummary: p.planSummary,
     planRisks: p.planRisks, planAction: p.planAction,
-    skillNames: p.skillNames,
+    skillNames: p.skillNames, phases: p.phases,
   });
 
 /**
@@ -1674,18 +1678,50 @@ const buildIncompleteWorkSections = (
   return sections;
 };
 
+type OaiContinuationPromptParams = {
+  unvisited: string[];
+  failureCount: number;
+  failures: ValidationFailure[];
+  totalPlanned: number;
+  passNumber: number;
+  planSummary: string;
+  planSteps: string[];
+  verificationCommands: string[];
+};
+
 /**
- * Builds a continuation prompt.
+ * Builds an enriched continuation prompt with progress summary, goal, plan steps, and unvisited files.
  *
- * @param unvisited - Unvisited files
- * @param failureCount - Unique failure count
- * @param failures - Validation failures
+ * @param p - Continuation prompt parameters
  * @returns Continuation prompt string
  */
-const buildContinuationPrompt = (unvisited: string[], failureCount: number, failures: ValidationFailure[]): string => {
-  const sections = buildIncompleteWorkSections(unvisited, failureCount, failures);
-  return `Continue implementing the remaining plan steps. The following work is still incomplete:\n\n${sections.join('\n\n')}\n\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`;
+const formatOaiVerificationBlock = (commands: string[]): string =>
+  commands.length > 0
+    ? `\nVerification (run after all edits):\n${commands.map((c, i) => `  ${i + 1}. ${c}`).join('\n')}`
+    : '';
+
+const buildContinuationPrompt = (p: OaiContinuationPromptParams): string => {
+  const completed = p.totalPlanned - p.unvisited.length;
+  const sections = buildIncompleteWorkSections(p.unvisited, p.failureCount, p.failures);
+  return [
+    `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
+    `Goal: ${p.planSummary}`,
+    `\nPlan steps:\n${p.planSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`,
+    `\nContinue implementing the remaining plan steps. The following work is still incomplete:\n\n${sections.join('\n\n')}`,
+    formatOaiVerificationBlock(p.verificationCommands),
+    `\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`,
+  ].join('\n');
 };
+
+/**
+ * Compute the dynamic stall threshold from the concrete (non-glob) file count.
+ *
+ * @param concreteFileCount - Number of non-glob planned files
+ * @param configOverride - Optional override from stage config
+ * @returns Stall threshold (minimum DEFAULT_STALL_THRESHOLD)
+ */
+const computeStallThreshold = (concreteFileCount: number, configOverride?: number): number =>
+  configOverride ?? Math.max(DEFAULT_STALL_THRESHOLD, Math.ceil(concreteFileCount / 5));
 
 /**
  * Logs a stalled workload warning.
@@ -1693,11 +1729,11 @@ const buildContinuationPrompt = (unvisited: string[], failureCount: number, fail
  * @param unvisited - Unvisited files
  * @param failureCount - Failure count
  */
-const logStalledWorkload = (unvisited: string[], failureCount: number): void => {
+const logStalledWorkload = (unvisited: string[], failureCount: number, threshold: number): void => {
   const parts: string[] = [];
   if (failureCount > 0) parts.push(`${failureCount} unresolved edit validation failure(s)`);
   if (unvisited.length > 0) parts.push(`${unvisited.length} planned file(s) not touched: ${unvisited.join(', ')}`);
-  console.log(chalk.yellow('\n  [openai-agent] Workload not decreasing after 2 passes — stopping'));
+  console.log(chalk.yellow(`\n  [openai-agent] Workload not decreasing after ${threshold} passes — stopping`));
   console.log(chalk.yellow(`  [openai-agent] Remaining: ${parts.join('; ')}`));
 };
 
@@ -1744,16 +1780,23 @@ const startContinuationRun = async (
  * @param loop - Mutable loop state
  * @returns Updated streamed run
  */
+const logOaiIdleDiagnostic = (run: OaiStreamedRun, passNumber: number): void => {
+  if (run.currentTurn > 1) return;
+  const text = typeof run.finalOutput === 'string' ? run.finalOutput.slice(0, 200) : '';
+  console.log(chalk.yellow(`  [openai-agent] Pass ${passNumber + 1} produced no tool calls (idle). AI response: ${text || '(none)'}`));
+};
+
 const runContinuationPass = async (
   passNumber: number, currentRun: OaiStreamedRun, prompt: string, config: StreamRunConfig, loop: StreamLoopState
 ): Promise<OaiStreamedRun> => {
   appendContinuationMessage(currentRun.state, prompt);
   loop.consecutiveRateLimitAttempts = 0;
-  let run = await startContinuationRun(currentRun.state, prompt, config);
   const label = `Pass ${passNumber} `;
-  run = await runStreamWithRetry(run, config, loop, label);
+  const initial = await startContinuationRun(currentRun.state, prompt, config);
+  const run = await runStreamWithRetry(initial, config, loop, label);
   throwOnRunError(run, label);
   console.log(chalk.green(`  [openai-agent] Pass ${passNumber + 1} completed in ${run.currentTurn} turn(s).`));
+  logOaiIdleDiagnostic(run, passNumber);
   return run;
 };
 
@@ -1789,26 +1832,54 @@ type ContinuationLoopParams = {
   repoFiles: string[];
   repoName: string;
   failures: ValidationFailure[];
+  planSummary: string;
+  planSteps: string[];
+  verificationCommands: string[];
+  stallThresholdOverride?: number;
 };
 
-type ContinuationState = { prev: number; stalled: number; passNum: number; cur: OaiStreamedRun };
+type ContinuationState = {
+  prev: number;
+  stalled: number;
+  passNum: number;
+  cur: OaiStreamedRun;
+  lastPassTurns?: number;
+  idleCount: number;
+  threshold: number;
+};
 
 /**
  * Evaluates whether the continuation loop should stop.
+ * Idle passes (currentTurn <= 1) do not consume stall budget.
  *
  * @param wl - Workload metrics
  * @param state - Mutable continuation state
  * @returns True if the loop should break
  */
+const handleOaiIdlePass = (state: ContinuationState): boolean => {
+  state.idleCount++;
+  if (state.idleCount < MAX_CONSECUTIVE_IDLE_PASSES) return false;
+  console.log(chalk.yellow(`\n  [openai-agent] Stopping after ${MAX_CONSECUTIVE_IDLE_PASSES} consecutive idle passes`));
+  return true;
+};
+
+const handleOaiActivePass = (
+  wl: { total: number; unvisited: string[]; failureCount: number }, state: ContinuationState
+): boolean => {
+  state.idleCount = 0;
+  state.stalled = updateStallCounter(wl.total, state.prev, state.stalled);
+  state.prev = wl.total;
+  if (state.stalled < state.threshold) return false;
+  logStalledWorkload(wl.unvisited, wl.failureCount, state.threshold);
+  return true;
+};
+
 const shouldStopContinuation = (
   wl: { total: number; unvisited: string[]; failureCount: number }, state: ContinuationState
 ): boolean => {
   if (wl.total === 0) return true;
-  state.stalled = updateStallCounter(wl.total, state.prev, state.stalled);
-  state.prev = wl.total;
-  if (state.stalled < 2) return false;
-  logStalledWorkload(wl.unvisited, wl.failureCount);
-  return true;
+  const isIdle = state.lastPassTurns !== undefined && state.lastPassTurns <= 1;
+  return isIdle ? handleOaiIdlePass(state) : handleOaiActivePass(wl, state);
 };
 
 /**
@@ -1816,15 +1887,35 @@ const shouldStopContinuation = (
  *
  * @param p - All state needed for continuation
  */
+const hasReachedOaiHardCap = (passNum: number): boolean => {
+  if (passNum < MAX_CONTINUATION_PASSES) return false;
+  console.log(chalk.yellow(`\n  [openai-agent] Reached hard cap of ${MAX_CONTINUATION_PASSES} continuation passes — stopping`));
+  return true;
+};
+
+const initOaiContinuationState = (p: ContinuationLoopParams, fileCount: number): ContinuationState => ({
+  prev: Infinity, stalled: 0, passNum: 0, cur: p.run, idleCount: 0,
+  threshold: computeStallThreshold(fileCount, p.stallThresholdOverride),
+});
+
+const buildIterationPrompt = (
+  p: ContinuationLoopParams, s: ContinuationState, wl: ReturnType<typeof computeWorkload>, fileCount: number
+): string => buildContinuationPrompt({
+  unvisited: wl.unvisited, failureCount: wl.failureCount, failures: p.failures,
+  totalPlanned: fileCount, passNumber: s.passNum,
+  planSummary: p.planSummary, planSteps: p.planSteps, verificationCommands: p.verificationCommands,
+});
+
 const runContinuationLoop = async (p: ContinuationLoopParams): Promise<void> => {
-  const s: ContinuationState = { prev: Infinity, stalled: 0, passNum: 0, cur: p.run };
-  while (true) {
+  const fileCount = p.repoFiles.filter(f => !isGlobPattern(f)).length;
+  const s = initOaiContinuationState(p, fileCount);
+  while (!hasReachedOaiHardCap(s.passNum)) {
     const wl = computeWorkload(p.loop.fileChangeStatus, p.repoFiles, p.repoName, p.failures);
     if (shouldStopContinuation(wl, s)) break;
     s.passNum++;
     logPassStart(s.passNum, wl.unvisited, wl.failureCount);
-    const prompt = buildContinuationPrompt(wl.unvisited, wl.failureCount, p.failures);
-    s.cur = await runContinuationPass(s.passNum, s.cur, prompt, p.config, p.loop);
+    s.cur = await runContinuationPass(s.passNum, s.cur, buildIterationPrompt(p, s, wl, fileCount), p.config, p.loop);
+    s.lastPassTurns = s.cur.currentTurn;
   }
 };
 
@@ -1923,7 +2014,7 @@ const buildSystemPromptFromParams = (p: GenerateAndVerifyParams, repoDir: string
     planSteps: p.planArtifact.plan.steps,
     planSummary: p.planArtifact.plan.summary, planRisks: p.planArtifact.plan.risks,
     planAction: p.planArtifact.plan.action,
-    skillNames: p.skillNames,
+    skillNames: p.skillNames, phases: p.planArtifact.plan.phases,
   });
 
 /**
@@ -2057,14 +2148,15 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     params: GenerateAndVerifyParams & { options: ImplementerOptions },
     c: Awaited<ReturnType<OpenAIAgentAdapter['buildRunComponents']>>
   ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
-    let run = await this.startInitialRun(c);
-    run = await runStreamWithRetry(run, c.config, c.loop, '');
+    const run = await runStreamWithRetry(await this.startInitialRun(c), c.config, c.loop, '');
     throwOnRunError(run, '');
     logCompletion(run, c.loop.usageSummary, c.model);
-    const { repoFiles, repoName, verificationScripts } = params;
-    const failures = c.mutable.validationFailures;
-    await runContinuationLoop({ run, config: c.config, loop: c.loop, repoFiles, repoName, failures });
-    return this.buildRunResult(c, verificationScripts);
+    await runContinuationLoop({
+      run, config: c.config, loop: c.loop, repoFiles: params.repoFiles, repoName: params.repoName,
+      failures: c.mutable.validationFailures, planSummary: params.planArtifact.plan.summary,
+      planSteps: params.planArtifact.plan.steps, verificationCommands: params.verificationScripts.map(vs => vs.command),
+    });
+    return this.buildRunResult(c, params.verificationScripts);
   }
 
   /**

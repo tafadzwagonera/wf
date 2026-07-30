@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
 import { type ResolutionPlan, type FileEntry, normalizeFileEntries } from '../../integrations/ai/ai.service';
+import { planPhaseSchema } from '../schemas/ai.schema';
 import type { ResolutionAction, TicketArtifact } from '../../agents/interfaces';
 import { resolveCustomArtifactDir } from '../../agents/utils';
 import type { PlanArtifactManifest, PlanArtifactReference, PlanTokenResolution } from '../types/plan-artifact.types';
@@ -154,6 +155,7 @@ export const buildPlanArtifactManifestPath = (artifactPath: string): string =>
  */
 
 /* eslint-disable max-params */
+// eslint-disable-next-line max-lines-per-function
 export const buildPlanArtifactManifest = (
   artifactPath: string,
   action: ResolutionAction,
@@ -195,6 +197,7 @@ export const writePlanArtifactManifest = (manifest: PlanArtifactManifest): strin
  * @param manifestPath - Absolute manifest path
  * @returns Parsed manifest or null when the file is missing or invalid
  */
+// eslint-disable-next-line max-lines-per-function
 export const readPlanArtifactManifest = (manifestPath: string): PlanArtifactManifest | null => {
   if (!fs.existsSync(manifestPath)) {
     return null;
@@ -310,6 +313,7 @@ const readManifestCandidates = (artifactDir: string): PlanArtifactManifest[] =>
     .map(manifestPath => readPlanArtifactManifest(manifestPath))
     .filter((manifest): manifest is PlanArtifactManifest => manifest !== null);
 
+// eslint-disable-next-line max-lines-per-function
 const matchesManifestIdentifier = (
   manifest: PlanArtifactManifest,
   identifierStem: string,
@@ -361,6 +365,7 @@ const isCanonicalArtifactPath = (artifactPath: string): boolean => {
   return parseCanonicalStem(artifactStem) !== null;
 };
 
+// eslint-disable-next-line max-lines-per-function
 const resolveManifestMatch = (
   artifactDir: string,
   identifierStem: string,
@@ -407,6 +412,7 @@ const resolveManifestMatch = (
  * @param options - Artifact directory and optional action hint
  * @returns Resolved plan artifact reference
  */
+// eslint-disable-next-line max-lines-per-function
 export const resolvePlanArtifactReference = (
   identifier: string,
   options: ResolvePlanArtifactOptions
@@ -477,6 +483,7 @@ export const parsePlanArtifact = (content: string, filePath: string): Resolution
  */
 export const getPlanArtifactExtension = (format: PlanArtifactFormat): PlanArtifactFormat => format;
 
+// eslint-disable-next-line max-lines-per-function
 const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
   if (!value || typeof value !== 'object') {
     throw new Error(`Plan file is not valid: ${filePath}`);
@@ -499,9 +506,16 @@ const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
     provider: typeof rawPlan.provider === 'string' ? rawPlan.provider : undefined,
     source: typeof rawPlan.source === 'string' ? rawPlan.source : undefined,
     timestamp: typeof rawPlan.timestamp === 'string' ? rawPlan.timestamp : undefined,
+    phases: Array.isArray(rawPlan.phases)
+      ? rawPlan.phases.flatMap((entry: unknown) => {
+          const parsed = planPhaseSchema.safeParse(entry);
+          return parsed.success ? [parsed.data] : [];
+        })
+      : undefined,
   };
 };
 
+// eslint-disable-next-line max-lines-per-function
 const parseMarkdownPlan = (content: string, filePath: string): ResolutionPlan => {
   const sections = new Map<string, string[]>();
   let activeSection = '';
@@ -612,6 +626,7 @@ const normalizeFileEntryList = (value: unknown): (string | FileEntry)[] | undefi
  * @param repoBaseDir - Repository base path used to derive the custom artifact directory
  * @returns Resolution result, or undefined when the argument is not a plan artifact
  */
+// eslint-disable-next-line max-lines-per-function
 export const resolvePlanToken = (
   argument: string,
   trackerDir: string,
@@ -664,6 +679,7 @@ export const resolvePlanToken = (
  * @param plan - Parsed plan content
  * @returns A ticket artifact synthesized from the plan metadata
  */
+// eslint-disable-next-line max-lines-per-function
 export const buildSyntheticTicketArtifact = (planPath: string, plan: ResolutionPlan): TicketArtifact => {
   const artifactName = path.basename(planPath, path.extname(planPath));
   const ticketKey = artifactName.replace(new RegExp(`-${plan.action}$`), '') || artifactName;

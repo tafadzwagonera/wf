@@ -61,6 +61,12 @@ export const fileEntrySchema = z.object({
   status: fileStatusSchema,
 });
 
+export const planPhaseSchema = z.object({
+  label: z.string(),
+  stepIndices: z.array(z.number().int().min(0)),
+  verifyAfter: z.array(z.string()).optional(),
+});
+
 export const resolutionPlanSchema = z.object({
   action: z.enum(['fix', 'feature', 'investigate']),
   summary: z.string(),
@@ -74,6 +80,7 @@ export const resolutionPlanSchema = z.object({
   provider: z.string().optional(),
   source: z.string().optional(),
   timestamp: z.string().optional(),
+  phases: z.array(planPhaseSchema).optional(),
 });
 
 // Re-export review schemas used in AI context

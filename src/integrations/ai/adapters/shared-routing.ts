@@ -6,6 +6,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import type { ResolutionPlan } from '../ai.service';
+import type { planPhaseSchema } from '../../../shared/schemas/ai.schema';
+import type { z } from 'zod';
+
+export type PlanPhase = z.infer<typeof planPhaseSchema>;
 import type { VerificationScript, ModelRouting } from '../../../agents/interfaces';
 
 const execAsync = promisify(exec);
@@ -321,6 +325,7 @@ export type BuildPlanContextParams = {
   planRisks?: string[];
   planAction?: 'fix' | 'feature' | 'investigate';
   skillNames?: string[];
+  phases?: PlanPhase[];
 };
 
 type PlanContextDisplay = {
@@ -379,13 +384,28 @@ export const buildImplementerRulesSection = (t: ImplementerToolNames): string =>
 - Use ${t.glob} to discover file paths instead of guessing.
 - ${t.verify} is the only way to execute a shell command, and it will reject any command outside the verification whitelist. Never invent or call any other shell command tool.
 - Never duplicate a function. To add a parameter, modify the existing function signature. To change behavior, edit the existing function body. This applies to constructors, methods, and standalone functions alike.
-- NEVER add eslint-disable comments (inline, block, or file-level) to files you create or modify. If a lint rule fails in a file you are editing, fix the underlying code so the rule passes. Suppressing lint errors masks real problems. Do not fix or modify lint issues in files outside your changeset.
+- NEVER add eslint-disable comments (inline, block, or file-level) to files you create or modify. If a lint rule fails in a file you are editing — whether the violation is new or pre-existing — fix the underlying code so the rule passes. Suppressing lint errors masks real problems. Fix all ESLint violations in every file you touch, not just the lines you changed.
 - If you need to create a file not listed in "Files to implement", first check whether any verification command contains an inline allowlist of file paths. If it does, the new file must not cause that check to fail. Creating an unplanned file that is caught by a verification grep or assertion will block you — the verification whitelist is frozen and cannot be changed during this session.
 - You MUST implement ALL plan steps listed above. Do not stop after completing only the core infrastructure — continue through every step until all tasks are done.
 - Treat the returned progress signal as a heuristic only — never use a 'complete' verdict as a reason to stop. The verdict reflects a single verification command, not overall plan completion.
 - Use verification commands as intermediate checkpoints to catch regressions. After each passing verification, check whether ALL plan steps are done. If any migration or refactoring work remains, continue working.
 - After verification passes, run ${t.search} to count remaining instances of the patterns you are migrating (e.g. 'new Logger('). If the search returns ANY matches, you MUST continue editing those files — do NOT output a summary or any text. Producing a summary that says "remaining work needed" or "follow-up required" is a failure. Keep calling ${t.edit} until the search returns zero matches.
 - Only stop when the migration search confirms zero remaining instances AND all verification commands pass (exit 0) — or when you determine no file changes are required. Then output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.`;
+
+const formatPhaseEntry = (phase: PlanPhase, index: number, planSteps: string[]): string => {
+  const stepRange = phase.stepIndices.map(idx => idx + 1).join(', ');
+  const stepLabels = phase.stepIndices.map(idx => planSteps[idx]).filter(Boolean)
+    .map((s, j) => `  ${phase.stepIndices[j] + 1}. ${s}`).join('\n');
+  const verifyLine = phase.verifyAfter?.length ? `  Verify: ${phase.verifyAfter.join(', ')}` : '  Verify: (none)';
+  return `Phase ${index + 1}: ${phase.label} (steps ${stepRange})\n${stepLabels}\n${verifyLine}`;
+};
+
+const PHASE_CHECKPOINT_HEADER = '\n\n## Phase checkpoints\n\nThis plan is organized into phases. After completing all steps in each phase, run the phase\'s verification commands before proceeding to the next phase. If verification fails, fix the issues before moving on.\n';
+
+const buildPhaseCheckpointSection = (phases: PlanPhase[] | undefined, planSteps: string[]): string => {
+  if (!phases || phases.length === 0) return '';
+  return [PHASE_CHECKPOINT_HEADER, ...phases.map((p, i) => formatPhaseEntry(p, i, planSteps))].join('\n');
+};
 
 const buildImplementSkillSection = (skillNames: string[] | undefined): string => {
   if (!skillNames?.length) return '';
@@ -403,20 +423,28 @@ const buildImplementSkillSection = (skillNames: string[] | undefined): string =>
  * @param params - Plan context parameters
  * @returns Formatted plan-context prompt string
  */
+const resolveTrackedFileList = (params: BuildPlanContextParams): string => {
+  const identical = params.repoFiles.length === params.trackedFilePaths.length
+    && params.repoFiles.every((f, i) => f === params.trackedFilePaths[i]);
+  return identical ? '  (same as files to implement)' : formatRepoFileList(params.trackedFilePaths, params.repoName);
+};
+
+const resolveContextFileSection = (params: BuildPlanContextParams): string =>
+  params.contextFiles?.length ? `\n\nFiles for context (read-only — do NOT edit these):\n${formatRepoFileList(params.contextFiles, params.repoName)}` : '';
+
 export const buildPlanContext = (params: BuildPlanContextParams): string => {
-  const fileList = formatRepoFileList(params.repoFiles, params.repoName);
-  const trackedIdentical
-    = params.repoFiles.length === params.trackedFilePaths.length
-      && params.repoFiles.every((f, i) => f === params.trackedFilePaths[i]);
-  const trackedFileList = trackedIdentical ? '  (same as files to implement)' : formatRepoFileList(params.trackedFilePaths, params.repoName);
-  const hasContextFiles = params.contextFiles && params.contextFiles.length > 0;
-  const contextFileSection = hasContextFiles ? `\n\nFiles for context (read-only — do NOT edit these):\n${formatRepoFileList(params.contextFiles ?? [], params.repoName)}` : '';
-  const skillSection = buildImplementSkillSection(params.skillNames);
-  return assemblePlanContextPrompt({
-    repoDir: params.repoDir, ticketKey: params.ticketKey, planSummary: params.planSummary || '(none)',
-    actionDesc: describeAction(params.planAction), planStepList: formatPlanStepList(params.planSteps),
-    fileList, contextFileSection, trackedFileList, verificationList: formatVerificationList(params.verificationScripts),
-  }) + skillSection;
+  const base = assemblePlanContextPrompt({
+    repoDir: params.repoDir, ticketKey: params.ticketKey,
+    planSummary: params.planSummary || '(none)',
+    actionDesc: describeAction(params.planAction),
+    planStepList: formatPlanStepList(params.planSteps),
+    fileList: formatRepoFileList(params.repoFiles, params.repoName),
+    contextFileSection: resolveContextFileSection(params),
+    trackedFileList: resolveTrackedFileList(params),
+    verificationList: formatVerificationList(params.verificationScripts),
+  });
+  return base + buildImplementSkillSection(params.skillNames)
+    + buildPhaseCheckpointSection(params.phases, params.planSteps);
 };
 
 const readOptionalFile = async (filePath: string): Promise<string | null> => {

@@ -18,7 +18,7 @@ import type {
   VerificationOutcome,
 } from '../../../agents/interfaces';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
-import { resolveSkippedSteps, printVerificationReport } from './verification-report';
+import { resolveSkippedSteps, printVerificationReport, DEFAULT_STALL_THRESHOLD } from './verification-report';
 import {
   resolveModelRouting,
   resolveProviderModel,
@@ -30,11 +30,14 @@ import {
   discoverChangedFiles,
   buildPlanContext,
   buildImplementerRulesSection,
+  type PlanPhase,
 } from './shared-routing';
 
 const CLAUDE_CODE_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'] as const;
 const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const ANTHROPIC_AGENT_LABEL = 'claude-agent-sdk';
+const MAX_CONTINUATION_PASSES = 15;
+const MAX_CONSECUTIVE_IDLE_PASSES = 3;
 const FALLBACK_VERIFICATION_LABEL = 'verification command';
 
 type ActivityState = {
@@ -331,6 +334,7 @@ type SystemPromptParams = {
   planRisks?: string[];
   planAction?: 'fix' | 'feature' | 'investigate';
   skillNames?: string[];
+  phases?: PlanPhase[];
 };
 
 /**
@@ -372,7 +376,7 @@ export const buildSystemPrompt = (p: SystemPromptParams): string => {
     contextFiles: p.contextFiles, trackedFilePaths: p.trackedFilePaths,
     verificationScripts: p.verificationScripts, planSteps: p.planSteps,
     planSummary: p.planSummary, planRisks: p.planRisks, planAction: p.planAction,
-    skillNames: p.skillNames,
+    skillNames: p.skillNames, phases: p.phases,
   });
   return assembleSystemPrompt(planContext, p.repoDir, p.planRisks);
 };
@@ -660,16 +664,51 @@ type SdkQueryFn = (
  * @param passNumber - 0-based pass index
  * @returns The new session ID after the pass completes
  */
+type ContinuationPromptParams = {
+  currentUnvisited: string[];
+  totalPlanned: number;
+  passNumber: number;
+  planSummary: string;
+  planSteps: string[];
+  verificationCommands: string[];
+};
+
 /**
- * Build the continuation prompt listing files not yet touched.
+ * Build the enriched continuation prompt listing progress, goal, plan steps, and unvisited files.
  *
- * @param currentUnvisited - Repo-relative paths that are still unmodified
+ * @param p - Continuation prompt parameters
  * @returns A full prompt string for the continuation session
  */
-const buildContinuationPrompt = (currentUnvisited: string[]): string => {
-  const unvisitedLines = currentUnvisited.map(f => `- ${f}`).join('\n');
-  return `Continue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}\n\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. After addressing all listed files, use Grep to search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before making your first tool call.`;
+const formatVerificationBlock = (commands: string[]): string =>
+  commands.length > 0
+    ? `\nVerification (run after all edits):\n${commands.map((c, i) => `  ${i + 1}. ${c}`).join('\n')}`
+    : '';
+
+const buildContinuationPrompt = (p: ContinuationPromptParams): string => {
+  const completed = p.totalPlanned - p.currentUnvisited.length;
+  const unvisitedLines = p.currentUnvisited.map(f => `- ${f}`).join('\n');
+  return [
+    `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
+    `Goal: ${p.planSummary}`,
+    `\nPlan steps:\n${p.planSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`,
+    `\nContinue implementing the remaining plan steps. The following planned files are still unmodified (listed in recommended implementation order):\n\n${unvisitedLines}`,
+    formatVerificationBlock(p.verificationCommands),
+    `\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. After addressing all listed files, run each verification command above exactly as written. Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before making your first tool call.`,
+  ].join('\n');
 };
+
+/**
+ * Log diagnostic information when a pass produced no tool calls (idle pass).
+ *
+ * @param result - The SDK result message for the pass
+ * @param passNumber - 1-based pass number for log output
+ */
+const logIdlePassDiagnostic = (result: SDKResultMessage, passNumber: number): void => {
+  const text = result.subtype === 'success' && typeof result.result === 'string' ? result.result.slice(0, 200) : '';
+  console.log(chalk.yellow(`  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber} produced no tool calls (idle). AI response: ${text || '(none)'}`));
+};
+
+type ContinuationPassResult = { sessionId: string; numTurns: number };
 
 type ContinuationPassParams = {
   query: SdkQueryFn;
@@ -679,19 +718,35 @@ type ContinuationPassParams = {
   touchedFiles: Set<string>;
   activityState: ActivityState;
   passNumber: number;
+  totalPlanned: number;
+  planSummary: string;
+  planSteps: string[];
+  verificationCommands: string[];
 };
 
-const runContinuationPass = async (p: ContinuationPassParams): Promise<string> => {
+const buildPassPromptParams = (p: ContinuationPassParams): ContinuationPromptParams => ({
+  currentUnvisited: p.currentUnvisited, totalPlanned: p.totalPlanned, passNumber: p.passNumber,
+  planSummary: p.planSummary, planSteps: p.planSteps, verificationCommands: p.verificationCommands,
+});
+
+const finalizeContinuationResult = (
+  result: SDKResultMessage | undefined, passNumber: number
+): ContinuationPassResult => {
+  if (!result) throw new Error(`Claude Agent SDK pass ${passNumber} finished without returning a result.`);
+  if (result.num_turns !== undefined && result.num_turns <= 1) logIdlePassDiagnostic(result, passNumber);
+  return { sessionId: validateAndLogPassResult(result, passNumber - 1), numTurns: result.num_turns ?? 2 };
+};
+
+const runContinuationPass = async (p: ContinuationPassParams): Promise<ContinuationPassResult> => {
   const repoDir = p.sdkOptions['cwd'] as string;
   console.log(chalk.yellow(`\n  [${ANTHROPIC_AGENT_LABEL}] Pass ${p.passNumber}: ${p.currentUnvisited.length} planned file(s) not touched — continuing`));
   const session = p.query({
-    prompt: buildContinuationPrompt(p.currentUnvisited),
+    prompt: buildContinuationPrompt(buildPassPromptParams(p)),
     options: { ...p.sdkOptions, resume: p.sessionId },
   });
   const result = await runSdkSession(session, repoDir, p.touchedFiles, p.activityState);
   await discoverChangedFiles(repoDir, p.touchedFiles);
-  if (!result) throw new Error(`Claude Agent SDK pass ${p.passNumber} finished without returning a result.`);
-  return validateAndLogPassResult(result, p.passNumber - 1);
+  return finalizeContinuationResult(result, p.passNumber);
 };
 
 /**
@@ -718,12 +773,23 @@ const computeUnvisited = (repoFiles: string[], repoName: string, touchedFiles: S
   repoFiles.map(f => stripRepoPrefix(f, repoName)).filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
 
 /**
+ * Compute the dynamic stall threshold from the concrete (non-glob) file count.
+ *
+ * @param concreteFileCount - Number of non-glob planned files
+ * @param configOverride - Optional override from stage config
+ * @returns Stall threshold (minimum DEFAULT_STALL_THRESHOLD)
+ */
+const computeStallThreshold = (concreteFileCount: number, configOverride?: number): number =>
+  configOverride ?? Math.max(DEFAULT_STALL_THRESHOLD, Math.ceil(concreteFileCount / 5));
+
+/**
  * Log the stall warning and the list of remaining untouched files.
  *
  * @param currentUnvisited - Files still not touched after stall detection
+ * @param threshold - The stall threshold that was reached
  */
-const logStallWarning = (currentUnvisited: string[]): void => {
-  console.log(chalk.yellow(`\n  [${ANTHROPIC_AGENT_LABEL}] Workload not decreasing after 2 passes — stopping`));
+const logStallWarning = (currentUnvisited: string[], threshold: number): void => {
+  console.log(chalk.yellow(`\n  [${ANTHROPIC_AGENT_LABEL}] Workload not decreasing after ${threshold} passes — stopping`));
   const remaining = currentUnvisited.join(', ');
   console.log(chalk.yellow(`  [${ANTHROPIC_AGENT_LABEL}] Remaining: ${currentUnvisited.length} planned file(s) not touched: ${remaining}`));
 };
@@ -733,24 +799,41 @@ type ContinuationLoopState = {
   stalledPasses: number;
   passNumber: number;
   sessionId: string;
+  lastPassNumTurns?: number;
+  consecutiveIdlePasses: number;
+  stallThreshold: number;
 };
 
 /**
  * Advance one iteration of the continuation loop state machine.
- * Returns false when the loop should stop (all done or stalled).
+ * Idle passes (num_turns <= 1) do not consume stall budget.
+ * Returns false when the loop should stop (all done, stalled, or idle-capped).
  *
  * @param state - Mutable loop counters (updated in-place)
  * @param currentUnvisited - Files not yet touched in this iteration
  * @returns True when the loop should continue, false to stop
  */
-const advanceContinuationState = (state: ContinuationLoopState, currentUnvisited: string[]): boolean => {
-  if (currentUnvisited.length === 0) return false;
+const handleIdlePass = (state: ContinuationLoopState): boolean => {
+  state.consecutiveIdlePasses++;
+  if (state.consecutiveIdlePasses < MAX_CONSECUTIVE_IDLE_PASSES) return true;
+  console.log(chalk.yellow(`\n  [${ANTHROPIC_AGENT_LABEL}] Stopping after ${MAX_CONSECUTIVE_IDLE_PASSES} consecutive idle passes`));
+  return false;
+};
+
+const handleActivePass = (state: ContinuationLoopState, currentUnvisited: string[]): boolean => {
+  state.consecutiveIdlePasses = 0;
   state.stalledPasses = currentUnvisited.length < state.previousWorkload ? 0 : state.stalledPasses + 1;
   state.previousWorkload = currentUnvisited.length;
-  if (state.stalledPasses >= 2) {
-    logStallWarning(currentUnvisited);
-    return false;
-  }
+  if (state.stalledPasses < state.stallThreshold) return true;
+  logStallWarning(currentUnvisited, state.stallThreshold);
+  return false;
+};
+
+const advanceContinuationState = (state: ContinuationLoopState, currentUnvisited: string[]): boolean => {
+  if (currentUnvisited.length === 0) return false;
+  const isIdle = state.lastPassNumTurns !== undefined && state.lastPassNumTurns <= 1;
+  const shouldContinue = isIdle ? handleIdlePass(state) : handleActivePass(state, currentUnvisited);
+  if (!shouldContinue) return false;
   state.passNumber++;
   return true;
 };
@@ -763,19 +846,40 @@ type ContinuationLoopParams = {
   touchedFiles: Set<string>;
   activityState: ActivityState;
   initialSessionId: string;
+  planSummary: string;
+  planSteps: string[];
+  verificationCommands: string[];
+  stallThresholdOverride?: number;
+};
+
+const hasReachedHardCap = (passNumber: number): boolean => {
+  if (passNumber < MAX_CONTINUATION_PASSES) return false;
+  console.log(chalk.yellow(`\n  [${ANTHROPIC_AGENT_LABEL}] Reached hard cap of ${MAX_CONTINUATION_PASSES} continuation passes — stopping`));
+  return true;
+};
+
+const initContinuationState = (p: ContinuationLoopParams, stallThreshold: number): ContinuationLoopState => ({
+  previousWorkload: Infinity, stalledPasses: 0, passNumber: 0, sessionId: p.initialSessionId,
+  consecutiveIdlePasses: 0, stallThreshold,
+});
+
+const applyContinuationPassResult = (state: ContinuationLoopState, result: ContinuationPassResult): void => {
+  state.sessionId = result.sessionId;
+  state.lastPassNumTurns = result.numTurns;
 };
 
 const runSdkContinuationLoop = async (p: ContinuationLoopParams): Promise<string> => {
-  const state: ContinuationLoopState = {
-    previousWorkload: Infinity, stalledPasses: 0, passNumber: 0, sessionId: p.initialSessionId,
-  };
-  while (true) {
-    const currentUnvisited = computeUnvisited(p.repoFiles, p.repoName, p.touchedFiles);
-    if (!advanceContinuationState(state, currentUnvisited)) break;
-    state.sessionId = await runContinuationPass({
-      query: p.query, sdkOptions: p.sdkOptions, sessionId: state.sessionId,
-      currentUnvisited, touchedFiles: p.touchedFiles, activityState: p.activityState, passNumber: state.passNumber,
-    });
+  const fileCount = p.repoFiles.filter(f => !isGlobPattern(f)).length;
+  const state = initContinuationState(p, computeStallThreshold(fileCount, p.stallThresholdOverride));
+  while (!hasReachedHardCap(state.passNumber)) {
+    const unvisited = computeUnvisited(p.repoFiles, p.repoName, p.touchedFiles);
+    if (!advanceContinuationState(state, unvisited)) break;
+    applyContinuationPassResult(state, await runContinuationPass({
+      query: p.query, sdkOptions: p.sdkOptions, sessionId: state.sessionId, currentUnvisited: unvisited,
+      touchedFiles: p.touchedFiles, activityState: p.activityState, passNumber: state.passNumber,
+      totalPlanned: fileCount, planSummary: p.planSummary,
+      planSteps: p.planSteps, verificationCommands: p.verificationCommands,
+    }));
   }
   return state.sessionId;
 };
@@ -824,7 +928,7 @@ const buildSystemPromptParams = (params: GenerateAndVerifyParams, repoDir: strin
   verificationScripts: params.verificationScripts,
   planSteps: params.planArtifact.plan.steps, planSummary: params.planArtifact.plan.summary,
   planRisks: params.planArtifact.plan.risks, planAction: params.planArtifact.plan.action,
-  skillNames: params.skillNames,
+  skillNames: params.skillNames, phases: params.planArtifact.plan.phases,
 });
 
 const resolveModelAndPrompt = (
@@ -942,6 +1046,9 @@ const executeAgentSession = async (s: AgentSessionParams): Promise<string> => {
   return runSdkContinuationLoop({
     query: s.query, sdkOptions: s.sdkOptions, repoFiles: s.params.repoFiles, repoName: s.params.repoName,
     touchedFiles: s.touchedFiles, activityState: s.activityState, initialSessionId: finalResult.session_id,
+    planSummary: s.params.planArtifact.plan.summary,
+    planSteps: s.params.planArtifact.plan.steps,
+    verificationCommands: s.params.verificationScripts.map(vs => vs.command),
   });
 };
 

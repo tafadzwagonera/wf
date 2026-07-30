@@ -164,13 +164,20 @@ export function buildVerificationFixPrompt(failures: VerificationOutcome[]): str
 }
 
 /**
+ * Default stall threshold: number of consecutive non-improving passes before the loop stops.
+ * Used by continuation loops and the verification stall check.
+ */
+export const DEFAULT_STALL_THRESHOLD = 2;
+
+/**
  * Checks whether the verification failure count is decreasing.
- * Returns -1 to signal the loop should stop (stalled for 2 consecutive passes).
+ * Returns -1 to signal the loop should stop (stalled for `threshold` consecutive passes).
  *
  * @param currentFailures - Number of enforced failures in this pass.
  * @param previousFailures - Number of enforced failures in the prior pass.
  * @param stalledPasses - Running count of non-decreasing passes.
  * @param adapterLabel - Adapter label for log messages.
+ * @param threshold - Number of consecutive non-improving passes before stopping (default: DEFAULT_STALL_THRESHOLD).
  * @returns Updated stalledPasses count, or -1 to signal the loop should break.
  */
 export function checkVerificationStall(
@@ -178,11 +185,12 @@ export function checkVerificationStall(
   previousFailures: number,
   stalledPasses: number,
   adapterLabel: string,
+  threshold = DEFAULT_STALL_THRESHOLD,
 ): number {
   const updated = currentFailures < previousFailures ? 0 : stalledPasses + 1;
-  if (updated < 2) return updated;
+  if (updated < threshold) return updated;
   console.log(chalk.yellow(
-    `\n  [${adapterLabel}] Verification failures not decreasing after 2 passes — stopping`,
+    `\n  [${adapterLabel}] Verification failures not decreasing after ${threshold} passes — stopping`,
   ));
   return -1;
 }

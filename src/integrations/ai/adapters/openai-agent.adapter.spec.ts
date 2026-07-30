@@ -137,7 +137,7 @@ const makeStreamedRun = (
   events: Array<Record<string, unknown>>,
   finalOutput: string,
   error?: unknown,
-  currentTurn = 1
+  currentTurn = 2
 ) => ({
   error,
   finalOutput,
@@ -2010,6 +2010,169 @@ describe('OpenAIAgentAdapter', () => {
         // Only the initial pass — corrective edit cleared the failure,
         // so workload is 0 and the loop does not run
         expect(mockRun).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not count idle pass toward stall budget', async () => {
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-idle-exempt-'));
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+        // call index: 1=initial, 2=idle continuation, 3+4=non-improving (exhaust stall budget)
+        const mockRun = jest.fn(async () => {
+          const callIndex = mockRun.mock.calls.length;
+          return callIndex === 2
+            ? makeStreamedRun([], 'Done.', undefined, 1)
+            : makeStreamedRun([], 'Done.');
+        });
+
+        mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = { ...makeParams(repoDir), repoFiles: ['primary/src/foo.ts'] };
+        await adapter.generateAndVerify(params);
+
+        // initial + idle + 2 non-improving stall passes = 4 total
+        expect(mockRun).toHaveBeenCalledTimes(4);
+        const logMessages = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+        expect(logMessages).toContain('Workload not decreasing');
+      });
+
+      it('stops after 3 consecutive idle passes', async () => {
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-idle-cap-'));
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+        const mockRun = jest.fn(async () => {
+          const callIndex = mockRun.mock.calls.length;
+          // initial pass is non-idle; all continuation passes are idle
+          return callIndex === 1
+            ? makeStreamedRun([], 'Done.')
+            : makeStreamedRun([], 'Done.', undefined, 1);
+        });
+
+        mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = { ...makeParams(repoDir), repoFiles: ['primary/src/foo.ts'] };
+        await adapter.generateAndVerify(params);
+
+        // initial + 3 idle continuation passes = 4 total, then idle cap fires
+        expect(mockRun).toHaveBeenCalledTimes(4);
+        const logMessages = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+        expect(logMessages).toContain('consecutive idle passes');
+      });
+
+      it('logs diagnostic when pass produces no tool calls', async () => {
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-idle-diag-'));
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+        const mockRun = jest.fn(async () => {
+          const callIndex = mockRun.mock.calls.length;
+          return callIndex === 2
+            ? makeStreamedRun([], 'I could not find any files to edit.', undefined, 1)
+            : makeStreamedRun([], 'Done.');
+        });
+
+        mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = { ...makeParams(repoDir), repoFiles: ['primary/src/foo.ts'] };
+        await adapter.generateAndVerify(params);
+
+        const logMessages = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+        expect(logMessages).toContain('produced no tool calls (idle)');
+        expect(logMessages).toContain('I could not find any files to edit.');
+      });
+
+      it('scales stall threshold with file count', async () => {
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-threshold-'));
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        // 15 concrete files → threshold = Math.max(2, ceil(15/5)) = 3
+        const repoFiles = Array.from({ length: 15 }, (_, i) => `primary/src/file${i}.ts`);
+        for (let i = 0; i < 15; i++) {
+          fs.writeFileSync(path.join(repoDir, 'src', `file${i}.ts`), 'original\n');
+        }
+
+        const mockRun = jest.fn(async () => makeStreamedRun([], 'Done.'));
+        mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = { ...makeParams(repoDir), repoFiles };
+        await adapter.generateAndVerify(params);
+
+        // initial + 3 non-improving continuation passes = 4 total (threshold = 3)
+        expect(mockRun).toHaveBeenCalledTimes(4);
+        const logMessages = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+        expect(logMessages).toContain('Workload not decreasing');
+      });
+
+      it('includes progress summary in continuation prompt', async () => {
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-progress-'));
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+        const mockRun = jest.fn(async () => makeStreamedRun([], 'Done.'));
+        mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = { ...makeParams(repoDir), repoFiles: ['primary/src/foo.ts'] };
+        await adapter.generateAndVerify(params);
+
+        // second call (first continuation): second arg is the prompt string (state is undefined)
+        const promptArg = (mockRun.mock.calls as unknown[][])[1]?.[1] as string | undefined;
+        expect(typeof promptArg === 'string' && promptArg.includes('Progress: 0/1 files modified')).toBe(true);
+      });
+
+      it('includes plan summary in continuation prompt', async () => {
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-summary-'));
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+        const mockRun = jest.fn(async () => makeStreamedRun([], 'Done.'));
+        mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = { ...makeParams(repoDir), repoFiles: ['primary/src/foo.ts'] };
+        await adapter.generateAndVerify(params);
+
+        const promptArg = (mockRun.mock.calls as unknown[][])[1]?.[1] as string | undefined;
+        expect(typeof promptArg === 'string' && promptArg.includes('Goal: test')).toBe(true);
+      });
+
+      it('includes verification commands in continuation prompt', async () => {
+        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-verify-'));
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+        const mockRun = jest.fn(async () => makeStreamedRun([], 'Done.'));
+        mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const params = {
+          ...makeParams(repoDir, [
+            { id: 'build', name: 'Build', command: 'yarn build', policy: 'enforced' as const, aliases: [] },
+          ]),
+          repoFiles: ['primary/src/foo.ts'],
+        };
+        await adapter.generateAndVerify(params);
+
+        const promptArg = (mockRun.mock.calls as unknown[][])[1]?.[1] as string | undefined;
+        expect(typeof promptArg === 'string' && promptArg.includes('yarn build')).toBe(true);
       });
     });
   });

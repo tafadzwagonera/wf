@@ -632,6 +632,15 @@ const PLAN_STEP_INSTRUCTIONS = `Create a detailed resolution plan with:
    coverage for that behaviour. Verify that the warning is emitted, the return value
    is correct on the failure path, and downstream code handles the degraded state.
    Silent error swallowing without coverage is a latent bug.
+
+   When a plan affects more than 10 files, group the steps into phases. Each phase should contain related changes that can be verified together (e.g., "Phase 1: Schema changes", "Phase 2: Service layer", "Phase 3: Tests"). Add a \`phases\` array to the JSON output:
+
+     "phases": [
+       { "label": "Schema changes", "stepIndices": [0, 1, 2], "verifyAfter": ["yarn test -- src/shared/schemas/"] },
+       { "label": "Service updates", "stepIndices": [3, 4, 5] }
+     ]
+
+   Each phase's \`verifyAfter\` commands run after that group completes. These commands MUST be a subset of the commands in \`verification.targeted\` — do not invent commands that are not in the verification whitelist. Omit \`verifyAfter\` when no meaningful intermediate check exists. Steps not assigned to a phase are executed after all phases.
 3. Estimated complexity (low/medium/high)
 4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name (e.g., "service-tourv3/src/pricing/pricing.service.ts").

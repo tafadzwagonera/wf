@@ -13,6 +13,7 @@ import { formatProgressMessage as formatAnthropicProgressMessage } from './adapt
 import { formatProgressMessage as formatOpenAiProgressMessage } from './adapters/openai-agent.adapter';
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
+import { DEFAULT_STALL_THRESHOLD } from './adapters/verification-report';
 import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
 import {
   assertCodexCliAvailable,
@@ -85,7 +86,7 @@ const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => 
 };
 
 const CLI_STAGE_LABEL = 'claude-cli';
-const CLI_STALL_THRESHOLD = 2;
+const CLI_STALL_THRESHOLD = DEFAULT_STALL_THRESHOLD;
 const CLI_REVIEW_EPILOGUE_TIMEOUT_MS = 5000;
 const CLI_EPILOGUE_PROMPT
   = 'Summarize the code review you just completed in a brief, human-readable format. '

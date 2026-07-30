@@ -55,6 +55,67 @@ describe('parsePlanArtifact', () => {
       ],
     });
   });
+
+  it('preserves phases when present in plan JSON', () => {
+    const plan = parsePlanArtifact(
+      JSON.stringify({
+        action: 'feature',
+        summary: 'Multi-phase plan',
+        steps: ['Step A', 'Step B', 'Step C'],
+        estimatedComplexity: 'high',
+        phases: [
+          { label: 'Schema changes', stepIndices: [0, 1], verifyAfter: ['yarn test -- src/shared/'] },
+          { label: 'Service updates', stepIndices: [2] },
+        ],
+      }),
+      '/tmp/plan.json'
+    ) as any;
+
+    expect(plan.phases).toHaveLength(2);
+    expect(plan.phases[0]).toEqual({
+      label: 'Schema changes',
+      stepIndices: [0, 1],
+      verifyAfter: ['yarn test -- src/shared/'],
+    });
+    expect(plan.phases[1]).toEqual({
+      label: 'Service updates',
+      stepIndices: [2],
+    });
+  });
+
+  it('loads plan without phases field (backward compatibility)', () => {
+    const plan = parsePlanArtifact(
+      JSON.stringify({
+        action: 'fix',
+        summary: 'Simple fix',
+        steps: ['Fix the bug'],
+        estimatedComplexity: 'low',
+      }),
+      '/tmp/plan.json'
+    ) as any;
+
+    expect(plan.phases).toBeUndefined();
+  });
+
+  it('silently drops malformed phase entries', () => {
+    const plan = parsePlanArtifact(
+      JSON.stringify({
+        action: 'fix',
+        summary: 'Plan with bad phases',
+        steps: ['Step A'],
+        estimatedComplexity: 'low',
+        phases: [
+          { label: 'Valid', stepIndices: [0] },
+          { stepIndices: [0] },
+          'not-an-object',
+        ],
+      }),
+      '/tmp/plan.json'
+    ) as any;
+
+    expect(plan.phases).toHaveLength(1);
+    expect(plan.phases[0].label).toBe('Valid');
+  });
 });
 
 describe('plan artifact helpers', () => {

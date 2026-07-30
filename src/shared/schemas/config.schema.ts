@@ -35,6 +35,7 @@ export const wfImplementStageModelsConfigSchema = z.object({
 export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   models: wfImplementStageModelsConfigSchema.optional(),
   verificationConditions: wfVerificationConditionsConfigSchema.optional(),
+  maxStalledPasses: z.number().int().min(1).optional(),
 });
 
 export const wfCreateStageConfigSchema = z.object({

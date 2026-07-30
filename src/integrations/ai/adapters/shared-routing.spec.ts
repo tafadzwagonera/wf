@@ -141,6 +141,33 @@ describe('buildPlanContext', () => {
     const result = buildPlanContext(baseParams);
     expect(result).not.toContain('Skill-specific instructions:');
   });
+
+  it('includes phase checkpoint instructions when plan has phases', () => {
+    const result = buildPlanContext({
+      ...baseParams,
+      planSteps: ['Step A', 'Step B', 'Step C'],
+      phases: [
+        { label: 'Schema changes', stepIndices: [0, 1], verifyAfter: ['yarn test -- src/shared/'] },
+        { label: 'Service updates', stepIndices: [2] },
+      ],
+    });
+
+    expect(result).toContain('## Phase checkpoints');
+    expect(result).toContain('Phase 1: Schema changes');
+    expect(result).toContain('Phase 2: Service updates');
+    expect(result).toContain('yarn test -- src/shared/');
+    expect(result).toContain('Verify: (none)');
+  });
+
+  it('omits phase section when plan has no phases', () => {
+    const result = buildPlanContext(baseParams);
+    expect(result).not.toContain('## Phase checkpoints');
+  });
+
+  it('omits phase section when phases is an empty array', () => {
+    const result = buildPlanContext({ ...baseParams, phases: [] });
+    expect(result).not.toContain('## Phase checkpoints');
+  });
 });
 
 describe('resolveModelRouting', () => {
