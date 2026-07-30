@@ -1,0 +1,24 @@
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      run: yarn lint
+    typecheck:
+      run: yarn typecheck
+    test:
+      run: yarn test:ci
+    docs-drift:
+      run: yarn generated-docs:sync
+  scripts:
+    warn-wf-files.sh:
+      runner: sh
+
+pre-push:
+  commands:
+    test:
+      run: yarn test:ci
+
+commit-msg:
+  scripts:
+    validate-conventional-commit.sh:
+      runner: sh

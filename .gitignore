@@ -15,3 +15,4 @@ node_modules/
 .env
 wf.config.*
 verification.policy.*
+lefthook-local.yml

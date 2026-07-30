@@ -25,7 +25,7 @@
     "wf": "./dist/main.js"
   },
   "scripts": {
-    "postinstall": "node scripts/postinstall.js",
+    "postinstall": "node scripts/postinstall.js && lefthook install",
     "build": "nest build",
     "postbuild": "chmod +x dist/main.js && ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",
     "help:catalog": "ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",
@@ -88,6 +88,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
+    "@evilmartians/lefthook": "^2.1.10",
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
