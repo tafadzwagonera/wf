@@ -103,6 +103,10 @@ export const normalizeTargetedStepCommand = (command: string): string => {
   for (const [pattern, replacement] of DEPRECATED_FLAG_REWRITES) {
     result = result.replace(pattern, replacement);
   }
+  // --testPathPatterns is a yargs array-type flag: a preceding `-- `
+  // separator alters argument forwarding and causes yargs to consume
+  // subsequent flags (e.g. --verbose) as extra pattern elements.
+  result = result.replace(/\s--\s+(--testPathPatterns\b)/g, ' $1');
   return result;
 };
 

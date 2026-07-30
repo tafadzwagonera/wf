@@ -1,4 +1,4 @@
-import { parseVerificationManifest } from './verification-manifest';
+import { normalizeTargetedStepCommand, parseVerificationManifest } from './verification-manifest';
 
 describe('parseVerificationManifest', () => {
   it('parses enforced and best-effort baseline steps', () => {
@@ -103,5 +103,33 @@ describe('parseVerificationManifest', () => {
     expect(() =>
       parseVerificationManifest(JSON.stringify({ version: 99, baseline: [] }), '/tmp/verification.json')
     ).toThrow(/unsupported.*version/i);
+  });
+});
+
+describe('normalizeTargetedStepCommand', () => {
+  it('rewrites deprecated --testPathPattern to --testPathPatterns', () => {
+    expect(normalizeTargetedStepCommand("yarn test --testPathPattern='tour-group.mapper' --verbose")).toBe(
+      "yarn test --testPathPatterns='tour-group.mapper' --verbose",
+    );
+  });
+
+  it('drops the -- separator before --testPathPatterns after rewrite', () => {
+    expect(normalizeTargetedStepCommand("yarn test -- --testPathPattern='tour-group.mapper' --verbose")).toBe(
+      "yarn test --testPathPatterns='tour-group.mapper' --verbose",
+    );
+  });
+
+  it('drops the -- separator before a pre-existing --testPathPatterns', () => {
+    expect(normalizeTargetedStepCommand("yarn test -- --testPathPatterns='region.mapper' --verbose")).toBe(
+      "yarn test --testPathPatterns='region.mapper' --verbose",
+    );
+  });
+
+  it('leaves commands without --testPathPatterns unchanged', () => {
+    expect(normalizeTargetedStepCommand('yarn test -- src/foo.spec.ts')).toBe('yarn test -- src/foo.spec.ts');
+  });
+
+  it('leaves --forceExit unchanged', () => {
+    expect(normalizeTargetedStepCommand('yarn test --forceExit')).toBe('yarn test --forceExit');
   });
 });
