@@ -555,7 +555,7 @@ describe('StageAgentService', () => {
         2,
         expect.objectContaining({
           prompt:
-            'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines).',
+            'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the requested schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines).',
           sessionId: 'sess_abc123',
         })
       );
@@ -1150,13 +1150,13 @@ describe('StageAgentService', () => {
 
     it('includes sessionId in the thrown AIError when plan parsing fails', async () => {
       const fakeSessionId = 'sess_plan_fallback_test';
-      async function* fakeSpawn() {
-        yield { type: 'result', subtype: 'success', result: 'this is not json', session_id: fakeSessionId };
-      }
-      spawnCli.mockReturnValue(fakeSpawn());
 
       const service = new StageAgentService(createCliConfigService());
       jest.spyOn(console, 'log').mockImplementation(() => {});
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest.fn().mockResolvedValue({
+        content: 'this is not json',
+        sessionId: fakeSessionId,
+      });
 
       await expect(
         service.generatePlan({
@@ -1166,6 +1166,138 @@ describe('StageAgentService', () => {
       ).rejects.toMatchObject({
         message: expect.stringContaining('Failed to parse resolution plan'),
         details: expect.objectContaining({ sessionId: fakeSessionId }),
+      });
+    });
+  });
+
+  describe('JSON validation gate', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    type CliPassResultLike = {
+      result: string;
+      source: 'structured_output' | 'result' | 'assistant_text' | undefined;
+      hadContent: boolean;
+      diagnostics: string[];
+      sessionId: string | undefined;
+      stopReason: string | undefined;
+      jsonRejected?: boolean;
+    };
+
+    type FinalizeCliPass = (
+      passResult: CliPassResultLike,
+      stage: string,
+      passNumber: number,
+      sessionId?: string
+    ) => { content: string; sessionId?: string } | undefined;
+
+    const createClaudeCliPlanConfigService = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.plan.backend': 'cli',
+            'stages.plan.provider': 'anthropic',
+            'stages.plan.model': 'claude-sonnet-4-6',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-6',
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    it('review stage CLI call passes a defined jsonSchema containing "summary"', async () => {
+      spawnCli
+        .mockImplementationOnce(async function* () {
+          yield {
+            type: 'result',
+            subtype: 'success',
+            result: JSON.stringify({
+              summary: 'Looks good overall',
+              issues: [],
+              suggestions: [],
+              approved: true,
+            }),
+            session_id: 'claude-review-session-99',
+          };
+        })
+        .mockImplementationOnce(async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: 'Approved.' }] },
+          };
+        });
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await service.reviewCode('diff --git a/f b/f', [], '/tmp/repo');
+
+      const mainCallArgs = buildCliArgs.mock.calls.find(
+        (args: unknown[]) => typeof (args[0] as Record<string, unknown>).jsonSchema === 'string'
+      );
+      expect(mainCallArgs).toBeDefined();
+      if (mainCallArgs) {
+        const schema = (mainCallArgs[0] as Record<string, unknown>).jsonSchema;
+        expect(schema).toContain('"summary"');
+      }
+    });
+
+    it('tryFinalizeCliPass returns undefined and sets jsonRejected for non-JSON prose on plan stage', () => {
+      const service = new StageAgentService(createClaudeCliPlanConfigService());
+      const passResult: CliPassResultLike = {
+        result: 'Here is my analysis of the code and what needs to change.',
+        source: 'result',
+        hadContent: true,
+        diagnostics: [],
+        sessionId: undefined,
+        stopReason: 'end_turn',
+      };
+
+      const finalize = (service as unknown as { tryFinalizeCliPass: FinalizeCliPass }).tryFinalizeCliPass;
+
+      const result = finalize.call(service, passResult, 'plan', 1);
+      expect(result).toBeUndefined();
+      expect(passResult.jsonRejected).toBe(true);
+    });
+
+    it('tryFinalizeCliPass accepts valid JSON result on plan stage', () => {
+      const service = new StageAgentService(createClaudeCliPlanConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      const passResult: CliPassResultLike = {
+        result: JSON.stringify({ summary: 'test', steps: [] }),
+        source: 'result',
+        hadContent: true,
+        diagnostics: [],
+        sessionId: undefined,
+        stopReason: 'end_turn',
+      };
+
+      const finalize = (service as unknown as { tryFinalizeCliPass: FinalizeCliPass }).tryFinalizeCliPass;
+
+      const result = finalize.call(service, passResult, 'plan', 1);
+      expect(result).toBeDefined();
+      expect(result?.content).toContain('"summary"');
+      expect(passResult.jsonRejected).toBeFalsy();
+    });
+
+    it('json-rejected passes are treated as stalls and eventually throw a stall error', async () => {
+      spawnCli.mockImplementation(async function* () {
+        yield {
+          type: 'result',
+          subtype: 'success',
+          result: 'Here is my detailed analysis of the issue. It looks like there is a problem.',
+          session_id: 'stall-session-1',
+        };
+      });
+
+      const service = new StageAgentService(createClaudeCliPlanConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await expect(
+        service.generatePlan({ action: 'fix', issueContent: 'Fix the bug' })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Claude CLI finished without returning a result'),
       });
     });
   });

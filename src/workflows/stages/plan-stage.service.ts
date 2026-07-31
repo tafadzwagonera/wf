@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { AiService, ResolutionPlan } from '../../integrations/ai/ai.service';
@@ -20,9 +20,11 @@ import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '
 import { AIError, isAIErrorLike, ValidationError } from '../../shared/utils/errors';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { validatePlanQuality } from '../../shared/utils/plan-quality';
-import type { RepoConventionsContext } from '../../shared/types/detection.types';
-import type { PriorPlanContext, PlanCorrelationResult } from '../../shared/types/detection.types';
-import type { CrossRepoContext } from '../../shared/types/detection.types';
+import type { RepoConventionsContext,
+  PriorPlanContext,
+  PlanCorrelationResult,
+  CrossRepoContext
+} from '../../shared/types/detection.types';
 
 interface GeneratePlanOptions {
   action: ResolutionAction;
@@ -330,7 +332,6 @@ export class PlanStageService {
    *
    * @param planAction - The action stored inside the cached plan file
    * @param requestedAction - The action requested by the caller
-   * @param filename - The basename of the cached plan file (for display)
    * @returns The action the user selected
    * @throws ValidationError when the session is non-interactive
    */

@@ -97,7 +97,13 @@ const DEFAULT_CLI_WALL_CLOCK_TIMEOUT_MS = 30 * 60 * 1000;
 const CODEX_STAGE_LABEL = 'codex-cli';
 
 const CLI_RETRY_PROMPT
-  = 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines).';
+  = 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the requested schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines).';
+
+const CLI_STAGE_JSON_SCHEMAS: Record<AgentStageName, string | undefined> = {
+  plan: JSON.stringify(z.toJSONSchema(resolutionPlanSchema)),
+  review: JSON.stringify(z.toJSONSchema(codeReviewSchema)),
+  generate: undefined,
+};
 
 const CLI_CHAT_RETRY_PROMPT
   = 'Your previous response did not include a usable result. Please respond with the requested content directly.';
@@ -105,6 +111,7 @@ const CLI_CHAT_RETRY_PROMPT
 type CliPassResult = {
   diagnostics: string[];
   hadContent: boolean;
+  jsonRejected?: boolean;
   result: string;
   sessionId: string | undefined;
   source: 'structured_output' | 'result' | 'assistant_text' | undefined;
@@ -880,7 +887,7 @@ type CliRetryState = { sessionId?: string; stalledPasses: number; passNumber: nu
  * @param passResult - result from the latest CLI pass
  */
 const advanceCliRetryState = (state: CliRetryState, passResult: CliPassResult): void => {
-  const madeProgress = passResult.hadContent && passResult.source !== 'assistant_text';
+  const madeProgress = passResult.hadContent && passResult.source !== 'assistant_text' && !passResult.jsonRejected;
   state.stalledPasses = madeProgress ? 0 : state.stalledPasses + 1;
   checkCliStallCondition(state.stalledPasses, state.passNumber, state.lastDiagnostics);
   state.lastDiagnostics = passResult.diagnostics;
@@ -1469,18 +1476,12 @@ export class StageAgentService {
       stage: params.stage, prompt: params.prompt, systemPrompt,
       model: this.resolveStageModel(params.stage), resolvedRepoDir: params.repoDir ?? process.cwd(),
       allowInspection: Boolean(params.repoDir),
-      jsonSchema: params.stage === 'plan' ? JSON.stringify(z.toJSONSchema(resolutionPlanSchema)) : undefined,
+      jsonSchema: CLI_STAGE_JSON_SCHEMAS[params.stage],
       resumeProviderSessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
     };
     return this.runCliRetryLoop(passOpts, params.stage, params.resumeProviderSessionId);
   }
 
-  /**
-   * @param passOpts - immutable pass options reused across iterations
-   * @param stage - stage name for error messages
-   * @param initialSessionId - session ID to start with
-   * @returns content and session ID from the first successful pass
-   */
   /**
    * @param stage - stage name for error context
    * @param initialSessionId - session ID to start with
@@ -1512,6 +1513,21 @@ export class StageAgentService {
   }
 
   /**
+   * @param result - raw CLI result string
+   * @param stage - stage name for schema lookup
+   * @returns true when the stage requires JSON and the result is not valid JSON
+   */
+  private isJsonInvalid(result: string, stage: AgentStageName): boolean {
+    if (!CLI_STAGE_JSON_SCHEMAS[stage]) return false;
+    try {
+      parseJsonResponse(result);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
    * @param passResult - result from a CLI pass
    * @param stage - stage name for error context
    * @param passNumber - current pass number
@@ -1524,6 +1540,10 @@ export class StageAgentService {
   ): { content: string; sessionId?: string } | undefined {
     if (!passResult.result || passResult.source === 'assistant_text') return undefined;
     this.checkCliMaxTokens(passResult.stopReason, stage);
+    if (passResult.source === 'result' && this.isJsonInvalid(passResult.result, stage)) {
+      passResult.jsonRejected = true;
+      return undefined;
+    }
     console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${passResult.source} (pass ${passNumber})`));
     if (sessionId) console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Provider session: ${sessionId}`));
     return { content: passResult.result.trim(), sessionId };
@@ -1549,7 +1569,8 @@ export class StageAgentService {
    */
   private async runCliStagePass(opts: CliStagePassOpts & { passNumber: number }): Promise<CliPassResult> {
     const isResume = (opts.passNumber > 1 && opts.sessionId) || (opts.passNumber === 1 && opts.resumeProviderSessionId);
-    const prompt = isResume && opts.passNumber > 1 ? CLI_RETRY_PROMPT : opts.prompt;
+    const retryPrompt = opts.jsonSchema ? CLI_RETRY_PROMPT : CLI_CHAT_RETRY_PROMPT;
+    const prompt = isResume && opts.passNumber > 1 ? retryPrompt : opts.prompt;
     const args = buildCliArgs({
       prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: opts.resolvedRepoDir,
       tools: opts.allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [],
