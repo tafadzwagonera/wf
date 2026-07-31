@@ -121,7 +121,9 @@ export class PlanStageService {
           if (!fallbackResult?.action || !fallbackResult?.summary || !Array.isArray(fallbackResult?.steps)) {
             throw new AIError(
               'Fallback completion did not produce a valid resolution plan. Both agent and standard completion failed to return JSON.',
-              { agentResponse: agentProse?.slice(0, 500), fallbackResult }
+              { agentResponse: agentProse?.slice(0, 500), fallbackResult },
+              true,
+              'parse'
             );
           }
 

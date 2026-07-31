@@ -408,6 +408,7 @@ export const requireReviewResponseContent = (response: ReviewResponseDiagnostics
  * @param message Human-readable error message
  * @returns Constructed AIError
  */
+// eslint-disable-next-line max-lines-per-function -- category arg extends parity with requireReviewJsonContent
 const buildEmptyResponseError = (response: ResponseContentDiagnostics, message: string): AIError =>
   new AIError(
     message,
@@ -421,7 +422,8 @@ const buildEmptyResponseError = (response: ResponseContentDiagnostics, message: 
       usage: response.usage,
       response: response.content,
     },
-    hasRecoverableBlankReviewMetadata(response)
+    hasRecoverableBlankReviewMetadata(response),
+    'parse'
   );
 
 /**
@@ -462,7 +464,8 @@ const requireReviewJsonContent = (response: ReviewResponseDiagnostics): string =
       usage: response.usage,
       response: content,
     },
-    hasRecoverableBlankReviewMetadata(response)
+    hasRecoverableBlankReviewMetadata(response),
+    'parse'
   );
 };
 
@@ -848,7 +851,9 @@ const throwIfTruncated = (response: AIResponse, stage: string): void => {
   if (!truncated) return;
   throw new AIError(
     `${stage} response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.${stage.toLowerCase()}.maxTokens in wf.config.ts.`,
-    { stopReason: response.stopReason, finishReason: response.finishReason, usage: response.usage }
+    { stopReason: response.stopReason, finishReason: response.finishReason, usage: response.usage },
+    true,
+    'truncation'
   );
 };
 
@@ -1276,7 +1281,7 @@ export class AiService {
     } catch (error) {
       if (isAIErrorLike(error)) throw error;
       this.logger.error('Failed to parse AI response as JSON', error);
-      throw new AIError('Failed to parse resolution plan from AI response', { response: response.content, error });
+      throw new AIError('Failed to parse resolution plan from AI response', { response: response.content, error }, true, 'parse');
     }
   }
 
@@ -1294,7 +1299,7 @@ export class AiService {
     } catch (error) {
       if (isAIErrorLike(error)) throw error;
       this.logger.error('Failed to parse findings response', error);
-      throw new AIError('Failed to parse investigation findings from AI response', { response: response.content, error });
+      throw new AIError('Failed to parse investigation findings from AI response', { response: response.content, error }, true, 'parse');
     }
   }
 
@@ -1315,7 +1320,7 @@ export class AiService {
     } catch (error) {
       if (isAIErrorLike(error)) throw error;
       this.logger.error('Failed to parse code review response', error);
-      throw new AIError('Failed to parse code review from AI response', { response: response.content, error });
+      throw new AIError('Failed to parse code review from AI response', { response: response.content, error }, true, 'parse');
     }
   }
 }

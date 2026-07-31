@@ -543,7 +543,8 @@ export class ImplementerAgent {
     const baseDir = repoDir ?? process.cwd();
     const configuredPath = verificationConditions?.policyFile;
     if (configuredPath) {
-      return path.isAbsolute(configuredPath) ? configuredPath : path.join(baseDir, configuredPath);
+      const resolved = path.isAbsolute(configuredPath) ? configuredPath : path.join(baseDir, configuredPath);
+      return fs.existsSync(resolved) ? resolved : undefined;
     }
     const defaultPath = path.join(baseDir, '.wf', 'verification.json');
     return fs.existsSync(defaultPath) ? defaultPath : undefined;
@@ -685,14 +686,16 @@ export class ImplementerAgent {
    * @returns The active or created branch name
    */
   private async handleBranchWorkflow(
-    ticket: TicketArtifact,
-    planArtifact: PlanArtifact,
-    options: ImplementerOptions
+    ticket: TicketArtifact, planArtifact: PlanArtifact, options: ImplementerOptions
   ): Promise<string | null> {
     const cwd = options.repoDir;
+    const current = await this.gitService.getCurrentBranch(cwd).catch(() => '');
+    if (options.isNewRepo) {
+      if (!options.silent) console.log(chalk.cyan(`  Branch workflow: Skip (newly scaffolded)`));
+      return current;
+    }
     const isTTY = this.isInteractiveSession();
     const stashInteractive = !options.silent && isTTY;
-    const current = await this.gitService.getCurrentBranch(cwd).catch(() => '');
 
     if (options.noBranch) {
       return this.handleStayPath(current, planArtifact, options, isTTY, stashInteractive, cwd);

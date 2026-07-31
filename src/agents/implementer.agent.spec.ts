@@ -1045,6 +1045,37 @@ describe('ImplementerAgent', () => {
       expect(gitService.createBranch).toHaveBeenCalled();
     });
 
+    it('skips branch workflow when isNewRepo is true', async () => {
+      const result = await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        isNewRepo: true,
+      });
+
+      expect(gitService.getBranchInfo).not.toHaveBeenCalled();
+      expect(gitService.checkoutBranch).not.toHaveBeenCalled();
+      expect(gitService.createBranch).not.toHaveBeenCalled();
+      expect(gitService.pull).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [],
+      });
+    });
+
+    it('logs skip message when isNewRepo is true and not silent', async () => {
+      const consoleSpy = jest.spyOn(console, 'log');
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: false,
+        isNewRepo: true,
+      });
+
+      const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(logCalls.some(msg => msg.includes('Branch workflow: Skip (newly scaffolded)'))).toBe(true);
+    });
+
     it('throws GitError when source branch checkout fails due to dirty working tree', async () => {
       gitService.detectDevelopmentBranches.mockReturnValue(['develop']);
       gitService.checkoutBranch.mockRejectedValue(new Error('checkout conflict'));
@@ -1355,6 +1386,44 @@ describe('ImplementerAgent', () => {
       });
 
       expect(adapterSpy.mock.calls[0][0].skillNames).toBeUndefined();
+    });
+  });
+
+  describe('verification manifest resolution', () => {
+    beforeEach(() => {
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('returns undefined when configured policyFile does not exist on disk', async () => {
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => {
+        const s = String(p);
+        if (s.includes('verification') || s.includes('policy')) return false;
+        return s.startsWith('/tmp/repo-a/src/') || s.endsWith('/package.json');
+      });
+
+      const configGet = configService.get as jest.Mock;
+      configGet.mockImplementation((key: string, fallback?: unknown) => {
+        if (key === 'stages.implement.verificationConditions') return {
+          policyFile: 'verification.policy.json',
+          scripts: { build: 'yarn build' },
+        };
+        if (key === 'stages.implement.provider') return 'anthropic';
+        if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+        return fallback;
+      });
+
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      const call = adapterSpy.mock.calls[0][0];
+      const scripts = call.verificationScripts as Array<{ id: string; command: string }>;
+      expect(scripts.some(s => s.command === 'yarn build')).toBe(true);
     });
   });
 

@@ -1,4 +1,4 @@
-import { AppError, ERROR_CODE } from '../errors/app.error';
+import { AppError, AIError, ERROR_CODE, type AIErrorCategory } from '../errors/app.error';
 import { isZodErrorLike, formatZodError } from './zod-error.util';
 import chalk from 'chalk';
 
@@ -12,6 +12,7 @@ export class ErrorHandler {
     process.exit(1);
   }
 
+  // eslint-disable-next-line max-lines-per-function -- name, message, details, suggestion, and recoverable-flag display
   private static handleAppError(error: AppError): void {
     console.error(chalk.red.bold(`\n✖ ${error.name}`));
     console.error(chalk.red(error.message));
@@ -19,12 +20,12 @@ export class ErrorHandler {
     if (error.details) {
       const detailsOutput = isZodErrorLike(error.details)
         ? `\n${formatZodError(error.details)}`
-        : `\nDetails:\n${JSON.stringify(error.details, null, 2)}`;
+        : `\nDetails:\n${JSON.stringify(this.sanitizeDetailsForDisplay(error.details), null, 2)}`;
 
       console.error(chalk.gray(detailsOutput));
     }
 
-    const suggestion = this.getSuggestion(error.code);
+    const suggestion = this.getSuggestion(error);
     if (suggestion) {
       console.error(chalk.yellow(`\n💡 Suggestion: ${suggestion}`));
     }
@@ -43,7 +44,18 @@ export class ErrorHandler {
     }
   }
 
-  private static getSuggestion(code: string): string | null {
+  // eslint-disable-next-line max-lines-per-function -- category check + full suggestions map are both required here
+  private static getSuggestion(error: AppError): string | null {
+    if (error instanceof AIError && error.category) {
+      const categorySuggestions: Partial<Record<AIErrorCategory, string>> = {
+        parse: 'The AI response could not be parsed. This is usually transient — retry the command.',
+        truncation: 'The AI response was cut short. Increase `stages.<stage>.maxTokens` in wf.config.ts.',
+        stall: 'The AI agent stalled without producing output. Retry or check agent configuration.',
+      };
+      const categorySuggestion = categorySuggestions[error.category];
+      if (categorySuggestion) return categorySuggestion;
+    }
+
     const suggestions: Record<string, string | null> = {
       [ERROR_CODE.WORKFLOW_PARSE_ERROR]:
         'Check your workflow file syntax. Ensure YAML frontmatter is valid and markdown is properly formatted.',
@@ -62,9 +74,32 @@ export class ErrorHandler {
       [ERROR_CODE.FILE_SYSTEM_ERROR]: 'Check file permissions and ensure the path exists.',
     };
 
-    return suggestions[code] || null;
+    return suggestions[error.code] || null;
   }
 
+  /**
+   * Returns a sanitized shallow copy of error details safe for display.
+   * Truncates long response strings and flattens nested Error objects.
+   * Never mutates the original details object.
+   *
+   * @param details - Raw error details from an AppError
+   * @returns Sanitized copy, undefined for falsy input, primitive unchanged
+   */
+  private static sanitizeDetailsForDisplay(details: unknown): unknown {
+    if (!details) return undefined;
+    if (typeof details !== 'object') return details;
+    const sanitized = { ...(details as Record<string, unknown>) };
+    if (typeof sanitized['response'] === 'string' && sanitized['response'].length > 200) {
+      const totalLength = sanitized['response'].length;
+      sanitized['response'] = sanitized['response'].slice(0, 200) + `... [truncated, ${totalLength} chars total]`;
+    }
+    if (sanitized['error'] !== null && typeof sanitized['error'] === 'object' && 'message' in sanitized['error']) {
+      sanitized['error'] = (sanitized['error'] as { message: string }).message;
+    }
+    return sanitized;
+  }
+
+  // eslint-disable-next-line max-lines-per-function -- retry loop with exponential backoff and attempt tracking
   static async executeWithRetry<T>(
     operation: () => Promise<T>,
     maxRetries: number = 3,
@@ -90,7 +125,7 @@ export class ErrorHandler {
       }
     }
 
-    throw lastError!;
+    throw lastError!; // eslint-disable-line @typescript-eslint/no-non-null-assertion -- loop runs at least once
   }
 
   private static sleep(ms: number): Promise<void> {

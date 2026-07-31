@@ -123,6 +123,7 @@ export const implementerOptionsSchema = z.object({
   branchNamePattern: z.string().optional(),
   priorStageSummary: z.string().optional(),
   resumeProviderSessionId: z.string().optional(),
+  isNewRepo: z.boolean().optional(),
 });
 
 export const agentStageNameSchema = z.enum(['plan', 'review', 'generate']);

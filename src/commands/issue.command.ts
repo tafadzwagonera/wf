@@ -1202,7 +1202,8 @@ export class IssueCommand extends CommandRunner {
 
   private buildImplementerOptions(
     repo: string | undefined, repos: (string | undefined)[], options: IssueOptions, isMultiRepo: boolean,
-    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string }
+    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string },
+    planArtifact?: PlanArtifact
   ): ImplementerOptions {
     return {
       trackerName: options?.tracker || this.configService.get<string>('tracker') || 'jira',
@@ -1213,6 +1214,7 @@ export class IssueCommand extends CommandRunner {
       suppressHeader: isMultiRepo, allowMultiRepoScope: isMultiRepo,
       modelRouting: options.modelRouting as ModelRouting,
       silent: options.silent, noBranch: options.noBranch, branchNamePattern: options.branchNamePattern,
+      isNewRepo: planArtifact?.plan.newRepositories?.includes(repo ?? '') ?? false,
       ...sessionContext,
     };
   }
@@ -1226,9 +1228,9 @@ export class IssueCommand extends CommandRunner {
     let implementerResult: ImplementerResult | undefined;
     for (const repo of repos) {
       if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
-      implementerResult = await this.agents.implementer.execute(
-        ticketArtifact, planArtifact, this.buildImplementerOptions(repo, repos, options, isMultiRepo, sessionContext)
-      );
+      const implOpts = this.buildImplementerOptions(
+        repo, repos, options, isMultiRepo, sessionContext, planArtifact);
+      implementerResult = await this.agents.implementer.execute(ticketArtifact, planArtifact, implOpts);
       if (implementerResult?.type === 'investigation') {
         console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
         return { implementerResult, earlyReturn: true };

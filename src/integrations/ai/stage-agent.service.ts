@@ -756,7 +756,7 @@ const finalizeCodexResult = (result: string, sessionId?: string): { content: str
   if (!result) {
     console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] No result message received from Codex CLI`));
     if (sessionId) console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] Provider session: ${sessionId}`));
-    throw new AIError('Codex CLI finished without returning a result.', null, true);
+    throw new AIError('Codex CLI finished without returning a result.', null, true, 'stall');
   }
   if (sessionId) console.log(chalk.gray(`  [${CODEX_STAGE_LABEL}] Provider session: ${sessionId}`));
   return { content: result.trim(), sessionId };
@@ -899,7 +899,7 @@ const checkCliStallCondition = (stalledPasses: number, passNumber: number, lastD
   const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
   throw new AIError(
     `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`,
-    null, true
+    null, true, 'stall'
   );
 };
 
@@ -1091,7 +1091,7 @@ export class StageAgentService {
       return { plan, sessionId };
     } catch (error) {
       if (isAIErrorLike(error)) throw error;
-      throw new AIError('Failed to parse resolution plan from agent response', { response, error, sessionId });
+      throw new AIError('Failed to parse resolution plan from agent response', { response, error, sessionId }, true, 'parse');
     }
   }
 
@@ -1150,7 +1150,7 @@ export class StageAgentService {
       return { review: { ...review, executionMode: backend === 'cli' ? 'cli' : 'agent' }, sessionId };
     } catch (error) {
       if (isAIErrorLike(error)) throw error;
-      throw new AIError('Failed to parse code review from agent response', { response, error });
+      throw new AIError('Failed to parse code review from agent response', { response, error }, true, 'parse');
     }
   }
 
@@ -1539,7 +1539,7 @@ export class StageAgentService {
     throw new AIError(
       `CLI response was truncated due to output token limit — the model ran out of space before `
       + `completing the response. Increase stages.${stage}.maxTokens in wf.config.ts.`,
-      { stopReason, stage }, true
+      { stopReason, stage }, true, 'truncation'
     );
   }
 

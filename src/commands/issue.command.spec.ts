@@ -2032,6 +2032,54 @@ describe('IssueCommand', () => {
     });
   });
 
+  describe('buildImplementerOptions isNewRepo', () => {
+    it('sets isNewRepo when repo is in plan newRepositories', async () => {
+      const command = await buildCommand();
+      const planArtifact: PlanArtifact = {
+        action: 'fix',
+        path: '/tmp/.wf/consumer-app/jira/plan.json',
+        plan: {
+          action: 'fix',
+          summary: 'Test',
+          steps: [],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: ['new-lib'],
+          newRepositories: ['new-lib'],
+        },
+      };
+
+      const opts = (command as any).buildImplementerOptions(
+        'new-lib', ['new-lib'], { tracker: 'jira' }, false, {}, planArtifact
+      );
+
+      expect(opts.isNewRepo).toBe(true);
+    });
+
+    it('does not set isNewRepo for repos absent from newRepositories', async () => {
+      const command = await buildCommand();
+      const planArtifact: PlanArtifact = {
+        action: 'fix',
+        path: '/tmp/.wf/consumer-app/jira/plan.json',
+        plan: {
+          action: 'fix',
+          summary: 'Test',
+          steps: [],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: ['existing-repo'],
+          newRepositories: ['other-repo'],
+        },
+      };
+
+      const opts = (command as any).buildImplementerOptions(
+        'existing-repo', ['existing-repo'], { tracker: 'jira' }, false, {}, planArtifact
+      );
+
+      expect(opts.isNewRepo).toBe(false);
+    });
+  });
+
   describe('expandReposFromPlan', () => {
     const buildExpandPlanArtifact = (
       affectedRepositories: string[], newRepositories?: string[]
