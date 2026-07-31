@@ -127,9 +127,9 @@ async function diagnose() {
     });
     console.log(chalk.green('✓ Success'));
     console.log(chalk.gray('  Projects found:'), chalk.white(response.data.length));
-    response.data.slice(0, 5).forEach((project: any) => {
+    for (const project of response.data.slice(0, 5)) {
       console.log(chalk.gray(`  - ${project.key}:`), chalk.white(project.name));
-    });
+    }
     console.log();
   } catch (error: any) {
     console.log(chalk.red('✗ Failed:'), error.response?.status, error.message);
