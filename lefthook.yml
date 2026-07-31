@@ -15,6 +15,11 @@ pre-push:
     test:
       run: yarn test:ci
 
+post-commit:
+  commands:
+    generated-docs-check:
+      run: yarn generated-docs:check && yarn build
+
 commit-msg:
   scripts:
     validate-conventional-commit.sh:
