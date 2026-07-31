@@ -124,7 +124,6 @@ async function main() {
   });
   const command = app.get(IssueCommand);
 
-  // -- Test 1: plan-token + --from fetch is rejected --------------------------
   console.log('\n\uD83E\uDDEA Test 1: plan-token + --from fetch is rejected\n' + '\u2500'.repeat(60));
   {
     let exitCode: number | undefined;
@@ -150,7 +149,6 @@ async function main() {
     }
   }
 
-  // -- Test 2: plan-token + --from plan is rejected ---------------------------
   console.log('\n\uD83E\uDDEA Test 2: plan-token + --from plan is rejected\n' + '\u2500'.repeat(60));
   {
     let exitCode: number | undefined;
@@ -176,7 +174,6 @@ async function main() {
     }
   }
 
-  // -- Test 3: plan-token without --from defaults to implement ----------------
   console.log('\n\uD83E\uDDEA Test 3: plan-token without --from defaults to implement\n' + '\u2500'.repeat(60));
   {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-from-stage-'));
@@ -221,7 +218,6 @@ async function main() {
     }
   }
 
-  // -- Test 4: non-canonical token without --from still requires it -----------
   console.log('\n\uD83E\uDDEA Test 4: ticket key without --from still requires --from\n' + '\u2500'.repeat(60));
   {
     let exitCode: number | undefined;
@@ -246,7 +242,6 @@ async function main() {
     }
   }
 
-  // -- Summary ----------------------------------------------------------------
   await app.close();
   console.log(`\n${'='.repeat(60)}`);
   console.log(`Results: ${passed} passed, ${failed} failed`);

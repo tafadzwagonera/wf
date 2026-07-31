@@ -46,7 +46,6 @@ async function main() {
     logger: ['error', 'warn'],
   });
 
-  // ── Test 1: CommitterAgent.hasChangesToCommit calls stageAll ──────────
   origLog('  Part 1: CommitterAgent stages before diff');
   {
     const committer = app.get(CommitterAgent);
@@ -112,7 +111,6 @@ async function main() {
     CommitStageService.prototype.generateCommitMessage = origGenerate;
   }
 
-  // ── Test 2: ReviewerAgent cached review approval uses constant ───────
   origLog('  Part 2: ReviewerAgent cached approval detection');
   {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-agent-fix-'));
@@ -153,7 +151,6 @@ async function main() {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 
-  // ── Test 3: extractSummary regex works (no new RegExp wrapper) ───────
   origLog('  Part 3: utils.ts function contracts');
   {
     const summary1 = extractSummary('# WBP-123: Fix login redirect\n\nBody text');
@@ -178,7 +175,6 @@ async function main() {
     }
   }
 
-  // ── Test 4: slugify grouped alternation ──────────────────────────────
   {
     const slug1 = slugify('--Hello World--');
     if (slug1 === 'hello-world') {
@@ -195,7 +191,6 @@ async function main() {
     }
   }
 
-  // ── Test 5: resolveRepoBasePath with cwd fallback ────────────────────
   {
     const result = resolveRepoBasePath(undefined);
     if (result === process.cwd()) {
