@@ -112,8 +112,8 @@ export class PlanStageService {
 
           const sessionId = typeof error.details?.sessionId === 'string' ? error.details.sessionId : undefined;
 
-          const label = agentProse ? 'Agent returned prose' : 'Agent returned no result';
-          console.log(chalk.yellow(`  \u26A0\uFE0F ${label}   \u2014 falling back to structured completion`));
+          const fallbackReason = agentProse ? 'prose' : 'no result';
+          console.log(chalk.yellow(`  \u26A0\uFE0F Agent returned ${fallbackReason} \u2014 falling back to structured completion`));
           const fallbackResult = await this.aiService.generatePlan(options.action, ticketContent, {
             ...standardContext,
             planQualityFeedback,
