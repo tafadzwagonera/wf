@@ -432,9 +432,10 @@ const PLAN_FILE_LISTING_INSTRUCTIONS = `3. Estimated complexity (low/medium/high
    E.g., reading package.json to confirm a dependency. All context files must have status
    "found". Verify each path exists with tools before listing it.
 6. Potential risks or considerations
-7. Repositories that will be affected (if known)`;
+7. Repositories that will be affected (if known)
+8. New repositories that must be created (not yet existing locally) — a subset of affectedRepositories. Omit or leave empty when the plan only touches existing repos`;
 
-const PLAN_VERIFICATION_INSTRUCTIONS = `8. Task-specific verification only when needed:
+const PLAN_VERIFICATION_INSTRUCTIONS = `9. Task-specific verification only when needed:
    - Use "verification.targeted" for focused checks required by this specific plan
    - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
    - Omit "verification" entirely when no targeted checks or waivers are needed
@@ -519,6 +520,7 @@ Return ONLY a valid JSON object with these fields:
   "affectedFiles": [{ "filePath": "${opts.repoExample}/src/path/to/file.ts", "status": "found" }],
   "affectedFilesContext": [{ "filePath": "${opts.repoExample}/package.json", "status": "found" }],
   "affectedRepositories": ["${opts.repoExample}"],
+  "newRepositories": [],
 ${PLAN_JSON_SCHEMA_TAIL}`;
 
 const buildPlanSkillSection = (skillNames: string[] | undefined): string => {

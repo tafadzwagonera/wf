@@ -738,6 +738,8 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 
 `issue:implement` only supports plans that affect a single repository per execution context. When multiple repos are passed via `-r`, the command skips repos not listed in the plan's `affectedRepositories` (with a log message) and filters plan steps per-repo so each AI agent only sees relevant work. If `affectedRepositories` is empty or all repos would be filtered out, the full list is used as a fallback.
 
+When a plan declares `newRepositories`, the implement stage scaffolds each listed repo as a sibling directory (with `git init` and an empty initial commit) before running the implementation loop. Repos in `affectedRepositories` that are not found locally and not listed in `newRepositories` cause a `ValidationError` to prevent accidental scaffolding of typos.
+
 When a canonical hashed plan artifact is detected, the CLI prints a yellow warning with the decoded artifact and action so you can confirm the resolved plan before implementation starts. Supplying `--action` alongside that artifact still performs a strict validation check against the filename and manifest contents.
 
 Short hashed filenames (`<hash>-<action>-plan.<ext>`) are no longer accepted by workflow commands. To normalize existing local artifacts under `~/.wf`, run:

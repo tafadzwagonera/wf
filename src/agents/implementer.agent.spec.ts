@@ -9,14 +9,21 @@ import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-age
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, TicketArtifact } from './interfaces';
 import { KNOWN_SKILLS, registerSkill } from '../skills/skill-registry';
+import { isRepoResolvable } from './utils';
 
 jest.mock('inquirer');
+
+jest.mock('./utils', () => {
+  const actual = jest.requireActual('./utils');
+  return { ...actual, isRepoResolvable: jest.fn(() => true) };
+});
 
 describe('ImplementerAgent', () => {
   let agent: ImplementerAgent;
   let gitService: jest.Mocked<GitService>;
   let aiService: jest.Mocked<AiService>;
   let configService: ConfigService;
+  let mockIsRepoResolvable: jest.MockedFunction<typeof isRepoResolvable>;
 
   const ticketArtifact: TicketArtifact = {
     ticketKey: 'WBP-1000',
@@ -114,6 +121,7 @@ describe('ImplementerAgent', () => {
     gitService = module.get(GitService);
     aiService = module.get(AiService);
     configService = module.get(ConfigService);
+    mockIsRepoResolvable = isRepoResolvable as jest.MockedFunction<typeof isRepoResolvable>;
 
     jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined as any);
     jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => {
@@ -230,6 +238,81 @@ describe('ImplementerAgent', () => {
           }
         )
       ).resolves.not.toThrow();
+    });
+
+    it('passes when non-existent repos reduce local count to one', async () => {
+      mockIsRepoResolvable.mockImplementation(repo => repo === 'repo-a');
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await expect(
+        agent.execute(
+          ticketArtifact,
+          buildPlan({
+            affectedFiles: ['repo-a/src/example.ts'],
+            affectedRepositories: ['repo-a', 'nonexistent-repo'],
+          }),
+          {
+            trackerName: 'jira',
+            repoDir: '/tmp/repo-a',
+          }
+        )
+      ).resolves.not.toThrow();
+    });
+
+    it('passes when affectedFiles reference an unresolvable repo prefix', async () => {
+      mockIsRepoResolvable.mockImplementation(repo => repo === 'repo-a');
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await expect(
+        agent.execute(
+          ticketArtifact,
+          buildPlan({
+            affectedFiles: ['repo-a/src/example.ts', 'nonexistent-repo/src/index.ts'],
+            affectedRepositories: ['repo-a', 'nonexistent-repo'],
+          }),
+          {
+            trackerName: 'jira',
+            repoDir: '/tmp/repo-a',
+          }
+        )
+      ).resolves.not.toThrow();
+    });
+
+    it('passes when all repos are non-existent (zero local repos)', async () => {
+      mockIsRepoResolvable.mockReturnValue(false);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await expect(
+        agent.execute(
+          ticketArtifact,
+          buildPlan({
+            affectedFiles: ['nonexistent-a/src/a.ts', 'nonexistent-b/src/b.ts'],
+            affectedRepositories: ['nonexistent-a', 'nonexistent-b'],
+          }),
+          {
+            trackerName: 'jira',
+            repoDir: '/tmp/repo-a',
+          }
+        )
+      ).resolves.not.toThrow();
+    });
+
+    it('still fails when multiple repos exist locally without allowMultiRepoScope', async () => {
+      mockIsRepoResolvable.mockReturnValue(true);
+
+      await expect(
+        agent.execute(
+          ticketArtifact,
+          buildPlan({
+            affectedFiles: ['repo-a/src/example.ts', 'repo-b/src/example.ts'],
+            affectedRepositories: ['repo-a', 'repo-b'],
+          }),
+          {
+            trackerName: 'jira',
+            repoDir: '/tmp/repo-a',
+          }
+        )
+      ).rejects.toThrow('issue:implement only verifies a single repository');
     });
   });
 

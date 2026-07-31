@@ -14,7 +14,7 @@ import {
   ImplementerResult,
   VerificationScript,
 } from './interfaces';
-import { extractSummary, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
+import { extractSummary, isRepoResolvable, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
 import { ConfigurationError, GitError, ValidationError } from '../shared/utils/errors';
 import { resolveSkills } from '../skills';
 import { formatBackendSelection, writeImplementVerificationRunFile } from '../shared/utils/implement-verification';
@@ -302,12 +302,17 @@ export class ImplementerAgent {
     repoDir?: string,
     allowMultiRepoScope?: boolean
   ): void {
-    const affectedRepositories = [...new Set(planArtifact.plan.affectedRepositories ?? [])];
-    this.assertSingleRepoCount(affectedRepositories, allowMultiRepoScope);
+    const allRepos = [...new Set(planArtifact.plan.affectedRepositories ?? [])];
+    const localRepos = allRepos.filter(repo => isRepoResolvable(repo));
+    const unresolvedRepos = allRepos.filter(repo => !localRepos.includes(repo));
+    if (unresolvedRepos.length > 0) {
+      const msg = `  Plan references repositories not found locally: ${unresolvedRepos.join(', ')}. Only locally resolvable repositories are validated.`;
+      console.log(chalk.yellow(msg));
+    }
+    this.assertSingleRepoCount(localRepos, allowMultiRepoScope);
     if (allowMultiRepoScope) return;
-
     const repoName = repoDir ? path.basename(repoDir) : '';
-    if (repoName) this.assertNoForeignPaths(planArtifact, repoName);
+    if (repoName) this.assertNoForeignPaths(planArtifact, repoName, unresolvedRepos);
   }
 
   private assertSingleRepoCount(affectedRepositories: string[], allowMultiRepoScope?: boolean): void {
@@ -318,17 +323,20 @@ export class ImplementerAgent {
     );
   }
 
-  private assertNoForeignPaths(planArtifact: PlanArtifact, repoName: string): void {
+  private assertNoForeignPaths(planArtifact: PlanArtifact, repoName: string,
+    additionalAllowedPrefixes: string[] = []
+  ): void {
     const localPrefixes = new Set([
       'src', 'test', 'tests', 'apps', 'libs', 'docs', 'scripts', 'config', 'bin', 'dist',
       '.github', '.husky', '.changeset', 'package.json', 'tsconfig.json', 'tsconfig.build.json', 'README.md',
+      ...additionalAllowedPrefixes,
     ]);
     const normalizedPaths = normalizeFileEntries(planArtifact.plan.affectedFiles ?? []);
     const offending = normalizedPaths.filter(e => {
       const [prefix] = e.filePath.split('/');
       return prefix !== repoName && !localPrefixes.has(prefix);
     });
-    if (offending.length === 0) return;
+    if (!offending.length) return;
     throw new ValidationError(
       `issue:implement can only modify and verify files for ${repoName}. Found paths for other repositories: `
       + `${offending.map(e => e.filePath).join(', ')}. Use wf issue or run wf issue:implement separately per repository.`

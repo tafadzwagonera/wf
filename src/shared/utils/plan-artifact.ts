@@ -501,6 +501,7 @@ const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
     affectedFiles: normalizeFileEntryList(rawPlan.affectedFiles ?? rawPlan.filesAffected),
     affectedFilesContext: normalizeFileEntryList(rawPlan.affectedFilesContext ?? rawPlan.filesContext),
     affectedRepositories: normalizeOptionalStringList(rawPlan.affectedRepositories ?? rawPlan.repositoriesAffected),
+    newRepositories: normalizeOptionalStringList(rawPlan.newRepositories),
     risks: normalizeOptionalStringList(rawPlan.risks),
     verification: normalizePlanVerification(rawPlan.verification, filePath),
     provider: typeof rawPlan.provider === 'string' ? rawPlan.provider : undefined,
@@ -552,6 +553,7 @@ const parseMarkdownPlan = (content: string, filePath: string): ResolutionPlan =>
       affectedRepositories: extractBulletedList(
         sections.get('affected repositories') ?? sections.get('repositories affected')
       ),
+      newRepositories: extractBulletedList(sections.get('new repositories')),
       risks: extractBulletedList(sections.get('risks')),
     },
     filePath

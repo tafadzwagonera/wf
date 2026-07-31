@@ -1,12 +1,17 @@
 import * as path from 'path';
 import chalk from 'chalk';
-import { extractSummary, resolveRepoBasePath, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
+import { extractSummary, isRepoResolvable, resolveRepoBasePath, scaffoldNewRepo, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
 
 jest.mock('fs', () => ({
   existsSync: jest.fn(),
+  mkdirSync: jest.fn(),
 }));
 
-const { existsSync } = jest.requireMock('fs');
+jest.mock('node:child_process', () => ({
+  execSync: jest.fn(),
+}));
+
+const { existsSync, mkdirSync } = jest.requireMock('fs');
 
 describe('resolveRepoBasePath', () => {
   let cwdSpy: jest.SpyInstance;
@@ -122,5 +127,70 @@ describe('truncateSlug', () => {
   it('returns empty string when prefixLength equals or exceeds MAX_BRANCH_NAME_LENGTH', () => {
     expect(truncateSlug('any-slug', MAX_BRANCH_NAME_LENGTH)).toBe('');
     expect(truncateSlug('any-slug', MAX_BRANCH_NAME_LENGTH + 5)).toBe('');
+  });
+});
+
+describe('isRepoResolvable', () => {
+  let cwdSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue('/tmp/current-app');
+    existsSync.mockReset();
+  });
+
+  afterEach(() => {
+    cwdSpy.mockRestore();
+    jest.restoreAllMocks();
+  });
+
+  it('returns true when a sibling directory exists for the repo name', () => {
+    const siblingPath = path.resolve('/tmp/current-app', '..', 'sibling-repo');
+    existsSync.mockImplementation((input: string) => String(input) === siblingPath);
+
+    expect(isRepoResolvable('sibling-repo')).toBe(true);
+  });
+
+  it('returns false when the repo cannot be found locally', () => {
+    existsSync.mockReturnValue(false);
+
+    expect(isRepoResolvable('nonexistent-repo')).toBe(false);
+  });
+});
+
+describe('scaffoldNewRepo', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('creates the directory as a sibling of baseDir', () => {
+    const result = scaffoldNewRepo('new-repo', '/tmp/current-app');
+
+    expect(result).toBe(path.resolve('/tmp/current-app', '..', 'new-repo'));
+    expect(mkdirSync).toHaveBeenCalledWith(result, { recursive: true });
+  });
+
+  it('runs git init and an initial empty commit', () => {
+    const { execSync: mockExecSync } = jest.requireMock('node:child_process');
+
+    const result = scaffoldNewRepo('new-repo', '/tmp/current-app');
+    const repoPath = path.resolve('/tmp/current-app', '..', 'new-repo');
+
+    expect(mockExecSync).toHaveBeenCalledWith('git init', { cwd: repoPath, stdio: 'pipe' });
+    expect(mockExecSync).toHaveBeenCalledWith(
+      'git commit --allow-empty -m "chore: initial commit"',
+      { cwd: repoPath, stdio: 'pipe' }
+    );
+  });
+
+  it('throws a descriptive error when git commit fails', () => {
+    const { execSync: mockExecSync } = jest.requireMock('node:child_process');
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.startsWith('git commit')) throw new Error('empty ident');
+    });
+
+    const repoPath = path.resolve('/tmp/current-app', '..', 'new-repo');
+    expect(() => scaffoldNewRepo('new-repo', '/tmp/current-app')).toThrow(
+      `scaffoldNewRepo: git commit failed in ${repoPath}. Ensure git user.name and user.email are configured.`
+    );
   });
 });

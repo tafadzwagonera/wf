@@ -655,9 +655,10 @@ const PLAN_STEP_INSTRUCTIONS = `Create a detailed resolution plan with:
    have status "found" — you cannot read a file that does not exist yet. Verify each path
    exists before listing it.
 6. Potential risks or considerations
-7. Repositories that will be affected (if known — use provided hints or infer from ticket text)`;
+7. Repositories that will be affected (if known — use provided hints or infer from ticket text)
+8. New repositories that must be created (not yet existing locally) — a subset of affectedRepositories. Omit or leave empty when the plan only touches existing repos`;
 
-const PLAN_VERIFICATION_CORE = `8. Task-specific verification only when needed:
+const PLAN_VERIFICATION_CORE = `9. Task-specific verification only when needed:
    - Use "verification.targeted" for focused checks required by this specific plan
    - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
    - Omit "verification" entirely when no targeted checks or waivers are needed
@@ -737,7 +738,7 @@ const PLAN_OUTPUT_SCHEMA_VERIFICATION = `  "verification": {
  */
 const buildPlanOutputSchema = (action: ResolutionAction, repoExample: string): string => {
   const filesSection = PLAN_OUTPUT_SCHEMA_TEMPLATE_FILES.replaceAll('REPO', repoExample);
-  return `Return ONLY a valid JSON object with these fields:\n{\n  "action": "${action}",\n  "summary": "...",\n  "steps": ["step 1", "step 2", ...],\n  "estimatedComplexity": "low|medium|high",\n${filesSection}\n  "affectedRepositories": ["${repoExample}"],\n  "risks": ["risk 1", ...],\n${PLAN_OUTPUT_SCHEMA_VERIFICATION}\n}`;
+  return `Return ONLY a valid JSON object with these fields:\n{\n  "action": "${action}",\n  "summary": "...",\n  "steps": ["step 1", "step 2", ...],\n  "estimatedComplexity": "low|medium|high",\n${filesSection}\n  "affectedRepositories": ["${repoExample}"],\n  "newRepositories": [],\n  "risks": ["risk 1", ...],\n${PLAN_OUTPUT_SCHEMA_VERIFICATION}\n}`;
 };
 
 /**

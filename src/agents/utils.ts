@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 
@@ -74,6 +75,36 @@ export const resolveRepoBasePath = (repo?: string): string => {
     chalk.yellow(`⚠️ Repository '${repo}' not found as a path or sibling directory. Using current directory.`)
   );
   return process.cwd();
+};
+
+/**
+ * Check whether a repository name resolves to an existing local directory.
+ *
+ * @param repo - Repository name or path to check
+ * @returns True if the repo resolves to an existing directory
+ */
+export const isRepoResolvable = (repo: string): boolean =>
+  (tryResolvePath(repo) ?? tryResolveSegmentFallback(repo)) !== null;
+
+/**
+ * Scaffold a new repository as a sibling of the given base directory.
+ * Creates the directory, runs `git init`, and creates an initial empty commit
+ * so that branch operations work immediately.
+ *
+ * @param repo - Repository name to scaffold
+ * @param baseDir - Base directory whose parent will contain the new repo
+ * @returns Absolute path to the scaffolded repository
+ */
+export const scaffoldNewRepo = (repo: string, baseDir: string): string => {
+  const repoPath = path.resolve(baseDir, '..', repo);
+  fs.mkdirSync(repoPath, { recursive: true });
+  execSync('git init', { cwd: repoPath, stdio: 'pipe' });
+  try {
+    execSync('git commit --allow-empty -m "chore: initial commit"', { cwd: repoPath, stdio: 'pipe' });
+  } catch {
+    throw new Error(`scaffoldNewRepo: git commit failed in ${repoPath}. Ensure git user.name and user.email are configured.`);
+  }
+  return repoPath;
 };
 
 /**

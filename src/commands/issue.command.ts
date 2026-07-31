@@ -6,7 +6,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ValidationError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
-import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { isRepoResolvable, resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath, scaffoldNewRepo } from '../agents/utils';
 import {
   buildPlanArtifactFilename,
   buildSyntheticTicketArtifact,
@@ -31,6 +31,7 @@ import {
   PlanArtifact,
   ReviewArtifact,
   ResolutionAction,
+  ImplementerOptions,
   ImplementerResult,
 } from '../agents/interfaces';
 import type { ModelRouting } from '../agents/interfaces';
@@ -500,8 +501,8 @@ export class IssueCommand extends CommandRunner {
 
     if (!planArtifact) ticketArtifact = await this.resolveTicketArtifact(ctx);
 
-    if (!planArtifact && ctx.stagesToRun.includes(WorkflowStage.PLAN)) {
-      const result = await this.executePlanStage(ticketArtifact, action!, ctx, sessionState);
+    if (!planArtifact && action && ctx.stagesToRun.includes(WorkflowStage.PLAN)) {
+      const result = await this.executePlanStage(ticketArtifact, action, ctx, sessionState);
       planArtifact = result.planArtifact;
       sessionState = result.sessionState;
     }
@@ -887,30 +888,19 @@ export class IssueCommand extends CommandRunner {
   private async initializeSession(ticketKey: string, options: IssueOptions): Promise<SessionState | undefined> {
     let sessionState: SessionState | undefined;
     let wfSessionId: string | undefined = options.sessionId;
-
-    if (wfSessionId) {
-      sessionState = (await this.sessionService.load(wfSessionId)) ?? undefined;
-    }
-
+    if (wfSessionId) sessionState = (await this.sessionService.load(wfSessionId)) ?? undefined;
     if (wfSessionId && !sessionState) {
       await this.handleMissingSession(wfSessionId);
       wfSessionId = undefined;
     }
-
     this.validateSessionOwnership(sessionState, wfSessionId, ticketKey);
-
     if (sessionState && this.sessionService.isExpired(sessionState)) {
       console.log(chalk.yellow(`  Session ${wfSessionId} expired — starting fresh`));
       sessionState = undefined;
       wfSessionId = undefined;
     }
-
-    if (!sessionState) {
-      sessionState = await this.createNewSession(ticketKey);
-      wfSessionId = sessionState.sessionId;
-    }
-
-    this.printSessionId(wfSessionId, options?.silent);
+    sessionState ||= await this.createNewSession(ticketKey);
+    this.printSessionId(sessionState.sessionId, options?.silent);
     return sessionState;
   }
 
@@ -957,6 +947,17 @@ export class IssueCommand extends CommandRunner {
    * Resolve a custom plan token into its ticket artifact, plan artifact,
    * and action — recording the plan stage as complete in the session.
    */
+  private async buildCustomPlanArtifact(
+    artifactPath: string,
+    resolvedAction: ResolutionAction,
+    plan: PlanArtifact['plan']
+  ): Promise<PlanArtifact> {
+    const planArtifact: PlanArtifact = { plan, action: resolvedAction, path: artifactPath };
+    const providerSessionId = await this.promptProviderSessionId();
+    if (providerSessionId) planArtifact.sessionId = providerSessionId;
+    return planArtifact;
+  }
+
   private async resolveCustomPlanToken(
     planTokenResolution: PlanTokenResolution | undefined,
     sessionState: SessionState | undefined
@@ -967,31 +968,14 @@ export class IssueCommand extends CommandRunner {
     sessionState: SessionState | undefined;
   } | null> {
     if (planTokenResolution?.kind !== 'custom') return null;
-
-    const plan = parsePlanArtifact(
-      fs.readFileSync(planTokenResolution.artifactPath, 'utf-8'),
-      planTokenResolution.artifactPath
-    );
-
+    const plan = parsePlanArtifact(fs.readFileSync(planTokenResolution.artifactPath, 'utf-8'), planTokenResolution.artifactPath);
     const filename = path.basename(planTokenResolution.artifactPath);
     let resolvedAction = planTokenResolution.action;
-
-    if (plan.action !== planTokenResolution.action) {
-      resolvedAction = await this.resolveCustomTokenActionMismatch(
-        plan.action, planTokenResolution.action, filename
-      );
-    }
-
+    if (plan.action !== planTokenResolution.action)
+      resolvedAction = await this.resolveCustomTokenActionMismatch(plan.action, planTokenResolution.action, filename);
     const ticketArtifact = buildSyntheticTicketArtifact(planTokenResolution.artifactPath, plan);
-    const planArtifact: PlanArtifact = {
-      plan, action: resolvedAction, path: planTokenResolution.artifactPath,
-    };
-
-    const providerSessionId = await this.promptProviderSessionId();
-    if (providerSessionId) planArtifact.sessionId = providerSessionId;
-
+    const planArtifact = await this.buildCustomPlanArtifact(planTokenResolution.artifactPath, resolvedAction, plan);
     sessionState = await this.recordCustomPlanSession(sessionState, planArtifact);
-
     return { action: resolvedAction, ticketArtifact, planArtifact, sessionState };
   }
 
@@ -1009,31 +993,16 @@ export class IssueCommand extends CommandRunner {
     requestedAction: ResolutionAction,
     filename: string
   ): Promise<ResolutionAction> {
-    console.log(
-      chalk.yellow(
-        `  ⚠️  Plan token action mismatch for ${filename}: plan contains '${planAction}', requested '${requestedAction}'.`
-      )
-    );
-
+    console.log(chalk.yellow(`  ⚠️  Plan token action mismatch for ${filename}: plan contains '${planAction}', requested '${requestedAction}'.`));
     if (!this.isInteractiveSession()) {
-      throw new ValidationError(
-        `Plan token action mismatch: '${filename}' contains '${planAction}' but '${requestedAction}' was requested. `
-        + `Pass the correct --action or re-run interactively to choose.`
-      );
+      throw new ValidationError(`Plan token action mismatch: '${filename}' contains '${planAction}' but '${requestedAction}' was requested. Pass the correct --action or re-run interactively to choose.`);
     }
-
     const { selectedAction } = await inquirer.prompt<{ selectedAction: ResolutionAction }>([{
-      type: 'list',
-      name: 'selectedAction',
-      message: 'Which action should be used?',
-      prefix: ' ',
-      choices: [
+      type: 'list', name: 'selectedAction', message: 'Which action should be used?', prefix: ' ', choices: [
         { name: `Use '${planAction}' (from plan file)`, value: planAction },
         { name: `Use '${requestedAction}' (from plan token)`, value: requestedAction },
-      ],
-      default: planAction,
+      ], default: planAction,
     }]);
-
     return selectedAction;
   }
 
@@ -1154,13 +1123,10 @@ export class IssueCommand extends CommandRunner {
   }> {
     const { sessionContext, sessionState: started } = await this.prepareStageSession(sessionState, 'implement');
     sessionState = started;
-
-    const isMultiRepo = repos.length > 1;
-    this.printStageHeader(isMultiRepo, options?.silent, '🔧 STAGE 3: Implementation Guide');
-
+    repos = this.expandReposFromPlan(repos, planArtifact, resolveRepoBasePath(repos[0]), options?.silent);
+    this.printStageHeader(repos.length > 1, options?.silent, '🔧 STAGE 3: Implementation Guide');
     const result = await this.runImplementLoop(ticketArtifact, planArtifact, repos, options, sessionContext);
     if (result.earlyReturn) return { ...result, sessionState };
-
     sessionState = await this.finalizeImplementSession(sessionState, result.implementerResult);
     return { implementerResult: result.implementerResult, sessionState, earlyReturn: false };
   }
@@ -1191,6 +1157,66 @@ export class IssueCommand extends CommandRunner {
     console.log(chalk.gray('─'.repeat(70)));
   }
 
+  /**
+   * Expands the repos list with new repositories declared in the plan.
+   * Only repos listed in `plan.newRepositories` are scaffolded. Unresolvable
+   * repos NOT declared as new are treated as errors (likely typos).
+   *
+   * @param repos - Current repos list from CLI options
+   * @param planArtifact - The loaded plan artifact
+   * @param baseDir - Base directory of the primary repository
+   * @param silent - Whether to suppress console output
+   * @returns Expanded repos list including scaffolded repos
+   */
+  private expandReposFromPlan(
+    repos: (string | undefined)[],
+    planArtifact: PlanArtifact,
+    baseDir: string,
+    silent?: boolean
+  ): (string | undefined)[] {
+    const newRepos = (planArtifact.plan.newRepositories ?? []).filter(r => !isRepoResolvable(r));
+    this.validateUnresolvedRepos(planArtifact, newRepos);
+    if (newRepos.length === 0) return repos;
+
+    for (const repo of newRepos) {
+      const repoPath = scaffoldNewRepo(repo, baseDir);
+      if (!silent) console.log(chalk.green(`  Scaffolded new repository: ${repoPath}`));
+    }
+    return [...newRepos, ...repos];
+  }
+
+  /**
+   * Throws if any repo in `affectedRepositories` is unresolvable and not
+   * declared in `newRepositories`.
+   */
+  private validateUnresolvedRepos(planArtifact: PlanArtifact, newRepos: string[]): void {
+    const allRepos = planArtifact.plan.affectedRepositories ?? [];
+    const newSet = new Set(newRepos);
+    const invalid = allRepos.filter(r => !isRepoResolvable(r) && !newSet.has(r));
+    if (invalid.length === 0) return;
+    throw new ValidationError(
+      `Plan references repositories not found locally: ${invalid.join(', ')}. `
+      + 'If these are new repos, add them to the plan\'s newRepositories field.'
+    );
+  }
+
+  private buildImplementerOptions(
+    repo: string | undefined, repos: (string | undefined)[], options: IssueOptions, isMultiRepo: boolean,
+    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string }
+  ): ImplementerOptions {
+    return {
+      trackerName: options?.tracker || this.configService.get<string>('tracker') || 'jira',
+      repoDir: resolveRepoBasePath(repo),
+      additionalRepoDirs: repos
+        .filter((r): r is string => r !== undefined && r !== repo)
+        .map(r => resolveRepoBasePath(r)),
+      suppressHeader: isMultiRepo, allowMultiRepoScope: isMultiRepo,
+      modelRouting: options.modelRouting as ModelRouting,
+      silent: options.silent, noBranch: options.noBranch, branchNamePattern: options.branchNamePattern,
+      ...sessionContext,
+    };
+  }
+
   private async runImplementLoop(
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact,
     repos: (string | undefined)[], options: IssueOptions,
@@ -1198,25 +1224,16 @@ export class IssueCommand extends CommandRunner {
   ): Promise<{ implementerResult: ImplementerResult | undefined; earlyReturn: boolean }> {
     const isMultiRepo = repos.length > 1;
     let implementerResult: ImplementerResult | undefined;
-
     for (const repo of repos) {
       if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
-      implementerResult = await this.agents.implementer.execute(ticketArtifact, planArtifact, {
-        trackerName: options?.tracker || this.configService.get<string>('tracker') || 'jira',
-        repoDir: resolveRepoBasePath(repo),
-        additionalRepoDirs: (options.repos ?? []).filter(r => r !== repo).map(r => resolveRepoBasePath(r)),
-        suppressHeader: isMultiRepo, allowMultiRepoScope: isMultiRepo,
-        modelRouting: options.modelRouting as ModelRouting,
-        silent: options.silent, noBranch: options.noBranch, branchNamePattern: options.branchNamePattern,
-        ...sessionContext,
-      });
-
+      implementerResult = await this.agents.implementer.execute(
+        ticketArtifact, planArtifact, this.buildImplementerOptions(repo, repos, options, isMultiRepo, sessionContext)
+      );
       if (implementerResult?.type === 'investigation') {
         console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
         return { implementerResult, earlyReturn: true };
       }
     }
-
     return { implementerResult, earlyReturn: false };
   }
 

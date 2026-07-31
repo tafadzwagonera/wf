@@ -41,6 +41,10 @@ jest.mock('../agents/utils', () => {
     resolveRepoBasePath: jest.fn((repo?: string) =>
       repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
     ),
+    isRepoResolvable: jest.fn(() => true),
+    scaffoldNewRepo: jest.fn((repo: string, baseDir: string) =>
+      path.resolve(baseDir, '..', repo),
+    ),
   };
 });
 
@@ -60,6 +64,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import { AiService } from '../integrations/ai/ai.service';
+import type { PlanArtifact } from '../agents/interfaces';
 import { SessionService } from '../shared/session/session.service';
 import { SummaryService } from '../shared/session/summary.service';
 import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../shared/utils/plan-artifact';
@@ -2024,6 +2029,84 @@ describe('IssueCommand', () => {
       expect(result).not.toBeNull();
       expect(result.planArtifact.action).toBe('fix');
       expect(inquirer.prompt).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('expandReposFromPlan', () => {
+    const buildExpandPlanArtifact = (
+      affectedRepositories: string[], newRepositories?: string[]
+    ): PlanArtifact => ({
+      action: 'fix',
+      path: '/tmp/.wf/consumer-app/jira/plan.md',
+      plan: {
+        action: 'fix',
+        summary: 'Extract contracts',
+        steps: [],
+        estimatedComplexity: 'high',
+        affectedFiles: [],
+        affectedRepositories,
+        newRepositories,
+      },
+    });
+
+    it('scaffolds repos declared in newRepositories and prepends them', async () => {
+      const { isRepoResolvable, scaffoldNewRepo } = jest.requireMock('../agents/utils');
+      isRepoResolvable.mockImplementation((repo: string) => repo !== 'new-contracts');
+
+      const command = await buildCommand();
+      const expanded = (command as any).expandReposFromPlan(
+        [undefined],
+        buildExpandPlanArtifact(['consumer-app', 'new-contracts'], ['new-contracts']),
+        '/tmp/consumer-app', false
+      );
+
+      expect(scaffoldNewRepo).toHaveBeenCalledWith('new-contracts', '/tmp/consumer-app');
+      expect(expanded).toEqual(['new-contracts', undefined]);
+    });
+
+    it('throws when unresolvable repos are not declared in newRepositories', async () => {
+      const { isRepoResolvable } = jest.requireMock('../agents/utils');
+      isRepoResolvable.mockImplementation((repo: string) => repo !== 'typo-repo');
+
+      const command = await buildCommand();
+
+      expect(() =>
+        (command as any).expandReposFromPlan(
+          [undefined],
+          buildExpandPlanArtifact(['consumer-app', 'typo-repo']),
+          '/tmp/consumer-app', false
+        )
+      ).toThrow('Plan references repositories not found locally: typo-repo');
+    });
+
+    it('returns repos unchanged when all plan repos are resolvable', async () => {
+      const { isRepoResolvable, scaffoldNewRepo } = jest.requireMock('../agents/utils');
+      isRepoResolvable.mockReturnValue(true);
+
+      const command = await buildCommand();
+      const expanded = (command as any).expandReposFromPlan(
+        [undefined],
+        buildExpandPlanArtifact(['consumer-app', 'existing-repo']),
+        '/tmp/consumer-app', false
+      );
+
+      expect(scaffoldNewRepo).not.toHaveBeenCalled();
+      expect(expanded).toEqual([undefined]);
+    });
+
+    it('skips scaffolding for newRepositories that already exist locally', async () => {
+      const { isRepoResolvable, scaffoldNewRepo } = jest.requireMock('../agents/utils');
+      isRepoResolvable.mockReturnValue(true);
+
+      const command = await buildCommand();
+      const expanded = (command as any).expandReposFromPlan(
+        [undefined],
+        buildExpandPlanArtifact(['consumer-app', 'already-exists'], ['already-exists']),
+        '/tmp/consumer-app', false
+      );
+
+      expect(scaffoldNewRepo).not.toHaveBeenCalled();
+      expect(expanded).toEqual([undefined]);
     });
   });
 });

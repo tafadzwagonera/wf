@@ -75,6 +75,7 @@ export const resolutionPlanSchema = z.object({
   affectedFiles: z.array(z.union([z.string(), fileEntrySchema])).optional(),
   affectedFilesContext: z.array(z.union([z.string(), fileEntrySchema])).optional(),
   affectedRepositories: z.array(z.string()).optional(),
+  newRepositories: z.array(z.string()).optional(),
   risks: z.array(z.string()).optional(),
   verification: planVerificationConfigSchema.optional(),
   provider: z.string().optional(),
