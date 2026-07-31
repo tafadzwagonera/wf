@@ -93,7 +93,7 @@ async function testIssueGenerate() {
 
   let capturedOutput = '';
   const origWrite = process.stdout.write.bind(process.stdout);
-  (process.stdout.write as any) = (chunk: any, ...args: any[]) => {
+  (process.stdout.write as unknown as (chunk: any) => boolean) = (chunk: any, ...args: any[]) => {
     capturedOutput += String(chunk);
     return true;
   };
@@ -101,7 +101,7 @@ async function testIssueGenerate() {
   const command = app.get(IssueGenerateCommand);
 
   try {
-    await command.run([tmpFile1, tmpFile2], { repos: [] } as any);
+    await command.run([tmpFile1, tmpFile2], { repos: [] });
   } catch (_) {
     // Ignore — assertions are made on captured stdout
   } finally {
@@ -185,13 +185,13 @@ async function testIssueGenerate() {
 
     let stubOutput = '';
     const origWriteStub = process.stdout.write.bind(process.stdout);
-    (process.stdout.write as any) = (chunk: any, ...args: any[]) => {
+    (process.stdout.write as unknown as (chunk: any) => boolean) = (chunk: any, ...args: any[]) => {
       stubOutput += String(chunk);
       return true;
     };
 
     try {
-      await command.run([stubFile], { repos: [] } as any);
+      await command.run([stubFile], { repos: [] });
     } catch (_) {
       // Ignore — assertion is on stubAiCallCount
     } finally {

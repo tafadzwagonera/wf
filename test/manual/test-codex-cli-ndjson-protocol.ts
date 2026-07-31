@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   console.log(chalk.bold('\nTest 2: Legacy session_id field is ignored'));
   {
     const { sessionId } = extractFromStream([
-      { type: 'some.event', session_id: 'legacy-sess-id' } as CodexCliMessage,
+      { type: 'some.event', session_id: 'legacy-sess-id' },
       {
         type: 'item.completed',
         item: { type: 'agent_message', text: 'hello' },

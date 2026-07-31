@@ -126,7 +126,7 @@ const mockTerraformInfra: TestInfraContext = {
   // Test 1: AiService — unconditional constraints present (no testInfra)
   {
     const adapter = createMockAdapter();
-    const service = new AiService(createMockLogger(), adapter as unknown as LlmAdapter, createConfigService());
+    const service = new AiService(createMockLogger(), adapter as LlmAdapter, createConfigService());
 
     await service.generatePlan('fix', '# WBP-1: Fix it');
 
@@ -166,7 +166,7 @@ const mockTerraformInfra: TestInfraContext = {
   // Test 2: AiService — conditional constraints present (with testInfra)
   {
     const adapter = createMockAdapter();
-    const service = new AiService(createMockLogger(), adapter as unknown as LlmAdapter, createConfigService());
+    const service = new AiService(createMockLogger(), adapter as LlmAdapter, createConfigService());
 
     await service.generatePlan('fix', '# WBP-2: Fix it', { testInfra: mockTestInfra });
 
@@ -188,7 +188,7 @@ const mockTerraformInfra: TestInfraContext = {
   // Test 2b: AiService — node-only shell-safety guidance omitted for non-node infra
   {
     const adapter = createMockAdapter();
-    const service = new AiService(createMockLogger(), adapter as unknown as LlmAdapter, createConfigService());
+    const service = new AiService(createMockLogger(), adapter as LlmAdapter, createConfigService());
 
     await service.generatePlan('fix', '# WBP-2b: Fix terraform flow', { testInfra: mockTerraformInfra });
 

@@ -121,7 +121,7 @@ const mockTestInfraWithConventions: TestInfraContext = {
   // Test 1: AiService — four new unconditional rules present
   {
     const adapter = createMockAdapter();
-    const service = new AiService(createMockLogger(), adapter as unknown as LlmAdapter, createConfigService());
+    const service = new AiService(createMockLogger(), adapter as LlmAdapter, createConfigService());
 
     await service.generatePlan('fix', '# WBP-NR1: Fix it');
 
@@ -251,7 +251,7 @@ const mockTestInfraWithConventions: TestInfraContext = {
   // Test 5: AiService — testInfra convention lines appear with populated fields
   {
     const adapter = createMockAdapter();
-    const service = new AiService(createMockLogger(), adapter as unknown as LlmAdapter, createConfigService());
+    const service = new AiService(createMockLogger(), adapter as LlmAdapter, createConfigService());
 
     await service.generatePlan('fix', '# WBP-NR5: Fix it', { testInfra: mockTestInfraWithConventions });
 

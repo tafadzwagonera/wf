@@ -32,7 +32,7 @@ const fail = (message: string, detail?: string) => {
 const captureStderr = (): { restore: () => string } => {
   let output = '';
   const originalWrite = process.stderr.write.bind(process.stderr);
-  (process.stderr.write as unknown as (chunk: string) => boolean) = (chunk: string) => {
+  process.stderr.write = (chunk: string) => {
     output += String(chunk);
     return true;
   };
@@ -48,7 +48,7 @@ const captureStderr = (): { restore: () => string } => {
 const captureStdout = (): { restore: () => string } => {
   let output = '';
   const originalWrite = process.stdout.write.bind(process.stdout);
-  (process.stdout.write as unknown as (chunk: string) => boolean) = (chunk: string) => {
+  process.stdout.write = (chunk: string) => {
     output += String(chunk);
     return true;
   };
@@ -117,7 +117,8 @@ async function main() {
       action: 'fix',
       to: 'plan',
       dryRun: true,
-    } as unknown as Parameters<typeof command.run>[1]);
+      from: undefined,
+    } as any);
 
     const stderr = stderrCapture.restore();
     const stdout = stdoutCapture.restore();

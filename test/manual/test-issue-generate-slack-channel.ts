@@ -99,7 +99,7 @@ async function testIssueGenerateSlackChannel() {
 
   let capturedOutput = '';
   const originalWrite = process.stdout.write.bind(process.stdout);
-  (process.stdout.write as any) = (chunk: any, ..._args: any[]) => {
+  (process.stdout.write as unknown as (chunk: any) => boolean) = (chunk: any, ..._args: any[]) => {
     capturedOutput += String(chunk);
     return true;
   };

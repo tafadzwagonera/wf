@@ -36,7 +36,7 @@ const fail = (msg: string, detail?: string) => {
 function captureStderr(): { restore: () => string } {
   let out = '';
   const orig = process.stderr.write.bind(process.stderr);
-  (process.stderr.write as any) = (chunk: any) => {
+  (process.stderr.write as unknown as (chunk: any) => boolean) = (chunk: any) => {
     out += String(chunk);
     return true;
   };
@@ -51,7 +51,7 @@ function captureStderr(): { restore: () => string } {
 function captureStdout(): { restore: () => string } {
   let out = '';
   const orig = process.stdout.write.bind(process.stdout);
-  (process.stdout.write as any) = (chunk: any) => {
+  (process.stdout.write as unknown as (chunk: any) => boolean) = (chunk: any) => {
     out += String(chunk);
     return true;
   };

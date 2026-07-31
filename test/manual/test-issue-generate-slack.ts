@@ -100,7 +100,7 @@ async function testIssueGenerateSlack() {
   // Capture stdout
   let capturedOutput = '';
   const origWrite = process.stdout.write.bind(process.stdout);
-  (process.stdout.write as any) = (chunk: any, ...args: any[]) => {
+  (process.stdout.write as unknown as (chunk: any) => boolean) = (chunk: any, ...args: any[]) => {
     capturedOutput += String(chunk);
     return true;
   };

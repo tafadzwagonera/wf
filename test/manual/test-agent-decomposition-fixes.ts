@@ -72,7 +72,7 @@ async function main() {
       return 'diff --git a/src/a.ts b/src/a.ts';
     };
     gitService.getRecentCommits = async () => [{ message: 'WBP-1: prior' }] as any;
-    gitService.commit = async () => 'abc123' as any;
+    gitService.commit = async () => 'abc123';
 
     const origGenerate = CommitStageService.prototype.generateCommitMessage;
     (CommitStageService.prototype as any).generateCommitMessage = async () => 'WBP-1: test commit';

@@ -35,7 +35,7 @@ const fail = (msg: string, detail?: string) => {
 function captureExit(): { restore: () => number } {
   let code = -1;
   const orig = process.exit.bind(process);
-  (process.exit as any) = (c: number) => {
+  (process.exit as unknown as (c: number) => void) = (c: number) => {
     code = c;
   };
   return {
@@ -49,7 +49,7 @@ function captureExit(): { restore: () => number } {
 function captureConsoleError(): { restore: () => string } {
   let out = '';
   const orig = console.error.bind(console);
-  (console.error as any) = (...args: any[]) => {
+  (console.error as unknown as (...args: any[]) => void) = (...args: any[]) => {
     out += args.join(' ') + '\n';
   };
   return {

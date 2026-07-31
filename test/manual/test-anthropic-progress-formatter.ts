@@ -136,7 +136,7 @@ async function main(): Promise<void> {
       processed_at: '2026-05-21T10:00:00.000Z',
       uuid: '11111111-1111-1111-1111-111111111115',
       session_id: 'session-5',
-    } as SDKMessage,
+    },
     '/repo/primary',
     {}
   );

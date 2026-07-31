@@ -41,11 +41,11 @@ async function main(): Promise<void> {
       type: 'item.started',
       item: { type: 'command_execution', command: 'yarn build' },
     };
-    const parsed = parseNdjsonLine(JSON.stringify(itemStarted)) as CodexCliMessage | null;
+    const parsed = parseNdjsonLine(JSON.stringify(itemStarted));
     assert(parsed !== null, 'parseNdjsonLine parses item.started message', 'returned null');
     assert(parsed?.type === 'item.started', 'parsed item.started has correct type', `got: ${parsed?.type}`);
     assert(
-      (parsed?.item as Record<string, unknown> | undefined)?.['command'] === 'yarn build',
+      (parsed?.item as Record<string, unknown>)?.['command'] === 'yarn build',
       'parsed item.started preserves item.command',
       `got: ${JSON.stringify(parsed?.item)}`
     );
@@ -57,10 +57,10 @@ async function main(): Promise<void> {
       type: 'item.completed',
       item: { type: 'command_execution', command: 'yarn test', exit_code: 0 },
     };
-    const parsed = parseNdjsonLine(JSON.stringify(itemCompleted)) as CodexCliMessage | null;
+    const parsed = parseNdjsonLine(JSON.stringify(itemCompleted));
     assert(parsed !== null, 'parseNdjsonLine parses item.completed message', 'returned null');
     assert(
-      (parsed?.item as Record<string, unknown> | undefined)?.['exit_code'] === 0,
+      (parsed?.item as Record<string, unknown>)?.['exit_code'] === 0,
       'parsed item.completed preserves exit_code: 0',
       `got: ${JSON.stringify(parsed?.item)}`
     );
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
       type: 'turn.completed',
       usage: { input_tokens: 100, output_tokens: 200 },
     };
-    const parsed = parseNdjsonLine(JSON.stringify(turnCompleted)) as CodexCliMessage | null;
+    const parsed = parseNdjsonLine(JSON.stringify(turnCompleted));
     assert(parsed !== null, 'parseNdjsonLine parses turn.completed message', 'returned null');
     assert(
       parsed?.usage?.input_tokens === 100 && parsed?.usage?.output_tokens === 200,

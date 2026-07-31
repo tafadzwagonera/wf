@@ -302,7 +302,7 @@ void (async () => {
       mockLogger as any,
       {
         isEnabledForStage: isEnabledForStage.fn,
-        chatTurn: async () => ({ content: '', session: {} }),
+        chatTurn: async () => ({ content: '', session: {} } as any),
       } as any,
     );
     service.saveConversation = async () => undefined as any;

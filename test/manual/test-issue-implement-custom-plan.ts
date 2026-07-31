@@ -32,7 +32,7 @@ const fail = (message: string, detail?: string) => {
 const captureStdout = (): { restore: () => string } => {
   let output = '';
   const originalWrite = process.stdout.write.bind(process.stdout);
-  (process.stdout.write as unknown as (chunk: string) => boolean) = (chunk: string) => {
+  process.stdout.write = (chunk: string) => {
     output += String(chunk);
     return true;
   };

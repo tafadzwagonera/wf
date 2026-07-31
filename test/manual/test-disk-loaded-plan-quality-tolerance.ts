@@ -159,7 +159,7 @@ const captureConsoleLog = (): CapturedOutput & { restore: () => void } => {
 const stubDetectTestInfra = (): (() => void) => {
   const original = detectTestInfraModule.detectTestInfra;
   (detectTestInfraModule as { detectTestInfra: typeof detectTestInfraModule.detectTestInfra }).detectTestInfra
-    = (() => stubTestInfra) as typeof detectTestInfraModule.detectTestInfra;
+    = () => stubTestInfra;
   return () => {
     (detectTestInfraModule as { detectTestInfra: typeof detectTestInfraModule.detectTestInfra }).detectTestInfra
       = original;

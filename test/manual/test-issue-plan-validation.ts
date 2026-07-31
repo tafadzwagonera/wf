@@ -248,7 +248,7 @@ const main = async (): Promise<void> => {
         affectedFiles: [`${repoName}/src/example.ts`],
         affectedRepositories: [repoName],
       },
-    } as never);
+    });
 
     const { artifactWriteCallCount, manifestWriteCallCount } = await captureArtifactWrites(() =>
       command.run([], {
@@ -289,7 +289,7 @@ const main = async (): Promise<void> => {
         affectedFiles: ['repo-name/src/example.ts'],
         affectedRepositories: ['repo-name'],
       },
-    } as never);
+    });
 
     const { output, exitCodes } = await captureCommandOutput(async () => {
       const { artifactWriteCallCount, manifestWriteCallCount } = await captureArtifactWrites(() =>
@@ -342,7 +342,7 @@ const main = async (): Promise<void> => {
           ],
         },
       },
-    } as never);
+    });
 
     const { output, exitCodes } = await captureCommandOutput(async () => {
       const { artifactWriteCallCount, manifestWriteCallCount } = await captureArtifactWrites(() =>
@@ -412,7 +412,7 @@ const main = async (): Promise<void> => {
     mutablePlanArtifactUtils.writePlanArtifactManifest = ((..._args: unknown[]) => {
       validManifestWriteCallCount += 1;
       return '/tmp/mock-plan-manifest.json';
-    }) as typeof planArtifactUtils.writePlanArtifactManifest;
+    }) as unknown as typeof planArtifactUtils.writePlanArtifactManifest;
 
     generatePlan.mockResolvedValueOnce({
       plan: {

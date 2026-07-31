@@ -89,7 +89,7 @@ async function testStdinPipe() {
     };
 
     try {
-      await command.run([], { silent: true, ticketProject: 'MOCK' } as any);
+      await command.run([], { silent: true, ticketProject: 'MOCK' });
     } finally {
       console.log = origLog;
       Object.defineProperty(process, 'stdin', {
@@ -158,7 +158,7 @@ async function testStdinPipe() {
         silent: true,
         format: 'json',
         ticketProject: 'MOCK',
-      } as any);
+      });
     } finally {
       console.log = origLog;
       Object.defineProperty(process, 'stdin', {

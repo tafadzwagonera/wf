@@ -112,7 +112,7 @@ async function main() {
       process.chdir(testRepoDir);
       const capture = captureConsole();
       try {
-        await command.run([testFilename], { dryRun: true, ticketProject: 'TEST' } as any);
+        await command.run([testFilename], { dryRun: true, ticketProject: 'TEST' });
       } finally {
         capture.restore();
       }
@@ -138,7 +138,7 @@ async function main() {
       const absPath = path.join(testArtifactDir, testFilename);
       const capture = captureConsole();
       try {
-        await command.run([absPath], { dryRun: true, ticketProject: 'TEST' } as any);
+        await command.run([absPath], { dryRun: true, ticketProject: 'TEST' });
       } finally {
         capture.restore();
       }
@@ -166,7 +166,7 @@ async function main() {
 
       const capture = captureConsole();
       try {
-        await command.run([missingFile], { dryRun: true, silent: true, ticketProject: 'TEST' } as any);
+        await command.run([missingFile], { dryRun: true, silent: true, ticketProject: 'TEST' });
       } finally {
         capture.restore();
         (process as any).exit = origExit;
@@ -198,7 +198,7 @@ async function main() {
           repos: [reposId],
           dryRun: true,
           ticketProject: 'TEST',
-        } as any);
+        });
       } finally {
         capture.restore();
       }

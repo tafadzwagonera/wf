@@ -108,7 +108,7 @@ async function testOversizedSourceSummarisation() {
     };
 
     try {
-      await command.run([tmpFile], { silent: true, repos: [] } as any);
+      await command.run([tmpFile], { silent: true, repos: [] });
     } catch {
       // Ignore
     } finally {
@@ -164,7 +164,7 @@ async function testOversizedSourceSummarisation() {
     };
 
     try {
-      await command.run([tmpFile], { silent: true, repos: [] } as any);
+      await command.run([tmpFile], { silent: true, repos: [] });
     } catch {
       // Ignore
     } finally {
@@ -249,7 +249,7 @@ async function testOversizedSourceSummarisation() {
     };
 
     try {
-      await command.run([tmpFile], { repos: [] } as any);
+      await command.run([tmpFile], { repos: [] });
     } catch {
       // Ignore
     } finally {

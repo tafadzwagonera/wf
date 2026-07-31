@@ -95,7 +95,7 @@ async function main(): Promise<void> {
       processed_at: '2026-05-21T10:00:00.000Z',
       uuid: '11111111-1111-1111-1111-111111111215',
       session_id: 'session-15',
-    } as SDKMessage,
+    },
     '/repo/primary',
     activityState
   );
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
       preceding_tool_use_ids: ['tool-use-1'],
       uuid: '11111111-1111-1111-1111-111111111216',
       session_id: 'session-16',
-    } as SDKMessage,
+    },
     '/repo/primary',
     activityState
   );

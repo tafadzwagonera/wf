@@ -98,7 +98,7 @@ async function testSilentAndClarification() {
       await command.run([tmpFile1, tmpFile2], {
         silent: true,
         repos: [],
-      } as any);
+      });
     } catch {
       // Ignore
     } finally {
@@ -191,7 +191,7 @@ async function testSilentAndClarification() {
     };
 
     try {
-      await command.run([tmpFile1, tmpFile2], { repos: [] } as any);
+      await command.run([tmpFile1, tmpFile2], { repos: [] });
     } catch {
       // Ignore
     } finally {
