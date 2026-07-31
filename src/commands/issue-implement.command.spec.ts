@@ -41,8 +41,17 @@ jest.mock('../agents/utils', () => {
     resolveRepoBasePath: jest.fn((repo?: string) =>
       repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
     ),
+    isRepoResolvable: jest.fn(() => true),
+    scaffoldNewRepo: jest.fn((repo: string, baseDir: string) => path.join(baseDir, '..', repo)),
   };
 });
+
+jest.mock('inquirer', () => ({
+  __esModule: true,
+  default: {
+    prompt: jest.fn(),
+  },
+}));
 
 import { Test } from '@nestjs/testing';
 import { IssueImplementCommand } from './issue-implement.command';
@@ -994,6 +1003,56 @@ describe('IssueImplementCommand', () => {
       const plan = buildPlanArtifact({ affectedRepositories: ['repo-c'] });
       const result = (command as any).filterActiveRepos(['repo-a', 'repo-b'], plan);
       expect(result).toEqual(['repo-a', 'repo-b']);
+    });
+  });
+
+  describe('buildImplementOpts isNewRepo', () => {
+    it('sets isNewRepo when repo is in plan newRepositories', async () => {
+      const command = await buildCommand();
+      const planArtifact: any = {
+        plan: {
+          newRepositories: ['new-repo'],
+        },
+      };
+      const ctx: any = {
+        trackerName: 'jira',
+        baseDir: '/tmp',
+        trackerDir: '/tmp/.wf',
+        customArtifactDir: '/tmp/.wf/custom',
+        repos: ['new-repo'],
+        ticketKey: undefined,
+        resolvedPlanReference: null,
+        plan: undefined,
+      };
+
+      const result = (command as any).buildImplementOpts('new-repo', ctx, {}, false, undefined, planArtifact);
+
+      expect(result.isNewRepo).toBe(true);
+      jest.restoreAllMocks();
+    });
+
+    it('does not set isNewRepo for repos absent from newRepositories', async () => {
+      const command = await buildCommand();
+      const planArtifact: any = {
+        plan: {
+          newRepositories: ['new-repo'],
+        },
+      };
+      const ctx: any = {
+        trackerName: 'jira',
+        baseDir: '/tmp',
+        trackerDir: '/tmp/.wf',
+        customArtifactDir: '/tmp/.wf/custom',
+        repos: ['existing-repo'],
+        ticketKey: undefined,
+        resolvedPlanReference: null,
+        plan: undefined,
+      };
+
+      const result = (command as any).buildImplementOpts('existing-repo', ctx, {}, false, undefined, planArtifact);
+
+      expect(result.isNewRepo).toBe(false);
+      jest.restoreAllMocks();
     });
   });
 });

@@ -19,16 +19,19 @@ import {
   resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
   SUPPORTED_PLAN_EXTENSIONS,
 } from '../shared/utils/plan-artifact';
-import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { isRepoResolvable, resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath, scaffoldNewRepo } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import type { ResolutionAction, TicketArtifact, PlanArtifact, ModelRouting } from '../agents/interfaces';
 
-const VALID_MODEL_ROUTING: ModelRouting[] = ['auto', 'default', 'mechanical'];
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import chalk from 'chalk';
+import inquirer from 'inquirer';
 import type { PlanArtifactReference } from '../shared/utils/plan-artifact';
+
+const VALID_MODEL_ROUTING: ModelRouting[] = ['auto', 'default', 'mechanical'];
+const WF_CONFIG_EXTENSIONS = ['.ts', '.js', '.json', '.yaml', '.yml'];
 
 const loadPlanFile = (filePath: string): ResolutionPlan => {
   if (!fs.existsSync(filePath)) {
@@ -234,24 +237,18 @@ export class IssueImplementCommand extends CommandRunner {
     ctx: ReturnType<IssueImplementCommand['resolveImplementContext']>,
     identifier: string, options?: IssueImplementOptions
   ): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const ref = ctx.resolvedPlanReference!;
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const plan = ctx.plan!;
+    if (options?.dryRun) return this.previewCustomPlanDryRun(identifier, ref, plan, options);
+    if (plan.action === 'investigate') return this.executeInvestigation(plan, ref.artifactPath);
+
     const syntheticTicket = buildSyntheticTicketArtifact(ref.artifactPath, plan);
-
-    if (options?.dryRun) {
-      return this.previewCustomPlanDryRun(identifier, ref, plan, options);
-    }
-
-    if (plan.action === 'investigate') {
-      return this.executeInvestigation(plan, ref.artifactPath);
-    }
-
     const slug = syntheticTicket.ticketKey;
-    console.log(chalk.yellow(
-      `⚠️ Created synthetic execution context for custom plan ${path.basename(ref.artifactPath)}. Branch naming will use artifact stem "${slug}".`
-    ));
-
+    console.log(chalk.yellow(`⚠️ Created synthetic execution context for custom plan ${path.basename(ref.artifactPath)}. Branch naming will use artifact stem "${slug}".`));
     const artifact: PlanArtifact = { plan, action: plan.action, path: ref.artifactPath };
+    await this.expandReposFromPlan(ctx, artifact, options?.silent);
     await this.runImplementerLoop(syntheticTicket, artifact, ctx, options, slug);
   }
 
@@ -263,17 +260,21 @@ export class IssueImplementCommand extends CommandRunner {
     const ticketPath = path.join(ctx.trackerDir, resolvedTicketKey + '.md');
     this.assertTicketExists(ticketPath, ctx.ticketKey, options);
 
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const ref = this.resolveTicketPlanReference(ctx, resolvedTicketKey!, options);
     const plan = ctx.plan ?? loadPlanFile(ref.artifactPath);
 
     if (options?.dryRun) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.previewTicketDryRun(resolvedTicketKey!, ticketPath, ref.artifactPath, plan.action);
     }
 
     this.logger.info('Implementing ticket ' + resolvedTicketKey + '...');
     const ticketContent = await fs.promises.readFile(ticketPath, 'utf-8');
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const ticketArtifact: TicketArtifact = { ticketKey: resolvedTicketKey!, content: ticketContent, path: ticketPath };
     const planArtifact: PlanArtifact = { plan, action: plan.action, path: ref.artifactPath };
+    await this.expandReposFromPlan(ctx, planArtifact, options?.silent);
     await this.runImplementerLoop(ticketArtifact, planArtifact, ctx, options);
   }
 
@@ -315,17 +316,27 @@ export class IssueImplementCommand extends CommandRunner {
       console.log(chalk.bold.yellow('\n🔧 Implementation'));
       console.log(chalk.gray('─'.repeat(70)));
     }
-
     for (const repo of activeRepos) {
-      if (isMultiRepo && !options?.silent) console.log(chalk.bold.cyan('\n  ── ' + (repo ?? 'current directory') + ' ──'));
-      const result = await this.orchestrator.implementer.execute(
-        ticketArtifact, planArtifact, this.buildImplementOpts(repo, ctx, options, isMultiRepo, customBranchSlug)
+      const shouldExit = await this.executeRepoImplementation(
+        repo, ticketArtifact, planArtifact, ctx, options, isMultiRepo, customBranchSlug
       );
-      if (result?.type === 'investigation') {
-        console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
-        return;
-      }
+      if (shouldExit) return;
     }
+  }
+
+  private async executeRepoImplementation(
+    repo: string | undefined, ticketArtifact: TicketArtifact, planArtifact: PlanArtifact,
+    ctx: ReturnType<IssueImplementCommand['resolveImplementContext']>, options?: IssueImplementOptions,
+    isMultiRepo?: boolean, customBranchSlug?: string
+  ): Promise<boolean> {
+    if (isMultiRepo && !options?.silent) console.log(chalk.bold.cyan('\n  ── ' + (repo ?? 'current directory') + ' ──'));
+    const implementOpts = this.buildImplementOpts(repo, ctx, options, isMultiRepo, customBranchSlug, planArtifact);
+    const result = await this.orchestrator.implementer.execute(ticketArtifact, planArtifact, implementOpts);
+    if (result?.type === 'investigation') {
+      console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -354,7 +365,8 @@ export class IssueImplementCommand extends CommandRunner {
   private buildImplementOpts(
     repo: string | undefined,
     ctx: ReturnType<IssueImplementCommand['resolveImplementContext']>,
-    options?: IssueImplementOptions, isMultiRepo = false, customBranchSlug?: string
+    options?: IssueImplementOptions, isMultiRepo = false, customBranchSlug?: string,
+    planArtifact?: PlanArtifact
   ) {
     return {
       trackerName: ctx.trackerName, repoDir: resolveRepoBasePath(repo),
@@ -363,7 +375,93 @@ export class IssueImplementCommand extends CommandRunner {
       modelRouting: options?.modelRouting as ModelRouting, silent: options?.silent,
       noBranch: options?.noBranch, branchNamePattern: options?.branchNamePattern,
       resumeProviderSessionId: options?.sessionId,
+      isNewRepo: planArtifact?.plan.newRepositories?.includes(repo ?? '') ?? false,
     };
+  }
+
+  private async expandReposFromPlan(
+    ctx: ReturnType<IssueImplementCommand['resolveImplementContext']>,
+    planArtifact: PlanArtifact,
+    silent?: boolean
+  ): Promise<void> {
+    const newRepos = (planArtifact.plan.newRepositories ?? []).filter(r => !isRepoResolvable(r));
+    this.validateUnresolvedRepos(planArtifact, newRepos);
+    if (newRepos.length === 0) return;
+
+    if (silent || !this.isInteractiveSession()) {
+      for (const repo of newRepos) {
+        const repoPath = scaffoldNewRepo(repo, ctx.baseDir);
+        if (!silent) console.log(chalk.green(`  Scaffolded new repository: ${repoPath}`));
+      }
+      ctx.repos = [...newRepos, ...ctx.repos];
+      return;
+    }
+
+    const readyRepos = await this.promptManualRepoSetup(newRepos, ctx.baseDir);
+    if (readyRepos.length > 0) ctx.repos = [...readyRepos, ...ctx.repos];
+  }
+
+  private isInteractiveSession(): boolean {
+    return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  }
+
+  private async promptManualRepoSetup(newRepos: string[], baseDir: string): Promise<string[]> {
+    const resolved = newRepos.map(r => ({ name: r, dir: path.resolve(baseDir, '..', r) }));
+    console.log(chalk.yellow('\n  The plan requires new repositories that do not exist locally.'));
+    console.log(chalk.yellow('  Please create each directory and its wf.config.* file before continuing.\n'));
+    for (const r of resolved) {
+      console.log(chalk.cyan(`    ${r.name}`));
+      console.log(chalk.gray(`      Directory:  ${r.dir}`));
+      console.log(chalk.gray(`      Config:     ${r.dir}/wf.config.ts  (or .js / .json / .yaml / .yml)`));
+    }
+    const { ready } = await inquirer.prompt<{ ready: boolean }>([{
+      type: 'confirm', name: 'ready',
+      message: 'Have you created the directories and config files listed above?',
+      prefix: ' ', default: false,
+    }]);
+    if (!ready) return [];
+    this.validateNewReposExist(resolved);
+    for (const r of resolved) console.log(chalk.green(`  Confirmed new repository: ${r.dir}`));
+    return resolved.map(r => r.name);
+  }
+
+  private validateNewReposExist(resolved: Array<{ name: string; dir: string }>): void {
+    const missing = resolved
+      .map(r => {
+        const dirExists = fs.existsSync(r.dir);
+        const configExists = dirExists && WF_CONFIG_EXTENSIONS.some(ext =>
+          fs.existsSync(path.join(r.dir, `wf.config${ext}`))
+        );
+        if (dirExists && configExists) return null;
+        return `${r.name} (${!dirExists ? 'directory not found' : 'wf.config.* not found'}: ${r.dir})`;
+      })
+      .filter((entry): entry is string => entry !== null);
+    if (missing.length === 0) return;
+
+    console.log(chalk.red('\n  The following repos are still missing:'));
+    for (const m of missing) console.log(chalk.red(`    - ${m}`));
+    console.log('');
+    throw new ValidationError(
+      'Cannot proceed — new repositories must have both a directory and a wf.config.* file. '
+      + `Missing: ${missing.join(', ')}`
+    );
+  }
+
+  /**
+   * Throws if any repo in `affectedRepositories` is unresolvable and not
+   * declared in `newRepositories`.
+   * @param planArtifact - The plan artifact containing affectedRepositories.
+   * @param newRepos - Repos declared as new in the plan.
+   */
+  private validateUnresolvedRepos(planArtifact: PlanArtifact, newRepos: string[]): void {
+    const allRepos = planArtifact.plan.affectedRepositories ?? [];
+    const newSet = new Set(newRepos);
+    const invalid = allRepos.filter(r => !isRepoResolvable(r) && !newSet.has(r));
+    if (invalid.length === 0) return;
+    throw new ValidationError(
+      `Plan references repositories not found locally: ${invalid.join(', ')}. `
+      + 'If these are new repos, add them to the plan\'s newRepositories field.'
+    );
   }
 
   private previewCustomPlanDryRun(

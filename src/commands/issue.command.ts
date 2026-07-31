@@ -41,6 +41,8 @@ import type { SessionState, StageConfigFingerprint } from '../shared/types/sessi
 import { resolveDefaultStageBackend, type StageBackendDefaultStageName } from '../config/stage-backend-defaults';
 import * as crypto from 'node:crypto';
 
+const WF_CONFIG_EXTENSIONS = ['.ts', '.js', '.json', '.yaml', '.yml'];
+
 const VALID_MODEL_ROUTING: ModelRouting[] = ['auto', 'default', 'mechanical'];
 
 const ISSUE_EXAMPLES: CliExample[] = [
@@ -1123,7 +1125,7 @@ export class IssueCommand extends CommandRunner {
   }> {
     const { sessionContext, sessionState: started } = await this.prepareStageSession(sessionState, 'implement');
     sessionState = started;
-    repos = this.expandReposFromPlan(repos, planArtifact, resolveRepoBasePath(repos[0]), options?.silent);
+    repos = await this.expandReposFromPlan(repos, planArtifact, resolveRepoBasePath(repos[0]), options?.silent);
     this.printStageHeader(repos.length > 1, options?.silent, '🔧 STAGE 3: Implementation Guide');
     const result = await this.runImplementLoop(ticketArtifact, planArtifact, repos, options, sessionContext);
     if (result.earlyReturn) return { ...result, sessionState };
@@ -1168,21 +1170,69 @@ export class IssueCommand extends CommandRunner {
    * @param silent - Whether to suppress console output
    * @returns Expanded repos list including scaffolded repos
    */
-  private expandReposFromPlan(
+  private async expandReposFromPlan(
     repos: (string | undefined)[],
     planArtifact: PlanArtifact,
     baseDir: string,
     silent?: boolean
-  ): (string | undefined)[] {
+  ): Promise<(string | undefined)[]> {
     const newRepos = (planArtifact.plan.newRepositories ?? []).filter(r => !isRepoResolvable(r));
     this.validateUnresolvedRepos(planArtifact, newRepos);
     if (newRepos.length === 0) return repos;
 
-    for (const repo of newRepos) {
-      const repoPath = scaffoldNewRepo(repo, baseDir);
-      if (!silent) console.log(chalk.green(`  Scaffolded new repository: ${repoPath}`));
+    if (silent || !this.isInteractiveSession()) {
+      for (const repo of newRepos) {
+        const repoPath = scaffoldNewRepo(repo, baseDir);
+        if (!silent) console.log(chalk.green(`  Scaffolded new repository: ${repoPath}`));
+      }
+      return [...newRepos, ...repos];
     }
-    return [...newRepos, ...repos];
+
+    const readyRepos = await this.promptManualRepoSetup(newRepos, baseDir);
+    if (readyRepos.length === 0) return repos;
+    return [...readyRepos, ...repos];
+  }
+
+  private async promptManualRepoSetup(newRepos: string[], baseDir: string): Promise<string[]> {
+    const resolved = newRepos.map(r => ({ name: r, dir: path.resolve(baseDir, '..', r) }));
+    console.log(chalk.yellow('\n  The plan requires new repositories that do not exist locally.'));
+    console.log(chalk.yellow('  Please create each directory and its wf.config.* file before continuing.\n'));
+    for (const r of resolved) {
+      console.log(chalk.cyan(`    ${r.name}`));
+      console.log(chalk.gray(`      Directory:  ${r.dir}`));
+      console.log(chalk.gray(`      Config:     ${r.dir}/wf.config.ts  (or .js / .json / .yaml / .yml)`));
+    }
+    const { ready } = await inquirer.prompt<{ ready: boolean }>([{
+      type: 'confirm', name: 'ready',
+      message: 'Have you created the directories and config files listed above?',
+      prefix: ' ', default: false,
+    }]);
+    if (!ready) return [];
+    this.validateNewReposExist(resolved);
+    for (const r of resolved) console.log(chalk.green(`  Confirmed new repository: ${r.dir}`));
+    return resolved.map(r => r.name);
+  }
+
+  private validateNewReposExist(resolved: Array<{ name: string; dir: string }>): void {
+    const missing = resolved
+      .map(r => {
+        const dirExists = fs.existsSync(r.dir);
+        const configExists = dirExists && WF_CONFIG_EXTENSIONS.some(ext =>
+          fs.existsSync(path.join(r.dir, `wf.config${ext}`))
+        );
+        if (dirExists && configExists) return null;
+        return `${r.name} (${!dirExists ? 'directory not found' : 'wf.config.* not found'}: ${r.dir})`;
+      })
+      .filter((entry): entry is string => entry !== null);
+    if (missing.length === 0) return;
+
+    console.log(chalk.red('\n  The following repos are still missing:'));
+    for (const m of missing) console.log(chalk.red(`    - ${m}`));
+    console.log('');
+    throw new ValidationError(
+      'Cannot proceed — new repositories must have both a directory and a wf.config.* file. '
+      + `Missing: ${missing.join(', ')}`
+    );
   }
 
   /**

@@ -2102,7 +2102,7 @@ describe('IssueCommand', () => {
       isRepoResolvable.mockImplementation((repo: string) => repo !== 'new-contracts');
 
       const command = await buildCommand();
-      const expanded = (command as any).expandReposFromPlan(
+      const expanded = await (command as any).expandReposFromPlan(
         [undefined],
         buildExpandPlanArtifact(['consumer-app', 'new-contracts'], ['new-contracts']),
         '/tmp/consumer-app', false
@@ -2118,13 +2118,11 @@ describe('IssueCommand', () => {
 
       const command = await buildCommand();
 
-      expect(() =>
-        (command as any).expandReposFromPlan(
-          [undefined],
-          buildExpandPlanArtifact(['consumer-app', 'typo-repo']),
-          '/tmp/consumer-app', false
-        )
-      ).toThrow('Plan references repositories not found locally: typo-repo');
+      await expect((command as any).expandReposFromPlan(
+        [undefined],
+        buildExpandPlanArtifact(['consumer-app', 'typo-repo']),
+        '/tmp/consumer-app', false
+      )).rejects.toThrow('Plan references repositories not found locally: typo-repo');
     });
 
     it('returns repos unchanged when all plan repos are resolvable', async () => {
@@ -2132,7 +2130,7 @@ describe('IssueCommand', () => {
       isRepoResolvable.mockReturnValue(true);
 
       const command = await buildCommand();
-      const expanded = (command as any).expandReposFromPlan(
+      const expanded = await (command as any).expandReposFromPlan(
         [undefined],
         buildExpandPlanArtifact(['consumer-app', 'existing-repo']),
         '/tmp/consumer-app', false
@@ -2147,7 +2145,7 @@ describe('IssueCommand', () => {
       isRepoResolvable.mockReturnValue(true);
 
       const command = await buildCommand();
-      const expanded = (command as any).expandReposFromPlan(
+      const expanded = await (command as any).expandReposFromPlan(
         [undefined],
         buildExpandPlanArtifact(['consumer-app', 'already-exists'], ['already-exists']),
         '/tmp/consumer-app', false
@@ -2155,6 +2153,110 @@ describe('IssueCommand', () => {
 
       expect(scaffoldNewRepo).not.toHaveBeenCalled();
       expect(expanded).toEqual([undefined]);
+    });
+
+    describe('interactive mode', () => {
+      const originalStdinIsTTY = process.stdin.isTTY;
+      const originalStdoutIsTTY = process.stdout.isTTY;
+
+      afterEach(() => {
+        Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutIsTTY, configurable: true });
+        jest.restoreAllMocks();
+      });
+
+      it('prompts user to manually create directory and config', async () => {
+        const { isRepoResolvable, scaffoldNewRepo } = jest.requireMock('../agents/utils');
+        isRepoResolvable.mockImplementation((repo: string) => repo !== 'new-contracts');
+        const inquirer = jest.requireMock('inquirer').default;
+        inquirer.prompt.mockResolvedValue({ ready: true });
+
+        Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+
+        const existsSync = jest.spyOn(require('node:fs'), 'existsSync');
+        existsSync.mockImplementation((path: string) => {
+          if (path === '/tmp/new-contracts') return true;
+          if (path.startsWith('/tmp/new-contracts/wf.config')) return true;
+          return false;
+        });
+
+        const command = await buildCommand();
+        const expanded = await (command as any).expandReposFromPlan(
+          [undefined],
+          buildExpandPlanArtifact(['consumer-app', 'new-contracts'], ['new-contracts']),
+          '/tmp/consumer-app', false
+        );
+
+        expect(scaffoldNewRepo).not.toHaveBeenCalled();
+        expect(expanded).toEqual(['new-contracts', undefined]);
+      });
+
+      it('throws ValidationError when user confirms but directory is missing', async () => {
+        const { isRepoResolvable } = jest.requireMock('../agents/utils');
+        isRepoResolvable.mockImplementation((repo: string) => repo !== 'new-contracts');
+        const inquirer = jest.requireMock('inquirer').default;
+        inquirer.prompt.mockResolvedValue({ ready: true });
+
+        Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+
+        const existsSync = jest.spyOn(require('node:fs'), 'existsSync');
+        existsSync.mockReturnValue(false);
+
+        const command = await buildCommand();
+
+        await expect((command as any).expandReposFromPlan(
+          [undefined],
+          buildExpandPlanArtifact(['consumer-app', 'new-contracts'], ['new-contracts']),
+          '/tmp/consumer-app', false
+        )).rejects.toThrow(expect.objectContaining({ message: expect.stringContaining('directory not found') }));
+      });
+
+      it('throws ValidationError when user confirms but wf.config.* is missing', async () => {
+        const { isRepoResolvable } = jest.requireMock('../agents/utils');
+        isRepoResolvable.mockImplementation((repo: string) => repo !== 'new-contracts');
+        const inquirer = jest.requireMock('inquirer').default;
+        inquirer.prompt.mockResolvedValue({ ready: true });
+
+        Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+
+        const existsSync = jest.spyOn(require('node:fs'), 'existsSync');
+        existsSync.mockImplementation((path: string) => {
+          if (path === '/tmp/new-contracts') return true;
+          if (path.startsWith('/tmp/new-contracts/wf.config')) return false;
+          return false;
+        });
+
+        const command = await buildCommand();
+
+        await expect((command as any).expandReposFromPlan(
+          [undefined],
+          buildExpandPlanArtifact(['consumer-app', 'new-contracts'], ['new-contracts']),
+          '/tmp/consumer-app', false
+        )).rejects.toThrow(expect.objectContaining({ message: expect.stringContaining('wf.config.* not found') }));
+      });
+
+      it('returns original repos when user declines confirmation', async () => {
+        const { isRepoResolvable, scaffoldNewRepo } = jest.requireMock('../agents/utils');
+        isRepoResolvable.mockImplementation((repo: string) => repo !== 'new-contracts');
+        const inquirer = jest.requireMock('inquirer').default;
+        inquirer.prompt.mockResolvedValue({ ready: false });
+
+        Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+
+        const command = await buildCommand();
+        const expanded = await (command as any).expandReposFromPlan(
+          [undefined],
+          buildExpandPlanArtifact(['consumer-app', 'new-contracts'], ['new-contracts']),
+          '/tmp/consumer-app', false
+        );
+
+        expect(scaffoldNewRepo).not.toHaveBeenCalled();
+        expect(expanded).toEqual([undefined]);
+      });
     });
   });
 });
