@@ -226,6 +226,21 @@ export const parseNdjsonLine = (line: string): ClaudeCliMessage | null => {
 };
 
 /**
+ * Returns true for system housekeeping messages that should not reset
+ * the inactivity timer -- compaction, status updates, API retries,
+ * and rate-limit events.
+ *
+ * @param message - Parsed NDJSON message from the Claude CLI
+ * @returns True when the message is non-progress system chatter
+ */
+export const isSystemChatter = (message: ClaudeCliMessage): boolean =>
+  message.type === 'rate_limit_event'
+  || (message.type === 'system'
+    && (message.subtype === 'status'
+      || message.subtype === 'compact_boundary'
+      || message.subtype === 'api_retry'));
+
+/**
  * Filters a readline interface's output into a stream of valid ClaudeCliMessage objects.
  *
  * @param rl - Readline interface to read lines from
@@ -504,7 +519,7 @@ async function* runCliStream(session: CliSession): AsyncGenerator<ClaudeCliMessa
     for await (const message of parseLineMessages(rl)) {
       session.yieldedAny = true;
       yield message;
-      tm.resetInactivity();
+      if (!isSystemChatter(message)) tm.resetInactivity();
     }
   } finally {
     process.off('SIGINT', onSigint);
@@ -523,7 +538,8 @@ async function* runCliStream(session: CliSession): AsyncGenerator<ClaudeCliMessa
  * @param prompt - Prompt text piped to the subprocess via stdin
  * @param env - Optional environment variable overrides
  * @param timeoutMs - Wall-clock timeout in milliseconds (default: 10 minutes)
- * @param inactivityTimeoutMs - Inactivity timeout in milliseconds; reset on each yielded message (default: 2 minutes)
+ * @param inactivityTimeoutMs - Inactivity timeout in milliseconds; reset on each non-system-chatter
+ *   yielded message (default: 2 minutes)
  * @returns Async generator yielding `ClaudeCliMessage` objects
  */
 export async function* spawnCli(

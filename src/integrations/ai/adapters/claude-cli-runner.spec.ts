@@ -1,6 +1,8 @@
 import {
   assertClaudeCliAvailable,
   buildCliArgs,
+  type ClaudeCliMessage,
+  isSystemChatter,
   parseClaudeCliVersion,
   parseNdjsonLine,
   spawnCli,
@@ -262,6 +264,48 @@ describe('claude-cli-runner', () => {
     });
   });
 
+  describe('isSystemChatter', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('returns true for rate_limit_event', () => {
+      expect(isSystemChatter({ type: 'rate_limit_event' } as ClaudeCliMessage)).toBe(true);
+    });
+
+    it('returns true for system/status', () => {
+      expect(isSystemChatter({ type: 'system', subtype: 'status' } as ClaudeCliMessage)).toBe(true);
+    });
+
+    it('returns true for system/compact_boundary', () => {
+      expect(isSystemChatter({ type: 'system', subtype: 'compact_boundary' } as ClaudeCliMessage)).toBe(true);
+    });
+
+    it('returns true for system/api_retry', () => {
+      expect(isSystemChatter({ type: 'system', subtype: 'api_retry' } as ClaudeCliMessage)).toBe(true);
+    });
+
+    it('returns false for system/init (meaningful progress)', () => {
+      expect(isSystemChatter({ type: 'system', subtype: 'init' } as ClaudeCliMessage)).toBe(false);
+    });
+
+    it('returns false for assistant messages', () => {
+      expect(isSystemChatter({ type: 'assistant' } as ClaudeCliMessage)).toBe(false);
+    });
+
+    it('returns false for result messages', () => {
+      expect(isSystemChatter({ type: 'result' } as ClaudeCliMessage)).toBe(false);
+    });
+
+    it('returns false for error messages', () => {
+      expect(isSystemChatter({ type: 'error' } as ClaudeCliMessage)).toBe(false);
+    });
+
+    it('returns false for unknown future message types (deny-list default)', () => {
+      expect(isSystemChatter({ type: 'unknown_future_type' } as ClaudeCliMessage)).toBe(false);
+    });
+  });
+
   describe('spawnCli', () => {
     it('yields a timeout error message when the subprocess exceeds the timeout', async () => {
       const child = createMockChildProcess();
@@ -378,6 +422,36 @@ describe('claude-cli-runner', () => {
       expect(timeoutMsg.is_error).toBe(true);
       expect(timeoutMsg.result).toMatch(/stalled/i);
       expect(timeoutMsg.result).toMatch(/no output/i);
+    });
+
+    it('fires inactivity timeout despite system chatter messages', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      // timeoutMs=0 disables wall-clock; inactivityTimeoutMs=100ms
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 0, 100);
+
+      const messages: Array<{ type: string; subtype?: string; is_error?: boolean; result?: string }> = [];
+      const collectPromise = (async () => {
+        for await (const msg of gen) {
+          messages.push(msg);
+        }
+      })();
+
+      // Push system chatter with delays — these should NOT reset inactivity
+      child.stdout.push('{"type":"system","subtype":"status"}\n');
+      await new Promise(resolve => setTimeout(resolve, 60));
+      child.stdout.push('{"type":"rate_limit_event"}\n');
+      await new Promise(resolve => setTimeout(resolve, 60));
+      child.stdout.push('{"type":"system","subtype":"compact_boundary"}\n');
+      // Don't close — let inactivity timer fire
+
+      await collectPromise;
+
+      const timeoutMsg = messages.find(m => m.type === 'error' && m.subtype === 'timeout');
+      if (!timeoutMsg) throw new Error('expected timeoutMsg');
+      expect(timeoutMsg.is_error).toBe(true);
+      expect(timeoutMsg.result).toMatch(/stalled/i);
     });
   });
 
