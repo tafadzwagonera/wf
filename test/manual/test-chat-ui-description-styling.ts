@@ -29,6 +29,7 @@ Would you like to focus on the selection logic first?`,
 console.log(chalk.bold('\n─── Test: text block styling in Claude response ───\n'));
 console.log(chalk.dim('Expected: all non-empty text lines (bullets, numbered lists, plain text) appear in CYAN.\n'));
 
-service.displayAssistantResponse(mockMessage);
+// Stage arg is required; any valid stage works here
+service.displayAssistantResponse(mockMessage, 'review');
 
 console.log(chalk.bold('─── End of test. Verify cyan lines above. ───\n'));

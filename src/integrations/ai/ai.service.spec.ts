@@ -73,6 +73,44 @@ describe('AiService', () => {
       expect(service.getProviderDisplayName()).toBe('OpenAI');
       expect(service.getProviderShortName()).toBe('OpenAI');
     });
+
+    describe('stage-aware provider names', () => {
+      it('returns Gemini short name when stage is review with ai.stages.review.provider override', () => {
+        const service = new AiService(mockLogger, createAdapter(), createConfigService());
+
+        expect(service.getProviderShortName('review')).toBe('Gemini');
+      });
+
+      it('returns Google Gemini display name when stage is review with ai.stages.review.provider override', () => {
+        const service = new AiService(mockLogger, createAdapter(), createConfigService());
+
+        expect(service.getProviderDisplayName('review')).toBe('Google Gemini');
+      });
+
+      it('returns Claude short name when stage is implement with stages.implement.provider override', () => {
+        const service = new AiService(mockLogger, createAdapter(), createConfigService());
+
+        expect(service.getProviderShortName('implement')).toBe('Claude');
+      });
+
+      it('returns Anthropic Claude display name when stage is implement with stages.implement.provider override', () => {
+        const service = new AiService(mockLogger, createAdapter(), createConfigService());
+
+        expect(service.getProviderDisplayName('implement')).toBe('Anthropic Claude');
+      });
+
+      it('falls back to global OpenAI short name when stage is plan with no override configured', () => {
+        const service = new AiService(mockLogger, createAdapter(), createConfigService());
+
+        expect(service.getProviderShortName('plan')).toBe('OpenAI');
+      });
+
+      it('falls back to global OpenAI display name when stage is plan with no override configured', () => {
+        const service = new AiService(mockLogger, createAdapter(), createConfigService());
+
+        expect(service.getProviderDisplayName('plan')).toBe('OpenAI');
+      });
+    });
   });
 
   describe('stage overrides', () => {

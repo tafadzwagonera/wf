@@ -235,11 +235,11 @@ export class ConversationService {
    */
   private handleChatCommand(input: string, state: ConversationState): boolean {
     if (input === 'history') {
-      this.chatUI.displayConversationHistory(state.messages);
+      this.chatUI.displayConversationHistory(state.messages, state.context.stage);
       return true;
     }
     if (input === 'help') {
-      this.chatUI.displayHelp();
+      this.chatUI.displayHelp(state.context.stage);
       return true;
     }
     return false;
@@ -268,7 +268,7 @@ export class ConversationService {
       stage, userMessage: input, systemPrompt, repoDir, session: agentSession,
     });
     const msg = this.recordAssistantMessage(state, result.content, undefined);
-    this.chatUI.displayAssistantResponse(msg);
+    this.chatUI.displayAssistantResponse(msg, state.context.stage);
     return result.session;
   }
 
@@ -287,7 +287,7 @@ export class ConversationService {
     stage: WorkflowStage | undefined
   ): Promise<void> {
     const response = await this.getAssistantResponse(conversationId, systemPrompt, stage);
-    this.chatUI.displayAssistantResponse(response);
+    this.chatUI.displayAssistantResponse(response, stage ?? state.context.stage);
     if (response.tokenUsage) this.chatUI.displayTokenUsage(response.tokenUsage, state.totalTokensUsed);
   }
 

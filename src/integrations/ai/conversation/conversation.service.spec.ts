@@ -348,7 +348,8 @@ describe('ConversationService', () => {
         expect.objectContaining({
           role: 'assistant',
           content: 'Agent response',
-        })
+        }),
+        'review'
       );
     });
 

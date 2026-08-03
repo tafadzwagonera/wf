@@ -67,6 +67,7 @@ describe('ChatUIService', () => {
   afterEach(() => {
     consoleLogSpy?.mockRestore();
     jest.clearAllMocks();
+    mockAiService.getProviderShortName.mockImplementation(() => 'Claude');
   });
 
   describe('displayChatIntro', () => {
@@ -183,10 +184,11 @@ describe('ChatUIService', () => {
         timestamp: new Date(),
       };
 
-      service.displayAssistantResponse(message);
+      service.displayAssistantResponse(message, 'plan');
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Claude:'));
       expect(consoleLogSpy).toHaveBeenCalledWith('This is a response from Claude');
+      expect(mockAiService.getProviderShortName).toHaveBeenCalledWith('plan');
     });
 
     it('should handle multiline content', () => {
@@ -196,11 +198,27 @@ describe('ChatUIService', () => {
         timestamp: new Date(),
       };
 
-      service.displayAssistantResponse(message);
+      service.displayAssistantResponse(message, 'review');
 
       expect(consoleLogSpy).toHaveBeenCalledWith('Line 1');
       expect(consoleLogSpy).toHaveBeenCalledWith('Line 2');
       expect(consoleLogSpy).toHaveBeenCalledWith('Line 3');
+      expect(mockAiService.getProviderShortName).toHaveBeenCalledWith('review');
+    });
+
+    it('should display stage-specific provider name', () => {
+      mockAiService.getProviderShortName.mockReturnValue('Gemini');
+
+      const message: ConversationMessage = {
+        role: 'assistant',
+        content: 'This is a response from Gemini',
+        timestamp: new Date(),
+      };
+
+      service.displayAssistantResponse(message, 'review');
+
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Gemini:'));
+      expect(mockAiService.getProviderShortName).toHaveBeenCalledWith('review');
     });
   });
 
@@ -220,10 +238,11 @@ describe('ChatUIService', () => {
 
   describe('displayConversationHistory', () => {
     it('should display empty history message', () => {
-      service.displayConversationHistory([]);
+      service.displayConversationHistory([], 'plan');
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Conversation History'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('No messages yet'));
+      expect(mockAiService.getProviderShortName).toHaveBeenCalledWith('plan');
     });
 
     it('should display message history', () => {
@@ -241,12 +260,13 @@ describe('ChatUIService', () => {
         },
       ];
 
-      service.displayConversationHistory(messages);
+      service.displayConversationHistory(messages, 'review');
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('You [1]:'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Claude [2]:'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Hello'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Hi there!'));
+      expect(mockAiService.getProviderShortName).toHaveBeenCalledWith('review');
     });
 
     it('should truncate long messages in history', () => {
@@ -259,24 +279,26 @@ describe('ChatUIService', () => {
         },
       ];
 
-      service.displayConversationHistory(messages);
+      service.displayConversationHistory(messages, 'implement');
 
       // Should display truncated version (150 chars + ...)
       const truncatedCalls = consoleLogSpy.mock.calls.filter(
         call => call[0] && typeof call[0] === 'string' && call[0].includes('...')
       );
       expect(truncatedCalls.length).toBeGreaterThan(0);
+      expect(mockAiService.getProviderShortName).toHaveBeenCalledWith('implement');
     });
   });
 
   describe('displayHelp', () => {
     it('should display help information', () => {
-      service.displayHelp();
+      service.displayHelp('plan');
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Chat Commands'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('history'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('help'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('exit'));
+      expect(mockAiService.getProviderShortName).toHaveBeenCalledWith('plan');
     });
   });
 

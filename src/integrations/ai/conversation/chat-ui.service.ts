@@ -81,7 +81,7 @@ export class ChatUIService {
    * @param context - Conversation context
    */
   displayChatIntro(stage: WorkflowStage, context: ConversationContext): void {
-    const provider = this.aiService.getProviderShortName();
+    const provider = this.aiService.getProviderShortName(stage);
     console.log(chalk.bold.cyan('\n💬 Interactive Chat Mode'));
     console.log(chalk.gray('─'.repeat(70)));
     console.log(chalk.gray(`You can now discuss the output with ${provider}. Type "exit" to continue.`));
@@ -153,10 +153,11 @@ export class ChatUIService {
    * Display assistant response with formatting
    *
    * @param message - Assistant message
+   * @param stage - Workflow stage for provider resolution
    */
-  displayAssistantResponse(message: ConversationMessage): void {
+  displayAssistantResponse(message: ConversationMessage, stage: WorkflowStage): void {
     console.log();
-    console.log(chalk.bold.magenta(`🤖 ${this.aiService.getProviderShortName()}:`));
+    console.log(chalk.bold.magenta(`🤖 ${this.aiService.getProviderShortName(stage)}:`));
     console.log();
     for (const line of message.content.split('\n')) console.log(formatResponseLine(line));
     console.log();
@@ -204,9 +205,10 @@ export class ChatUIService {
    * Display conversation history
    *
    * @param messages - All conversation messages
+   * @param stage - Workflow stage for provider resolution
    */
-  displayConversationHistory(messages: ConversationMessage[]): void {
-    const provider = this.aiService.getProviderShortName();
+  displayConversationHistory(messages: ConversationMessage[], stage: WorkflowStage): void {
+    const provider = this.aiService.getProviderShortName(stage);
     const sep = chalk.gray('─'.repeat(70));
     console.log(`\n${chalk.bold.cyan('📜 Conversation History')}\n${sep}`);
     if (messages.length === 0) console.log(chalk.dim('No messages yet'));
@@ -216,9 +218,11 @@ export class ChatUIService {
 
   /**
    * Display help information
+   *
+   * @param stage - Workflow stage for provider resolution
    */
-  displayHelp(): void {
-    const provider = this.aiService.getProviderShortName();
+  displayHelp(stage: WorkflowStage): void {
+    const provider = this.aiService.getProviderShortName(stage);
     const sep = chalk.gray('─'.repeat(70));
     console.log(`\n${chalk.bold.cyan('💡 Chat Commands')}\n${sep}\n`);
     console.log(chalk.white(`  • Type any question or message to chat with ${provider}`));

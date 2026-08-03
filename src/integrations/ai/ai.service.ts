@@ -1170,10 +1170,13 @@ export class AiService {
    * Returns the full AI provider display name for use in dry-run previews.
    * Reads ai.provider from config (default: 'anthropic').
    *
+   * @param stage - Optional workflow stage name; when provided, the stage-level provider override is checked first
    * @returns 'Anthropic Claude' | 'OpenAI' | 'Google Gemini' | 'DeepSeek'
    */
-  getProviderDisplayName(): string {
-    const provider = this.configService.get<string>('ai.provider', 'anthropic');
+  getProviderDisplayName(stage?: string): string {
+    const provider = stage
+      ? resolveStageProvider(this.configService, stage) ?? this.configService.get<string>('ai.provider', 'anthropic')
+      : this.configService.get<string>('ai.provider', 'anthropic');
     if (provider === 'openai') return 'OpenAI';
     if (provider === 'google') return 'Google Gemini';
     if (provider === 'deepseek') return 'DeepSeek';
@@ -1184,10 +1187,13 @@ export class AiService {
    * Returns a short AI provider name for use in interactive chat UI labels.
    * Reads ai.provider from config (default: 'anthropic').
    *
+   * @param stage - Optional workflow stage name; when provided, the stage-level provider override is checked first
    * @returns 'Claude' | 'OpenAI' | 'Gemini' | 'DeepSeek'
    */
-  getProviderShortName(): string {
-    const provider = this.configService.get<string>('ai.provider', 'anthropic');
+  getProviderShortName(stage?: string): string {
+    const provider = stage
+      ? resolveStageProvider(this.configService, stage) ?? this.configService.get<string>('ai.provider', 'anthropic')
+      : this.configService.get<string>('ai.provider', 'anthropic');
     if (provider === 'openai') return 'OpenAI';
     if (provider === 'google') return 'Gemini';
     if (provider === 'deepseek') return 'DeepSeek';
