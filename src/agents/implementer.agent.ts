@@ -144,7 +144,7 @@ export class ImplementerAgent {
     resolved: FileResolution
   ): Promise<ImplementerResult> {
     const { repoName, contextFiles } = resolved;
-    const verificationScripts = this.buildVerificationScripts(options.repoDir, planArtifact);
+    const verificationScripts = this.buildVerificationScripts(options.repoDir, planArtifact, options.isNewRepo);
     const tracked = await this.alignTrackedFiles(resolved.repoFiles, repoName, options.repoDir);
     const backendSelection = this.resolveImplementBackendSelection();
     console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));
@@ -445,7 +445,12 @@ export class ImplementerAgent {
     }
   }
 
-  private buildVerificationScripts(repoDir: string | undefined, planArtifact: PlanArtifact): VerificationScript[] {
+  private buildVerificationScripts(
+    repoDir: string | undefined,
+    planArtifact: PlanArtifact,
+    isNewRepo?: boolean
+  ): VerificationScript[] {
+    if (isNewRepo) return [];
     const verificationConditions = this.getVerificationConditionsConfig();
     return this.prepareVerificationScripts(repoDir, verificationConditions, planArtifact.plan.verification);
   }

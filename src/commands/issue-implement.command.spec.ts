@@ -1055,4 +1055,55 @@ describe('IssueImplementCommand', () => {
       jest.restoreAllMocks();
     });
   });
+
+  describe('filterActiveRepos newRepositories union', () => {
+    let command: IssueImplementCommand;
+
+    beforeEach(async () => {
+      command = await buildCommand();
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('keeps a repo that appears only in newRepositories', () => {
+      const planArtifact = {
+        plan: {
+          affectedRepositories: ['repoA'],
+          newRepositories: ['repoB'],
+        },
+      } as any;
+
+      const result = (command as any).filterActiveRepos([undefined, 'repoA', 'repoB'], planArtifact);
+
+      expect(result).toEqual([undefined, 'repoA', 'repoB']);
+    });
+
+    it('keeps repos from both affectedRepositories and newRepositories', () => {
+      const planArtifact = {
+        plan: {
+          affectedRepositories: ['repoA'],
+          newRepositories: ['repoB'],
+        },
+      } as any;
+
+      const result = (command as any).filterActiveRepos(['repoA', 'repoB'], planArtifact);
+
+      expect(result).toEqual(['repoA', 'repoB']);
+    });
+
+    it('returns full list when both are empty', () => {
+      const planArtifact = {
+        plan: {
+          affectedRepositories: [],
+          newRepositories: [],
+        },
+      } as any;
+
+      const result = (command as any).filterActiveRepos(['repoA', 'repoB'], planArtifact);
+
+      expect(result).toEqual(['repoA', 'repoB']);
+    });
+  });
 });

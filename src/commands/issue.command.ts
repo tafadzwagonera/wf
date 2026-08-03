@@ -41,7 +41,7 @@ import type { SessionState, StageConfigFingerprint } from '../shared/types/sessi
 import { resolveDefaultStageBackend, type StageBackendDefaultStageName } from '../config/stage-backend-defaults';
 import * as crypto from 'node:crypto';
 
-const WF_CONFIG_EXTENSIONS = ['.ts', '.js', '.json', '.yaml', '.yml'];
+const WF_CONFIG_EXTENSIONS = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
 
 const VALID_MODEL_ROUTING: ModelRouting[] = ['auto', 'default', 'mechanical'];
 
@@ -566,6 +566,7 @@ export class IssueCommand extends CommandRunner {
       const result = await this.executeImplementStage(ticketArtifact, planArtifact, ctx.repos, options, sessionState);
       implementerResult = result.implementerResult;
       sessionState = result.sessionState;
+      ctx.repos = result.expandedRepos;
       if (result.earlyReturn) return { sessionState, earlyReturn: true };
     }
 
@@ -1122,15 +1123,26 @@ export class IssueCommand extends CommandRunner {
     implementerResult: ImplementerResult | undefined;
     sessionState: SessionState | undefined;
     earlyReturn: boolean;
+    expandedRepos: (string | undefined)[];
   }> {
     const { sessionContext, sessionState: started } = await this.prepareStageSession(sessionState, 'implement');
     sessionState = started;
-    repos = await this.expandReposFromPlan(repos, planArtifact, resolveRepoBasePath(repos[0]), options?.silent);
-    this.printStageHeader(repos.length > 1, options?.silent, '🔧 STAGE 3: Implementation Guide');
-    const result = await this.runImplementLoop(ticketArtifact, planArtifact, repos, options, sessionContext);
-    if (result.earlyReturn) return { ...result, sessionState };
+    const expandedRepos = await this.prepareImplementRepos(repos, planArtifact, options);
+    const result = await this.runImplementLoop(ticketArtifact, planArtifact, expandedRepos, options, sessionContext);
+    if (result.earlyReturn) return { ...result, expandedRepos, sessionState };
     sessionState = await this.finalizeImplementSession(sessionState, result.implementerResult);
-    return { implementerResult: result.implementerResult, sessionState, earlyReturn: false };
+    return { implementerResult: result.implementerResult, sessionState, earlyReturn: false, expandedRepos };
+  }
+
+  private async prepareImplementRepos(
+    repos: (string | undefined)[],
+    planArtifact: PlanArtifact,
+    options: IssueOptions
+  ): Promise<(string | undefined)[]> {
+    const basePath = resolveRepoBasePath(repos[0]);
+    const expandedRepos = await this.expandReposFromPlan(repos, planArtifact, basePath, options?.silent);
+    this.printStageHeader(expandedRepos.length > 1, options?.silent, '🔧 STAGE 3: Implementation Guide');
+    return expandedRepos;
   }
 
   private async prepareStageSession(
@@ -1185,11 +1197,13 @@ export class IssueCommand extends CommandRunner {
         const repoPath = scaffoldNewRepo(repo, baseDir);
         if (!silent) console.log(chalk.green(`  Scaffolded new repository: ${repoPath}`));
       }
+      // New repos first so isNewRepo is applied before existing repos run verification
       return [...newRepos, ...repos];
     }
 
     const readyRepos = await this.promptManualRepoSetup(newRepos, baseDir);
     if (readyRepos.length === 0) return repos;
+    // New repos first so isNewRepo is applied before existing repos run verification
     return [...readyRepos, ...repos];
   }
 
@@ -1276,17 +1290,50 @@ export class IssueCommand extends CommandRunner {
   ): Promise<{ implementerResult: ImplementerResult | undefined; earlyReturn: boolean }> {
     const isMultiRepo = repos.length > 1;
     let implementerResult: ImplementerResult | undefined;
+    let anyHasChanges = false;
     for (const repo of repos) {
       if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
-      const implOpts = this.buildImplementerOptions(
-        repo, repos, options, isMultiRepo, sessionContext, planArtifact);
-      implementerResult = await this.agents.implementer.execute(ticketArtifact, planArtifact, implOpts);
-      if (implementerResult?.type === 'investigation') {
-        console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
-        return { implementerResult, earlyReturn: true };
-      }
+      const result = await this.executeRepoImplementation(
+        ticketArtifact, planArtifact, repo, repos, options, isMultiRepo, sessionContext
+      );
+      if (result.earlyReturn) return result;
+      ({ implementerResult, anyHasChanges } = this.mergeImplementResult(result.implementerResult, anyHasChanges));
     }
-    return { implementerResult, earlyReturn: false };
+    return this.finalizeImplementResult(implementerResult, anyHasChanges);
+  }
+
+  private mergeImplementResult(
+    result: ImplementerResult | undefined, accumulator: boolean
+  ): { implementerResult: ImplementerResult | undefined; anyHasChanges: boolean } {
+    if (result?.type === 'implementation' && result.hasChanges) {
+      return { implementerResult: result, anyHasChanges: true };
+    }
+    return { implementerResult: result, anyHasChanges: accumulator };
+  }
+
+  private finalizeImplementResult(
+    result: ImplementerResult | undefined, anyHasChanges: boolean
+  ): { implementerResult: ImplementerResult | undefined; earlyReturn: boolean } {
+    if (result?.type === 'implementation') {
+      result = { ...result, hasChanges: anyHasChanges };
+    }
+    return { implementerResult: result, earlyReturn: false };
+  }
+
+  private async executeRepoImplementation(
+    ticketArtifact: TicketArtifact, planArtifact: PlanArtifact,
+    repo: string | undefined, repos: (string | undefined)[],
+    options: IssueOptions, isMultiRepo: boolean,
+    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string }
+  ): Promise<{ implementerResult: ImplementerResult | undefined; earlyReturn: boolean }> {
+    const implOpts = this.buildImplementerOptions(
+      repo, repos, options, isMultiRepo, sessionContext, planArtifact);
+    const result = await this.agents.implementer.execute(ticketArtifact, planArtifact, implOpts);
+    if (result?.type === 'investigation') {
+      console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
+      return { implementerResult: result, earlyReturn: true };
+    }
+    return { implementerResult: result, earlyReturn: false };
   }
 
   private async finalizeImplementSession(

@@ -31,7 +31,7 @@ import inquirer from 'inquirer';
 import type { PlanArtifactReference } from '../shared/utils/plan-artifact';
 
 const VALID_MODEL_ROUTING: ModelRouting[] = ['auto', 'default', 'mechanical'];
-const WF_CONFIG_EXTENSIONS = ['.ts', '.js', '.json', '.yaml', '.yml'];
+const WF_CONFIG_EXTENSIONS = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
 
 const loadPlanFile = (filePath: string): ResolutionPlan => {
   if (!fs.existsSync(filePath)) {
@@ -74,6 +74,7 @@ interface IssueImplementOptions {
     + 'When staying on the current branch, the user is asked whether to pull; stashing is only triggered if a pull is accepted. When creating a new branch, uncommitted changes are stashed before pulling the source branch (dev or main). '
     + 'Generated branch names exceeding 100 characters are automatically truncated at the nearest word boundary. '
     + 'Use --silent to auto-stash without prompting; branch selection and naming still prompt when a TTY is available. Use --no-branch to skip branch creation and work directly on the current branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. '
+    + 'When running against multiple repos, repos absent from the plan\'s affectedRepositories and newRepositories are skipped with a log message. When a plan declares newRepositories, those repos are scaffolded as sibling directories and prepended to the execution order so they run before existing repos. '
     + 'Examples: wf issue:implement -k PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | '
     + 'wf issue:implement -k PROJ-123 --repos my-repo | '
     + 'wf issue:implement -k PROJ-123 --silent | wf issue:implement -k PROJ-123 --no-branch | '
@@ -340,23 +341,26 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   /**
-   * Filters the repo list to only those present in the plan's affectedRepositories.
-   * If affectedRepositories is empty, all repos are returned unchanged.
+   * Filters the repo list to only those present in the plan's affectedRepositories or newRepositories.
+   * If both arrays are empty, all repos are returned unchanged.
    * undefined entries (cwd mode) are always kept.
    * Falls back to the full list if filtering would remove all repos.
    * @param repos - The list of repo names (or undefined for cwd mode).
-   * @param planArtifact - The plan artifact containing affectedRepositories.
+   * @param planArtifact - The plan artifact containing affectedRepositories and newRepositories.
    * @returns The filtered (or original) repo list.
    */
   private filterActiveRepos(repos: (string | undefined)[], planArtifact: PlanArtifact): (string | undefined)[] {
-    const affected = new Set(planArtifact.plan.affectedRepositories ?? []);
+    const affected = new Set([
+      ...(planArtifact.plan.affectedRepositories ?? []),
+      ...(planArtifact.plan.newRepositories ?? []),
+    ]);
     if (affected.size === 0) return repos;
 
     const active = repos.filter(repo => !repo || affected.has(repo));
     if (active.length < repos.length) {
       const skipped = repos.filter(repo => repo && !affected.has(repo));
       for (const repo of skipped) {
-        console.log(chalk.gray(`  Skipping ${repo} — not in plan's affected repositories`));
+        console.log(chalk.gray(`  Skipping ${repo} — not in plan's affected or new repositories`));
       }
     }
     return active.length > 0 ? active : repos;

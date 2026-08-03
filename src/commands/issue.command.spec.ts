@@ -2259,4 +2259,134 @@ describe('IssueCommand', () => {
       });
     });
   });
+
+  describe('runImplementLoop hasChanges accumulation', () => {
+    const mockTicketArtifact: any = {
+      ticketKey: 'WBP-ACC',
+      content: '# WBP-ACC\n\nTest',
+      path: '/tmp/.wf/consumer-app/jira/WBP-ACC.md',
+    };
+
+    const mockPlanArtifact: any = {
+      action: 'fix',
+      path: '/tmp/.wf/consumer-app/jira/WBP-ACC-plan.json',
+      plan: {
+        action: 'fix',
+        summary: 'Test',
+        steps: [],
+        estimatedComplexity: 'low',
+        affectedFiles: [],
+        affectedRepositories: ['repoA', 'repoB'],
+      },
+    };
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('returns hasChanges true when first repo has changes but last does not', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn()
+        .mockResolvedValueOnce({ type: 'implementation', hasChanges: true, branchName: null, sessionId: undefined, verificationOutcomes: [] })
+        .mockResolvedValueOnce({ type: 'implementation', hasChanges: false, branchName: null, sessionId: undefined, verificationOutcomes: [] });
+      (command as any).agents = { implementer: { execute: executeMock } };
+
+      const result = await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}
+      );
+
+      expect(result.implementerResult.hasChanges).toBe(true);
+    });
+
+    it('returns hasChanges false when no repo has changes', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn()
+        .mockResolvedValue({ type: 'implementation', hasChanges: false, branchName: null, sessionId: undefined, verificationOutcomes: [] });
+      (command as any).agents = { implementer: { execute: executeMock } };
+
+      const result = await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}
+      );
+
+      expect(result.implementerResult.hasChanges).toBe(false);
+    });
+
+    it('returns hasChanges true when last repo has changes and first does not', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn()
+        .mockResolvedValueOnce({ type: 'implementation', hasChanges: false, branchName: null, sessionId: undefined, verificationOutcomes: [] })
+        .mockResolvedValueOnce({ type: 'implementation', hasChanges: true, branchName: null, sessionId: undefined, verificationOutcomes: [] });
+      (command as any).agents = { implementer: { execute: executeMock } };
+
+      const result = await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}
+      );
+
+      expect(result.implementerResult.hasChanges).toBe(true);
+    });
+  });
+
+  describe('runWorkflowStages repo propagation', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('passes expandedRepos from implement stage to review stage', async () => {
+      const command = await buildCommand();
+      jest.spyOn(command as any, 'executeImplementStage').mockResolvedValue({
+        implementerResult: { type: 'implementation', hasChanges: true, branchName: null, sessionId: undefined, verificationOutcomes: [] },
+        sessionState: { id: 'mock-session' } as any,
+        earlyReturn: false,
+        expandedRepos: ['repoA', 'newRepo'],
+      });
+      const reviewSpy = jest.spyOn(command as any, 'executeReviewStage').mockResolvedValue({ sessionState: undefined });
+      jest.spyOn(command as any, 'executeCommitStage').mockResolvedValue(undefined);
+
+      const ctx: any = {
+        stagesToRun: ['implement', 'review', 'commit'],
+        options: { silent: true },
+        repos: ['repoA'],
+        ticketKey: 'WBP-PROP',
+      };
+      const planArtifact: any = {
+        action: 'fix',
+        plan: { action: 'fix', summary: '', steps: [], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
+      };
+
+      await (command as any).runWorkflowStages(ctx, { ticketArtifact: {} as any, planArtifact }, undefined);
+
+      expect(reviewSpy).toHaveBeenCalledWith(
+        expect.anything(), expect.anything(), ['repoA', 'newRepo'], expect.anything(), expect.anything(), expect.anything(), expect.anything()
+      );
+    });
+
+    it('passes expandedRepos from implement stage to commit stage', async () => {
+      const command = await buildCommand();
+      jest.spyOn(command as any, 'executeImplementStage').mockResolvedValue({
+        implementerResult: { type: 'implementation', hasChanges: true, branchName: null, sessionId: undefined, verificationOutcomes: [] },
+        sessionState: undefined,
+        earlyReturn: false,
+        expandedRepos: ['repoA', 'newRepo'],
+      });
+      jest.spyOn(command as any, 'executeReviewStage').mockResolvedValue({ sessionState: undefined });
+      const commitSpy = jest.spyOn(command as any, 'executeCommitStage').mockResolvedValue(undefined);
+
+      const ctx: any = {
+        stagesToRun: ['implement', 'review', 'commit'],
+        options: { silent: true },
+        repos: ['repoA'],
+        ticketKey: 'WBP-PROP',
+      };
+      const planArtifact: any = {
+        action: 'fix',
+        plan: { action: 'fix', summary: '', steps: [], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
+      };
+
+      await (command as any).runWorkflowStages(ctx, { ticketArtifact: {} as any, planArtifact }, undefined);
+
+      expect(commitSpy).toHaveBeenCalledWith(
+        expect.anything(), expect.anything(), ['repoA', 'newRepo'], expect.anything()
+      );
+    });
+  });
 });

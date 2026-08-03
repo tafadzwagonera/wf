@@ -1514,4 +1514,42 @@ describe('ImplementerAgent', () => {
       expect(passedPlan.steps).toContain('Update src/example.ts in repo-a');
     });
   });
+
+  describe('verification skip for new repos', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('passes empty verificationScripts to adapter when isNewRepo is true', async () => {
+      const adapterSpy = jest
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, isNewRepo: true },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.verificationScripts).toEqual([]);
+    });
+
+    it('passes non-empty verificationScripts when isNewRepo is false', async () => {
+      const adapterSpy = jest
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, isNewRepo: false },
+      );
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.verificationScripts.length).toBeGreaterThan(0);
+    });
+  });
 });
