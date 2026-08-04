@@ -128,7 +128,7 @@ describe('getHelpText', () => {
     );
     expect(plainImplementHelpText).toContain('Anthropic Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode');
     expect(plainImplementHelpText).toContain('~/.claude/CLAUDE.md and the repository-root CLAUDE.md');
-    expect(plainImplementHelpText).toContain('~/.openai/OPENAI.md and the repository-root .openai/OPENAI.md');
+    expect(plainImplementHelpText).toContain('~/.openai/AGENTS.md and the repository-root AGENTS.md');
     expect(plainImplementHelpText).toContain(
       'All backends emit stable task and tool progress lines plus explicit file mutation logs and verification logs'
     );

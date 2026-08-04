@@ -286,14 +286,14 @@ describe('OpenAIAdapter', () => {
   });
 
   describe('onModuleInit', () => {
-    it('loads global and project config from .openai/OPENAI.md paths', async () => {
+    it('loads global and project config from AGENTS.md paths', async () => {
       const adapter = createAdapter();
 
       await adapter.onModuleInit();
 
       expect(loadAiContextConfig).toHaveBeenCalledWith(
-        path.join(os.homedir(), '.openai', 'OPENAI.md'),
-        '.openai/OPENAI.md',
+        path.join(os.homedir(), '.openai', 'AGENTS.md'),
+        'AGENTS.md',
         'openai',
         true
       );

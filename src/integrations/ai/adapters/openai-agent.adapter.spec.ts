@@ -874,8 +874,8 @@ describe('OpenAIAgentAdapter', () => {
       );
 
       expect(mockLoadAiContextConfig).toHaveBeenCalledWith(
-        path.join(os.homedir(), '.openai', 'OPENAI.md'),
-        '.openai/OPENAI.md',
+        path.join(os.homedir(), '.openai', 'AGENTS.md'),
+        'AGENTS.md',
         'openai',
         true
       );
