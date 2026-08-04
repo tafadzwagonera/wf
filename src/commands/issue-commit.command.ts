@@ -41,7 +41,7 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
       chalk.yellow(
-        `⚠️ Only the first repository will be used for issue:commit. Ignoring: ${repos!.slice(1).join(', ')}`
+        `⚠️ Only the first repository will be used for issue:commit. Ignoring: ${(repos ?? []).slice(1).join(', ')}`
       )
     );
   }
@@ -95,8 +95,8 @@ export class IssueCommitCommand extends CommandRunner {
     if (options?.message) return;
     this.dryRunPreview.previewApiCall({
       method: 'POST',
-      endpoint: '/v1/messages',
-      platform: this.aiService.getProviderDisplayName(),
+      endpoint: this.aiService.getProviderEndpoint('commit'),
+      platform: this.aiService.getProviderDisplayName('commit'),
       description: 'Generate conventional commit message from staged diff',
       estimatedResponse: `{\n  "content": "${prefix}feat(scope): <generated message>"\n}`,
     });

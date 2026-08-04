@@ -58,6 +58,7 @@ const mockGitService = {
 
 const mockAiService = {
   getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
+  getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions'),
 };
 
 async function buildCommand(): Promise<{

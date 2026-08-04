@@ -605,32 +605,21 @@ export class IssueCommand extends CommandRunner {
     console.log(chalk.gray(`   Stages : ${ctx.fromStage} → ${ctx.toStage}  |  Platform: ${ctx.trackerName}\n`));
 
     const counters: DryRunStageCounters = { totalApiCalls: 0, totalFilesCreated: 0, terminalLines: [] };
-    const ai = this.resolveAiPreviewContext();
     const trackerDir = resolveArtifactDir(ctx.repoBaseDir, ctx.trackerName);
 
     for (const stage of ctx.stagesToRun) {
+      const ai = this.resolveAiPreviewContext(stage);
       this.previewDryRunStage(stage, ctx, ai, trackerDir, counters);
     }
 
     this.showDryRunSummary(counters);
   }
 
-  private resolveAiPreviewContext(): { endpoint: string; platform: string } {
-    const platform = this.aiService.getProviderDisplayName();
-    const provider = this.configService.get<string>('ai.provider', 'anthropic');
-    let endpoint: string;
-    switch (provider) {
-      case 'google':
-        endpoint = '/v1beta/models';
-        break;
-      case 'openai':
-      case 'deepseek':
-        endpoint = '/chat/completions';
-        break;
-      default:
-        endpoint = '/v1/messages';
-    }
-    return { endpoint, platform };
+  private resolveAiPreviewContext(stage: string): { endpoint: string; platform: string } {
+    return {
+      platform: this.aiService.getProviderDisplayName(stage),
+      endpoint: this.aiService.getProviderEndpoint(stage),
+    };
   }
 
   private previewDryRunStage(

@@ -26,6 +26,7 @@
   },
   "scripts": {
     "postinstall": "node scripts/postinstall.js && lefthook install",
+    "prebuild": "rm -rf dist",
     "build": "nest build",
     "postbuild": "chmod +x dist/main.js && ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",
     "help:catalog": "ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",

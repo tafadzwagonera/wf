@@ -494,7 +494,7 @@ export class IssueImplementCommand extends CommandRunner {
     const findingsPath = artifactPath.replace('.json', '-findings-and-recommendations.json');
     const preview = '{\n  "action": "investigate",\n  "summary": "<summary>",\n  "findings": ["<finding>"],\n  "recommendations": ["<recommendation>"],\n  "conclusion": "<conclusion>"\n}';
     this.dryRunPreview.previewApiCall({
-      method: 'POST', endpoint: '/v1/messages', platform: this.aiService.getProviderDisplayName(),
+      method: 'POST', endpoint: this.aiService.getProviderEndpoint('implement'), platform: this.aiService.getProviderDisplayName('implement'),
       description: 'Generate investigation findings and recommendations', estimatedResponse: preview,
     });
     this.dryRunPreview.previewFileWrite({

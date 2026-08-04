@@ -22,6 +22,7 @@ const createMockContext = (overrides: Partial<RepoConventionsContext> = {}): Rep
   importStyle: 'commonjs',
   keyDependencies: ['jest'],
   errorHandlingPaths: [],
+  gitHooks: [],
   ...overrides,
 });
 

@@ -57,6 +57,11 @@ export const testInfraContextSchema = z.object({
 
 export const repoLanguageSchema = z.enum(['typescript', 'javascript', 'go', 'python', 'terraform', 'unknown']);
 
+export const gitHooksContextSchema = z.object({
+  tool: z.enum(['lefthook', 'husky', 'simple-git-hooks']),
+  hooks: z.record(z.string(), z.array(z.string())),
+});
+
 export const repoConventionsContextSchema = z.object({
   language: repoLanguageSchema,
   linter: z
@@ -93,6 +98,7 @@ export const repoConventionsContextSchema = z.object({
   importStyle: z.enum(['commonjs', 'esm', 'unknown']),
   keyDependencies: z.array(z.string()),
   errorHandlingPaths: z.array(z.string()),
+  gitHooks: z.array(gitHooksContextSchema).default([]),
 });
 
 export const priorPlanSummarySchema = z.object({

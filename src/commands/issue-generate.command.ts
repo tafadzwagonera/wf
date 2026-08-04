@@ -295,8 +295,8 @@ export class IssueGenerateCommand extends CommandRunner {
 
   private previewSynthesisApiCall(sourceCount: number): number {
     this.dryRunPreview.previewApiCall({
-      method: 'POST', endpoint: '/v1/messages',
-      platform: this.aiService.getProviderDisplayName(),
+      method: 'POST', endpoint: this.aiService.getProviderEndpoint('generate'),
+      platform: this.aiService.getProviderDisplayName('generate'),
       description: `Synthesise ${sourceCount} source(s) into a unified ticket`,
       estimatedResponse: '{\n  "title": "<synthesized title>",\n  "type": "task",\n  "priority": "medium",\n  "description": "<synthesized from sources>"\n}',
     });
@@ -689,7 +689,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
       // Format reference for Bitbucket
       const ticketReference
-        = tracker === 'bitbucket' ? this.formatBitbucketReference(ticketKey, repo!, this.configService) : ticketKey;
+        = tracker === 'bitbucket' && repo ? this.formatBitbucketReference(ticketKey, repo, this.configService) : ticketKey;
 
       const ticket = await adapter.getTicket(ticketReference);
 
@@ -893,30 +893,21 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Resolved source paths or original non-file source
    */
   private async resolveSourceInputs(source: string, repos?: string[], silent = false): Promise<string[]> {
-    if (
-      this.parseSlackSource(source) !== null
+    if (this.isNonFileSource(source)) return [source];
+    if (path.isAbsolute(source) && fs.existsSync(source)) return [source];
+
+    const resolvedRepoSources = await this.resolveRepoRelativeSources(source, repos, silent);
+    if (resolvedRepoSources.concreteSources.length > 0) return resolvedRepoSources.concreteSources;
+
+    return fs.existsSync(source) ? [source] : [];
+  }
+
+  private isNonFileSource(source: string): boolean {
+    return this.parseSlackSource(source) !== null
       || this.parseTrackerSource(source) !== null
       || source.startsWith('http://')
       || source.startsWith('https://')
-      || /^[A-Z]+-\d+$/i.test(source)
-    ) {
-      return [source];
-    }
-
-    if (path.isAbsolute(source) && fs.existsSync(source)) {
-      return [source];
-    }
-
-    const resolvedRepoSources = await this.resolveRepoRelativeSources(source, repos, silent);
-    if (resolvedRepoSources.concreteSources.length > 0) {
-      return resolvedRepoSources.concreteSources;
-    }
-
-    if (fs.existsSync(source)) {
-      return [source];
-    }
-
-    return [];
+      || /^[A-Z]+-\d+$/i.test(source);
   }
 
   /**
@@ -1240,29 +1231,24 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Bullet-point summary string
    */
   private async summariseOversizedSource(source: SourceContent, onProgress?: (line: string) => void): Promise<string> {
-    const raw = typeof source.content === 'string' ? source.content : JSON.stringify(source.content);
-
-    const prompt
-      = `Summarise the following source into concise bullet points that capture every key fact, `
-        + `decision, root cause, timeline entry, and action item. Do not omit technical details `
-        + `(error messages, config values, IDs, commands). `
-        + `Return ONLY a Markdown bullet list (- item).\n\n`
-        + `### Source: ${source.source} (${source.type})\n`
-        + `\`\`\`\n${raw}\n\`\`\``;
-
+    const prompt = this.buildOversizedSourcePrompt(source);
     const responseContent = this.stageAgentService.isEnabledForStage('generate')
       ? await this.stageAgentService.generateFromPrompt(prompt, onProgress)
-      : await this.aiService.execute({
-          prompt,
-          maxTokens: 2048,
-          stage: 'generate',
-        });
+      : await this.aiService.execute({ prompt, maxTokens: 2048, stage: 'generate' });
 
-    if (typeof responseContent === 'string') {
-      return responseContent.trim();
-    }
+    return typeof responseContent === 'string'
+      ? responseContent.trim()
+      : requireAiResponseContent(responseContent, 'AI provider returned an empty summary response');
+  }
 
-    return requireAiResponseContent(responseContent, 'AI provider returned an empty summary response');
+  private buildOversizedSourcePrompt(source: SourceContent): string {
+    const raw = typeof source.content === 'string' ? source.content : JSON.stringify(source.content);
+    return `Summarise the following source into concise bullet points that capture every key fact, `
+      + `decision, root cause, timeline entry, and action item. Do not omit technical details `
+      + `(error messages, config values, IDs, commands). `
+      + `Return ONLY a Markdown bullet list (- item).\n\n`
+      + `### Source: ${source.source} (${source.type})\n`
+      + `\`\`\`\n${raw}\n\`\`\``;
   }
 
   /**
@@ -1457,7 +1443,6 @@ export class IssueGenerateCommand extends CommandRunner {
     const primaryRepoDir = resolveRepoBasePath(repos?.[0]);
     const repoName = path.basename(primaryRepoDir);
 
-    // Each discovery step is best-effort; failures are silenced individually
     context.conventions = this.safeCall(() => detectRepoConventions(primaryRepoDir));
     context.priorPlans = this.safeCall(() => detectPriorPlans(repoName));
 
@@ -1466,17 +1451,18 @@ export class IssueGenerateCommand extends CommandRunner {
       context.crossRepoPatterns = this.safeCall(() => detectCrossRepoPatterns(primaryRepoDir, secondaryDirs));
     }
 
-    if (context.priorPlans && context.priorPlans.plans.length > 0 && sources && sources.length > 0) {
-      const currentContent = sources
-        .map(s => (typeof s.content === 'string' ? s.content : JSON.stringify(s.content)))
-        .join('\n')
-        .substring(0, 3000);
-      context.planCorrelation = this.safeCall(() =>
-        correlatePlans(currentContent, context.priorPlans!, primaryRepoDir)
-      );
-    }
-
+    this.correlatePriorPlans(context, sources, primaryRepoDir);
     return context;
+  }
+
+  private correlatePriorPlans(context: RepoDiscoveryContext, sources?: SourceContent[], repoDir?: string): void {
+    const plans = context.priorPlans;
+    if (!plans || plans.plans.length === 0 || !sources || sources.length === 0 || !repoDir) return;
+    const currentContent = sources
+      .map(s => (typeof s.content === 'string' ? s.content : JSON.stringify(s.content)))
+      .join('\n')
+      .substring(0, 3000);
+    context.planCorrelation = this.safeCall(() => correlatePlans(currentContent, plans, repoDir));
   }
 
   /**
@@ -1502,13 +1488,13 @@ export class IssueGenerateCommand extends CommandRunner {
 
   private buildRepoContextSection(ctx?: RepoDiscoveryContext): string {
     if (!ctx) return '';
-    const formatters: Array<(() => string | undefined) | undefined> = [
-      ctx.conventions ? () => formatRepoConventionsPromptSection(ctx.conventions!, ctx.priorPlans?.repoName ?? 'repo') : undefined,
-      ctx.priorPlans ? () => formatPriorPlansPromptSection(ctx.priorPlans!) : undefined,
-      ctx.planCorrelation ? () => formatPlanCorrelationPromptSection(ctx.planCorrelation!) : undefined,
-      ctx.crossRepoPatterns ? () => formatCrossRepoPatternsPromptSection(ctx.crossRepoPatterns!) : undefined,
+    const candidates: Array<string | undefined> = [
+      ctx.conventions ? formatRepoConventionsPromptSection(ctx.conventions, ctx.priorPlans?.repoName ?? 'repo') : undefined,
+      ctx.priorPlans ? formatPriorPlansPromptSection(ctx.priorPlans) : undefined,
+      ctx.planCorrelation ? formatPlanCorrelationPromptSection(ctx.planCorrelation) : undefined,
+      ctx.crossRepoPatterns ? formatCrossRepoPatternsPromptSection(ctx.crossRepoPatterns) : undefined,
     ];
-    const parts = formatters.filter(Boolean).map(fn => fn!()).filter(Boolean) as string[];
+    const parts = candidates.filter(Boolean) as string[];
     return parts.length > 0 ? parts.join('\n\n') + '\n\n' : '';
   }
 

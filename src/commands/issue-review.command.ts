@@ -304,7 +304,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   private previewAiReviewCall(): void {
     this.dryRunPreview.previewApiCall({
-      method: 'POST', endpoint: '/v1/messages', platform: this.aiService.getProviderDisplayName(),
+      method: 'POST', endpoint: this.aiService.getProviderEndpoint('review'), platform: this.aiService.getProviderDisplayName('review'),
       description: 'Perform AI-powered code review',
       estimatedResponse: '{\n  "summary": "<review summary>",\n  "approved": true,\n  "issues": [],\n  "suggestions": ["..."]\n}',
     });

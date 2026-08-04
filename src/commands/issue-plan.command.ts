@@ -518,7 +518,7 @@ export class IssuePlanCommand extends CommandRunner {
 
   private previewPlanGeneration(action: ResolutionAction): void {
     this.dryRunPreview.previewApiCall({
-      method: 'POST', endpoint: '/v1/messages', platform: this.aiService.getProviderDisplayName(),
+      method: 'POST', endpoint: this.aiService.getProviderEndpoint('plan'), platform: this.aiService.getProviderDisplayName('plan'),
       description: 'Generate ' + action + ' plan',
       estimatedResponse: '{\n  "action": "' + action + '",\n  "estimatedComplexity": "medium",'
         + '\n  "steps": ["<step 1>", "..."],\n  "affectedFiles": ["<file>", "..."]\n}',

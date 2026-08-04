@@ -60,6 +60,7 @@ const createMockEmptyContext = (): RepoConventionsContext => ({
   importStyle: 'unknown',
   keyDependencies: [],
   errorHandlingPaths: [],
+  gitHooks: [],
 });
 
 describe('detectRepoConventions', () => {
@@ -444,6 +445,7 @@ describe('formatRepoConventionsPromptSection', () => {
         importStyle: 'commonjs',
         keyDependencies: ['@nestjs/core', 'jest'],
         errorHandlingPaths: ['src/shared/utils/errors.ts'],
+        gitHooks: [],
       };
 
       const result = formatRepoConventionsPromptSection(ctx, 'repoName');

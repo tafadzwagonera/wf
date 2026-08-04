@@ -310,6 +310,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
         provide: AiService,
         useValue: {
           getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
+          getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions'),
         },
       },
       {

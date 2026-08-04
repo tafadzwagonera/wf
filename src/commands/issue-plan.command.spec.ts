@@ -81,6 +81,7 @@ async function buildCommand(): Promise<{
         provide: AiService,
         useValue: {
           getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
+          getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions'),
         },
       },
       { provide: IssueTrackerService, useValue: {} },

@@ -1201,6 +1201,21 @@ export class AiService {
   }
 
   /**
+   * Returns the API endpoint path for the resolved provider.
+   *
+   * @param stage - Optional workflow stage name; when provided, the stage-level provider override is checked first
+   * @returns '/v1/messages' | '/chat/completions' | '/v1beta/models'
+   */
+  getProviderEndpoint(stage?: string): string {
+    const provider = stage
+      ? resolveStageProvider(this.configService, stage) ?? this.configService.get<string>('ai.provider', 'anthropic')
+      : this.configService.get<string>('ai.provider', 'anthropic');
+    if (provider === 'google') return '/v1beta/models';
+    if (provider === 'openai' || provider === 'deepseek') return '/chat/completions';
+    return '/v1/messages';
+  }
+
+  /**
    * Resolve stage-level provider and model, validating that both or neither are set.
    * @param stage Stage name to look up
    * @param fallback Default provider/model to use when no stage override is present

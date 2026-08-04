@@ -5,6 +5,7 @@ import type {
   diSetupPatternSchema,
   ecosystemInfraSchema,
   ecosystemSchema,
+  gitHooksContextSchema,
   goInfraSchema,
   nodeFrameworkSchema,
   nodeInfraSchema,
@@ -25,6 +26,7 @@ export type DiSetupPattern = z.infer<typeof diSetupPatternSchema>;
 export type CrossRepoPattern = z.infer<typeof crossRepoPatternSchema>;
 export type Ecosystem = z.infer<typeof ecosystemSchema>;
 export type EcosystemInfra = z.infer<typeof ecosystemInfraSchema>;
+export type GitHooksContext = z.infer<typeof gitHooksContextSchema>;
 export type GoInfra = z.infer<typeof goInfraSchema>;
 export type NodeFramework = z.infer<typeof nodeFrameworkSchema>;
 export type NodeInfra = z.infer<typeof nodeInfraSchema>;

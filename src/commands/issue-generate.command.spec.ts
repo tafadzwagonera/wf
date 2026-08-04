@@ -96,6 +96,7 @@ async function buildCommand(options?: { generateAgentEnabled?: boolean }): Promi
   };
   const mockAiService = {
     getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
+    getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions'),
     execute: jest.fn().mockResolvedValue({
       content: [
         '# Generated Title',
@@ -427,6 +428,7 @@ describe('IssueGenerateCommand', () => {
           importStyle: 'commonjs',
           keyDependencies: ['@nestjs/core'],
           errorHandlingPaths: [],
+          gitHooks: [],
         },
         priorPlans: {
           repoName: 'test-repo',
@@ -567,7 +569,7 @@ describe('IssueGenerateCommand', () => {
       expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'POST',
-          endpoint: '/v1/messages',
+          endpoint: '/chat/completions',
         }),
       );
     });
@@ -764,7 +766,7 @@ describe('IssueGenerateCommand', () => {
       expect(dryRunPreview.previewApiCall).not.toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'POST',
-          endpoint: '/v1/messages',
+          endpoint: '/chat/completions',
         }),
       );
       expect(errorHandlerSpy).toHaveBeenCalledWith(

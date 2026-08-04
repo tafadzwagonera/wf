@@ -148,6 +148,7 @@ async function buildCommand(): Promise<IssueCommand> {
         provide: AiService,
         useValue: {
           getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
+          getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions'),
         },
       },
       { provide: SessionService, useValue: mockSessionService },
@@ -416,6 +417,7 @@ describe('IssueCommand', () => {
           provide: AiService,
           useValue: {
             getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
+            getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions'),
           },
         },
         { provide: SessionService, useValue: mockSessionService },
