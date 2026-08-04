@@ -147,6 +147,10 @@ const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
     command: 'wf issue:generate ./requirements.md -r service-tourv3 --save',
   },
   {
+    comment: 'Generate with multiple repos so repo conventions and git hooks are compared across checkouts',
+    command: 'wf issue:generate ./requirements.md -r primary-repo secondary-repo --save',
+  },
+  {
     comment: 'Save with overridden title',
     command: 'wf issue:generate ./requirements.md --title "Add OAuth2" --save',
   },
@@ -226,7 +230,7 @@ class UnresolvedSourceError extends Error {}
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g., https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. AI synthesis always runs on every source to enrich and standardize the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g., https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. When multiple repos are supplied, the synthesis prompt also compares repo conventions and git-hook tools across checkouts. AI synthesis always runs on every source to enrich and standardize the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -642,8 +646,6 @@ export class IssueGenerateCommand extends CommandRunner {
     const content = fs.readFileSync(filePath, 'utf-8');
     const ext = path.extname(filePath).toLowerCase();
 
-    // Structured local files keep their current fallback: parse as a ticket
-    // when recognized, otherwise continue as a plain file source.
     if (['.json', '.yaml', '.yml', '.md'].includes(ext)) {
       const ticket = this.tryParseAsTicket(filePath, content);
       if (ticket) {
@@ -687,7 +689,6 @@ export class IssueGenerateCommand extends CommandRunner {
         ? this.issueTrackerService.getAdapter(tracker)
         : this.issueTrackerService.getDefaultAdapter();
 
-      // Format reference for Bitbucket
       const ticketReference
         = tracker === 'bitbucket' && repo ? this.formatBitbucketReference(ticketKey, repo, this.configService) : ticketKey;
 
@@ -1607,12 +1608,10 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Formatted workspace/repo string
    */
   private formatBitbucketRepo(repo: string, configService: ConfigService): string {
-    // Already in workspace/repo format
     if (repo.includes('/')) {
       return repo;
     }
 
-    // Get workspace from config and combine
     const workspace = configService.get<string>('atlassian.bitbucket.workspace');
     if (!workspace) {
       throw new ConfigurationError(

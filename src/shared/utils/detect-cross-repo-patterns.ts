@@ -26,6 +26,102 @@ const detectTestFramework = (keyDependencies: string[]): string | null => {
 };
 
 /**
+ * Collect tooling-related deltas: linter, test framework, import style.
+ *
+ * @param repoName - Human-readable name for the secondary repo
+ * @param primary - Conventions context for the primary repo
+ * @param secondary - Conventions context for the secondary repo
+ * @returns Array of delta description strings
+ */
+const collectToolingDeltas = (
+  repoName: string,
+  primary: RepoConventionsContext,
+  secondary: RepoConventionsContext,
+): string[] => {
+  const deltas: string[] = [];
+  const primaryLinter = primary.linter?.tool ?? null;
+  const secondaryLinter = secondary.linter?.tool ?? null;
+  if (secondaryLinter !== primaryLinter) deltas.push(`${repoName} uses ${secondaryLinter} linter (primary uses ${primaryLinter})`);
+  const primaryFramework = detectTestFramework(primary.keyDependencies);
+  const secondaryFramework = detectTestFramework(secondary.keyDependencies);
+  if (secondaryFramework !== primaryFramework) deltas.push(`${repoName} uses ${secondaryFramework} for testing (primary uses ${primaryFramework})`);
+  if (secondary.importStyle !== primary.importStyle) deltas.push(`${repoName} uses ${secondary.importStyle} imports (primary uses ${primary.importStyle})`);
+  return deltas;
+};
+
+/**
+ * Collect git hooks delta when the secondary repo uses a different tool than the primary.
+ *
+ * @param repoName - Human-readable name for the secondary repo
+ * @param primary - Conventions context for the primary repo
+ * @param secondary - Conventions context for the secondary repo
+ * @returns Array containing the git hooks delta string, or empty
+ */
+const collectGitHooksDeltas = (
+  repoName: string,
+  primary: RepoConventionsContext,
+  secondary: RepoConventionsContext,
+): string[] => {
+  const primaryTools = [...new Set(primary.gitHooks.map(({ tool }) => tool))].sort();
+  const secondaryTools = [...new Set(secondary.gitHooks.map(({ tool }) => tool))].sort();
+
+  if (primaryTools.length === 0 && secondaryTools.length === 0) return [];
+  if (secondaryTools.length === 0) {
+    return [`${repoName} has no git hooks (primary uses ${primaryTools.join(', ')})`];
+  }
+  if (primaryTools.length === 0) return [`${repoName} uses ${secondaryTools.join(', ')} git hooks`];
+  if (primaryTools.join(', ') === secondaryTools.join(', ')) return [];
+
+  return [`${repoName} uses ${secondaryTools.join(', ')} git hooks (primary uses ${primaryTools.join(', ')})`];
+};
+
+/**
+ * Collect structure-related deltas: error utilities, naming, NestJS.
+ *
+ * @param repoName - Human-readable name for the secondary repo
+ * @param primary - Conventions context for the primary repo
+ * @param secondary - Conventions context for the secondary repo
+ * @returns Array of delta description strings
+ */
+const collectStructureDeltas = (
+  repoName: string,
+  primary: RepoConventionsContext,
+  secondary: RepoConventionsContext,
+): string[] => {
+  const deltas: string[] = [];
+  for (const errorPath of secondary.errorHandlingPaths) {
+    if (!primary.errorHandlingPaths.includes(errorPath)) deltas.push(`${repoName} has error utility at ${errorPath}`);
+  }
+  if (secondary.namingPattern !== primary.namingPattern) deltas.push(`${repoName} uses ${secondary.namingPattern} naming (primary uses ${primary.namingPattern})`);
+  if (secondary.nestjsDetected && !primary.nestjsDetected) deltas.push(`${repoName} uses NestJS`);
+  if (!secondary.nestjsDetected && primary.nestjsDetected) deltas.push(`${repoName} does not use NestJS (primary does)`);
+  return deltas;
+};
+
+/**
+ * Collect ecosystem-related deltas: language, TypeScript strictness, Go, Terraform.
+ *
+ * @param repoName - Human-readable name for the secondary repo
+ * @param primary - Conventions context for the primary repo
+ * @param secondary - Conventions context for the secondary repo
+ * @returns Array of delta description strings
+ */
+const collectEcosystemDeltas = (
+  repoName: string,
+  primary: RepoConventionsContext,
+  secondary: RepoConventionsContext,
+): string[] => {
+  const deltas: string[] = [];
+  if (secondary.language !== primary.language) deltas.push(`${repoName} uses ${secondary.language} (primary uses ${primary.language})`);
+  const tsNonStrict = secondary.typescript !== null && primary.typescript !== null
+    && !secondary.typescript.strict && primary.typescript.strict;
+  if (tsNonStrict) deltas.push(`${repoName} uses non-strict TypeScript (primary uses strict)`);
+  if (secondary.go !== null && primary.language !== 'go') deltas.push(`${repoName} is a Go module: ${secondary.go.modulePath}`);
+  if (secondary.terraform !== null && primary.language !== 'terraform') deltas.push(`${repoName} uses Terraform providers: ${secondary.terraform.providers.join(', ')}`);
+  return deltas;
+};
+
+/**
  * Compare secondary repo conventions against primary and return meaningful delta strings.
  *
  * @param repoName - Human-readable name for the secondary repo
@@ -36,77 +132,13 @@ const detectTestFramework = (keyDependencies: string[]): string | null => {
 const computeDeltas = (
   repoName: string,
   primary: RepoConventionsContext,
-  secondary: RepoConventionsContext
-): string[] => {
-  const deltas: string[] = [];
-
-  // Different language
-  if (secondary.language !== primary.language) {
-    deltas.push(`${repoName} uses ${secondary.language} (primary uses ${primary.language})`);
-  }
-
-  // Different linter tool
-  const primaryLinterTool = primary.linter?.tool ?? null;
-  const secondaryLinterTool = secondary.linter?.tool ?? null;
-  if (secondaryLinterTool !== primaryLinterTool) {
-    deltas.push(`${repoName} uses ${secondaryLinterTool} linter (primary uses ${primaryLinterTool})`);
-  }
-
-  // Different test framework
-  const primaryFramework = detectTestFramework(primary.keyDependencies);
-  const secondaryFramework = detectTestFramework(secondary.keyDependencies);
-  if (secondaryFramework !== primaryFramework) {
-    deltas.push(`${repoName} uses ${secondaryFramework} for testing (primary uses ${primaryFramework})`);
-  }
-
-  // Different import style
-  if (secondary.importStyle !== primary.importStyle) {
-    deltas.push(`${repoName} uses ${secondary.importStyle} imports (primary uses ${primary.importStyle})`);
-  }
-
-  // Error utilities present in secondary but not primary
-  for (const errorPath of secondary.errorHandlingPaths) {
-    if (!primary.errorHandlingPaths.includes(errorPath)) {
-      deltas.push(`${repoName} has error utility at ${errorPath}`);
-    }
-  }
-
-  // Different naming pattern
-  if (secondary.namingPattern !== primary.namingPattern) {
-    deltas.push(`${repoName} uses ${secondary.namingPattern} naming (primary uses ${primary.namingPattern})`);
-  }
-
-  // NestJS presence differs
-  if (secondary.nestjsDetected && !primary.nestjsDetected) {
-    deltas.push(`${repoName} uses NestJS`);
-  } else if (!secondary.nestjsDetected && primary.nestjsDetected) {
-    deltas.push(`${repoName} does not use NestJS (primary does)`);
-  }
-
-  // Different TypeScript strictness
-  if (
-    secondary.typescript !== null
-    && primary.typescript !== null
-    && secondary.typescript.strict !== primary.typescript.strict
-  ) {
-    if (!secondary.typescript.strict && primary.typescript.strict) {
-      deltas.push(`${repoName} uses non-strict TypeScript (primary uses strict)`);
-    }
-  }
-
-  // Go module info when primary is not Go
-  if (secondary.go !== null && primary.language !== 'go') {
-    deltas.push(`${repoName} is a Go module: ${secondary.go.modulePath}`);
-  }
-
-  // Terraform info when primary is not Terraform
-  if (secondary.terraform !== null && primary.language !== 'terraform') {
-    const providers = secondary.terraform.providers.join(', ');
-    deltas.push(`${repoName} uses Terraform providers: ${providers}`);
-  }
-
-  return deltas;
-};
+  secondary: RepoConventionsContext,
+): string[] => [
+  ...collectEcosystemDeltas(repoName, primary, secondary),
+  ...collectToolingDeltas(repoName, primary, secondary),
+  ...collectGitHooksDeltas(repoName, primary, secondary),
+  ...collectStructureDeltas(repoName, primary, secondary),
+];
 
 /**
  * Detect cross-repo patterns by comparing secondary repos' conventions against the primary.

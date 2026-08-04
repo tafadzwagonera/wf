@@ -141,6 +141,54 @@ describe('detectCrossRepoPatterns', () => {
     });
   });
 
+  describe('when secondary repo uses a different git hooks tool', () => {
+    it('detects different git hook tools', () => {
+      const primaryCtx = createMockContext({
+        gitHooks: [{ tool: 'lefthook', hooks: { 'pre-commit': ['yarn lint'] } }],
+      });
+      const secondaryCtx = createMockContext({
+        gitHooks: [{ tool: 'husky', hooks: { 'pre-commit': ['yarn lint'] } }],
+      });
+
+      mockDetectRepoConventions.mockReturnValueOnce(primaryCtx).mockReturnValueOnce(secondaryCtx);
+
+      const result = detectCrossRepoPatterns('/primary', ['/repos/secondary']);
+
+      expect(result.patterns).toHaveLength(1);
+      expect(result.patterns[0].deltas).toContain(
+        'secondary uses husky git hooks (primary uses lefthook)',
+      );
+    });
+
+    it('detects when secondary has no git hooks but primary does', () => {
+      const primaryCtx = createMockContext({
+        gitHooks: [{ tool: 'lefthook', hooks: { 'pre-commit': ['yarn lint'] } }],
+      });
+      const secondaryCtx = createMockContext({ gitHooks: [] });
+
+      mockDetectRepoConventions.mockReturnValueOnce(primaryCtx).mockReturnValueOnce(secondaryCtx);
+
+      const result = detectCrossRepoPatterns('/primary', ['/repos/secondary']);
+
+      expect(result.patterns).toHaveLength(1);
+      expect(result.patterns[0].deltas).toContain('secondary has no git hooks (primary uses lefthook)');
+    });
+
+    it('detects when secondary has git hooks but primary has none', () => {
+      const primaryCtx = createMockContext({ gitHooks: [] });
+      const secondaryCtx = createMockContext({
+        gitHooks: [{ tool: 'husky', hooks: { 'pre-commit': ['yarn lint'] } }],
+      });
+
+      mockDetectRepoConventions.mockReturnValueOnce(primaryCtx).mockReturnValueOnce(secondaryCtx);
+
+      const result = detectCrossRepoPatterns('/primary', ['/repos/secondary']);
+
+      expect(result.patterns).toHaveLength(1);
+      expect(result.patterns[0].deltas).toContain('secondary uses husky git hooks');
+    });
+  });
+
   describe('when one secondary repo has no deltas', () => {
     it('skips repos with no deltas', () => {
       const primaryCtx = createMockContext();

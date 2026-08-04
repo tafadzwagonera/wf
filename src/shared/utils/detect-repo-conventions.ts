@@ -880,7 +880,7 @@ const hasMeaningfulConventionsData = (ctx: RepoConventionsContext): boolean =>
   || ctx.nestjsDetected
   || ctx.keyDependencies.length > 0
   || ctx.errorHandlingPaths.length > 0
-  || ctx.gitHooks.length > 0;
+  || ctx.gitHooks.some(hookCtx => Object.keys(hookCtx.hooks).length > 0);
 
 /**
  * Format linter context into a prompt line.
@@ -948,9 +948,12 @@ const appendStructureLines = (ctx: RepoConventionsContext, lines: string[]): voi
   if (ctx.language === 'typescript' || ctx.language === 'javascript') lines.push(`- Import style: ${ctx.importStyle}`);
   if (ctx.keyDependencies.length > 0) lines.push(`- Key deps: ${ctx.keyDependencies.join(', ')}`);
   if (ctx.errorHandlingPaths.length > 0) lines.push(`- Error utilities: ${ctx.errorHandlingPaths.join(', ')}`);
-  for (const gh of ctx.gitHooks) {
-    const hookList = Object.entries(gh.hooks).map(([hook, cmds]) => `${hook}: ${cmds.join(', ')}`).join('; ');
-    lines.push(`- Git hooks (${gh.tool}): ${hookList}`);
+  for (const hookCtx of ctx.gitHooks) {
+    const hookLines = Object.entries(hookCtx.hooks)
+      .map(([name, cmds]) => `  - ${name}: ${cmds.join(', ')}`)
+      .join('\n');
+    if (!hookLines) continue;
+    lines.push(`- Git hooks (${hookCtx.tool}):\n${hookLines}`);
   }
 };
 

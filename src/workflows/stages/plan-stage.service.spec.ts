@@ -187,6 +187,7 @@ describe('PlanStageService', () => {
       importStyle: 'commonjs',
       keyDependencies: [],
       errorHandlingPaths: [],
+      gitHooks: [],
     };
     const mockPriorPlans = { plans: [], repoName: 'test-repo' };
     const mockPlanCorrelation = { matches: [], repoName: 'test-repo' };
@@ -224,6 +225,7 @@ describe('PlanStageService', () => {
       importStyle: 'commonjs',
       keyDependencies: [],
       errorHandlingPaths: [],
+      gitHooks: [],
     };
 
     await service.generatePlan('Ticket body', {

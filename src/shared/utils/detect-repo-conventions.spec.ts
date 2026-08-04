@@ -47,6 +47,9 @@ const createMockEslintRc = (overrides: Record<string, unknown> = {}): string =>
     },
   });
 
+const createMockLefthookYml = (): string =>
+  'pre-commit:\n  commands:\n    lint:\n      run: yarn lint\n    typecheck:\n      run: yarn typecheck\n';
+
 const createMockEmptyContext = (): RepoConventionsContext => ({
   language: 'unknown',
   linter: null,
@@ -304,6 +307,91 @@ describe('detectRepoConventions', () => {
       expect(result.errorHandlingPaths.some(p => p.includes('exception.filter.ts'))).toBe(true);
     });
   });
+
+  describe('git hooks detection', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('detects lefthook when lefthook.yml is present', () => {
+      const lefthookPath = path.join(REPO_DIR, 'lefthook.yml');
+      mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === lefthookPath);
+      mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        if (String(p) === lefthookPath) return createMockLefthookYml();
+        return '{}';
+      });
+      mockReaddirSync.mockReturnValue([]);
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.gitHooks).toHaveLength(1);
+      expect(result.gitHooks[0].tool).toBe('lefthook');
+      expect(result.gitHooks[0].hooks['pre-commit']).toContain('yarn lint');
+    });
+
+    it('detects husky when .husky/ directory is present', () => {
+      const huskyDir = path.join(REPO_DIR, '.husky');
+      mockExistsSync.mockImplementation((p: fs.PathLike) => {
+        const s = String(p);
+        return s === huskyDir;
+      });
+      mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        if (String(p) === path.join(huskyDir, 'pre-commit')) return 'yarn test\n';
+        return '{}';
+      });
+      mockReaddirSync.mockImplementation((dir: fs.PathLike) => {
+        if (String(dir) === huskyDir) return ['pre-commit'];
+        return [];
+      });
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.gitHooks).toHaveLength(1);
+      expect(result.gitHooks[0].tool).toBe('husky');
+      expect(result.gitHooks[0].hooks['pre-commit']).toContain('yarn test');
+    });
+
+    it('detects simple-git-hooks from package.json', () => {
+      const pkgPath = path.join(REPO_DIR, 'package.json');
+      mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === pkgPath);
+      mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        if (String(p) === pkgPath) {
+          return JSON.stringify({ 'simple-git-hooks': { 'pre-commit': 'yarn lint' } });
+        }
+        return '{}';
+      });
+      mockReaddirSync.mockReturnValue([]);
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.gitHooks).toHaveLength(1);
+      expect(result.gitHooks[0].tool).toBe('simple-git-hooks');
+      expect(result.gitHooks[0].hooks['pre-commit'][0]).toBe('yarn lint');
+    });
+
+    it('returns empty gitHooks when no hook config is present', () => {
+      mockExistsSync.mockReturnValue(false);
+      mockReaddirSync.mockReturnValue([]);
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.gitHooks).toEqual([]);
+    });
+
+    it('swallows errors and returns empty gitHooks when lefthook.yml is malformed', () => {
+      const lefthookPath = path.join(REPO_DIR, 'lefthook.yml');
+      mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === lefthookPath);
+      mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        if (String(p) === lefthookPath) return ': invalid: yaml: [{{';
+        return '{}';
+      });
+      mockReaddirSync.mockReturnValue([]);
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.gitHooks).toEqual([]);
+    });
+  });
 });
 
 describe('language detection', () => {
@@ -445,7 +533,7 @@ describe('formatRepoConventionsPromptSection', () => {
         importStyle: 'commonjs',
         keyDependencies: ['@nestjs/core', 'jest'],
         errorHandlingPaths: ['src/shared/utils/errors.ts'],
-        gitHooks: [],
+        gitHooks: [{ tool: 'lefthook' as const, hooks: { 'pre-commit': ['yarn lint'] } }],
       };
 
       const result = formatRepoConventionsPromptSection(ctx, 'repoName');
@@ -461,6 +549,7 @@ describe('formatRepoConventionsPromptSection', () => {
       expect(result).toContain('Import style: commonjs');
       expect(result).toContain('Key deps: @nestjs/core, jest');
       expect(result).toContain('Error utilities: src/shared/utils/errors.ts');
+      expect(result).toContain('Git hooks (lefthook):');
     });
 
     it('formats Go repo conventions', () => {
@@ -561,6 +650,37 @@ describe('formatRepoConventionsPromptSection', () => {
 
       const result = formatRepoConventionsPromptSection(ctx, 'test-repo');
       expect(result).toContain('TypeScript: non-strict, esm, ES2020');
+    });
+
+    it('formats git hooks bullet correctly', () => {
+      const ctx: RepoConventionsContext = {
+        ...createMockEmptyContext(),
+        gitHooks: [{ tool: 'lefthook' as const, hooks: { 'pre-commit': ['yarn lint', 'yarn typecheck'] } }],
+      };
+
+      const result = formatRepoConventionsPromptSection(ctx, 'test-repo');
+      expect(result).toContain('  - pre-commit: yarn lint, yarn typecheck');
+    });
+
+    it('omits git hooks section when gitHooks is empty', () => {
+      const ctx: RepoConventionsContext = {
+        ...createMockEmptyContext(),
+        nestjsDetected: true,
+        gitHooks: [],
+      };
+
+      const result = formatRepoConventionsPromptSection(ctx, 'test-repo');
+      expect(result).not.toContain('Git hooks');
+    });
+
+    it('returns an empty section when gitHooks only contains empty hook maps', () => {
+      const ctx: RepoConventionsContext = {
+        ...createMockEmptyContext(),
+        gitHooks: [{ tool: 'simple-git-hooks', hooks: {} }],
+      };
+
+      const result = formatRepoConventionsPromptSection(ctx, 'test-repo');
+      expect(result).toBe('');
     });
   });
 });
