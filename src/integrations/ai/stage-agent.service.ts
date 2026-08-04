@@ -53,6 +53,7 @@ import {
   formatCrossRepoPatternsPromptSection,
 } from '../../shared/utils/detect-cross-repo-patterns';
 import type { AgentStageName, StageProgressCallback } from '../../shared/types/agent.types';
+import { resolveProviderModel } from './adapters/shared-routing';
 
 const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
@@ -1280,11 +1281,11 @@ export class StageAgentService {
   }
 
   private resolveStageModel(stage: AgentStageName): string {
-    return (
-      this.configService.get<string>(`stages.${stage}.model`)
-      ?? this.configService.get<string>('ai.model')
-      ?? (this.resolveStageProvider(stage) === 'openai' ? READ_ONLY_OPENAI_MODEL : READ_ONLY_ANTHROPIC_MODEL)
-    );
+    const stageModel = this.configService.get<string>(`stages.${stage}.model`);
+    if (stageModel) return stageModel;
+    const provider = this.resolveStageProvider(stage);
+    const fallback = provider === 'openai' ? READ_ONLY_OPENAI_MODEL : READ_ONLY_ANTHROPIC_MODEL;
+    return resolveProviderModel(this.configService, provider, fallback);
   }
 
   private extractStreamError(error: unknown): string {

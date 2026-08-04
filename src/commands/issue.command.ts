@@ -39,6 +39,7 @@ import { SessionService } from '../shared/session/session.service';
 import type { PlanTokenResolution } from '../shared/types/plan-artifact.types';
 import type { SessionState, StageConfigFingerprint } from '../shared/types/session.types';
 import { resolveDefaultStageBackend, type StageBackendDefaultStageName } from '../config/stage-backend-defaults';
+import { resolveProviderModel } from '../integrations/ai/adapters/shared-routing';
 import * as crypto from 'node:crypto';
 
 const WF_CONFIG_EXTENSIONS = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
@@ -1600,7 +1601,11 @@ export class IssueCommand extends CommandRunner {
   }
 
   private resolveStageModel(stage: string): string {
-    return this.configService.get<string>(`stages.${stage}.model`) ?? this.configService.get<string>('ai.model', '');
+    const stageModel = this.configService.get<string>(`stages.${stage}.model`);
+    if (stageModel) return stageModel;
+    const provider = this.configService.get<string>(`stages.${stage}.provider`)
+      ?? this.configService.get<string>('ai.provider', 'anthropic');
+    return resolveProviderModel(this.configService, provider, '');
   }
 
   private isInteractiveSession(): boolean {
