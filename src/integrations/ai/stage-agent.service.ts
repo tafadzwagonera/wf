@@ -171,14 +171,14 @@ const resolveExitStatus = (exitCode?: number): string => {
 };
 
 const formatCodexCommandCompletion = (item: { exit_code?: number | null; command?: string }): string =>
-  `  [${CODEX_STAGE_LABEL}] Command ${resolveExitStatus(item.exit_code ?? undefined)}: ${truncateCodexText(item.command ?? 'unknown', 60)}`;
+  `[${CODEX_STAGE_LABEL}] Command ${resolveExitStatus(item.exit_code ?? undefined)}: ${truncateCodexText(item.command ?? 'unknown', 60)}`;
 
 /**
  * @param message - a completed-item Codex CLI message
  * @returns formatted progress string or null
  */
 const formatCodexCompletedItem = (message: CodexCliMessage): string | null => {
-  if (message.item?.type === 'agent_message' && message.item.text) return `  [${CODEX_STAGE_LABEL}] Agent: ${truncateCodexText(message.item.text, 120)}`;
+  if (message.item?.type === 'agent_message' && message.item.text) return `[${CODEX_STAGE_LABEL}] Agent: ${truncateCodexText(message.item.text, 120)}`;
   if (message.item?.type === 'command_execution') return formatCodexCommandCompletion(message.item);
   return null;
 };
@@ -188,10 +188,10 @@ const formatCodexCompletedItem = (message: CodexCliMessage): string | null => {
  * @returns formatted progress string or null if the message type is not display-worthy
  */
 const formatCodexProgressMessage = (message: CodexCliMessage): string | null => {
-  if (message.type === 'thread.started' && message.thread_id) return `  [${CODEX_STAGE_LABEL}] Session started: ${message.thread_id}`;
-  if (message.type === 'item.started' && message.item?.type === 'command_execution' && message.item.command) return `  [${CODEX_STAGE_LABEL}] Running: ${truncateCodexText(message.item.command, 80)}`;
+  if (message.type === 'thread.started' && message.thread_id) return `[${CODEX_STAGE_LABEL}] Session started: ${message.thread_id}`;
+  if (message.type === 'item.started' && message.item?.type === 'command_execution' && message.item.command) return `[${CODEX_STAGE_LABEL}] Running: ${truncateCodexText(message.item.command, 80)}`;
   if (message.type === 'item.completed') return formatCodexCompletedItem(message);
-  if (message.type === 'turn.completed' && message.usage) return `  [${CODEX_STAGE_LABEL}] Turn complete (${message.usage.input_tokens} in / ${message.usage.output_tokens} out)`;
+  if (message.type === 'turn.completed' && message.usage) return `[${CODEX_STAGE_LABEL}] Turn complete (${message.usage.input_tokens} in / ${message.usage.output_tokens} out)`;
   return null;
 };
 

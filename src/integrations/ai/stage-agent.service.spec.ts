@@ -673,6 +673,31 @@ describe('StageAgentService', () => {
       logSpy.mockRestore();
     });
 
+    it('emits Codex progress lines without extra indentation', async () => {
+      async function* fakeSpawn() {
+        yield { type: 'thread.started', thread_id: 'tid-123' };
+        yield { type: 'item.started', item: { type: 'command_execution', command: 'yarn build' } };
+        yield { type: 'item.completed', item: { type: 'command_execution', command: 'yarn build', exit_code: 0 } };
+        yield { type: 'item.completed', item: { type: 'agent_message', text: 'final chunk' } };
+      }
+      spawnCodex.mockReturnValue(fakeSpawn());
+
+      const service = new StageAgentService(createCodexConfigService());
+      const onProgress = jest.fn();
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCodexCliStagePrompt.bind(service);
+      await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', onProgress });
+
+      expect(onProgress).toHaveBeenCalledWith('[codex-cli] Session started: tid-123');
+      expect(onProgress).toHaveBeenCalledWith('[codex-cli] Running: yarn build');
+      expect(onProgress).toHaveBeenCalledWith('[codex-cli] Command completed: yarn build');
+      expect(onProgress).toHaveBeenCalledWith('[codex-cli] Agent: final chunk');
+      expect(onProgress.mock.calls.some(call => String(call[0]).startsWith('  [codex-cli]'))).toBe(false);
+
+      logSpy.mockRestore();
+    });
+
     it('does not throw when stop_reason is absent', async () => {
       async function* fakeSpawn() {
         yield { type: 'result', result: '{"action":"fix"}' };
