@@ -25,7 +25,7 @@ import type { WfAiProviderConfig, WfAiProviderName } from '../../src/config/publ
 
 const tempHomePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-provider-intent-'));
 const projectClaudePath = path.join(process.cwd(), 'CLAUDE.md');
-const projectOpenaiPath = path.join(process.cwd(), '.openai', 'OPENAI.md');
+const projectOpenaiPath = path.join(process.cwd(), 'AGENTS.md');
 const projectDeepseekPath = path.join(process.cwd(), 'DEEPSEEK.md');
 
 type BackupEntry = { path: string; existed: boolean; content?: string };
