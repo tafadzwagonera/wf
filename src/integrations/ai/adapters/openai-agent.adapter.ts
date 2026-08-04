@@ -1975,7 +1975,7 @@ const buildPriorStagePreamble = (summary?: string): string =>
 /**
  * Builds the initial user prompt.
  *
- * @param contextMd - Optional OPENAI.md content
+ * @param contextMd - Optional AGENTS.md content
  * @param ticketKey - Ticket identifier
  * @param stepCount - Number of plan steps
  * @returns Prompt string
@@ -2261,7 +2261,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
   ) {
     const agent = await this.createAgent(params, repoDir, model, mutable, vs, options);
     const contextMd = await loadAiContextConfig(
-      path.join(os.homedir(), '.openai', 'OPENAI.md'), '.openai/OPENAI.md', 'openai', true
+      path.join(os.homedir(), '.openai', 'AGENTS.md'), 'AGENTS.md', 'openai', true
     );
     const prompt = buildInitialPrompt(contextMd, params.ticket.ticketKey, params.planArtifact.plan.steps.length);
     return { agent, prompt };

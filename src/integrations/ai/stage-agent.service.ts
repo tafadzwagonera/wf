@@ -1332,7 +1332,7 @@ export class StageAgentService {
   private async buildOpenAiStageAgent(opts: {
     stage: AgentStageName; systemPrompt: string; repoDir?: string; priorStageSummary?: string; apiKey: string;
   }): Promise<{ agent: Agent<OpenAiStageContext>; runner: Runner; context: OpenAiStageContext }> {
-    const openAiContext = await loadAiContextConfig(path.join(os.homedir(), '.openai', 'OPENAI.md'), '.openai/OPENAI.md', 'openai', true);
+    const openAiContext = await loadAiContextConfig(path.join(os.homedir(), '.openai', 'AGENTS.md'), 'AGENTS.md', 'openai', true);
     const allowInspection = Boolean(opts.repoDir);
     const instructions = [openAiContext, buildOpenAiSystemPrompt(opts.systemPrompt, opts.priorStageSummary, allowInspection)].filter(Boolean).join('\n\n');
     const agent = new Agent<OpenAiStageContext>({

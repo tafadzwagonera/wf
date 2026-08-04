@@ -125,8 +125,8 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
     const stageProviders = extractStageProviders(stages);
 
     this.contextConfig = await loadAiContextConfig(
-      path.join(os.homedir(), '.openai', 'OPENAI.md'),
-      '.openai/OPENAI.md',
+      path.join(os.homedir(), '.openai', 'AGENTS.md'),
+      'AGENTS.md',
       'openai',
       hasProviderUsageIntent(providers, 'openai', stageProviders)
     );
