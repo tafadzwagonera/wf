@@ -264,15 +264,18 @@ describe('wf-config-loader', () => {
             provider: 'anthropic',
             model: 'claude-sonnet-4-20250514',
             backend: 'standard',
+            maxTokens: 8192,
           },
           review: {
             provider: 'anthropic',
             model: 'claude-sonnet-4-20250514',
+            maxTokens: 4096,
           },
           implement: {
             provider: 'anthropic',
             model: 'claude-haiku-4-5-20251001',
             backend: 'agent',
+            maxTokens: 2048,
             verificationConditions: {
               policyFile: '.wf/verification.json',
             },
@@ -284,16 +287,19 @@ describe('wf-config-loader', () => {
         provider: 'anthropic',
         model: 'claude-sonnet-4-20250514',
         backend: 'agent',
+        maxTokens: 4096,
       });
       expect(config.stages.plan).toEqual({
         provider: 'anthropic',
         model: 'claude-sonnet-4-20250514',
         backend: 'standard',
+        maxTokens: 8192,
       });
       expect(config.stages.implement).toEqual({
         provider: 'anthropic',
         model: 'claude-haiku-4-5-20251001',
         backend: 'agent',
+        maxTokens: 2048,
         verificationConditions: {
           policyFile: '.wf/verification.json',
           scripts: {},

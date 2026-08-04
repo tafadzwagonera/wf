@@ -24,7 +24,7 @@ describe('ErrorHandler', () => {
 
     it('returns truncation suggestion for truncation category', () => {
       ErrorHandler.handle(new AIError('msg', null, true, 'truncation'));
-      expect(allOutput()).toContain('cut short');
+      expect(allOutput()).toContain('Reduce prompt/context size');
       expect(exitSpy).toHaveBeenCalledWith(1);
     });
 

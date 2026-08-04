@@ -1140,7 +1140,7 @@ export class AiService {
   async generateFindings(plan: ResolutionPlan, ticketContent?: string): Promise<FindingsDocument> {
     const findingsMaxTokens = this.configService.get<number>('stages.implement.maxTokens', DEFAULT_FINDINGS_MAX_TOKENS);
     const response = await this.execute({ prompt: buildFindingsPrompt(plan, ticketContent), systemPrompt: FINDINGS_SYSTEM_PROMPT, temperature: 0.4, maxTokens: findingsMaxTokens, stage: 'implement' });
-    throwIfTruncated(response, 'Findings');
+    throwIfTruncated(response, 'Implement');
     return this.parseFindingsResponse(response);
   }
 

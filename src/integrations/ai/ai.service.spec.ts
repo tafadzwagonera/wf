@@ -222,6 +222,41 @@ describe('AiService', () => {
       });
     });
 
+    it('forwards configured plan maxTokens to the adapter', async () => {
+      const adapter = createAdapter();
+      const configService = {
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'ai.provider': 'openai',
+            'ai.model': 'gpt-5.4',
+            'ai.providers': [
+              {
+                provider: 'openai',
+                apiKey: 'openai-key',
+                model: 'gpt-5.4',
+                default: true,
+              },
+            ],
+            'stages.plan.maxTokens': 8192,
+          };
+
+          return key in values ? values[key] : defaultValue;
+        }),
+      } as unknown as ConfigService;
+      const service = new AiService(mockLogger, adapter, configService);
+
+      await service.generatePlan('fix', '# WBP-123: Fix criteria resolution', {
+        affectedRepositories: ['repo-a'],
+      });
+
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          maxTokens: 8192,
+          stage: 'plan',
+        })
+      );
+    });
+
     it('uses the affected repository names in the plan prompt and forbids raw failing verification commands', async () => {
       const adapter = createAdapter();
       adapter.execute.mockResolvedValueOnce({

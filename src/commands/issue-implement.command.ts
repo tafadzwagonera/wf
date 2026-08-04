@@ -127,8 +127,6 @@ export class IssueImplementCommand extends CommandRunner {
     description: 'Suppress branch creation; work directly on the current branch',
   })
   parseNoBranch(): boolean {
-    // Commander maps --no-X flags as boolean negation of X.
-    // Return false so that options.branch becomes false when --no-branch is passed.
     return false;
   }
 
@@ -238,10 +236,11 @@ export class IssueImplementCommand extends CommandRunner {
     ctx: ReturnType<IssueImplementCommand['resolveImplementContext']>,
     identifier: string, options?: IssueImplementOptions
   ): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const ref = ctx.resolvedPlanReference!;
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const plan = ctx.plan!;
+    const ref = ctx.resolvedPlanReference;
+    const plan = ctx.plan;
+    if (!ref || !plan) {
+      throw new ValidationError('Custom plan context is incomplete. Re-run issue:implement with a resolved plan artifact.');
+    }
     if (options?.dryRun) return this.previewCustomPlanDryRun(identifier, ref, plan, options);
     if (plan.action === 'investigate') return this.executeInvestigation(plan, ref.artifactPath);
 
@@ -258,22 +257,22 @@ export class IssueImplementCommand extends CommandRunner {
     options?: IssueImplementOptions
   ): Promise<void> {
     const resolvedTicketKey = ctx.ticketKey ?? ctx.resolvedPlanReference?.ticketKey;
+    if (!resolvedTicketKey) {
+      throw new ValidationError('Unable to resolve a ticket key for implementation.');
+    }
     const ticketPath = path.join(ctx.trackerDir, resolvedTicketKey + '.md');
     this.assertTicketExists(ticketPath, ctx.ticketKey, options);
 
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const ref = this.resolveTicketPlanReference(ctx, resolvedTicketKey!, options);
+    const ref = this.resolveTicketPlanReference(ctx, resolvedTicketKey, options);
     const plan = ctx.plan ?? loadPlanFile(ref.artifactPath);
 
     if (options?.dryRun) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      return this.previewTicketDryRun(resolvedTicketKey!, ticketPath, ref.artifactPath, plan.action);
+      return this.previewTicketDryRun(resolvedTicketKey, ticketPath, ref.artifactPath, plan.action);
     }
 
     this.logger.info('Implementing ticket ' + resolvedTicketKey + '...');
     const ticketContent = await fs.promises.readFile(ticketPath, 'utf-8');
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const ticketArtifact: TicketArtifact = { ticketKey: resolvedTicketKey!, content: ticketContent, path: ticketPath };
+    const ticketArtifact: TicketArtifact = { ticketKey: resolvedTicketKey, content: ticketContent, path: ticketPath };
     const planArtifact: PlanArtifact = { plan, action: plan.action, path: ref.artifactPath };
     await this.expandReposFromPlan(ctx, planArtifact, options?.silent);
     await this.runImplementerLoop(ticketArtifact, planArtifact, ctx, options);

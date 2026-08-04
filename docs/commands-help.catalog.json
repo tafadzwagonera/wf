@@ -4,7 +4,7 @@
     "usage": "wf config <get|set|list> [args]"
   },
   "issue:commit": {
-    "description": "Create git commit with AI-generated message (use -k for ticket key or auto-detects from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics)",
+    "description": "Create git commit with AI-generated message (use -k for ticket key or auto-detects from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics; when running from source, use yarn start issue:commit -c)",
     "usage": "wf issue:commit [options]",
     "options": [
       {
@@ -42,7 +42,7 @@
         "command": "wf issue:commit -k WBP-2971"
       },
       {
-        "comment": "Run the commit stage from source with conventional commits enabled",
+        "comment": "Run from source with conventional commits enabled",
         "command": "yarn start issue:commit -c"
       },
       {

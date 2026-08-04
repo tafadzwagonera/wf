@@ -16,6 +16,7 @@ export const wfAiStageTargetConfigSchema = z.object({
   provider: wfAiProviderNameSchema,
   model: z.string().optional(),
   backend: wfBackendModeSchema.optional(),
+  maxTokens: z.number().int().min(1).optional(),
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
   timeoutMs: z.number().int().min(1000).optional(),
   inactivityTimeoutMs: z.number().int().min(1000).optional(),
@@ -123,6 +124,7 @@ export const normalizedAiStageTargetConfigSchema = z.object({
   provider: wfAiProviderNameSchema,
   model: z.string(),
   backend: wfBackendModeSchema,
+  maxTokens: z.number().int().min(1).optional(),
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
   timeoutMs: z.number().int().min(1000).optional(),
   inactivityTimeoutMs: z.number().int().min(1000).optional(),
@@ -139,6 +141,7 @@ export const normalizedImplementStageConfigSchema = z.object({
   model: z.string().optional(),
   models: z.object({ default: z.string().optional(), mechanical: z.string().optional() }).optional(),
   backend: wfBackendModeSchema,
+  maxTokens: z.number().int().min(1).optional(),
   verificationConditions: normalizedVerificationConditionsConfigSchema.optional(),
   skills: z.array(z.string()).optional(),
 });

@@ -28,7 +28,7 @@ const ISSUE_COMMIT_EXAMPLES: CliExample[] = [
     command: 'wf issue:commit -k WBP-2971',
   },
   {
-    comment: 'Run the commit stage from source with conventional commits enabled',
+    comment: 'Run from source with conventional commits enabled',
     command: 'yarn start issue:commit -c',
   },
   {
@@ -47,14 +47,10 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
   }
 };
 
-/**
- * Command to create git commits with AI-generated messages
- * Auto-detects ticket key from branch name
- */
 @Command({
   name: 'issue:commit',
   description:
-    'Create git commit with AI-generated message (use -k for ticket key or auto-detects from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics)',
+    'Create git commit with AI-generated message (use -k for ticket key or auto-detects from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics; when running from source, use yarn start issue:commit -c)',
   options: { isDefault: false },
 })
 export class IssueCommitCommand extends CommandRunner {

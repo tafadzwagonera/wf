@@ -763,20 +763,77 @@ const finalizeCodexResult = (result: string, sessionId?: string): { content: str
   return { content: result.trim(), sessionId };
 };
 
-const processCodexStageResult = async (
-  args: string[], repoDir: string, fullPrompt: string, initialSessionId?: string, onProgress?: StageProgressCallback
-): Promise<{ content: string; sessionId?: string }> => {
-  let sessionId = initialSessionId;
-  let result = '';
-  for await (const message of spawnCodex(args, repoDir, fullPrompt)) {
-    if (message.type === 'thread.started' && message.thread_id) sessionId = message.thread_id;
-    if (onProgress) {
-      const line = formatCodexProgressMessage(message);
-      if (line) onProgress(line);
-    }
-    if (message.type === 'item.completed' && message.item?.type === 'agent_message' && message.item.text) result = message.item.text;
+type CodexStageResultState = {
+  agentMessageCount: number;
+  result: string;
+  sessionId?: string;
+  stopReason?: string;
+};
+
+const extractCodexStopReason = (message: CodexCliMessage): string | undefined => {
+  const stopReason = message['stop_reason'];
+  return typeof stopReason === 'string' ? stopReason : undefined;
+};
+
+const updateCodexAgentMessageState = (state: CodexStageResultState, message: CodexCliMessage): void => {
+  if (message.type !== 'item.completed') return;
+  if (message.item?.type !== 'agent_message' || !message.item.text) return;
+  state.agentMessageCount++;
+  state.result = message.item.text;
+};
+
+const accumulateCodexStageResult = (
+  state: CodexStageResultState,
+  message: CodexCliMessage,
+  onProgress?: StageProgressCallback
+): void => {
+  if (message.type === 'thread.started' && message.thread_id) state.sessionId = message.thread_id;
+  const stopReason = extractCodexStopReason(message);
+  if (stopReason) state.stopReason = stopReason;
+  if (onProgress) {
+    const line = formatCodexProgressMessage(message);
+    if (line) onProgress(line);
   }
-  return finalizeCodexResult(result, sessionId);
+  updateCodexAgentMessageState(state, message);
+};
+
+const throwCodexTruncationError = (stage: AgentStageName, stopReason: string): never => {
+  throw new AIError(
+    'CLI response was truncated due to output token limit — the model ran out of space before '
+    + 'completing the response. Reduce prompt/context size or switch to provider-backed OpenAI '
+    + 'if you need a larger output budget.',
+    { stopReason, stage }, true, 'truncation'
+  );
+};
+
+const logCodexMultiChunkResult = (agentMessageCount: number): void => {
+  console.log(
+    chalk.cyan(`  [${CODEX_STAGE_LABEL}] Codex emitted ${agentMessageCount} agent_message chunks; using the last non-empty chunk.`)
+  );
+};
+
+const finalizeCodexStageResult = (
+  state: CodexStageResultState,
+  stage: AgentStageName
+): { content: string; sessionId?: string } => {
+  if (state.stopReason === 'max_tokens') throwCodexTruncationError(stage, state.stopReason);
+  if (state.agentMessageCount > 1) logCodexMultiChunkResult(state.agentMessageCount);
+  return finalizeCodexResult(state.result, state.sessionId);
+};
+
+const processCodexStageResult = async (
+  args: string[],
+  repoDir: string,
+  fullPrompt: string,
+  stage: AgentStageName,
+  initialSessionId?: string,
+  onProgress?: StageProgressCallback
+): Promise<{ content: string; sessionId?: string }> => {
+  const state: CodexStageResultState = { sessionId: initialSessionId, result: '', agentMessageCount: 0 };
+  for await (const message of spawnCodex(args, repoDir, fullPrompt)) {
+    accumulateCodexStageResult(state, message, onProgress);
+  }
+  return finalizeCodexStageResult(state, stage);
 };
 
 /**
@@ -1533,7 +1590,7 @@ export class StageAgentService {
     if (stopReason !== 'max_tokens') return;
     throw new AIError(
       `CLI response was truncated due to output token limit — the model ran out of space before `
-      + `completing the response. Increase stages.${stage}.maxTokens in wf.config.ts.`,
+      + `completing the response. Reduce prompt/context size or switch to provider-backed OpenAI if you need a larger output budget.`,
       { stopReason, stage }, true, 'truncation'
     );
   }
@@ -1568,7 +1625,7 @@ export class StageAgentService {
       sessionId: params.resumeProviderSessionId,
     });
     return processCodexStageResult(
-      args, resolvedRepoDir, fullPrompt, params.resumeProviderSessionId, params.onProgress
+      args, resolvedRepoDir, fullPrompt, params.stage, params.resumeProviderSessionId, params.onProgress
     );
   }
 

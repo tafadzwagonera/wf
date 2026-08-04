@@ -649,7 +649,28 @@ describe('StageAgentService', () => {
       jest.spyOn(console, 'log').mockImplementation(() => {});
 
       const runner = (service as any).runCliStagePrompt.bind(service);
-      await expect(runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' })).rejects.toThrow(/truncated/i);
+      await expect(runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' })).rejects.toThrow(
+        /reduce prompt\/context size|switch to OpenAI/i
+      );
+    });
+
+    it('logs when Codex emits multiple agent_message chunks', async () => {
+      async function* fakeSpawn() {
+        yield { type: 'thread.started', thread_id: 'tid-123' };
+        yield { type: 'item.completed', item: { type: 'agent_message', text: 'first chunk' } };
+        yield { type: 'item.completed', item: { type: 'agent_message', text: 'final chunk' } };
+      }
+      spawnCodex.mockReturnValue(fakeSpawn());
+
+      const service = new StageAgentService(createCodexConfigService());
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCodexCliStagePrompt.bind(service);
+      const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
+
+      expect(result).toMatchObject({ content: 'final chunk' });
+      expect(logSpy.mock.calls.map(call => String(call[0])).join('\n')).toContain('agent_message chunks');
+      logSpy.mockRestore();
     });
 
     it('does not throw when stop_reason is absent', async () => {
@@ -896,6 +917,25 @@ describe('StageAgentService', () => {
       });
 
       expect(result.plan.summary).toBe('Third');
+    });
+
+    it('throws AIError when Codex agent_message is truncated', async () => {
+      spawnCodex.mockImplementation(
+        makeCodexStream({
+          type: 'item.completed',
+          stop_reason: 'max_tokens',
+          item: { type: 'agent_message', text: validPlanJson },
+        })
+      );
+
+      const service = new StageAgentService(createCodexConfigService());
+
+      await expect(
+        service.generatePlan({
+          action: 'fix',
+          issueContent: 'Test issue',
+        })
+      ).rejects.toThrow(/reduce prompt\/context size|switch to provider-backed OpenAI/i);
     });
 
     it('ignores message.session_id field — sessionId stays undefined when only session_id (not thread_id) is present', async () => {

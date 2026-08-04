@@ -49,7 +49,7 @@ export class ErrorHandler {
     if (error instanceof AIError && error.category) {
       const categorySuggestions: Partial<Record<AIErrorCategory, string>> = {
         parse: 'The AI response could not be parsed. This is usually transient — retry the command.',
-        truncation: 'The AI response was cut short. Increase `stages.<stage>.maxTokens` in wf.config.ts.',
+        truncation: 'The AI response was cut short. Reduce prompt/context size or increase the token budget where supported.',
         stall: 'The AI agent stalled without producing output. Retry or check agent configuration.',
       };
       const categorySuggestion = categorySuggestions[error.category];

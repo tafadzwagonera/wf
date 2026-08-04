@@ -157,6 +157,7 @@ const aiStageTargetSchema = z.object({
   provider: z.enum(providerNames),
   model: z.string().min(1).optional(),
   backend: z.enum(backendModes).optional(),
+  maxTokens: z.number().int().min(1).optional(),
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
   timeoutMs: z.number().int().min(1000).optional(),
   inactivityTimeoutMs: z.number().int().min(1000).optional(),
@@ -182,6 +183,7 @@ const implementStageSchema = z
       })
       .optional(),
     backend: z.enum(backendModes).optional(),
+    maxTokens: z.number().int().min(1).optional(),
     skills: z.array(z.string()).optional(),
     verificationConditions: verificationConditionsSchema.optional(),
   })
@@ -652,6 +654,7 @@ const normalizeStageTarget = ({
     provider: stageTarget.provider,
     model,
     backend,
+    maxTokens: stageTarget.maxTokens,
     outputFormat: stageTarget.outputFormat,
     timeoutMs: stageTarget.timeoutMs,
     inactivityTimeoutMs: stageTarget.inactivityTimeoutMs,
