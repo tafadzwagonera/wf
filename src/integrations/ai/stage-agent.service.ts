@@ -13,6 +13,7 @@ import { formatProgressMessage as formatAnthropicProgressMessage } from './adapt
 import { formatProgressMessage as formatOpenAiProgressMessage } from './adapters/openai-agent.adapter';
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
+import { JSON_OUTPUT_RULES } from './json-output-rules';
 import { DEFAULT_STALL_THRESHOLD } from './adapters/verification-report';
 import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
 import {
@@ -97,7 +98,7 @@ const DEFAULT_CLI_WALL_CLOCK_TIMEOUT_MS = 30 * 60 * 1000;
 const CODEX_STAGE_LABEL = 'codex-cli';
 
 const CLI_RETRY_PROMPT
-  = 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines).';
+  = 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines). JSON string values must not contain literal newline characters — use \\n for line breaks within strings.';
 
 const CLI_CHAT_RETRY_PROMPT
   = 'Your previous response did not include a usable result. Please respond with the requested content directly.';
@@ -504,7 +505,7 @@ const PLAN_JSON_SCHEMA_TAIL = `  "risks": ["risk 1"],
   }
 }
 
-IMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.`;
+${JSON_OUTPUT_RULES}`;
 
 /**
  * @param opts - pre-computed prompt fragments
@@ -602,7 +603,7 @@ const REVIEW_JSON_SCHEMA = `Return ONLY a valid JSON object:
   "approved": true
 }
 
-IMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.`;
+${JSON_OUTPUT_RULES}`;
 
 /**
  * @param diff - unified diff string

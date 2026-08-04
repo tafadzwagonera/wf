@@ -33,6 +33,7 @@ import type {
 import type { CodeReview } from '../../shared/types/review.types';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import type { ResolutionAction, StageProgressCallback } from '../../shared/types/agent.types';
+import { JSON_OUTPUT_RULES } from './json-output-rules';
 
 export type {
   AIRequest,
@@ -741,7 +742,7 @@ const PLAN_OUTPUT_SCHEMA_VERIFICATION = `  "verification": {
  */
 const buildPlanOutputSchema = (action: ResolutionAction, repoExample: string): string => {
   const filesSection = PLAN_OUTPUT_SCHEMA_TEMPLATE_FILES.replaceAll('REPO', repoExample);
-  return `Return ONLY a valid JSON object with these fields:\n{\n  "action": "${action}",\n  "summary": "...",\n  "steps": ["step 1", "step 2", ...],\n  "estimatedComplexity": "low|medium|high",\n${filesSection}\n  "affectedRepositories": ["${repoExample}"],\n  "newRepositories": [],\n  "risks": ["risk 1", ...],\n${PLAN_OUTPUT_SCHEMA_VERIFICATION}\n}`;
+  return `Return ONLY a valid JSON object with these fields:\n{\n  "action": "${action}",\n  "summary": "...",\n  "steps": ["step 1", "step 2", ...],\n  "estimatedComplexity": "low|medium|high",\n${filesSection}\n  "affectedRepositories": ["${repoExample}"],\n  "newRepositories": [],\n  "risks": ["risk 1", ...],\n${PLAN_OUTPUT_SCHEMA_VERIFICATION}\n}\n\n${JSON_OUTPUT_RULES}`;
 };
 
 /**
@@ -933,7 +934,9 @@ const REVIEW_PROMPT_OUTPUT_SCHEMA = `    Return ONLY a valid JSON object:
       },
       "suggestions": ["general follow-up suggestion 1", ...],
       "approved": true|false
-    }`;
+    }
+
+    ${JSON_OUTPUT_RULES}`;
 
 /**
  * Build the user-facing code review prompt.
@@ -1025,7 +1028,9 @@ Return ONLY a valid JSON object:
   "findings": ["finding 1", "finding 2", ...],
   "recommendations": ["recommendation 1", ...],
   "conclusion": "Overall conclusion and suggested next steps"
-}`;
+}
+
+${JSON_OUTPUT_RULES}`;
 
 /**
  * Resolve the commit format instructions string for the given format.
