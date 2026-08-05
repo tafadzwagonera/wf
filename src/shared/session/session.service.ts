@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as crypto from 'crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import { sessionStateSchema } from '../schemas/session.schema';
 import type {
   SessionState,
@@ -14,6 +14,103 @@ import { getWfSessionDir } from '../utils/wf-paths';
 
 const STAGE_ORDER = ['plan', 'implement', 'review', 'commit'];
 const DEFAULT_TTL_DAYS = 7;
+
+const RESUMABLE_COMBINATIONS = new Set([
+  'anthropic/agent',
+  'anthropic/cli',
+  'openai/cli',
+]);
+
+/**
+ * @param fingerprint - Provider and backend pair to evaluate
+ * @returns True when the backend can resume from a prior session ID
+ */
+const isResumableBackend = (fingerprint: StageConfigFingerprint): boolean =>
+  RESUMABLE_COMBINATIONS.has(`${fingerprint.provider}/${fingerprint.backend}`);
+
+type ResumeWarningContext = {
+  configChanged: boolean;
+  hasNonResumableBackend: boolean;
+  pushChangedWarning: () => void;
+  pushNonResumableWarning: () => void;
+};
+
+const createResumeWarningContext = (
+  configChanged: boolean,
+  hasNonResumableBackend: boolean,
+  pushChangedWarning: () => void,
+  pushNonResumableWarning: () => void
+): ResumeWarningContext => ({
+  configChanged,
+  hasNonResumableBackend,
+  pushChangedWarning,
+  pushNonResumableWarning,
+});
+
+type InterruptedStageWarningContextParams = {
+  existingRecord: StageRecord;
+  currentFingerprint: StageConfigFingerprint;
+  nextStage: string;
+  warnings: string[];
+  pushStageConfigChangedWarning: (
+    stage: string,
+    fromConfig: StageConfigFingerprint,
+    toConfig: StageConfigFingerprint,
+    warnings: string[]
+  ) => void;
+  pushNonResumableStageWarning: (stage: string, config: StageConfigFingerprint, warnings: string[]) => void;
+  hasNonResumableBackend: (first: StageConfigFingerprint, second: StageConfigFingerprint) => boolean;
+  fingerprintsDiffer: (first: StageConfigFingerprint, second: StageConfigFingerprint) => boolean;
+};
+
+const buildInterruptedStageWarningContext = (
+  params: InterruptedStageWarningContextParams
+): ResumeWarningContext =>
+  createResumeWarningContext(
+    params.fingerprintsDiffer(params.existingRecord.config, params.currentFingerprint),
+    params.hasNonResumableBackend(params.existingRecord.config, params.currentFingerprint),
+    () => params.pushStageConfigChangedWarning(
+      params.nextStage,
+      params.existingRecord.config,
+      params.currentFingerprint,
+      params.warnings
+    ),
+    () => params.pushNonResumableStageWarning(params.nextStage, params.currentFingerprint, params.warnings)
+  );
+
+type PriorStageWarningContextParams = {
+  record: StageRecord;
+  currentFingerprint: StageConfigFingerprint;
+  nextStage: string;
+  stageName: string;
+  warnings: string[];
+  pushPriorStageWarning: (
+    nextStage: string,
+    currentProvider: string,
+    priorStageName: string,
+    priorProvider: string,
+    warnings: string[]
+  ) => void;
+  pushNonResumablePriorStageWarning: (nextStage: string, config: StageConfigFingerprint, warnings: string[]) => void;
+  hasNonResumableBackend: (first: StageConfigFingerprint, second: StageConfigFingerprint) => boolean;
+  fingerprintsDiffer: (first: StageConfigFingerprint, second: StageConfigFingerprint) => boolean;
+};
+
+const buildPriorStageWarningContext = (
+  params: PriorStageWarningContextParams
+): ResumeWarningContext =>
+  createResumeWarningContext(
+    params.fingerprintsDiffer(params.record.config, params.currentFingerprint),
+    params.hasNonResumableBackend(params.record.config, params.currentFingerprint),
+    () => params.pushPriorStageWarning(
+      params.nextStage,
+      params.currentFingerprint.provider,
+      params.stageName,
+      params.record.config.provider,
+      params.warnings
+    ),
+    () => params.pushNonResumablePriorStageWarning(params.nextStage, params.record.config, params.warnings)
+  );
 
 @Injectable()
 export class SessionService {
@@ -36,40 +133,17 @@ export class SessionService {
     const dir = this.getSessionDir();
     if (!fs.existsSync(dir)) return null;
 
-    const files = fs.readdirSync(dir);
-    const match = files.find(f => f.endsWith(`-${sessionId}.json`) && !f.endsWith('.items.json'));
+    const match = this.listSessionFiles(dir).find(file => file.endsWith(`-${sessionId}.json`));
     if (!match) return null;
 
-    try {
-      const raw = JSON.parse(fs.readFileSync(path.join(dir, match), 'utf-8'));
-      return sessionStateSchema.parse(raw);
-    } catch {
-      return null;
-    }
+    return this.readSessionState(path.join(dir, match));
   }
 
   async findByTicketKey(ticketKey: string): Promise<SessionState | null> {
     const dir = this.getSessionDir();
     if (!fs.existsSync(dir)) return null;
 
-    const files = fs
-      .readdirSync(dir)
-      .filter(f => f.startsWith(`${ticketKey}-`) && f.endsWith('.json') && !f.endsWith('.items.json'))
-      .sort()
-      .reverse();
-
-    for (const file of files) {
-      try {
-        const raw = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf-8'));
-        const state = sessionStateSchema.parse(raw);
-        if (!state.completedAt && !this.isExpired(state)) {
-          return state;
-        }
-      } catch {
-        continue;
-      }
-    }
-    return null;
+    return this.findActiveSession(this.listSessionFiles(dir).filter(file => file.startsWith(`${ticketKey}-`)));
   }
 
   async recordStageStart(
@@ -78,32 +152,8 @@ export class SessionService {
     fingerprint: StageConfigFingerprint,
     model: string
   ): Promise<SessionState> {
-    const existing = session.stages[stage];
-    if (
-      existing
-      && existing.config.provider === fingerprint.provider
-      && existing.config.backend === fingerprint.backend
-      && !existing.completedAt
-    ) {
-      return session;
-    }
-
-    const record: StageRecord = {
-      config: fingerprint,
-      model,
-      providerSessionId: null,
-      summary: null,
-      startedAt: new Date().toISOString(),
-      completedAt: null,
-    };
-
-    const updated: SessionState = {
-      ...session,
-      updatedAt: new Date().toISOString(),
-      stages: { ...session.stages, [stage]: record },
-    };
-    await this.save(updated);
-    return updated;
+    if (this.canReuseStageRecord(session, stage, fingerprint)) return session;
+    return this.persistSession(this.setStageRecord(session, stage, this.createStageRecord(fingerprint, model)));
   }
 
   async recordProviderSessionId(
@@ -111,35 +161,17 @@ export class SessionService {
     stage: string,
     providerSessionId: string
   ): Promise<SessionState> {
-    const record = session.stages[stage];
-    if (!record) return session;
-
-    const updated: SessionState = {
-      ...session,
-      updatedAt: new Date().toISOString(),
-      stages: {
-        ...session.stages,
-        [stage]: { ...record, providerSessionId },
-      },
-    };
-    await this.save(updated);
-    return updated;
+    if (!session.stages[stage]) return session;
+    return this.persistSession(
+      this.updateStage(session, stage, record => ({ ...record, providerSessionId }))
+    );
   }
 
   async recordStageComplete(session: SessionState, stage: string, summary: string | null): Promise<SessionState> {
-    const record = session.stages[stage];
-    if (!record) return session;
-
-    const updated: SessionState = {
-      ...session,
-      updatedAt: new Date().toISOString(),
-      stages: {
-        ...session.stages,
-        [stage]: { ...record, summary, completedAt: new Date().toISOString() },
-      },
-    };
-    await this.save(updated);
-    return updated;
+    if (!session.stages[stage]) return session;
+    return this.persistSession(
+      this.updateStage(session, stage, record => ({ ...record, summary, completedAt: new Date().toISOString() }))
+    );
   }
 
   async markComplete(session: SessionState): Promise<SessionState> {
@@ -158,87 +190,12 @@ export class SessionService {
     currentFingerprint: StageConfigFingerprint,
     resolveStageFingerprint: (stage: string) => StageConfigFingerprint
   ): SessionValidationResult {
-    const warnings: string[] = [];
-    let canResume = false;
-    let resumableProviderSessionId: string | null = null;
-
-    // 0. Config drift detection
-    for (const [stageName, record] of Object.entries(session.stages)) {
-      if (!record.completedAt) continue;
-      const currentConfig = resolveStageFingerprint(stageName);
-      if (record.config.provider !== currentConfig.provider || record.config.backend !== currentConfig.backend) {
-        warnings.push(
-          `Config drift detected: stage ${stageName} ran with ${record.config.provider}/${record.config.backend} but wf.config now resolves to ${currentConfig.provider}/${currentConfig.backend}.`
-        );
-      }
-    }
-
-    // 1. Find prior stage
-    const nextIndex = STAGE_ORDER.indexOf(nextStage);
-    let priorSummary: string | null = null;
-    if (nextIndex > 0) {
-      for (let i = nextIndex - 1; i >= 0; i--) {
-        const priorRecord = session.stages[STAGE_ORDER[i]];
-        if (priorRecord?.completedAt && priorRecord.summary) {
-          priorSummary = priorRecord.summary;
-          break;
-        }
-      }
-    }
-
-    // 2. Check if nextStage already has a record
-    const existingRecord = session.stages[nextStage];
-    if (existingRecord) {
-      if (existingRecord.completedAt) {
-        // 2a. Already completed — warn but allow prior-stage session lookup below
-        warnings.push(
-          `Stage ${nextStage} was already completed at ${existingRecord.completedAt}. Re-running will overwrite.`
-        );
-      } else {
-        // 2b. Interrupted — try to resume this stage's own session
-        if (
-          existingRecord.config.provider === currentFingerprint.provider
-          && existingRecord.config.backend === currentFingerprint.backend
-          && existingRecord.providerSessionId
-        ) {
-          canResume = true;
-          resumableProviderSessionId = existingRecord.providerSessionId;
-        } else if (
-          existingRecord.config.provider !== currentFingerprint.provider
-          || existingRecord.config.backend !== currentFingerprint.backend
-        ) {
-          warnings.push(
-            `Config changed from ${existingRecord.config.provider}/${existingRecord.config.backend} to ${currentFingerprint.provider}/${currentFingerprint.backend} since stage ${nextStage} was started. Previous progress cannot be resumed — session IDs are not portable across backends. Falling back to default behavior.`
-          );
-        }
-      }
-    }
-
-    // 3. No session found yet — try to resume from prior stage
-    if (!resumableProviderSessionId && nextIndex > 0) {
-      for (let i = nextIndex - 1; i >= 0; i--) {
-        const priorStageName = STAGE_ORDER[i];
-        const priorRecord = session.stages[priorStageName];
-        if (!priorRecord?.completedAt) continue;
-
-        if (
-          priorRecord.config.provider === currentFingerprint.provider
-          && priorRecord.providerSessionId
-        ) {
-          canResume = true;
-          resumableProviderSessionId = priorRecord.providerSessionId;
-        } else if (
-          priorRecord.config.provider !== currentFingerprint.provider
-        ) {
-          warnings.push(
-            `Provider for ${nextStage} (${currentFingerprint.provider}) differs from ${priorStageName} (${priorRecord.config.provider}). Prior stage summary will still be available as context.`
-          );
-        }
-        break;
-      }
-    }
-
-    return { canResume, resumableProviderSessionId, priorSummary, warnings };
+    const warnings = this.collectConfigDriftWarnings(session, resolveStageFingerprint);
+    const priorSummary = this.findPriorSummary(session, nextStage);
+    const resumableProviderSessionId = this.resolveResumableProviderSessionId(
+      session, nextStage, currentFingerprint, warnings
+    );
+    return { canResume: Boolean(resumableProviderSessionId), resumableProviderSessionId, priorSummary, warnings };
   }
 
   isExpired(state: SessionState): boolean {
@@ -262,54 +219,348 @@ export class SessionService {
     return files.length > 0;
   }
 
-  async deleteByDateRange(from: Date, to: Date): Promise<number> {
-    const sessions = await this.listSessions();
-    let count = 0;
-    for (const session of sessions) {
-      const createdAt = new Date(session.createdAt);
-      if (createdAt >= from && createdAt <= to) {
-        await this.deleteBySessionId(session.sessionId);
-        count++;
-      }
-    }
-    return count;
-  }
-
-  async deleteByPattern(pattern: string): Promise<number> {
-    const sessions = await this.listSessions();
-    const regex = new RegExp(pattern);
-    let count = 0;
-    for (const session of sessions) {
-      if (regex.test(session.ticketKey)) {
-        await this.deleteBySessionId(session.sessionId);
-        count++;
-      }
-    }
-    return count;
-  }
-
   async listSessions(filter?: { ticketKey?: string; completed?: boolean }): Promise<SessionState[]> {
     const dir = this.getSessionDir();
     if (!fs.existsSync(dir)) return [];
 
-    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json') && !f.endsWith('.items.json'));
-    const sessions: SessionState[] = [];
+    return this.readSessionStates(dir)
+      .filter(state => this.matchesSessionFilter(state, filter))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
 
+  private listSessionFiles(dir: string): string[] {
+    return fs
+      .readdirSync(dir)
+      .filter(f => f.endsWith('.json') && !f.endsWith('.items.json'))
+      .sort((first, second) => first.localeCompare(second));
+  }
+
+  private readSessionState(filePath: string): SessionState | null {
+    try {
+      const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      return sessionStateSchema.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  private readSessionStates(dir: string): SessionState[] {
+    return this.listSessionFiles(dir)
+      .map(file => this.readSessionState(path.join(dir, file)))
+      .filter((state): state is SessionState => state !== null);
+  }
+
+  private findActiveSession(files: string[]): SessionState | null {
+    const dir = this.getSessionDir();
     for (const file of files) {
-      try {
-        const raw = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf-8'));
-        const state = sessionStateSchema.parse(raw);
+      const state = this.readSessionState(path.join(dir, file));
+      if (state && !state.completedAt && !this.isExpired(state)) return state;
+    }
+    return null;
+  }
 
-        if (filter?.ticketKey && state.ticketKey !== filter.ticketKey) continue;
-        if (filter?.completed === true && !state.completedAt) continue;
-        if (filter?.completed === false && state.completedAt) continue;
+  private matchesSessionFilter(
+    state: SessionState,
+    filter?: { ticketKey?: string; completed?: boolean }
+  ): boolean {
+    if (filter?.ticketKey && state.ticketKey !== filter.ticketKey) return false;
+    if (filter?.completed === true && !state.completedAt) return false;
+    return !(filter?.completed === false && state.completedAt);
+  }
 
-        sessions.push(state);
-      } catch {
-        continue;
+  private canReuseStageRecord(
+    session: SessionState,
+    stage: string,
+    fingerprint: StageConfigFingerprint
+  ): boolean {
+    const existing = session.stages[stage];
+    return Boolean(
+      existing
+      && existing.config.provider === fingerprint.provider
+      && existing.config.backend === fingerprint.backend
+      && !existing.completedAt
+      && isResumableBackend(existing.config)
+      && isResumableBackend(fingerprint)
+    );
+  }
+
+  private createStageRecord(fingerprint: StageConfigFingerprint, model: string): StageRecord {
+    return {
+      config: fingerprint,
+      model,
+      providerSessionId: null,
+      summary: null,
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+    };
+  }
+
+  private updateStage(
+    session: SessionState,
+    stage: string,
+    updateRecord: (record: StageRecord) => StageRecord
+  ): SessionState {
+    const record = session.stages[stage];
+    if (!record) return session;
+
+    return {
+      ...session,
+      updatedAt: new Date().toISOString(),
+      stages: { ...session.stages, [stage]: updateRecord(record) },
+    };
+  }
+
+  private setStageRecord(session: SessionState, stage: string, record: StageRecord): SessionState {
+    return {
+      ...session,
+      updatedAt: new Date().toISOString(),
+      stages: { ...session.stages, [stage]: record },
+    };
+  }
+
+  private async persistSession(session: SessionState): Promise<SessionState> {
+    await this.save(session);
+    return session;
+  }
+
+  private collectConfigDriftWarnings(
+    session: SessionState,
+    resolveStageFingerprint: (stage: string) => StageConfigFingerprint
+  ): string[] {
+    const warnings: string[] = [];
+    for (const [stageName, record] of Object.entries(session.stages)) {
+      if (!record.completedAt) continue;
+      const currentConfig = resolveStageFingerprint(stageName);
+      if (this.fingerprintsDiffer(record.config, currentConfig)) {
+        warnings.push(this.buildConfigDriftWarning(stageName, record.config, currentConfig));
       }
     }
+    return warnings;
+  }
 
-    return sessions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  private findPriorSummary(session: SessionState, nextStage: string): string | null {
+    const nextIndex = STAGE_ORDER.indexOf(nextStage);
+    if (nextIndex <= 0) return null;
+
+    for (let i = nextIndex - 1; i >= 0; i--) {
+      const priorRecord = session.stages[STAGE_ORDER[i]];
+      if (priorRecord?.completedAt && priorRecord.summary) return priorRecord.summary;
+    }
+    return null;
+  }
+
+  private resolveResumableProviderSessionId(
+    session: SessionState,
+    nextStage: string,
+    currentFingerprint: StageConfigFingerprint,
+    warnings: string[]
+  ): string | null {
+    return this.resolveInterruptedStageResume(
+      session.stages[nextStage], currentFingerprint, nextStage, warnings
+    ) ?? this.resolvePriorStageResume(session, nextStage, currentFingerprint, warnings);
+  }
+
+  private resolveInterruptedStageResume(
+    existingRecord: StageRecord | undefined,
+    currentFingerprint: StageConfigFingerprint,
+    nextStage: string,
+    warnings: string[]
+  ): string | null {
+    if (!existingRecord || existingRecord.completedAt) {
+      if (existingRecord?.completedAt) this.pushCompletedStageWarning(nextStage, existingRecord.completedAt, warnings);
+      return null;
+    }
+    if (this.canResumeStageRecord(existingRecord, currentFingerprint)) return existingRecord.providerSessionId;
+    this.pushInterruptedStageWarnings(existingRecord, currentFingerprint, nextStage, warnings);
+    return null;
+  }
+
+  private resolvePriorStageResume(
+    session: SessionState,
+    nextStage: string,
+    currentFingerprint: StageConfigFingerprint,
+    warnings: string[]
+  ): string | null {
+    const priorStage = this.findMostRecentCompletedPriorStage(session, nextStage);
+    if (!priorStage) return null;
+    const { stageName, record } = priorStage;
+    if (this.canResumeStageRecord(record, currentFingerprint)) return record.providerSessionId;
+    this.pushPriorStageWarnings(record, currentFingerprint, nextStage, stageName, warnings);
+    return null;
+  }
+
+  private findMostRecentCompletedPriorStage(
+    session: SessionState,
+    nextStage: string
+  ): { stageName: string; record: StageRecord } | null {
+    const nextIndex = STAGE_ORDER.indexOf(nextStage);
+    if (nextIndex <= 0) return null;
+
+    for (let i = nextIndex - 1; i >= 0; i--) {
+      const stageName = STAGE_ORDER[i];
+      const record = session.stages[stageName];
+      if (record?.completedAt) return { stageName, record };
+    }
+    return null;
+  }
+
+  private canResumeStageRecord(record: StageRecord, fingerprint: StageConfigFingerprint): boolean {
+    return Boolean(
+      record.config.provider === fingerprint.provider
+      && record.providerSessionId
+      && isResumableBackend(record.config)
+      && isResumableBackend(fingerprint)
+    );
+  }
+
+  private fingerprintsDiffer(
+    first: StageConfigFingerprint,
+    second: StageConfigFingerprint
+  ): boolean {
+    return first.provider !== second.provider || first.backend !== second.backend;
+  }
+
+  private buildCompletedStageWarning(stage: string, completedAt: string): string {
+    return `Stage ${stage} was already completed at ${completedAt}. Re-running will overwrite.`;
+  }
+
+  private pushCompletedStageWarning(stage: string, completedAt: string, warnings: string[]): void {
+    warnings.push(this.buildCompletedStageWarning(stage, completedAt));
+  }
+
+  private buildStageConfigChangedWarning(
+    stage: string,
+    fromConfig: StageConfigFingerprint,
+    toConfig: StageConfigFingerprint
+  ): string {
+    return `Config changed from ${fromConfig.provider}/${fromConfig.backend} to `
+      + `${toConfig.provider}/${toConfig.backend} since stage ${stage} was started. `
+      + 'Previous progress cannot be resumed — session IDs are not portable across backends. '
+      + 'Falling back to default behavior.';
+  }
+
+  private buildConfigDriftWarning(
+    stage: string,
+    fromConfig: StageConfigFingerprint,
+    toConfig: StageConfigFingerprint
+  ): string {
+    return `Config drift detected: stage ${stage} ran with ${fromConfig.provider}/${fromConfig.backend} but wf.config now resolves to ${toConfig.provider}/${toConfig.backend}.`;
+  }
+
+  private buildPriorStageWarning(
+    nextStage: string,
+    currentProvider: string,
+    priorStageName: string,
+    priorProvider: string
+  ): string {
+    return `Provider for ${nextStage} (${currentProvider}) differs from ${priorStageName} (${priorProvider}). `
+      + 'Prior stage summary will still be available as context.';
+  }
+
+  private buildNonResumableStageWarning(stage: string, config: StageConfigFingerprint): string {
+    return `Stage ${stage} ran with ${config.provider}/${config.backend}, which does not support session resumption. Starting fresh.`;
+  }
+
+  private buildNonResumablePriorStageWarning(nextStage: string, config: StageConfigFingerprint): string {
+    return `Stage ${nextStage} cannot resume from ${config.provider}/${config.backend} session IDs. Prior stage summary will still be available as context.`;
+  }
+
+  private pushStageConfigChangedWarning(
+    stage: string,
+    fromConfig: StageConfigFingerprint,
+    toConfig: StageConfigFingerprint,
+    warnings: string[]
+  ): void {
+    if (this.fingerprintsDiffer(fromConfig, toConfig)) {
+      warnings.push(this.buildStageConfigChangedWarning(stage, fromConfig, toConfig));
+    }
+  }
+
+  // eslint-disable-next-line max-lines-per-function
+  private readonly pushInterruptedStageWarnings = (
+    existingRecord: StageRecord,
+    currentFingerprint: StageConfigFingerprint,
+    nextStage: string,
+    warnings: string[]
+  ): void =>
+    this.pushResumeWarnings(
+      buildInterruptedStageWarningContext({
+        existingRecord,
+        currentFingerprint,
+        nextStage,
+        warnings,
+        pushStageConfigChangedWarning: this.pushStageConfigChangedWarning.bind(this),
+        pushNonResumableStageWarning: this.pushNonResumableStageWarning.bind(this),
+        hasNonResumableBackend: this.hasNonResumableBackend.bind(this),
+        fingerprintsDiffer: this.fingerprintsDiffer.bind(this),
+      })
+    );
+
+  // eslint-disable-next-line max-lines-per-function
+  private readonly pushPriorStageWarnings = (
+    record: StageRecord,
+    currentFingerprint: StageConfigFingerprint,
+    nextStage: string,
+    stageName: string,
+    warnings: string[]
+  ): void =>
+    this.pushResumeWarnings(
+      buildPriorStageWarningContext({
+        record,
+        currentFingerprint,
+        nextStage,
+        stageName,
+        warnings,
+        pushPriorStageWarning: this.pushPriorStageWarning.bind(this),
+        pushNonResumablePriorStageWarning: this.pushNonResumablePriorStageWarning.bind(this),
+        hasNonResumableBackend: this.hasNonResumableBackend.bind(this),
+        fingerprintsDiffer: this.fingerprintsDiffer.bind(this),
+      })
+    );
+
+  private pushResumeWarnings(params: {
+    configChanged: boolean;
+    hasNonResumableBackend: boolean;
+    pushChangedWarning: () => void;
+    pushNonResumableWarning: () => void;
+  }): void {
+    if (params.configChanged) params.pushChangedWarning();
+    if (!params.configChanged) params.pushNonResumableWarning();
+    if (params.configChanged && params.hasNonResumableBackend) params.pushNonResumableWarning();
+  }
+
+  private hasNonResumableBackend(
+    first: StageConfigFingerprint,
+    second: StageConfigFingerprint
+  ): boolean {
+    return !isResumableBackend(first) || !isResumableBackend(second);
+  }
+
+  private pushPriorStageWarning(
+    nextStage: string,
+    currentProvider: string,
+    priorStageName: string,
+    priorProvider: string,
+    warnings: string[]
+  ): void {
+    if (priorProvider !== currentProvider) {
+      warnings.push(this.buildPriorStageWarning(nextStage, currentProvider, priorStageName, priorProvider));
+    }
+  }
+
+  private pushNonResumableStageWarning(
+    stage: string,
+    config: StageConfigFingerprint,
+    warnings: string[]
+  ): void {
+    warnings.push(this.buildNonResumableStageWarning(stage, config));
+  }
+
+  private pushNonResumablePriorStageWarning(
+    nextStage: string,
+    config: StageConfigFingerprint,
+    warnings: string[]
+  ): void {
+    warnings.push(this.buildNonResumablePriorStageWarning(nextStage, config));
   }
 }

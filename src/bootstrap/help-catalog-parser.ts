@@ -229,12 +229,6 @@ const buildUsage = ({
   return `wf ${commandName}${argumentSection}${optionsSection}`;
 };
 
-/**
- * Parse TypeScript command source files in `commandsDir` and build a help catalog.
- *
- * @param commandsDir - Absolute path to the directory containing command `.ts` source files
- * @returns A map of command name to its help entry
- */
 export const getCommandHelpCatalog = (commandsDir: string): Record<string, CommandHelpEntry> => {
   const catalog: Record<string, CommandHelpEntry> = {};
   const commandFiles = fs

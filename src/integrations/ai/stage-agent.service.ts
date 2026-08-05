@@ -34,7 +34,7 @@ import {
 } from './ai.service';
 import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
-import { AIError, isAIErrorLike } from '../../shared/utils/errors';
+import { AIError, ExecutionError, isAIErrorLike } from '../../shared/utils/errors';
 import type { TestInfraContext } from '../../shared/types/detection.types';
 import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
@@ -1095,6 +1095,22 @@ const drainAnthropicSession = async (
   throw new Error('Claude Agent SDK finished without returning a result.');
 };
 
+const STALE_RESUME_PATTERNS = [
+  /session[_ ]?id.*(?:not found|invalid|expired|does not exist)/i,
+  /(?:invalid|unknown|expired|stale).*session/i,
+  /resume.*(?:fail|invalid|not found)/i,
+  /(?:conversation|thread).*(?:not found|invalid|expired)/i,
+];
+
+/**
+ * @param error - The caught error value
+ * @returns True when the error message matches known stale-resume signatures
+ */
+const isStaleResumeError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  return STALE_RESUME_PATTERNS.some(pattern => pattern.test(message));
+};
+
 /**
  * @param message - Anthropic SDK stream message
  * @param onProgress - optional progress callback
@@ -1307,6 +1323,42 @@ export class StageAgentService {
   }
 
   private async runStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
+    try {
+      return await this.dispatchToBackend(params);
+    } catch (error) {
+      if (!params.resumeProviderSessionId || !isStaleResumeError(error)) throw error;
+      console.log(chalk.yellow(
+        `  [stage-agent] Resume session ${params.resumeProviderSessionId} appears stale — retrying fresh.`
+      ));
+      return this.retryStagePromptFresh(params, error);
+    }
+  }
+
+  private async retryStagePromptFresh(
+    params: StagePromptParams,
+    originalError: unknown
+  ): Promise<{ content: string; sessionId?: string }> {
+    try {
+      return await this.dispatchToBackend({ ...params, resumeProviderSessionId: undefined });
+    } catch (retryError) {
+      throw isStaleResumeError(retryError)
+        ? new ExecutionError(this.buildStaleResumeFallbackErrorMessage(params.stage, retryError), {
+            stage: params.stage,
+            originalError: this.extractErrorMessage(originalError),
+          })
+        : retryError;
+    }
+  }
+
+  private buildStaleResumeFallbackErrorMessage(stage: AgentStageName, error: unknown): string {
+    return `Stage ${stage} failed after stale-resume fallback: ${this.extractErrorMessage(error)}`;
+  }
+
+  private extractErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  private async dispatchToBackend(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     const backend = this.resolveStageBackend(params.stage);
     if (backend === 'cli') return this.dispatchCliStagePrompt(params);
     const provider = this.resolveStageProvider(params.stage);

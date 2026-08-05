@@ -141,24 +141,9 @@ const formatOptionLine = (option: CommandHelpOption): string[] => {
 };
 
 const formatExampleLines = (example: CommandHelpExample): string[] => {
-  const lines: string[] = [];
-
-  if (example.comment) {
-    lines.push(...wrapText(`# ${example.comment}`, '  ', '  ').map(line => chalk.gray(line)));
-  }
-
-  lines.push(...wrapStyledTokens(formatCliCommandTokens(example.command), '  ', '  '));
-
-  return lines;
+  return wrapStyledTokens(formatCliCommandTokens(example.command), '  ', '  ');
 };
 
-/**
- * Build pre-bootstrap help text without importing the Nest application graph.
- *
- * @param argv - Raw CLI argv values after the executable name
- * @param catalog - Optional catalog override; reads from disk when omitted
- * @returns Help text for the requested command or the top-level CLI
- */
 export const getHelpText = (argv: string[], catalog?: Record<string, CommandHelpEntry>): string => {
   const commandHelp = catalog ?? loadCatalogFromDisk();
   const requestedCommand = findRequestedCommand(argv.filter(arg => !HELP_FLAG_PATTERN.test(arg)));

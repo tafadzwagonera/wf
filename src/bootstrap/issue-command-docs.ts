@@ -24,9 +24,6 @@ const renderExamples = (entry: CommandHelpEntry): string => {
   const lines = ['```bash'];
 
   for (const example of entry.examples) {
-    if (example.comment) {
-      lines.push(`# ${example.comment}`);
-    }
     lines.push(example.command, '');
   }
 

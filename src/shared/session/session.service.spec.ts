@@ -102,6 +102,20 @@ describe('SessionService', () => {
     expect(after2.stages['plan'].startedAt).toBe(originalStartedAt);
   });
 
+  it('recordStageStart creates a fresh record for an interrupted non-resumable stage', async () => {
+    const openaiAgentFingerprint: StageConfigFingerprint = { provider: 'openai', backend: 'agent' };
+    let session = createMockSessionState();
+    session = await service.recordStageStart(session, 'plan', openaiAgentFingerprint, 'gpt-5.4');
+    session = await service.recordProviderSessionId(session, 'plan', 'thread-123');
+    const originalRecord = session.stages['plan'];
+
+    const updated = await service.recordStageStart(session, 'plan', openaiAgentFingerprint, 'gpt-5.4');
+
+    expect(updated.stages['plan']).not.toBe(originalRecord);
+    expect(updated.stages['plan'].providerSessionId).toBeNull();
+    expect(updated.stages['plan'].completedAt).toBeNull();
+  });
+
   it('recordProviderSessionId updates only the providerSessionId field', async () => {
     const session = createMockSessionState();
     const s1 = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-sonnet-4-20250514');
@@ -290,6 +304,78 @@ describe('SessionService', () => {
       const result = service.validateForStage(session, 'implement', openaiFingerprint, _s => openaiFingerprint);
 
       expect(result.priorSummary).toBe('Plan summary content');
+    });
+
+    it('returns canResume false when target backend is not resumable (openai/agent)', async () => {
+      let session = createMockSessionState();
+      session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-sonnet-4-20250514');
+      session = await service.recordProviderSessionId(session, 'plan', 'sid-1');
+      session = await service.recordStageComplete(session, 'plan', 'Plan done');
+
+      const openaiAgentFingerprint: StageConfigFingerprint = { provider: 'openai', backend: 'agent' };
+      const result = service.validateForStage(session, 'implement', openaiAgentFingerprint, _s => openaiAgentFingerprint);
+
+      expect(result.canResume).toBe(false);
+      expect(result.resumableProviderSessionId).toBeNull();
+      expect(result.priorSummary).toBe('Plan done');
+    });
+
+    it('returns canResume false for interrupted stage on non-resumable backend (openai/agent)', async () => {
+      const openaiAgentFingerprint: StageConfigFingerprint = { provider: 'openai', backend: 'agent' };
+      let session = createMockSessionState();
+      session = await service.recordStageStart(session, 'plan', openaiAgentFingerprint, 'gpt-5.4');
+      session = await service.recordProviderSessionId(session, 'plan', 'thread-123');
+
+      const result = service.validateForStage(session, 'plan', openaiAgentFingerprint, _s => openaiAgentFingerprint);
+
+      expect(result.canResume).toBe(false);
+      expect(result.warnings.some(w => w.includes('does not support session resumption'))).toBe(true);
+    });
+
+    it('returns canResume true for resumable backend (openai/cli)', async () => {
+      const openaiCliFingerprint: StageConfigFingerprint = { provider: 'openai', backend: 'cli' };
+      let session = createMockSessionState();
+      session = await service.recordStageStart(session, 'plan', openaiCliFingerprint, 'gpt-5.4');
+      session = await service.recordProviderSessionId(session, 'plan', 'codex-session-1');
+      session = await service.recordStageComplete(session, 'plan', 'Plan done');
+
+      const result = service.validateForStage(session, 'implement', openaiCliFingerprint, _s => openaiCliFingerprint);
+
+      expect(result.canResume).toBe(true);
+      expect(result.resumableProviderSessionId).toBe('codex-session-1');
+    });
+
+    it('does not resume from a non-resumable prior backend even when the target backend is resumable', async () => {
+      const openaiAgentFingerprint: StageConfigFingerprint = { provider: 'openai', backend: 'agent' };
+      let session = createMockSessionState();
+      session = await service.recordStageStart(session, 'plan', openaiAgentFingerprint, 'gpt-5.4');
+      session = await service.recordProviderSessionId(session, 'plan', 'thread-123');
+      session = await service.recordStageComplete(session, 'plan', 'Plan done');
+
+      const openaiCliFingerprint: StageConfigFingerprint = { provider: 'openai', backend: 'cli' };
+      const result = service.validateForStage(session, 'implement', openaiCliFingerprint, _s => openaiCliFingerprint);
+
+      expect(result.canResume).toBe(false);
+      expect(result.resumableProviderSessionId).toBeNull();
+      expect(result.priorSummary).toBe('Plan done');
+      expect(result.warnings.some(w => w.includes('cannot resume from openai/agent'))).toBe(true);
+    });
+
+    it('returns canResume false for google/standard even with a manually-set providerSessionId', async () => {
+      const googleFingerprint: StageConfigFingerprint = { provider: 'google', backend: 'standard' };
+      let session = createMockSessionState();
+      session = await service.recordStageStart(session, 'plan', googleFingerprint, 'gemini-2.5-pro');
+      session = await service.recordStageComplete(session, 'plan', 'Plan done');
+      const planStage = session.stages.plan;
+      expect(planStage).toBeDefined();
+      if (!planStage) throw new Error('Expected plan stage record to exist');
+      session.stages.plan = { ...planStage, providerSessionId: 'fake-id' };
+
+      const result = service.validateForStage(session, 'implement', googleFingerprint, _s => googleFingerprint);
+
+      expect(result.canResume).toBe(false);
+      expect(result.resumableProviderSessionId).toBeNull();
+      expect(result.priorSummary).toBe('Plan done');
     });
   });
 });

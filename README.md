@@ -54,9 +54,10 @@ npm link
 Create one of these files in the consumer project root:
 
 - `wf.config.js`
-- `wf.config.mjs`
 - `wf.config.ts`
 - `wf.config.mts`
+- `wf.config.js`
+- `wf.config.mjs`
 - `wf.config.yaml`
 - `wf.config.yml`
 
@@ -340,10 +341,8 @@ The issue API is a suite of commands for the full ticket lifecycle: fetch → pl
 Fetch ticket description from a tracker. NB: This command will override the locally generated artifact with the ticket description fetched from the specified tracker
 
 ```bash
-# Fetch ticket from primary tracker
 wf issue:fetch WBP-2971
 
-# Specify tracker and format
 wf issue:fetch WBP-2971 --tracker jira --format md
 ```
 
@@ -368,19 +367,14 @@ wf issue:fetch WBP-2971 --tracker jira --format md
 Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary tracker. Use --force to fetch and recreate artifacts. Repo-scoped planning inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so planning prompts can reuse earlier implementation context. Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected.
 
 ```bash
-# Create a custom feature plan from a markdown artifact
 wf issue:plan --action feature --custom-plan bar.md
 
-# Prefer the repo-scoped custom artifact when a repo is supplied
 wf issue:plan --action feature --custom-plan bar.md --repos repo-a
 
-# Plan a fix for a ticket
 wf issue:plan -k WBP-2971 --action fix
 
-# Plan against a repo so prior plan artifacts feed plan correlation
 wf issue:plan -k WBP-2971 --action fix --repos repo-a
 
-# Force re-fetch before planning
 wf issue:plan -k WBP-2971 --action fix --force --tracker jira
 ```
 
@@ -420,19 +414,14 @@ When `--repos` points at a local checkout, `issue:plan` inspects `~/.wf/<repo>/*
 AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
 
 ```bash
-# Review current repo changes
 wf issue:review
 
-# Review a ticket and associated pull requests from credentialed adapters using a remote repo hint
 wf issue:review --ticket-key WBP-3057 -r service-bookingv3
 
-# Review a ticket and its associated pull requests across credentialed repos
 wf issue:review --ticket-key WBP-2971 --tracker jira --repos service-tourv3
 
-# Force re-review a ticket, ignoring cached artifacts
 wf issue:review --ticket-key WBP-2971 --force --tracker jira -r service-bookingv3
 
-# Review a pull request and post review comments with diff-aligned inline anchors
 wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 ```
 
@@ -489,19 +478,14 @@ When `--comment` is used on a pull request, inline review comments use destinati
 Create tickets on various trackers from standardized input (file or stdin)
 
 ```bash
-# Create ticket from JSON on primary tracker
 wf issue:create ticket.json
 
-# Create on a specific tracker and override the Jira project
 wf issue:create ticket.md --tracker jira --ticket-project WBP --type story
 
-# Create Jira ticket with project-specific priority resolution
 wf issue:create ticket.md --tracker jira --ticket-project WBP --priority medium
 
-# Dry-run a repo-scoped generated Jira artifact before creation
 wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run
 
-# Live smoke-test a Jira description update using a generated artifact; --live requires --confirm-live-update and shows a y/N prompt before the PUT
 nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
 ```
 
@@ -531,31 +515,22 @@ For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF 
 Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g., https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. When multiple repos are supplied, the synthesis prompt also compares repo conventions and git-hook tools across checkouts. AI synthesis always runs on every source to enrich and standardize the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent
 
 ```bash
-# Generate ticket from a URL
 wf issue:generate https://example.com/spec
 
-# Generate from a tracker browse URL (fetches via REST API, not HTML)
 wf issue:generate https://touraxis.atlassian.net/browse/WBP-3371 --type bug -r service-document-v1
 
-# Generate from a Slack thread permalink with query params
 wf issue:generate "https://workspace.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53"
 
-# Generate from a repo-scoped artifact (requires -r, --repos)
 wf issue:generate itinerary-pdf-generation.md -r service-tourv3
 
-# Generate with repo context so prior plan artifacts inform plan correlation
 wf issue:generate ./requirements.md -r service-tourv3 --save
 
-# Generate with multiple repos so repo conventions and git hooks are compared across checkouts
 wf issue:generate ./requirements.md -r primary-repo secondary-repo --save
 
-# Save with overridden title
 wf issue:generate ./requirements.md --title "Add OAuth2" --save
 
-# Silent mode: pipe generated ticket directly into issue:create
 wf issue:generate ./spec.md -s | wf issue:create
 
-# Silent mode: pipe saved artifact path to issue:create
 wf issue:generate ./spec.md --save --silent | xargs wf issue:create
 ```
 
@@ -593,13 +568,10 @@ In interactive mode (TTY, no `--silent`), the command performs a pre-synthesis c
 Create git commit with AI-generated message (use -k for ticket key or auto-detects from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics; when running from source, use yarn start issue:commit -c)
 
 ```bash
-# AI-generated commit message
 wf issue:commit -k WBP-2971
 
-# Run from source with conventional commits enabled
 yarn start issue:commit -c
 
-# Force conventional format
 wf issue:commit -k WBP-2971 --conventional --tracker jira
 ```
 
@@ -628,10 +600,8 @@ wf issue:commit -k WBP-2971 --conventional --tracker jira
 Create a pull request from a plan artifact (auto-detects ticket from branch)
 
 ```bash
-# Create a PR from a fix plan
 wf issue:pr WBP-2971 --action fix
 
-# Dry-run to preview PR title and body
 wf issue:pr WBP-2971 --dry-run
 ```
 

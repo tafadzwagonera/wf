@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { StageAgentService } from './stage-agent.service';
+import { ExecutionError } from '../../shared/utils/errors';
 
 jest.mock('./adapters/claude-cli-runner', () => ({
   assertClaudeCliAvailable: jest.fn(),
@@ -1232,6 +1233,164 @@ describe('StageAgentService', () => {
         message: expect.stringContaining('Failed to parse resolution plan'),
         details: expect.objectContaining({ sessionId: fakeSessionId }),
       });
+    });
+  });
+
+  describe('stale resume fallback', () => {
+    type StagePromptParams = {
+      stage: string;
+      prompt: string;
+      systemPrompt: string;
+      resumeProviderSessionId?: string;
+    };
+
+    const createAnthropicAgentConfigService = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.plan.backend': 'agent',
+            'stages.plan.provider': 'anthropic',
+            'stages.plan.model': 'claude-sonnet-4-6',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-6',
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    const createClaudeCliConfigService = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.plan.backend': 'cli',
+            'stages.plan.provider': 'anthropic',
+            'stages.plan.model': 'claude-sonnet-4-6',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-6',
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    const createCodexCliConfigService = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.plan.backend': 'cli',
+            'stages.plan.provider': 'openai',
+            'stages.plan.model': 'gpt-5.4-mini',
+            'ai.provider': 'openai',
+            'ai.model': 'gpt-5.4-mini',
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('retries fresh when Anthropic agent backend throws a stale-resume error', async () => {
+      const service = new StageAgentService(createAnthropicAgentConfigService());
+      const mockDispatch = jest.fn()
+        .mockRejectedValueOnce(new Error('session_id not found'))
+        .mockResolvedValueOnce({ content: 'fresh result', sessionId: 'new-sid' });
+      (service as unknown as { dispatchToBackend: jest.Mock }).dispatchToBackend = mockDispatch;
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await (service as unknown as {
+        runStagePrompt: (params: StagePromptParams) => Promise<{ content: string; sessionId?: string }>;
+      }).runStagePrompt({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', resumeProviderSessionId: 'stale-sid' });
+
+      expect(result.content).toBe('fresh result');
+      expect(mockDispatch).toHaveBeenCalledTimes(2);
+      expect(mockDispatch.mock.calls[1][0].resumeProviderSessionId).toBeUndefined();
+      const warnCalls = logSpy.mock.calls.filter(call => String(call[0]).toLowerCase().includes('stale'));
+      expect(warnCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('retries fresh when Claude CLI backend throws a stale-resume error', async () => {
+      const service = new StageAgentService(createClaudeCliConfigService());
+      const mockDispatch = jest.fn()
+        .mockRejectedValueOnce(new Error('invalid session for resume'))
+        .mockResolvedValueOnce({ content: 'cli fresh result', sessionId: 'new-cli-sid' });
+      (service as unknown as { dispatchToBackend: jest.Mock }).dispatchToBackend = mockDispatch;
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await (service as unknown as {
+        runStagePrompt: (params: StagePromptParams) => Promise<{ content: string; sessionId?: string }>;
+      }).runStagePrompt({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', resumeProviderSessionId: 'stale-cli-sid' });
+
+      expect(result.content).toBe('cli fresh result');
+      expect(mockDispatch).toHaveBeenCalledTimes(2);
+      expect(mockDispatch.mock.calls[1][0].resumeProviderSessionId).toBeUndefined();
+    });
+
+    it('retries fresh when Codex CLI backend throws a stale-resume error', async () => {
+      const service = new StageAgentService(createCodexCliConfigService());
+      const mockDispatch = jest.fn()
+        .mockRejectedValueOnce(new Error('thread not found'))
+        .mockResolvedValueOnce({ content: 'codex fresh result', sessionId: 'new-codex-sid' });
+      (service as unknown as { dispatchToBackend: jest.Mock }).dispatchToBackend = mockDispatch;
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await (service as unknown as {
+        runStagePrompt: (params: StagePromptParams) => Promise<{ content: string; sessionId?: string }>;
+      }).runStagePrompt({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', resumeProviderSessionId: 'stale-codex-sid' });
+
+      expect(result.content).toBe('codex fresh result');
+      expect(mockDispatch).toHaveBeenCalledTimes(2);
+      expect(mockDispatch.mock.calls[1][0].resumeProviderSessionId).toBeUndefined();
+    });
+
+    it('retries fresh regardless of TTY state', async () => {
+      const originalIsTTY = process.stdout.isTTY;
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+
+      const service = new StageAgentService(createAnthropicAgentConfigService());
+      const mockDispatch = jest.fn()
+        .mockRejectedValueOnce(new Error('session_id not found'))
+        .mockResolvedValueOnce({ content: 'non-tty fresh result', sessionId: 'new-sid' });
+      (service as unknown as { dispatchToBackend: jest.Mock }).dispatchToBackend = mockDispatch;
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await (service as unknown as {
+        runStagePrompt: (params: StagePromptParams) => Promise<{ content: string; sessionId?: string }>;
+      }).runStagePrompt({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', resumeProviderSessionId: 'stale-sid' });
+
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
+
+      expect(result.content).toBe('non-tty fresh result');
+      expect(mockDispatch).toHaveBeenCalledTimes(2);
+    });
+
+    it('throws ExecutionError without looping when retry also fails with stale-resume error', async () => {
+      const service = new StageAgentService(createAnthropicAgentConfigService());
+      const mockDispatch = jest.fn()
+        .mockRejectedValueOnce(new Error('session_id not found'))
+        .mockRejectedValueOnce(new Error('invalid session ID on retry'));
+      (service as unknown as { dispatchToBackend: jest.Mock }).dispatchToBackend = mockDispatch;
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await expect(
+        (service as unknown as {
+          runStagePrompt: (params: StagePromptParams) => Promise<{ content: string; sessionId?: string }>;
+        }).runStagePrompt({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', resumeProviderSessionId: 'stale-sid' })
+      ).rejects.toBeInstanceOf(ExecutionError);
+      expect(mockDispatch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry when error is not a resume-continuity problem', async () => {
+      const service = new StageAgentService(createAnthropicAgentConfigService());
+      const mockDispatch = jest.fn().mockRejectedValue(new Error('network timeout'));
+      (service as unknown as { dispatchToBackend: jest.Mock }).dispatchToBackend = mockDispatch;
+
+      await expect(
+        (service as unknown as {
+          runStagePrompt: (params: StagePromptParams) => Promise<{ content: string; sessionId?: string }>;
+        }).runStagePrompt({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', resumeProviderSessionId: 'sid' })
+      ).rejects.toThrow('network timeout');
+      expect(mockDispatch).toHaveBeenCalledTimes(1);
     });
   });
 
