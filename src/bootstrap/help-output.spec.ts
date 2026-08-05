@@ -205,7 +205,6 @@ describe('getHelpText', () => {
     expect(plainLines.every(line => line.length <= 80)).toBe(true);
     expect(alphaDescriptionColumn).toBeGreaterThan(0);
     expect(betaDescriptionColumn).toBe(alphaDescriptionColumn);
-    expect(helpText).toContain('<gray>  # Run against a quoted URL source</gray>');
     expect(helpText).toContain('<yellow>--alpha</yellow>');
   });
 

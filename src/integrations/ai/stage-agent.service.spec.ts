@@ -714,6 +714,127 @@ describe('StageAgentService', () => {
     });
   });
 
+  describe('review stage fresh-start retry', () => {
+    beforeEach(() => {
+      spawnCli.mockClear();
+      buildCliArgs.mockClear();
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('starts fresh session on review retry instead of resuming', async () => {
+      async function* firstPass() {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Let me think...' }] },
+          session_id: 'sess_abc',
+        };
+      }
+      async function* secondPass() {
+        yield { type: 'result', subtype: 'success', result: '{"comments":[]}' };
+      }
+      spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      const result = await runner({ stage: 'review', prompt: 'original review prompt', systemPrompt: 'sys' });
+
+      expect(buildCliArgs).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          prompt: 'original review prompt',
+          sessionId: undefined,
+        })
+      );
+      expect(result).toMatchObject({ content: '{"comments":[]}' });
+      expect(result.sessionId).toBeUndefined();
+
+      const freshStartLogs = logSpy.mock.calls.filter(call =>
+        String(call[0]).includes('Review retry starts fresh')
+      );
+      expect(freshStartLogs.length).toBeGreaterThanOrEqual(1);
+
+      logSpy.mockRestore();
+    });
+
+    it('still resumes session on non-review stage retry', async () => {
+      async function* firstPass() {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Let me think...' }] },
+          session_id: 'sess_abc',
+        };
+      }
+      async function* secondPass() {
+        yield { type: 'result', subtype: 'success', result: '{"action":"fix"}', session_id: 'sess_abc' };
+      }
+      spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
+
+      const createCliConfigService = (): ConfigService =>
+        ({
+          get: jest.fn((key: string, defaultValue?: unknown) => {
+            const values: Record<string, unknown> = {
+              'stages.plan.backend': 'cli',
+              'stages.plan.provider': 'anthropic',
+              'stages.plan.model': 'claude-sonnet-4-5-20250514',
+              'ai.provider': 'anthropic',
+              'ai.model': 'claude-sonnet-4-5-20250514',
+            };
+            return key in values ? values[key] : defaultValue;
+          }),
+        }) as unknown as ConfigService;
+
+      const service = new StageAgentService(createCliConfigService());
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      const result = await runner({ stage: 'plan', prompt: 'original plan prompt', systemPrompt: 'sys' });
+
+      expect(buildCliArgs).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          prompt:
+            'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines). JSON string values must not contain literal newline characters — use \\n for line breaks within strings.',
+          sessionId: 'sess_abc',
+        })
+      );
+      expect(result).toMatchObject({ content: '{"action":"fix"}' });
+
+      logSpy.mockRestore();
+    });
+
+    it('throws stall error after 2 fresh review attempts', async () => {
+      async function* firstPass() {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Still thinking...' }] },
+          session_id: 'sess_abc',
+        };
+      }
+      async function* secondPass() {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Still thinking...' }] },
+          session_id: undefined,
+        };
+      }
+      spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      await expect(
+        runner({ stage: 'review', prompt: 'original review prompt', systemPrompt: 'sys' })
+      ).rejects.toThrow(/workload not decreasing/);
+      expect(spawnCli).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('sets executionMode to cli when review backend is cli', async () => {
     const configService = {
       get: jest.fn((key: string, defaultValue?: unknown) => {

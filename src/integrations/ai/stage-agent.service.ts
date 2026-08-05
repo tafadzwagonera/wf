@@ -1604,6 +1604,7 @@ export class StageAgentService {
       const completed = this.tryFinalizeCliPass(passResult, stage, state.passNumber, state.sessionId);
       if (completed) return completed;
       advanceCliRetryState(state, passResult);
+      this.handleReviewFreshStart(state, stage);
     }
   }
 
@@ -1632,6 +1633,21 @@ export class StageAgentService {
     console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${passResult.source} (pass ${passNumber})`));
     if (sessionId) console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Provider session: ${sessionId}`));
     return { content: passResult.result.trim(), sessionId };
+  }
+
+  /**
+   * @param state - mutable retry-loop state; `sessionId` is cleared in place so the
+   *   next pass opens a fresh CLI session with the original prompt instead of the
+   *   JSON retry prompt (because `runCliStagePass` derives `isResume = false` when
+   *   `sessionId` is undefined). The stall counter (`stalledPasses`) is deliberately
+   *   preserved — this is a session reset, not a full retry budget reset.
+   * @param stage - only the `'review'` stage triggers fresh-start behaviour
+   */
+  private handleReviewFreshStart(state: CliRetryState, stage: AgentStageName): void {
+    if (stage === 'review') {
+      state.sessionId = undefined;
+      console.log(chalk.yellow(`  [${CLI_STAGE_LABEL}] Review retry starts fresh (no session resumption)`));
+    }
   }
 
   /**
