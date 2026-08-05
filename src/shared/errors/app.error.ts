@@ -65,7 +65,7 @@ export class GitError extends AppError {
   }
 }
 
-export type AIErrorCategory = 'auth' | 'api' | 'parse' | 'truncation' | 'stall';
+export type AIErrorCategory = 'auth' | 'api' | 'parse' | 'timeout' | 'truncation' | 'stall';
 
 export class AIError extends AppError {
   constructor(

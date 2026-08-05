@@ -34,21 +34,27 @@ describe('ErrorHandler', () => {
       expect(exitSpy).toHaveBeenCalledWith(1);
     });
 
+    it('returns timeout suggestion for timeout category', () => {
+      ErrorHandler.handle(new AIError('msg', null, true, 'timeout'));
+      expect(allOutput()).toContain('timed out');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    });
+
     it('returns default AI suggestion when category is undefined', () => {
       ErrorHandler.handle(new AIError('msg'));
       expect(allOutput()).toContain('API keys');
       expect(exitSpy).toHaveBeenCalledWith(1);
     });
 
-    it('returns default AI suggestion when category is auth', () => {
+    it('returns auth suggestion for auth category', () => {
       ErrorHandler.handle(new AIError('msg', null, true, 'auth'));
-      expect(allOutput()).toContain('API keys');
+      expect(allOutput()).toContain('Authentication failed');
       expect(exitSpy).toHaveBeenCalledWith(1);
     });
 
-    it('returns default AI suggestion when category is api', () => {
+    it('returns api suggestion for api category', () => {
       ErrorHandler.handle(new AIError('msg', null, true, 'api'));
-      expect(allOutput()).toContain('API keys');
+      expect(allOutput()).toContain('service error');
       expect(exitSpy).toHaveBeenCalledWith(1);
     });
 

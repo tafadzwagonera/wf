@@ -9,6 +9,7 @@ import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
 import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
+import { classifyAiSdkError } from './ai-error.classify';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
 
@@ -179,9 +180,9 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       return mapOpenAiResponse(response, model);
     } catch (error) {
       if (error instanceof OpenAI.APIError) {
-        throw new AIError(`OpenAI API error: ${error.message}`, getApiErrorDetails(error), true);
+        throw new AIError(`OpenAI API error: ${error.message}`, getApiErrorDetails(error), true, classifyAiSdkError(error));
       }
-      throw new AIError(errorMsg, error);
+      throw new AIError(errorMsg, error, true, classifyAiSdkError(error));
     }
   }
 

@@ -48,6 +48,9 @@ export class ErrorHandler {
   private static getSuggestion(error: AppError): string | null {
     if (error instanceof AIError && error.category) {
       const categorySuggestions: Partial<Record<AIErrorCategory, string>> = {
+        timeout: 'The AI provider request timed out. Check your network connection and retry — the provider may be temporarily overloaded.',
+        auth: 'Authentication failed. Verify the API key for the selected provider in your wf.config.* file.',
+        api: 'The AI provider returned a service error (e.g. rate limit or overload). Wait briefly and retry.',
         parse: 'The AI response could not be parsed. This is usually transient — retry the command.',
         truncation: 'The AI response was cut short. Reduce prompt/context size or increase the token budget where supported.',
         stall: 'The AI agent stalled without producing output. Retry or check agent configuration.',

@@ -9,6 +9,7 @@ import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
 import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
+import { classifyAiSdkError } from './ai-error.classify';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
 
@@ -99,7 +100,7 @@ const buildMessageHistory = (request: AIConversationRequest): Anthropic.MessageP
  * @returns A new AIError with status metadata
  */
 const wrapApiError = (error: InstanceType<typeof Anthropic.APIError>): AIError =>
-  new AIError(`Claude API error: ${error.message}`, { status: error.status }, true);
+  new AIError(`Claude API error: ${error.message}`, { status: error.status }, true, classifyAiSdkError(error));
 
 /**
  * Calls the Anthropic messages API and maps the result to AIResponse.
@@ -120,7 +121,7 @@ const callMessages = async (
     return mapAnthropicResponse(response, model);
   } catch (error) {
     if (error instanceof Anthropic.APIError) throw wrapApiError(error);
-    throw new AIError(errorMsg, error);
+    throw new AIError(errorMsg, error, true, classifyAiSdkError(error));
   }
 };
 

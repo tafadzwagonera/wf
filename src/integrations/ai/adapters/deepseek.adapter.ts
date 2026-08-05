@@ -9,6 +9,7 @@ import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
 import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
+import { classifyAiSdkError } from './ai-error.classify';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
 
@@ -96,9 +97,9 @@ const buildMessageHistory = (
  */
 const throwDeepSeekError = (error: unknown, fallbackMessage: string): never => {
   if (error instanceof OpenAI.APIError) {
-    throw new AIError(`DeepSeek API error: ${error.message}`, { status: error.status }, true);
+    throw new AIError(`DeepSeek API error: ${error.message}`, { status: error.status }, true, classifyAiSdkError(error));
   }
-  throw new AIError(fallbackMessage, error);
+  throw new AIError(fallbackMessage, error, true, classifyAiSdkError(error));
 };
 
 /**

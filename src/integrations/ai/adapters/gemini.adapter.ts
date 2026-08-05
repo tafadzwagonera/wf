@@ -9,6 +9,7 @@ import { AIError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
 import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
+import { classifyAiSdkError } from './ai-error.classify';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
 
@@ -203,7 +204,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
       const result = await generativeModel.generateContent(request.prompt);
       return this.buildResponseMetadata(result.response.text(), model, result.response);
     } catch (error) {
-      throw new AIError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true);
+      throw new AIError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true, classifyAiSdkError(error));
     }
   }
 
@@ -219,7 +220,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
       const result = await generativeModel.startChat({ history }).sendMessage(lastMessage.content);
       return this.buildResponseMetadata(result.response.text(), model, result.response);
     } catch (error) {
-      throw new AIError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true);
+      throw new AIError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true, classifyAiSdkError(error));
     }
   }
 }
