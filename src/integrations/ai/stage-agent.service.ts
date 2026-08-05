@@ -558,51 +558,11 @@ const REVIEW_INSTRUCTIONS = `Provide a code review with:
 7. Optional trailing suggestions for general follow-up work that is not tied to a single issue — each must also prefer the smallest effective fix and use the same concise, human-friendly tone
 8. Whether the code is approved`;
 
-const REVIEW_JSON_SCHEMA = `Return ONLY a valid JSON object:
-{
-  "summary": "...",
-  "issues": [
-    {
-      "severity": "error|warning|info",
-      "message": "...",
-      "file": "optional",
-      "line": 12,
-      "suggestion": "optional issue-specific remediation"
-    }
-  ],
-  "traceProvenance": "evidence-based|best-effort|unavailable",
-  "callStack": [
-    {
-      "frame": "Class.method(...)",
-      "children": [
-        {
-          "frame": "Child.method(...)",
-          "children": []
-        }
-      ]
-    }
-  ],
-  "stateTransition": {
-    "from": "state-a",
-    "to": "state-b",
-    "steps": [
-      {
-        "frame": "Class.method(...)",
-        "captured": {
-          "some.dep": "Dep { ... }"
-        },
-        "changes": {
-          "some.dep": {
-            "before": "old value",
-            "after": "new value"
-          }
-        }
-      }
-    ]
-  },
-  "suggestions": ["general follow-up suggestion 1"],
-  "approved": true
-}
+const REVIEW_JSON_SCHEMA = `Return ONLY a valid JSON object. Reference:
+    {"summary":"Rename display label from X to Y across all user-facing text.","issues":[{"severity":"warning","message":"Missing JSDoc block on new private method.","file":"src/service.ts","line":42,"suggestion":"Add a minimal JSDoc block."},{"severity":"info","message":"Unused import spans multiple lines.","file":"src/utils.ts","line":10,"endLine":14},{"severity":"info","message":"Log message change loses diagnostic value."}],"traceProvenance":"evidence-based","callStack":[{"frame":"Service.method(params)","children":[{"frame":"Helper.transform(input)","children":[]}]}],"stateTransition":{"from":"entry-frame","to":"exit-frame","steps":[{"frame":"Service.method(params)","captured":{"dep":"Dep { ... }"},"changes":{"dep":{"before":"old","after":"new"}},"children":[]}]},"suggestions":["Extract predicate into a named helper for readability."],"approved":true}
+
+    Prefer an absolute line number. Degrade to a line range (line + endLine) when the issue spans multiple lines. Omit line and endLine entirely when the issue cannot be pinned to specific lines.
+    When an optional field has no value, omit it from the JSON entirely. Do not use null.
 
 ${JSON_OUTPUT_RULES}`;
 

@@ -11,12 +11,13 @@ import {
   REVIEW_VERDICT_CHANGES_REQUESTED,
 } from '../integrations/ai/ai.service';
 import { buildCodeReviewPresentation } from '../review/code-review-post-processing';
+import { formatIssueFileLocation } from '../shared/schemas/review.schema';
 import { formatReviewCallStack, formatReviewStateTransition } from '../integrations/ai/review-trace';
 import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { ValidationError, ExecutionError, FileSystemError, GitError } from '../shared/utils/errors';
+import { ValidationError, ExecutionError, FileSystemError, GitError, isAIErrorLike } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
@@ -595,23 +596,33 @@ export class IssueReviewCommand extends CommandRunner {
     console.log(chalk.gray('Make sure you have changes to review (commits, staged, or unstaged)\n'));
   }
 
-  private async executeReviews(
-    targets: ReviewTarget[], extraCriteria: string[] | null, options?: IssueReviewOptions
-  ): Promise<ReviewedTarget[]> {
+  private async executeReviews(targets: ReviewTarget[],
+    extraCriteria: string[] | null, options?: IssueReviewOptions): Promise<ReviewedTarget[]> {
     const reviewed: ReviewedTarget[] = [];
     const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(`  ${line}`));
     for (const target of targets) {
-      const review = await this.reviewStageService.reviewDiff(target.diff, {
-        context: target.context, extraCriteria: extraCriteria ?? undefined,
-        replaceCriteria: Boolean(options?.replaceCriteria),
-        repoDir: target.repoDir, resumeProviderSessionId: options?.sessionId,
-        onProgress,
-      });
-      reviewed.push({ ...target, review });
-      if (!options?.silent) this.displayReview(review, target.title);
-      if (options?.comment) await this.postReviewComment(target, review);
+      try {
+        const review = await this.reviewStageService.reviewDiff(target.diff, {
+          context: target.context, extraCriteria: extraCriteria ?? undefined,
+          replaceCriteria: Boolean(options?.replaceCriteria),
+          repoDir: target.repoDir, resumeProviderSessionId: options?.sessionId, onProgress,
+        });
+        reviewed.push({ ...target, review });
+        if (!options?.silent) this.displayReview(review, target.title);
+        if (options?.comment) await this.postReviewComment(target, review);
+      } catch (error) {
+        this.handleReviewParseError(error, options);
+      }
     }
     return reviewed;
+  }
+
+  private handleReviewParseError(error: unknown, options?: IssueReviewOptions): void {
+    if (!isAIErrorLike(error) || error.category !== 'parse') throw error;
+    this.logger.warn('Review target skipped — parse error: ' + (error.message ?? 'unknown'));
+    if (options?.silent) return;
+    console.log(chalk.yellow('\n⚠ Review JSON could not be fully validated. Dumping raw payload for manual inspection.\n'));
+    console.log(error.details?.response ?? '');
   }
 
   private cacheReviewArtifact(
@@ -1612,7 +1623,7 @@ export class IssueReviewCommand extends CommandRunner {
     for (const { issue, suggestion } of rows) {
       const color = this.resolveSeverityColor(issue.severity);
       console.log(color('  [' + issue.severity.toUpperCase() + '] ' + issue.message));
-      if (issue.file) console.log(chalk.gray('    File: ' + issue.file + (issue.line ? ':' + issue.line : '')));
+      if (issue.file) console.log(chalk.gray('    File: ' + formatIssueFileLocation(issue)));
       if (suggestion) console.log(chalk.cyan('    Suggestion: ' + suggestion));
     }
   }

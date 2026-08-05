@@ -526,6 +526,59 @@ describe('ReviewStageService', () => {
     );
   });
 
+  describe('agent parse-error recovery', () => {
+    it('recovers a valid review via validateReviewJson when the agent throws a parse AIError', async () => {
+      const recoveredReview = {
+        ...mockReview,
+        executionMode: 'standard' as const,
+      };
+      const { service, stageAgentService, aiService } = await buildService({
+        agentEnabled: true,
+        reviewBackend: 'agent',
+      });
+      (stageAgentService.reviewCode as jest.Mock).mockRejectedValueOnce(
+        new AIError('Review JSON could not be corrected', {
+          response: JSON.stringify({
+            summary: mockReview.summary,
+            issues: [],
+            suggestions: mockReview.suggestions,
+            approved: mockReview.approved,
+          }),
+        }, true, 'parse')
+      );
+      const svc = aiService as unknown as Record<string, unknown>;
+      svc.validateReviewJson = jest.fn().mockResolvedValue(recoveredReview);
+
+      const review = await service.reviewDiff('diff --git a/file b/file', {
+        context: 'ticket WBP-REC: Recovery test',
+        repoDir: '/tmp/repo',
+      });
+
+      expect(review.executionMode).toBe('agent');
+      expect(svc.validateReviewJson).toHaveBeenCalledWith(
+        expect.any(String),
+        'diff --git a/file b/file'
+      );
+    });
+
+    it('rethrows non-parse AIErrors from the agent without recovery', async () => {
+      const { service, stageAgentService } = await buildService({
+        agentEnabled: true,
+        reviewBackend: 'agent',
+      });
+      (stageAgentService.reviewCode as jest.Mock).mockRejectedValueOnce(
+        new AIError('API rate limit exceeded', {}, false, 'api')
+      );
+
+      await expect(
+        service.reviewDiff('diff --git a/file b/file', {
+          context: 'ticket WBP-NREC: Non-recoverable',
+          repoDir: '/tmp/repo',
+        })
+      ).rejects.toMatchObject({ message: 'API rate limit exceeded' });
+    });
+  });
+
   describe('skill integration', () => {
     const createMockReviewSkill = (id: string): SkillDefinition => ({ id, stages: ['review'] });
     let savedSkills: Map<string, SkillDefinition>;

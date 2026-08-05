@@ -1221,4 +1221,85 @@ describe('IssueReviewCommand', () => {
       expect(adapters.bitbucketAdapter.findPullRequestsByTicketKey).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('displayIssueRows endLine rendering', () => {
+    let consoleLogSpy: jest.SpyInstance;
+    const fakeTarget = {
+      targets: [{ title: 'Local', diff: 'diff --git a/foo.ts b/foo.ts\n+change', context: 'local', repoDir: '/tmp' }],
+    };
+
+    beforeEach(() => {
+      consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+      jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined);
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
+    });
+
+    it('prints file:line-endLine when endLine is greater than line', async () => {
+      const { command, reviewStageService } = await buildCommand();
+      jest.spyOn(command as any, 'buildReviewTargets').mockResolvedValue(fakeTarget);
+      const reviewWithRange: CodeReview = {
+        ...mockReview,
+        issues: [
+          {
+            severity: 'info',
+            message: 'Unused import spans multiple lines.',
+            file: 'src/utils.ts',
+            line: 10,
+            endLine: 14,
+          },
+        ],
+      };
+      reviewStageService.reviewDiff.mockResolvedValueOnce(reviewWithRange);
+
+      await command.run([], { silent: false });
+
+      const loggedLines = consoleLogSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(loggedLines.some((line: string) => line.includes('src/utils.ts:10-14'))).toBe(true);
+    });
+
+    it('prints file:line only when endLine is absent', async () => {
+      const { command, reviewStageService } = await buildCommand();
+      jest.spyOn(command as any, 'buildReviewTargets').mockResolvedValue(fakeTarget);
+      const reviewWithLine: CodeReview = {
+        ...mockReview,
+        issues: [
+          {
+            severity: 'warning',
+            message: 'Missing JSDoc.',
+            file: 'src/service.ts',
+            line: 42,
+          },
+        ],
+      };
+      reviewStageService.reviewDiff.mockResolvedValueOnce(reviewWithLine);
+
+      await command.run([], { silent: false });
+
+      const loggedLines = consoleLogSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(loggedLines.some((line: string) => line.includes('src/service.ts:42'))).toBe(true);
+      expect(loggedLines.every((line: string) => !line.includes('src/service.ts:42-'))).toBe(true);
+    });
+
+    it('prints file only when line is absent', async () => {
+      const { command, reviewStageService } = await buildCommand();
+      jest.spyOn(command as any, 'buildReviewTargets').mockResolvedValue(fakeTarget);
+      const reviewNoLine: CodeReview = {
+        ...mockReview,
+        issues: [
+          {
+            severity: 'info',
+            message: 'Log message change.',
+            file: 'src/logger.ts',
+          },
+        ],
+      };
+      reviewStageService.reviewDiff.mockResolvedValueOnce(reviewNoLine);
+
+      await command.run([], { silent: false });
+
+      const loggedLines = consoleLogSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(loggedLines.some((line: string) => line.includes('src/logger.ts') && !line.includes('src/logger.ts:'))).toBe(true);
+    });
+  });
 });

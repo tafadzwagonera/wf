@@ -1179,12 +1179,12 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('"suggestion": "optional issue-specific remediation"'),
+          prompt: expect.stringContaining('"endLine"'),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('"suggestions": ["general follow-up suggestion 1", ...]'),
+          prompt: expect.stringContaining('Return ONLY a valid JSON object. Reference:'),
         })
       );
     });
@@ -1288,7 +1288,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       const service = new AiService(mockLogger, adapter, createConfigService());
 
       await expect(service.reviewCode('diff', ['guideline'])).rejects.toMatchObject({
-        message: expect.stringContaining('Failed to parse code review'),
+        message: expect.stringContaining('Review JSON lacks required top-level fields'),
       });
     });
 
@@ -1448,6 +1448,107 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       const prompt = (adapter.execute as jest.Mock).mock.calls[0][0].prompt as string;
       expect(prompt).not.toContain('Skill-specific instructions:');
+    });
+  });
+
+  describe('validateReviewJson', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('returns a parsed CodeReview when the raw JSON is valid', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const rawJson = JSON.stringify({
+        summary: 'All good',
+        issues: [],
+        suggestions: ['Consider adding tests'],
+        approved: true,
+      });
+
+      const review = await service.validateReviewJson(rawJson, 'diff --git a/file');
+
+      expect(review.summary).toBe('All good');
+      expect(review.approved).toBe(true);
+      expect(review.executionMode).toBe('standard');
+      expect(adapter.execute).not.toHaveBeenCalled();
+    });
+
+    it('throws AIError immediately when the JSON lacks required top-level fields', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const rawJson = JSON.stringify({ message: 'unexpected shape' });
+
+      await expect(service.validateReviewJson(rawJson, 'diff')).rejects.toMatchObject({
+        message: 'Review JSON lacks required top-level fields (summary, issues, suggestions, approved)',
+        category: 'parse',
+      });
+      expect(adapter.execute).not.toHaveBeenCalled();
+    });
+
+    it('corrects invalid JSON via one retry and returns the fixed review', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: 'Fixed',
+          issues: [],
+          suggestions: [],
+          approved: false,
+        }),
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const rawJson = JSON.stringify({
+        summary: 'Bad',
+        issues: [],
+        suggestions: 'not-an-array',
+        approved: true,
+      });
+
+      const review = await service.validateReviewJson(rawJson, 'diff');
+
+      expect(review.summary).toBe('Fixed');
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws AIError when retries are exhausted without improvement', async () => {
+      const adapter = createAdapter();
+      const stillInvalidJson = JSON.stringify({
+        summary: 'Still broken',
+        issues: [],
+        suggestions: 'not-an-array',
+        approved: true,
+      });
+      adapter.execute.mockResolvedValue({
+        content: stillInvalidJson,
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(service.validateReviewJson(stillInvalidJson, 'diff')).rejects.toMatchObject({
+        message: expect.stringContaining('Review JSON could not be corrected'),
+        category: 'parse',
+      });
+    });
+
+    it('coerces null issue fields to undefined without throwing', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const rawJson = JSON.stringify({
+        summary: 'Null fields',
+        issues: [{ severity: 'info', message: 'x', file: null, line: null, endLine: null, suggestion: null }],
+        suggestions: [],
+        approved: true,
+      });
+
+      const review = await service.validateReviewJson(rawJson, 'diff');
+
+      expect(review.issues[0].file).toBeUndefined();
+      expect(review.issues[0].line).toBeUndefined();
+      expect(review.issues[0].endLine).toBeUndefined();
+      expect(review.issues[0].suggestion).toBeUndefined();
     });
   });
 });

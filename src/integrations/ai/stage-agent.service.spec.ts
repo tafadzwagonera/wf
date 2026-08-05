@@ -879,12 +879,8 @@ describe('StageAgentService', () => {
 
     const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
 
-    expect(prompt).toContain(
-      '  "approved": true\n}\n\nIMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.'
-    );
-    expect(prompt).not.toContain(
-      '  "approved": true\nIMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.\n}'
-    );
+    expect(prompt).toContain('"approved":true}\n\n    Prefer an absolute line number.');
+    expect(prompt).not.toContain('"approved":true}\nIMPORTANT: Minify the JSON');
   });
 
   it('sets executionMode to agent when review backend is agent', async () => {

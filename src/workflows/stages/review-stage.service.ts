@@ -13,11 +13,13 @@ import { formatReviewCallStack, formatReviewStateTransition } from '../../integr
 import { ReviewArtifact, TicketArtifact } from '../../agents/interfaces';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import { buildCodeReviewPresentation } from '../../review/code-review-post-processing';
+import { formatIssueFileLocation } from '../../shared/schemas/review.schema';
 import { splitDiffByFile, summariseDiff, MAX_REVIEW_DIFF_LENGTH } from '../../review/summarise-diff';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import { deriveReviewArtifactPath } from '../../shared/utils/plan-artifact';
 import { StageProgressCallback } from '../../shared/types/agent.types';
 import { resolveSkills } from '../../skills';
+import { isAIErrorLike } from '../../shared/utils/errors';
 
 const DEFAULT_REVIEW_GUIDELINES = [
   'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
@@ -122,16 +124,24 @@ export class ReviewStageService {
   }
 
   private async reviewViaAgent(
-    diff: string,
-    guidelines: string[],
-    options: ReviewDiffOptions
+    diff: string, guidelines: string[], options: ReviewDiffOptions
   ): Promise<CodeReview> {
-    const result = await this.stageAgentService.reviewCode(
-      diff, guidelines, options.repoDir, options.priorStageSummary,
-      options.resumeProviderSessionId, options.onProgress,
-      options.skillNames
-    );
-    return result.review;
+    try {
+      const result = await this.stageAgentService.reviewCode(
+        diff, guidelines, options.repoDir, options.priorStageSummary,
+        options.resumeProviderSessionId, options.onProgress, options.skillNames
+      );
+      return result.review;
+    } catch (error) {
+      return this.recoverReviewFromValidation(error, diff);
+    }
+  }
+
+  private async recoverReviewFromValidation(error: unknown, diff: string): Promise<CodeReview> {
+    if (!isAIErrorLike(error) || error.category !== 'parse' || !error.details?.response) throw error;
+    const review = await this.aiService.validateReviewJson(error.details.response as string, diff);
+    const backend = this.configService.get<string>('stages.review.backend', resolveDefaultStageBackend('review'));
+    return { ...review, executionMode: backend === 'cli' ? 'cli' : 'agent' };
   }
 
   private isInteractiveSession(): boolean {
@@ -206,7 +216,7 @@ export class ReviewStageService {
       ? presentation.issueRows
           .map(({ issue, suggestion }) =>
             [
-              `- [${issue.severity}] ${issue.message}${issue.file ? ` (${issue.file}${issue.line ? `:${issue.line}` : ''})` : ''}`,
+              `- [${issue.severity}] ${issue.message}${issue.file ? ` (${formatIssueFileLocation(issue)})` : ''}`,
               suggestion ? `  - Suggestion: ${suggestion}` : null,
             ]
               .filter((line): line is string => line != null)

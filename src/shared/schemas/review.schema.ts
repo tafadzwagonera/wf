@@ -42,12 +42,24 @@ export const diffSegmentSchema = z.object({
 
 export const codeIssueSeveritySchema = z.enum(['error', 'warning', 'info']);
 
+export const formatIssueFileLocation = (issue: { file?: string; line?: number; endLine?: number }): string => {
+  if (!issue.file) return '';
+  const lineRange = issue.line
+    ? ':' + issue.line + (issue.endLine && issue.endLine > issue.line ? '-' + issue.endLine : '')
+    : '';
+  return issue.file + lineRange;
+};
+
+const nullableOptional = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(v => (v === null ? undefined : v), schema.optional());
+
 export const codeIssueSchema = z.object({
   severity: codeIssueSeveritySchema,
   message: z.string(),
-  file: z.string().optional(),
-  line: z.number().optional(),
-  suggestion: z.string().optional(),
+  file: nullableOptional(z.string()),
+  line: nullableOptional(z.number()),
+  endLine: nullableOptional(z.number()),
+  suggestion: nullableOptional(z.string()),
 });
 
 export const reviewPresentationIssueRowSchema = z.object({

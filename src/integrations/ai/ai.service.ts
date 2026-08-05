@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import dayjs from 'dayjs';
 import { AIError, isAIErrorLike } from '../../shared/utils/errors';
+import { formatZodError, isZodErrorLike } from '../../shared/utils/zod-error.util';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
@@ -889,52 +890,11 @@ const REVIEW_PROMPT_TRACE_RULES = `    Important trace rules:
     - For detailed traces, include important intermediate methods, mappers, helpers, and client calls when they materially affect the changed path.
     - Prefer multiple distinct tree levels when downstream dependencies are nested.`;
 
-const REVIEW_PROMPT_OUTPUT_SCHEMA = `    Return ONLY a valid JSON object:
-    {
-      "summary": "...",
-      "issues": [
-    {
-      "severity": "error|warning|info",
-      "message": "...",
-          "file": "optional",
-          "line": optional_number,
-          "suggestion": "optional issue-specific remediation"
-        }
-      ],
-      "traceProvenance": "evidence-based|best-effort|unavailable",
-      "callStack": [
-        {
-          "frame": "Class.method(...)",
-          "children": [
-            {
-              "frame": "Child.method(...)",
-              "children": []
-            }
-          ]
-        }
-      ],
-      "stateTransition": {
-        "from": "entry-frame",
-        "to": "exit-frame",
-        "steps": [
-          {
-            "frame": "Class.method(...)",
-            "captured": {
-              "some.dep": "Dep { ... }"
-            },
-            "changes": {
-              "some.dep": {
-                "before": "old value",
-                "after": "new value"
-              }
-            },
-            "children": []
-          }
-        ]
-      },
-      "suggestions": ["general follow-up suggestion 1", ...],
-      "approved": true|false
-    }
+const REVIEW_PROMPT_OUTPUT_SCHEMA = `    Return ONLY a valid JSON object. Reference:
+    {"summary":"Rename display label from X to Y across all user-facing text.","issues":[{"severity":"warning","message":"Missing JSDoc block on new private method.","file":"src/service.ts","line":42,"suggestion":"Add a minimal JSDoc block."},{"severity":"info","message":"Unused import spans multiple lines.","file":"src/utils.ts","line":10,"endLine":14},{"severity":"info","message":"Log message change loses diagnostic value."}],"traceProvenance":"evidence-based","callStack":[{"frame":"Service.method(params)","children":[{"frame":"Helper.transform(input)","children":[]}]}],"stateTransition":{"from":"entry-frame","to":"exit-frame","steps":[{"frame":"Service.method(params)","captured":{"dep":"Dep { ... }"},"changes":{"dep":{"before":"old","after":"new"}},"children":[]}]},"suggestions":["Extract predicate into a named helper for readability."],"approved":true}
+
+    Prefer an absolute line number. Degrade to a line range (line + endLine) when the issue spans multiple lines. Omit line and endLine entirely when the issue cannot be pinned to specific lines.
+    When an optional field has no value, omit it from the JSON entirely. Do not use null.
 
     ${JSON_OUTPUT_RULES}`;
 
@@ -980,6 +940,18 @@ const buildReviewPrompt = (diff: string, guidelines: string[], skillNames?: stri
     REVIEW_PROMPT_OUTPUT_SCHEMA,
   ].join('\n');
 };
+
+const REVIEW_VALIDATION_RETRY_LIMIT = 2;
+
+const buildReviewValidationPrompt = (invalidJson: string, zodErrors: string): string =>
+  'The following JSON failed schema validation.\n\nValidation errors:\n'
+  + zodErrors
+  + '\n\nInvalid payload:\n'
+  + invalidJson
+  + '\n\nReturn ONLY the corrected, minified JSON object. When an optional field has no value, omit it — do not use null.';
+
+const hasMinimumReviewShape = (obj: Record<string, unknown>): boolean =>
+  'summary' in obj && 'issues' in obj && 'suggestions' in obj && 'approved' in obj;
 
 /**
  * Execute one review attempt with unusable-response retry logic.
@@ -1168,7 +1140,7 @@ export class AiService {
       this.execute({ prompt: buildReviewPrompt(diff, guidelines, reviewSkillNames.length ? reviewSkillNames : undefined), systemPrompt: REVIEW_SYSTEM_PROMPT, temperature: 0.3, maxTokens: reviewMaxTokens, stage: 'review' });
     const response = await retryOnUnusableResponse(executeReview, REVIEW_EMPTY_RESPONSE_RETRY_LIMIT);
     throwIfTruncated(response, 'Review');
-    return this.parseReviewResponse(response, diff);
+    return this.validateReviewJson(requireReviewResponseContent(response), diff, reviewMaxTokens);
   }
 
   /**
@@ -1330,23 +1302,71 @@ export class AiService {
   }
 
   /**
-   * Parse the review AI response into a CodeReview.
-   * @param response Raw AI response from the review execution call
+   * Validate and repair raw review JSON via Zod, retrying up to REVIEW_VALIDATION_RETRY_LIMIT times.
+   * @param rawJson Raw JSON string from the AI provider
    * @param diff Git diff used for trace sanitization
-   * @returns Parsed and sanitized CodeReview
-   * @throws AIError on empty or unparseable response
+   * @param maxTokens Optional token limit for correction calls
+   * @returns Validated and post-processed CodeReview
+   * @throws AIError when the JSON lacks required top-level fields or cannot be corrected
    */
-  private parseReviewResponse(response: AIResponse, diff: string): CodeReview {
+  async validateReviewJson(rawJson: string, diff: string, maxTokens?: number): Promise<CodeReview> {
+    this.assertMinimumReviewShape(rawJson);
+    const reviewMaxTokens = maxTokens ?? this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
+    return this.retryReviewParsing(rawJson, diff, reviewMaxTokens);
+  }
+
+  private assertMinimumReviewShape(content: string): void {
+    let initial: Record<string, unknown>;
     try {
-      const parsed = codeReviewSchema.parse(
-        parseJsonResponse<CodeReview>(requireReviewResponseContent(response))
-      );
-      const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
-      return { ...processedReview.review, executionMode: 'standard' };
-    } catch (error) {
-      if (isAIErrorLike(error)) throw error;
-      this.logger.error('Failed to parse code review response', error);
-      throw new AIError('Failed to parse code review from AI response', { response: response.content, error }, true, 'parse');
+      initial = parseJsonResponse<Record<string, unknown>>(content);
+    } catch {
+      throw new AIError('Review response is not valid JSON', { response: content }, true, 'parse');
     }
+    if (!hasMinimumReviewShape(initial)) {
+      throw new AIError(
+        'Review JSON lacks required top-level fields (summary, issues, suggestions, approved)',
+        { response: content }, true, 'parse'
+      );
+    }
+  }
+
+  private parseAndProcessReviewContent(content: string, diff: string): CodeReview {
+    const parsed = codeReviewSchema.parse(parseJsonResponse<CodeReview>(content));
+    const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
+    return { ...processedReview.review, executionMode: 'standard' };
+  }
+
+  private async requestReviewCorrection(content: string, zodErrors: string, maxTokens: number): Promise<string> {
+    const response = await this.execute({
+      prompt: buildReviewValidationPrompt(content, zodErrors),
+      systemPrompt: REVIEW_SYSTEM_PROMPT, temperature: 0.2, maxTokens, stage: 'review',
+    });
+    return requireReviewResponseContent(response);
+  }
+
+  private evaluateReviewCorrection(
+    error: unknown, attempt: number, previousErrorCount: number
+  ): { zodErrors: string; errorCount: number } | null {
+    if (isAIErrorLike(error)) throw error;
+    const errorCount = isZodErrorLike(error) ? error.issues.length : Infinity;
+    const stalled = attempt > 0 && errorCount >= previousErrorCount;
+    if (stalled || attempt >= REVIEW_VALIDATION_RETRY_LIMIT) return null;
+    return { zodErrors: isZodErrorLike(error) ? formatZodError(error) : String(error), errorCount };
+  }
+
+  private async retryReviewParsing(rawJson: string, diff: string, maxTokens: number): Promise<CodeReview> {
+    let content = rawJson;
+    let previousErrorCount = Infinity;
+    for (let attempt = 0; attempt <= REVIEW_VALIDATION_RETRY_LIMIT; attempt++) {
+      try {
+        return this.parseAndProcessReviewContent(content, diff);
+      } catch (error) {
+        const correction = this.evaluateReviewCorrection(error, attempt, previousErrorCount);
+        if (!correction) break;
+        previousErrorCount = correction.errorCount;
+        content = await this.requestReviewCorrection(content, correction.zodErrors, maxTokens);
+      }
+    }
+    throw new AIError('Review JSON could not be corrected', { response: content }, true, 'parse');
   }
 }
