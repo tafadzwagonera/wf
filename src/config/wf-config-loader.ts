@@ -41,10 +41,10 @@ const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro';
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
 
 const CONFIG_FILE_NAMES = [
-  'wf.config.js',
-  'wf.config.mjs',
   'wf.config.ts',
   'wf.config.mts',
+  'wf.config.js',
+  'wf.config.mjs',
   'wf.config.yaml',
   'wf.config.yml',
 ] as const;
@@ -280,6 +280,35 @@ const getDefaultModelForProvider = (provider: WfAiProviderName): string => {
 const isGeminiConfig = ({ provider, model }: { provider: WfAiProviderName; model: string }): boolean =>
   provider === 'google' && model.startsWith('gemini');
 
+const MODEL_PREFIX_TO_PROVIDER: Record<string, WfAiProviderName> = {
+  'claude-': 'anthropic',
+  'gpt-': 'openai',
+  'o1-': 'openai',
+  'o3-': 'openai',
+  'o4-': 'openai',
+  'gemini-': 'google',
+  'deepseek-': 'deepseek',
+};
+
+/**
+ * Validates that a model name is not obviously mismatched with its declared provider.
+ * Throws when a well-known model prefix (e.g. `gpt-`) maps to a different provider
+ * than the one declared. Unknown prefixes pass without error.
+ *
+ * @param provider - Declared provider name from the config entry
+ * @param model - Explicit model name from the config entry (not the default)
+ */
+const validateProviderModelMatch = (provider: WfAiProviderName, model: string): void => {
+  for (const [prefix, expectedProvider] of Object.entries(MODEL_PREFIX_TO_PROVIDER)) {
+    if (model.startsWith(prefix) && provider !== expectedProvider) {
+      throw new ValidationError(
+        `Invalid wf config: model "${model}" does not match provider "${provider}".`
+        + ` Models starting with "${prefix}" belong to the "${expectedProvider}" provider.`
+      );
+    }
+  }
+};
+
 const parseNodeVersion = (nodeVersion: string): [number, number, number] =>
   nodeVersion
     .split('.')
@@ -495,14 +524,27 @@ const loadJitiFromProject = (cwd: string): ((filePath: string) => unknown) | nul
  * @returns Absolute config path or null when no config exists
  */
 export const discoverWfConfigPath = (cwd: string): string | null => {
+  let selectedPath: string | null = null;
+  const extraFiles: string[] = [];
+
   for (const fileName of CONFIG_FILE_NAMES) {
     const filePath = path.join(cwd, fileName);
     if (fs.existsSync(filePath)) {
-      return filePath;
+      if (!selectedPath) {
+        selectedPath = filePath;
+      } else {
+        extraFiles.push(fileName);
+      }
     }
   }
 
-  return null;
+  if (selectedPath && extraFiles.length > 0) {
+    console.warn(
+      `Multiple wf config files found. Using ${path.basename(selectedPath)}, ignoring: ${extraFiles.join(', ')}`
+    );
+  }
+
+  return selectedPath;
 };
 
 /**
@@ -579,6 +621,10 @@ const normalizeProvider = (
   model: string;
   maxTokens?: number;
 } => {
+  if (provider.model) {
+    validateProviderModelMatch(provider.provider, provider.model);
+  }
+
   const model = provider.model || getDefaultModelForProvider(provider.provider);
 
   return {

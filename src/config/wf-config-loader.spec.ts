@@ -20,25 +20,64 @@ describe('wf-config-loader', () => {
   });
 
   describe('discoverWfConfigPath', () => {
-    it('prefers JavaScript config files over TypeScript and YAML files', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    it('prefers TypeScript config files over JavaScript and YAML files', () => {
+      jest.spyOn(console, 'warn').mockImplementation(() => {});
       const projectRoot = createProjectRoot();
-      const jsPath = path.join(projectRoot, 'wf.config.js');
+      const tsPath = path.join(projectRoot, 'wf.config.ts');
 
-      fs.writeFileSync(path.join(projectRoot, 'wf.config.ts'), 'export default {}');
+      fs.writeFileSync(tsPath, 'export default {}');
       fs.writeFileSync(path.join(projectRoot, 'wf.config.yaml'), 'ai: []\n');
-      fs.writeFileSync(jsPath, 'module.exports = {};\n');
+      fs.writeFileSync(path.join(projectRoot, 'wf.config.js'), 'module.exports = {};\n');
 
-      expect(discoverWfConfigPath(projectRoot)).toBe(jsPath);
+      expect(discoverWfConfigPath(projectRoot)).toBe(tsPath);
     });
 
     it('uses the documented precedence order when multiple config files are present', () => {
+      jest.spyOn(console, 'warn').mockImplementation(() => {});
       const projectRoot = createProjectRoot();
-      const jsPath = path.join(projectRoot, 'wf.config.js');
+      const tsPath = path.join(projectRoot, 'wf.config.ts');
 
-      fs.writeFileSync(jsPath, 'module.exports = {};\n');
+      fs.writeFileSync(tsPath, 'export default {};\n');
+      fs.writeFileSync(path.join(projectRoot, 'wf.config.js'), 'module.exports = {};\n');
       fs.writeFileSync(path.join(projectRoot, 'wf.config.mjs'), 'export default {};\n');
 
-      expect(discoverWfConfigPath(projectRoot)).toBe(jsPath);
+      expect(discoverWfConfigPath(projectRoot)).toBe(tsPath);
+    });
+
+    it('warns to stderr when multiple config files exist', () => {
+      const projectRoot = createProjectRoot();
+      const tsPath = path.join(projectRoot, 'wf.config.ts');
+
+      fs.writeFileSync(tsPath, 'export default {};\n');
+      fs.writeFileSync(path.join(projectRoot, 'wf.config.js'), 'module.exports = {};\n');
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      discoverWfConfigPath(projectRoot);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Multiple wf config files found')
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('wf.config.js')
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('does not warn when only one config file exists', () => {
+      const projectRoot = createProjectRoot();
+      fs.writeFileSync(path.join(projectRoot, 'wf.config.ts'), 'export default {};\n');
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      discoverWfConfigPath(projectRoot);
+
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
     });
   });
 
@@ -1019,6 +1058,54 @@ describe('wf-config-loader', () => {
         fix: 'fix',
         investigate: 'research',
       });
+    });
+
+    it('rejects provider/model mismatch when model prefix does not match declared provider', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [{ provider: 'anthropic', apiKey: 'k', model: 'gpt-5.4' }],
+        })
+      ).toThrow(/model "gpt-5\.4" does not match provider "anthropic"/i);
+    });
+
+    it('rejects OpenAI provider with a Claude model', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [{ provider: 'openai', apiKey: 'k', model: 'claude-sonnet-4-6' }],
+        })
+      ).toThrow(/model "claude-sonnet-4-6" does not match provider "openai"/i);
+    });
+
+    it('rejects Google provider with an OpenAI model', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [{ provider: 'google', apiKey: 'k', model: 'gpt-4.1' }],
+        })
+      ).toThrow(/model "gpt-4\.1" does not match provider "google"/i);
+    });
+
+    it('allows provider/model combinations that match', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [{ provider: 'openai', apiKey: 'k', model: 'gpt-5.4' }],
+        })
+      ).not.toThrow();
+    });
+
+    it('allows unknown model prefixes without throwing', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [{ provider: 'anthropic', apiKey: 'k', model: 'custom-fine-tuned-v1' }],
+        })
+      ).not.toThrow();
+    });
+
+    it('skips provider/model validation when model is omitted (uses default)', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [{ provider: 'openai', apiKey: 'k' }],
+        })
+      ).not.toThrow();
     });
 
     it('rejects old branching.* keys', () => {
