@@ -333,6 +333,7 @@ type SystemPromptParams = {
   planSummary?: string;
   planRisks?: string[];
   planAction?: 'fix' | 'feature' | 'investigate';
+  conventionsSection?: string;
   skillNames?: string[];
   phases?: PlanPhase[];
 };
@@ -360,9 +361,11 @@ const assembleSystemPrompt = (
   planContext: string,
   repoDir: string,
   planRisks: string[] | undefined,
+  conventionsSection?: string,
 ): string =>
   [
     planContext,
+    conventionsSection ?? '',
     `\nWrites must stay scoped to the primary repository (${repoDir}).`,
     `Reads may target ${repoDir} and any configured read-only sibling repositories.\n`,
     `${ANTHROPIC_TOOLS_BLOCK}\n\n${implementerRulesSection}`,
@@ -378,7 +381,7 @@ export const buildSystemPrompt = (p: SystemPromptParams): string => {
     planSummary: p.planSummary, planRisks: p.planRisks, planAction: p.planAction,
     skillNames: p.skillNames, phases: p.phases,
   });
-  return assembleSystemPrompt(planContext, p.repoDir, p.planRisks);
+  return assembleSystemPrompt(planContext, p.repoDir, p.planRisks, p.conventionsSection);
 };
 
 type SdkOptionsParams = {
@@ -671,6 +674,7 @@ type ContinuationPromptParams = {
   planSummary: string;
   planSteps: string[];
   verificationCommands: string[];
+  conventionsSection?: string;
 };
 
 /**
@@ -691,6 +695,7 @@ const buildContinuationPrompt = (p: ContinuationPromptParams): string => {
     `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
     `Goal: ${p.planSummary}`,
     `\nPlan steps:\n${p.planSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`,
+    p.conventionsSection ? `\n${p.conventionsSection}` : '',
     `\nContinue implementing the remaining plan steps. The following planned files are still unmodified (listed in recommended implementation order):\n\n${unvisitedLines}`,
     formatVerificationBlock(p.verificationCommands),
     `\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. After addressing all listed files, run each verification command above exactly as written. Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before making your first tool call.`,
@@ -722,11 +727,13 @@ type ContinuationPassParams = {
   planSummary: string;
   planSteps: string[];
   verificationCommands: string[];
+  conventionsSection?: string;
 };
 
 const buildPassPromptParams = (p: ContinuationPassParams): ContinuationPromptParams => ({
   currentUnvisited: p.currentUnvisited, totalPlanned: p.totalPlanned, passNumber: p.passNumber,
   planSummary: p.planSummary, planSteps: p.planSteps, verificationCommands: p.verificationCommands,
+  conventionsSection: p.conventionsSection,
 });
 
 const finalizeContinuationResult = (
@@ -849,6 +856,7 @@ type ContinuationLoopParams = {
   planSummary: string;
   planSteps: string[];
   verificationCommands: string[];
+  conventionsSection?: string;
   stallThresholdOverride?: number;
 };
 
@@ -868,18 +876,27 @@ const applyContinuationPassResult = (state: ContinuationLoopState, result: Conti
   state.lastPassNumTurns = result.numTurns;
 };
 
+const buildContinuationPassParams = (
+  p: ContinuationLoopParams, state: ContinuationLoopState, unvisited: string[], fileCount: number,
+): Parameters<typeof runContinuationPass>[0] => ({
+  query: p.query, sdkOptions: p.sdkOptions,
+  sessionId: state.sessionId, currentUnvisited: unvisited,
+  touchedFiles: p.touchedFiles, activityState: p.activityState,
+  passNumber: state.passNumber, totalPlanned: fileCount,
+  planSummary: p.planSummary, planSteps: p.planSteps,
+  verificationCommands: p.verificationCommands,
+  conventionsSection: p.conventionsSection,
+});
+
 const runSdkContinuationLoop = async (p: ContinuationLoopParams): Promise<string> => {
   const fileCount = p.repoFiles.filter(f => !isGlobPattern(f)).length;
-  const state = initContinuationState(p, computeStallThreshold(fileCount, p.stallThresholdOverride));
+  const stallThreshold = computeStallThreshold(fileCount, p.stallThresholdOverride);
+  const state = initContinuationState(p, stallThreshold);
   while (!hasReachedHardCap(state.passNumber)) {
     const unvisited = computeUnvisited(p.repoFiles, p.repoName, p.touchedFiles);
     if (!advanceContinuationState(state, unvisited)) break;
-    applyContinuationPassResult(state, await runContinuationPass({
-      query: p.query, sdkOptions: p.sdkOptions, sessionId: state.sessionId, currentUnvisited: unvisited,
-      touchedFiles: p.touchedFiles, activityState: p.activityState, passNumber: state.passNumber,
-      totalPlanned: fileCount, planSummary: p.planSummary,
-      planSteps: p.planSteps, verificationCommands: p.verificationCommands,
-    }));
+    const passParams = buildContinuationPassParams(p, state, unvisited, fileCount);
+    applyContinuationPassResult(state, await runContinuationPass(passParams));
   }
   return state.sessionId;
 };
@@ -893,6 +910,7 @@ type GenerateAndVerifyParams = {
   contextFiles?: string[];
   repoName: string;
   trackedFilePaths: string[];
+  conventionsSection?: string;
   skillNames?: string[];
 };
 
@@ -928,6 +946,7 @@ const buildSystemPromptParams = (params: GenerateAndVerifyParams, repoDir: strin
   verificationScripts: params.verificationScripts,
   planSteps: params.planArtifact.plan.steps, planSummary: params.planArtifact.plan.summary,
   planRisks: params.planArtifact.plan.risks, planAction: params.planArtifact.plan.action,
+  conventionsSection: params.conventionsSection,
   skillNames: params.skillNames, phases: params.planArtifact.plan.phases,
 });
 
@@ -1049,6 +1068,7 @@ const executeAgentSession = async (s: AgentSessionParams): Promise<string> => {
     planSummary: s.params.planArtifact.plan.summary,
     planSteps: s.params.planArtifact.plan.steps,
     verificationCommands: s.params.verificationScripts.map(vs => vs.command),
+    conventionsSection: s.params.conventionsSection,
   });
 };
 

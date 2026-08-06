@@ -50,6 +50,7 @@ interface PackageJsonResult {
   pkgDeps: Record<string, string>;
   pkgDevDeps: Record<string, string>;
   pkgType: string | undefined;
+  pkgExtra: Record<string, unknown>;
 }
 
 /**
@@ -302,14 +303,18 @@ const findFirst = (repoDir: string, candidates: string[]): string | null => {
 };
 
 /**
- * Parse a JSON file into a record, returning empty on failure.
+ * Parse a config file into a record, returning empty on failure.
  *
- * @param filePath - Absolute path to the JSON file
+ * @param filePath - Absolute path to the config file
  * @returns Parsed record or empty object
  */
-const parseJsonLike = (filePath: string): Record<string, unknown> => {
+const parseConfigFile = (filePath: string): Record<string, unknown> => {
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, unknown>;
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    if (filePath.endsWith('.yml') || filePath.endsWith('.yaml')) {
+      return (YAML.parse(raw) as Record<string, unknown>) ?? {};
+    }
+    return JSON.parse(raw) as Record<string, unknown>;
   } catch {
     return {};
   }
@@ -331,6 +336,9 @@ const extractEslintKeyRules = (parsed: Record<string, unknown>): Record<string, 
   if (semi !== undefined) keyRules['semi'] = semi;
   if (quotes !== undefined) keyRules['quotes'] = quotes;
   if (trailingComma !== undefined) keyRules['trailingComma'] = trailingComma;
+  for (const rule of ESLINT_STRUCTURAL_RULES) {
+    if (rules[rule] !== undefined) keyRules[rule] = rules[rule];
+  }
   return keyRules;
 };
 
@@ -371,15 +379,47 @@ const extractBiomeKeyRules = (parsed: Record<string, unknown>): Record<string, u
  * @returns Object with tool name and key rules
  */
 const extractLinterRules = (tool: string, filePath: string): { tool: string; keyRules: Record<string, unknown> } => {
-  const parsed = parseJsonLike(filePath);
+  const parsed = parseConfigFile(filePath);
   if (tool === 'eslint') return { tool, keyRules: extractEslintKeyRules(parsed) };
   if (tool === 'prettier') return { tool, keyRules: extractPrettierKeyRules(parsed) };
   if (tool === 'biome') return { tool, keyRules: extractBiomeKeyRules(parsed) };
   return { tool, keyRules: {} };
 };
 
-const ESLINT_CANDIDATES = ['.eslintrc', '.eslintrc.js', '.eslintrc.json', '.eslintrc.yml', '.eslintrc.yaml'];
-const PRETTIER_CANDIDATES = ['.prettierrc', '.prettierrc.js', '.prettierrc.json', '.prettierrc.yml', '.prettierrc.yaml'];
+const ESLINT_STRUCTURAL_RULES = ['max-lines-per-function', 'max-depth', 'max-params', 'max-len', 'complexity'];
+const ESLINT_CANDIDATES = [
+  'eslint.config.js',
+  'eslint.config.mjs',
+  'eslint.config.cjs',
+  'eslint.config.ts',
+  'eslint.config.mts',
+  'eslint.config.cts',
+  '.eslintrc',
+  '.eslintrc.js',
+  '.eslintrc.cjs',
+  '.eslintrc.json',
+  '.eslintrc.yml',
+  '.eslintrc.yaml',
+];
+const PRETTIER_CANDIDATES = [
+  '.prettierrc',
+  '.prettierrc.json',
+  '.prettierrc.yml',
+  '.prettierrc.yaml',
+  '.prettierrc.toml',
+  '.prettierrc.js',
+  '.prettierrc.cjs',
+  '.prettierrc.mjs',
+  '.prettierrc.ts',
+  '.prettierrc.mts',
+  '.prettierrc.cts',
+  'prettier.config.js',
+  'prettier.config.cjs',
+  'prettier.config.mjs',
+  'prettier.config.ts',
+  'prettier.config.mts',
+  'prettier.config.cts',
+];
 const BIOME_CANDIDATES = ['biome.json'];
 
 /**
@@ -392,11 +432,33 @@ const detectLinter = (repoDir: string): RepoConventionsContext['linter'] => {
   const eslintFile = findFirst(repoDir, ESLINT_CANDIDATES);
   if (eslintFile) return extractLinterRules('eslint', path.join(repoDir, eslintFile));
 
-  const prettierFile = findFirst(repoDir, PRETTIER_CANDIDATES);
-  if (prettierFile) return extractLinterRules('prettier', path.join(repoDir, prettierFile));
+  const pkg = readPackageJson(repoDir);
+  const eslintConfig = pkg.pkgExtra['eslintConfig'];
+  if (eslintConfig && typeof eslintConfig === 'object') {
+    return { tool: 'eslint', keyRules: extractEslintKeyRules(eslintConfig as Record<string, unknown>) };
+  }
 
   const biomeFile = findFirst(repoDir, BIOME_CANDIDATES);
   if (biomeFile) return extractLinterRules('biome', path.join(repoDir, biomeFile));
+
+  return null;
+};
+
+/**
+ * Detect the formatter configuration for the repository.
+ *
+ * @param repoDir - Repository root directory
+ * @returns Formatter context or null
+ */
+const detectFormatter = (repoDir: string): RepoConventionsContext['formatter'] => {
+  const prettierFile = findFirst(repoDir, PRETTIER_CANDIDATES);
+  if (prettierFile) return extractLinterRules('prettier', path.join(repoDir, prettierFile));
+
+  const pkg = readPackageJson(repoDir);
+  const prettierConfig = pkg.pkgExtra['prettier'];
+  if (prettierConfig && typeof prettierConfig === 'object') {
+    return { tool: 'prettier', keyRules: extractPrettierKeyRules(prettierConfig as Record<string, unknown>) };
+  }
 
   return null;
 };
@@ -571,7 +633,7 @@ const detectNamingPattern = (sourceRoots: string[], repoDir: string): RepoConven
  */
 const readPackageJson = (repoDir: string): PackageJsonResult => {
   const pkgPath = path.join(repoDir, 'package.json');
-  if (!fs.existsSync(pkgPath)) return { pkgDeps: {}, pkgDevDeps: {}, pkgType: undefined };
+  if (!fs.existsSync(pkgPath)) return { pkgDeps: {}, pkgDevDeps: {}, pkgType: undefined, pkgExtra: {} };
 
   try {
     const parsed = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as Record<string, unknown>;
@@ -579,9 +641,10 @@ const readPackageJson = (repoDir: string): PackageJsonResult => {
       pkgDeps: (parsed['dependencies'] as Record<string, string>) ?? {},
       pkgDevDeps: (parsed['devDependencies'] as Record<string, string>) ?? {},
       pkgType: parsed['type'] as string | undefined,
+      pkgExtra: parsed,
     };
   } catch {
-    return { pkgDeps: {}, pkgDevDeps: {}, pkgType: undefined };
+    return { pkgDeps: {}, pkgDevDeps: {}, pkgType: undefined, pkgExtra: {} };
   }
 };
 
@@ -710,9 +773,10 @@ interface ConventionsInputs {
  * @returns Partial context with language-specific fields
  */
 const detectLanguageContexts = (inputs: ConventionsInputs): Pick<
-  RepoConventionsContext, 'linter' | 'typescript' | 'go' | 'python' | 'terraform'
+  RepoConventionsContext, 'linter' | 'formatter' | 'typescript' | 'go' | 'python' | 'terraform'
 > => ({
   linter: detectLinter(inputs.repoDir),
+  formatter: detectFormatter(inputs.repoDir),
   typescript: detectTypescriptContext(inputs.repoDir),
   go: detectGoContext(inputs.repoDir, inputs.hasGoMod),
   python: detectPythonContext(inputs.repoDir, inputs.language),
@@ -872,6 +936,7 @@ export const detectRepoConventions = (repoDir: string): RepoConventionsContext =
  */
 const hasMeaningfulConventionsData = (ctx: RepoConventionsContext): boolean =>
   ctx.linter !== null
+  || ctx.formatter !== null
   || ctx.typescript !== null
   || ctx.go !== null
   || ctx.python !== null
@@ -889,10 +954,29 @@ const hasMeaningfulConventionsData = (ctx: RepoConventionsContext): boolean =>
  * @returns Formatted linter line
  */
 const formatLinterLine = (linter: NonNullable<RepoConventionsContext['linter']>): string => {
-  const ruleStr = Object.entries(linter.keyRules)
+  const styleRules = Object.entries(linter.keyRules)
+    .filter(([key]) => !ESLINT_STRUCTURAL_RULES.includes(key))
     .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
     .join(', ');
-  return `- Linter: ${linter.tool}${ruleStr ? ` (${ruleStr})` : ''}`;
+  const structuralRules = Object.entries(linter.keyRules)
+    .filter(([key]) => ESLINT_STRUCTURAL_RULES.includes(key))
+    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+    .join(', ');
+  const details = [styleRules, structuralRules ? `constraints: ${structuralRules}` : ''].filter(Boolean).join('; ');
+  return `- Linter: ${linter.tool}${details ? ` (${details})` : ''}`;
+};
+
+/**
+ * Format formatter context into a prompt line.
+ *
+ * @param formatter - Formatter context
+ * @returns Formatted formatter line
+ */
+const formatFormatterLine = (formatter: NonNullable<RepoConventionsContext['formatter']>): string => {
+  const ruleStr = Object.entries(formatter.keyRules)
+    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+    .join(', ');
+  return `- Formatter: ${formatter.tool}${ruleStr ? ` (${ruleStr})` : ''}`;
 };
 
 /**
@@ -926,6 +1010,7 @@ const appendTerraformLines = (tf: NonNullable<RepoConventionsContext['terraform'
  */
 const appendToolingLines = (ctx: RepoConventionsContext, lines: string[]): void => {
   if (ctx.linter) lines.push(formatLinterLine(ctx.linter));
+  if (ctx.formatter) lines.push(formatFormatterLine(ctx.formatter));
   if (ctx.typescript) lines.push(formatTypescriptLine(ctx.typescript));
   if (ctx.go) lines.push(`- Go module: ${ctx.go.modulePath}`);
   if (ctx.python) {

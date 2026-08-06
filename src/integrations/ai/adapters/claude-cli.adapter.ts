@@ -58,6 +58,7 @@ type GenerateAndVerifyParams = {
   contextFiles?: string[];
   repoName: string;
   trackedFilePaths: string[];
+  conventionsSection?: string;
   skillNames?: string[];
 };
 
@@ -70,6 +71,7 @@ type CliSessionParams = {
   appendSystemPrompt: string;
   model: string;
   verificationScripts: VerificationScript[];
+  conventionsSection?: string;
 };
 
 type ContinuationLoopParams = {
@@ -83,6 +85,7 @@ type ContinuationLoopParams = {
   additionalRepoDirs: string[];
   activityState: ActivityState;
   verificationScripts: VerificationScript[];
+  conventionsSection?: string;
 };
 
 type SinglePassParams = {
@@ -91,6 +94,7 @@ type SinglePassParams = {
   currentUnvisited: string[];
   promptOverride?: string;
   appendSystemPrompt?: string;
+  conventionsSection?: string;
   model: string;
   repoDir: string;
   additionalRepoDirs: string[];
@@ -196,10 +200,10 @@ const processCliStream = (
  * @param currentUnvisited - List of planned file paths not yet touched.
  * @returns The continuation prompt string.
  */
-const buildContinuationPrompt = (currentUnvisited: string[]): string => {
+const buildContinuationPrompt = (currentUnvisited: string[], conventionsSection?: string): string => {
   const unvisitedLines = currentUnvisited.map(f => `- ${f}`).join('\n');
   return (
-    `Continue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}\n\n`
+    `${conventionsSection ? `${conventionsSection}\n\n` : ''}Continue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}\n\n`
     + `For each file listed above, read the full file first with Read, then apply Edit to complete the required changes. `
     + `After addressing all listed files, use Grep to search for any remaining migration patterns and continue editing until zero matches remain. `
     + `Do not output any text or plan before making your first tool call.`
@@ -397,6 +401,42 @@ const buildImplementCliArgs = (p: CliSessionParams) =>
     sessionId: p.options.resumeProviderSessionId,
   });
 
+const buildCliSystemPromptParams = (params: GenerateAndVerifyParams): Parameters<typeof buildSystemPrompt>[0] => ({
+  ticketKey: params.ticket.ticketKey,
+  repoDir: params.options.repoDir ?? process.cwd(),
+  repoName: params.repoName,
+  repoFiles: params.repoFiles,
+  contextFiles: params.contextFiles,
+  trackedFilePaths: params.trackedFilePaths,
+  verificationScripts: params.verificationScripts,
+  planSteps: params.planArtifact.plan.steps,
+  planSummary: params.planArtifact.plan.summary,
+  planRisks: params.planArtifact.plan.risks,
+  planAction: params.planArtifact.plan.action,
+  conventionsSection: params.conventionsSection,
+  skillNames: params.skillNames,
+});
+
+const buildAppendSystemPrompt = async (params: GenerateAndVerifyParams, repoDir: string): Promise<string> =>
+  buildCliSystemPrompt(
+    params.options.priorStageSummary,
+    await loadClaudeContext(repoDir),
+    buildSystemPrompt(buildCliSystemPromptParams(params)),
+  );
+
+const resolveAdditionalRepoDirs = (params: GenerateAndVerifyParams): string[] =>
+  params.options.additionalRepoDirs ?? [];
+
+const createCliSessionParams = (
+  params: GenerateAndVerifyParams, repoDir: string, model: string, appendSystemPrompt: string,
+): CliSessionParams => ({
+  options: params.options, repoFiles: params.repoFiles, repoName: params.repoName,
+  repoDir, appendSystemPrompt, model,
+  additionalRepoDirs: resolveAdditionalRepoDirs(params),
+  verificationScripts: params.verificationScripts,
+  conventionsSection: params.conventionsSection,
+});
+
 /**
  * Builds CLI args for a single continuation pass.
  * @param p - Pass parameters including session ID, model, and paths.
@@ -431,19 +471,12 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   }
 
   private async buildCliSessionParams(params: GenerateAndVerifyParams): Promise<CliSessionParams> {
-    const { options, repoFiles, repoName, verificationScripts } = params;
+    const { options } = params;
     const repoDir = options.repoDir ?? process.cwd();
     const modelRoutingResult = this.resolveCliModelRouting(options, params.planArtifact);
     console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
-    const appendSystemPrompt = buildCliSystemPrompt(
-      options.priorStageSummary, await loadClaudeContext(repoDir), this.buildCliImplementerPrompt(params)
-    );
-    return {
-      options, repoFiles, repoName, repoDir,
-      appendSystemPrompt, model: modelRoutingResult.model,
-      additionalRepoDirs: options.additionalRepoDirs ?? [],
-      verificationScripts,
-    };
+    const appendSystemPrompt = await buildAppendSystemPrompt(params, repoDir);
+    return createCliSessionParams(params, repoDir, modelRoutingResult.model, appendSystemPrompt);
   }
 
   private resolveCliModelRouting(options: ImplementerOptions, planArtifact: PlanArtifact) {
@@ -454,22 +487,6 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       configService: this.configService,
       plan: planArtifact.plan,
       adapterLabel: CLI_ADAPTER_LABEL,
-    });
-  }
-
-  private buildCliImplementerPrompt(params: GenerateAndVerifyParams): string {
-    const { ticket, planArtifact, options, verificationScripts } = params;
-    const { repoFiles, contextFiles, repoName, trackedFilePaths } = params;
-    return buildSystemPrompt({
-      ticketKey: ticket.ticketKey,
-      repoDir: options.repoDir ?? process.cwd(),
-      repoName, repoFiles, contextFiles, trackedFilePaths,
-      verificationScripts,
-      planSteps: planArtifact.plan.steps,
-      planSummary: planArtifact.plan.summary,
-      planRisks: planArtifact.plan.risks,
-      planAction: planArtifact.plan.action,
-      skillNames: params.skillNames,
     });
   }
 
@@ -578,7 +595,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`));
     const nextSession = await this.runSinglePass({
       passNumber, sessionId, currentUnvisited,
-      appendSystemPrompt: undefined, model: p.model, repoDir: p.repoDir,
+      appendSystemPrompt: undefined, conventionsSection: p.conventionsSection, model: p.model, repoDir: p.repoDir,
       additionalRepoDirs: p.additionalRepoDirs, touchedFiles: p.touchedFiles, activityState: p.activityState,
     });
     await discoverChangedFiles(p.repoDir, p.touchedFiles);
@@ -587,7 +604,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   private async runSinglePass(p: SinglePassParams): Promise<string | undefined> {
     const { passNumber, currentUnvisited, repoDir, touchedFiles, activityState } = p;
-    const continuationPrompt = p.promptOverride ?? buildContinuationPrompt(currentUnvisited);
+    const continuationPrompt = p.promptOverride ?? buildContinuationPrompt(currentUnvisited, p.conventionsSection);
     const continueArgs = buildPassCliArgs(p, continuationPrompt);
     let sessionId: string | undefined = p.sessionId;
     for await (const message of spawnCli(continueArgs, repoDir, continuationPrompt)) {

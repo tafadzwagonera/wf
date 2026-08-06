@@ -53,6 +53,7 @@ const createMockLefthookYml = (): string =>
 const createMockEmptyContext = (): RepoConventionsContext => ({
   language: 'unknown',
   linter: null,
+  formatter: null,
   typescript: null,
   go: null,
   python: null,
@@ -115,6 +116,7 @@ describe('detectRepoConventions', () => {
       expect(result.linter).not.toBeNull();
       expect(result.linter?.tool).toBe('eslint');
       expect(result.linter?.keyRules['semi']).toBeDefined();
+      expect(result.formatter).toBeNull();
       expect(result.typescript).not.toBeNull();
       expect(result.typescript?.strict).toBe(true);
       expect(result.typescript?.module).toBe('commonjs');
@@ -135,6 +137,7 @@ describe('detectRepoConventions', () => {
       const result = detectRepoConventions(REPO_DIR);
 
       expect(result.linter).toBeNull();
+      expect(result.formatter).toBeNull();
       expect(result.typescript).toBeNull();
       expect(result.folderStructure).toEqual([]);
       expect(result.keyDependencies).toEqual([]);
@@ -150,6 +153,154 @@ describe('detectRepoConventions', () => {
       mockReaddirSync.mockReturnValue([]);
 
       expect(() => detectRepoConventions(REPO_DIR)).not.toThrow();
+    });
+  });
+
+  describe('eslint and prettier detection', () => {
+    it('detects eslint flat config files', () => {
+      const eslintConfigPath = path.join(REPO_DIR, 'eslint.config.mjs');
+      mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === eslintConfigPath);
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.linter?.tool).toBe('eslint');
+    });
+
+    it('prioritizes eslint flat config over legacy config', () => {
+      const flatConfigPath = path.join(REPO_DIR, 'eslint.config.mjs');
+      const legacyConfigPath = path.join(REPO_DIR, '.eslintrc.json');
+      mockExistsSync.mockImplementation((p: fs.PathLike) => {
+        const value = String(p);
+        return value === flatConfigPath || value === legacyConfigPath;
+      });
+      mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        const value = String(p);
+        if (value === flatConfigPath) return 'export default []';
+        if (value === legacyConfigPath) return JSON.stringify({ rules: { semi: ['error', 'always'] } });
+        return '{}';
+      });
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.linter?.tool).toBe('eslint');
+      expect(result.linter?.keyRules['semi']).toBeUndefined();
+    });
+
+    it('detects formatter alongside linter', () => {
+      const eslintConfigPath = path.join(REPO_DIR, '.eslintrc.json');
+      const prettierConfigPath = path.join(REPO_DIR, '.prettierrc.json');
+      mockExistsSync.mockImplementation((p: fs.PathLike) => {
+        const value = String(p);
+        return value === eslintConfigPath || value === prettierConfigPath;
+      });
+      mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        const value = String(p);
+        if (value === eslintConfigPath) return createMockEslintRc();
+        if (value === prettierConfigPath) return JSON.stringify({ semi: false, singleQuote: true });
+        return '{}';
+      });
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.linter).toEqual({
+        tool: 'eslint',
+        keyRules: {
+          semi: ['error', 'always'],
+          quotes: ['error', 'single'],
+          trailingComma: ['error', 'always-multiline'],
+        },
+      });
+      expect(result.formatter).toEqual({
+        tool: 'prettier',
+        keyRules: {
+          semi: false,
+          singleQuote: true,
+        },
+      });
+    });
+
+    it('detects prettier config from package.json', () => {
+      const packageJsonPath = path.join(REPO_DIR, 'package.json');
+      mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === packageJsonPath);
+      mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        if (String(p) === packageJsonPath) {
+          return createMockPackageJson({
+            prettier: { semi: false, singleQuote: true },
+          });
+        }
+        return '{}';
+      });
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.formatter).toEqual({
+        tool: 'prettier',
+        keyRules: {
+          semi: false,
+          singleQuote: true,
+        },
+      });
+    });
+
+    it('detects eslint config from package.json', () => {
+      const packageJsonPath = path.join(REPO_DIR, 'package.json');
+      mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === packageJsonPath);
+      mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        if (String(p) === packageJsonPath) {
+          return createMockPackageJson({
+            eslintConfig: {
+              rules: {
+                semi: ['error', 'always'],
+                'max-depth': ['error', 4],
+              },
+            },
+          });
+        }
+        return '{}';
+      });
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.linter?.tool).toBe('eslint');
+      expect(result.linter?.keyRules['max-depth']).toEqual(['error', 4]);
+    });
+
+    it('extracts structural eslint rules', () => {
+      const eslintConfigPath = path.join(REPO_DIR, '.eslintrc.json');
+      mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === eslintConfigPath);
+      mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        if (String(p) === eslintConfigPath) {
+          return createMockEslintRc({
+            'max-depth': ['error', 4],
+            complexity: ['error', 8],
+          });
+        }
+        return '{}';
+      });
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.linter?.keyRules['max-depth']).toEqual(['error', 4]);
+      expect(result.linter?.keyRules['complexity']).toEqual(['error', 8]);
+    });
+
+    it('parses prettier yaml configs', () => {
+      const prettierConfigPath = path.join(REPO_DIR, '.prettierrc.yml');
+      mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === prettierConfigPath);
+      mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        if (String(p) === prettierConfigPath) return 'semi: false\nsingleQuote: true\n';
+        return '{}';
+      });
+
+      const result = detectRepoConventions(REPO_DIR);
+
+      expect(result.formatter).toEqual({
+        tool: 'prettier',
+        keyRules: {
+          semi: false,
+          singleQuote: true,
+        },
+      });
     });
   });
 
@@ -518,6 +669,7 @@ describe('formatRepoConventionsPromptSection', () => {
       const ctx: RepoConventionsContext = {
         language: 'typescript',
         linter: { tool: 'eslint', keyRules: { semi: true, singleQuote: true } },
+        formatter: null,
         typescript: {
           strict: true,
           module: 'commonjs',
@@ -601,18 +753,35 @@ describe('formatRepoConventionsPromptSection', () => {
       expect(result).toContain('Python tooling: pyproject (ruff, mypy)');
     });
 
-    it('includes linter section with prettier tool', () => {
+    it('includes formatter section with prettier tool', () => {
       const ctx: RepoConventionsContext = {
         ...createMockEmptyContext(),
-        linter: {
+        formatter: {
           tool: 'prettier',
           keyRules: { semi: false, trailingComma: 'es5' },
         },
       };
 
       const result = formatRepoConventionsPromptSection(ctx, 'test-repo');
-      expect(result).toContain('Linter: prettier');
+      expect(result).toContain('Formatter: prettier');
       expect(result).toContain('semi');
+    });
+
+    it('renders structural linter rules under constraints', () => {
+      const ctx: RepoConventionsContext = {
+        ...createMockEmptyContext(),
+        linter: {
+          tool: 'eslint',
+          keyRules: {
+            semi: ['error', 'always'],
+            'max-depth': ['error', 4],
+          },
+        },
+      };
+
+      const result = formatRepoConventionsPromptSection(ctx, 'test-repo');
+
+      expect(result).toContain('constraints: max-depth: ["error",4]');
     });
 
     it('omits Framework line when NestJS is not detected', () => {

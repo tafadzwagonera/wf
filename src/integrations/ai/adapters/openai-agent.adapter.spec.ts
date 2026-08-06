@@ -1500,6 +1500,7 @@ describe('OpenAIAgentAdapter', () => {
             estimatedComplexity: 'low' as const,
           },
         },
+        conventionsSection: 'Repository conventions (primary):\n- Formatter: prettier (semi: false)',
       };
       await adapter.generateAndVerify(params);
 
@@ -1510,6 +1511,35 @@ describe('OpenAIAgentAdapter', () => {
       expect(agentConfig.instructions).toContain('1. Migrate Logger to PinoLogger');
       expect(agentConfig.instructions).toContain('2. Update unit tests');
       expect(agentConfig.instructions).toContain('You MUST implement ALL plan steps');
+      expect(agentConfig.instructions).toContain('Repository conventions (primary):');
+      expect(agentConfig.instructions).toContain('Formatter: prettier');
+    });
+
+    it('includes repo conventions in continuation prompts', async () => {
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-continuation-'));
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      const runMock = jest.fn(async () => mockRunResult);
+      mockRunner.mockImplementation(() => ({
+        run: runMock,
+        config: {},
+      }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await adapter.generateAndVerify({
+        ...makeParams(repoDir),
+        repoFiles: ['primary/src/foo.ts'],
+        trackedFilePaths: ['primary/src/foo.ts'],
+        conventionsSection: 'Repository conventions (primary):\n- Formatter: prettier (semi: false)',
+      });
+
+      const continuationPrompt = ((runMock.mock.calls[1] as unknown) as [unknown, string])[1];
+      expect(continuationPrompt).toContain('Repository conventions (primary):');
+      expect(continuationPrompt).toContain('Formatter: prettier');
     });
 
     it('edit_file rejects edits that create duplicate constructors', async () => {

@@ -30,6 +30,7 @@ type GenerateAndVerifyParams = {
   contextFiles?: string[];
   repoName: string;
   trackedFilePaths: string[];
+  conventionsSection?: string;
   skillNames?: string[];
 };
 
@@ -86,6 +87,7 @@ const buildCodexRawSystemPrompt = (params: GenerateAndVerifyParams, repoDir: str
     planSteps: params.planArtifact.plan.steps,
     planSummary: params.planArtifact.plan.summary,
     planRisks: params.planArtifact.plan.risks, planAction: params.planArtifact.plan.action,
+    conventionsSection: params.conventionsSection,
     skillNames: params.skillNames,
   });
 

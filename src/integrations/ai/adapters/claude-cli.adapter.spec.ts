@@ -56,9 +56,64 @@ describe('ClaudeCliAdapter', () => {
       repoFiles: [],
       repoName: 'repo',
       trackedFilePaths: [],
+      conventionsSection: 'Repository conventions (repo):\n- Formatter: prettier (semi: false)',
     });
 
     expect(mockAssert).toHaveBeenCalled();
+    expect(mockBuildCliArgs.mock.calls[0][0].appendSystemPrompt).toContain('Repository conventions (repo):');
+  });
+
+  it('includes repo conventions in continuation prompts', async () => {
+    mockSpawnCli
+      .mockReturnValueOnce(
+        (async function* () {
+          yield {
+            type: 'result',
+            result: 'done',
+            session_id: 's1',
+            num_turns: 1,
+            total_cost_usd: 0.01,
+          };
+        })()
+      )
+      .mockReturnValueOnce(
+        (async function* () {
+          yield {
+            type: 'result',
+            result: 'done',
+            session_id: 's1',
+            num_turns: 1,
+            total_cost_usd: 0.01,
+          };
+        })()
+      );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature',
+          summary: 'test',
+          steps: ['step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: [],
+          risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [],
+      repoFiles: ['repo/src/app.ts'],
+      repoName: 'repo',
+      trackedFilePaths: ['repo/src/app.ts'],
+      conventionsSection: 'Repository conventions (repo):\n- Formatter: prettier (semi: false)',
+    });
+
+    expect(mockBuildCliArgs.mock.calls[1][0].prompt).toContain('Repository conventions (repo):');
+    expect(mockBuildCliArgs.mock.calls[1][0].prompt).toContain('Formatter: prettier');
   });
 
   it('logs file activity from CLI assistant messages', async () => {

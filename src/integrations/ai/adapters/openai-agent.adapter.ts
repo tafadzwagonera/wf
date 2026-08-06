@@ -151,6 +151,7 @@ type GenerateAndVerifyParams = {
   contextFiles?: string[];
   repoName: string;
   trackedFilePaths: string[];
+  conventionsSection?: string;
   skillNames?: string[];
 };
 
@@ -655,6 +656,7 @@ type SystemPromptParams = {
   planSummary?: string;
   planRisks?: string[];
   planAction?: 'fix' | 'feature' | 'investigate';
+  conventionsSection?: string;
   skillNames?: string[];
   phases?: PlanPhase[];
 };
@@ -666,14 +668,17 @@ type SystemPromptParams = {
  * @returns Plan context string
  */
 const buildPlanSection = (p: SystemPromptParams): string =>
-  buildPlanContext({
-    ticketKey: p.ticketKey, repoDir: p.repoDir, repoName: p.repoName,
-    repoFiles: p.repoFiles, contextFiles: p.contextFiles,
-    trackedFilePaths: p.trackedFilePaths, verificationScripts: p.verificationScripts,
-    planSteps: p.planSteps, planSummary: p.planSummary,
-    planRisks: p.planRisks, planAction: p.planAction,
-    skillNames: p.skillNames, phases: p.phases,
-  });
+  [
+    buildPlanContext({
+      ticketKey: p.ticketKey, repoDir: p.repoDir, repoName: p.repoName,
+      repoFiles: p.repoFiles, contextFiles: p.contextFiles,
+      trackedFilePaths: p.trackedFilePaths, verificationScripts: p.verificationScripts,
+      planSteps: p.planSteps, planSummary: p.planSummary,
+      planRisks: p.planRisks, planAction: p.planAction,
+      skillNames: p.skillNames, phases: p.phases,
+    }),
+    p.conventionsSection ?? '',
+  ].filter(Boolean).join('\n\n');
 
 /**
  * Builds the complete system prompt for the OpenAI agent.
@@ -1687,6 +1692,7 @@ type OaiContinuationPromptParams = {
   planSummary: string;
   planSteps: string[];
   verificationCommands: string[];
+  conventionsSection?: string;
 };
 
 /**
@@ -1707,6 +1713,7 @@ const buildContinuationPrompt = (p: OaiContinuationPromptParams): string => {
     `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
     `Goal: ${p.planSummary}`,
     `\nPlan steps:\n${p.planSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`,
+    p.conventionsSection ? `\n${p.conventionsSection}` : '',
     `\nContinue implementing the remaining plan steps. The following work is still incomplete:\n\n${sections.join('\n\n')}`,
     formatOaiVerificationBlock(p.verificationCommands),
     `\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`,
@@ -1835,6 +1842,7 @@ type ContinuationLoopParams = {
   planSummary: string;
   planSteps: string[];
   verificationCommands: string[];
+  conventionsSection?: string;
   stallThresholdOverride?: number;
 };
 
@@ -1904,6 +1912,7 @@ const buildIterationPrompt = (
   unvisited: wl.unvisited, failureCount: wl.failureCount, failures: p.failures,
   totalPlanned: fileCount, passNumber: s.passNum,
   planSummary: p.planSummary, planSteps: p.planSteps, verificationCommands: p.verificationCommands,
+  conventionsSection: p.conventionsSection,
 });
 
 const runContinuationLoop = async (p: ContinuationLoopParams): Promise<void> => {
@@ -2014,6 +2023,7 @@ const buildSystemPromptFromParams = (p: GenerateAndVerifyParams, repoDir: string
     planSteps: p.planArtifact.plan.steps,
     planSummary: p.planArtifact.plan.summary, planRisks: p.planArtifact.plan.risks,
     planAction: p.planArtifact.plan.action,
+    conventionsSection: p.conventionsSection,
     skillNames: p.skillNames, phases: p.planArtifact.plan.phases,
   });
 
@@ -2155,6 +2165,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
       run, config: c.config, loop: c.loop, repoFiles: params.repoFiles, repoName: params.repoName,
       failures: c.mutable.validationFailures, planSummary: params.planArtifact.plan.summary,
       planSteps: params.planArtifact.plan.steps, verificationCommands: params.verificationScripts.map(vs => vs.command),
+      conventionsSection: params.conventionsSection,
     });
     return this.buildRunResult(c, params.verificationScripts);
   }

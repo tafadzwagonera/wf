@@ -763,13 +763,17 @@ describe('AnthropicAgentAdapter', () => {
 
       try {
         const adapter = new AnthropicAgentAdapter(makeConfigService());
-        await adapter.generateAndVerify(makeParams(repoDir));
+        await adapter.generateAndVerify({
+          ...makeParams(repoDir),
+          conventionsSection: 'Repository conventions (primary):\n- Formatter: prettier (semi: false)',
+        });
 
         const queryArgs = mockQuery.mock.calls[0][0];
         const options = queryArgs.options as Record<string, unknown>;
         const systemPrompt = options.systemPrompt as { append: string };
 
         expect(systemPrompt.append).toContain('Repo AI context:');
+        expect(systemPrompt.append).toContain('Repository conventions (primary):');
         expect(systemPrompt.append).toContain('## ~/.claude/CLAUDE.md');
         expect(systemPrompt.append).toContain('global context line');
         expect(systemPrompt.append).toContain('## CLAUDE.md');
@@ -780,6 +784,26 @@ describe('AnthropicAgentAdapter', () => {
         fs.rmSync(repoDir, { recursive: true, force: true });
         fs.rmSync(homeDir, { recursive: true, force: true });
       }
+    });
+
+    it('includes repo conventions in continuation prompts', async () => {
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-claude-continuation-'));
+      const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+      mockLoadAnthropicAgentSdk.mockResolvedValue({
+        query: mockQuery,
+      } as never);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      await adapter.generateAndVerify({
+        ...makeParams(repoDir),
+        repoFiles: ['primary/src/foo.ts'],
+        trackedFilePaths: ['primary/src/foo.ts'],
+        conventionsSection: 'Repository conventions (primary):\n- Formatter: prettier (semi: false)',
+      });
+
+      expect(mockQuery.mock.calls[1][0].prompt).toContain('Repository conventions (primary):');
+      expect(mockQuery.mock.calls[1][0].prompt).toContain('Formatter: prettier');
     });
 
     it('warns when the global CLAUDE.md is missing', async () => {

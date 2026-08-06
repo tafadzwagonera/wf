@@ -1551,5 +1551,38 @@ describe('ImplementerAgent', () => {
       const call = adapterSpy.mock.calls[0][0];
       expect(call.verificationScripts.length).toBeGreaterThan(0);
     });
+
+    it('passes repo conventions to the adapter prompt context', async () => {
+      const adapterSpy = jest
+        .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => {
+        const value = String(p);
+        return (
+          value.startsWith('/tmp/repo-a/src/')
+          || value.endsWith('/package.json')
+          || value.endsWith('/.eslintrc.json')
+        );
+      });
+      jest.spyOn(require('fs'), 'readFileSync').mockImplementation((filePath: string) => {
+        const value = String(filePath);
+        if (value.endsWith('.eslintrc.json')) {
+          return JSON.stringify({ rules: { semi: ['error', 'always'] } });
+        }
+        if (value.includes('package.json')) {
+          return JSON.stringify({ dependencies: { '@nestjs/core': '^11.0.0' } });
+        }
+        throw new Error(`Unexpected read: ${filePath}`);
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(adapterSpy.mock.calls[0][0].conventionsSection).toContain('Repository conventions (repo-a):');
+    });
   });
 });

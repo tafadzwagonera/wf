@@ -74,6 +74,7 @@ export interface ImplementerBackend {
     contextFiles?: string[];
     repoName: string;
     trackedFilePaths: string[];
+    conventionsSection?: string;
     skillNames?: string[];
   }): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }>;
 }

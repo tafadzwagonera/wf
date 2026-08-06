@@ -70,6 +70,12 @@ export const repoConventionsContextSchema = z.object({
       keyRules: z.record(z.string(), z.unknown()),
     })
     .nullable(),
+  formatter: z
+    .object({
+      tool: z.string(),
+      keyRules: z.record(z.string(), z.unknown()),
+    })
+    .nullable(),
   typescript: z
     .object({
       strict: z.boolean(),

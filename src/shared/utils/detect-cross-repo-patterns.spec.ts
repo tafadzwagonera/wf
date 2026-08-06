@@ -12,6 +12,7 @@ const mockDetectRepoConventions = detectRepoConventions as jest.MockedFunction<t
 const createMockContext = (overrides: Partial<RepoConventionsContext> = {}): RepoConventionsContext => ({
   language: 'typescript',
   linter: { tool: 'eslint', keyRules: {} },
+  formatter: null,
   typescript: { strict: true, module: 'commonjs', target: 'ES2020', paths: {} },
   go: null,
   python: null,
@@ -57,6 +58,24 @@ describe('detectCrossRepoPatterns', () => {
 
       expect(result.patterns).toHaveLength(1);
       expect(result.patterns[0].deltas).toContain('secondary uses biome linter (primary uses eslint)');
+    });
+  });
+
+  describe('when secondary repo uses a different formatter tool', () => {
+    it('detects different formatter tools', () => {
+      const primaryCtx = createMockContext({
+        formatter: { tool: 'prettier', keyRules: {} },
+      });
+      const secondaryCtx = createMockContext({
+        formatter: { tool: 'dprint', keyRules: {} },
+      });
+
+      mockDetectRepoConventions.mockReturnValueOnce(primaryCtx).mockReturnValueOnce(secondaryCtx);
+
+      const result = detectCrossRepoPatterns('/primary', ['/repos/secondary']);
+
+      expect(result.patterns).toHaveLength(1);
+      expect(result.patterns[0].deltas).toContain('secondary uses dprint formatter (primary uses prettier)');
     });
   });
 

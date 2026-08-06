@@ -32,6 +32,10 @@ describe('getCommandHelpCatalog', () => {
           command: 'wf issue:generate https://example.com/spec',
         }),
         expect.objectContaining({
+          comment: 'Generate with multiple repos so repo conventions, formatter rules, and git hooks are compared across checkouts',
+          command: 'wf issue:generate ./requirements.md -r primary-repo secondary-repo --save',
+        }),
+        expect.objectContaining({
           comment: 'Save with overridden title',
           command: 'wf issue:generate ./requirements.md --title "Add OAuth2" --save',
         }),

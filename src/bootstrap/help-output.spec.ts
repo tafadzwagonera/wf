@@ -47,6 +47,9 @@ describe('getHelpText', () => {
     expect(plainHelpText).toContain(
       'Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/*'
     );
+    expect(plainHelpText).toContain(
+      'When multiple repos are supplied, the synthesis prompt also compares repo conventions, including linter and formatter rules, and git-hook tools across checkouts'
+    );
     expect(helpText).toContain('--title <title>');
     expect(helpText).toContain('<bold-cyan>Examples:</bold-cyan>');
     expect(helpText).toContain('<cyan>wf</cyan> issue:generate');
@@ -131,6 +134,9 @@ describe('getHelpText', () => {
     expect(plainImplementHelpText).toContain('~/.openai/AGENTS.md and the repository-root AGENTS.md');
     expect(plainImplementHelpText).toContain(
       'All backends emit stable task and tool progress lines plus explicit file mutation logs and verification logs'
+    );
+    expect(plainImplementHelpText).toContain(
+      'Repo conventions are detected up front and threaded into every backend prompt, including continuation passes, so formatter and structural ESLint constraints survive context compaction'
     );
     expect(plainImplementHelpText).not.toContain('the OpenAI backend emits heuristic progress signals');
   });

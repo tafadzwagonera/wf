@@ -19,6 +19,7 @@ import { ConfigurationError, GitError, ValidationError } from '../shared/utils/e
 import { resolveSkills } from '../skills';
 import { formatBackendSelection, writeImplementVerificationRunFile } from '../shared/utils/implement-verification';
 import { getWfStateDir } from '../shared/utils/wf-paths';
+import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
@@ -143,19 +144,30 @@ export class ImplementerAgent {
     branchName: string | null,
     resolved: FileResolution
   ): Promise<ImplementerResult> {
+    const result = await this.executeBackendAdapter(ticket, planArtifact, options, resolved);
+    this.logCompletionStatus(planArtifact);
+    const hasChanges = (await this.gitService.getStatus(options.repoDir)).files.length > 0;
+    return { type: 'implementation', hasChanges, branchName, sessionId: result.sessionId, verificationOutcomes: result.verificationOutcomes };
+  }
+
+  private async executeBackendAdapter(
+    ticket: TicketArtifact, planArtifact: PlanArtifact,
+    options: ImplementerOptions, resolved: FileResolution,
+  ) {
     const { repoName, contextFiles } = resolved;
     const verificationScripts = this.buildVerificationScripts(options.repoDir, planArtifact, options.isNewRepo);
     const tracked = await this.alignTrackedFiles(resolved.repoFiles, repoName, options.repoDir);
+    const conventions = detectRepoConventions(options.repoDir ?? process.cwd());
+    const conventionsSection = formatRepoConventionsPromptSection(conventions, repoName);
     const backendSelection = this.resolveImplementBackendSelection();
     console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));
     this.writeRunArtifact(ticket, options, backendSelection, verificationScripts);
-    const result = await this.createAdapter(backendSelection).generateAndVerify({
+    return this.createAdapter(backendSelection).generateAndVerify({
       ticket, planArtifact, options, verificationScripts,
       contextFiles, repoName, ...tracked,
+      conventionsSection,
       skillNames: await this.resolveImplementSkillNames(),
     });
-    this.logCompletionStatus(planArtifact);
-    return { type: 'implementation', hasChanges: (await this.gitService.getStatus(options.repoDir)).files.length > 0, branchName, sessionId: result.sessionId, verificationOutcomes: result.verificationOutcomes };
   }
 
   private async alignTrackedFiles(

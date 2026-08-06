@@ -33,19 +33,26 @@ const detectTestFramework = (keyDependencies: string[]): string | null => {
  * @param secondary - Conventions context for the secondary repo
  * @returns Array of delta description strings
  */
+const pushIfDifferent = (
+  deltas: string[],
+  repoName: string,
+  primary: string | null,
+  secondary: string | null,
+  label: string,
+): void => {
+  if (secondary !== primary) deltas.push(`${repoName} uses ${secondary} ${label} (primary uses ${primary})`);
+};
+
 const collectToolingDeltas = (
   repoName: string,
   primary: RepoConventionsContext,
   secondary: RepoConventionsContext,
 ): string[] => {
   const deltas: string[] = [];
-  const primaryLinter = primary.linter?.tool ?? null;
-  const secondaryLinter = secondary.linter?.tool ?? null;
-  if (secondaryLinter !== primaryLinter) deltas.push(`${repoName} uses ${secondaryLinter} linter (primary uses ${primaryLinter})`);
-  const primaryFramework = detectTestFramework(primary.keyDependencies);
-  const secondaryFramework = detectTestFramework(secondary.keyDependencies);
-  if (secondaryFramework !== primaryFramework) deltas.push(`${repoName} uses ${secondaryFramework} for testing (primary uses ${primaryFramework})`);
-  if (secondary.importStyle !== primary.importStyle) deltas.push(`${repoName} uses ${secondary.importStyle} imports (primary uses ${primary.importStyle})`);
+  pushIfDifferent(deltas, repoName, primary.linter?.tool ?? null, secondary.linter?.tool ?? null, 'linter');
+  pushIfDifferent(deltas, repoName, primary.formatter?.tool ?? null, secondary.formatter?.tool ?? null, 'formatter');
+  pushIfDifferent(deltas, repoName, detectTestFramework(primary.keyDependencies), detectTestFramework(secondary.keyDependencies), 'for testing');
+  pushIfDifferent(deltas, repoName, primary.importStyle, secondary.importStyle, 'imports');
   return deltas;
 };
 
