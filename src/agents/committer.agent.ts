@@ -1,14 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import chalk from 'chalk';
 import { GitError } from '../shared/utils/errors';
 import { GitService } from '../integrations/git/git.service';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
 
 @Injectable()
 export class CommitterAgent {
   constructor(
     private readonly gitService: GitService,
-    private readonly commitStageService: CommitStageService
+    private readonly commitStageService: CommitStageService,
+    private readonly presenter: CliPresenter
   ) {}
 
   /**
@@ -33,13 +34,13 @@ export class CommitterAgent {
     silent?: boolean
   ): Promise<void> {
     if (!suppressHeader && !silent) {
-      console.log(chalk.bold.yellow('\n💾 STAGE 5: Commit Changes'));
-      console.log(chalk.gray('─'.repeat(70)));
+      this.presenter.stageHeader(5, 'Commit Changes');
+      this.presenter.separator();
     }
 
     const hasChanges = await this.hasChangesToCommit(repoDir, silent);
     if (!hasChanges) return;
-    if (!silent) console.log(chalk.bold('  Generating commit message...'));
+    if (!silent) this.presenter.progress('Generating commit message...');
 
     const finalMsg = await this.buildCommitMessage(ticketKey, repoDir, ticketContext);
     this.logCommitMessage(finalMsg, silent);
@@ -50,7 +51,7 @@ export class CommitterAgent {
   private async hasChangesToCommit(repoDir?: string, silent?: boolean): Promise<boolean> {
     const status = await this.gitService.getStatus(repoDir);
     if (status.files.length === 0) {
-      if (!silent) console.log(chalk.yellow('⚠️  No changes to commit'));
+      if (!silent) this.presenter.outcome('warning', 'No changes to commit');
       return false;
     }
     await this.gitService.stageAll(repoDir);
@@ -66,18 +67,17 @@ export class CommitterAgent {
 
   private logCommitMessage(message: string, silent?: boolean): void {
     if (silent) return;
-    console.log(chalk.green('\n✓ Commit message generated'));
-    console.log(chalk.bold('\n  Message:'));
-    console.log(chalk.bold.cyan(`    ${message}`));
+    this.presenter.outcome('success', 'Commit message generated');
+    this.presenter.detail('Message', message);
   }
 
   private async commitChanges(message: string, repoDir?: string, silent?: boolean): Promise<void> {
     try {
       await this.gitService.commit({ message, cwd: repoDir });
-      if (!silent) console.log(chalk.green('\n✓ Changes committed'));
+      if (!silent) this.presenter.outcome('success', 'Changes committed');
     } catch (err) {
       if (err instanceof GitError && err.message === 'No changes to commit') {
-        if (!silent) console.log(chalk.yellow('\n⚠️ Nothing to commit — skipping'));
+        if (!silent) this.presenter.outcome('warning', 'Nothing to commit — skipping');
         return;
       }
       throw err;
@@ -86,7 +86,6 @@ export class CommitterAgent {
 
   private logNextStep(silent?: boolean): void {
     if (silent) return;
-    console.log(chalk.bold('\n  Next step:'));
-    console.log(chalk.cyan('    git push'));
+    this.presenter.detail('Next step', 'git push');
   }
 }

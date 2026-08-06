@@ -1,19 +1,34 @@
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { ReviewerAgent } from './reviewer.agent';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { GitService } from '../integrations/git/git.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import * as fs from 'fs';
 
 describe('ReviewerAgent', () => {
+  const createMockPresenter = () => ({
+    stageHeader: jest.fn(),
+    separator: jest.fn(),
+    progress: jest.fn(),
+    outcome: jest.fn(),
+    detail: jest.fn(),
+    summaryBlock: jest.fn(),
+  });
+
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
   it('delegates review generation to ReviewStageService', async () => {
+    const presenter = createMockPresenter();
     const module = await Test.createTestingModule({
       providers: [
         ReviewerAgent,
+        {
+          provide: CliPresenter,
+          useValue: presenter,
+        },
         {
           provide: GitService,
           useValue: {
@@ -71,6 +86,7 @@ describe('ReviewerAgent', () => {
         repoDir: '/tmp/repo',
       })
     );
+    expect(presenter.outcome).toHaveBeenCalledWith('success', 'Approved');
   });
 
   it('skips review when artifact exists and skipExisting is true', async () => {
@@ -80,6 +96,10 @@ describe('ReviewerAgent', () => {
     const module = await Test.createTestingModule({
       providers: [
         ReviewerAgent,
+        {
+          provide: CliPresenter,
+          useValue: createMockPresenter(),
+        },
         {
           provide: GitService,
           useValue: {
@@ -121,6 +141,10 @@ describe('ReviewerAgent', () => {
     const module = await Test.createTestingModule({
       providers: [
         ReviewerAgent,
+        {
+          provide: CliPresenter,
+          useValue: createMockPresenter(),
+        },
         {
           provide: GitService,
           useValue: {
@@ -175,6 +199,10 @@ describe('ReviewerAgent', () => {
       providers: [
         ReviewerAgent,
         {
+          provide: CliPresenter,
+          useValue: createMockPresenter(),
+        },
+        {
           provide: GitService,
           useValue: {
             getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
@@ -200,18 +228,15 @@ describe('ReviewerAgent', () => {
       ],
     }).compile();
 
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     const agent = module.get(ReviewerAgent);
+    const presenter = module.get(CliPresenter);
 
     await agent.execute(
       { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
       { repoDir: '/tmp/repo', silent: false }
     );
 
-    const grayProgressCalls = consoleSpy.mock.calls.filter(
-      args => typeof args[0] === 'string' && args[0].includes('Synthesizing review...')
-    );
-    expect(grayProgressCalls.length).toBeGreaterThan(0);
+    expect(presenter.progress).toHaveBeenCalledWith('  Synthesizing review...');
   });
 
   it('uses caller-provided onProgress instead of default', async () => {
@@ -232,6 +257,10 @@ describe('ReviewerAgent', () => {
       providers: [
         ReviewerAgent,
         {
+          provide: CliPresenter,
+          useValue: createMockPresenter(),
+        },
+        {
           provide: GitService,
           useValue: {
             getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
@@ -257,8 +286,8 @@ describe('ReviewerAgent', () => {
       ],
     }).compile();
 
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     const agent = module.get(ReviewerAgent);
+    const presenter = module.get(CliPresenter);
 
     await agent.execute(
       { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
@@ -266,10 +295,7 @@ describe('ReviewerAgent', () => {
     );
 
     expect(mockOnProgress).toHaveBeenCalledWith('Synthesizing review...');
-    const grayProgressCalls = consoleSpy.mock.calls.filter(
-      args => typeof args[0] === 'string' && args[0].includes('Synthesizing review...')
-    );
-    expect(grayProgressCalls.length).toBe(0);
+    expect(presenter.progress).not.toHaveBeenCalledWith('  Synthesizing review...');
   });
 
   it('suppresses progress when silent is true and no onProgress is provided', async () => {
@@ -289,6 +315,10 @@ describe('ReviewerAgent', () => {
       providers: [
         ReviewerAgent,
         {
+          provide: CliPresenter,
+          useValue: createMockPresenter(),
+        },
+        {
           provide: GitService,
           useValue: {
             getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
@@ -314,17 +344,14 @@ describe('ReviewerAgent', () => {
       ],
     }).compile();
 
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     const agent = module.get(ReviewerAgent);
+    const presenter = module.get(CliPresenter);
 
     await agent.execute(
       { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
       { repoDir: '/tmp/repo', silent: true }
     );
 
-    const progressCalls = consoleSpy.mock.calls.filter(
-      args => typeof args[0] === 'string' && args[0].includes('Synthesizing review...')
-    );
-    expect(progressCalls.length).toBe(0);
+    expect(presenter.progress).not.toHaveBeenCalledWith('  Synthesizing review...');
   });
 });

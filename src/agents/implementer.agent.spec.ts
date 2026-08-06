@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import inquirer from 'inquirer';
 import { ImplementerAgent } from './implementer.agent';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { GitService } from '../integrations/git/git.service';
 import { GitError } from '../shared/errors/app.error';
 import { AiService } from '../integrations/ai/ai.service';
@@ -16,6 +17,15 @@ jest.mock('inquirer');
 jest.mock('./utils', () => {
   const actual = jest.requireActual('./utils');
   return { ...actual, isRepoResolvable: jest.fn(() => true) };
+});
+
+const createMockPresenter = () => ({
+  stageHeader: jest.fn(),
+  separator: jest.fn(),
+  progress: jest.fn(),
+  outcome: jest.fn(),
+  detail: jest.fn(),
+  summaryBlock: jest.fn(),
 });
 
 describe('ImplementerAgent', () => {
@@ -49,6 +59,10 @@ describe('ImplementerAgent', () => {
     const module = await Test.createTestingModule({
       providers: [
         ImplementerAgent,
+        {
+          provide: CliPresenter,
+          useValue: createMockPresenter(),
+        },
         {
           provide: ConfigService,
           useValue: {
@@ -384,6 +398,10 @@ describe('ImplementerAgent', () => {
         providers: [
           ImplementerAgent,
           {
+            provide: CliPresenter,
+            useValue: createMockPresenter(),
+          },
+          {
             provide: ConfigService,
             useValue: {
               get: jest.fn().mockImplementation((key: string, fallback?: unknown) => {
@@ -455,6 +473,10 @@ describe('ImplementerAgent', () => {
       const module = await Test.createTestingModule({
         providers: [
           ImplementerAgent,
+          {
+            provide: CliPresenter,
+            useValue: createMockPresenter(),
+          },
           {
             provide: ConfigService,
             useValue: {

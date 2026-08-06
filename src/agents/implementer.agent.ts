@@ -14,6 +14,7 @@ import {
   ImplementerResult,
   VerificationScript,
 } from './interfaces';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { extractSummary, isRepoResolvable, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
 import { ConfigurationError, GitError, ValidationError } from '../shared/utils/errors';
 import { resolveSkills } from '../skills';
@@ -50,7 +51,8 @@ export class ImplementerAgent {
   constructor(
     private readonly configService: ConfigService,
     private readonly gitService: GitService,
-    private readonly aiService: AiService
+    private readonly aiService: AiService,
+    private readonly presenter: CliPresenter
   ) {}
 
   /**
@@ -77,8 +79,8 @@ export class ImplementerAgent {
     }
 
     if (!options.suppressHeader) {
-      console.log(chalk.bold.yellow('\n🔧 STAGE 3: Implementation Guide'));
-      console.log(chalk.gray('─'.repeat(70)));
+      this.presenter.stageHeader(3, 'Implementation Guide');
+      this.presenter.separator();
     }
 
     this.validateImplementationScope(planArtifact, options.repoDir, options.allowMultiRepoScope);

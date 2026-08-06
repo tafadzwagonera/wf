@@ -14,12 +14,30 @@ describe('ConversationService Integration Tests', () => {
   let claudeService: jest.Mocked<AiService>;
   let chatUIService: jest.Mocked<ChatUIService>;
   let loggerService: jest.Mocked<LoggerService>;
+  let originalHome: string | undefined;
   const testTicketKey = 'TEST-INTEGRATION-999';
+  const testHomeDir = path.join(os.tmpdir(), 'wf-conv-integration-home');
   const testRepoDir = path.join(os.tmpdir(), 'wf-conv-integration-test-repo');
-  const testDir = path.join(os.homedir(), '.wf', path.basename(testRepoDir));
+  const testDir = path.join(testHomeDir, '.wf', path.basename(testRepoDir));
   const testFilePath = path.join(testDir, `${testTicketKey}-conversation.json`);
 
+  /**
+   * Redirect conversation persistence into the writable temp fixture path.
+   *
+   * @param targetService - Service instance under test
+   * @returns Nothing
+   */
+  const mockConversationPath = (targetService: ConversationService): void => {
+    Object.defineProperty(targetService, 'getConversationFilePath', {
+      configurable: true,
+      value: () => testFilePath,
+    });
+  };
+
   beforeEach(async () => {
+    originalHome = process.env.HOME;
+    process.env.HOME = testHomeDir;
+
     // Create mocks
     claudeService = {
       executeWithHistory: jest.fn(),
@@ -58,6 +76,7 @@ describe('ConversationService Integration Tests', () => {
     }).compile();
 
     service = module.get<ConversationService>(ConversationService);
+    mockConversationPath(service);
 
     // Ensure test directory exists
     if (!fs.existsSync(testDir)) {
@@ -74,6 +93,11 @@ describe('ConversationService Integration Tests', () => {
     // Clean up test file
     if (fs.existsSync(testFilePath)) {
       fs.unlinkSync(testFilePath);
+    }
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
     }
     jest.clearAllMocks();
   });
@@ -137,6 +161,7 @@ describe('ConversationService Integration Tests', () => {
       }).compile();
 
       const newService = module.get<ConversationService>(ConversationService);
+      mockConversationPath(newService);
       const loaded = await newService.loadConversation(testTicketKey, testRepoDir);
 
       expect(loaded).toBeDefined();
@@ -215,6 +240,7 @@ describe('ConversationService Integration Tests', () => {
       }).compile();
 
       const service2 = module2.get<ConversationService>(ConversationService);
+      mockConversationPath(service2);
       const conv2 = await service2.loadConversation(testTicketKey, testRepoDir);
 
       if (!conv2) throw new Error('expected conv2');
@@ -243,6 +269,7 @@ describe('ConversationService Integration Tests', () => {
       }).compile();
 
       const service3 = module3.get<ConversationService>(ConversationService);
+      mockConversationPath(service3);
       const conv3 = await service3.loadConversation(testTicketKey, testRepoDir);
 
       expect(conv3?.messages.length).toBe(3);
@@ -286,6 +313,7 @@ describe('ConversationService Integration Tests', () => {
       }).compile();
 
       const service2 = module2.get<ConversationService>(ConversationService);
+      mockConversationPath(service2);
       const conv2 = await service2.loadConversation(testTicketKey, testRepoDir);
 
       expect(conv2?.totalTokensUsed).toEqual({ input: 100, output: 50 });

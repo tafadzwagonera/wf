@@ -1,4 +1,5 @@
 import { AppError, AIError, ERROR_CODE, type AIErrorCategory } from '../errors/app.error';
+import { appendToLogFile } from '../logger/log-file-writer';
 import { isZodErrorLike, formatZodError } from './zod-error.util';
 import chalk from 'chalk';
 
@@ -14,6 +15,24 @@ export class ErrorHandler {
 
   // eslint-disable-next-line max-lines-per-function -- name, message, details, suggestion, and recoverable-flag display
   private static handleAppError(error: AppError): void {
+    const logParts = [`${error.name}: ${error.message}`];
+    if (error.details) {
+      const detailsOutput = isZodErrorLike(error.details)
+        ? formatZodError(error.details)
+        : JSON.stringify(this.sanitizeDetailsForDisplay(error.details), null, 2);
+      logParts.push(`Details:\n${detailsOutput}`);
+    }
+
+    const logSuggestion = this.getSuggestion(error);
+    if (logSuggestion) {
+      logParts.push(`Suggestion: ${logSuggestion}`);
+    }
+
+    if (error.recoverable) {
+      logParts.push('Recoverable: true');
+    }
+
+    appendToLogFile('ERROR', logParts.join('\n'), 'ErrorHandler');
     console.error(chalk.red.bold(`\n✖ ${error.name}`));
     console.error(chalk.red(error.message));
 
@@ -36,6 +55,7 @@ export class ErrorHandler {
   }
 
   private static handleUnknownError(error: Error): void {
+    appendToLogFile('ERROR', `${error.message}${error.stack ? `\n${error.stack}` : ''}`, 'ErrorHandler');
     console.error(chalk.red.bold('\n✖ Unexpected Error'));
     console.error(chalk.red(error.message));
     if (error.stack) {
@@ -100,38 +120,5 @@ export class ErrorHandler {
       sanitized['error'] = (sanitized['error'] as { message: string }).message;
     }
     return sanitized;
-  }
-
-  // eslint-disable-next-line max-lines-per-function -- retry loop with exponential backoff and attempt tracking
-  static async executeWithRetry<T>(
-    operation: () => Promise<T>,
-    maxRetries: number = 3,
-    delay: number = 1000
-  ): Promise<T> {
-    let lastError: Error;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        return await operation();
-      } catch (error) {
-        lastError = error as Error;
-
-        if (error instanceof AppError && !error.recoverable) {
-          throw error;
-        }
-
-        if (attempt < maxRetries) {
-          console.log(chalk.yellow(`\n⚠️  Attempt ${attempt} failed. Retrying in ${delay}ms...`));
-          await this.sleep(delay);
-          delay *= 2; // Exponential backoff
-        }
-      }
-    }
-
-    throw lastError!; // eslint-disable-line @typescript-eslint/no-non-null-assertion -- loop runs at least once
-  }
-
-  private static sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

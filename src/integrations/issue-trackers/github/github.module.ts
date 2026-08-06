@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { GitHubAdapter } from './github-adapter';
-import { LoggerService } from '../../../shared/logger/logger.service';
 import { IssueTrackerConfigService } from '../issue-tracker-config.service';
 
 /**
@@ -10,7 +9,7 @@ import { IssueTrackerConfigService } from '../issue-tracker-config.service';
  */
 @Module({
   imports: [ConfigModule],
-  providers: [GitHubAdapter, LoggerService, IssueTrackerConfigService],
+  providers: [GitHubAdapter, IssueTrackerConfigService],
   exports: [GitHubAdapter],
 })
 export class GitHubIssueTrackerModule {}

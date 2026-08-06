@@ -18,7 +18,6 @@ import { GitModule } from '../integrations/git/git.module';
 import { AIModule } from '../integrations/ai/ai.module';
 import { IssueTrackerModule } from '../integrations/issue-trackers/issue-tracker.module';
 import { ConvertersModule } from '../common/converters/converters.module';
-import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { SlackService } from '../integrations/slack/slack.service';
 import { WorkflowStagesModule } from '../workflows/stages/workflow-stages.module';
@@ -52,7 +51,6 @@ import { SessionModule } from '../shared/session/session.module';
     IssueCommitCommand,
     IssuePrCommand,
     IssueCowsayCommand,
-    LoggerService,
     DryRunPreviewService,
     SlackService,
   ],

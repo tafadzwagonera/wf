@@ -1,13 +1,16 @@
 import { AIError, GitError } from '../errors/app.error';
+import * as logFileWriter from '../logger/log-file-writer';
 import { ErrorHandler } from './error-handler';
 
 describe('ErrorHandler', () => {
   let exitSpy: jest.SpyInstance;
   let consoleSpy: jest.SpyInstance;
+  let appendToLogFileSpy: jest.SpyInstance;
 
   beforeEach(() => {
     exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
     consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    appendToLogFileSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -17,8 +20,18 @@ describe('ErrorHandler', () => {
 
   describe('getSuggestion — category-aware suggestions', () => {
     it('returns parse suggestion for parse category', () => {
-      ErrorHandler.handle(new AIError('msg', null, true, 'parse'));
+      ErrorHandler.handle(new AIError('msg', { response: 'parse details' }, true, 'parse'));
       expect(allOutput()).toContain('could not be parsed');
+      expect(appendToLogFileSpy).toHaveBeenCalledWith(
+        'ERROR',
+        expect.stringContaining('Details:'),
+        'ErrorHandler'
+      );
+      expect(appendToLogFileSpy).toHaveBeenCalledWith(
+        'ERROR',
+        expect.stringContaining('Suggestion:'),
+        'ErrorHandler'
+      );
       expect(exitSpy).toHaveBeenCalledWith(1);
     });
 
@@ -61,6 +74,19 @@ describe('ErrorHandler', () => {
     it('returns git suggestion for GitError', () => {
       ErrorHandler.handle(new GitError('msg'));
       expect(allOutput()).toContain('git repository');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    });
+
+    it('logs unknown errors to the log file helper', () => {
+      const error = new Error('unexpected');
+      ErrorHandler.handle(error);
+
+      expect(allOutput()).toContain('Unexpected Error');
+      expect(appendToLogFileSpy).toHaveBeenCalledWith(
+        'ERROR',
+        expect.stringContaining('unexpected'),
+        'ErrorHandler'
+      );
       expect(exitSpy).toHaveBeenCalledWith(1);
     });
   });

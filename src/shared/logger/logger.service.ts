@@ -1,9 +1,7 @@
 import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as fs from 'fs';
-import * as path from 'path';
 import chalk from 'chalk';
-import { getWfLogDir } from '../utils/wf-paths';
+import { appendToLogFile } from './log-file-writer';
 
 export enum LogLevel {
   ERROR = 0,
@@ -15,15 +13,10 @@ export enum LogLevel {
 @Injectable()
 export class LoggerService implements NestLoggerService {
   private logLevel: LogLevel;
-  private logDirectory: string;
-  private logFile: string;
 
   constructor(private configService: ConfigService) {
     const levelStr = this.configService.get<string>('logging.level', 'info');
     this.logLevel = this.parseLogLevel(levelStr);
-    this.logDirectory = getWfLogDir();
-    this.ensureLogDirectory();
-    this.logFile = path.join(this.logDirectory, `agent-${new Date().toISOString().split('T')[0]}.log`);
   }
 
   private parseLogLevel(level: string): LogLevel {
@@ -36,22 +29,8 @@ export class LoggerService implements NestLoggerService {
     return levels[level.toLowerCase()] ?? LogLevel.INFO;
   }
 
-  private ensureLogDirectory(): void {
-    if (!fs.existsSync(this.logDirectory)) {
-      fs.mkdirSync(this.logDirectory, { recursive: true });
-    }
-  }
-
   private writeToFile(level: string, message: string, context?: string): void {
-    const timestamp = new Date().toISOString();
-    const contextStr = context ? `[${context}] ` : '';
-    const logLine = `${timestamp} [${level}] ${contextStr}${message}\n`;
-
-    try {
-      fs.appendFileSync(this.logFile, logLine);
-    } catch {
-      // Silently fail if unable to write to log file
-    }
+    appendToLogFile(level, message, context);
   }
 
   log(message: any, context?: string) {

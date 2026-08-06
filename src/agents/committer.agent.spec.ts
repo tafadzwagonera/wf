@@ -1,13 +1,27 @@
 import { Test } from '@nestjs/testing';
 import { CommitterAgent } from './committer.agent';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { GitService } from '../integrations/git/git.service';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
 
 describe('CommitterAgent', () => {
+  afterEach(() => jest.restoreAllMocks());
+
   it('delegates commit message generation to CommitStageService', async () => {
     const module = await Test.createTestingModule({
       providers: [
         CommitterAgent,
+        {
+          provide: CliPresenter,
+          useValue: {
+            stageHeader: jest.fn(),
+            separator: jest.fn(),
+            progress: jest.fn(),
+            outcome: jest.fn(),
+            detail: jest.fn(),
+            summaryBlock: jest.fn(),
+          },
+        },
         {
           provide: GitService,
           useValue: {

@@ -2,7 +2,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'node:fs';
-import chalk from 'chalk';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import type { CodeReview } from '../shared/types/review.types';
 import { REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../shared/types/review.types';
 import { GitService } from '../integrations/git/git.service';
@@ -15,7 +15,8 @@ export class ReviewerAgent {
   constructor(
     private readonly gitService: GitService,
     private readonly reviewStageService: ReviewStageService,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    private readonly presenter: CliPresenter
   ) {}
 
   /**
@@ -34,21 +35,21 @@ export class ReviewerAgent {
     if (cached) return cached;
 
     if (!options.suppressHeader && !options.silent) {
-      console.log(chalk.bold.yellow('\n🔍 STAGE 4: Code Review'));
-      console.log(chalk.gray('─'.repeat(70)));
+      this.presenter.stageHeader(4, 'Code Review');
+      this.presenter.separator();
     }
 
     if (await this.hasNoChanges(options)) return null;
-    if (!options.silent) console.log(chalk.bold('  Analyzing changes...'));
+    if (!options.silent) this.presenter.progress('Analyzing changes...');
 
     const onProgress = options.onProgress
-      ?? (options.silent ? undefined : (line: string) => console.log(chalk.gray(`  ${line}`)));
+      ?? (options.silent ? undefined : (line: string) => this.presenter.progress(`  ${line}`));
 
     const review = await this.stageAndReview(ticket, options, onProgress);
     if (!options.silent) this.logReview(review);
 
     const artifact = this.reviewStageService.createReviewArtifact(ticket, review);
-    if (!options.silent) console.log(chalk.gray(`\n  Saved to: ${artifact.path}`));
+    if (!options.silent) this.presenter.detail('Saved to', artifact.path);
     return artifact;
   }
 
@@ -57,7 +58,7 @@ export class ReviewerAgent {
     if (!options.skipExisting || !fs.existsSync(reviewPath)) return null;
 
     if (!options.silent) {
-      console.log(chalk.gray(`🔍 Skipping REVIEW - artifact exists: ${reviewPath}`));
+      this.presenter.progress(`Skipping REVIEW - artifact exists: ${reviewPath}`);
     }
     const content = fs.readFileSync(reviewPath, 'utf-8');
     const approved = content.includes(`✓ ${REVIEW_VERDICT_APPROVED}`);
@@ -76,7 +77,7 @@ export class ReviewerAgent {
       const message = options.skipExisting === false
         ? '⚠️  --force requested, but no uncommitted changes are available for review regeneration'
         : '⚠️  No uncommitted changes to review';
-      console.log(chalk.yellow(message));
+      this.presenter.outcome('warning', message.replace(/^⚠️\s+/, ''));
     }
     return true;
   }
@@ -99,35 +100,32 @@ export class ReviewerAgent {
   }
 
   private logReview(review: CodeReview): void {
-    console.log(chalk.green('\n✓ Review complete'));
-    console.log(chalk.bold('\n  Summary:'), chalk.bold.cyan(review.summary));
+    this.presenter.outcome('success', 'Review complete');
+    this.presenter.detail('Summary', review.summary);
     this.logIssues(review.issues);
     this.logSuggestions(review.suggestions);
-
-    const verdict = review.approved
-      ? chalk.green(`✓ ${REVIEW_VERDICT_APPROVED}`)
-      : chalk.red(`✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`);
-    console.log(chalk.bold('\n  Status:'), verdict);
+    this.presenter.outcome(
+      review.approved ? 'success' : 'error',
+      review.approved ? REVIEW_VERDICT_APPROVED : REVIEW_VERDICT_CHANGES_REQUESTED
+    );
   }
 
   private logIssues(issues: CodeReview['issues']): void {
     if (issues.length === 0) return;
-    console.log(chalk.bold('\n  Issues found:'));
-    const severityColors: Record<string, typeof chalk.red> = { error: chalk.red, warning: chalk.yellow };
+    this.presenter.progress('  Issues found:');
     for (const issue of issues) {
-      const color = severityColors[issue.severity] ?? chalk.blue;
-      console.log(color(`    [${issue.severity}] ${issue.message}`));
+      console.log(`    [${issue.severity}] ${issue.message}`);
       if (issue.file) {
-        console.log(chalk.gray(`      ${issue.file}${issue.line ? `:${issue.line}` : ''}`));
+        this.presenter.progress(`      ${issue.file}${issue.line ? `:${issue.line}` : ''}`);
       }
     }
   }
 
   private logSuggestions(suggestions: string[]): void {
     if (suggestions.length === 0) return;
-    console.log(chalk.bold('\n  Suggestions:'));
+    this.presenter.progress('  Suggestions:');
     for (const s of suggestions) {
-      console.log(chalk.cyan(`    - ${s}`));
+      console.log(`    - ${s}`);
     }
   }
 }

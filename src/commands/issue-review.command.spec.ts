@@ -1174,6 +1174,7 @@ describe('IssueReviewCommand', () => {
     it('retries once on transient error and succeeds on second attempt', async () => {
       const { command, adapters } = await buildCommand();
       jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+      jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
 
       adapters.bitbucketAdapter.findPullRequestsByTicketKey
         .mockRejectedValueOnce(new Error('Premature close'))
@@ -1189,6 +1190,7 @@ describe('IssueReviewCommand', () => {
     it('logs warning and returns null when transient error persists after retry', async () => {
       const { command, adapters } = await buildCommand();
       jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+      jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
       jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(true);
       jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('local diff');
       const promptMock = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;

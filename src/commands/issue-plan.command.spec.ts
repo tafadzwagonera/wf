@@ -58,6 +58,7 @@ import { IssuePlanCommand } from './issue-plan.command';
 import { AiService } from '../integrations/ai/ai.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
@@ -114,6 +115,17 @@ async function buildCommand(): Promise<{
           warn: jest.fn(),
           error: jest.fn(),
           success: jest.fn(),
+        },
+      },
+      {
+        provide: CliPresenter,
+        useValue: {
+          stageHeader: jest.fn(),
+          separator: jest.fn(),
+          progress: jest.fn(),
+          outcome: jest.fn(),
+          detail: jest.fn(),
+          summaryBlock: jest.fn(),
         },
       },
       {

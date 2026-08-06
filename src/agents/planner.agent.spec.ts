@@ -1,12 +1,26 @@
 import { Test } from '@nestjs/testing';
 import { PlannerAgent } from './planner.agent';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
 
 describe('PlannerAgent', () => {
+  afterEach(() => jest.restoreAllMocks());
+
   it('delegates plan artifact creation to PlanStageService', async () => {
     const module = await Test.createTestingModule({
       providers: [
         PlannerAgent,
+        {
+          provide: CliPresenter,
+          useValue: {
+            stageHeader: jest.fn(),
+            separator: jest.fn(),
+            progress: jest.fn(),
+            outcome: jest.fn(),
+            detail: jest.fn(),
+            summaryBlock: jest.fn(),
+          },
+        },
         {
           provide: PlanStageService,
           useValue: {
@@ -61,6 +75,17 @@ describe('PlannerAgent', () => {
     const module = await Test.createTestingModule({
       providers: [
         PlannerAgent,
+        {
+          provide: CliPresenter,
+          useValue: {
+            stageHeader: jest.fn(),
+            separator: jest.fn(),
+            progress: jest.fn(),
+            outcome: jest.fn(),
+            detail: jest.fn(),
+            summaryBlock: jest.fn(),
+          },
+        },
         {
           provide: PlanStageService,
           useValue: {

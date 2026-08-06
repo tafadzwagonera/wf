@@ -1,10 +1,19 @@
 import { Test } from '@nestjs/testing';
 import { FetcherAgent } from './fetcher.agent';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 
 describe('FetcherAgent', () => {
   let agent: FetcherAgent;
   let fetchStageService: { fetchArtifact: jest.Mock; loadArtifact: jest.Mock };
+  let presenter: {
+    stageHeader: jest.Mock;
+    separator: jest.Mock;
+    progress: jest.Mock;
+    outcome: jest.Mock;
+    detail: jest.Mock;
+    summaryBlock: jest.Mock;
+  };
   let mockConsoleLog: jest.SpyInstance;
 
   beforeEach(async () => {
@@ -12,18 +21,28 @@ describe('FetcherAgent', () => {
       fetchArtifact: jest.fn(),
       loadArtifact: jest.fn(),
     };
+    presenter = {
+      stageHeader: jest.fn(),
+      separator: jest.fn(),
+      progress: jest.fn(),
+      outcome: jest.fn(),
+      detail: jest.fn(),
+      summaryBlock: jest.fn(),
+    };
 
     const module = await Test.createTestingModule({
-      providers: [FetcherAgent, { provide: FetchStageService, useValue: fetchStageService }],
+      providers: [
+        FetcherAgent,
+        { provide: FetchStageService, useValue: fetchStageService },
+        { provide: CliPresenter, useValue: presenter },
+      ],
     }).compile();
 
     agent = module.get(FetcherAgent);
     mockConsoleLog = jest.spyOn(console, 'log').mockImplementation();
   });
 
-  afterEach(() => {
-    mockConsoleLog.mockRestore();
-  });
+  afterEach(() => jest.restoreAllMocks());
 
   describe('execute', () => {
     it('delegates artifact fetching to FetchStageService', async () => {
@@ -42,6 +61,7 @@ describe('FetcherAgent', () => {
         trackerName: 'jira',
         baseDir: '/tmp/repo',
       });
+      expect(presenter.stageHeader).toHaveBeenCalledWith(1, 'Fetch Ticket');
     });
 
     it('logs cached artifact warning when fromCache is true', async () => {
@@ -54,10 +74,9 @@ describe('FetcherAgent', () => {
 
       await agent.execute('WBP-1', { trackerName: 'jira', baseDir: '/tmp' });
 
-      const output = mockConsoleLog.mock.calls.map(c => c.join(' ')).join('\n');
-      expect(output).toContain('Using existing FETCH artifact');
-      expect(output).not.toContain('Ticket fetched');
-      expect(output).not.toContain('Ticket refetched');
+      expect(presenter.outcome).toHaveBeenCalledWith('warning', 'Using existing FETCH artifact: /tmp/.wf/jira/WBP-1.md');
+      expect(presenter.outcome).not.toHaveBeenCalledWith('success', 'Ticket fetched');
+      expect(presenter.outcome).not.toHaveBeenCalledWith('success', 'Ticket refetched');
     });
 
     it('logs force-refetch messages when skipExisting is false', async () => {
@@ -74,10 +93,9 @@ describe('FetcherAgent', () => {
         skipExisting: false,
       });
 
-      const output = mockConsoleLog.mock.calls.map(c => c.join(' ')).join('\n');
-      expect(output).toContain('--force enabled');
-      expect(output).toContain('Ticket refetched');
-      expect(output).not.toContain('Using existing FETCH artifact');
+      expect(presenter.outcome).toHaveBeenCalledWith('warning', '--force enabled; overwrote ticket artifact');
+      expect(presenter.outcome).toHaveBeenCalledWith('success', 'Ticket refetched');
+      expect(presenter.outcome).not.toHaveBeenCalledWith('warning', 'Using existing FETCH artifact: /tmp/.wf/jira/WBP-2.md');
     });
 
     it('logs default fetch message for a fresh fetch', async () => {
@@ -90,10 +108,9 @@ describe('FetcherAgent', () => {
 
       await agent.execute('WBP-3', { trackerName: 'jira', baseDir: '/tmp' });
 
-      const output = mockConsoleLog.mock.calls.map(c => c.join(' ')).join('\n');
-      expect(output).toContain('Ticket fetched');
-      expect(output).not.toContain('--force enabled');
-      expect(output).not.toContain('Using existing FETCH artifact');
+      expect(presenter.outcome).toHaveBeenCalledWith('success', 'Ticket fetched');
+      expect(presenter.outcome).not.toHaveBeenCalledWith('warning', '--force enabled; overwrote ticket artifact');
+      expect(presenter.outcome).not.toHaveBeenCalledWith('warning', 'Using existing FETCH artifact: /tmp/.wf/jira/WBP-3.md');
     });
 
     it('suppresses all output when silent is true', async () => {
@@ -110,6 +127,8 @@ describe('FetcherAgent', () => {
       });
 
       expect(mockConsoleLog).not.toHaveBeenCalled();
+      expect(presenter.stageHeader).not.toHaveBeenCalled();
+      expect(presenter.outcome).not.toHaveBeenCalled();
     });
   });
 });

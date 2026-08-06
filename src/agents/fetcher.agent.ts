@@ -1,11 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import chalk from 'chalk';
 import { TicketArtifact, FetcherOptions } from './interfaces';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 
 @Injectable()
 export class FetcherAgent {
-  constructor(private readonly fetchStageService: FetchStageService) {}
+  constructor(
+    private readonly fetchStageService: FetchStageService,
+    private readonly presenter: CliPresenter
+  ) {}
 
   /**
    * Fetch a ticket from the platform and save it as a markdown artifact.
@@ -16,8 +19,8 @@ export class FetcherAgent {
    */
   async execute(ticketKey: string, options: FetcherOptions): Promise<TicketArtifact> {
     if (!options.silent) {
-      console.log(chalk.bold.yellow('📋 STAGE 1: Fetch Ticket'));
-      console.log(chalk.gray('─'.repeat(70)));
+      this.presenter.stageHeader(1, 'Fetch Ticket');
+      this.presenter.separator();
     }
 
     const artifact = await this.fetchStageService.fetchArtifact(ticketKey, options);
@@ -25,8 +28,10 @@ export class FetcherAgent {
     if (!options.silent) {
       this.logFetchOutcome(artifact, options);
       const titleMatch = /^#\s+[^:]+:\s+(.+)$/m.exec(artifact.content);
-      console.log(chalk.bold('  Title:'), chalk.bold.cyan(titleMatch?.[1] ?? ticketKey));
-      console.log(chalk.gray(`  Saved to: ${artifact.path}`));
+      this.presenter.summaryBlock([
+        { label: 'Title', value: titleMatch?.[1] ?? ticketKey },
+        { label: 'Saved to', value: artifact.path },
+      ]);
     }
 
     return artifact;
@@ -34,15 +39,15 @@ export class FetcherAgent {
 
   private logFetchOutcome(artifact: TicketArtifact & { fromCache?: boolean }, options: FetcherOptions): void {
     if (artifact.fromCache) {
-      console.log(chalk.yellow(`⚠️  Using existing FETCH artifact: ${artifact.path}`));
+      this.presenter.outcome('warning', `Using existing FETCH artifact: ${artifact.path}`);
       return;
     }
     if (options.skipExisting === false) {
-      console.log(chalk.yellow(`⚠️  --force enabled; overwrote ticket artifact`));
-      console.log(chalk.green('✓ Ticket refetched'));
+      this.presenter.outcome('warning', '--force enabled; overwrote ticket artifact');
+      this.presenter.outcome('success', 'Ticket refetched');
       return;
     }
-    console.log(chalk.green('✓ Ticket fetched'));
+    this.presenter.outcome('success', 'Ticket fetched');
   }
 
   /**
@@ -63,7 +68,7 @@ export class FetcherAgent {
   ): TicketArtifact {
     const artifact = this.fetchStageService.loadArtifact(ticketKey, trackerName, baseDir);
     if (!silent) {
-      console.log(chalk.gray(`📋 Using existing ticket: ${artifact.path}`));
+      this.presenter.progress(`Using existing ticket: ${artifact.path}`);
     }
     return artifact;
   }

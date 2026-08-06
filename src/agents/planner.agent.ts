@@ -1,14 +1,16 @@
-// src/agents/planner.agent.ts
 import { Injectable } from '@nestjs/common';
-import chalk from 'chalk';
 import * as path from 'node:path';
 import { TicketArtifact, PlanArtifact, PlannerOptions, ResolutionAction } from './interfaces';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import { buildPlanArtifactResolutionNotice } from '../shared/utils/plan-artifact';
 
 @Injectable()
 export class PlannerAgent {
-  constructor(private readonly planStageService: PlanStageService) {}
+  constructor(
+    private readonly planStageService: PlanStageService,
+    private readonly presenter: CliPresenter
+  ) {}
 
   /**
    * Generate an implementation plan for a ticket and save it as a JSON artifact.
@@ -19,12 +21,12 @@ export class PlannerAgent {
    */
   async execute(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {
     if (!options.silent) {
-      console.log(chalk.bold.yellow('\n🤖 STAGE 2: Generate Implementation Plan'));
-      console.log(chalk.gray('─'.repeat(70)));
-      console.log(chalk.gray(`  Action type: ${options.action}`));
+      this.presenter.stageHeader(2, 'Generate Implementation Plan');
+      this.presenter.separator();
+      this.presenter.progress(`  Action type: ${options.action}`);
     }
 
-    const onProgress = options.silent ? undefined : (line: string) => console.log(chalk.gray(line));
+    const onProgress = options.silent ? undefined : (line: string) => this.presenter.progress(line);
     const artifact = await this.planStageService.createPlanArtifact(ticket, { ...options, onProgress });
 
     if (!options.silent) this.logPlanOutcome(artifact, options.skipExisting);
@@ -33,18 +35,20 @@ export class PlannerAgent {
 
   private logPlanOutcome(artifact: PlanArtifact & { fromCache?: boolean }, skipExisting?: boolean): void {
     if (artifact.fromCache) {
-      console.log(chalk.yellow(`⚠️  Skipping PLAN - artifact exists: ${artifact.path}`));
+      this.presenter.outcome('warning', `Skipping PLAN - artifact exists: ${artifact.path}`);
     }
     if (!artifact.fromCache && skipExisting === false) {
-      console.log(chalk.yellow('⚠️  --force enabled; regenerated plan artifact'));
+      this.presenter.outcome('warning', '--force enabled; regenerated plan artifact');
     }
     if (!artifact.fromCache) {
-      console.log(chalk.green('✓ Plan generated'));
+      this.presenter.outcome('success', 'Plan generated');
     }
-    console.log(chalk.bold('  Summary:'), chalk.bold.cyan(artifact.plan.summary));
-    console.log(chalk.bold('  Action:'), chalk.cyan(artifact.plan.action));
-    console.log(chalk.bold('  Complexity:'), chalk.cyan(artifact.plan.estimatedComplexity));
-    console.log(chalk.gray(`  Saved to: ${artifact.path}`));
+    this.presenter.summaryBlock([
+      { label: 'Summary', value: artifact.plan.summary },
+      { label: 'Action', value: artifact.plan.action },
+      { label: 'Complexity', value: artifact.plan.estimatedComplexity },
+      { label: 'Saved to', value: artifact.path },
+    ]);
   }
 
   /**
@@ -69,9 +73,9 @@ export class PlannerAgent {
         ticketKey: path.basename(ticketPath, path.extname(ticketPath)),
       });
       if (notice) {
-        console.log(chalk.yellow(`⚠️  ${notice}`));
+        this.presenter.outcome('warning', notice);
       }
-      console.log(chalk.gray(`🤖 Using plan: ${path.basename(artifact.path)}`));
+      this.presenter.progress(`Using plan: ${path.basename(artifact.path)}`);
     }
     return artifact;
   }

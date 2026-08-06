@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiService, normalizeFileEntries } from '../integrations/ai/ai.service';
 import { LoggerService } from '../shared/logger/logger.service';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ValidationError } from '../shared/utils/errors';
@@ -198,6 +199,7 @@ export class IssuePlanCommand extends CommandRunner {
     private readonly aiService: AiService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
+    private readonly presenter: CliPresenter,
     private readonly dryRunPreview: DryRunPreviewService,
     private readonly fetchStageService: FetchStageService,
     private readonly planStageService: PlanStageService
@@ -455,7 +457,7 @@ export class IssuePlanCommand extends CommandRunner {
     content: string, baseDir: string, action: ResolutionAction, options: IssuePlanOptions, ticketKey?: string
   ): Promise<any> {
     const discovery = this.gatherPlanDiscoveryContext(content, baseDir, options);
-    const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
+    const onProgress = options?.silent ? undefined : (line: string) => this.presenter.progress(line);
 
     const { plan } = await this.planStageService.generatePlan(content, {
       action, ticketKey, affectedRepositories: options?.repos ?? [path.basename(baseDir)],
