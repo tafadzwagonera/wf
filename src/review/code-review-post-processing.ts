@@ -255,6 +255,22 @@ const resolveSemanticIssueLine = (
 };
 
 /**
+ * @param originalLine - Model-provided start line before normalization
+ * @param normalizedLine - Start line after normalization (may be undefined)
+ * @param endLine - Model-provided end line
+ * @returns Adjusted endLine or undefined when the range is no longer valid
+ */
+const alignEndLine = (
+  originalLine: number | undefined,
+  normalizedLine: number | undefined,
+  endLine: number | undefined
+): number | undefined => {
+  if (normalizedLine === undefined || typeof endLine !== 'number') return undefined;
+  if (originalLine !== normalizedLine) return undefined;
+  return endLine > normalizedLine ? endLine : undefined;
+};
+
+/**
  * Normalize review issue lines against changed destination-side diff lines.
  *
  * @param review - Parsed code review payload
@@ -276,6 +292,7 @@ const normalizeReviewIssues = (review: CodeReview, diff: string): CodeReview => 
         return {
           ...issue,
           line: undefined,
+          endLine: undefined,
         };
       }
 
@@ -288,6 +305,7 @@ const normalizeReviewIssues = (review: CodeReview, diff: string): CodeReview => 
         return {
           ...issue,
           line: semanticLine,
+          endLine: alignEndLine(issue.line, semanticLine, issue.endLine),
         };
       }
 
@@ -301,7 +319,7 @@ const normalizeReviewIssues = (review: CodeReview, diff: string): CodeReview => 
             = typeof issue.line === 'number' && issue.line >= hunkSpanFirst && issue.line <= hunkSpanLast;
 
           if (!withinHunkSpan) {
-            return { ...issue, line: undefined };
+            return { ...issue, line: undefined, endLine: undefined };
           }
         }
       }
@@ -310,15 +328,18 @@ const normalizeReviewIssues = (review: CodeReview, diff: string): CodeReview => 
         return {
           ...issue,
           line: undefined,
+          endLine: undefined,
         };
       }
 
+      const normalized = normalizeIssueLine(
+        issue.line,
+        changedLines.map(changedLine => changedLine.line)
+      );
       return {
         ...issue,
-        line: normalizeIssueLine(
-          issue.line,
-          changedLines.map(changedLine => changedLine.line)
-        ),
+        line: normalized,
+        endLine: alignEndLine(issue.line, normalized, issue.endLine),
       };
     }),
   };

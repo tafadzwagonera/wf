@@ -315,6 +315,155 @@ describe('postProcessCodeReview', () => {
     expect(processed.review.issues[0]?.line).toBeUndefined();
   });
 
+  it('preserves endLine when line is preserved and endLine > line', () => {
+    const review = createReview({
+      issues: [
+        {
+          severity: 'info',
+          message: 'Unused import spans multiple lines.',
+          file: 'src/example.ts',
+          line: 11,
+          endLine: 13,
+        },
+      ],
+    });
+
+    const diff = `diff --git a/src/example.ts b/src/example.ts
+--- a/src/example.ts
++++ b/src/example.ts
+@@ -10,3 +10,4 @@
+ context
+-oldValue
++newValue
+ unchanged
++addedValue
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.review.issues[0]?.line).toBe(11);
+    expect(processed.review.issues[0]?.endLine).toBe(13);
+  });
+
+  it('strips endLine when line is snapped to a different changed line', () => {
+    const review = createReview({
+      issues: [
+        {
+          severity: 'warning',
+          message: 'Guard the branch',
+          file: 'src/example.ts',
+          line: 99,
+          endLine: 105,
+        },
+      ],
+    });
+
+    const diff = `diff --git a/src/example.ts b/src/example.ts
+--- a/src/example.ts
++++ b/src/example.ts
+@@ -10,3 +10,4 @@
+ context
+-oldValue
++newValue
+ unchanged
++addedValue
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.review.issues[0]?.line).toBe(13);
+    expect(processed.review.issues[0]?.endLine).toBeUndefined();
+  });
+
+  it('strips endLine when line is stripped due to file not in diff', () => {
+    const review = createReview({
+      issues: [
+        {
+          severity: 'warning',
+          message: 'Review this branch',
+          file: 'src/missing.ts',
+          line: 20,
+          endLine: 25,
+        },
+      ],
+    });
+
+    const diff = `diff --git a/src/example.ts b/src/example.ts
+--- a/src/example.ts
++++ b/src/example.ts
+@@ -1,1 +1,1 @@
+-before
++after
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.review.issues[0]?.line).toBeUndefined();
+    expect(processed.review.issues[0]?.endLine).toBeUndefined();
+  });
+
+  it('strips endLine when semantic matching moves line to a different position', () => {
+    const review = createReview({
+      issues: [
+        {
+          severity: 'warning',
+          message:
+            'Sensitive values are written via `echo "export FRESHDESK_API_KEY=$FRESHDESK_API_KEY_SIGNUP" >> vars.sh`.',
+          file: 'bitbucket-pipelines.yml',
+          line: 122,
+          endLine: 124,
+        },
+      ],
+    });
+
+    const diff = `diff --git a/bitbucket-pipelines.yml b/bitbucket-pipelines.yml
+--- a/bitbucket-pipelines.yml
++++ b/bitbucket-pipelines.yml
+@@ -87,0 +119,6 @@ pipelines:
++            # Freshdesk contact-form integration (WBP-3068).
++            - echo "export FRESHDESK_DOMAIN=$FRESHDESK_DOMAIN" >> vars.sh
++            - echo "export FRESHDESK_API_KEY=$FRESHDESK_API_KEY_SIGNUP" >> vars.sh
++            - echo "export FRESHDESK_GROUP_LEADS=$FRESHDESK_GROUP_LEADS" >> vars.sh
++            - echo "export FRESHDESK_GROUP_SUPPORT=$FRESHDESK_GROUP_SUPPORT" >> vars.sh
++            - echo "export FRESHDESK_GROUP_AGENTS=$FRESHDESK_GROUP_AGENTS" >> vars.sh
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.review.issues[0]?.line).toBe(121);
+    expect(processed.review.issues[0]?.endLine).toBeUndefined();
+  });
+
+  it('strips endLine when endLine is not greater than line', () => {
+    const review = createReview({
+      issues: [
+        {
+          severity: 'info',
+          message: 'Degenerate range.',
+          file: 'src/example.ts',
+          line: 11,
+          endLine: 11,
+        },
+      ],
+    });
+
+    const diff = `diff --git a/src/example.ts b/src/example.ts
+--- a/src/example.ts
++++ b/src/example.ts
+@@ -10,3 +10,4 @@
+ context
+-oldValue
++newValue
+ unchanged
++addedValue
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.review.issues[0]?.line).toBe(11);
+    expect(processed.review.issues[0]?.endLine).toBeUndefined();
+  });
+
   it('preserves the model line when anchors score zero but the line falls within the hunk span', () => {
     const review = createReview({
       issues: [
