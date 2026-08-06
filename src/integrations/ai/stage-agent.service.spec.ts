@@ -735,11 +735,11 @@ describe('StageAgentService', () => {
       const runner = (service as any).runCodexCliStagePrompt.bind(service);
       await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', onProgress });
 
-      expect(onProgress).toHaveBeenCalledWith('[codex-cli] Session started: tid-123');
-      expect(onProgress).toHaveBeenCalledWith('[codex-cli] Running: yarn build');
-      expect(onProgress).toHaveBeenCalledWith('[codex-cli] Command completed: yarn build');
-      expect(onProgress).toHaveBeenCalledWith('[codex-cli] Agent: final chunk');
-      expect(onProgress.mock.calls.some(call => String(call[0]).startsWith('  [codex-cli]'))).toBe(false);
+      expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Session started: tid-123');
+      expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Running: yarn build');
+      expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Command completed: yarn build');
+      expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Agent: final chunk');
+      expect(onProgress.mock.calls.some(call => String(call[0]).startsWith('  [codex-cli]'))).toBe(true);
 
       logSpy.mockRestore();
     });
