@@ -1403,8 +1403,7 @@ export class IssueCommand extends CommandRunner {
       console.log(chalk.cyan('    Changes approved - proceeding to commit stage'));
       return;
     }
-    console.log(chalk.yellow('    ⚠️  Review found issues - address before committing'));
-    console.log(chalk.cyan('    Commit stage will still execute (you can skip it if needed)'));
+    console.log(chalk.yellow('    ⚠️  Review suggestions are optional — commit stage will still execute'));
   }
 
   private async offerReviewChat(
