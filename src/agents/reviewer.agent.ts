@@ -43,7 +43,7 @@ export class ReviewerAgent {
     if (!options.silent) this.presenter.progress('Analyzing changes...');
 
     const onProgress = options.onProgress
-      ?? (options.silent ? undefined : (line: string) => this.presenter.progress(`  ${line}`));
+      ?? (options.silent ? undefined : (line: string) => this.presenter.progress(line));
 
     const review = await this.stageAndReview(ticket, options, onProgress);
     if (!options.silent) this.logReview(review);

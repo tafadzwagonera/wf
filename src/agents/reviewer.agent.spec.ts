@@ -236,7 +236,7 @@ describe('ReviewerAgent', () => {
       { repoDir: '/tmp/repo', silent: false }
     );
 
-    expect(presenter.progress).toHaveBeenCalledWith('  Synthesizing review...');
+    expect(presenter.progress).toHaveBeenCalledWith('Synthesizing review...');
   });
 
   it('uses caller-provided onProgress instead of default', async () => {
@@ -295,7 +295,7 @@ describe('ReviewerAgent', () => {
     );
 
     expect(mockOnProgress).toHaveBeenCalledWith('Synthesizing review...');
-    expect(presenter.progress).not.toHaveBeenCalledWith('  Synthesizing review...');
+    expect(presenter.progress).not.toHaveBeenCalledWith('Synthesizing review...');
   });
 
   it('suppresses progress when silent is true and no onProgress is provided', async () => {
@@ -352,6 +352,6 @@ describe('ReviewerAgent', () => {
       { repoDir: '/tmp/repo', silent: true }
     );
 
-    expect(presenter.progress).not.toHaveBeenCalledWith('  Synthesizing review...');
+    expect(presenter.progress).not.toHaveBeenCalledWith('Synthesizing review...');
   });
 });

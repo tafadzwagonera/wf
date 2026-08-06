@@ -599,7 +599,7 @@ export class IssueReviewCommand extends CommandRunner {
   private async executeReviews(targets: ReviewTarget[],
     extraCriteria: string[] | null, options?: IssueReviewOptions): Promise<ReviewedTarget[]> {
     const reviewed: ReviewedTarget[] = [];
-    const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(`  ${line}`));
+    const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
     for (const target of targets) {
       try {
         const review = await this.reviewStageService.reviewDiff(target.diff, {
