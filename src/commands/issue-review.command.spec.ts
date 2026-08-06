@@ -563,6 +563,27 @@ describe('IssueReviewCommand', () => {
       );
     });
 
+    it('passes progress lines through to console without adding extra indent', async () => {
+      const { command, reviewStageService, adapters } = await buildCommand();
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      reviewStageService.reviewDiff.mockImplementation(
+        (_diff: string, opts: { onProgress?: (line: string) => void }) => {
+          opts.onProgress?.('  [claude-cli] Analyzing...');
+          return Promise.resolve(mockReview);
+        }
+      );
+      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
+        'https://bitbucket.org/workspace/repo/pull-requests/160',
+      ]);
+      adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 160');
+
+      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'], force: true });
+
+      expect(consoleLogSpy).toHaveBeenCalledWith('  [claude-cli] Analyzing...');
+      expect(consoleLogSpy).not.toHaveBeenCalledWith('    [claude-cli] Analyzing...');
+    });
+
     it('uses the current repo name as a discovery hint when --repos is omitted', async () => {
       const { command, adapters } = await buildCommand();
       const handleSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
