@@ -488,7 +488,7 @@ wf issue:create ticket.md --tracker jira --ticket-project WBP --priority medium
 
 wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run
 
-nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
+yarn test:manual test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
 ```
 
 **Options:**
@@ -1163,10 +1163,10 @@ Manual smoke tests live in `test/manual/` and are run via the `test:manual` scri
 yarn test:manual test-issue-create-jira-adf-smoke
 
 # Smoke-test shared Anthropic/OpenAI agent progress output
-nr test:manual -- test-agent-progress-output
+yarn test:manual test-agent-progress-output
 
 # Live smoke-test a Jira description update from a generated artifact
-nr test:manual -- test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
+yarn test:manual test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
 
 # Test Jira integration
 yarn test:manual test-jira
@@ -1175,7 +1175,7 @@ yarn test:manual test-jira
 yarn test:manual diagnose-jira-permissions
 
 # Verify CI scripts use yarn consistently
-nr test:manual -- test-ci-yarn-scripts
+yarn test:manual test-ci-yarn-scripts
 ```
 
 `test-issue-update-jira-adf-smoke` defaults to preview-only mode. `--live` enables the real Jira update path, and `--confirm-live-update` is the explicit mutation safety gate. If `--live` is supplied without `--confirm-live-update`, the harness fails early instead of sending the Jira `PUT`. When both flags are present, the harness prints the full payload preview and then prompts `Update <ticket>? (y/N)` — the update only proceeds if you answer `y` or `Y`.

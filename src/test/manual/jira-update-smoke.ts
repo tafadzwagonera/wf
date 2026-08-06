@@ -49,7 +49,7 @@ export const parseJiraUpdateSmokeArgs = (
 
   if (!ticketKey || ticketKey.startsWith('-')) {
     throw new Error(
-      'Missing ticket key. Usage: nr test:manual -- test-issue-update-jira-adf-smoke <ticket-key> --description-file <path> [--live --confirm-live-update]'
+      'Missing ticket key. Usage: yarn test:manual test-issue-update-jira-adf-smoke <ticket-key> --description-file <path> [--live --confirm-live-update]'
     );
   }
 

@@ -50,7 +50,7 @@ export const formatIssueFileLocation = (issue: { file?: string; line?: number; e
   return issue.file + lineRange;
 };
 
-const nullableOptional = <T extends z.ZodTypeAny>(schema: T) =>
+export const nullableOptional = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess(v => (v === null ? undefined : v), schema.optional());
 
 export const codeIssueSchema = z.object({

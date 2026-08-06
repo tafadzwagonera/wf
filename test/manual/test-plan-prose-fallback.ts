@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: plan stage prose-to-JSON fallback and CLI progress label
  *
- * Run: nr test:manual -- test-plan-prose-fallback
+ * Run: yarn test:manual test-plan-prose-fallback
  *
  * Verifies:
  *   1. formatProgressMessage uses custom label when provided.
@@ -41,7 +41,6 @@ const assert = (message: string, condition: boolean, detail?: string): void => {
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n\uD83E\uDDEA Plan prose fallback smoke test\n'));
 
-  // --- Test 1: Custom label ---
   console.log(chalk.bold('Test 1: formatProgressMessage uses custom label'));
   const cliMessage = formatProgressMessage(
     {
@@ -59,7 +58,6 @@ async function main(): Promise<void> {
     cliMessage ?? 'received null'
   );
 
-  // --- Test 2: Default label ---
   console.log(chalk.bold('\nTest 2: formatProgressMessage defaults to claude-agent-sdk'));
   const sdkMessage = formatProgressMessage({
     type: 'tool_progress',
@@ -73,7 +71,6 @@ async function main(): Promise<void> {
     sdkMessage ?? 'received null'
   );
 
-  // --- Test 3: isAIErrorLike detects prose parsing errors ---
   console.log(chalk.bold('\nTest 3: isAIErrorLike identifies AIError with prose response'));
   const proseError = new AIError('Failed to parse resolution plan from agent response', {
     response: 'Here is my analysis...',
@@ -85,7 +82,6 @@ async function main(): Promise<void> {
     typeof proseError.details?.response === 'string' && proseError.details.response.length > 0
   );
 
-  // --- Test 4: Non-parsing errors are distinguishable ---
   console.log(chalk.bold('\nTest 4: Non-parsing AIErrors do not trigger fallback'));
   const rateLimitError = new AIError('Rate limit exceeded', { status: 429 });
   assert('isAIErrorLike returns true for rate limit error', isAIErrorLike(rateLimitError));
@@ -94,7 +90,6 @@ async function main(): Promise<void> {
     !rateLimitError.message.includes('Failed to parse resolution plan')
   );
 
-  // --- Test 5: Empty prose is distinguishable ---
   console.log(chalk.bold('\nTest 5: Empty prose response is rejected'));
   const emptyProseError = new AIError('Failed to parse resolution plan from agent response', {
     response: '',
@@ -102,7 +97,6 @@ async function main(): Promise<void> {
   const agentProse = emptyProseError.details?.response;
   assert('Empty prose fails the guard check', typeof agentProse !== 'string' || !agentProse.trim());
 
-  // --- Test 6: Validation gate rejects incomplete plan ---
   console.log(chalk.bold('\nTest 6: Validation gate rejects structurally invalid fallback result'));
   const incompletePlan = { summary: 'incomplete' } as any;
   const isInvalid = !incompletePlan?.action || !incompletePlan?.summary || !Array.isArray(incompletePlan?.steps);
@@ -112,14 +106,12 @@ async function main(): Promise<void> {
   const isValid = validPlan?.action && validPlan?.summary && Array.isArray(validPlan?.steps);
   assert('Complete plan detected as valid', isValid);
 
-  // --- Test 7: node-fetch fallback is available ---
   console.log(chalk.bold('\nTest 7: node-fetch fallback is available when globalThis.fetch is missing'));
   const nodeFetch = require('node-fetch');
   assert('node-fetch exports a function', typeof nodeFetch === 'function');
   const fetchImpl = globalThis.fetch ?? nodeFetch;
   assert('fetch fallback resolves to a function', typeof fetchImpl === 'function');
 
-  // --- Summary ---
   console.log(chalk.bold('\nSummary'));
   console.log(`  Passed: ${passed}`);
   console.log(`  Failed: ${failed}`);

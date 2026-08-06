@@ -499,31 +499,17 @@ Create a detailed resolution plan with:
 ${PLAN_STEP_INSTRUCTIONS}
 ${PLAN_FILE_LISTING_INSTRUCTIONS}`;
 
-const PLAN_JSON_SCHEMA_TAIL = `  "risks": ["risk 1"],
-  "verification": {
-    "targeted": [{ "id": "manual-review", "run": "yarn test:manual -- test-issue-review", "policy": "enforced", "reason": "Explain what this check covers" }],
-    "waivers": [{ "id": "e2e", "reason": "Explain why this repo-level baseline check is waived" }]
-  }
-}
-
-${JSON_OUTPUT_RULES}`;
-
 /**
  * @param opts - pre-computed prompt fragments
  * @returns the plan prompt JSON schema example block
  */
 const buildPlanJsonSchemaExample = (opts: PlanPromptBodyOpts): string => `
-Return ONLY a valid JSON object with these fields:
-{
-  "action": "${opts.action}",
-  "summary": "...",
-  "steps": ["step 1", "step 2"],
-  "estimatedComplexity": "low|medium|high",
-  "affectedFiles": [{ "filePath": "${opts.repoExample}/src/path/to/file.ts", "status": "found" }],
-  "affectedFilesContext": [{ "filePath": "${opts.repoExample}/package.json", "status": "found" }],
-  "affectedRepositories": ["${opts.repoExample}"],
-  "newRepositories": [],
-${PLAN_JSON_SCHEMA_TAIL}`;
+Return ONLY a valid JSON object. Reference:
+{"action":"${opts.action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Rename AuthGuard to SharedAuthGuard in ${opts.repoExample}/src/auth/guard.ts","Update all import paths in ${opts.repoExample}/src/controllers/"],"estimatedComplexity":"medium","affectedFiles":[{"filePath":"${opts.repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${opts.repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${opts.repoExample}/package.json","status":"found"}],"affectedRepositories":["${opts.repoExample}"],"newRepositories":[],"risks":["Renaming may break downstream consumers"],"verification":{"targeted":[{"id":"manual-review","run":"yarn test:manual -- test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
+
+When an optional field has no value, omit it from the JSON entirely. Do not use null.
+
+${JSON_OUTPUT_RULES}`;
 
 const buildPlanSkillSection = (skillNames: string[] | undefined): string => {
   if (!skillNames?.length) return '';
@@ -1135,18 +1121,38 @@ export class StageAgentService {
    * @returns parsed, normalized, and enriched resolution plan
    */
   private parseAndValidatePlan(response: string): ResolutionPlan {
-    const plan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
+    return this.applyPlanMetadata(this.parsePlanContent(response));
+  }
+
+  private parsePlanContent(response: string): ResolutionPlan {
+    const parsedPlan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
       requireAiResponseContent(
-        { content: response, provider: this.resolveStageProvider('plan'), model: this.resolveStageModel('plan') },
+        {
+          content: response,
+          provider: this.resolveStageProvider('plan'),
+          model: this.resolveStageModel('plan'),
+        },
         'AI provider returned an empty plan response'
       )
     );
-    if (!plan.affectedRepositories && plan.repositoriesAffected) plan.affectedRepositories = plan.repositoriesAffected;
-    delete plan.repositoriesAffected;
+    return this.applyRepositoriesAffected(resolutionPlanSchema.parse(parsedPlan), parsedPlan.repositoriesAffected);
+  }
+
+  private applyPlanMetadata(plan: ResolutionPlan): ResolutionPlan {
     const provider = this.resolveStageProvider('plan');
     plan.provider = provider;
     plan.source = derivePlanSource(provider, this.resolveStageModel('plan'));
     plan.timestamp = dayjs().toISOString();
+    return plan;
+  }
+
+  private applyRepositoriesAffected(
+    plan: ResolutionPlan,
+    repositoriesAffected?: string[]
+  ): ResolutionPlan {
+    if (!plan.affectedRepositories && repositoriesAffected) {
+      plan.affectedRepositories = repositoriesAffected;
+    }
     return plan;
   }
 

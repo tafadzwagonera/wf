@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: New plan prompt quality rules and testInfra convention assertions
  *
- * Run: nr test:manual -- test-plan-prompt-quality-new-rules
+ * Run: yarn test:manual test-plan-prompt-quality-new-rules
  *
  * Verifies that both AiService.generatePlan and StageAgentService.generatePlan
  * include the five new prompt-quality guardrail rules (unconditional) and that
@@ -19,24 +19,15 @@ import type { TestInfraContext } from '../../src/shared/utils/detect-test-infra'
 
 const pass = (label: string) => console.log(`  \u2713 ${label}`);
 
-// ---------------------------------------------------------------------------
-// Substring constants — five new unconditional rules
-// ---------------------------------------------------------------------------
-
 const CLI_OPTION_DRIFT = 'help/doc text drift';
 const CLEAN_STATE_HANDOFF = 'verification of both working-tree and staged/index state';
 const SMOKE_TEST_COMPLETION = 'explicitly mark it as incomplete with a reason';
 const ERROR_SWALLOWING_COVERAGE = 'Silent error swallowing without coverage is a latent bug';
 const MOCK_PATH_TRACING = 'strongest viable positive assertion';
 
-// Substring constants — testInfra convention lines (conditional)
 const MOCK_CLEANUP_DISCRIMINATING = 'Mock isolation: always prescribe';
 const DI_SETUP_TESTING_MODULE = 'testing-module';
 const ERROR_HANDLER_EXITS = 'process.exit';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const mockPlanResponse = JSON.stringify({
   action: 'fix',
@@ -111,14 +102,9 @@ const mockTestInfraWithConventions: TestInfraContext = {
   ],
 };
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
-
 (async () => {
   let assertions = 0;
 
-  // Test 1: AiService — four new unconditional rules present
   {
     const adapter = createMockAdapter();
     const service = new AiService(createMockLogger(), adapter as LlmAdapter, createConfigService());
@@ -154,7 +140,6 @@ const mockTestInfraWithConventions: TestInfraContext = {
     assertions += 1;
   }
 
-  // Test 2: StageAgentService — five new unconditional rules present
   {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = createSpy(Promise.resolve({ content: mockPlanResponse }));
@@ -194,7 +179,6 @@ const mockTestInfraWithConventions: TestInfraContext = {
     assertions += 1;
   }
 
-  // Test 3: StageAgentService — testInfra convention lines appear with populated fields
   {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = createSpy(Promise.resolve({ content: mockPlanResponse }));
@@ -230,7 +214,6 @@ const mockTestInfraWithConventions: TestInfraContext = {
     assertions += 1;
   }
 
-  // Test 4: StageAgentService — mockCleanup convention absent without testInfra
   {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = createSpy(Promise.resolve({ content: mockPlanResponse }));
@@ -248,7 +231,6 @@ const mockTestInfraWithConventions: TestInfraContext = {
     assertions += 1;
   }
 
-  // Test 5: AiService — testInfra convention lines appear with populated fields
   {
     const adapter = createMockAdapter();
     const service = new AiService(createMockLogger(), adapter as LlmAdapter, createConfigService());

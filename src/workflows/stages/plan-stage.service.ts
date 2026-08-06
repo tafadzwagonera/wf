@@ -112,6 +112,11 @@ export class PlanStageService {
 
           const sessionId = typeof error.details?.sessionId === 'string' ? error.details.sessionId : undefined;
 
+          const repairedPlan = await this.recoverPlanFromParseError(error, sessionId);
+          if (repairedPlan) {
+            return repairedPlan;
+          }
+
           const fallbackReason = agentProse ? 'prose' : 'no result';
           console.log(chalk.yellow(`  \u26A0\uFE0F Agent returned ${fallbackReason} \u2014 falling back to structured completion`));
           const fallbackResult = await this.aiService.generatePlan(options.action, ticketContent, {
@@ -182,6 +187,23 @@ export class PlanStageService {
     }
 
     return retryAttempt;
+  }
+
+  private async recoverPlanFromParseError(
+    error: unknown,
+    sessionId?: string
+  ): Promise<{ plan: ResolutionPlan; sessionId?: string } | undefined> {
+    if (!isAIErrorLike(error) || error.category !== 'parse' || typeof error.details?.response !== 'string') {
+      return undefined;
+    }
+
+    return this.aiService
+      .validatePlanJson(error.details.response)
+      .then(plan => ({ plan, sessionId }))
+      .catch(repairError => {
+        if (!isAIErrorLike(repairError) || repairError.category !== 'parse') throw repairError;
+        return undefined;
+      });
   }
 
   private async returnValidatedCachedPlan(

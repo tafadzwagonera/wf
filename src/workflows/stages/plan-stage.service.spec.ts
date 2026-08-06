@@ -57,6 +57,7 @@ describe('PlanStageService', () => {
           provide: AiService,
           useValue: {
             generatePlan: jest.fn().mockResolvedValue(mockPlan),
+            validatePlanJson: jest.fn().mockResolvedValue(mockPlan),
           },
         },
         {
@@ -282,12 +283,27 @@ describe('PlanStageService', () => {
     expect(stageAgentService.generatePlan).toHaveBeenCalledWith(expect.objectContaining({ onProgress: undefined }));
   });
 
-  it('falls back to standard completion when agent returns prose instead of JSON', async () => {
+  it('falls back to standard completion when agent plan repair fails', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
-    const proseError = new AIError('Failed to parse resolution plan from agent response', {
-      response: 'Here is my analysis of the codebase. The auth module needs updating...',
-    });
+    const proseError = new AIError(
+      'Failed to parse resolution plan from agent response',
+      {
+        response: 'Here is my analysis of the codebase. The auth module needs updating...',
+        sessionId: 'test-session-456',
+      },
+      true,
+      'parse'
+    );
+    const callOrder: string[] = [];
     (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(proseError);
+    (aiService.validatePlanJson as jest.Mock).mockImplementationOnce(async () => {
+      callOrder.push('validate');
+      throw new AIError('Plan JSON could not be corrected', { response: proseError.details.response }, true, 'parse');
+    });
+    (aiService.generatePlan as jest.Mock).mockImplementationOnce(async () => {
+      callOrder.push('fallback');
+      return mockPlan;
+    });
 
     const result = await service.generatePlan('Ticket body', {
       action: 'fix',
@@ -295,7 +311,9 @@ describe('PlanStageService', () => {
       affectedRepositories: ['repo-a'],
     });
 
-    expect(result).toEqual({ plan: mockPlan, sessionId: undefined });
+    expect(result).toEqual({ plan: mockPlan, sessionId: 'test-session-456' });
+    expect(callOrder).toEqual(['validate', 'fallback']);
+    expect(aiService.validatePlanJson).toHaveBeenCalledWith(proseError.details.response);
     expect(aiService.generatePlan).toHaveBeenCalledWith(
       'fix',
       'Ticket body',
@@ -305,13 +323,27 @@ describe('PlanStageService', () => {
     );
   });
 
-  it('preserves sessionId from AIError details in fallback result', async () => {
-    const { service, stageAgentService } = await buildService(true);
-    const proseError = new AIError('Failed to parse resolution plan from agent response', {
-      response: 'Some prose analysis...',
-      sessionId: 'test-session-123',
-    });
+  it('returns repaired plan and preserves sessionId when validation succeeds', async () => {
+    const { service, aiService, stageAgentService } = await buildService(true);
+    const proseError = new AIError(
+      'Failed to parse resolution plan from agent response',
+      {
+        response: JSON.stringify({
+          action: 'fix',
+          summary: 'Agent draft',
+          steps: ['Inspect auth flow'],
+          estimatedComplexity: 'low',
+        }),
+        sessionId: 'test-session-123',
+      },
+      true,
+      'parse'
+    );
     (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(proseError);
+    (aiService.validatePlanJson as jest.Mock).mockResolvedValueOnce({
+      ...mockPlan,
+      summary: 'Recovered plan',
+    });
 
     const result = await service.generatePlan('Ticket body', {
       action: 'fix',
@@ -319,7 +351,14 @@ describe('PlanStageService', () => {
       affectedRepositories: ['repo-a'],
     });
 
-    expect(result.sessionId).toBe('test-session-123');
+    expect(result).toEqual({
+      plan: {
+        ...mockPlan,
+        summary: 'Recovered plan',
+      },
+      sessionId: 'test-session-123',
+    });
+    expect(aiService.generatePlan).not.toHaveBeenCalled();
   });
 
   it('re-throws non-parsing AIErrors without falling back', async () => {
@@ -336,15 +375,51 @@ describe('PlanStageService', () => {
 
   it('falls back to structured completion when agent prose response is empty', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
-    const emptyProseError = new AIError('Failed to parse resolution plan from agent response', {
-      response: '',
-    });
+    const emptyProseError = new AIError(
+      'Failed to parse resolution plan from agent response',
+      {
+        response: '',
+      },
+      true,
+      'parse'
+    );
     (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(emptyProseError);
+    (aiService.validatePlanJson as jest.Mock).mockRejectedValueOnce(
+      new AIError('Plan JSON could not be corrected', { response: '' }, true, 'parse')
+    );
 
     const result = await service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-402' });
 
+    expect(aiService.validatePlanJson).toHaveBeenCalledWith('');
     expect(aiService.generatePlan).toHaveBeenCalled();
     expect(result).toMatchObject({ plan: { action: 'fix', summary: expect.any(String) } });
+  });
+
+  it('rethrows non-parse repair errors instead of falling back', async () => {
+    const { service, aiService, stageAgentService } = await buildService(true);
+    const proseError = new AIError(
+      'Failed to parse resolution plan from agent response',
+      {
+        response: 'Here is my analysis of the codebase. The auth module needs updating...',
+      },
+      true,
+      'parse'
+    );
+    (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(proseError);
+    (aiService.validatePlanJson as jest.Mock).mockRejectedValueOnce(
+      new AIError('Rate limit exceeded', { status: 429 }, true, 'api')
+    );
+
+    await expect(
+      service.generatePlan('Ticket body', {
+        action: 'fix',
+        ticketKey: 'WBP-403',
+        affectedRepositories: ['repo-a'],
+      })
+    ).rejects.toMatchObject({
+      message: 'Rate limit exceeded',
+    });
+    expect(aiService.generatePlan).not.toHaveBeenCalled();
   });
 
   it('throws when fallback result is structurally invalid', async () => {

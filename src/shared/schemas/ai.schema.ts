@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { planVerificationConfigSchema } from './verification.schema';
-import { codeIssueSchema, codeReviewSchema } from './review.schema';
+import { codeIssueSchema, codeReviewSchema, nullableOptional } from './review.schema';
 
 export const aiStageName = z.enum(['plan', 'implement', 'review', 'generate', 'commit', 'create']);
 
@@ -72,16 +72,16 @@ export const resolutionPlanSchema = z.object({
   summary: z.string(),
   steps: z.array(z.string()),
   estimatedComplexity: z.enum(['low', 'medium', 'high']),
-  affectedFiles: z.array(z.union([z.string(), fileEntrySchema])).optional(),
-  affectedFilesContext: z.array(z.union([z.string(), fileEntrySchema])).optional(),
-  affectedRepositories: z.array(z.string()).optional(),
-  newRepositories: z.array(z.string()).optional(),
-  risks: z.array(z.string()).optional(),
-  verification: planVerificationConfigSchema.optional(),
+  affectedFiles: nullableOptional(z.array(z.union([z.string(), fileEntrySchema]))),
+  affectedFilesContext: nullableOptional(z.array(z.union([z.string(), fileEntrySchema]))),
+  affectedRepositories: nullableOptional(z.array(z.string())),
+  newRepositories: nullableOptional(z.array(z.string())),
+  risks: nullableOptional(z.array(z.string())),
+  verification: nullableOptional(planVerificationConfigSchema),
   provider: z.string().optional(),
   source: z.string().optional(),
   timestamp: z.string().optional(),
-  phases: z.array(planPhaseSchema).optional(),
+  phases: nullableOptional(z.array(planPhaseSchema)),
 });
 
 // Re-export review schemas used in AI context

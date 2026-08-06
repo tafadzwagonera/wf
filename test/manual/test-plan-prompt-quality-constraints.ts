@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: Plan prompt quality constraints
  *
- * Run: nr test:manual -- test-plan-prompt-quality-constraints
+ * Run: yarn test:manual test-plan-prompt-quality-constraints
  *
  * Verifies that both AiService.generatePlan and StageAgentService.generatePlan
  * include the following prompt-quality constraints:
@@ -28,10 +28,6 @@ const pass = (label: string) => {
   console.log(`  \u2713 ${label}`);
   assertions += 1;
 };
-
-// ---------------------------------------------------------------------------
-// Helpers — no jest dependency; plain call-recording spies
-// ---------------------------------------------------------------------------
 
 const CALL_SITE_TRACING = 'plan MUST trace every existing call site';
 const JSDOC_CROSS_CHECK = 'cross-checked against the implementation\'s guard clauses';
@@ -118,12 +114,7 @@ const mockTerraformInfra: TestInfraContext = {
   ],
 };
 
-// ---------------------------------------------------------------------------
-// Main — wrapped in async IIFE for CommonJS compatibility
-// ---------------------------------------------------------------------------
-
 (async () => {
-  // Test 1: AiService — unconditional constraints present (no testInfra)
   {
     const adapter = createMockAdapter();
     const service = new AiService(createMockLogger(), adapter as LlmAdapter, createConfigService());
@@ -163,7 +154,6 @@ const mockTerraformInfra: TestInfraContext = {
     pass('AiService: mock path tracing rule present');
   }
 
-  // Test 2: AiService — conditional constraints present (with testInfra)
   {
     const adapter = createMockAdapter();
     const service = new AiService(createMockLogger(), adapter as LlmAdapter, createConfigService());
@@ -185,7 +175,6 @@ const mockTerraformInfra: TestInfraContext = {
     pass('AiService: node shell-safety guidance present with node testInfra');
   }
 
-  // Test 2b: AiService — node-only shell-safety guidance omitted for non-node infra
   {
     const adapter = createMockAdapter();
     const service = new AiService(createMockLogger(), adapter as LlmAdapter, createConfigService());
@@ -201,7 +190,6 @@ const mockTerraformInfra: TestInfraContext = {
     pass('AiService: node shell-safety guidance absent with non-node testInfra');
   }
 
-  // Test 3: StageAgentService — unconditional constraints present (no testInfra)
   {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = createSpy(Promise.resolve({ content: mockPlanResponse }));
@@ -251,7 +239,6 @@ const mockTerraformInfra: TestInfraContext = {
     pass('StageAgentService: mock path tracing rule present');
   }
 
-  // Test 4: StageAgentService — conditional constraints present (with testInfra)
   {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = createSpy(Promise.resolve({ content: mockPlanResponse }));
@@ -278,7 +265,6 @@ const mockTerraformInfra: TestInfraContext = {
     pass('StageAgentService: node shell-safety guidance present with node testInfra');
   }
 
-  // Test 4b: StageAgentService — node-only shell-safety guidance omitted for non-node infra
   {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = createSpy(Promise.resolve({ content: mockPlanResponse }));

@@ -103,6 +103,8 @@ async function main(): Promise<void> {
     fs.mkdirSync(repoDir, { recursive: true });
     fs.mkdirSync(binDir, { recursive: true });
     fs.mkdirSync(homeDir, { recursive: true });
+    fs.mkdirSync(path.join(homeDir, '.wf', 'logs'), { recursive: true });
+    fs.mkdirSync(path.join(homeDir, '.wf', 'state'), { recursive: true });
 
     fs.writeFileSync(
       configPath,

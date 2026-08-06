@@ -17,6 +17,7 @@ import { IssuePlanCommand } from '../../src/commands/issue-plan.command';
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { IssueTrackerService } from '../../src/integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../../src/shared/logger/logger.service';
+import { CliPresenter } from '../../src/shared/presentation/cli-presenter.service';
 import { DryRunPreviewService } from '../../src/shared/preview/dry-run-preview.service';
 import { FetchStageService } from '../../src/workflows/stages/fetch-stage.service';
 import { PlanStageService } from '../../src/workflows/stages/plan-stage.service';
@@ -76,6 +77,16 @@ const createDryRunPreviewStub = (): DryRunPreviewService =>
     previewFileRead: (): void => undefined,
     previewFileWrite: (): void => undefined,
   }) as unknown as DryRunPreviewService;
+
+const createCliPresenterStub = (): CliPresenter =>
+  ({
+    stageHeader: (): void => undefined,
+    separator: (): void => undefined,
+    progress: (): void => undefined,
+    outcome: (): void => undefined,
+    detail: (): void => undefined,
+    summaryBlock: (): void => undefined,
+  }) as unknown as CliPresenter;
 
 let passed = 0;
 let failed = 0;
@@ -149,6 +160,7 @@ const buildCommand = async (): Promise<{
         },
       },
       { provide: LoggerService, useValue: createLoggerStub() },
+      { provide: CliPresenter, useValue: createCliPresenterStub() },
       { provide: DryRunPreviewService, useValue: createDryRunPreviewStub() },
     ],
   }).compile();

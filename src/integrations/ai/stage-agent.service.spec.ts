@@ -258,6 +258,16 @@ describe('StageAgentService', () => {
     );
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
       expect.objectContaining({
+        prompt: expect.stringContaining('Return ONLY a valid JSON object. Reference:'),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('When an optional field has no value, omit it from the JSON entirely. Do not use null.'),
+      })
+    );
+    expect(mockRunStagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
         prompt: expect.stringContaining('Generated-doc workflows (e.g., auto-generated README sections, API docs from'),
       })
     );
@@ -301,6 +311,36 @@ describe('StageAgentService', () => {
         prompt: expect.stringContaining('Silent error swallowing without coverage is a latent bug'),
       })
     );
+  });
+
+  describe('plan JSON validation', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('rejects a plan payload that passes JSON parsing but fails resolutionPlanSchema', async () => {
+      const service = new StageAgentService(createConfigService());
+      const mockRunStagePrompt = jest.fn().mockResolvedValue({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Invalid plan',
+          steps: ['Step 1'],
+          estimatedComplexity: 'unexpected',
+        }),
+        sessionId: undefined,
+      });
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+      await expect(
+        service.generatePlan({
+          action: 'fix',
+          issueContent: 'Fix callback handling',
+        })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to parse resolution plan from agent response'),
+      });
+      expect(mockRunStagePrompt).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('adds retry feedback only when a prior plan attempt was rejected', async () => {
@@ -353,7 +393,7 @@ describe('StageAgentService', () => {
     expect(prompt).not.toContain('Previous plan attempt was rejected for these exact reasons:');
   });
 
-  it('places the JSON minification instruction after the plan example block', async () => {
+  it('places the no-null instruction after the plan example block', async () => {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = jest.fn().mockResolvedValue({
       content: JSON.stringify({
@@ -375,8 +415,13 @@ describe('StageAgentService', () => {
 
     const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
 
-    expect(prompt).toContain('  }\n}\n\nIMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.');
-    expect(prompt).not.toContain('  }\nIMPORTANT: Minify the JSON — no unnecessary whitespace or newlines.\n}');
+    expect(prompt).toContain(
+      'Return ONLY a valid JSON object. Reference:\n{"action":"fix","summary":"Extract shared auth guard into a reusable middleware.'
+    );
+    expect(prompt).toContain('When an optional field has no value, omit it from the JSON entirely. Do not use null.');
+    expect(prompt.indexOf('When an optional field has no value, omit it from the JSON entirely. Do not use null.')).toBeLessThan(
+      prompt.indexOf('IMPORTANT: Minify the JSON')
+    );
   });
 
   it('includes prior plan context in the generated plan prompt when provided', async () => {

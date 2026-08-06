@@ -200,8 +200,13 @@ describe('AiService', () => {
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('"verification": {'),
+          prompt: expect.stringContaining('"verification":{"targeted":['),
           maxTokens: 16384,
+        })
+      );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('When an optional field has no value, omit it from the JSON entirely. Do not use null.'),
         })
       );
       expect(plan.verification).toEqual({
@@ -224,6 +229,18 @@ describe('AiService', () => {
 
     it('forwards configured plan maxTokens to the adapter', async () => {
       const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Resolve criteria path handling',
+          steps: ['Add failing test', 'Implement resolver'],
+          estimatedComplexity: 'medium',
+          affectedFiles: ['repo-a/src/commands/issue-review.command.ts'],
+          affectedRepositories: ['repo-a'],
+        }),
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
       const configService = {
         get: jest.fn((key: string, defaultValue?: unknown) => {
           const values: Record<string, unknown> = {
@@ -290,10 +307,25 @@ describe('AiService', () => {
         },
       });
 
+      const expectedPlanSchema = [
+        'Return ONLY a valid JSON object. Reference:\n',
+        '{"action":"fix","summary":"Extract shared auth guard into a reusable middleware.",',
+        '"steps":["Rename AuthGuard to SharedAuthGuard in repo-a/src/auth/guard.ts",',
+        '"Update all import paths in repo-a/src/controllers/"],',
+        '"estimatedComplexity":"medium",',
+        '"affectedFiles":[{"filePath":"repo-a/src/auth/guard.ts","status":"found"},',
+        '{"filePath":"repo-a/src/middleware/auth.middleware.ts","status":"to-create"}],',
+        '"affectedFilesContext":[{"filePath":"repo-a/package.json","status":"found"}],',
+        '"affectedRepositories":["repo-a"],',
+        '"newRepositories":[],',
+        '"risks":["Renaming may break downstream consumers"],',
+        '"verification":{"targeted":[{"id":"manual-review","run":"yarn test:manual -- test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}',
+      ].join('');
+
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            '"affectedFiles": [{ "filePath": "repo-a/src/path/to/file.ts", "status": "found" }'
+            expectedPlanSchema
           ),
         })
       );
@@ -543,18 +575,87 @@ describe('AiService', () => {
       expect(plan.source).toBe('5.4');
     });
 
-    it('raises an AIError with provider metadata when the plan response is blank', async () => {
+    it('retries once when the first plan response is blank and returns the second JSON response', async () => {
       const adapter = createAdapter();
-      adapter.execute.mockResolvedValueOnce({
-        content: '',
-        provider: 'openai',
-        model: 'gpt-5.4',
-        finishReason: 'stop',
-      });
+      adapter.execute
+        .mockResolvedValueOnce({
+          content: '',
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: JSON.stringify({
+            action: 'fix',
+            summary: 'Recovered after blank response',
+            steps: ['Step 1'],
+            estimatedComplexity: 'low',
+            affectedFiles: ['repo/src/file.ts'],
+            affectedRepositories: ['repo'],
+          }),
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const plan = await service.generatePlan('fix', '# WBP-123: Fix criteria resolution');
+
+      expect(plan.summary).toBe('Recovered after blank response');
+      expect(plan.provider).toBe('openai');
+      expect(plan.source).toBe('5.4');
+      expect(adapter.execute).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries once when the first plan response is prose without JSON and returns the second JSON response', async () => {
+      const adapter = createAdapter();
+      adapter.execute
+        .mockResolvedValueOnce({
+          content: 'The issue needs a scoped refactor before we can finalize the plan.',
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: JSON.stringify({
+            action: 'fix',
+            summary: 'Recovered after prose response',
+            steps: ['Step 1'],
+            estimatedComplexity: 'low',
+            affectedFiles: ['repo/src/file.ts'],
+            affectedRepositories: ['repo'],
+          }),
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const plan = await service.generatePlan('fix', '# WBP-123: Fix criteria resolution');
+
+      expect(plan.summary).toBe('Recovered after prose response');
+      expect(adapter.execute).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries a plan response that lacks JSON once before failing with parse metadata', async () => {
+      const adapter = createAdapter();
+      adapter.execute
+        .mockResolvedValueOnce({
+          content: 'This plan is not JSON and never will be.',
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: 'Still not JSON after retry.',
+          provider: 'openai',
+          model: 'gpt-5.4',
+          finishReason: 'stop',
+        });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
       await expect(service.generatePlan('fix', '# WBP-123: Fix criteria resolution')).rejects.toMatchObject({
-        message: 'AI provider returned an empty plan response',
+        message: 'AI provider returned a prose plan response without JSON',
         details: expect.objectContaining({
           provider: 'openai',
           model: 'gpt-5.4',
@@ -1187,6 +1288,11 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
           prompt: expect.stringContaining('Return ONLY a valid JSON object. Reference:'),
         })
       );
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('When an optional field has no value, omit it from the JSON entirely. Do not use null.'),
+        })
+      );
     });
 
     it('retries a prose review response once and returns the second valid review', async () => {
@@ -1549,6 +1655,130 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(review.issues[0].line).toBeUndefined();
       expect(review.issues[0].endLine).toBeUndefined();
       expect(review.issues[0].suggestion).toBeUndefined();
+    });
+  });
+
+  describe('validatePlanJson', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('returns a stamped ResolutionPlan when the raw JSON is valid', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const rawJson = JSON.stringify({
+        action: 'fix',
+        summary: 'Valid plan',
+        steps: ['Step 1'],
+        estimatedComplexity: 'low',
+        affectedFiles: ['repo/src/file.ts'],
+        affectedRepositories: ['repo'],
+      });
+
+      const plan = await service.validatePlanJson(rawJson);
+
+      expect(plan.action).toBe('fix');
+      expect(plan.summary).toBe('Valid plan');
+      expect(plan.provider).toBe('openai');
+      expect(plan.source).toBe('5.4');
+      expect(plan.timestamp).toEqual(expect.any(String));
+      expect(adapter.execute).not.toHaveBeenCalled();
+    });
+
+    it('throws AIError immediately when required top-level fields are missing', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const rawJson = JSON.stringify({
+        summary: 'Missing action',
+        steps: ['Step 1'],
+        estimatedComplexity: 'low',
+      });
+
+      await expect(service.validatePlanJson(rawJson)).rejects.toMatchObject({
+        message: 'Plan JSON lacks required top-level fields (action, summary, steps)',
+        category: 'parse',
+      });
+      expect(adapter.execute).not.toHaveBeenCalled();
+    });
+
+    it('corrects invalid JSON via one retry and returns the fixed plan', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Fixed plan',
+          steps: ['Step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: ['repo/src/file.ts'],
+          affectedRepositories: ['repo'],
+        }),
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const rawJson = JSON.stringify({
+        action: 'fix',
+        summary: 'Broken plan',
+        steps: ['Step 1'],
+        estimatedComplexity: 'urgent',
+      });
+
+      const plan = await service.validatePlanJson(rawJson);
+
+      expect(plan.summary).toBe('Fixed plan');
+      expect(plan.provider).toBe('openai');
+      expect(plan.source).toBe('5.4');
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws AIError when the correction response stalls', async () => {
+      const adapter = createAdapter();
+      const stillInvalidJson = JSON.stringify({
+        action: 'fix',
+        summary: 'Still broken',
+        steps: ['Step 1'],
+        estimatedComplexity: 'urgent',
+      });
+      adapter.execute.mockResolvedValue({
+        content: stillInvalidJson,
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(service.validatePlanJson(stillInvalidJson)).rejects.toMatchObject({
+        message: 'Plan JSON could not be corrected',
+        category: 'parse',
+      });
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('coerces null optional plan fields to undefined without throwing', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const rawJson = JSON.stringify({
+        action: 'fix',
+        summary: 'Null fields',
+        steps: ['Step 1'],
+        estimatedComplexity: 'low',
+        affectedFiles: null,
+        affectedFilesContext: null,
+        affectedRepositories: null,
+        newRepositories: null,
+        risks: null,
+        verification: null,
+        phases: null,
+      });
+
+      const plan = await service.validatePlanJson(rawJson);
+
+      expect(plan.affectedFiles).toBeUndefined();
+      expect(plan.affectedFilesContext).toBeUndefined();
+      expect(plan.affectedRepositories).toBeUndefined();
+      expect(plan.newRepositories).toBeUndefined();
+      expect(plan.risks).toBeUndefined();
+      expect(plan.verification).toBeUndefined();
+      expect(plan.phases).toBeUndefined();
     });
   });
 });

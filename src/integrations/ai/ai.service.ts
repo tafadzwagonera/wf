@@ -33,6 +33,7 @@ import type {
 } from '../../shared/types/ai.types';
 import type { CodeReview } from '../../shared/types/review.types';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
+import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import type { ResolutionAction, StageProgressCallback } from '../../shared/types/agent.types';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 
@@ -365,6 +366,7 @@ type ResponseContentDiagnostics = Pick<
 };
 
 const REVIEW_EMPTY_RESPONSE_RETRY_LIMIT = 1;
+const PLAN_EMPTY_RESPONSE_RETRY_LIMIT = 1;
 
 const BLANK_REVIEW_FINISH_REASONS = new Set([
   'content_filter', 'error', 'guardrail', 'invalid_request',
@@ -715,26 +717,6 @@ const buildVerificationBlock = (hasNodeTestInfra: boolean): string =>
     .filter(Boolean)
     .join('\n');
 
-const PLAN_OUTPUT_SCHEMA_TEMPLATE_FILES = `  "affectedFiles": [{ "filePath": "REPO/src/path/to/file.ts", "status": "found" }, { "filePath": "REPO/src/path/to/new-file.ts", "status": "to-create" }],
-  "affectedFilesContext": [{ "filePath": "REPO/package.json", "status": "found" }],`;
-
-const PLAN_OUTPUT_SCHEMA_VERIFICATION = `  "verification": {
-    "targeted": [
-      {
-        "id": "manual-review",
-        "run": "yarn test:manual -- test-issue-review",
-        "policy": "enforced",
-        "reason": "Explain what this check covers"
-      }
-    ],
-    "waivers": [
-      {
-        "id": "e2e",
-        "reason": "Explain why this repo-level baseline check is waived"
-      }
-    ]
-  }`;
-
 /**
  * Build the JSON output schema example for the plan prompt.
  * @param action Plan action type
@@ -742,8 +724,12 @@ const PLAN_OUTPUT_SCHEMA_VERIFICATION = `  "verification": {
  * @returns Output schema string
  */
 const buildPlanOutputSchema = (action: ResolutionAction, repoExample: string): string => {
-  const filesSection = PLAN_OUTPUT_SCHEMA_TEMPLATE_FILES.replaceAll('REPO', repoExample);
-  return `Return ONLY a valid JSON object with these fields:\n{\n  "action": "${action}",\n  "summary": "...",\n  "steps": ["step 1", "step 2", ...],\n  "estimatedComplexity": "low|medium|high",\n${filesSection}\n  "affectedRepositories": ["${repoExample}"],\n  "newRepositories": [],\n  "risks": ["risk 1", ...],\n${PLAN_OUTPUT_SCHEMA_VERIFICATION}\n}\n\n${JSON_OUTPUT_RULES}`;
+  return `Return ONLY a valid JSON object. Reference:
+{"action":"${action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Rename AuthGuard to SharedAuthGuard in ${repoExample}/src/auth/guard.ts","Update all import paths in ${repoExample}/src/controllers/"],"estimatedComplexity":"medium","affectedFiles":[{"filePath":"${repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${repoExample}/package.json","status":"found"}],"affectedRepositories":["${repoExample}"],"newRepositories":[],"risks":["Renaming may break downstream consumers"],"verification":{"targeted":[{"id":"manual-review","run":"yarn test:manual -- test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
+
+When an optional field has no value, omit it from the JSON entirely. Do not use null.
+
+${JSON_OUTPUT_RULES}`;
 };
 
 /**
@@ -941,17 +927,70 @@ const buildReviewPrompt = (diff: string, guidelines: string[], skillNames?: stri
   ].join('\n');
 };
 
-const REVIEW_VALIDATION_RETRY_LIMIT = 2;
+const VALIDATION_RETRY_LIMIT = 2;
 
-const buildReviewValidationPrompt = (invalidJson: string, zodErrors: string): string =>
+const buildValidationCorrectionPrompt = (invalidJson: string, zodErrors: string): string =>
   'The following JSON failed schema validation.\n\nValidation errors:\n'
   + zodErrors
   + '\n\nInvalid payload:\n'
   + invalidJson
   + '\n\nReturn ONLY the corrected, minified JSON object. When an optional field has no value, omit it — do not use null.';
 
+const getValidationCorrectionEmptyMessage = (stage: 'plan' | 'review'): string =>
+  stage === 'plan'
+    ? 'AI provider returned an empty plan correction response'
+    : 'AI provider returned an empty review correction response';
+
 const hasMinimumReviewShape = (obj: Record<string, unknown>): boolean =>
   'summary' in obj && 'issues' in obj && 'suggestions' in obj && 'approved' in obj;
+
+const hasMinimumPlanShape = (obj: Record<string, unknown>): boolean =>
+  'action' in obj && 'summary' in obj && 'steps' in obj;
+
+const resolveValidationFailureMessage = (stage: 'plan' | 'review'): string =>
+  stage === 'plan' ? 'Plan JSON could not be corrected' : 'Review JSON could not be corrected';
+
+type ValidationRetryLoopArgs<T> = {
+  evaluateCorrection: (
+    error: unknown,
+    attempt: number,
+    previousErrorCount: number
+  ) => { zodErrors: string; errorCount: number } | null;
+  failureMessage: string;
+  parseFn: (content: string) => T;
+  rawJson: string;
+  requestCorrection: (content: string, zodErrors: string) => Promise<string>;
+};
+
+const runValidationRetryLoop = async <T>(args: ValidationRetryLoopArgs<T>): Promise<T> => {
+  let content = args.rawJson;
+  let previousErrorCount = Infinity;
+  for (let attempt = 0; attempt <= VALIDATION_RETRY_LIMIT; attempt += 1) {
+    try {
+      return args.parseFn(content);
+    } catch (error) {
+      const correction = args.evaluateCorrection(error, attempt, previousErrorCount);
+      if (!correction) break;
+      previousErrorCount = correction.errorCount;
+      content = await args.requestCorrection(content, correction.zodErrors);
+    }
+  }
+  throw new AIError(args.failureMessage, { response: content }, true, 'parse');
+};
+
+const buildPlanProseErrorDetails = (
+  response: AIResponse,
+  content: string
+): Record<string, unknown> => ({
+  provider: response.provider,
+  model: response.model,
+  finishReason: response.finishReason,
+  stopReason: response.stopReason,
+  refusal: response.refusal,
+  contentTypes: response.contentTypes,
+  usage: response.usage,
+  response: content,
+});
 
 /**
  * Execute one review attempt with unusable-response retry logic.
@@ -961,23 +1000,22 @@ const hasMinimumReviewShape = (obj: Record<string, unknown>): boolean =>
  * @returns Final AIResponse after retries are exhausted or a usable response arrives
  */
 // eslint-disable-next-line max-lines-per-function
-const retryOnUnusableResponse = async (executeFn: () => Promise<AIResponse>, maxRetries: number): Promise<AIResponse> => { // eslint-disable-line max-len
+const retryOnUnusableResponse = async (
+  executeFn: () => Promise<AIResponse>,
+  validateFn: (response: AIResponse) => string,
+  maxRetries: number
+): Promise<AIResponse> => {
   let response = await executeFn();
-  let attemptCount = 0;
-
-  while (attemptCount < maxRetries) {
+  for (let attemptCount = 0; attemptCount < maxRetries; attemptCount += 1) {
     try {
-      requireReviewJsonContent(response);
+      validateFn(response);
       return response;
     } catch (error) {
       if (!isAIErrorLike(error) || !error.recoverable) throw error;
-      attemptCount += 1;
       response = await executeFn();
     }
   }
-
-  // Validate one final time after exhausting retries
-  requireReviewJsonContent(response);
+  validateFn(response);
   return response;
 };
 
@@ -1092,12 +1130,12 @@ export class AiService {
     issueContent: string,
     context?: Record<string, unknown>
   ): Promise<ResolutionPlan> {
-    const repoExample = resolvePlanPromptRepoExample(context?.affectedRepositories as string[] | undefined);
-    const discoveryBlock = context ? buildPlanDiscoveryBlock(context) : '';
-    const hasNodeInfra = detectNodeTestInfra(context);
-    const prompt = buildPlanPromptBody(action, issueContent, context, repoExample, discoveryBlock, hasNodeInfra);
-    const planMaxTokens = this.configService.get<number>('stages.plan.maxTokens', DEFAULT_PLAN_MAX_TOKENS);
-    const response = await this.execute({ prompt, systemPrompt: PLAN_SYSTEM_PROMPT, temperature: 0.5, maxTokens: planMaxTokens, stage: 'plan' });
+    const { prompt, planMaxTokens } = this.buildPlanGenerationRequest(action, issueContent, context);
+    const response = await retryOnUnusableResponse(
+      () => this.executePlanPrompt(prompt, planMaxTokens),
+      response => this.requirePlanJsonContent(response),
+      PLAN_EMPTY_RESPONSE_RETRY_LIMIT
+    );
     throwIfTruncated(response, 'Plan');
     return this.parsePlanResponse(response);
   }
@@ -1133,12 +1171,13 @@ export class AiService {
     onProgress?.('Synthesizing review...');
     const reviewMaxTokens = this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
     const reviewSkillIds = this.configService.get<string[]>('stages.review.skills') ?? [];
-    const reviewSkillNames = reviewSkillIds.length
-      ? (await resolveSkills(reviewSkillIds, { interactive: false, stage: 'review' })).map(s => s.id)
-      : [];
-    const executeReview = () =>
-      this.execute({ prompt: buildReviewPrompt(diff, guidelines, reviewSkillNames.length ? reviewSkillNames : undefined), systemPrompt: REVIEW_SYSTEM_PROMPT, temperature: 0.3, maxTokens: reviewMaxTokens, stage: 'review' });
-    const response = await retryOnUnusableResponse(executeReview, REVIEW_EMPTY_RESPONSE_RETRY_LIMIT);
+    const reviewSkillNames = await this.resolveReviewSkillNames(reviewSkillIds);
+    const reviewPrompt = buildReviewPrompt(diff, guidelines, reviewSkillNames.length ? reviewSkillNames : undefined);
+    const response = await retryOnUnusableResponse(
+      () => this.executeReviewPrompt(reviewPrompt, reviewMaxTokens),
+      requireReviewJsonContent,
+      REVIEW_EMPTY_RESPONSE_RETRY_LIMIT
+    );
     throwIfTruncated(response, 'Review');
     return this.validateReviewJson(requireReviewResponseContent(response), diff, reviewMaxTokens);
   }
@@ -1263,6 +1302,54 @@ export class AiService {
     plan.timestamp = dayjs().toISOString();
   }
 
+  private executePlanPrompt(prompt: string, maxTokens: number): Promise<AIResponse> {
+    return this.execute({ prompt, systemPrompt: PLAN_SYSTEM_PROMPT, temperature: 0.5, maxTokens, stage: 'plan' });
+  }
+
+  private executeReviewPrompt(prompt: string, maxTokens: number): Promise<AIResponse> {
+    return this.execute({ prompt, systemPrompt: REVIEW_SYSTEM_PROMPT, temperature: 0.3, maxTokens, stage: 'review' });
+  }
+
+  private buildPlanGenerationRequest(
+    action: ResolutionAction,
+    issueContent: string,
+    context?: Record<string, unknown>
+  ): { planMaxTokens: number; prompt: string } {
+    const repoExample = resolvePlanPromptRepoExample(context?.affectedRepositories as string[] | undefined);
+    const discoveryBlock = context ? buildPlanDiscoveryBlock(context) : '';
+    const hasNodeInfra = detectNodeTestInfra(context);
+    return {
+      planMaxTokens: this.configService.get<number>('stages.plan.maxTokens', DEFAULT_PLAN_MAX_TOKENS),
+      prompt: buildPlanPromptBody(action, issueContent, context, repoExample, discoveryBlock, hasNodeInfra),
+    };
+  }
+
+  private async resolveReviewSkillNames(reviewSkillIds: string[]): Promise<string[]> {
+    if (!reviewSkillIds.length) return [];
+    return (await resolveSkills(reviewSkillIds, { interactive: false, stage: 'review' })).map(s => s.id);
+  }
+
+  private requirePlanJsonContent(response: AIResponse): string {
+    const content = requireAiResponseContent(response, 'AI provider returned an empty plan response');
+    if (hasJsonContent(content)) return content;
+    throw new AIError(
+      'AI provider returned a prose plan response without JSON',
+      buildPlanProseErrorDetails(response, content),
+      hasRecoverableBlankReviewMetadata(response),
+      'parse'
+    );
+  }
+
+  private applyRepositoriesAffected(
+    plan: ResolutionPlan,
+    repositoriesAffected?: string[]
+  ): ResolutionPlan {
+    if (!plan.affectedRepositories && repositoriesAffected) {
+      plan.affectedRepositories = repositoriesAffected;
+    }
+    return plan;
+  }
+
   /**
    * Parse and normalize the AI response into a ResolutionPlan.
    * @param response Raw AI response from the plan execution call
@@ -1271,9 +1358,10 @@ export class AiService {
    */
   private parsePlanResponse(response: AIResponse): ResolutionPlan {
     try {
-      const plan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
+      const parsedPlan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
         requireAiResponseContent(response, 'AI provider returned an empty plan response')
       );
+      const plan = this.parsePlanContent(parsedPlan);
       this.stampPlanMetadata(plan, response);
       return plan;
     } catch (error) {
@@ -1281,6 +1369,10 @@ export class AiService {
       this.logger.error('Failed to parse AI response as JSON', error);
       throw new AIError('Failed to parse resolution plan from AI response', { response: response.content, error }, true, 'parse');
     }
+  }
+
+  private parsePlanContent(parsedPlan: ResolutionPlan & { repositoriesAffected?: string[] }): ResolutionPlan {
+    return this.applyRepositoriesAffected(resolutionPlanSchema.parse(parsedPlan), parsedPlan.repositoriesAffected);
   }
 
   /**
@@ -1302,7 +1394,7 @@ export class AiService {
   }
 
   /**
-   * Validate and repair raw review JSON via Zod, retrying up to REVIEW_VALIDATION_RETRY_LIMIT times.
+   * Validate and repair raw review JSON via Zod, retrying up to VALIDATION_RETRY_LIMIT times.
    * @param rawJson Raw JSON string from the AI provider
    * @param diff Git diff used for trace sanitization
    * @param maxTokens Optional token limit for correction calls
@@ -1312,7 +1404,33 @@ export class AiService {
   async validateReviewJson(rawJson: string, diff: string, maxTokens?: number): Promise<CodeReview> {
     this.assertMinimumReviewShape(rawJson);
     const reviewMaxTokens = maxTokens ?? this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
-    return this.retryReviewParsing(rawJson, diff, reviewMaxTokens);
+    return this.retryValidationParsing(
+      rawJson,
+      content => this.parseAndProcessReviewContent(content, diff),
+      'review',
+      REVIEW_SYSTEM_PROMPT,
+      reviewMaxTokens
+    );
+  }
+
+  /**
+   * Validate and repair raw plan JSON via Zod, retrying up to VALIDATION_RETRY_LIMIT times.
+   * @param rawJson Raw JSON string from the AI provider
+   * @returns Validated and stamped ResolutionPlan
+   * @throws AIError when the JSON lacks required top-level fields or cannot be corrected
+   */
+  async validatePlanJson(rawJson: string): Promise<ResolutionPlan> {
+    this.assertMinimumPlanShape(rawJson);
+    const planMaxTokens = this.configService.get<number>('stages.plan.maxTokens', DEFAULT_PLAN_MAX_TOKENS);
+    const plan = await this.retryValidationParsing<ResolutionPlan>(
+      rawJson,
+      content => this.parsePlanValidationContent(content),
+      'plan',
+      PLAN_SYSTEM_PROMPT,
+      planMaxTokens
+    );
+    this.stampPlanMetadata(plan, {});
+    return plan;
   }
 
   private assertMinimumReviewShape(content: string): void {
@@ -1330,43 +1448,97 @@ export class AiService {
     }
   }
 
+  private assertMinimumPlanShape(content: string): void {
+    let initial: Record<string, unknown>;
+    try {
+      initial = parseJsonResponse<Record<string, unknown>>(content);
+    } catch {
+      throw new AIError('Plan response is not valid JSON', { response: content }, true, 'parse');
+    }
+    if (!hasMinimumPlanShape(initial)) {
+      throw new AIError(
+        'Plan JSON lacks required top-level fields (action, summary, steps)',
+        { response: content }, true, 'parse'
+      );
+    }
+  }
+
   private parseAndProcessReviewContent(content: string, diff: string): CodeReview {
     const parsed = codeReviewSchema.parse(parseJsonResponse<CodeReview>(content));
     const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
     return { ...processedReview.review, executionMode: 'standard' };
   }
 
-  private async requestReviewCorrection(content: string, zodErrors: string, maxTokens: number): Promise<string> {
-    const response = await this.execute({
-      prompt: buildReviewValidationPrompt(content, zodErrors),
-      systemPrompt: REVIEW_SYSTEM_PROMPT, temperature: 0.2, maxTokens, stage: 'review',
-    });
-    return requireReviewResponseContent(response);
+  private parsePlanValidationContent(content: string): ResolutionPlan {
+    return this.parsePlanContent(
+      parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(content)
+    );
   }
 
-  private evaluateReviewCorrection(
+  private async requestValidationCorrection(
+    content: string,
+    zodErrors: string,
+    systemPrompt: string,
+    stage: 'plan' | 'review',
+    maxTokens: number
+  ): Promise<string> {
+    return this.requireValidationCorrectionContent(
+      await this.executeValidationCorrection(content, zodErrors, systemPrompt, stage, maxTokens),
+      stage
+    );
+  }
+
+  private createValidationCorrectionRequester(
+    systemPrompt: string,
+    stage: 'plan' | 'review',
+    maxTokens: number
+  ): (content: string, zodErrors: string) => Promise<string> {
+    return (content, zodErrors) => this.requestValidationCorrection(content, zodErrors, systemPrompt, stage, maxTokens);
+  }
+
+  private executeValidationCorrection(
+    content: string,
+    zodErrors: string,
+    systemPrompt: string,
+    stage: 'plan' | 'review',
+    maxTokens: number
+  ): Promise<AIResponse> {
+    return this.execute({
+      prompt: buildValidationCorrectionPrompt(content, zodErrors),
+      systemPrompt,
+      temperature: 0.2,
+      maxTokens,
+      stage,
+    });
+  }
+
+  private requireValidationCorrectionContent(response: AIResponse, stage: 'plan' | 'review'): string {
+    return requireAiResponseContent(response, getValidationCorrectionEmptyMessage(stage));
+  }
+
+  private evaluateValidationCorrection(
     error: unknown, attempt: number, previousErrorCount: number
   ): { zodErrors: string; errorCount: number } | null {
     if (isAIErrorLike(error)) throw error;
     const errorCount = isZodErrorLike(error) ? error.issues.length : Infinity;
     const stalled = attempt > 0 && errorCount >= previousErrorCount;
-    if (stalled || attempt >= REVIEW_VALIDATION_RETRY_LIMIT) return null;
+    if (stalled || attempt >= VALIDATION_RETRY_LIMIT) return null;
     return { zodErrors: isZodErrorLike(error) ? formatZodError(error) : String(error), errorCount };
   }
 
-  private async retryReviewParsing(rawJson: string, diff: string, maxTokens: number): Promise<CodeReview> {
-    let content = rawJson;
-    let previousErrorCount = Infinity;
-    for (let attempt = 0; attempt <= REVIEW_VALIDATION_RETRY_LIMIT; attempt++) {
-      try {
-        return this.parseAndProcessReviewContent(content, diff);
-      } catch (error) {
-        const correction = this.evaluateReviewCorrection(error, attempt, previousErrorCount);
-        if (!correction) break;
-        previousErrorCount = correction.errorCount;
-        content = await this.requestReviewCorrection(content, correction.zodErrors, maxTokens);
-      }
-    }
-    throw new AIError('Review JSON could not be corrected', { response: content }, true, 'parse');
+  private async retryValidationParsing<T>(
+    rawJson: string,
+    parseFn: (content: string) => T,
+    stage: 'plan' | 'review',
+    systemPrompt: string,
+    maxTokens: number
+  ): Promise<T> {
+    return runValidationRetryLoop({
+      rawJson,
+      parseFn,
+      evaluateCorrection: this.evaluateValidationCorrection.bind(this),
+      failureMessage: resolveValidationFailureMessage(stage),
+      requestCorrection: this.createValidationCorrectionRequester(systemPrompt, stage, maxTokens),
+    });
   }
 }
