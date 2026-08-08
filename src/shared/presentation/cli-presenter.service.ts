@@ -9,8 +9,8 @@ interface SummaryEntry {
 }
 
 const OUTCOME_STYLES: Record<OutcomeType, { icon: string; color: (message: string) => string }> = {
-  success: { icon: '✓', color: chalk.green },
-  warning: { icon: '⚠️', color: chalk.yellow },
+  success: { icon: '✔', color: chalk.green },
+  warning: { icon: '⚠', color: chalk.yellow },
   skip: { icon: '↷', color: chalk.yellow },
   error: { icon: '✖', color: chalk.red },
 };
