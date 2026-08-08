@@ -1191,7 +1191,7 @@ export class StageAgentService {
       return { review: { ...review, executionMode: backend === 'cli' ? 'cli' : 'agent' }, sessionId };
     } catch (error) {
       if (isAIErrorLike(error)) throw error;
-      throw new AIError('Failed to parse code review from agent response', { response, error }, true, 'parse');
+      throw new AIError('Failed to parse code review from agent response', { response, error, sessionId }, true, 'parse');
     }
   }
 
@@ -1562,7 +1562,21 @@ export class StageAgentService {
     stage: AgentStageName, initialSessionId: string | undefined,
     runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>
   ): Promise<{ content: string; sessionId?: string }> {
-    const state = { sessionId: initialSessionId, stalledPasses: 0, passNumber: 0, lastDiagnostics: [] as string[] };
+    const state: CliRetryState = { sessionId: initialSessionId, stalledPasses: 0, passNumber: 0, lastDiagnostics: [] };
+    try {
+      return await this.executeCliPasses(state, stage, runPass);
+    } catch (error) {
+      if (state.sessionId && isAIErrorLike(error)) {
+        error.details = { ...error.details, sessionId: state.sessionId };
+      }
+      throw error;
+    }
+  }
+
+  private async executeCliPasses(
+    state: CliRetryState, stage: AgentStageName,
+    runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>
+  ): Promise<{ content: string; sessionId?: string }> {
     while (true) {
       state.passNumber++;
       const passResult = await runPass(state.sessionId, state.passNumber);

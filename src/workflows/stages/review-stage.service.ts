@@ -54,7 +54,7 @@ export class ReviewStageService {
     private readonly stageAgentService: StageAgentService
   ) {}
 
-  async reviewDiff(diff: string, options: ReviewDiffOptions): Promise<CodeReview> {
+  async reviewDiff(diff: string, options: ReviewDiffOptions): Promise<{ review: CodeReview; sessionId?: string }> {
     const guidelines = this.buildReviewGuidelines(options);
     const segments = splitDiffByFile(diff);
     const summariseCallback = this.createSummariseCallback(options);
@@ -99,9 +99,9 @@ export class ReviewStageService {
     diff: string,
     guidelines: string[],
     options: ReviewDiffOptions
-  ): Promise<CodeReview> {
-    const review = await this.performReview(diff, guidelines, options);
-    return this.ensureExecutionModeSet(review);
+  ): Promise<{ review: CodeReview; sessionId?: string }> {
+    const { review, sessionId } = await this.performReview(diff, guidelines, options);
+    return { review: this.ensureExecutionModeSet(review), sessionId };
   }
 
   private async resolveReviewSkillNames(): Promise<string[] | undefined> {
@@ -115,9 +115,9 @@ export class ReviewStageService {
     diff: string,
     guidelines: string[],
     options: ReviewDiffOptions
-  ): Promise<CodeReview> {
+  ): Promise<{ review: CodeReview; sessionId?: string }> {
     if (!this.stageAgentService.isEnabledForStage('review')) {
-      return this.aiService.reviewCode(diff, guidelines, options.onProgress);
+      return { review: await this.aiService.reviewCode(diff, guidelines, options.onProgress) };
     }
     const skillNames = await this.resolveReviewSkillNames();
     return this.reviewViaAgent(diff, guidelines, { ...options, skillNames });
@@ -125,15 +125,17 @@ export class ReviewStageService {
 
   private async reviewViaAgent(
     diff: string, guidelines: string[], options: ReviewDiffOptions
-  ): Promise<CodeReview> {
+  ): Promise<{ review: CodeReview; sessionId?: string }> {
     try {
       const result = await this.stageAgentService.reviewCode(
         diff, guidelines, options.repoDir, options.priorStageSummary,
         options.resumeProviderSessionId, options.onProgress, options.skillNames
       );
-      return result.review;
+      return { review: result.review, sessionId: result.sessionId };
     } catch (error) {
-      return this.recoverReviewFromValidation(error, diff);
+      const sessionId = isAIErrorLike(error) ? error.details?.sessionId : undefined;
+      const review = await this.recoverReviewFromValidation(error, diff);
+      return { review, sessionId };
     }
   }
 
@@ -160,7 +162,7 @@ export class ReviewStageService {
     };
   }
 
-  createReviewArtifact(ticket: TicketArtifact, review: CodeReview): ReviewArtifact {
+  createReviewArtifact(ticket: TicketArtifact, review: CodeReview, sessionId?: string): ReviewArtifact {
     const reviewPath = deriveReviewArtifactPath(ticket.path);
     fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
     fs.writeFileSync(reviewPath, this.formatReviewMarkdown(ticket.ticketKey, review));
@@ -169,6 +171,7 @@ export class ReviewStageService {
       review,
       path: reviewPath,
       approved: review.approved,
+      sessionId,
     };
   }
 

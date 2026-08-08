@@ -319,7 +319,7 @@ describe('ReviewStageService', () => {
       agentEnabled: true,
       reviewBackend: 'agent',
     });
-    const review = await service.reviewDiff('diff --git a/file b/file', {
+    const { review } = await service.reviewDiff('diff --git a/file b/file', {
       context: 'ticket WBP-124: Agent-backed review',
       repoDir: '/tmp/repo',
     });
@@ -360,7 +360,7 @@ describe('ReviewStageService', () => {
       reviewBackend: 'cli',
       mockStageExecutionMode: 'cli',
     });
-    const review = await service.reviewDiff('diff --git a/file b/file', {
+    const { review } = await service.reviewDiff('diff --git a/file b/file', {
       context: 'ticket WBP-129: CLI-backed review',
       repoDir: '/tmp/repo',
     });
@@ -400,7 +400,7 @@ describe('ReviewStageService', () => {
       agentEnabled: true,
     });
 
-    const review = await service.reviewDiff('diff --git a/file b/file', {
+    const { review } = await service.reviewDiff('diff --git a/file b/file', {
       context: 'ticket WBP-127: Inferred agent review',
       repoDir: '/tmp/repo',
     });
@@ -549,7 +549,7 @@ describe('ReviewStageService', () => {
       const svc = aiService as unknown as Record<string, unknown>;
       svc.validateReviewJson = jest.fn().mockResolvedValue(recoveredReview);
 
-      const review = await service.reviewDiff('diff --git a/file b/file', {
+      const { review } = await service.reviewDiff('diff --git a/file b/file', {
         context: 'ticket WBP-REC: Recovery test',
         repoDir: '/tmp/repo',
       });
@@ -645,6 +645,34 @@ describe('ReviewStageService', () => {
       await expect(
         service.reviewDiff('diff --git a/file b/file', { context: 'mismatch test' })
       ).rejects.toThrow('does not support the "review" stage');
+    });
+
+    it('surfaces sessionId from agent backend on success', async () => {
+      const { service, stageAgentService } = await buildService({ agentEnabled: true });
+      (stageAgentService.reviewCode as jest.Mock).mockResolvedValue({
+        review: { summary: 'ok', issues: [], suggestions: [], approved: true, executionMode: 'cli' },
+        sessionId: 'review-sess-1',
+      });
+
+      const result = await service.reviewDiff('diff', { context: 'test' });
+      expect(result.sessionId).toBe('review-sess-1');
+    });
+
+    it('preserves sessionId through parse error recovery', async () => {
+      const { service, stageAgentService, aiService } = await buildService({
+        agentEnabled: true,
+        reviewBackend: 'agent',
+      });
+      (stageAgentService.reviewCode as jest.Mock).mockRejectedValueOnce(
+        new AIError('parse fail', { response: '{"summary":"ok","issues":[],"suggestions":[],"approved":true}', sessionId: 'review-sess-2' }, true, 'parse')
+      );
+      const svc = aiService as unknown as Record<string, unknown>;
+      svc.validateReviewJson = jest.fn().mockResolvedValue({
+        summary: 'ok', issues: [], suggestions: [], approved: true,
+      });
+
+      const result = await service.reviewDiff('diff', { context: 'test' });
+      expect(result.sessionId).toBe('review-sess-2');
     });
   });
 });

@@ -354,7 +354,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
       {
         provide: ReviewStageService,
         useValue: {
-          reviewDiff: jest.fn().mockResolvedValue(mockReview),
+          reviewDiff: jest.fn().mockResolvedValue({ review: mockReview }),
         },
       },
       {
@@ -570,7 +570,7 @@ describe('IssueReviewCommand', () => {
       reviewStageService.reviewDiff.mockImplementation(
         (_diff: string, opts: { onProgress?: (line: string) => void }) => {
           opts.onProgress?.('  [claude-cli] Analyzing...');
-          return Promise.resolve(mockReview);
+          return Promise.resolve({ review: mockReview });
         }
       );
       adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
@@ -938,7 +938,7 @@ describe('IssueReviewCommand', () => {
       jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('diff content');
       const writeFileSyncSpy = jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => {});
 
-      reviewStageService.reviewDiff.mockResolvedValue({ ...mockReview, approved: false });
+      reviewStageService.reviewDiff.mockResolvedValue({ review: { ...mockReview, approved: false } });
 
       await command.run([], { output: 'review.txt' });
 
@@ -1090,16 +1090,18 @@ describe('IssueReviewCommand', () => {
       const { command, adapters, reviewStageService } = await buildCommand();
 
       reviewStageService.reviewDiff.mockResolvedValue({
-        ...mockReview,
-        issues: [
-          {
-            severity: 'warning',
-            message: 'Normalized inline issue',
-            file: 'src/inline.ts',
-            line: 24,
-          },
-        ],
-        suggestions: [],
+        review: {
+          ...mockReview,
+          issues: [
+            {
+              severity: 'warning',
+              message: 'Normalized inline issue',
+              file: 'src/inline.ts',
+              line: 24,
+            },
+          ],
+          suggestions: [],
+        },
       });
       adapters.bitbucketAdapter.getPullRequestDiff.mockResolvedValue('diff 24');
 
@@ -1273,7 +1275,7 @@ describe('IssueReviewCommand', () => {
           },
         ],
       };
-      reviewStageService.reviewDiff.mockResolvedValueOnce(reviewWithRange);
+      reviewStageService.reviewDiff.mockResolvedValueOnce({ review: reviewWithRange });
 
       await command.run([], { silent: false });
 
@@ -1295,7 +1297,7 @@ describe('IssueReviewCommand', () => {
           },
         ],
       };
-      reviewStageService.reviewDiff.mockResolvedValueOnce(reviewWithLine);
+      reviewStageService.reviewDiff.mockResolvedValueOnce({ review: reviewWithLine });
 
       await command.run([], { silent: false });
 
@@ -1317,7 +1319,7 @@ describe('IssueReviewCommand', () => {
           },
         ],
       };
-      reviewStageService.reviewDiff.mockResolvedValueOnce(reviewNoLine);
+      reviewStageService.reviewDiff.mockResolvedValueOnce({ review: reviewNoLine });
 
       await command.run([], { silent: false });
 

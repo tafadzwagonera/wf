@@ -1940,6 +1940,40 @@ describe('IssueCommand', () => {
 
       expect(mockReviewerExecute).toHaveBeenCalled();
     });
+
+    it('records review provider session ID when review artifact carries one', async () => {
+      const mockReviewerExecute = jest.fn().mockResolvedValue({
+        review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+        path: '/tmp/review.md',
+        approved: true,
+        sessionId: 'review-sess-abc',
+      });
+      const mockOrchestrator = {
+        fetcher: {
+          loadFromDisk: jest.fn().mockReturnValue({
+            ticketKey: 'WBP-SKIP', content: '# WBP-SKIP\n\nTest',
+            path: path.join('/tmp/consumer-app', 'jira', 'WBP-SKIP.md'),
+          }),
+        },
+        implementer: {
+          execute: jest.fn().mockResolvedValue({
+            type: 'implementation', hasChanges: true, branchName: null,
+            sessionId: undefined, verificationOutcomes: [],
+          }),
+        },
+        reviewer: { execute: mockReviewerExecute },
+      };
+
+      const command = await buildTestCommand(mockOrchestrator);
+      stubFs();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await command.run([planFilename], { from: 'implement', to: 'review' });
+
+      expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
+        expect.any(Object), 'review', 'review-sess-abc',
+      );
+    });
   });
 
   describe('resolveCustomPlanToken action mismatch', () => {

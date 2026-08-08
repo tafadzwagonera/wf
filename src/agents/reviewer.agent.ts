@@ -45,10 +45,10 @@ export class ReviewerAgent {
     const onProgress = options.onProgress
       ?? (options.silent ? undefined : (line: string) => this.presenter.progress(line));
 
-    const review = await this.stageAndReview(ticket, options, onProgress);
+    const { review, sessionId } = await this.stageAndReview(ticket, options, onProgress);
     if (!options.silent) this.logReview(review);
 
-    const artifact = this.reviewStageService.createReviewArtifact(ticket, review);
+    const artifact = this.reviewStageService.createReviewArtifact(ticket, review, sessionId);
     if (!options.silent) this.presenter.detail('Saved to', artifact.path);
     return artifact;
   }
@@ -86,7 +86,7 @@ export class ReviewerAgent {
     ticket: TicketArtifact,
     options: ReviewerOptions,
     onProgress?: (line: string) => void
-  ): Promise<CodeReview> {
+  ): Promise<{ review: CodeReview; sessionId?: string }> {
     await this.gitService.stageAll(options.repoDir);
     const diff = await this.gitService.getDiff(true, options.repoDir);
 

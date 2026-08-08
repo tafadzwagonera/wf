@@ -1054,7 +1054,9 @@ IssueCommand.run(options.sessionId)                            # wf session ID (
 │   │   └── stageAgentService.reviewCode(diff, guidelines, repoDir, priorStageSummary, resumeProviderSessionId)
 │   │       └── runStagePrompt({ resumeProviderSessionId, priorStageSummary })
 │   │           └── (same backend dispatch as PLAN)
+│   │           └── returns { review, sessionId }                # provider session ID extracted
 │   │
+│   ├── sessionService.recordProviderSessionId(session, 'review', providerSessionId)
 │   └── sessionService.recordStageComplete(session, 'review', summary)
 │
 └── sessionService.markComplete(session)

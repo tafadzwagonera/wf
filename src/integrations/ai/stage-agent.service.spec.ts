@@ -649,6 +649,50 @@ describe('StageAgentService', () => {
       expect(spawnCli).toHaveBeenCalledTimes(2);
     });
 
+    it('stall error includes sessionId from CLI stream', async () => {
+      async function* firstPass() {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'thinking...' }] }, session_id: 'sess_stall_123' };
+      }
+      async function* secondPass() {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'thinking...' }] }, session_id: 'sess_stall_123' };
+      }
+      spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
+
+      const service = new StageAgentService(createCliConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      try {
+        await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
+        throw new Error('should not reach');
+      } catch (error: unknown) {
+        expect((error as any).category).toBe('stall');
+        expect((error as any).details?.sessionId).toBe('sess_stall_123');
+      }
+    });
+
+    it('review-stage stall error includes sessionId despite fresh-start reset', async () => {
+      async function* firstPass() {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'thinking...' }] }, session_id: 'sess_review_stall' };
+      }
+      async function* secondPass() {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'still thinking...' }] }, session_id: 'sess_review_stall_2' };
+      }
+      spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      try {
+        await runner({ stage: 'review', prompt: 'review prompt', systemPrompt: 'sys' });
+        throw new Error('should not reach');
+      } catch (error: unknown) {
+        expect((error as any).category).toBe('stall');
+        expect((error as any).details?.sessionId).toBe('sess_review_stall_2');
+      }
+    });
+
     it('accepts structured_output on pass 1 without retry', async () => {
       async function* fakeSpawn() {
         yield { type: 'result', subtype: 'success', structured_output: { action: 'fix' }, session_id: 'sess_abc123' };
@@ -984,6 +1028,23 @@ describe('StageAgentService', () => {
       await expect(service.reviewCode('diff --git a/f b/f', [])).rejects.toMatchObject({
         message: expect.stringContaining('Failed to parse code review'),
       });
+    });
+
+    it('review parse error includes sessionId in details', async () => {
+      spawnCli.mockImplementationOnce(async function* () {
+        yield { type: 'result', subtype: 'success', result: 'not valid json', session_id: 'sess_review_789' };
+      });
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      try {
+        await service.reviewCode('diff content', ['guideline'], undefined, undefined, undefined, undefined, undefined);
+        throw new Error('should not reach');
+      } catch (error: unknown) {
+        expect((error as any).category).toBe('parse');
+        expect((error as any).details?.sessionId).toBe('sess_review_789');
+      }
     });
 
     it('parses successfully when all required fields are present', async () => {

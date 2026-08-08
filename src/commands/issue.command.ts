@@ -1354,8 +1354,16 @@ export class IssueCommand extends CommandRunner {
       ticketArtifact, planArtifact, repos, options, prepared.sessionContext, ticketKey
     );
 
+    sessionState = await this.recordReviewProviderSession(sessionState, reviewArtifact);
     sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'review', null);
     return { reviewArtifact, sessionState };
+  }
+
+  private async recordReviewProviderSession(
+    sessionState: SessionState | undefined, artifact: ReviewArtifact | null
+  ): Promise<SessionState | undefined> {
+    if (!sessionState || !artifact?.sessionId) return sessionState;
+    return this.sessionService.recordProviderSessionId(sessionState, 'review', artifact.sessionId);
   }
 
   private async prepareReviewSession(

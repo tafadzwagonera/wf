@@ -41,10 +41,12 @@ describe('ReviewerAgent', () => {
           provide: ReviewStageService,
           useValue: {
             reviewDiff: jest.fn().mockResolvedValue({
-              summary: 'ok',
-              issues: [],
-              suggestions: [],
-              approved: true,
+              review: {
+                summary: 'ok',
+                issues: [],
+                suggestions: [],
+                approved: true,
+              },
             }),
             createReviewArtifact: jest.fn().mockReturnValue({
               review: {
@@ -187,10 +189,12 @@ describe('ReviewerAgent', () => {
       (_diff: string, opts: { onProgress?: (line: string) => void }) => {
         opts.onProgress?.('Synthesizing review...');
         return Promise.resolve({
-          summary: 'ok',
-          issues: [],
-          suggestions: [],
-          approved: true,
+          review: {
+            summary: 'ok',
+            issues: [],
+            suggestions: [],
+            approved: true,
+          },
         });
       }
     );
@@ -245,10 +249,12 @@ describe('ReviewerAgent', () => {
       (_diff: string, opts: { onProgress?: (line: string) => void }) => {
         opts.onProgress?.('Synthesizing review...');
         return Promise.resolve({
-          summary: 'ok',
-          issues: [],
-          suggestions: [],
-          approved: true,
+          review: {
+            summary: 'ok',
+            issues: [],
+            suggestions: [],
+            approved: true,
+          },
         });
       }
     );
@@ -303,10 +309,12 @@ describe('ReviewerAgent', () => {
       (_diff: string, opts: { onProgress?: (line: string) => void }) => {
         opts.onProgress?.('Synthesizing review...');
         return Promise.resolve({
-          summary: 'ok',
-          issues: [],
-          suggestions: [],
-          approved: true,
+          review: {
+            summary: 'ok',
+            issues: [],
+            suggestions: [],
+            approved: true,
+          },
         });
       }
     );

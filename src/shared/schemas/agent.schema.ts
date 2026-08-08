@@ -96,6 +96,7 @@ export const reviewArtifactSchema = z.object({
   review: codeReviewSchema,
   path: z.string(),
   approved: z.boolean(),
+  sessionId: z.string().optional(),
 });
 
 export const modelRoutingSchema = z.enum(['auto', 'default', 'mechanical']);

@@ -602,7 +602,7 @@ export class IssueReviewCommand extends CommandRunner {
     const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
     for (const target of targets) {
       try {
-        const review = await this.reviewStageService.reviewDiff(target.diff, {
+        const { review } = await this.reviewStageService.reviewDiff(target.diff, {
           context: target.context, extraCriteria: extraCriteria ?? undefined,
           replaceCriteria: Boolean(options?.replaceCriteria),
           repoDir: target.repoDir, resumeProviderSessionId: options?.sessionId, onProgress,
