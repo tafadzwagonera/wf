@@ -76,20 +76,7 @@ const buildPriorStagePreamble = (options: ImplementerOptions): string =>
  * @returns The raw system prompt string.
  */
 const buildCodexRawSystemPrompt = (params: GenerateAndVerifyParams, repoDir: string): string =>
-  buildSystemPrompt({
-    ticketKey: params.ticket.ticketKey,
-    repoDir,
-    repoName: params.repoName,
-    repoFiles: params.repoFiles,
-    contextFiles: params.contextFiles,
-    trackedFilePaths: params.trackedFilePaths,
-    verificationScripts: params.verificationScripts,
-    planSteps: params.planArtifact.plan.steps,
-    planSummary: params.planArtifact.plan.summary,
-    planRisks: params.planArtifact.plan.risks, planAction: params.planArtifact.plan.action,
-    conventionsSection: params.conventionsSection,
-    skillNames: params.skillNames,
-  });
+  buildSystemPrompt({ repoDir, conventionsSection: params.conventionsSection });
 
 /**
  * Assembles the full implement prompt for the Codex CLI agent.

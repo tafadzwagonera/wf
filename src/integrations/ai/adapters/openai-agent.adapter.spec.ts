@@ -1474,16 +1474,14 @@ describe('OpenAIAgentAdapter', () => {
       expect(runOptions?.maxTurns).toBe(500);
     });
 
-    it('includes plan steps in system prompt', async () => {
+    it('includes plan steps in initial user message, not system prompt', async () => {
       const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-steps-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
       const mockRunResult = makeStreamedRun([], 'Done.');
-      mockRunner.mockImplementation(() => ({
-        run: jest.fn(async () => mockRunResult),
-        config: {},
-      }));
+      const runMock = jest.fn(async () => mockRunResult);
+      mockRunner.mockImplementation(() => ({ run: runMock, config: {} }));
 
       const adapter = new OpenAIAgentAdapter(makeConfigService());
       jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -1504,18 +1502,20 @@ describe('OpenAIAgentAdapter', () => {
       };
       await adapter.generateAndVerify(params);
 
-      const agentConfig = mockAgent.mock.calls[0]?.[0] as {
-        instructions: string;
-      };
-      expect(agentConfig.instructions).toContain('Plan steps:');
-      expect(agentConfig.instructions).toContain('1. Migrate Logger to PinoLogger');
-      expect(agentConfig.instructions).toContain('2. Update unit tests');
+      const agentConfig = mockAgent.mock.calls[0]?.[0] as { instructions: string };
+      const initialPrompt = (runMock.mock.calls[0] as unknown as [unknown, string])[1];
+
+      expect(agentConfig.instructions).not.toContain('Plan steps:');
       expect(agentConfig.instructions).toContain('You MUST implement ALL plan steps');
       expect(agentConfig.instructions).toContain('Repository conventions (primary):');
       expect(agentConfig.instructions).toContain('Formatter: prettier');
+
+      expect(initialPrompt).toContain('Plan steps:');
+      expect(initialPrompt).toContain('1. Migrate Logger to PinoLogger');
+      expect(initialPrompt).toContain('2. Update unit tests');
     });
 
-    it('includes repo conventions in continuation prompts', async () => {
+    it('includes task brief in continuation prompts', async () => {
       const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-continuation-'));
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
@@ -1538,8 +1538,9 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       const continuationPrompt = ((runMock.mock.calls[1] as unknown) as [unknown, string])[1];
-      expect(continuationPrompt).toContain('Repository conventions (primary):');
-      expect(continuationPrompt).toContain('Formatter: prettier');
+      expect(continuationPrompt).toContain('Ticket key:');
+      expect(continuationPrompt).toContain('Plan summary:');
+      expect(continuationPrompt).not.toContain('Repository conventions (primary):');
     });
 
     it('edit_file rejects edits that create duplicate constructors', async () => {
@@ -2179,7 +2180,7 @@ describe('OpenAIAgentAdapter', () => {
         await adapter.generateAndVerify(params);
 
         const promptArg = (mockRun.mock.calls as unknown[][])[1]?.[1] as string | undefined;
-        expect(typeof promptArg === 'string' && promptArg.includes('Goal: test')).toBe(true);
+        expect(typeof promptArg === 'string' && promptArg.includes('Plan summary:')).toBe(true);
       });
 
       it('includes verification commands in continuation prompt', async () => {

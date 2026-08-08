@@ -47,9 +47,10 @@ import {
   buildAllowedCommands,
   stripRepoPrefix,
   isGlobPattern,
-  buildPlanContext,
+  buildBehavioralContext,
+  buildTaskBrief,
   buildImplementerRulesSection,
-  type PlanPhase,
+  type BuildPlanContextParams,
 } from './shared-routing';
 import { buildSkillPromptFragment } from '../../../skills/skill-content';
 import type { ResolutionPlan } from '../ai.service';
@@ -620,19 +621,6 @@ const SUMMARY_TEMPLATE = `### What I changed
 <Any assumptions made or risks identified. Write "None." if there are none.>`;
 
 /**
- * Builds the risks and guardrails section.
- *
- * @param planRisks - Risk notes from the plan artifact
- * @returns Formatted risks text
- */
-const buildRisksBlock = (planRisks?: string[]): string => {
-  const items = planRisks && planRisks.length > 0
-    ? planRisks.map((r, i) => `  ${i + 1}. ${r}`).join('\n')
-    : '  (none identified)';
-  return `Risks and guardrails:\n${items}`;
-};
-
-/**
  * Assembles scope-specific rules for a given repo directory.
  *
  * @param repoDir - Primary repository directory
@@ -645,52 +633,23 @@ const buildScopedRules = (repoDir: string): string => [
 ].join('\n');
 
 type SystemPromptParams = {
-  ticketKey: string;
   repoDir: string;
-  repoName: string;
-  repoFiles: string[];
-  contextFiles?: string[];
-  trackedFilePaths: string[];
-  verificationScripts: VerificationScript[];
-  planSteps: string[];
-  planSummary?: string;
-  planRisks?: string[];
-  planAction?: 'fix' | 'feature' | 'investigate';
   conventionsSection?: string;
-  skillNames?: string[];
-  phases?: PlanPhase[];
 };
 
 /**
- * Builds the plan context portion of the system prompt.
- *
- * @param p - System prompt params
- * @returns Plan context string
- */
-const buildPlanSection = (p: SystemPromptParams): string =>
-  [
-    buildPlanContext({
-      ticketKey: p.ticketKey, repoDir: p.repoDir, repoName: p.repoName,
-      repoFiles: p.repoFiles, contextFiles: p.contextFiles,
-      trackedFilePaths: p.trackedFilePaths, verificationScripts: p.verificationScripts,
-      planSteps: p.planSteps, planSummary: p.planSummary,
-      planRisks: p.planRisks, planAction: p.planAction,
-      skillNames: p.skillNames, phases: p.phases,
-    }),
-    p.conventionsSection ?? '',
-  ].filter(Boolean).join('\n\n');
-
-/**
  * Builds the complete system prompt for the OpenAI agent.
+ * Contains behavioral identity, scope rules, tool list, and summary template.
+ * Task-specific content (plan steps, files, risks) is injected via user messages.
  *
- * @param p - Ticket, plan, repo, and verification context
+ * @param p - Repository directory and optional coding conventions
  * @returns Complete system prompt string
  */
 const buildSystemPrompt = (p: SystemPromptParams): string => {
-  const plan = buildPlanSection(p);
+  const behavioralContext = buildBehavioralContext(p.repoDir);
+  const conventionsPart = p.conventionsSection ? `\n\n${p.conventionsSection}` : '';
   const rules = buildScopedRules(p.repoDir);
-  const risks = buildRisksBlock(p.planRisks);
-  return `${plan}\n\n${AVAILABLE_TOOLS_BLOCK}\n\n${rules}\n\n${SUMMARY_TEMPLATE}\n\n${risks}`;
+  return `${behavioralContext}${conventionsPart}\n\n${AVAILABLE_TOOLS_BLOCK}\n\n${rules}\n\n${SUMMARY_TEMPLATE}`;
 };
 
 /**
@@ -1689,10 +1648,7 @@ type OaiContinuationPromptParams = {
   failures: ValidationFailure[];
   totalPlanned: number;
   passNumber: number;
-  planSummary: string;
-  planSteps: string[];
-  verificationCommands: string[];
-  conventionsSection?: string;
+  taskBriefParams: BuildPlanContextParams;
 };
 
 /**
@@ -1701,21 +1657,13 @@ type OaiContinuationPromptParams = {
  * @param p - Continuation prompt parameters
  * @returns Continuation prompt string
  */
-const formatOaiVerificationBlock = (commands: string[]): string =>
-  commands.length > 0
-    ? `\nVerification (run after all edits):\n${commands.map((c, i) => `  ${i + 1}. ${c}`).join('\n')}`
-    : '';
-
 const buildContinuationPrompt = (p: OaiContinuationPromptParams): string => {
   const completed = p.totalPlanned - p.unvisited.length;
   const sections = buildIncompleteWorkSections(p.unvisited, p.failureCount, p.failures);
   return [
     `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
-    `Goal: ${p.planSummary}`,
-    `\nPlan steps:\n${p.planSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`,
-    p.conventionsSection ? `\n${p.conventionsSection}` : '',
+    buildTaskBrief(p.taskBriefParams),
     `\nContinue implementing the remaining plan steps. The following work is still incomplete:\n\n${sections.join('\n\n')}`,
-    formatOaiVerificationBlock(p.verificationCommands),
     `\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`,
   ].join('\n');
 };
@@ -1839,10 +1787,7 @@ type ContinuationLoopParams = {
   repoFiles: string[];
   repoName: string;
   failures: ValidationFailure[];
-  planSummary: string;
-  planSteps: string[];
-  verificationCommands: string[];
-  conventionsSection?: string;
+  taskBriefParams: BuildPlanContextParams;
   stallThresholdOverride?: number;
 };
 
@@ -1911,8 +1856,7 @@ const buildIterationPrompt = (
 ): string => buildContinuationPrompt({
   unvisited: wl.unvisited, failureCount: wl.failureCount, failures: p.failures,
   totalPlanned: fileCount, passNumber: s.passNum,
-  planSummary: p.planSummary, planSteps: p.planSteps, verificationCommands: p.verificationCommands,
-  conventionsSection: p.conventionsSection,
+  taskBriefParams: p.taskBriefParams,
 });
 
 const runContinuationLoop = async (p: ContinuationLoopParams): Promise<void> => {
@@ -1982,18 +1926,17 @@ const buildPriorStagePreamble = (summary?: string): string =>
     : '';
 
 /**
- * Builds the initial user prompt.
+ * Builds the initial user prompt containing the full task brief and action instruction.
  *
+ * @param taskBriefParams - Plan context parameters used to render the task brief
  * @param contextMd - Optional AGENTS.md content
- * @param ticketKey - Ticket identifier
- * @param stepCount - Number of plan steps
  * @returns Prompt string
  */
-const buildInitialPrompt = (contextMd: string | null, ticketKey: string, stepCount: number): string =>
+const buildInitialPrompt = (taskBriefParams: BuildPlanContextParams, contextMd: string | null): string =>
   [
     contextMd ? contextMd.trimEnd() : '',
-    `Ticket key: ${ticketKey}`,
-    `Implement ALL ${stepCount} plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. Output text only as the final summary after all work is done.`,
+    buildTaskBrief(taskBriefParams),
+    'Implement ALL plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. Output text only as the final summary after all work is done.',
   ].filter(Boolean).join('\n\n');
 
 /**
@@ -2016,16 +1959,7 @@ const resolveCompactionThreshold = (stepCount: number): number => {
  * @returns System prompt string
  */
 const buildSystemPromptFromParams = (p: GenerateAndVerifyParams, repoDir: string): string =>
-  buildSystemPrompt({
-    ticketKey: p.ticket.ticketKey, repoDir, repoName: p.repoName,
-    repoFiles: p.repoFiles, contextFiles: p.contextFiles,
-    trackedFilePaths: p.trackedFilePaths, verificationScripts: p.verificationScripts,
-    planSteps: p.planArtifact.plan.steps,
-    planSummary: p.planArtifact.plan.summary, planRisks: p.planArtifact.plan.risks,
-    planAction: p.planArtifact.plan.action,
-    conventionsSection: p.conventionsSection,
-    skillNames: p.skillNames, phases: p.planArtifact.plan.phases,
-  });
+  buildSystemPrompt({ repoDir, conventionsSection: p.conventionsSection });
 
 /**
  * Creates all seven agent tools.
@@ -2120,6 +2054,15 @@ const buildCompactionSession = (
  * The SDK drives the edit loop while this adapter owns the filesystem
  * and verification boundaries.
  */
+const buildOaiTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: string): BuildPlanContextParams => ({
+  ticketKey: params.ticket.ticketKey, repoDir, repoName: params.repoName,
+  repoFiles: params.repoFiles, trackedFilePaths: params.trackedFilePaths,
+  verificationScripts: params.verificationScripts, planSteps: params.planArtifact.plan.steps,
+  planSummary: params.planArtifact.plan.summary, planAction: params.planArtifact.plan.action,
+  planRisks: params.planArtifact.plan.risks ?? undefined, contextFiles: params.contextFiles,
+  skillNames: params.skillNames, phases: params.planArtifact.plan.phases ?? undefined,
+});
+
 export class OpenAIAgentAdapter implements ImplementerBackend {
   constructor(private readonly configService: ConfigService) {}
 
@@ -2161,11 +2104,10 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const run = await runStreamWithRetry(await this.startInitialRun(c), c.config, c.loop, '');
     throwOnRunError(run, '');
     logCompletion(run, c.loop.usageSummary, c.model);
+    const repoDir = params.options.repoDir ?? process.cwd();
     await runContinuationLoop({
       run, config: c.config, loop: c.loop, repoFiles: params.repoFiles, repoName: params.repoName,
-      failures: c.mutable.validationFailures, planSummary: params.planArtifact.plan.summary,
-      planSteps: params.planArtifact.plan.steps, verificationCommands: params.verificationScripts.map(vs => vs.command),
-      conventionsSection: params.conventionsSection,
+      failures: c.mutable.validationFailures, taskBriefParams: buildOaiTaskBriefParams(params, repoDir),
     });
     return this.buildRunResult(c, params.verificationScripts);
   }
@@ -2274,7 +2216,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const contextMd = await loadAiContextConfig(
       path.join(os.homedir(), '.openai', 'AGENTS.md'), 'AGENTS.md', 'openai', true
     );
-    const prompt = buildInitialPrompt(contextMd, params.ticket.ticketKey, params.planArtifact.plan.steps.length);
+    const prompt = buildInitialPrompt(buildOaiTaskBriefParams(params, repoDir), contextMd);
     return { agent, prompt };
   }
 

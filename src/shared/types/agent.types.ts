@@ -1,6 +1,8 @@
 import type { z } from 'zod';
 import type {
   agentStageNameSchema,
+  buildPlanContextParamsSchema,
+  buildTaskBriefParamsSchema,
   findingsArtifactSchema,
   implementBackendNameSchema,
   implementBackendSelectionSchema,
@@ -37,3 +39,5 @@ export type VerificationFailureCategory = z.infer<typeof verificationFailureCate
 export type VerificationFailureClassification = z.infer<typeof verificationFailureClassificationSchema>;
 export type VerificationScript = z.infer<typeof verificationScriptSchema>;
 export type VerificationOutcome = z.infer<typeof verificationOutcomeSchema>;
+export type BuildTaskBriefParams = z.infer<typeof buildTaskBriefParamsSchema>;
+export type BuildPlanContextParams = z.infer<typeof buildPlanContextParamsSchema>;

@@ -38,17 +38,7 @@ const assert = (label: string, condition: boolean, detail?: string): void => {
 function main(): void {
   console.log(chalk.bold.cyan('\n  Skill in buildSystemPrompt smoke test\n'));
 
-  const prompt = buildSystemPrompt({
-    ticketKey: 'TEST-1',
-    repoDir: '/tmp/repo',
-    repoName: 'repo',
-    repoFiles: ['repo/src/index.ts'],
-    trackedFilePaths: ['repo/src/index.ts'],
-    verificationScripts: [{ id: 'build', name: 'build', command: 'yarn build', policy: 'enforced', aliases: [] }],
-    planSteps: ['Step one'],
-    planSummary: 'Test summary',
-    planAction: 'fix' as const,
-  });
+  const prompt = buildSystemPrompt({ repoDir: '/tmp/repo' });
 
   // Test 1: Skill tool entry is present
   console.log(chalk.bold('Test 1: buildSystemPrompt contains Skill tool entry'));

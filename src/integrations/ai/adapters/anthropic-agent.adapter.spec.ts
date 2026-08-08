@@ -588,8 +588,11 @@ describe('AnthropicAgentAdapter', () => {
         preset: 'claude_code',
       });
       expect(systemPrompt.append).toContain('Repository directory: /repo/primary');
-      expect(systemPrompt.append).toContain('npm test');
-      expect(systemPrompt.append).toContain('src/foo.ts');
+      expect(systemPrompt.append).not.toContain('npm test');
+      expect(systemPrompt.append).not.toContain('src/foo.ts');
+      const initialPrompt = (mockQuery.mock.calls[0][0] as { prompt: string }).prompt;
+      expect(initialPrompt).toContain('npm test');
+      expect(initialPrompt).toContain('src/foo.ts');
       expect(settings.claudeMdExcludes).toEqual(['/repo/primary/CLAUDE.md', '/repo/primary/.claude/CLAUDE.md']);
       expect(sandbox).toMatchObject({
         enabled: true,
@@ -1060,7 +1063,7 @@ describe('AnthropicAgentAdapter', () => {
       await adapter.generateAndVerify(params);
 
       const secondCallPrompt = (mockQuery.mock.calls[1][0] as { prompt: string }).prompt;
-      expect(secondCallPrompt).toContain('Goal: test');
+      expect(secondCallPrompt).toContain('Plan summary:');
     });
 
     it('includes verification commands in continuation prompt', async () => {
@@ -1120,39 +1123,48 @@ describe('AnthropicAgentAdapter', () => {
 
   describe('buildSystemPrompt', () => {
     const baseArgs = {
-      ticketKey: 'WBP-1',
       repoDir: '/tmp/repo-a',
-      repoName: 'repo-a',
-      repoFiles: ['repo-a/src/example.ts'],
-      trackedFilePaths: ['repo-a/src/example.ts'],
-      verificationScripts: [{ id: 'build', command: 'yarn build', policy: 'enforced' }] as VerificationScript[],
-      planSteps: ['Update source'],
-      planSummary: 'Fix the widget',
-      planAction: 'fix' as const,
     };
 
-    it('includes "Files for context" section when contextFiles is non-empty', () => {
-      const result = buildSystemPrompt({
-        ...baseArgs,
-        contextFiles: ['repo-a/package.json'],
-      });
-      expect(result).toContain('Files for context (read-only — do NOT edit these):');
-      expect(result).toContain('package.json');
+    afterEach(() => {
+      jest.restoreAllMocks();
     });
 
-    it('omits "Files for context" section when contextFiles is empty', () => {
-      const result = buildSystemPrompt({ ...baseArgs, contextFiles: [] });
-      expect(result).not.toContain('Files for context');
-    });
-
-    it('omits "Files for context" section when contextFiles is undefined', () => {
+    it('contains role identity and repository directory', () => {
       const result = buildSystemPrompt(baseArgs);
-      expect(result).not.toContain('Files for context');
+      expect(result).toContain('You are an expert software engineer');
+      expect(result).toContain('Repository directory: /tmp/repo-a');
+    });
+
+    it('contains implementer rules and summary template', () => {
+      const result = buildSystemPrompt(baseArgs);
+      expect(result).toContain('Writes must stay scoped to the primary repository');
+      expect(result).toContain('### What I changed');
     });
 
     it('lists the Skill tool in the Available tools section', () => {
       const result = buildSystemPrompt(baseArgs);
       expect(result).toContain('- Skill(skill, args?): invoke a specialized skill');
+    });
+
+    it('does not contain ticket key', () => {
+      const result = buildSystemPrompt(baseArgs);
+      expect(result).not.toContain('Ticket key:');
+    });
+
+    it('does not contain plan summary', () => {
+      const result = buildSystemPrompt(baseArgs);
+      expect(result).not.toContain('Plan summary:');
+    });
+
+    it('does not contain "Files for context" when no contextFiles are passed', () => {
+      const result = buildSystemPrompt(baseArgs);
+      expect(result).not.toContain('Files for context');
+    });
+
+    it('does not contain "Files to implement"', () => {
+      const result = buildSystemPrompt(baseArgs);
+      expect(result).not.toContain('Files to implement:');
     });
   });
 });

@@ -799,20 +799,11 @@ When the first implementation pass (which may use a mechanical model in `auto` r
 
 #### Continuation Prompt Architecture
 
-Each pass in the incomplete-work loop opens a new agent session seeded with a **continuation prompt** — a concise user message that orients the model on remaining work without requiring it to re-read the full system prompt.
+Each pass in the incomplete-work loop opens a new agent session seeded with a **continuation prompt** — a self-sufficient user message that carries the full task brief so the model can orient itself even after provider-side history compaction has summarised or dropped earlier messages.
 
-The shared continuation prompt structure includes:
+The system prompt contains only stable behavioral context (role identity, repository scope rules, tool list, implementer rules, summary template). All task-specific content lives in user messages via `buildTaskBrief` — see the [Continuation Prompt Architecture](#continuation-prompt-architecture-1) section for the full field table.
 
-| Field | Description |
-|---|---|
-| Progress header | `Progress: N/M files modified (pass P)` — lets the model know how far along the run is |
-| Goal | Plan summary restated so the model has context even after compaction |
-| Plan steps | Full numbered list so the model can cross-reference remaining tasks |
-| Repo conventions | Optional conventions section forwarded from the implementer agent |
-| Unvisited files | Planned files not yet touched |
-| Verification block | Verification commands to run after all edits complete |
-
-All three backends (Anthropic Agent SDK, OpenAI Agents SDK, Claude CLI) use this full six-field structure so that each continuation pass is self-sufficient even after context compaction. The OpenAI backend additionally includes structural edit validation failures from prior passes, letting the model fix file-level errors alongside unvisited work.
+All three backends (Anthropic Agent SDK, OpenAI Agents SDK, Claude CLI) embed the complete task brief in every continuation pass. The OpenAI backend additionally includes structural edit validation failures from prior passes, letting the model fix file-level errors alongside unvisited work.
 
 ### Retry strategy
 
@@ -1107,6 +1098,40 @@ IssueReviewCommand.run(options.sessionId)                      # provider sessio
 When `validateForStage()` runs in the orchestrated workflow, it compares each completed stage's recorded `{provider, backend}` fingerprint against the current `wf.config.*` runtime resolution. If a mismatch is detected, it logs a warning and skips session resumption for the affected stage, falling back to default (non-resumption) behaviour. Model changes are recorded per-stage for telemetry but do not trigger drift detection.
 
 Provider session IDs are never portable across backends. An `anthropic/agent` session ID is incompatible with `anthropic/cli` (and vice versa) because they are managed by different systems. The same applies across providers.
+
+### Continuation Prompt Architecture
+
+When an implement session requires multiple passes (because not all planned files were modified in the first pass), the adapter re-prompts the model with a *continuation prompt*. These prompts are designed to be **self-sufficient**: they carry the full task brief so the model can orient itself even after provider-side history compaction has summarised or dropped earlier messages.
+
+#### System prompt vs. user message separation
+
+Context is split across two layers with different lifetimes:
+
+| Layer | Content | Lifetime |
+|---|---|---|
+| System prompt | Role identity, repository scope rules, tool list, implementer rules, summary template | Entire session — never compacted |
+| User message (pass 0 and pass 1+) | Ticket key, plan summary, action type, plan steps, files to implement, context files, tracked files, verification commands, risks, phase checkpoints, skill instructions | Every message — resent on each pass |
+
+This means the system prompt is intentionally minimal (no task-specific content), and every continuation prompt is a complete task brief that would allow the model to resume work from scratch.
+
+#### Fields carried by every continuation prompt
+
+| Field | Reason |
+|---|---|
+| Ticket key | Identifies the work unit after compaction |
+| Plan summary | Restates the goal without relying on conversation history |
+| Action type | Signals whether this is a fix, feature, or investigation |
+| Plan steps | Full ordered list of steps; the model may not have completed all of them |
+| Files to implement | Exact list of files expected to change |
+| Tracked files | Disambiguates when tracked paths differ from implementation targets |
+| Verification commands | Commands to run after edits; must survive compaction |
+| Risks and considerations | Constraints the model must not forget across passes |
+| Phase checkpoints | Ordered milestones with per-phase verification commands |
+| Skill instructions | Loaded skill content so the model follows the same workflow on every pass |
+
+#### Codex CLI exclusion
+
+The Codex CLI adapter (`codex-cli.adapter.ts`) operates in a single-pass mode and does not have a continuation loop. It calls `buildBehavioralContext` for its system prompt but does not embed `buildTaskBrief` in a user message — the task context is supplied by the caller through the existing system prompt chain.
 
 ## Development
 

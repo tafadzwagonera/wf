@@ -63,7 +63,7 @@ describe('ClaudeCliAdapter', () => {
     expect(mockBuildCliArgs.mock.calls[0][0].appendSystemPrompt).toContain('Repository conventions (repo):');
   });
 
-  it('includes repo conventions in continuation prompts', async () => {
+  it('includes task brief in continuation prompts', async () => {
     mockSpawnCli
       .mockReturnValueOnce(
         (async function* () {
@@ -112,8 +112,10 @@ describe('ClaudeCliAdapter', () => {
       conventionsSection: 'Repository conventions (repo):\n- Formatter: prettier (semi: false)',
     });
 
-    expect(mockBuildCliArgs.mock.calls[1][0].prompt).toContain('Repository conventions (repo):');
-    expect(mockBuildCliArgs.mock.calls[1][0].prompt).toContain('Formatter: prettier');
+    const continuationPrompt = mockBuildCliArgs.mock.calls[1][0].prompt;
+    expect(continuationPrompt).toContain('Ticket key: TEST-1');
+    expect(continuationPrompt).toContain('Plan summary:');
+    expect(continuationPrompt).not.toContain('Repository conventions (repo):');
   });
 
   it('includes progress, goal, plan steps, and verification in continuation prompts', async () => {
@@ -166,11 +168,12 @@ describe('ClaudeCliAdapter', () => {
 
     const prompt = mockBuildCliArgs.mock.calls[1][0].prompt;
     expect(prompt).toContain('Progress: 0/1 files modified (pass 1)');
-    expect(prompt).toContain('Goal: Add caching layer');
+    expect(prompt).toContain('Plan summary:');
+    expect(prompt).toContain('Add caching layer');
     expect(prompt).toContain('1. Create cache service');
     expect(prompt).toContain('2. Wire into controller');
-    expect(prompt).toContain('Verification (run after all edits):');
-    expect(prompt).toContain('1. yarn build');
+    expect(prompt).toContain('Verification commands:');
+    expect(prompt).toContain('yarn build');
   });
 
   it('logs file activity from CLI assistant messages', async () => {

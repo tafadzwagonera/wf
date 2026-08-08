@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { verificationPolicySchema } from './verification.schema';
-import { resolutionPlanSchema } from './ai.schema';
+import { planPhaseSchema, resolutionPlanSchema } from './ai.schema';
 import { codeReviewSchema } from './review.schema';
 
 export const verificationScriptSchema = z.object({
@@ -130,3 +130,22 @@ export const implementerOptionsSchema = z.object({
 export const agentStageNameSchema = z.enum(['plan', 'review', 'generate']);
 
 export const stageProgressCallbackSchema = z.custom<(line: string) => void>();
+
+export const buildTaskBriefParamsSchema = z.object({
+  ticketKey: z.string(),
+  repoName: z.string(),
+  repoFiles: z.array(z.string()),
+  contextFiles: z.array(z.string()).optional(),
+  trackedFilePaths: z.array(z.string()),
+  verificationScripts: z.array(verificationScriptSchema),
+  planSteps: z.array(z.string()),
+  planSummary: z.string().optional(),
+  planRisks: z.array(z.string()).optional(),
+  planAction: resolutionActionSchema.optional(),
+  skillNames: z.array(z.string()).optional(),
+  phases: z.array(planPhaseSchema).optional(),
+});
+
+export const buildPlanContextParamsSchema = buildTaskBriefParamsSchema.extend({
+  repoDir: z.string(),
+});

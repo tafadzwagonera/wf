@@ -1,4 +1,4 @@
-import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel } from './shared-routing';
+import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext } from './shared-routing';
 import { normalizeFileEntries } from '../ai.service';
 import type { VerificationScript } from '../../../agents/interfaces';
 import type { ResolutionPlan } from '../ai.service';
@@ -301,5 +301,80 @@ describe('resolveProviderModel', () => {
   it('returns fallback when ai.providers is undefined', () => {
     const configService = createMockConfigService({ 'ai.providers': undefined });
     expect(resolveProviderModel(configService, 'anthropic', 'claude-sonnet-4-6')).toBe('claude-sonnet-4-6');
+  });
+});
+
+describe('buildTaskBrief', () => {
+  const baseParams = {
+    ticketKey: 'WBP-42',
+    repoName: 'repo-b',
+    repoFiles: ['repo-b/src/widget.ts'],
+    trackedFilePaths: ['repo-b/src/widget.ts'],
+    verificationScripts: [{ id: 'test', command: 'yarn test', policy: 'enforced' }] as VerificationScript[],
+    planSteps: ['Read existing code', 'Apply fix'],
+    planSummary: 'Fix the widget bug',
+    planAction: 'fix' as const,
+  };
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('contains ticket key, plan summary, action, step numbers, file list, and verification commands', () => {
+    const result = buildTaskBrief(baseParams);
+    expect(result).toContain('Ticket key: WBP-42');
+    expect(result).toContain('Fix the widget bug');
+    expect(result).toContain('bug fix');
+    expect(result).toContain('1. Read existing code');
+    expect(result).toContain('2. Apply fix');
+    expect(result).toContain('widget.ts');
+    expect(result).toContain('yarn test');
+  });
+
+  it('does not contain role line or repository directory', () => {
+    const result = buildTaskBrief(baseParams);
+    expect(result).not.toContain('You are an expert software engineer');
+    expect(result).not.toContain('Repository directory:');
+  });
+
+  it('includes risks section when planRisks is provided', () => {
+    const result = buildTaskBrief({ ...baseParams, planRisks: ['May break build'] });
+    expect(result).toContain('Risks and considerations:');
+    expect(result).toContain('May break build');
+  });
+
+  it('omits risks section when planRisks is undefined', () => {
+    const result = buildTaskBrief(baseParams);
+    expect(result).not.toContain('Risks and considerations:');
+  });
+
+  it('includes context files section when contextFiles is provided', () => {
+    const result = buildTaskBrief({ ...baseParams, contextFiles: ['repo-b/package.json'] });
+    expect(result).toContain('Files for context (read-only — do NOT edit these):');
+    expect(result).toContain('package.json');
+  });
+
+  it('includes skill section when skillNames is provided', () => {
+    const result = buildTaskBrief({ ...baseParams, skillNames: ['test-driven-development'] });
+    expect(result).toContain('Skill-specific instructions:');
+    expect(result).toContain("Skill('test-driven-development')");
+  });
+});
+
+describe('buildBehavioralContext', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('contains role identity and repository directory', () => {
+    const result = buildBehavioralContext('/tmp/my-repo');
+    expect(result).toContain('You are an expert software engineer implementing code changes inside a repository.');
+    expect(result).toContain('Repository directory: /tmp/my-repo');
+  });
+
+  it('does not contain ticket key or plan summary', () => {
+    const result = buildBehavioralContext('/tmp/my-repo');
+    expect(result).not.toContain('Ticket key:');
+    expect(result).not.toContain('Plan summary:');
   });
 });

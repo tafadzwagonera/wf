@@ -28,9 +28,11 @@ import {
   isGlobPattern,
   loadClaudeContext,
   discoverChangedFiles,
-  buildPlanContext,
+  buildBehavioralContext,
+  buildTaskBrief,
+  buildInitialUserPrompt,
   buildImplementerRulesSection,
-  type PlanPhase,
+  type BuildTaskBriefParams,
 } from './shared-routing';
 
 const CLAUDE_CODE_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'] as const;
@@ -321,68 +323,35 @@ const IMPLEMENTER_SUMMARY_TEMPLATE = `### What I changed
 ### Assumptions / risk note
 <Any assumptions made or risks identified. Write "None." if there are none.>` as const;
 
-type SystemPromptParams = {
-  ticketKey: string;
-  repoDir: string;
-  repoName: string;
-  repoFiles: string[];
-  contextFiles?: string[];
-  trackedFilePaths: string[];
-  verificationScripts: VerificationScript[];
-  planSteps: string[];
-  planSummary?: string;
-  planRisks?: string[];
-  planAction?: 'fix' | 'feature' | 'investigate';
-  conventionsSection?: string;
-  skillNames?: string[];
-  phases?: PlanPhase[];
-};
-
 /**
- * Format the risks section of the system prompt.
+ * Assemble the full system prompt body from behavioral context and implementer rules.
  *
- * @param planRisks - Optional list of risk strings from the plan artifact
- * @returns A numbered list of risks, or a placeholder when none are present
- */
-const formatRisksSection = (planRisks?: string[]): string =>
-  planRisks && planRisks.length > 0
-    ? planRisks.map((r, i) => `  ${i + 1}. ${r}`).join('\n')
-    : '  (none identified)';
-
-/**
- * Assemble the full system prompt body from plan context and implementer rules.
- *
- * @param planContext - Pre-built plan context string from `buildPlanContext`
+ * @param behavioralContext - Role identity and repo directory (from `buildBehavioralContext`)
  * @param repoDir - Repository root used in scoping rules
- * @param planRisks - Optional risk list to render
+ * @param conventionsSection - Optional coding conventions to include
  * @returns The full joined system prompt string
  */
 const assembleSystemPrompt = (
-  planContext: string,
+  behavioralContext: string,
   repoDir: string,
-  planRisks: string[] | undefined,
   conventionsSection?: string,
 ): string =>
   [
-    planContext,
+    behavioralContext,
     conventionsSection ?? '',
     `\nWrites must stay scoped to the primary repository (${repoDir}).`,
     `Reads may target ${repoDir} and any configured read-only sibling repositories.\n`,
     `${ANTHROPIC_TOOLS_BLOCK}\n\n${implementerRulesSection}`,
     IMPLEMENTER_SUMMARY_TEMPLATE,
-    `Risks and guardrails:\n${formatRisksSection(planRisks)}`,
   ].join('\n\n');
 
-export const buildSystemPrompt = (p: SystemPromptParams): string => {
-  const planContext = buildPlanContext({
-    ticketKey: p.ticketKey, repoDir: p.repoDir, repoName: p.repoName, repoFiles: p.repoFiles,
-    contextFiles: p.contextFiles, trackedFilePaths: p.trackedFilePaths,
-    verificationScripts: p.verificationScripts, planSteps: p.planSteps,
-    planSummary: p.planSummary, planRisks: p.planRisks, planAction: p.planAction,
-    skillNames: p.skillNames, phases: p.phases,
-  });
-  return assembleSystemPrompt(planContext, p.repoDir, p.planRisks, p.conventionsSection);
+type SystemPromptParams = {
+  repoDir: string;
+  conventionsSection?: string;
 };
+
+export const buildSystemPrompt = (p: SystemPromptParams): string =>
+  assembleSystemPrompt(buildBehavioralContext(p.repoDir), p.repoDir, p.conventionsSection);
 
 type SdkOptionsParams = {
   repoDir: string;
@@ -671,33 +640,18 @@ type ContinuationPromptParams = {
   currentUnvisited: string[];
   totalPlanned: number;
   passNumber: number;
-  planSummary: string;
-  planSteps: string[];
-  verificationCommands: string[];
+  taskBriefParams: BuildTaskBriefParams;
   conventionsSection?: string;
 };
-
-/**
- * Build the enriched continuation prompt listing progress, goal, plan steps, and unvisited files.
- *
- * @param p - Continuation prompt parameters
- * @returns A full prompt string for the continuation session
- */
-const formatVerificationBlock = (commands: string[]): string =>
-  commands.length > 0
-    ? `\nVerification (run after all edits):\n${commands.map((c, i) => `  ${i + 1}. ${c}`).join('\n')}`
-    : '';
 
 const buildContinuationPrompt = (p: ContinuationPromptParams): string => {
   const completed = p.totalPlanned - p.currentUnvisited.length;
   const unvisitedLines = p.currentUnvisited.map(f => `- ${f}`).join('\n');
   return [
     `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
-    `Goal: ${p.planSummary}`,
-    `\nPlan steps:\n${p.planSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`,
+    buildTaskBrief(p.taskBriefParams),
     p.conventionsSection ? `\n${p.conventionsSection}` : '',
     `\nContinue implementing the remaining plan steps. The following planned files are still unmodified (listed in recommended implementation order):\n\n${unvisitedLines}`,
-    formatVerificationBlock(p.verificationCommands),
     `\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. After addressing all listed files, run each verification command above exactly as written. Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before making your first tool call.`,
   ].join('\n');
 };
@@ -724,16 +678,13 @@ type ContinuationPassParams = {
   activityState: ActivityState;
   passNumber: number;
   totalPlanned: number;
-  planSummary: string;
-  planSteps: string[];
-  verificationCommands: string[];
+  taskBriefParams: BuildTaskBriefParams;
   conventionsSection?: string;
 };
 
 const buildPassPromptParams = (p: ContinuationPassParams): ContinuationPromptParams => ({
   currentUnvisited: p.currentUnvisited, totalPlanned: p.totalPlanned, passNumber: p.passNumber,
-  planSummary: p.planSummary, planSteps: p.planSteps, verificationCommands: p.verificationCommands,
-  conventionsSection: p.conventionsSection,
+  taskBriefParams: p.taskBriefParams, conventionsSection: p.conventionsSection,
 });
 
 const finalizeContinuationResult = (
@@ -756,18 +707,6 @@ const runContinuationPass = async (p: ContinuationPassParams): Promise<Continuat
   return finalizeContinuationResult(result, p.passNumber);
 };
 
-/**
- * Resume the SDK session in a loop until all planned files are touched or progress stalls.
- *
- * @param query - The SDK `query` function used to start continuation sessions
- * @param sdkOptions - Base SDK options (model and session settings) for continuation calls
- * @param repoFiles - Full list of files the plan expects to touch
- * @param repoName - Repository name used to strip path prefixes
- * @param touchedFiles - Mutable set of already-touched repo-relative file paths
- * @param activityState - Mutable activity state shared across the stream
- * @param initialSessionId - Session ID from the initial SDK run used to resume context
- * @returns The final session ID after the loop completes
- */
 /**
  * Compute unvisited planned files excluding glob patterns.
  *
@@ -853,9 +792,7 @@ type ContinuationLoopParams = {
   touchedFiles: Set<string>;
   activityState: ActivityState;
   initialSessionId: string;
-  planSummary: string;
-  planSteps: string[];
-  verificationCommands: string[];
+  taskBriefParams: BuildTaskBriefParams;
   conventionsSection?: string;
   stallThresholdOverride?: number;
 };
@@ -878,14 +815,12 @@ const applyContinuationPassResult = (state: ContinuationLoopState, result: Conti
 
 const buildContinuationPassParams = (
   p: ContinuationLoopParams, state: ContinuationLoopState, unvisited: string[], fileCount: number,
-): Parameters<typeof runContinuationPass>[0] => ({
+): ContinuationPassParams => ({
   query: p.query, sdkOptions: p.sdkOptions,
   sessionId: state.sessionId, currentUnvisited: unvisited,
   touchedFiles: p.touchedFiles, activityState: p.activityState,
   passNumber: state.passNumber, totalPlanned: fileCount,
-  planSummary: p.planSummary, planSteps: p.planSteps,
-  verificationCommands: p.verificationCommands,
-  conventionsSection: p.conventionsSection,
+  taskBriefParams: p.taskBriefParams, conventionsSection: p.conventionsSection,
 });
 
 const runSdkContinuationLoop = async (p: ContinuationLoopParams): Promise<string> => {
@@ -915,24 +850,6 @@ type GenerateAndVerifyParams = {
 };
 
 /**
- * Resolve model routing and build the SDK options object for a session.
- *
- * @param params - Generate-and-verify call params
- * @param configService - NestJS config service for model and key resolution
- * @param allowedCommands - Verification whitelist
- * @param activityState - Mutable activity state for the session
- * @param apiKey - Anthropic API key
- * @returns Resolved SDK options and query function
- */
-/**
- * Resolve model routing and build the implementer system prompt body.
- *
- * @param params - Generate-and-verify call params
- * @param configService - NestJS config service for model resolution
- * @param repoDir - Primary repository root
- * @returns Resolved model name and system prompt body string
- */
-/**
  * Build the `SystemPromptParams` object from generate-and-verify params.
  *
  * @param params - Generate-and-verify call params
@@ -940,14 +857,7 @@ type GenerateAndVerifyParams = {
  * @returns A fully populated `SystemPromptParams` object
  */
 const buildSystemPromptParams = (params: GenerateAndVerifyParams, repoDir: string): SystemPromptParams => ({
-  ticketKey: params.ticket.ticketKey,
-  repoDir, repoName: params.repoName, repoFiles: params.repoFiles,
-  contextFiles: params.contextFiles, trackedFilePaths: params.trackedFilePaths,
-  verificationScripts: params.verificationScripts,
-  planSteps: params.planArtifact.plan.steps, planSummary: params.planArtifact.plan.summary,
-  planRisks: params.planArtifact.plan.risks, planAction: params.planArtifact.plan.action,
-  conventionsSection: params.conventionsSection,
-  skillNames: params.skillNames, phases: params.planArtifact.plan.phases,
+  repoDir, conventionsSection: params.conventionsSection,
 });
 
 const resolveModelAndPrompt = (
@@ -1000,8 +910,6 @@ const resolveSessionOptions = async (input: SessionOptionsInput) => {
  * @param activityState - Mutable activity state
  * @returns The validated final SDK result message
  */
-const INITIAL_SESSION_PROMPT = 'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order, using Bash. Do not modify or pipe the commands. Do not output any text or plan before making your first tool call.' as const;
-
 type InitialSessionParams = {
   query: SdkQueryFn;
   sdkOptions: Record<string, unknown>;
@@ -1009,6 +917,7 @@ type InitialSessionParams = {
   repoDir: string;
   touchedFiles: Set<string>;
   activityState: ActivityState;
+  taskBriefParams: BuildTaskBriefParams;
 };
 
 /**
@@ -1025,7 +934,8 @@ const assertNoAgentError = (result: SDKResultMessage): void => {
 const runInitialSdkSession = async (p: InitialSessionParams): Promise<SDKResultMessage> => {
   const resumeOption = p.resumeSessionId ? { resume: p.resumeSessionId } : {};
   console.log(chalk.bold.cyan(`\n  [claude-agent-sdk] Running agent loop in ${p.repoDir}...`));
-  const session = p.query({ prompt: INITIAL_SESSION_PROMPT, options: { ...p.sdkOptions, ...resumeOption } });
+  const sessionOptions = { ...p.sdkOptions, ...resumeOption };
+  const session = p.query({ prompt: buildInitialUserPrompt(p.taskBriefParams), options: sessionOptions });
   const finalResult = await runSdkSession(session, p.repoDir, p.touchedFiles, p.activityState);
   // Supplement files_persisted tracking with git-based discovery since
   // the SDK may not emit files_persisted for all writes in acceptEdits mode.
@@ -1056,20 +966,31 @@ type AgentSessionParams = {
   activityState: ActivityState;
 };
 
+const buildAgentSessionTaskBriefParams = (s: AgentSessionParams): BuildTaskBriefParams => ({
+  ticketKey: s.params.ticket.ticketKey, repoName: s.params.repoName,
+  repoFiles: s.params.repoFiles, contextFiles: s.params.contextFiles,
+  trackedFilePaths: s.params.trackedFilePaths, verificationScripts: s.params.verificationScripts,
+  planSteps: s.params.planArtifact.plan.steps, planSummary: s.params.planArtifact.plan.summary,
+  planRisks: s.params.planArtifact.plan.risks, planAction: s.params.planArtifact.plan.action,
+  skillNames: s.params.skillNames, phases: s.params.planArtifact.plan.phases,
+});
+
+const buildSdkContinuationParams = (
+  s: AgentSessionParams, finalResult: SDKResultMessage, taskBriefParams: BuildTaskBriefParams,
+): ContinuationLoopParams => ({
+  query: s.query, sdkOptions: s.sdkOptions, repoFiles: s.params.repoFiles, repoName: s.params.repoName,
+  touchedFiles: s.touchedFiles, activityState: s.activityState, initialSessionId: finalResult.session_id,
+  taskBriefParams, conventionsSection: s.params.conventionsSection,
+});
+
 const executeAgentSession = async (s: AgentSessionParams): Promise<string> => {
+  const taskBriefParams = buildAgentSessionTaskBriefParams(s);
   const finalResult = await runInitialSdkSession({
     query: s.query, sdkOptions: s.sdkOptions, resumeSessionId: s.params.options.resumeProviderSessionId,
-    repoDir: s.repoDir, touchedFiles: s.touchedFiles, activityState: s.activityState,
+    repoDir: s.repoDir, touchedFiles: s.touchedFiles, activityState: s.activityState, taskBriefParams,
   });
   logSdkCompletion(finalResult, s.touchedFiles);
-  return runSdkContinuationLoop({
-    query: s.query, sdkOptions: s.sdkOptions, repoFiles: s.params.repoFiles, repoName: s.params.repoName,
-    touchedFiles: s.touchedFiles, activityState: s.activityState, initialSessionId: finalResult.session_id,
-    planSummary: s.params.planArtifact.plan.summary,
-    planSteps: s.params.planArtifact.plan.steps,
-    verificationCommands: s.params.verificationScripts.map(vs => vs.command),
-    conventionsSection: s.params.conventionsSection,
-  });
+  return runSdkContinuationLoop(buildSdkContinuationParams(s, finalResult, taskBriefParams));
 };
 
 /**

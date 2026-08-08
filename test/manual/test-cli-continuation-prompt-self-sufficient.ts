@@ -4,20 +4,19 @@
  * Run: nr test:manual -- test-cli-continuation-prompt-self-sufficient
  *
  * Verifies:
- *   1. The CLI adapter's buildContinuationPrompt includes all six self-sufficient
- *      fields (progress, goal, plan steps, conventions, unvisited, verification).
- *   2. Structural parity with Anthropic and OpenAI adapters (Progress template).
- *   3. formatCliVerificationBlock returns empty string for empty command lists.
- *   4. buildCliSystemPromptParams passes phases to buildSystemPrompt.
- *   5. buildSystemPrompt renders phase checkpoints (live call).
- *   6. planSummary and planSteps are threaded from session params to prompt.
+ *   1. The CLI adapter's buildContinuationPrompt uses taskBriefParams and calls buildTaskBrief.
+ *   2. Structural parity with Anthropic and OpenAI adapters (all embed buildTaskBrief).
+ *   3. formatCliVerificationBlock is removed (verification now delegated to buildTaskBrief).
+ *   4. taskBriefParams in ContinuationLoopParams carries phases from the plan.
+ *   5. Live buildTaskBrief call includes phase checkpoints.
+ *   6. taskBriefParams is threaded from session params through to continuation prompts.
  *
  * @returns Promise that resolves when the smoke test completes
  */
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
-import { buildSystemPrompt } from '../../src/integrations/ai/adapters/anthropic-agent.adapter';
+import { buildTaskBrief } from '../../src/integrations/ai/adapters/shared-routing';
 
 let passed = 0;
 let failed = 0;
@@ -41,7 +40,7 @@ const run = async (): Promise<void> => {
   const anthropicSource = fs.readFileSync(path.join(adaptersDir, 'anthropic-agent.adapter.ts'), 'utf8');
   const openaiSource = fs.readFileSync(path.join(adaptersDir, 'openai-agent.adapter.ts'), 'utf8');
 
-  console.log(chalk.bold('\n  Scenario 1: CLI buildContinuationPrompt includes all six fields\n'));
+  console.log(chalk.bold('\n  Scenario 1: CLI buildContinuationPrompt uses taskBriefParams\n'));
 
   assert(
     'CLI defines CliContinuationPromptParams type',
@@ -56,20 +55,12 @@ const run = async (): Promise<void> => {
     cliSource.includes('passNumber: number')
   );
   assert(
-    'CliContinuationPromptParams includes planSummary',
-    cliSource.includes('planSummary: string')
+    'CliContinuationPromptParams includes taskBriefParams',
+    cliSource.includes('taskBriefParams: BuildPlanContextParams')
   );
   assert(
-    'CliContinuationPromptParams includes planSteps',
-    cliSource.includes('planSteps: string[]')
-  );
-  assert(
-    'CliContinuationPromptParams includes verificationCommands',
-    cliSource.includes('verificationCommands: string[]')
-  );
-  assert(
-    'CliContinuationPromptParams includes conventionsSection',
-    cliSource.includes('conventionsSection?: string')
+    'CliContinuationPromptParams does not have planSummary',
+    !cliSource.includes('type CliContinuationPromptParams') || !/type CliContinuationPromptParams[\s\S]{0,200}planSummary: string/.exec(cliSource)
   );
 
   assert(
@@ -77,39 +68,31 @@ const run = async (): Promise<void> => {
     cliSource.includes('`Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`')
   );
   assert(
-    'CLI prompt emits Goal line',
-    cliSource.includes('`Goal: ${p.planSummary}`')
+    'CLI buildContinuationPrompt calls buildTaskBrief',
+    cliSource.includes('buildTaskBrief(p.taskBriefParams)')
   );
   assert(
-    'CLI prompt emits Plan steps block',
-    cliSource.includes('Plan steps:')
-  );
-  assert(
-    'CLI prompt calls formatCliVerificationBlock',
-    cliSource.includes('formatCliVerificationBlock(p.verificationCommands)')
-  );
-  assert(
-    'CLI prompt includes conventions conditional',
-    cliSource.includes("p.conventionsSection ? `\\n${p.conventionsSection}` : ''")
+    'CLI prompt does not emit legacy Goal line',
+    !cliSource.includes('`Goal: ${p.planSummary}`')
   );
 
   console.log(chalk.bold('\n  Scenario 2: structural parity with other adapters\n'));
 
   assert(
     'Anthropic prompt emits Progress header',
-    anthropicSource.includes('`Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`')
+    anthropicSource.includes('files modified (pass ${p.passNumber})')
   );
   assert(
     'OpenAI prompt emits Progress header',
-    openaiSource.includes('`Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`')
+    openaiSource.includes('files modified (pass ${p.passNumber})')
   );
   assert(
-    'Anthropic prompt emits Goal line',
-    anthropicSource.includes('`Goal: ${p.planSummary}`')
+    'Anthropic buildContinuationPrompt calls buildTaskBrief',
+    anthropicSource.includes('buildTaskBrief(')
   );
   assert(
-    'OpenAI prompt emits Goal line',
-    openaiSource.includes('`Goal: ${p.planSummary}`')
+    'OpenAI buildContinuationPrompt calls buildTaskBrief',
+    openaiSource.includes('buildTaskBrief(')
   );
   assert(
     'All three adapters use the same Progress template',
@@ -118,30 +101,32 @@ const run = async (): Promise<void> => {
     && openaiSource.includes('files modified (pass ${p.passNumber})')
   );
 
-  console.log(chalk.bold('\n  Scenario 3: formatCliVerificationBlock handles empty input\n'));
+  console.log(chalk.bold('\n  Scenario 3: formatCliVerificationBlock removed (verification via buildTaskBrief)\n'));
 
   assert(
-    'formatCliVerificationBlock returns empty for zero commands',
-    cliSource.includes('commands.length > 0')
-    && cliSource.includes(": ''")
-  );
-
-  console.log(chalk.bold('\n  Scenario 4: CLI system prompt includes phases\n'));
-
-  assert(
-    'extractPlanFields spreads phases into system prompt params',
-    cliSource.includes('phases: plan.phases')
+    'formatCliVerificationBlock is no longer defined in CLI adapter',
+    !cliSource.includes('formatCliVerificationBlock')
   );
   assert(
-    'buildCliSystemPromptParams calls extractPlanFields',
-    cliSource.includes('...extractPlanFields(params.planArtifact.plan)')
+    'buildTaskBrief is imported from shared-routing in CLI adapter',
+    cliSource.includes('buildTaskBrief') && cliSource.includes("from './shared-routing'")
   );
 
-  console.log(chalk.bold('\n  Scenario 5: live buildSystemPrompt includes phase checkpoints\n'));
+  console.log(chalk.bold('\n  Scenario 4: task brief includes phases\n'));
 
-  const systemPrompt = buildSystemPrompt({
+  assert(
+    'ContinuationLoopParams uses taskBriefParams (carries phases via BuildPlanContextParams)',
+    cliSource.includes('type ContinuationLoopParams') && cliSource.includes('taskBriefParams: BuildPlanContextParams')
+  );
+  assert(
+    'createCliSessionParams builds taskBriefParams with phases from plan',
+    cliSource.includes('phases: params.planArtifact.plan.phases')
+  );
+
+  console.log(chalk.bold('\n  Scenario 5: live buildTaskBrief includes phase checkpoints\n'));
+
+  const taskBrief = buildTaskBrief({
     ticketKey: 'SMOKE-2',
-    repoDir: '/tmp/repo',
     repoName: 'repo',
     repoFiles: ['repo/src/a.ts'],
     trackedFilePaths: ['repo/src/a.ts'],
@@ -155,44 +140,29 @@ const run = async (): Promise<void> => {
     ],
   });
 
-  assert('systemPrompt contains Phase checkpoints header', systemPrompt.includes('## Phase checkpoints'));
-  assert('systemPrompt contains Phase Alpha', systemPrompt.includes('Phase 1: Phase Alpha'));
-  assert('systemPrompt contains Phase Beta', systemPrompt.includes('Phase 2: Phase Beta'));
-  assert('systemPrompt contains phase verify command', systemPrompt.includes('Verify: yarn lint'));
+  assert('taskBrief contains Phase checkpoints header', taskBrief.includes('## Phase checkpoints'));
+  assert('taskBrief contains Phase Alpha', taskBrief.includes('Phase 1: Phase Alpha'));
+  assert('taskBrief contains Phase Beta', taskBrief.includes('Phase 2: Phase Beta'));
+  assert('taskBrief contains phase verify command', taskBrief.includes('Verify: yarn lint'));
 
   console.log(chalk.bold('\n  Scenario 6: data threading from session params to prompt\n'));
 
   assert(
-    'CliSessionParams includes planSummary field',
-    cliSource.includes('planSummary: string') && cliSource.includes('type CliSessionParams')
+    'CliSessionParams includes taskBriefParams field',
+    cliSource.includes('taskBriefParams: BuildPlanContextParams') && cliSource.includes('type CliSessionParams')
   );
   assert(
-    'CliSessionParams includes planSteps field',
-    cliSource.includes('planSteps: string[]') && cliSource.includes('type CliSessionParams')
+    'ContinuationLoopParams includes taskBriefParams',
+    cliSource.includes('type ContinuationLoopParams') && cliSource.includes('taskBriefParams: BuildPlanContextParams')
   );
   assert(
-    'ContinuationLoopParams includes planSummary',
-    cliSource.includes('type ContinuationLoopParams') && cliSource.includes('planSummary: string')
-  );
-  assert(
-    'createCliSessionParams reads summary from planArtifact',
+    'createCliSessionParams builds taskBriefParams from planArtifact',
     cliSource.includes('planSummary: params.planArtifact.plan.summary')
+    && cliSource.includes('planSteps: params.planArtifact.plan.steps')
   );
   assert(
-    'createCliSessionParams reads steps from planArtifact',
-    cliSource.includes('planSteps: params.planArtifact.plan.steps')
-  );
-  assert(
-    'executePassAndDiscover passes planSummary to runSinglePass',
-    cliSource.includes('planSummary: p.planSummary')
-  );
-  assert(
-    'executePassAndDiscover passes planSteps to runSinglePass',
-    cliSource.includes('planSteps: p.planSteps')
-  );
-  assert(
-    'executePassAndDiscover derives verificationCommands from scripts',
-    cliSource.includes('verificationCommands: p.verificationScripts.map(vs => vs.command)')
+    'executePassAndDiscover passes taskBriefParams to runSinglePass',
+    cliSource.includes('taskBriefParams: p.taskBriefParams')
   );
 
   console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));

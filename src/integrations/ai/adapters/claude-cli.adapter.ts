@@ -21,6 +21,9 @@ import {
   isGlobPattern,
   loadClaudeContext,
   discoverChangedFiles,
+  buildTaskBrief,
+  buildInitialUserPrompt,
+  type BuildPlanContextParams,
 } from './shared-routing';
 import { buildSystemPrompt, formatProgressMessage, formatActivityMessages } from './anthropic-agent.adapter';
 import { assertClaudeCliAvailable, buildCliArgs, spawnCli, type ClaudeCliMessage } from './claude-cli-runner';
@@ -28,9 +31,6 @@ import { assertClaudeCliAvailable, buildCliArgs, spawnCli, type ClaudeCliMessage
 const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const CLI_ADAPTER_LABEL = 'claude-cli';
 const IMPLEMENT_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Skill'];
-const IMPLEMENT_PROMPT
-  = 'Implement the changes described in your instructions now. Use Read to inspect existing files, then Write or Edit to apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order, using Bash. Do not modify or pipe the commands. Do not output any text or plan before making your first tool call.';
-
 type ActivityState = {
   lastVerificationCommand?: string;
   verificationOutcomes: VerificationOutcome[];
@@ -71,9 +71,7 @@ type CliSessionParams = {
   appendSystemPrompt: string;
   model: string;
   verificationScripts: VerificationScript[];
-  conventionsSection?: string;
-  planSummary: string;
-  planSteps: string[];
+  taskBriefParams: BuildPlanContextParams;
 };
 
 type ContinuationLoopParams = {
@@ -87,9 +85,7 @@ type ContinuationLoopParams = {
   additionalRepoDirs: string[];
   activityState: ActivityState;
   verificationScripts: VerificationScript[];
-  conventionsSection?: string;
-  planSummary: string;
-  planSteps: string[];
+  taskBriefParams: BuildPlanContextParams;
 };
 
 type SinglePassParams = {
@@ -98,16 +94,13 @@ type SinglePassParams = {
   currentUnvisited: string[];
   promptOverride?: string;
   appendSystemPrompt?: string;
-  conventionsSection?: string;
   model: string;
   repoDir: string;
   additionalRepoDirs: string[];
   touchedFiles: Set<string>;
   activityState: ActivityState;
   totalPlanned?: number;
-  planSummary?: string;
-  planSteps?: string[];
-  verificationCommands?: string[];
+  taskBriefParams?: BuildPlanContextParams;
 };
 
 type ToolBlockLogParams = {
@@ -207,21 +200,8 @@ type CliContinuationPromptParams = {
   currentUnvisited: string[];
   totalPlanned: number;
   passNumber: number;
-  planSummary: string;
-  planSteps: string[];
-  verificationCommands: string[];
-  conventionsSection?: string;
+  taskBriefParams: BuildPlanContextParams;
 };
-
-/**
- * Formats the verification commands block for continuation prompts.
- * @param commands - Verification command strings.
- * @returns Formatted block, or empty string when no commands exist.
- */
-const formatCliVerificationBlock = (commands: string[]): string =>
-  commands.length > 0
-    ? `\nVerification (run after all edits):\n${commands.map((c, i) => `  ${i + 1}. ${c}`).join('\n')}`
-    : '';
 
 const CLI_CONTINUATION_TAIL
   = '\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. '
@@ -230,7 +210,7 @@ const CLI_CONTINUATION_TAIL
     + 'Do not output any text or plan before making your first tool call.';
 
 /**
- * Builds a self-sufficient continuation prompt with progress, goal, plan steps, unvisited files, and verification.
+ * Builds a self-sufficient continuation prompt with progress, task brief, unvisited files, and verification.
  * @param p - All fields needed to orient the model on remaining work.
  * @returns The continuation prompt string.
  */
@@ -239,11 +219,8 @@ const buildContinuationPrompt = (p: CliContinuationPromptParams): string => {
   const unvisitedLines = p.currentUnvisited.map(f => `- ${f}`).join('\n');
   return [
     `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
-    `Goal: ${p.planSummary}`,
-    `\nPlan steps:\n${p.planSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`,
-    p.conventionsSection ? `\n${p.conventionsSection}` : '',
+    buildTaskBrief(p.taskBriefParams),
     `\nContinue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}`,
-    formatCliVerificationBlock(p.verificationCommands),
     CLI_CONTINUATION_TAIL,
   ].join('\n');
 };
@@ -433,7 +410,7 @@ const computeUnvisitedFiles = (repoFiles: string[], repoName: string, touchedFil
  */
 const buildImplementCliArgs = (p: CliSessionParams) =>
   buildCliArgs({
-    prompt: IMPLEMENT_PROMPT,
+    prompt: buildInitialUserPrompt(p.taskBriefParams),
     appendSystemPrompt: p.appendSystemPrompt,
     model: p.model,
     cwd: p.repoDir,
@@ -443,22 +420,9 @@ const buildImplementCliArgs = (p: CliSessionParams) =>
     sessionId: p.options.resumeProviderSessionId,
   });
 
-const extractPlanFields = (plan: GenerateAndVerifyParams['planArtifact']['plan']) => ({
-  planSteps: plan.steps, planSummary: plan.summary,
-  planRisks: plan.risks, planAction: plan.action, phases: plan.phases,
-});
-
 const buildCliSystemPromptParams = (params: GenerateAndVerifyParams): Parameters<typeof buildSystemPrompt>[0] => ({
-  ticketKey: params.ticket.ticketKey,
   repoDir: params.options.repoDir ?? process.cwd(),
-  repoName: params.repoName,
-  repoFiles: params.repoFiles,
-  contextFiles: params.contextFiles,
-  trackedFilePaths: params.trackedFilePaths,
-  verificationScripts: params.verificationScripts,
   conventionsSection: params.conventionsSection,
-  skillNames: params.skillNames,
-  ...extractPlanFields(params.planArtifact.plan),
 });
 
 const buildAppendSystemPrompt = async (params: GenerateAndVerifyParams, repoDir: string): Promise<string> =>
@@ -471,6 +435,15 @@ const buildAppendSystemPrompt = async (params: GenerateAndVerifyParams, repoDir:
 const resolveAdditionalRepoDirs = (params: GenerateAndVerifyParams): string[] =>
   params.options.additionalRepoDirs ?? [];
 
+const buildCliTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: string): BuildPlanContextParams => ({
+  ticketKey: params.ticket.ticketKey, repoDir, repoName: params.repoName,
+  repoFiles: params.repoFiles, trackedFilePaths: params.trackedFilePaths,
+  verificationScripts: params.verificationScripts, planSteps: params.planArtifact.plan.steps,
+  planSummary: params.planArtifact.plan.summary, planAction: params.planArtifact.plan.action,
+  planRisks: params.planArtifact.plan.risks ?? undefined, contextFiles: params.contextFiles,
+  skillNames: params.skillNames, phases: params.planArtifact.plan.phases ?? undefined,
+});
+
 const createCliSessionParams = (
   params: GenerateAndVerifyParams, repoDir: string, model: string, appendSystemPrompt: string,
 ): CliSessionParams => ({
@@ -478,9 +451,7 @@ const createCliSessionParams = (
   repoDir, appendSystemPrompt, model,
   additionalRepoDirs: resolveAdditionalRepoDirs(params),
   verificationScripts: params.verificationScripts,
-  conventionsSection: params.conventionsSection,
-  planSummary: params.planArtifact.plan.summary,
-  planSteps: params.planArtifact.plan.steps,
+  taskBriefParams: buildCliTaskBriefParams(params, repoDir),
 });
 
 /**
@@ -544,7 +515,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     const touchedFiles = new Set<string>();
     const activityState: ActivityState = { verificationOutcomes: [] };
     let sessionId: string | undefined = p.options.resumeProviderSessionId;
-    for await (const message of spawnCli(cliArgs, p.repoDir, IMPLEMENT_PROMPT)) {
+    for await (const message of spawnCli(cliArgs, p.repoDir, buildInitialUserPrompt(p.taskBriefParams))) {
       this.logCliMessage(message, p.repoDir, activityState, touchedFiles);
       sessionId = processCliStream(message, p.repoDir, sessionId, touchedFiles);
     }
@@ -651,21 +622,20 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`));
     const { sessionId: nextSession } = await this.runSinglePass({
       passNumber, sessionId, currentUnvisited,
-      appendSystemPrompt: undefined, conventionsSection: p.conventionsSection, model: p.model, repoDir: p.repoDir,
+      appendSystemPrompt: undefined, model: p.model, repoDir: p.repoDir,
       additionalRepoDirs: p.additionalRepoDirs, touchedFiles: p.touchedFiles, activityState: p.activityState,
       totalPlanned: p.repoFiles.filter(f => !isGlobPattern(f)).length,
-      planSummary: p.planSummary, planSteps: p.planSteps,
-      verificationCommands: p.verificationScripts.map(vs => vs.command),
+      taskBriefParams: p.taskBriefParams,
     });
     await discoverChangedFiles(p.repoDir, p.touchedFiles);
     return nextSession;
   }
 
   private buildPassPrompt(p: SinglePassParams): string {
+    if (!p.taskBriefParams) throw new Error('[claude-cli] taskBriefParams is required to build a continuation prompt');
     return buildContinuationPrompt({
       currentUnvisited: p.currentUnvisited, totalPlanned: p.totalPlanned ?? p.currentUnvisited.length,
-      passNumber: p.passNumber, planSummary: p.planSummary ?? '', planSteps: p.planSteps ?? [],
-      verificationCommands: p.verificationCommands ?? [], conventionsSection: p.conventionsSection,
+      passNumber: p.passNumber, taskBriefParams: p.taskBriefParams,
     });
   }
 

@@ -11,6 +11,8 @@ import type { z } from 'zod';
 
 export type PlanPhase = z.infer<typeof planPhaseSchema>;
 import type { VerificationScript, ModelRouting } from '../../../agents/interfaces';
+import type { BuildTaskBriefParams, BuildPlanContextParams } from '../../../shared/types/agent.types';
+export type { BuildTaskBriefParams, BuildPlanContextParams };
 
 const execAsync = promisify(exec);
 
@@ -296,6 +298,17 @@ to the next one.`;
 };
 
 /**
+ * Formats risks as a block for inclusion in task briefs.
+ *
+ * @param planRisks - Optional list of risk strings from the plan artifact
+ * @returns A numbered risks block, or empty string when none are present
+ */
+export const formatRisksSection = (planRisks?: string[]): string =>
+  planRisks && planRisks.length > 0
+    ? '\n\nRisks and considerations:\n' + planRisks.map((r, i) => `  ${i + 1}. ${r}`).join('\n')
+    : '';
+
+/**
  * Returns a human-readable description of the plan action type.
  *
  * @param planAction - The action type from the plan
@@ -311,55 +324,6 @@ const describeAction = (planAction: 'fix' | 'feature' | 'investigate' | undefine
       return '(not specified)';
   }
 };
-
-export type BuildPlanContextParams = {
-  ticketKey: string;
-  repoDir: string;
-  repoName: string;
-  repoFiles: string[];
-  contextFiles?: string[];
-  trackedFilePaths: string[];
-  verificationScripts: VerificationScript[];
-  planSteps: string[];
-  planSummary?: string;
-  planRisks?: string[];
-  planAction?: 'fix' | 'feature' | 'investigate';
-  skillNames?: string[];
-  phases?: PlanPhase[];
-};
-
-type PlanContextDisplay = {
-  repoDir: string; ticketKey: string; planSummary: string; actionDesc: string;
-  planStepList: string; fileList: string; contextFileSection: string; trackedFileList: string; verificationList: string;
-};
-
-/**
- * Assembles resolved plan-context values into the final prompt template.
- *
- * @param p - Pre-resolved display strings derived from plan context params
- * @returns Formatted plan-context prompt string
- */
-const assemblePlanContextPrompt = (p: PlanContextDisplay): string => `You are an expert software engineer implementing code changes inside a repository.
-
-Repository directory: ${p.repoDir}
-Ticket key: ${p.ticketKey}
-
-Plan summary:
-${p.planSummary}
-
-Action: ${p.actionDesc}
-
-Plan steps:
-${p.planStepList}
-
-Files to implement:
-${p.fileList}${p.contextFileSection}
-
-Tracked files:
-${p.trackedFileList}
-
-Verification commands:
-${p.verificationList}`;
 
 export type ImplementerToolNames = {
   read: string;
@@ -414,38 +378,78 @@ const buildImplementSkillSection = (skillNames: string[] | undefined): string =>
     + '\nFollow each skill\'s instructions fully before proceeding.';
 };
 
-/**
- * Builds the shared plan-context portion of the system prompt used by all
- * implementer adapters. Contains everything from the role description through
- * the verification commands list. Adapter-specific tool names, rules, and
- * summary templates are appended by each adapter separately.
- *
- * @param params - Plan context parameters
- * @returns Formatted plan-context prompt string
- */
-const resolveTrackedFileList = (params: BuildPlanContextParams): string => {
+const resolveTrackedFileList = (params: BuildTaskBriefParams): string => {
   const identical = params.repoFiles.length === params.trackedFilePaths.length
     && params.repoFiles.every((f, i) => f === params.trackedFilePaths[i]);
   return identical ? '  (same as files to implement)' : formatRepoFileList(params.trackedFilePaths, params.repoName);
 };
 
-const resolveContextFileSection = (params: BuildPlanContextParams): string =>
+const resolveContextFileSection = (params: BuildTaskBriefParams): string =>
   params.contextFiles?.length ? `\n\nFiles for context (read-only — do NOT edit these):\n${formatRepoFileList(params.contextFiles, params.repoName)}` : '';
 
-export const buildPlanContext = (params: BuildPlanContextParams): string => {
-  const base = assemblePlanContextPrompt({
-    repoDir: params.repoDir, ticketKey: params.ticketKey,
-    planSummary: params.planSummary || '(none)',
-    actionDesc: describeAction(params.planAction),
-    planStepList: formatPlanStepList(params.planSteps),
-    fileList: formatRepoFileList(params.repoFiles, params.repoName),
-    contextFileSection: resolveContextFileSection(params),
-    trackedFileList: resolveTrackedFileList(params),
-    verificationList: formatVerificationList(params.verificationScripts),
-  });
-  return base + buildImplementSkillSection(params.skillNames)
-    + buildPhaseCheckpointSection(params.phases, params.planSteps);
-};
+/**
+ * Returns the role identity and repository directory — the stable behavioral
+ * context that belongs in the system prompt and never changes between passes.
+ *
+ * @param repoDir - Primary repository root
+ * @returns Role line and repository directory line
+ */
+export const buildBehavioralContext = (repoDir: string): string =>
+  'You are an expert software engineer implementing code changes inside a repository.\n\nRepository directory: ' + repoDir;
+
+/**
+ * Builds the task-specific brief injected into user messages (pass 0 and every
+ * continuation pass). Contains ticket key, plan summary, steps, file lists,
+ * verification commands, risks, phases, and skill instructions.
+ *
+ * Does NOT include the role identity or repository directory — those belong in
+ * `buildBehavioralContext`.
+ *
+ * @param params - Task brief parameters (no repoDir — use BuildPlanContextParams for callers that have it)
+ * @returns Task brief string for user messages
+ */
+export const buildTaskBrief = (params: BuildTaskBriefParams): string =>
+  `Ticket key: ${params.ticketKey}
+
+Plan summary:
+${params.planSummary || '(none)'}
+
+Action: ${describeAction(params.planAction)}
+
+Plan steps:
+${formatPlanStepList(params.planSteps)}
+
+Files to implement:
+${formatRepoFileList(params.repoFiles, params.repoName)}${resolveContextFileSection(params)}
+
+Tracked files:
+${resolveTrackedFileList(params)}
+
+Verification commands:
+${formatVerificationList(params.verificationScripts)}${formatRisksSection(params.planRisks)}${buildPhaseCheckpointSection(params.phases, params.planSteps)}${buildImplementSkillSection(params.skillNames)}`;
+
+/**
+ * Backward-compatible wrapper that joins the behavioral context and task brief.
+ * Existing callers continue to receive the same semantic content.
+ *
+ * @param params - Plan context parameters
+ * @returns Combined behavioral context and task brief
+ */
+export const buildPlanContext = (params: BuildPlanContextParams): string =>
+  buildBehavioralContext(params.repoDir) + '\n\n' + buildTaskBrief(params);
+
+/**
+ * Builds the initial user prompt that combines the task brief with a standard
+ * action instruction. Used by the Anthropic Agent SDK and Claude CLI adapters.
+ *
+ * @param params - Task brief parameters
+ * @returns Full initial user prompt string
+ */
+export const buildInitialUserPrompt = (params: BuildTaskBriefParams): string =>
+  [
+    buildTaskBrief(params),
+    'Implement the changes described above now. Use Read to inspect existing files, then Write or Edit to apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order, using Bash. Do not modify or pipe the commands. Do not output any text or plan before making your first tool call.',
+  ].join('\n\n');
 
 const readOptionalFile = async (filePath: string): Promise<string | null> => {
   try {
