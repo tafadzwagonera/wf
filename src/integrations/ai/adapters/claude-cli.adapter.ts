@@ -72,6 +72,8 @@ type CliSessionParams = {
   model: string;
   verificationScripts: VerificationScript[];
   conventionsSection?: string;
+  planSummary: string;
+  planSteps: string[];
 };
 
 type ContinuationLoopParams = {
@@ -86,6 +88,8 @@ type ContinuationLoopParams = {
   activityState: ActivityState;
   verificationScripts: VerificationScript[];
   conventionsSection?: string;
+  planSummary: string;
+  planSteps: string[];
 };
 
 type SinglePassParams = {
@@ -100,6 +104,10 @@ type SinglePassParams = {
   additionalRepoDirs: string[];
   touchedFiles: Set<string>;
   activityState: ActivityState;
+  totalPlanned?: number;
+  planSummary?: string;
+  planSteps?: string[];
+  verificationCommands?: string[];
 };
 
 type ToolBlockLogParams = {
@@ -195,19 +203,49 @@ const processCliStream = (
   return updatedSession;
 };
 
+type CliContinuationPromptParams = {
+  currentUnvisited: string[];
+  totalPlanned: number;
+  passNumber: number;
+  planSummary: string;
+  planSteps: string[];
+  verificationCommands: string[];
+  conventionsSection?: string;
+};
+
 /**
- * Builds the continuation prompt listing unvisited planned files.
- * @param currentUnvisited - List of planned file paths not yet touched.
+ * Formats the verification commands block for continuation prompts.
+ * @param commands - Verification command strings.
+ * @returns Formatted block, or empty string when no commands exist.
+ */
+const formatCliVerificationBlock = (commands: string[]): string =>
+  commands.length > 0
+    ? `\nVerification (run after all edits):\n${commands.map((c, i) => `  ${i + 1}. ${c}`).join('\n')}`
+    : '';
+
+const CLI_CONTINUATION_TAIL
+  = '\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. '
+    + 'After addressing all listed files, run each verification command above exactly as written. '
+    + 'Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. '
+    + 'Do not output any text or plan before making your first tool call.';
+
+/**
+ * Builds a self-sufficient continuation prompt with progress, goal, plan steps, unvisited files, and verification.
+ * @param p - All fields needed to orient the model on remaining work.
  * @returns The continuation prompt string.
  */
-const buildContinuationPrompt = (currentUnvisited: string[], conventionsSection?: string): string => {
-  const unvisitedLines = currentUnvisited.map(f => `- ${f}`).join('\n');
-  return (
-    `${conventionsSection ? `${conventionsSection}\n\n` : ''}Continue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}\n\n`
-    + `For each file listed above, read the full file first with Read, then apply Edit to complete the required changes. `
-    + `After addressing all listed files, use Grep to search for any remaining migration patterns and continue editing until zero matches remain. `
-    + `Do not output any text or plan before making your first tool call.`
-  );
+const buildContinuationPrompt = (p: CliContinuationPromptParams): string => {
+  const completed = p.totalPlanned - p.currentUnvisited.length;
+  const unvisitedLines = p.currentUnvisited.map(f => `- ${f}`).join('\n');
+  return [
+    `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
+    `Goal: ${p.planSummary}`,
+    `\nPlan steps:\n${p.planSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`,
+    p.conventionsSection ? `\n${p.conventionsSection}` : '',
+    `\nContinue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}`,
+    formatCliVerificationBlock(p.verificationCommands),
+    CLI_CONTINUATION_TAIL,
+  ].join('\n');
 };
 
 /**
@@ -401,6 +439,11 @@ const buildImplementCliArgs = (p: CliSessionParams) =>
     sessionId: p.options.resumeProviderSessionId,
   });
 
+const extractPlanFields = (plan: GenerateAndVerifyParams['planArtifact']['plan']) => ({
+  planSteps: plan.steps, planSummary: plan.summary,
+  planRisks: plan.risks, planAction: plan.action, phases: plan.phases,
+});
+
 const buildCliSystemPromptParams = (params: GenerateAndVerifyParams): Parameters<typeof buildSystemPrompt>[0] => ({
   ticketKey: params.ticket.ticketKey,
   repoDir: params.options.repoDir ?? process.cwd(),
@@ -409,12 +452,9 @@ const buildCliSystemPromptParams = (params: GenerateAndVerifyParams): Parameters
   contextFiles: params.contextFiles,
   trackedFilePaths: params.trackedFilePaths,
   verificationScripts: params.verificationScripts,
-  planSteps: params.planArtifact.plan.steps,
-  planSummary: params.planArtifact.plan.summary,
-  planRisks: params.planArtifact.plan.risks,
-  planAction: params.planArtifact.plan.action,
   conventionsSection: params.conventionsSection,
   skillNames: params.skillNames,
+  ...extractPlanFields(params.planArtifact.plan),
 });
 
 const buildAppendSystemPrompt = async (params: GenerateAndVerifyParams, repoDir: string): Promise<string> =>
@@ -435,6 +475,8 @@ const createCliSessionParams = (
   additionalRepoDirs: resolveAdditionalRepoDirs(params),
   verificationScripts: params.verificationScripts,
   conventionsSection: params.conventionsSection,
+  planSummary: params.planArtifact.plan.summary,
+  planSteps: params.planArtifact.plan.steps,
 });
 
 /**
@@ -597,14 +639,25 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       passNumber, sessionId, currentUnvisited,
       appendSystemPrompt: undefined, conventionsSection: p.conventionsSection, model: p.model, repoDir: p.repoDir,
       additionalRepoDirs: p.additionalRepoDirs, touchedFiles: p.touchedFiles, activityState: p.activityState,
+      totalPlanned: p.repoFiles.filter(f => !isGlobPattern(f)).length,
+      planSummary: p.planSummary, planSteps: p.planSteps,
+      verificationCommands: p.verificationScripts.map(vs => vs.command),
     });
     await discoverChangedFiles(p.repoDir, p.touchedFiles);
     return nextSession;
   }
 
+  private buildPassPrompt(p: SinglePassParams): string {
+    return buildContinuationPrompt({
+      currentUnvisited: p.currentUnvisited, totalPlanned: p.totalPlanned ?? p.currentUnvisited.length,
+      passNumber: p.passNumber, planSummary: p.planSummary ?? '', planSteps: p.planSteps ?? [],
+      verificationCommands: p.verificationCommands ?? [], conventionsSection: p.conventionsSection,
+    });
+  }
+
   private async runSinglePass(p: SinglePassParams): Promise<string | undefined> {
-    const { passNumber, currentUnvisited, repoDir, touchedFiles, activityState } = p;
-    const continuationPrompt = p.promptOverride ?? buildContinuationPrompt(currentUnvisited, p.conventionsSection);
+    const { passNumber, repoDir, touchedFiles, activityState } = p;
+    const continuationPrompt = p.promptOverride ?? this.buildPassPrompt(p);
     const continueArgs = buildPassCliArgs(p, continuationPrompt);
     let sessionId: string | undefined = p.sessionId;
     for await (const message of spawnCli(continueArgs, repoDir, continuationPrompt)) {

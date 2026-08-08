@@ -116,6 +116,63 @@ describe('ClaudeCliAdapter', () => {
     expect(mockBuildCliArgs.mock.calls[1][0].prompt).toContain('Formatter: prettier');
   });
 
+  it('includes progress, goal, plan steps, and verification in continuation prompts', async () => {
+    mockSpawnCli
+      .mockReturnValueOnce(
+        (async function* () {
+          yield {
+            type: 'result',
+            result: 'done',
+            session_id: 's1',
+            num_turns: 1,
+            total_cost_usd: 0.01,
+          };
+        })()
+      )
+      .mockReturnValueOnce(
+        (async function* () {
+          yield {
+            type: 'result',
+            result: 'done',
+            session_id: 's1',
+            num_turns: 1,
+            total_cost_usd: 0.01,
+          };
+        })()
+      );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature',
+          summary: 'Add caching layer',
+          steps: ['Create cache service', 'Wire into controller'],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: [],
+          risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [{ id: 'build', name: 'build', command: 'yarn build', policy: 'enforced', aliases: [] }],
+      repoFiles: ['repo/src/cache.ts'],
+      repoName: 'repo',
+      trackedFilePaths: ['repo/src/cache.ts'],
+    });
+
+    const prompt = mockBuildCliArgs.mock.calls[1][0].prompt;
+    expect(prompt).toContain('Progress: 0/1 files modified (pass 1)');
+    expect(prompt).toContain('Goal: Add caching layer');
+    expect(prompt).toContain('1. Create cache service');
+    expect(prompt).toContain('2. Wire into controller');
+    expect(prompt).toContain('Verification (run after all edits):');
+    expect(prompt).toContain('1. yarn build');
+  });
+
   it('logs file activity from CLI assistant messages', async () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 

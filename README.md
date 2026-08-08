@@ -797,6 +797,23 @@ When the first implementation pass (which may use a mechanical model in `auto` r
 
 **Context efficiency:** each iteration receives the previous pass's structured summary (`finalOutput` / `result`) so it can focus on remaining work without re-reading already-edited files. The OpenAI adapter returns compact tool results (`{path, status}` for file mutations; omits stdout/stderr for passing verification commands), truncates failing verification output to the last 200 lines, limits `read_file` to 200 lines by default, and returns surrounding code context on edit validation failures — all reducing per-turn context growth.
 
+#### Continuation Prompt Architecture
+
+Each pass in the incomplete-work loop opens a new agent session seeded with a **continuation prompt** — a concise user message that orients the model on remaining work without requiring it to re-read the full system prompt.
+
+The shared continuation prompt structure includes:
+
+| Field | Description |
+|---|---|
+| Progress header | `Progress: N/M files modified (pass P)` — lets the model know how far along the run is |
+| Goal | Plan summary restated so the model has context even after compaction |
+| Plan steps | Full numbered list so the model can cross-reference remaining tasks |
+| Repo conventions | Optional conventions section forwarded from the implementer agent |
+| Unvisited files | Planned files not yet touched |
+| Verification block | Verification commands to run after all edits complete |
+
+All three backends (Anthropic Agent SDK, OpenAI Agents SDK, Claude CLI) use this full six-field structure so that each continuation pass is self-sufficient even after context compaction. The OpenAI backend additionally includes structural edit validation failures from prior passes, letting the model fix file-level errors alongside unvisited work.
+
 ### Retry strategy
 
 `issue:implement` delegates the generate-and-verify loop to the selected agent backend (Anthropic or OpenAI). The agent drives its own inner loop via built-in tools, iterating until verification passes.
