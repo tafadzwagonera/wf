@@ -161,15 +161,17 @@ const resolveBlockFilePath = (input: Record<string, unknown>): string => {
  * @param block - The assistant content block.
  * @param repoDir - Absolute path to the repository root.
  * @param touchedFiles - Set to accumulate relative paths of touched files.
+ * @returns True if the block was a Write or Edit tool call.
  */
-const processAssistantBlock = (block: AssistantBlock, repoDir: string, touchedFiles: Set<string>): void => {
-  if (block.type !== 'tool_use' || !block.name) return;
-  if (!['write', 'edit', 'Write', 'Edit'].includes(block.name)) return;
+const processAssistantBlock = (block: AssistantBlock, repoDir: string, touchedFiles: Set<string>): boolean => {
+  if (block.type !== 'tool_use' || !block.name) return false;
+  if (!['write', 'edit', 'Write', 'Edit'].includes(block.name)) return false;
   const filePath = resolveBlockFilePath(block.input ?? {});
-  if (!filePath) return;
+  if (!filePath) return false;
   const relativePath = path.isAbsolute(filePath) ? path.relative(repoDir, filePath) : filePath;
   touchedFiles.add(relativePath);
   console.log(chalk.cyan(`  [${CODEX_ADAPTER_LABEL}] File updated: ${relativePath}`));
+  return true;
 };
 
 /**
@@ -177,13 +179,16 @@ const processAssistantBlock = (block: AssistantBlock, repoDir: string, touchedFi
  * @param message - The Codex CLI message to inspect.
  * @param repoDir - Absolute path to the repository root.
  * @param touchedFiles - Set to accumulate relative paths of touched files.
+ * @returns True if at least one Write or Edit block was processed.
  */
-const logCodexAssistantBlocks = (message: CodexCliMessage, repoDir: string, touchedFiles: Set<string>): void => {
-  if (message.type !== 'assistant') return;
+const logCodexAssistantBlocks = (message: CodexCliMessage, repoDir: string, touchedFiles: Set<string>): boolean => {
+  if (message.type !== 'assistant') return false;
   const innerMessage = message.message as { content?: AssistantBlock[] } | undefined;
   const blocks = innerMessage?.content;
-  if (!Array.isArray(blocks)) return;
-  for (const block of blocks) processAssistantBlock(block, repoDir, touchedFiles);
+  if (!Array.isArray(blocks)) return false;
+  let wrote = false;
+  for (const block of blocks) if (processAssistantBlock(block, repoDir, touchedFiles)) wrote = true;
+  return wrote;
 };
 
 /**
@@ -205,13 +210,15 @@ const logAgentSummary = (message: CodexCliMessage): void => {
  * @param message - The Codex CLI message.
  * @param repoDir - Absolute path to the repository root.
  * @param touchedFiles - Set to accumulate relative paths of touched files.
+ * @returns True if at least one file was tracked.
  */
-const trackMessageFiles = (message: CodexCliMessage, repoDir: string, touchedFiles: Set<string>): void => {
-  if (!message.files) return;
+const trackMessageFiles = (message: CodexCliMessage, repoDir: string, touchedFiles: Set<string>): boolean => {
+  if (!message.files || message.files.length === 0) return false;
   for (const { filename } of message.files) {
     const absolutePath = path.isAbsolute(filename) ? filename : path.resolve(repoDir, filename);
     touchedFiles.add(path.relative(repoDir, absolutePath));
   }
+  return true;
 };
 
 /**
@@ -257,37 +264,42 @@ const applyCodexVerificationOutcome = (
  * Processes a single message from the Codex CLI stream.
  * @param message - The Codex CLI message to process.
  * @param ctx - Stream context containing repoDir and touchedFiles.
- * @returns The session ID from the message, if present.
+ * @returns The session ID and whether a write occurred.
  */
-const processCodexMessage = (message: CodexCliMessage, ctx: StreamContext): string | undefined => {
-  if (message.type === 'system' && message.summary) {
+const processCodexMessage = (
+  message: CodexCliMessage, ctx: StreamContext,
+): { sessionId?: string; wrote: boolean } => {
+  if (message.type === 'system' && message.summary)
     console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] ${message.summary}`));
-  }
   if (message.tool_name) console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] Tool: ${message.tool_name}`));
-  if (logCodexCommandEvent(message)) return undefined;
-  if (logAgentMessageText(message)) return undefined;
-  logCodexAssistantBlocks(message, ctx.repoDir, ctx.touchedFiles);
-  trackMessageFiles(message, ctx.repoDir, ctx.touchedFiles);
+  if (logCodexCommandEvent(message)) return { wrote: false };
+  if (logAgentMessageText(message)) return { wrote: false };
+  const wrote = [logCodexAssistantBlocks(message, ctx.repoDir, ctx.touchedFiles),
+    trackMessageFiles(message, ctx.repoDir, ctx.touchedFiles)].some(Boolean);
   logAgentSummary(message);
   applyCodexVerificationOutcome(message, ctx.activityState, ctx.verificationScripts);
-  return message.type === 'thread.started' ? message.thread_id : undefined;
+  const sessionId = message.type === 'thread.started' ? message.thread_id : undefined;
+  return { sessionId, wrote };
 };
 
 /**
  * Processes the Codex CLI stream, logging messages and collecting session/file state.
  * @param ctx - Stream context with CLI args, repoDir, prompt, and touchedFiles.
  * @param initialSessionId - Session ID to resume from, if any.
- * @returns The resolved session ID after streaming completes.
+ * @returns The resolved session ID and whether any files were written.
  */
 const processCodexStream = async (
   ctx: StreamContext,
   initialSessionId: string | undefined,
-): Promise<string | undefined> => {
+): Promise<{ sessionId: string | undefined; wrote: boolean }> => {
   let sessionId = initialSessionId;
+  let wrote = false;
   for await (const message of spawnCodex(ctx.cliArgs, ctx.repoDir, ctx.implementPrompt)) {
-    sessionId = processCodexMessage(message, ctx) ?? sessionId;
+    const result = processCodexMessage(message, ctx);
+    if (result.sessionId) sessionId = result.sessionId;
+    if (result.wrote) wrote = true;
   }
-  return sessionId;
+  return { sessionId, wrote };
 };
 
 /**
@@ -365,7 +377,7 @@ const runCodexStream = async (
   params: GenerateAndVerifyParams, repoDir: string, model: string, activityState: ActivityState,
 ): Promise<RunCodexStreamResult> => {
   const ctx = buildStreamContext(params, repoDir, model, activityState);
-  const sessionId = await processCodexStream(ctx, params.options.resumeProviderSessionId);
+  const { sessionId } = await processCodexStream(ctx, params.options.resumeProviderSessionId);
   return { sessionId, touchedFiles: ctx.touchedFiles };
 };
 
@@ -417,15 +429,16 @@ export class CodexCliAdapter implements ImplementerBackend {
   private async runCodexFixPass(p: {
     ctx: StreamContext; sessionId: string; model: string;
     codeFailures: VerificationOutcome[]; passNumber: number;
-  }): Promise<string | undefined> {
+  }): Promise<{ sessionId: string | undefined; wrote: boolean }> {
     this.logFixPassStart(p.passNumber, p.codeFailures.length);
     const fixPrompt = buildVerificationFixPrompt(p.codeFailures);
     const fixArgs = buildCodexCliArgs(
       { prompt: fixPrompt, model: p.model, cwd: p.ctx.repoDir, permissionMode: 'full-auto', sessionId: p.sessionId },
     );
-    const next = await processCodexStream({ ...p.ctx, cliArgs: fixArgs, implementPrompt: fixPrompt }, p.sessionId);
-    if (next) await discoverChangedFiles(p.ctx.repoDir, p.ctx.touchedFiles);
-    return next;
+    const fixCtx = { ...p.ctx, cliArgs: fixArgs, implementPrompt: fixPrompt };
+    const { sessionId, wrote } = await processCodexStream(fixCtx, p.sessionId);
+    if (sessionId) await discoverChangedFiles(p.ctx.repoDir, p.ctx.touchedFiles);
+    return { sessionId, wrote };
   }
 
   private evaluateVerificationPass(
@@ -448,6 +461,15 @@ export class CodexCliAdapter implements ImplementerBackend {
     };
   }
 
+  private async attemptCodexFix(
+    ctx: StreamContext, p: CodexVerificationLoopParams,
+    passNumber: number, sessionId: string, codeFailures: VerificationOutcome[],
+  ): Promise<{ sessionId: string | undefined; wrote: boolean }> {
+    const fix = await this.runCodexFixPass({ ctx, sessionId, model: p.model, codeFailures, passNumber });
+    if (!fix.wrote) console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] No files written during fix pass — skipping re-verification`));
+    return fix;
+  }
+
   private async runProgrammaticVerificationLoop(p: CodexVerificationLoopParams): Promise<VerificationOutcome[]> {
     let prevFails = Infinity, stalled = 0, passNumber = 0, { sessionId } = p;
     const ctx = this.buildBaseStreamContext(p.params, p.activityState, p.touchedFiles, p.repoDir);
@@ -458,7 +480,9 @@ export class CodexCliAdapter implements ImplementerBackend {
       stalled = checkVerificationStall(codeFailures.length, prevFails, stalled, CODEX_ADAPTER_LABEL);
       if (stalled === -1) return outcomes;
       prevFails = codeFailures.length;
-      sessionId = await this.runCodexFixPass({ ctx, sessionId, model: p.model, codeFailures, passNumber });
+      const fix = await this.attemptCodexFix(ctx, p, passNumber, sessionId, codeFailures);
+      if (!fix.wrote) return outcomes;
+      sessionId = fix.sessionId;
     }
   }
 }

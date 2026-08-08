@@ -336,18 +336,22 @@ const logCliProgressEvent = (message: ClaudeCliMessage, repoDir: string, activit
  * @param repoDir - Absolute path to the repository directory.
  * @param touchedFiles - Set of relative file paths to update.
  */
+/**
+ * @returns True if the block contained a valid file path (i.e. a write occurred).
+ */
 const logWriteEditEvent = (
   toolName: string,
   input: Record<string, unknown>,
   repoDir: string,
   touchedFiles: Set<string> | undefined
-): void => {
+): boolean => {
   const filePath = typeof input['file_path'] === 'string' ? input['file_path'] : '';
-  if (!filePath) return;
+  if (!filePath) return false;
   const relativePath = path.isAbsolute(filePath) ? path.relative(repoDir, filePath) : filePath;
   const action = toolName === 'Write' ? 'created' : 'updated';
   console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] File ${action}: ${relativePath}`));
   touchedFiles?.add(relativePath);
+  return true;
 };
 
 /**
@@ -569,21 +573,22 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   private async runVerificationFixPass(
     p: ContinuationLoopParams, passNumber: number, sessionId: string, codeFailures: VerificationOutcome[],
-  ): Promise<string | undefined> {
-    const nextSession = await this.runSinglePass({
+  ): Promise<{ sessionId: string | undefined; wrote: boolean }> {
+    const result = await this.runSinglePass({
       passNumber: 100 + passNumber, sessionId, currentUnvisited: [],
       promptOverride: buildVerificationFixPrompt(codeFailures),
       appendSystemPrompt: undefined, model: p.model,
       repoDir: p.repoDir, additionalRepoDirs: p.additionalRepoDirs,
       touchedFiles: p.touchedFiles, activityState: p.activityState,
     });
-    if (nextSession) await discoverChangedFiles(p.repoDir, p.touchedFiles);
-    return nextSession;
+    if (result.sessionId) await discoverChangedFiles(p.repoDir, p.touchedFiles);
+    return result;
   }
 
   private evaluateVerificationPass(
-    scripts: VerificationScript[], repoDir: string,
+    scripts: VerificationScript[], repoDir: string, passNumber: number,
   ): { outcomes: VerificationOutcome[]; codeFailures: VerificationOutcome[] } {
+    console.log(chalk.bold(`\n  Running verification (pass ${passNumber})...`));
     const outcomes = runProgrammaticVerification(scripts, repoDir);
     const { codeFailures, commandFailures } = partitionFailures(getEnforcedFailures(outcomes));
     for (const cf of commandFailures) {
@@ -599,19 +604,28 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     ));
   }
 
+  private async attemptVerificationFix(
+    p: ContinuationLoopParams, passNumber: number, sessionId: string, codeFailures: VerificationOutcome[],
+  ): Promise<{ sessionId: string | undefined; wrote: boolean }> {
+    this.logFixPassStart(passNumber, codeFailures.length);
+    const fix = await this.runVerificationFixPass(p, passNumber, sessionId, codeFailures);
+    if (!fix.wrote) console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] No files written during fix pass — skipping re-verification`));
+    return fix;
+  }
+
   private async runProgrammaticVerificationLoop(
     p: ContinuationLoopParams, sessionId: string | undefined,
   ): Promise<VerificationOutcome[]> {
     let prevFails = Infinity, stalled = 0, passNumber = 0;
     while (true) {
-      console.log(chalk.bold(`\n  Running verification (pass ${++passNumber})...`));
-      const { outcomes, codeFailures } = this.evaluateVerificationPass(p.verificationScripts, p.repoDir);
+      const { outcomes, codeFailures } = this.evaluateVerificationPass(p.verificationScripts, p.repoDir, ++passNumber);
       if (codeFailures.length === 0 || !sessionId) return outcomes;
       stalled = checkVerificationStall(codeFailures.length, prevFails, stalled, CLI_ADAPTER_LABEL);
       if (stalled === -1) return outcomes;
       prevFails = codeFailures.length;
-      this.logFixPassStart(passNumber, codeFailures.length);
-      sessionId = await this.runVerificationFixPass(p, passNumber, sessionId, codeFailures);
+      const fix = await this.attemptVerificationFix(p, passNumber, sessionId, codeFailures);
+      if (!fix.wrote) return outcomes;
+      sessionId = fix.sessionId;
     }
   }
 
@@ -635,7 +649,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     p: ContinuationLoopParams, passNumber: number, sessionId: string, currentUnvisited: string[],
   ): Promise<string | undefined> {
     console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`));
-    const nextSession = await this.runSinglePass({
+    const { sessionId: nextSession } = await this.runSinglePass({
       passNumber, sessionId, currentUnvisited,
       appendSystemPrompt: undefined, conventionsSection: p.conventionsSection, model: p.model, repoDir: p.repoDir,
       additionalRepoDirs: p.additionalRepoDirs, touchedFiles: p.touchedFiles, activityState: p.activityState,
@@ -655,17 +669,18 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     });
   }
 
-  private async runSinglePass(p: SinglePassParams): Promise<string | undefined> {
+  private async runSinglePass(p: SinglePassParams): Promise<{ sessionId: string | undefined; wrote: boolean }> {
     const { passNumber, repoDir, touchedFiles, activityState } = p;
     const continuationPrompt = p.promptOverride ?? this.buildPassPrompt(p);
     const continueArgs = buildPassCliArgs(p, continuationPrompt);
     let sessionId: string | undefined = p.sessionId;
+    let wrote = false;
     for await (const message of spawnCli(continueArgs, repoDir, continuationPrompt)) {
-      this.logCliMessage(message, repoDir, activityState, touchedFiles);
+      if (this.logCliMessage(message, repoDir, activityState, touchedFiles)) wrote = true;
       sessionId = processCliStream(message, repoDir, sessionId, touchedFiles);
       logContinuationPassResult(passNumber, message);
     }
-    return sessionId;
+    return { sessionId, wrote };
   }
 
   private logCliMessage(
@@ -673,13 +688,11 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     repoDir: string,
     activityState: ActivityState,
     touchedFiles?: Set<string>,
-  ): void {
-    if (logCliProgressEvent(message, repoDir, activityState)) return;
-    if (message.type === 'assistant') {
-      this.logCliAssistantMessage(message, repoDir, activityState, touchedFiles);
-      return;
-    }
+  ): boolean {
+    if (logCliProgressEvent(message, repoDir, activityState)) return false;
+    if (message.type === 'assistant') return this.logCliAssistantMessage(message, repoDir, activityState, touchedFiles);
     if (message.type === 'user') this.logCliToolResult(message, activityState);
+    return false;
   }
 
   private logCliAssistantMessage(
@@ -687,22 +700,26 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     repoDir: string,
     activityState: ActivityState,
     touchedFiles?: Set<string>
-  ): void {
+  ): boolean {
     const contentBlocks = (message.message as { content?: ToolBlock[] } | undefined)?.content;
-    if (!Array.isArray(contentBlocks)) return;
+    if (!Array.isArray(contentBlocks)) return false;
+    let wrote = false;
     for (const block of contentBlocks) {
-      this.logAssistantToolBlock({ block, repoDir, activityState, touchedFiles });
+      if (this.logAssistantToolBlock({ block, repoDir, activityState, touchedFiles })) wrote = true;
     }
+    return wrote;
   }
 
-  private logAssistantToolBlock(p: ToolBlockLogParams): void {
+  private logAssistantToolBlock(p: ToolBlockLogParams): boolean {
     const { block, repoDir, activityState, touchedFiles } = p;
-    if (block.type !== 'tool_use' || !block.name) return;
+    if (block.type !== 'tool_use' || !block.name) return false;
     const input = block.input ?? {};
-    if (block.name === 'Write' || block.name === 'Edit') return logWriteEditEvent(block.name, input, repoDir, touchedFiles);
-    if (block.name === 'Bash') return logBashEvent(input, activityState);
-    if (block.name === 'Read' || block.name === 'Glob' || block.name === 'Grep') return logReadEvent(block.name, input);
+    if (block.name === 'Write' || block.name === 'Edit')
+      return logWriteEditEvent(block.name, input, repoDir, touchedFiles);
+    if (block.name === 'Bash') logBashEvent(input, activityState);
+    if (block.name === 'Read' || block.name === 'Glob' || block.name === 'Grep') logReadEvent(block.name, input);
     if (block.name === 'Skill') this.logSkillBlock(input);
+    return false;
   }
 
   private logSkillBlock(input: Record<string, unknown>): void {
