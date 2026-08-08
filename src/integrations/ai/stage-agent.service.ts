@@ -1092,31 +1092,24 @@ export class StageAgentService {
   }
 
   enrichPlanWithDirectoryConfigs(plan: ResolutionPlan, repoDir: string): void {
-    const provider = (
+    const provider = this.resolveImplementProvider();
+    const affectedPaths = normalizeFileEntries(plan.affectedFiles ?? []).map(e => e.filePath);
+    const contextPaths = normalizeFileEntries(plan.affectedFilesContext ?? []).map(e => e.filePath);
+    const discovered = discoverDirAgentConfigs([...affectedPaths, ...contextPaths], provider, path.dirname(repoDir));
+    if (discovered.length === 0) return;
+    const newEntries = discovered.filter(e => !new Set(contextPaths).has(e.filePath));
+    if (newEntries.length === 0) return;
+    plan.affectedFilesContext ??= [];
+    plan.affectedFilesContext.push(...newEntries);
+    console.log(chalk.cyan(`  Discovered ${newEntries.length} per-directory agent config(s)`));
+  }
+
+  private resolveImplementProvider(): WfAiProviderName {
+    return (
       this.configService.get<string>('stages.implement.provider')
       ?? this.configService.get<string>('ai.provider')
       ?? 'anthropic'
     ) as WfAiProviderName;
-
-    const affectedPaths = normalizeFileEntries(plan.affectedFiles ?? []).map(e => e.filePath);
-    const contextPaths = normalizeFileEntries(plan.affectedFilesContext ?? []).map(e => e.filePath);
-
-    const discovered = discoverDirAgentConfigs(
-      [...affectedPaths, ...contextPaths],
-      provider,
-      path.dirname(repoDir),
-    );
-
-    if (discovered.length === 0) return;
-
-    const existingPaths = new Set(contextPaths);
-    const newEntries = discovered.filter(e => !existingPaths.has(e.filePath));
-
-    if (newEntries.length === 0) return;
-
-    if (!plan.affectedFilesContext) plan.affectedFilesContext = [];
-    plan.affectedFilesContext.push(...newEntries);
-    console.log(chalk.cyan(`  Discovered ${newEntries.length} per-directory agent config(s)`));
   }
 
   async generatePlan(params: GeneratePlanParams & {

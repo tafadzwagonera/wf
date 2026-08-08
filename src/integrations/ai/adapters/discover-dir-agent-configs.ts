@@ -10,38 +10,41 @@ export const PROVIDER_CONFIG_FILENAMES: Record<WfAiProviderName, string> = {
   deepseek: 'DEEPSEEK.md',
 };
 
-export const discoverDirAgentConfigs = (
-  filePaths: string[],
-  providerName: WfAiProviderName,
-  repoBaseDir: string,
-): FileEntry[] => {
-  if (filePaths.length === 0) return [];
-
-  const configFilename = PROVIDER_CONFIG_FILENAMES[providerName];
+const collectDirectories = (filePaths: string[]): Set<string> => {
   const dirs = new Set<string>();
-
   for (const filePath of filePaths) {
     const dir = path.dirname(filePath);
-    const segments = dir.split('/');
-    const isRepoRoot = segments.length <= 1;
-    if (!isRepoRoot) dirs.add(dir);
+    if (dir.split('/').length > 1) dirs.add(dir);
   }
+  return dirs;
+};
 
+const findExistingConfigs = (
+  dirs: Set<string>,
+  configFilename: string,
+  repoBaseDir: string,
+): FileEntry[] => {
   const found: FileEntry[] = [];
-
   for (const dir of dirs) {
     const candidatePath = path.join(dir, configFilename);
     if (fs.existsSync(path.join(repoBaseDir, candidatePath))) {
       found.push({ filePath: candidatePath, status: 'found' });
     }
   }
+  return found;
+};
 
+export const discoverDirAgentConfigs = (
+  filePaths: string[],
+  providerName: WfAiProviderName,
+  repoBaseDir: string,
+): FileEntry[] => {
+  if (filePaths.length === 0) return [];
+  const dirs = collectDirectories(filePaths);
+  const found = findExistingConfigs(dirs, PROVIDER_CONFIG_FILENAMES[providerName], repoBaseDir);
   found.sort((a, b) => {
-    const depthA = a.filePath.split('/').length;
-    const depthB = b.filePath.split('/').length;
-    if (depthB !== depthA) return depthB - depthA;
-    return a.filePath.localeCompare(b.filePath);
+    const depthDiff = b.filePath.split('/').length - a.filePath.split('/').length;
+    return depthDiff !== 0 ? depthDiff : a.filePath.localeCompare(b.filePath);
   });
-
   return found;
 };

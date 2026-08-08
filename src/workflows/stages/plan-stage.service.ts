@@ -254,19 +254,16 @@ export class PlanStageService {
   }
 
   async createPlanArtifact(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {
-    const artifactDir = path.dirname(ticket.path);
-    const sourceName = ticket.ticketKey;
-    const planHash = hashPlanArtifactSources([sourceName]);
-    const cached = await this.tryReuseCachedPlan(ticket, options, artifactDir);
+    const cached = await this.tryReuseCachedPlan(ticket, options, path.dirname(ticket.path));
     if (cached) return cached;
     const { plan, sessionId } = await this.generatePlan(ticket.content, {
       action: options.action, ticketKey: ticket.ticketKey,
       affectedRepositories: options.affectedRepositories, onProgress: options.onProgress,
     });
-    const repoDir = options.repoDir ?? process.cwd();
-    this.enrichPlanWithDirectoryConfigs(plan, repoDir);
+    this.enrichPlanWithDirectoryConfigs(plan, options.repoDir ?? process.cwd());
     const result = this.persistPlanArtifact(
-      plan, options.action, artifactDir, planHash, sourceName, options.sourceKind
+      plan, options.action, path.dirname(ticket.path), hashPlanArtifactSources([ticket.ticketKey]),
+      ticket.ticketKey, options.sourceKind,
     );
     return { ...result, sessionId };
   }
