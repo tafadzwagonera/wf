@@ -30,7 +30,7 @@ const ISSUE_FETCH_EXAMPLES: CliExample[] = [
 const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
-      chalk.yellow(`⚠️ Only the first repository will be used for issue:fetch. Ignoring: ${repos!.slice(1).join(', ')}`)
+      chalk.yellow(`⚠ Only the first repository will be used for issue:fetch. Ignoring: ${(repos ?? []).slice(1).join(', ')}`)
     );
   }
 };
@@ -161,7 +161,7 @@ export class IssueFetchCommand extends CommandRunner {
     this.dryRunPreview.showSummary({
       apiCallCount: 1, fileCreatedCount: 1, fileModifiedCount: 0, gitOperationCount: 0,
       terminalOutputLines: [
-        '✓ Ticket saved to: ' + filePath, '',
+        '✔ Ticket saved to: ' + filePath, '',
         'Ticket Details:', '  Title: <fetched from tracker>',
         '  Type: <type>', '  Status: <status>', '  Priority: <priority>',
       ],
@@ -193,7 +193,7 @@ export class IssueFetchCommand extends CommandRunner {
   }
 
   private printTicketDetails(ticket: any, filePath: string): void {
-    this.logger.success('✓ Ticket saved to: ' + filePath);
+    this.logger.success('✔ Ticket saved to: ' + filePath);
     this.logger.info('\nTicket Details:');
     this.logger.info('  Title: ' + ticket.title);
     this.logger.info('  Type: ' + (ticket.type || 'N/A'));

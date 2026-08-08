@@ -599,7 +599,7 @@ describe('IssueReviewCommand', () => {
         path.basename(process.cwd())
       );
       expect(handleSpy).not.toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith('⚠️ Non-interactive session; returning without local review');
+      expect(consoleLogSpy).toHaveBeenCalledWith('⚠ Non-interactive session; returning without local review');
     });
 
     it('does not warn about cwd fallback when remote ticket PR review succeeds without a local checkout', async () => {
@@ -761,7 +761,7 @@ describe('IssueReviewCommand', () => {
 
       await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
 
-      expect(consoleLogSpy).toHaveBeenCalledWith('⚠️ Non-interactive session; returning without local review');
+      expect(consoleLogSpy).toHaveBeenCalledWith('⚠ Non-interactive session; returning without local review');
       expect(promptMock).not.toHaveBeenCalled();
       expect(reviewRepoSetSpy).not.toHaveBeenCalled();
       expect(reviewStageService.reviewDiff).not.toHaveBeenCalled();

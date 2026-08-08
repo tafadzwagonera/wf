@@ -37,7 +37,7 @@ const ISSUE_PR_EXAMPLES: CliExample[] = [
 const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
-      chalk.yellow(`⚠️ Only the first repository will be used for issue:pr. Ignoring: ${repos!.slice(1).join(', ')}`)
+      chalk.yellow(`⚠ Only the first repository will be used for issue:pr. Ignoring: ${(repos ?? []).slice(1).join(', ')}`)
     );
   }
 };
@@ -100,7 +100,10 @@ export class IssuePrCommand extends CommandRunner {
 
     if (!options?.silent) this.printPrHeader(ticketKey, prParams.head, prParams.base, prParams.title);
 
-    const prUrl = await adapter.createPullRequest!(prParams);
+    if (!adapter.createPullRequest) {
+      throw new ValidationError('The active tracker adapter does not support pull request creation.');
+    }
+    const prUrl = await adapter.createPullRequest(prParams);
     console.log(options?.silent ? prUrl : chalk.bold.cyan(`\n✔ Pull request created: ${prUrl}\n`));
   }
 

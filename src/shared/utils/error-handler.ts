@@ -50,7 +50,7 @@ export class ErrorHandler {
     }
 
     if (error.recoverable) {
-      console.error(chalk.blue('\nℹ️  This error is recoverable. You can retry the operation.'));
+      console.error(chalk.blue('\nℹ This error is recoverable. You can retry the operation.'));
     }
   }
 

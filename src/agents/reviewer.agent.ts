@@ -61,7 +61,7 @@ export class ReviewerAgent {
       this.presenter.progress(`Skipping REVIEW - artifact exists: ${reviewPath}`);
     }
     const content = fs.readFileSync(reviewPath, 'utf-8');
-    const approved = content.includes(`✓ ${REVIEW_VERDICT_APPROVED}`);
+    const approved = content.includes(`✔ ${REVIEW_VERDICT_APPROVED}`);
     return {
       review: { summary: '', issues: [], suggestions: [], approved } as CodeReview,
       path: reviewPath,
@@ -75,9 +75,9 @@ export class ReviewerAgent {
 
     if (!options.silent) {
       const message = options.skipExisting === false
-        ? '⚠️  --force requested, but no uncommitted changes are available for review regeneration'
-        : '⚠️  No uncommitted changes to review';
-      this.presenter.outcome('warning', message.replace(/^⚠️\s+/, ''));
+        ? '⚠  --force requested, but no uncommitted changes are available for review regeneration'
+        : '⚠  No uncommitted changes to review';
+      this.presenter.outcome('warning', message.replace(/^⚠\s+/, ''));
     }
     return true;
   }

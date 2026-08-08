@@ -778,7 +778,7 @@ describe('AnthropicAgentAdapter', () => {
         expect(systemPrompt.append).toContain('global context line');
         expect(systemPrompt.append).toContain('## CLAUDE.md');
         expect(systemPrompt.append).toContain('repo context line');
-        expect(mockLog).not.toHaveBeenCalledWith(expect.stringContaining('⚠️'));
+        expect(mockLog).not.toHaveBeenCalledWith(expect.stringContaining('⚠'));
       } finally {
         mockLog.mockRestore();
         fs.rmSync(repoDir, { recursive: true, force: true });
@@ -823,7 +823,7 @@ describe('AnthropicAgentAdapter', () => {
         const adapter = new AnthropicAgentAdapter(makeConfigService());
         await adapter.generateAndVerify(makeParams(repoDir));
 
-        expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('⚠️ Missing CLAUDE.md file at'));
+        expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('⚠ Missing CLAUDE.md file at'));
       } finally {
         mockLog.mockRestore();
         fs.rmSync(repoDir, { recursive: true, force: true });

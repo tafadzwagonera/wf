@@ -358,7 +358,7 @@ export class GitService {
       return;
     }
 
-    throw new GitError('⚠️ Refusing to create commit because .gitignore is staged', {
+    throw new GitError('⚠ Refusing to create commit because .gitignore is staged', {
       stagedPaths: paths,
     });
   }

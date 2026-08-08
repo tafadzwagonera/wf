@@ -61,7 +61,7 @@ describe('resolveRepoBasePath', () => {
     expect(resolveRepoBasePath('workspace/repo-a')).toBe('/tmp/current-app');
     expect(consoleLogSpy).toHaveBeenCalledWith(
       chalk.yellow(
-        '⚠️ Repository \'workspace/repo-a\' not found as a path or sibling directory. Using current directory.'
+        '⚠ Repository \'workspace/repo-a\' not found as a path or sibling directory. Using current directory.'
       )
     );
   });

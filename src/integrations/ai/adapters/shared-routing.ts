@@ -467,8 +467,8 @@ export const loadClaudeContext = async (repoDir: string): Promise<string> => {
   const [rootClaude, dotClaude]
     = await Promise.all([readOptionalFile(globalClaudePath), readOptionalFile(repoClaudePath)]);
 
-  if (rootClaude === null) console.log(chalk.yellow(`⚠️ Missing CLAUDE.md file at ${globalClaudePath}`));
-  if (dotClaude === null) console.log(chalk.yellow(`⚠️ Missing CLAUDE.md file at ${repoClaudePath}`));
+  if (rootClaude === null) console.log(chalk.yellow(`⚠ Missing CLAUDE.md file at ${globalClaudePath}`));
+  if (dotClaude === null) console.log(chalk.yellow(`⚠ Missing CLAUDE.md file at ${repoClaudePath}`));
 
   return [
     rootClaude && `## ~/.claude/CLAUDE.md\n${rootClaude.trimEnd()}`,

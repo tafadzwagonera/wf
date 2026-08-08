@@ -70,7 +70,7 @@ export class ConfigSetCommand extends CommandRunner {
 
         const configPath = discoverConfigPath(process.cwd());
 
-        console.log(chalk.yellow('\n⚠️  wf config set is advisory. Update your wf.config.* file manually.\n'));
+        console.log(chalk.yellow('\n⚠  wf config set is advisory. Update your wf.config.* file manually.\n'));
         console.log(
           chalk.gray(
             `Resolved config file: ${configPath ?? 'none found. Create wf.config.js, wf.config.mjs, wf.config.ts, wf.config.mts, wf.config.yaml, or wf.config.yml.'}`,

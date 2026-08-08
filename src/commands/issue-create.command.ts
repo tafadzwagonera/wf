@@ -181,7 +181,7 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
     const ignoredRepos = repos.slice(1).join(', ');
     console.log(
       chalk.yellow(
-        `⚠️ Only the first repository will be used for issue:create artifact lookup. Ignoring: ${ignoredRepos}`
+        `⚠ Only the first repository will be used for issue:create artifact lookup. Ignoring: ${ignoredRepos}`
       )
     );
   }

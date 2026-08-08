@@ -41,7 +41,7 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
       chalk.yellow(
-        `⚠️ Only the first repository will be used for issue:commit. Ignoring: ${(repos ?? []).slice(1).join(', ')}`
+        `⚠ Only the first repository will be used for issue:commit. Ignoring: ${(repos ?? []).slice(1).join(', ')}`
       )
     );
   }
@@ -191,7 +191,7 @@ export class IssueCommitCommand extends CommandRunner {
     const msg = await this.commitStageService.generateCommitMessage({
       diff, ticketKey: ticketKey || undefined, conventional: options?.conventional,
     });
-    console.log(chalk.green('✓ Generated commit message:\n'));
+    console.log(chalk.green('✔ Generated commit message:\n'));
     console.log(chalk.bold.cyan(this.indentMessage(msg)));
     console.log();
     return msg;

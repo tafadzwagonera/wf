@@ -10,6 +10,15 @@ import {
 
 const PAYLOAD_LINE_PREFIX = '       ';
 
+const buildSummaryParts = (summary: DryRunSummary): string[] => {
+  const parts: string[] = [];
+  if (summary.apiCallCount > 0) parts.push(`${summary.apiCallCount} API call${summary.apiCallCount !== 1 ? 's' : ''}`);
+  if (summary.fileCreatedCount > 0) parts.push(`${summary.fileCreatedCount} file${summary.fileCreatedCount !== 1 ? 's' : ''} created`);
+  if (summary.fileModifiedCount > 0) parts.push(`${summary.fileModifiedCount} file${summary.fileModifiedCount !== 1 ? 's' : ''} modified`);
+  if (summary.gitOperationCount > 0) parts.push(`${summary.gitOperationCount} git op${summary.gitOperationCount !== 1 ? 's' : ''}`);
+  return parts;
+};
+
 /**
  * Service for displaying dry-run previews with consistent formatting across
  * all issue:* commands.
@@ -41,7 +50,7 @@ export class DryRunPreviewService {
     if ((preview.payloadPreviewLines?.length ?? 0) > 0) {
       console.log(chalk.black('     ↳ Payload:'));
     }
-    preview.payloadPreviewLines?.forEach(line => console.log(chalk.black(`${PAYLOAD_LINE_PREFIX}${line}`)));
+    for (const line of preview.payloadPreviewLines ?? []) console.log(chalk.black(`${PAYLOAD_LINE_PREFIX}${line}`));
   }
 
   /**
@@ -88,22 +97,8 @@ export class DryRunPreviewService {
    * @param summary Aggregated counts for the operation
    */
   showSummary(summary: DryRunSummary): void {
-    const parts: string[] = [];
-    if (summary.apiCallCount > 0) {
-      parts.push(`${summary.apiCallCount} API call${summary.apiCallCount !== 1 ? 's' : ''}`);
-    }
-    if (summary.fileCreatedCount > 0) {
-      parts.push(`${summary.fileCreatedCount} file${summary.fileCreatedCount !== 1 ? 's' : ''} created`);
-    }
-    if (summary.fileModifiedCount > 0) {
-      parts.push(`${summary.fileModifiedCount} file${summary.fileModifiedCount !== 1 ? 's' : ''} modified`);
-    }
-    if (summary.gitOperationCount > 0) {
-      parts.push(`${summary.gitOperationCount} git op${summary.gitOperationCount !== 1 ? 's' : ''}`);
-    }
-    if (parts.length > 0) {
-      console.log(chalk.black(`\n  ${parts.join(' · ')}`));
-    }
+    const parts = buildSummaryParts(summary);
+    if (parts.length > 0) console.log(chalk.black(`\n  ${parts.join(' · ')}`));
     if (summary.terminalOutputLines && summary.terminalOutputLines.length > 0) {
       this.showTerminalOutput(summary.terminalOutputLines);
     }
@@ -114,7 +109,7 @@ export class DryRunPreviewService {
    * @param hint Optional action hint (e.g., "remove --dry-run to execute")
    */
   showValidationResult(hint = 'Remove --dry-run to execute'): void {
-    console.log(chalk.green(`✓ ${hint}\n`));
+    console.log(chalk.green(`✔ ${hint}\n`));
   }
 
   /**

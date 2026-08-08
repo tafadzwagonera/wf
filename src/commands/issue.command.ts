@@ -374,7 +374,7 @@ export class IssueCommand extends CommandRunner {
     const toStage = options.to ? this.parseStage(options.to) : WorkflowStage.COMMIT;
 
     if (options?.customPlan && fromStage === WorkflowStage.FETCH) {
-      console.log(chalk.yellow('⚠️  Custom plans skip the fetch stage; starting from plan.'));
+      console.log(chalk.yellow('⚠  Custom plans skip the fetch stage; starting from plan.'));
       fromStage = WorkflowStage.PLAN;
     }
 
@@ -702,7 +702,7 @@ export class IssueCommand extends CommandRunner {
     this.previewFetchApiAndFile(ticketKey, trackerName, ticketPath, exists);
     counters.totalApiCalls++;
     counters.totalFilesCreated++;
-    counters.terminalLines.push(`✓ Ticket fetched and saved to: ${ticketPath}`);
+    counters.terminalLines.push(`✔ Ticket fetched and saved to: ${ticketPath}`);
   }
 
   private previewFetchApiAndFile(
@@ -743,7 +743,7 @@ export class IssueCommand extends CommandRunner {
     this.previewPlanFileWrite(planPath, resolvedPlan !== null, defaultAction);
     counters.totalApiCalls++;
     counters.totalFilesCreated++;
-    counters.terminalLines.push('✓ Plan saved to: ' + planPath);
+    counters.terminalLines.push('✔ Plan saved to: ' + planPath);
   }
 
   private buildDefaultPlanPath(ticketKey: string, trackerDir: string, action: ResolutionAction): string {
@@ -790,7 +790,7 @@ export class IssueCommand extends CommandRunner {
       console.log(chalk.gray('     Displays: branch name, implementation steps, affected files'));
       counters.totalApiCalls++;
       counters.totalFilesCreated++;
-      counters.terminalLines.push(`✓ Implementation guide displayed for: ${repo ?? 'current directory'}`);
+      counters.terminalLines.push(`✔ Implementation guide displayed for: ${repo ?? 'current directory'}`);
     }
   }
 
@@ -812,7 +812,7 @@ export class IssueCommand extends CommandRunner {
     });
     counters.totalApiCalls++;
     counters.totalFilesCreated++;
-    counters.terminalLines.push('✓ Investigation findings saved to: ' + findingsPath);
+    counters.terminalLines.push('✔ Investigation findings saved to: ' + findingsPath);
   }
 
   private printRepoSubheader(repos: (string | undefined)[], repo: string | undefined): void {
@@ -858,11 +858,11 @@ export class IssueCommand extends CommandRunner {
       operation: artifactExists ? 'overwrite' : 'create',
       sizeEstimate: '2–5 KB',
       format: 'markdown',
-      contentPreview: 'Code Review Report\nContext: <source>\n\n## Summary\n<AI review summary>\n\n## Issues Found\n(none)\n\nStatus: ✓ Approved',
+      contentPreview: 'Code Review Report\nContext: <source>\n\n## Summary\n<AI review summary>\n\n## Issues Found\n(none)\n\nStatus: ✔ Approved',
     });
     counters.totalApiCalls++;
     counters.totalFilesCreated++;
-    counters.terminalLines.push('✓ Review complete', '  Summary: <AI review summary>', '  Status: ✓ Approved');
+    counters.terminalLines.push('✔ Review complete', '  Summary: <AI review summary>', '  Status: ✔ Approved');
   }
 
   private previewDryRunCommit(
@@ -874,7 +874,7 @@ export class IssueCommand extends CommandRunner {
       this.printRepoSubheader(repos, repo);
       this.dryRunPreview.showNoSideEffects();
       console.log(chalk.gray('     Displays: commit commands — user confirms before execution'));
-      counters.terminalLines.push('✓ Commit message generated', '  Message: ' + ticketKey + ': <AI-generated>');
+      counters.terminalLines.push('✔ Commit message generated', '  Message: ' + ticketKey + ': <AI-generated>');
     }
   }
 
@@ -986,7 +986,7 @@ export class IssueCommand extends CommandRunner {
     requestedAction: ResolutionAction,
     filename: string
   ): Promise<ResolutionAction> {
-    console.log(chalk.yellow(`  ⚠️  Plan token action mismatch for ${filename}: plan contains '${planAction}', requested '${requestedAction}'.`));
+    console.log(chalk.yellow(`  ⚠  Plan token action mismatch for ${filename}: plan contains '${planAction}', requested '${requestedAction}'.`));
     if (!this.isInteractiveSession()) {
       throw new ValidationError(`Plan token action mismatch: '${filename}' contains '${planAction}' but '${requestedAction}' was requested. Pass the correct --action or re-run interactively to choose.`);
     }
@@ -1143,7 +1143,7 @@ export class IssueCommand extends CommandRunner {
     const validation = this.sessionService.validateForStage(
       sessionState, stage, this.resolveStageFingerprint(stage), s => this.resolveStageFingerprint(s)
     );
-    for (const w of validation.warnings) console.log(chalk.yellow(`  ⚠️ ${w}`));
+    for (const w of validation.warnings) console.log(chalk.yellow(`  ⚠ ${w}`));
 
     const started = await this.recordStageStart(sessionState, stage);
     return {
@@ -1320,7 +1320,7 @@ export class IssueCommand extends CommandRunner {
       repo, repos, options, isMultiRepo, sessionContext, planArtifact);
     const result = await this.agents.implementer.execute(ticketArtifact, planArtifact, implOpts);
     if (result?.type === 'investigation') {
-      console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
+      console.log(chalk.bold.green('\n✔ Investigation workflow complete — no further stages will run'));
       return { implementerResult: result, earlyReturn: true };
     }
     return { implementerResult: result, earlyReturn: false };
@@ -1411,7 +1411,7 @@ export class IssueCommand extends CommandRunner {
       console.log(chalk.cyan('    Changes approved - proceeding to commit stage'));
       return;
     }
-    console.log(chalk.yellow('    ⚠️  Review suggestions are optional — commit stage will still execute'));
+    console.log(chalk.yellow('    ⚠  Review suggestions are optional — commit stage will still execute'));
   }
 
   private async offerReviewChat(

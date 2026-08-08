@@ -347,7 +347,7 @@ export class IssueReviewCommand extends CommandRunner {
     this.dryRunPreview.previewFileWrite({
       filePath: outPath, operation: 'create', sizeEstimate: '2–5 KB', format,
       contentPreview: 'Code Review Report\nContext: <source>\n\n## Summary\n<AI review summary>'
-        + '\n\n## Approval Status\n✓ Approved',
+        + '\n\n## Approval Status\n✔ Approved',
     });
   }
 
@@ -363,10 +363,10 @@ export class IssueReviewCommand extends CommandRunner {
         : 0,
       fileCreatedCount, fileModifiedCount: 0, gitOperationCount: 0,
       terminalOutputLines: [
-        '✓ Code review complete', '', 'Summary: <AI-generated review summary>', '',
-        '✓ No issues found', '', 'Call Stack: code-path trace or unavailable',
+        '✔ Code review complete', '', 'Summary: <AI-generated review summary>', '',
+        '✔ No issues found', '', 'Call Stack: code-path trace or unavailable',
         'State Transition: code-path trace or unavailable', '',
-        'Approval Status: ✓ ' + REVIEW_VERDICT_APPROVED,
+        'Approval Status: ✔ ' + REVIEW_VERDICT_APPROVED,
       ],
     });
     this.dryRunPreview.showValidationResult();
@@ -389,7 +389,7 @@ export class IssueReviewCommand extends CommandRunner {
     const reviewed = await this.executeReviews(reviewable, extraCriteria, options);
     this.cacheReviewArtifact(result.reviewPath, reviewed, options);
     await this.offerInteractiveChat(reviewed, options);
-    if (!options?.silent) console.log(chalk.green('✓ Code review complete\n'));
+    if (!options?.silent) console.log(chalk.green('✔ Code review complete\n'));
     this.saveReviewOutput(reviewed, repoInputs, options);
   }
 
@@ -488,7 +488,7 @@ export class IssueReviewCommand extends CommandRunner {
       const baseDir = this.resolveOutputBaseDir(true, repoInputs);
       const outputPath = this.resolveOutputPath(options.output, baseDir);
       fs.writeFileSync(outputPath, fs.readFileSync(reviewPath, 'utf-8'));
-      const msg = options?.silent ? outputPath : chalk.green('\n✓ Review saved to: ' + outputPath + '\n');
+      const msg = options?.silent ? outputPath : chalk.green('\n✔ Review saved to: ' + outputPath + '\n');
       console.log(msg);
       return;
     }
@@ -554,7 +554,7 @@ export class IssueReviewCommand extends CommandRunner {
         repoDir: pr.repoDir, adapterName: pr.adapterName, commentRef: pr.commentRef,
       });
     } catch (error: any) {
-      console.log(chalk.yellow('⚠️ Skipping ' + pr.title + ': ' + error.message));
+      console.log(chalk.yellow('⚠ Skipping ' + pr.title + ': ' + error.message));
     }
   }
 
@@ -563,7 +563,7 @@ export class IssueReviewCommand extends CommandRunner {
   ): Promise<ReviewTarget[] | null> {
     this.validateRepoInputsResolvable(repoInputs);
     if (!options?.silent) {
-      console.log(chalk.yellow('⚠️ No open pull requests were found for ticket ' + ticketKey));
+      console.log(chalk.yellow('⚠ No open pull requests were found for ticket ' + ticketKey));
       const decision = await this.promptTicketFallbackAction();
       if (decision === 'return') return null;
     }
@@ -592,7 +592,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   private printNoChangesWarning(options?: IssueReviewOptions): void {
     if (options?.silent) return;
-    console.log(chalk.yellow('⚠️ No changes to review'));
+    console.log(chalk.yellow('⚠ No changes to review'));
     console.log(chalk.gray('Make sure you have changes to review (commits, staged, or unstaged)\n'));
   }
 
@@ -658,7 +658,7 @@ export class IssueReviewCommand extends CommandRunner {
     const baseDir = this.resolveOutputBaseDir(!!options?.ticketKey, repoInputs);
     const outputPath = this.resolveOutputPath(options.output, baseDir);
     fs.writeFileSync(outputPath, this.formatReviewOutput(reviewed, format));
-    const msg = options?.silent ? outputPath : chalk.green('\n✓ Review saved to: ' + outputPath + '\n');
+    const msg = options?.silent ? outputPath : chalk.green('\n✔ Review saved to: ' + outputPath + '\n');
     console.log(msg);
   }
 
@@ -888,7 +888,7 @@ export class IssueReviewCommand extends CommandRunner {
     try {
       await adapter.createComment(ref, this.formatReviewAsComment(review));
     } catch (error: any) {
-      console.log(chalk.yellow('⚠️ --comment skipped for ' + target.title + ': ' + error.message));
+      console.log(chalk.yellow('⚠ --comment skipped for ' + target.title + ': ' + error.message));
       return;
     }
     await this.postInlineComments(adapter, ref, target.title, review);
@@ -897,18 +897,18 @@ export class IssueReviewCommand extends CommandRunner {
   private resolveCommentAdapter(target: ReviewTarget): any {
     const name = target.adapterName ?? this.resolveAdapterNameForPullRequestUrl(target.commentRef ?? '');
     if (!name) {
-      console.log(chalk.yellow('⚠️ --comment skipped for ' + target.title + ': no supported PR adapter was resolved'));
+      console.log(chalk.yellow('⚠ --comment skipped for ' + target.title + ': no supported PR adapter was resolved'));
       return null;
     }
     try {
       const adapter = this.issueTrackerService.getAdapter(name);
       if (!adapter.createComment) {
-        console.log(chalk.yellow('⚠️ --comment skipped for ' + target.title + ': comment API is not supported by ' + name));
+        console.log(chalk.yellow('⚠ --comment skipped for ' + target.title + ': comment API is not supported by ' + name));
         return null;
       }
       return adapter;
     } catch (error: any) {
-      console.log(chalk.yellow('⚠️ --comment skipped for ' + target.title + ': ' + error.message));
+      console.log(chalk.yellow('⚠ --comment skipped for ' + target.title + ': ' + error.message));
       return null;
     }
   }
@@ -924,7 +924,7 @@ export class IssueReviewCommand extends CommandRunner {
       try {
         await adapter.createInlineComment(ref, issue.file || '', issue.line || 0, issue.message);
       } catch (error: any) {
-        console.log(chalk.yellow('⚠️ Inline comment skipped (' + issue.file + ':' + issue.line + '): ' + error.message));
+        console.log(chalk.yellow('⚠ Inline comment skipped (' + issue.file + ':' + issue.line + '): ' + error.message));
       }
     }
   }
@@ -937,7 +937,7 @@ export class IssueReviewCommand extends CommandRunner {
   private formatReviewAsComment(review: CodeReview): string {
     const presentation = buildCodeReviewPresentation(review);
     const verdict = review.approved
-      ? '✓ ' + REVIEW_VERDICT_APPROVED
+      ? '✔ ' + REVIEW_VERDICT_APPROVED
       : '✗ ' + REVIEW_VERDICT_CHANGES_REQUESTED;
     const lines: string[] = [
       '## AI Code Review', '',
@@ -1080,7 +1080,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   private logTransientError(error: any, adapterName: string, scope: string): void {
     const message = error instanceof Error ? error.message : String(error);
-    console.log(chalk.dim('⚠️ Transient error for ' + adapterName + scope + ': ' + message + ' — retrying in 1s'));
+    console.log(chalk.dim('⚠ Transient error for ' + adapterName + scope + ': ' + message + ' — retrying in 1s'));
   }
 
   private handlePrDiscoveryError(
@@ -1088,7 +1088,7 @@ export class IssueReviewCommand extends CommandRunner {
   ): void {
     if (this.isMissingPullRequestRepoScopeError(error)) missingRepoScopeErrors.push((error as Error).message);
     const message = error instanceof Error ? error.message : String(error);
-    console.log(chalk.yellow('⚠️ PR discovery skipped for ' + adapterName + scope + ': ' + message));
+    console.log(chalk.yellow('⚠ PR discovery skipped for ' + adapterName + scope + ': ' + message));
   }
 
   private registerDiscoveredPrs(
@@ -1180,7 +1180,7 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private async promptTicketFallbackAction(): Promise<'local' | 'return'> {
     if (!this.isInteractiveSession()) {
-      console.log(chalk.yellow('⚠️ Non-interactive session; returning without local review'));
+      console.log(chalk.yellow('⚠ Non-interactive session; returning without local review'));
       return 'return';
     }
 
@@ -1616,7 +1616,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   private displayIssueRows(rows: ReturnType<typeof buildCodeReviewPresentation>['issueRows']): void {
     if (rows.length === 0) {
-      console.log(chalk.green('\n✓ No issues found'));
+      console.log(chalk.green('\n✔ No issues found'));
       return;
     }
     console.log(chalk.bold('\nIssues Found:'));
@@ -1630,7 +1630,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   private displaySuggestions(suggestions: string[]): void {
     if (suggestions.length === 0) {
-      console.log(chalk.green('\n✓ No suggestions'));
+      console.log(chalk.green('\n✔ No suggestions'));
       return;
     }
     console.log(chalk.bold('\nSuggestions:'));
@@ -1639,10 +1639,10 @@ export class IssueReviewCommand extends CommandRunner {
 
   private displayApprovalStatus(approved: boolean): void {
     const verdict = approved
-      ? chalk.green('✓ ' + REVIEW_VERDICT_APPROVED)
+      ? chalk.green('✔ ' + REVIEW_VERDICT_APPROVED)
       : chalk.red('✗ ' + REVIEW_VERDICT_CHANGES_REQUESTED);
     console.log(chalk.bold('\nApproval Status:'), verdict);
-    if (!approved) console.log(chalk.yellow('\n⚠️ Address the issues above before proceeding'));
+    if (!approved) console.log(chalk.yellow('\n⚠ Address the issues above before proceeding'));
   }
 
   /**

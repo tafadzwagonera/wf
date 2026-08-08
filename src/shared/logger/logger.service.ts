@@ -70,8 +70,8 @@ export class LoggerService implements NestLoggerService {
 
   success(message: string, context?: string) {
     if (this.logLevel >= LogLevel.INFO) {
-      console.log(chalk.green(`✓ ${message}`));
-      this.writeToFile('INFO', `✓ ${message}`, context);
+      console.log(chalk.green(`✔ ${message}`));
+      this.writeToFile('INFO', `✔ ${message}`, context);
     }
   }
 

@@ -48,7 +48,7 @@ export const loadAiContextConfig = async (
 ): Promise<string> => {
   const sections = await readConfigSections(globalPath, path.join(process.cwd(), projectFileName));
   if (sections.length === 0 && shouldWarnWhenMissing) {
-    console.warn(chalk.yellow(`⚠️ No global or project-level configuration found for ${providerName}`));
+    console.warn(chalk.yellow(`⚠ No global or project-level configuration found for ${providerName}`));
     return '';
   }
   return sections.join('');

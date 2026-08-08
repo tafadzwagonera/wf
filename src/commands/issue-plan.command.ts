@@ -444,7 +444,7 @@ export class IssuePlanCommand extends CommandRunner {
       const artifact = await this.fetchStageService.fetchArtifact(ticketKey, {
         trackerName, repo: options?.repos?.[0], baseDir: artifactBaseDir,
       });
-      if (!options?.silent) this.logger.success(`✓ Ticket saved to: ${artifact.path}`);
+      if (!options?.silent) this.logger.success(`✔ Ticket saved to: ${artifact.path}`);
       return artifact.content;
     }
 
@@ -531,7 +531,7 @@ export class IssuePlanCommand extends CommandRunner {
     this.dryRunPreview.showSummary({
       apiCallCount: 1, fileCreatedCount: 1, fileModifiedCount: 0, gitOperationCount: 0,
       terminalOutputLines: [
-        '✓ Plan saved to: <artifact-dir>/' + planFilename, '',
+        '✔ Plan saved to: <artifact-dir>/' + planFilename, '',
         '  Action: ' + action, '  Complexity: <medium|high|low>',
       ],
     });
@@ -593,8 +593,8 @@ export class IssuePlanCommand extends CommandRunner {
       apiCallCount: needsFetch ? 2 : 1, fileCreatedCount: needsFetch ? 2 : 1,
       fileModifiedCount: 0, gitOperationCount: 0,
       terminalOutputLines: [
-        ...(needsFetch ? ['✓ Ticket saved to: ' + ticketPath] : []),
-        '✓ Plan saved to: ' + planPath, '', 'Plan Summary:',
+        ...(needsFetch ? ['✔ Ticket saved to: ' + ticketPath] : []),
+        '✔ Plan saved to: ' + planPath, '', 'Plan Summary:',
         '  Action: ' + action, '  Complexity: <medium|high|low>', '  Steps: <n>', '  Files affected: <n>',
       ],
     });
@@ -684,7 +684,7 @@ export class IssuePlanCommand extends CommandRunner {
       console.log(planPath);
       return;
     }
-    this.logger.success(`✓ Plan saved to: ${planPath}`);
+    this.logger.success(`✔ Plan saved to: ${planPath}`);
     this.logger.info(`\nPlan Summary:`);
     this.logger.info(`  Action: ${plan.action}`);
     this.logger.info(`  Complexity: ${plan.estimatedComplexity}`);
@@ -833,11 +833,11 @@ export class IssuePlanCommand extends CommandRunner {
     const fullPath = path.join(repoBaseDir, repoPrefix, ...rest);
     const exists = fs.existsSync(fullPath);
     if (exists && entry.status === 'to-create') {
-      console.log(chalk.yellow(`  ⚠️ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`));
+      console.log(chalk.yellow(`  ⚠ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`));
       entry.status = 'found';
     }
     if (!exists && entry.status === 'found') {
-      console.log(chalk.yellow(`  ⚠️ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`));
+      console.log(chalk.yellow(`  ⚠ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`));
       entry.status = 'not-found';
     }
   }
@@ -845,7 +845,7 @@ export class IssuePlanCommand extends CommandRunner {
   private warnIfManyUnresolvable(entries: any[]): void {
     const notFound = entries.filter(e => e.status === 'not-found').length;
     if (entries.length > 0 && notFound / entries.length > 0.5) {
-      console.log(chalk.yellow(`  ⚠️ More than 50% of file entries are unresolvable (${notFound}/${entries.length}) — the plan may contain hallucinated paths.`));
+      console.log(chalk.yellow(`  ⚠ More than 50% of file entries are unresolvable (${notFound}/${entries.length}) — the plan may contain hallucinated paths.`));
     }
   }
 
@@ -853,10 +853,10 @@ export class IssuePlanCommand extends CommandRunner {
     const cleanAffected = affected.filter(e => e.status !== 'not-found');
     const cleanContext = context.filter(e => e.status !== 'not-found');
     if (cleanAffected.length < affected.length) {
-      console.log(chalk.yellow(`  ⚠️ Removed ${affected.length - cleanAffected.length} unresolvable path(s) from affectedFiles`));
+      console.log(chalk.yellow(`  ⚠ Removed ${affected.length - cleanAffected.length} unresolvable path(s) from affectedFiles`));
     }
     if (cleanContext.length < context.length) {
-      console.log(chalk.yellow(`  ⚠️ Removed ${context.length - cleanContext.length} unresolvable path(s) from affectedFilesContext`));
+      console.log(chalk.yellow(`  ⚠ Removed ${context.length - cleanContext.length} unresolvable path(s) from affectedFilesContext`));
     }
     plan.affectedFiles = cleanAffected;
     plan.affectedFilesContext = cleanContext;
@@ -903,7 +903,7 @@ export class IssuePlanCommand extends CommandRunner {
     for (const rule of rules) {
       if (!rule.match || !rule.ecosystem) continue;
       if (check.policy === 'enforced') throw createPlanValidationError(`verification command "${cmd}" ${rule.label}.`);
-      console.log(chalk.yellow(`  ⚠️ verification command "${cmd}" ${rule.label}`));
+      console.log(chalk.yellow(`  ⚠ verification command "${cmd}" ${rule.label}`));
       return;
     }
   }
@@ -930,7 +930,7 @@ export class IssuePlanCommand extends CommandRunner {
     if (violations.length === 0) return;
 
     const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);
-    console.log(chalk.yellow(`  ⚠️ Plan quality violations:\n${formatted.map(v => `    • ${v}`).join('\n')}`));
+    console.log(chalk.yellow(`  ⚠ Plan quality violations:\n${formatted.map(v => `    • ${v}`).join('\n')}`));
     const existingRisks = (plan as RepoAwarePlan & { risks?: string[] }).risks ?? [];
     (plan as RepoAwarePlan & { risks?: string[] }).risks = [...existingRisks, ...formatted.map(v => `[plan-quality] ${v}`)];
   }

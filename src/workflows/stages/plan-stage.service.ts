@@ -134,7 +134,7 @@ export class PlanStageService {
             );
           }
 
-          console.log(chalk.green('  ✓ Fallback produced valid plan'));
+          console.log(chalk.green('  ✔ Fallback produced valid plan'));
           return { plan: fallbackResult, sessionId };
         }
       }
@@ -173,7 +173,7 @@ export class PlanStageService {
     if (retryViolations.length > 0) {
       console.log(
         chalk.yellow(
-          `  ⚠️ Plan quality violations persisted after retry:\n${retryViolations.map(v => `      ${v}`).join('\n')}`
+          `  ⚠ Plan quality violations persisted after retry:\n${retryViolations.map(v => `      ${v}`).join('\n')}`
         )
       );
       const existingRisks = retryAttempt.plan.risks ?? [];
@@ -345,7 +345,7 @@ export class PlanStageService {
     if (violations.length === 0) return;
     const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);
     const bullets = formatted.map(v => '      ' + v).join('\n');
-    console.log(chalk.yellow('  ⚠️ Plan quality violations (loaded plan):\n' + bullets));
+    console.log(chalk.yellow('  ⚠ Plan quality violations (loaded plan):\n' + bullets));
     plan.risks = [...(plan.risks ?? []), ...formatted.map(v => `[plan-quality] ${v}`)];
   }
 
@@ -375,7 +375,7 @@ export class PlanStageService {
   private async resolveActionMismatch(
     planAction: ResolutionAction, requestedAction: ResolutionAction, filename: string
   ): Promise<ResolutionAction> {
-    console.log(chalk.yellow(`  ⚠️  Cached plan action mismatch for ${filename}: plan contains '${planAction}', requested '${requestedAction}'.`));
+    console.log(chalk.yellow(`  ⚠  Cached plan action mismatch for ${filename}: plan contains '${planAction}', requested '${requestedAction}'.`));
     if (!this.isInteractiveSession()) {
       throw new ValidationError(
         `Cached plan action mismatch: '${filename}' contains '${planAction}' but '${requestedAction}' was requested. `

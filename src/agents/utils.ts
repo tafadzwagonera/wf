@@ -72,7 +72,7 @@ export const resolveRepoBasePath = (repo?: string): string => {
   if (resolved) return resolved;
 
   console.log(
-    chalk.yellow(`⚠️ Repository '${repo}' not found as a path or sibling directory. Using current directory.`)
+    chalk.yellow(`⚠ Repository '${repo}' not found as a path or sibling directory. Using current directory.`)
   );
   return process.cwd();
 };

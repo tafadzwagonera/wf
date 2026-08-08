@@ -1622,7 +1622,7 @@ const logCompletion = (
   console.log(chalk.green(`  [openai-agent] Agent completed in ${run.currentTurn} turn(s).`));
   logUsageSummary(summary, model);
   if (summary.compacted) console.log(chalk.cyan('  [openai-agent] Context compaction triggered during run'));
-  console.log(chalk.green('\n✓ OpenAI agent implementation complete'));
+  console.log(chalk.green('\n✔ OpenAI agent implementation complete'));
   logFinalOutput(typeof run.finalOutput === 'string' ? run.finalOutput.trim() : '');
 };
 

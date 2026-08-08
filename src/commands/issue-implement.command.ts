@@ -230,7 +230,7 @@ export class IssueImplementCommand extends CommandRunner {
       artifactPath: ref.artifactPath, action: ref.action, isLegacy: ref.isLegacy,
       ticketKey: ref.ticketKey, customArtifactName: ref.customArtifactName, sourceName: ref.sourceName,
     });
-    if (notice) console.log(chalk.yellow(`⚠️  ${notice}`));
+    if (notice) console.log(chalk.yellow(`⚠  ${notice}`));
   }
 
   private async executeCustomPlanMode(
@@ -247,20 +247,23 @@ export class IssueImplementCommand extends CommandRunner {
 
     const syntheticTicket = buildSyntheticTicketArtifact(ref.artifactPath, plan);
     const slug = syntheticTicket.ticketKey;
-    console.log(chalk.yellow(`⚠️ Created synthetic execution context for custom plan ${path.basename(ref.artifactPath)}. Branch naming will use artifact stem "${slug}".`));
+    console.log(chalk.yellow(`⚠ Created synthetic execution context for custom plan ${path.basename(ref.artifactPath)}. Branch naming will use artifact stem "${slug}".`));
     const artifact: PlanArtifact = { plan, action: plan.action, path: ref.artifactPath };
     await this.expandReposFromPlan(ctx, artifact, options?.silent);
     await this.runImplementerLoop(syntheticTicket, artifact, ctx, options, slug);
+  }
+
+  private resolveTicketKey(ctx: ReturnType<IssueImplementCommand['resolveImplementContext']>): string {
+    const key = ctx.ticketKey ?? ctx.resolvedPlanReference?.ticketKey;
+    if (!key) throw new ValidationError('Unable to resolve a ticket key for implementation.');
+    return key;
   }
 
   private async executeTicketMode(
     ctx: ReturnType<IssueImplementCommand['resolveImplementContext']>,
     options?: IssueImplementOptions
   ): Promise<void> {
-    const resolvedTicketKey = ctx.ticketKey ?? ctx.resolvedPlanReference?.ticketKey;
-    if (!resolvedTicketKey) {
-      throw new ValidationError('Unable to resolve a ticket key for implementation.');
-    }
+    const resolvedTicketKey = this.resolveTicketKey(ctx);
     const ticketPath = path.join(ctx.trackerDir, resolvedTicketKey + '.md');
     this.assertTicketExists(ticketPath, ctx.ticketKey, options);
 
@@ -272,11 +275,21 @@ export class IssueImplementCommand extends CommandRunner {
     }
 
     this.logger.info('Implementing ticket ' + resolvedTicketKey + '...');
-    const ticketContent = await fs.promises.readFile(ticketPath, 'utf-8');
-    const ticketArtifact: TicketArtifact = { ticketKey: resolvedTicketKey, content: ticketContent, path: ticketPath };
-    const planArtifact: PlanArtifact = { plan, action: plan.action, path: ref.artifactPath };
+    const [ticketArtifact, planArtifact] = await this.buildTicketArtifacts(
+      resolvedTicketKey, ticketPath, plan, ref.artifactPath
+    );
     await this.expandReposFromPlan(ctx, planArtifact, options?.silent);
     await this.runImplementerLoop(ticketArtifact, planArtifact, ctx, options);
+  }
+
+  private async buildTicketArtifacts(
+    ticketKey: string, ticketPath: string, plan: ResolutionPlan, artifactPath: string
+  ): Promise<[TicketArtifact, PlanArtifact]> {
+    const ticketContent = await fs.promises.readFile(ticketPath, 'utf-8');
+    return [
+      { ticketKey, content: ticketContent, path: ticketPath },
+      { plan, action: plan.action, path: artifactPath },
+    ];
   }
 
   private resolveTicketPlanReference(
@@ -334,7 +347,7 @@ export class IssueImplementCommand extends CommandRunner {
     const implementOpts = this.buildImplementOpts(repo, ctx, options, isMultiRepo, customBranchSlug, planArtifact);
     const result = await this.orchestrator.implementer.execute(ticketArtifact, planArtifact, implementOpts);
     if (result?.type === 'investigation') {
-      console.log(chalk.bold.green('\n✓ Investigation workflow complete — no further stages will run'));
+      console.log(chalk.bold.green('\n✔ Investigation workflow complete — no further stages will run'));
       return true;
     }
     return false;
@@ -503,7 +516,7 @@ export class IssueImplementCommand extends CommandRunner {
     });
     this.dryRunPreview.showSummary({
       apiCallCount: 1, fileCreatedCount: 1, fileModifiedCount: 0, gitOperationCount: 0,
-      terminalOutputLines: [`✓ Investigation findings saved to: ${findingsPath}`],
+      terminalOutputLines: [`✔ Investigation findings saved to: ${findingsPath}`],
     });
     this.dryRunPreview.showValidationResult();
   }
@@ -601,7 +614,7 @@ export class IssueImplementCommand extends CommandRunner {
     const findings = await this.generateFindings(plan);
     await fs.promises.writeFile(findingsPath, JSON.stringify(findings, null, 2), 'utf-8');
     this.printFindings(findings);
-    this.logger.success(`✓ Findings saved to: ${findingsPath}`);
+    this.logger.success(`✔ Findings saved to: ${findingsPath}`);
   }
 
   private async generateFindings(plan: ResolutionPlan): Promise<any> {

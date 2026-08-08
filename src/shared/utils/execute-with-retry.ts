@@ -9,7 +9,7 @@ const toRetryError = (error: unknown): Error => error instanceof Error ? error :
 const shouldRetry = (attempt: number, maxRetries: number): boolean => attempt < maxRetries;
 
 const logRetryAttempt = (attempt: number, currentDelayInMs: number): void => {
-  console.log(chalk.yellow(`\n⚠️  Attempt ${attempt} failed. Retrying in ${currentDelayInMs}ms...`));
+  console.log(chalk.yellow(`\n⚠  Attempt ${attempt} failed. Retrying in ${currentDelayInMs}ms...`));
 };
 
 const processRetryFailure = async (

@@ -342,9 +342,9 @@ export class IssueGenerateCommand extends CommandRunner {
 
   private buildDryRunTerminalLines(options?: IssueGenerateOptions): string[] {
     return [
-      ...(options?.save ? ['✓ Ticket saved to: <tracker-dir>/YYYY-MM-DD-<hash>-ticket-description.<format>'] : []),
-      ...(options?.output ? [`✓ Ticket also saved to: ${path.resolve(options.output)}`] : []),
-      ...(!options?.save && !options?.output ? ['✓ Generated Ticket:', '', '  <ticket content printed to stdout>'] : []),
+      ...(options?.save ? ['✔ Ticket saved to: <tracker-dir>/YYYY-MM-DD-<hash>-ticket-description.<format>'] : []),
+      ...(options?.output ? [`✔ Ticket also saved to: ${path.resolve(options.output)}`] : []),
+      ...(!options?.save && !options?.output ? ['✔ Generated Ticket:', '', '  <ticket content printed to stdout>'] : []),
     ];
   }
 
@@ -400,10 +400,10 @@ export class IssueGenerateCommand extends CommandRunner {
     if (options?.output) {
       const outputPath = path.resolve(options.output);
       fs.writeFileSync(outputPath, output);
-      console.log(silent ? outputPath : `${chalk.green('\n✓ Ticket also saved to:')} ${chalk.cyan(outputPath)}`);
+      console.log(silent ? outputPath : `${chalk.green('\n✔ Ticket also saved to:')} ${chalk.cyan(outputPath)}`);
     }
     if (!options?.save && !options?.output) {
-      if (!silent) console.log(chalk.green('\n✓ Generated Ticket:\n'));
+      if (!silent) console.log(chalk.green('\n✔ Generated Ticket:\n'));
       console.log(output);
     }
 
@@ -421,7 +421,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
     for (const targetRepo of targetRepos) {
       const savedPath = await this.saveTicketLocally(ticket, trackerName, format, sources, targetRepo);
-      console.log(silent ? savedPath : `${chalk.green('\n✓ Ticket saved to:')} ${chalk.cyan(savedPath)}`);
+      console.log(silent ? savedPath : `${chalk.green('\n✔ Ticket saved to:')} ${chalk.cyan(savedPath)}`);
     }
   }
 
@@ -536,13 +536,13 @@ export class IssueGenerateCommand extends CommandRunner {
       const resolved = await this.resolveSourceInputs(source, repos, silent);
       this.assertResolvableSourceSelection(source, resolved, repos);
       if (resolved.length === 0) {
-        if (!silent) console.log(chalk.yellow('    ⚠️ Skipped: no sources selected'));
+        if (!silent) console.log(chalk.yellow('    ⚠ Skipped: no sources selected'));
         return [];
       }
       return this.fetchResolvedSources(resolved, tracker, repos?.[0], silent);
     } catch (error) {
       if (error instanceof UnresolvedSourceError) throw error;
-      if (!silent) console.log(chalk.yellow('    ⚠️ Failed: ' + error.message));
+      if (!silent) console.log(chalk.yellow('    ⚠ Failed: ' + error.message));
       return [];
     }
   }
@@ -554,7 +554,7 @@ export class IssueGenerateCommand extends CommandRunner {
     for (const resolvedSource of resolved) {
       const content = await this.fetchSource(resolvedSource, tracker, repo);
       contents.push(content);
-      if (!silent) console.log(chalk.green('    ✓ Fetched (' + content.type + ')'));
+      if (!silent) console.log(chalk.green('    ✔ Fetched (' + content.type + ')'));
     }
     return contents;
   }
@@ -1149,7 +1149,7 @@ export class IssueGenerateCommand extends CommandRunner {
     return repos.flatMap(repo => {
       const resolvedRepo = this.resolveRepoDirectory(repo);
       if (!resolvedRepo) {
-        console.log(chalk.yellow(`⚠️ Repository '${repo}' not found as a path or sibling directory.`));
+        console.log(chalk.yellow(`⚠ Repository '${repo}' not found as a path or sibling directory.`));
         return [];
       }
 

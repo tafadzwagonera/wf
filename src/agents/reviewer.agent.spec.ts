@@ -93,7 +93,7 @@ describe('ReviewerAgent', () => {
 
   it('skips review when artifact exists and skipExisting is true', async () => {
     jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
-    jest.spyOn(require('fs'), 'readFileSync').mockReturnValue('## Approval Status\n✓ Approved');
+    jest.spyOn(require('fs'), 'readFileSync').mockReturnValue('## Approval Status\n✔ Approved');
 
     const module = await Test.createTestingModule({
       providers: [

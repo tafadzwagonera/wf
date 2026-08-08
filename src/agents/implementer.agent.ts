@@ -203,7 +203,7 @@ export class ImplementerAgent {
     repoFiles = this.filterPhantomRepoFiles(repoFiles, normalizedAffected, repoName, repoDir);
     if (repoFiles.length === 0) {
       console.log(chalk.yellow(
-        '  ⚠️ No planned files to implement — the agent will be fully self-directed with no continuation passes.'
+        '  ⚠ No planned files to implement — the agent will be fully self-directed with no continuation passes.'
       ));
     }
     return repoFiles;
@@ -223,7 +223,7 @@ export class ImplementerAgent {
 
     if (repoName) {
       console.log(chalk.yellow(
-        `  ⚠️ affectedFiles lacks "${repoName}/" prefix — treating all paths as relative to ${repoName}`
+        `  ⚠ affectedFiles lacks "${repoName}/" prefix — treating all paths as relative to ${repoName}`
       ));
     }
     return allFiles;
@@ -297,7 +297,7 @@ export class ImplementerAgent {
 
   private logPhantomPaths(phantomPaths: string[], label: string): void {
     if (phantomPaths.length === 0) return;
-    console.log(chalk.yellow(`  ⚠️ Removed ${phantomPaths.length} nonexistent ${label}:`));
+    console.log(chalk.yellow(`  ⚠ Removed ${phantomPaths.length} nonexistent ${label}:`));
     for (const p of phantomPaths) {
       console.log(chalk.yellow(`      - ${p}`));
     }
@@ -427,7 +427,7 @@ export class ImplementerAgent {
 
   private logTrackedPathDiagnostics(kept: string[], ignored: string[]): void {
     if (ignored.length > 0) {
-      console.log(chalk.yellow(`  ⚠️ Dropped ${ignored.length} gitignored path(s) from tracked files:`));
+      console.log(chalk.yellow(`  ⚠ Dropped ${ignored.length} gitignored path(s) from tracked files:`));
       for (const p of ignored) console.log(chalk.yellow(`      - ${p}`));
     }
 
@@ -453,7 +453,7 @@ export class ImplementerAgent {
       return pkg.scripts ?? {};
     } catch {
       console.log(
-        chalk.yellow(`  ⚠️ Unable to parse ${packageJsonPath}; continuing without package.json alias discovery.`)
+        chalk.yellow(`  ⚠ Unable to parse ${packageJsonPath}; continuing without package.json alias discovery.`)
       );
       return {};
     }
@@ -678,7 +678,7 @@ export class ImplementerAgent {
   }
 
   private logInvestigationResults(artifact: FindingsArtifact, findingsPath: string): void {
-    console.log(chalk.green('\n✓ Investigation complete'));
+    console.log(chalk.green('\n✔ Investigation complete'));
     console.log(chalk.bold('  Summary:'), chalk.bold.cyan(artifact.summary));
 
     if (artifact.findings.length > 0) {

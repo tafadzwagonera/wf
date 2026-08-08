@@ -230,9 +230,9 @@ describe('DryRunPreviewService', () => {
         fileCreatedCount: 0,
         fileModifiedCount: 0,
         gitOperationCount: 0,
-        terminalOutputLines: ['✓ Done'],
+        terminalOutputLines: ['✔ Done'],
       });
-      expect(spy).toHaveBeenCalledWith(['✓ Done']);
+      expect(spy).toHaveBeenCalledWith(['✔ Done']);
     });
 
     it('does not call showTerminalOutput when field is absent', () => {

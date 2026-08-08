@@ -210,7 +210,7 @@ export class ReviewStageService {
   }
 
   private buildApprovalStatusLine(review: CodeReview): string {
-    const status = review.approved ? `✓ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`;
+    const status = review.approved ? `✔ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`;
     return `## Approval Status\n${status}`;
   }
 

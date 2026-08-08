@@ -110,7 +110,7 @@ export class ChatUIService {
     } else if (stage === 'review' && output.summary) {
       console.log(chalk.dim(`Review Summary: ${output.summary}`));
       if (output.approved !== undefined) {
-        const status = output.approved ? `✓ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`;
+        const status = output.approved ? `✔ ${REVIEW_VERDICT_APPROVED}` : `✗ ${REVIEW_VERDICT_CHANGES_REQUESTED}`;
         const color = output.approved ? chalk.green : chalk.red;
         console.log(color(status));
       }
@@ -243,8 +243,8 @@ export class ChatUIService {
    */
   displayChatEnd(filePath: string): void {
     console.log();
-    console.log(chalk.green(`✓ Chat session saved to: ${chalk.bold(filePath)}`));
-    console.log(chalk.green('✓ Resuming workflow...'));
+    console.log(chalk.green(`✔ Chat session saved to: ${chalk.bold(filePath)}`));
+    console.log(chalk.green('✔ Resuming workflow...'));
     console.log();
   }
 
@@ -266,7 +266,7 @@ export class ChatUIService {
    */
   displayWarning(message: string): void {
     console.log();
-    console.log(chalk.yellow(`⚠️ Warning: ${message}`));
+    console.log(chalk.yellow(`⚠ Warning: ${message}`));
     console.log();
   }
 
@@ -277,7 +277,7 @@ export class ChatUIService {
    */
   displayMaxTurnsReached(maxTurns: number): void {
     console.log();
-    console.log(chalk.yellow(`⚠️ Maximum conversation turns (${maxTurns}) reached. Ending chat session.`));
+    console.log(chalk.yellow(`⚠ Maximum conversation turns (${maxTurns}) reached. Ending chat session.`));
     console.log();
   }
 }

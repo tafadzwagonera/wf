@@ -59,128 +59,146 @@ Add per-client rate limiting using a token-bucket algorithm.
 - Per-endpoint rate limits.
 `;
 
-async function testIssueGenerateSlackQuery() {
-  console.log('\n🧪 Manual Test: issue:generate with Slack thread permalink query params\n');
+interface TestCounter { passed: number; failed: number }
 
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error', 'warn'],
-  });
+const pass = (counter: TestCounter, msg: string) => {
+  console.log(`  ✔ ${msg}`);
+  counter.passed++;
+};
 
-  let passed = 0;
-  let failed = 0;
+const fail = (counter: TestCounter, msg: string, detail?: string) => {
+  console.error(`  ✗ ${msg}${detail ? `\n    → ${detail}` : ''}`);
+  counter.failed++;
+};
 
-  const pass = (msg: string) => {
-    console.log(`  ✓ ${msg}`);
-    passed++;
-  };
-
-  const fail = (msg: string, detail?: string) => {
-    console.error(`  ✗ ${msg}${detail ? `\n    → ${detail}` : ''}`);
-    failed++;
-  };
-
-  const slackServicePrototype = SlackService.prototype;
-  let slackFetchCallArgs: [string, string] | null = null;
-  const originalFetchThread = slackServicePrototype.fetchThread.bind(slackServicePrototype);
-  (slackServicePrototype as any).fetchThread = async (channelId: string, threadTs: string) => {
-    slackFetchCallArgs = [channelId, threadTs];
-    return {
-      channelId,
-      threadTs,
-      messages: MOCK_SLACK_MESSAGES,
-    };
-  };
-
-  const aiServicePrototype = AiService.prototype;
-  const originalExecute = aiServicePrototype.execute.bind(aiServicePrototype);
-  let aiCallCount = 0;
-  (aiServicePrototype as any).execute = async () => {
-    aiCallCount++;
-    return { content: MOCK_AI_RESPONSE };
-  };
-
-  let capturedOutput = '';
-  const origWrite = process.stdout.write.bind(process.stdout);
-  (process.stdout.write as any) = (chunk: any) => {
-    capturedOutput += String(chunk);
-    return true;
-  };
-
-  const threadId = EXPECTED_THREAD_TS.replace('.', '-');
-  const artifactDir = path.join(getWfHomeDir(), path.basename(process.cwd()), 'slack');
-  const artifactPath = path.join(artifactDir, `slack-thread-${EXPECTED_CHANNEL_ID}-${threadId}.md`);
-
-  const command = app.get(IssueGenerateCommand);
-
-  try {
-    await command.run([SLACK_PERMALINK], {} as any);
-  } catch {
-    // Ignore — assertions are made on side effects
-  } finally {
-    process.stdout.write = origWrite;
-    slackServicePrototype.fetchThread = originalFetchThread;
-    aiServicePrototype.execute = originalExecute;
+function assertSlackFetchArgs(
+  counter: TestCounter, callArgs: [string, string] | null
+): void {
+  if (callArgs === null) return fail(counter, 'SlackService.fetchThread was NOT called');
+  const [channelId, threadTs] = callArgs;
+  if (channelId === EXPECTED_CHANNEL_ID && threadTs === EXPECTED_THREAD_TS) {
+    return pass(counter, `SlackService.fetchThread called with ('${channelId}', '${threadTs}')`);
   }
+  fail(
+    counter, 'SlackService.fetchThread called with wrong args',
+    `Expected ('${EXPECTED_CHANNEL_ID}', '${EXPECTED_THREAD_TS}') but got ('${channelId}', '${threadTs}')`
+  );
+}
 
-  if (slackFetchCallArgs !== null) {
-    const channelId = slackFetchCallArgs[0];
-    const threadTs = slackFetchCallArgs[1];
-    if (channelId === EXPECTED_CHANNEL_ID && threadTs === EXPECTED_THREAD_TS) {
-      pass(`SlackService.fetchThread called with ('${channelId}', '${threadTs}')`);
-    } else {
-      fail(
-        'SlackService.fetchThread called with wrong args',
-        `Expected ('${EXPECTED_CHANNEL_ID}', '${EXPECTED_THREAD_TS}') but got ('${channelId}', '${threadTs}')`
-      );
-    }
-  } else {
-    fail('SlackService.fetchThread was NOT called');
-  }
-
-  let artifactContent = '';
+function assertArtifactWritten(counter: TestCounter, artifactPath: string): void {
   try {
-    artifactContent = fs.readFileSync(artifactPath, 'utf-8');
+    const content = fs.readFileSync(artifactPath, 'utf-8');
     const expectedLine0 = `[${MOCK_SLACK_MESSAGES[0].ts}] ${MOCK_SLACK_MESSAGES[0].user}: ${MOCK_SLACK_MESSAGES[0].text}`;
     const expectedLine1 = `[${MOCK_SLACK_MESSAGES[1].ts}] ${MOCK_SLACK_MESSAGES[1].user}: ${MOCK_SLACK_MESSAGES[1].text}`;
-    if (artifactContent.includes(expectedLine0) && artifactContent.includes(expectedLine1)) {
-      pass(`Artifact file written at ${artifactPath} with formatted messages`);
-    } else {
-      fail('Artifact file missing expected formatted messages', `Content:\n    ${artifactContent}`);
+    if (content.includes(expectedLine0) && content.includes(expectedLine1)) {
+      return pass(counter, `Artifact file written at ${artifactPath} with formatted messages`);
     }
+    fail(counter, 'Artifact file missing expected formatted messages', `Content:\n    ${content}`);
   } catch {
-    fail(`Artifact file not written at ${artifactPath}`);
+    fail(counter, `Artifact file not written at ${artifactPath}`);
   }
+}
 
-  if (aiCallCount > 0) {
-    pass(`AiService.execute was called (${aiCallCount} time(s))`);
-  } else {
-    fail('AiService.execute was NOT called — synthesis did not run');
-  }
+function assertOutputContainsSummary(counter: TestCounter, output: string): void {
+  if (output.includes('### Summary')) return pass(counter, 'Output contains "### Summary" section');
+  fail(counter, 'Output missing "### Summary" section', `Captured output (first 600 chars):\n    ${output.slice(0, 600)}`);
+}
 
-  if (capturedOutput.includes('### Summary')) {
-    pass('Output contains "### Summary" section');
-  } else {
-    fail(
-      'Output missing "### Summary" section',
-      `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`
-    );
-  }
+function mockSlackService() {
+  let callArgs: [string, string] | null = null;
+  const original = SlackService.prototype.fetchThread.bind(SlackService.prototype);
+  (SlackService.prototype as any).fetchThread = async (channelId: string, threadTs: string) => {
+    callArgs = [channelId, threadTs];
+    return { channelId, threadTs, messages: MOCK_SLACK_MESSAGES };
+  };
+  const restore = () => {
+    SlackService.prototype.fetchThread = original;
+  };
+  return { getCallArgs: () => callArgs, restore };
+}
 
-  try {
-    if (fs.existsSync(artifactPath)) {
-      fs.unlinkSync(artifactPath);
-    }
-  } catch {
-    // Best-effort cleanup
-  }
+function mockAiService() {
+  let callCount = 0;
+  const original = AiService.prototype.execute.bind(AiService.prototype);
+  (AiService.prototype as any).execute = async () => {
+    callCount++;
+    return { content: MOCK_AI_RESPONSE };
+  };
+  const restore = () => {
+    AiService.prototype.execute = original;
+  };
+  return { getCallCount: () => callCount, restore };
+}
 
+function captureStdout() {
+  let output = '';
+  const origWrite = process.stdout.write.bind(process.stdout);
+  (process.stdout.write as any) = (chunk: any) => {
+    output += String(chunk);
+    return true;
+  };
+  const restore = () => {
+    process.stdout.write = origWrite;
+  };
+  return { getOutput: () => output, restore };
+}
+
+function buildArtifactPath(): string {
+  const threadId = EXPECTED_THREAD_TS.replace('.', '-');
+  return path.join(
+    getWfHomeDir(), path.basename(process.cwd()),
+    'slack', `slack-thread-${EXPECTED_CHANNEL_ID}-${threadId}.md`
+  );
+}
+
+function printResults(counter: TestCounter): void {
   console.log('\n' + '━'.repeat(60));
-  console.log(`Results: ${passed} passed   ${failed} failed`);
-  if (failed === 0) console.log('All tests passed! ✓');
+  console.log(`Results: ${counter.passed} passed   ${counter.failed} failed`);
+  if (counter.failed === 0) console.log('All tests passed! ✔');
   console.log('━'.repeat(60) + '\n');
+}
 
+function runAssertions(
+  counter: TestCounter, slack: ReturnType<typeof mockSlackService>,
+  ai: ReturnType<typeof mockAiService>, stdout: ReturnType<typeof captureStdout>,
+  artifactPath: string
+): void {
+  assertSlackFetchArgs(counter, slack.getCallArgs());
+  assertArtifactWritten(counter, artifactPath);
+  if (ai.getCallCount() > 0) pass(counter, `AiService.execute was called (${ai.getCallCount()} time(s))`);
+  else fail(counter, 'AiService.execute was NOT called — synthesis did not run');
+  assertOutputContainsSummary(counter, stdout.getOutput());
+}
+
+function cleanup(artifactPath: string): void {
+  try {
+    fs.unlinkSync(artifactPath);
+  } catch { /* best-effort */ }
+}
+
+async function executeCommand(app: any, mocks: { restore: () => void }[]) {
+  try {
+    await app.get(IssueGenerateCommand).run([SLACK_PERMALINK], {} as any);
+  } catch { /* assertions on side effects */ } finally {
+    for (const m of mocks) m.restore();
+  }
+}
+
+async function testIssueGenerateSlackQuery() {
+  console.log('\n🧪 Manual Test: issue:generate with Slack thread permalink query params\n');
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
+  const counter: TestCounter = { passed: 0, failed: 0 };
+  const slack = mockSlackService();
+  const ai = mockAiService();
+  const stdout = captureStdout();
+
+  await executeCommand(app, [slack, ai, stdout]);
+  const artifactPath = buildArtifactPath();
+  runAssertions(counter, slack, ai, stdout, artifactPath);
+  cleanup(artifactPath);
+  printResults(counter);
   await app.close();
-  if (failed > 0) process.exit(1);
+  if (counter.failed > 0) process.exit(1);
 }
 
 testIssueGenerateSlackQuery();
