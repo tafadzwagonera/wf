@@ -263,6 +263,8 @@ export class PlanStageService {
       action: options.action, ticketKey: ticket.ticketKey,
       affectedRepositories: options.affectedRepositories, onProgress: options.onProgress,
     });
+    const repoDir = options.repoDir ?? process.cwd();
+    this.enrichPlanWithDirectoryConfigs(plan, repoDir);
     const result = this.persistPlanArtifact(
       plan, options.action, artifactDir, planHash, sourceName, options.sourceKind
     );
@@ -302,6 +304,10 @@ export class PlanStageService {
   extractSummary(content: string): string {
     const match = /^#\s+[A-Z]+-\d+:\s+(.+)$/m.exec(content);
     return match ? match[1] : 'Implementation';
+  }
+
+  enrichPlanWithDirectoryConfigs(plan: ResolutionPlan, repoDir: string): void {
+    this.stageAgentService.enrichPlanWithDirectoryConfigs(plan, repoDir);
   }
 
   private readPlan(planPath: string): ResolutionPlan {

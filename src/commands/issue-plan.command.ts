@@ -467,6 +467,7 @@ export class IssuePlanCommand extends CommandRunner {
     this.validateGeneratedPlan(
       plan, baseDir, this.resolveExpectedRepositories(baseDir, options?.repos), detectTestInfra(baseDir)
     );
+    this.planStageService.enrichPlanWithDirectoryConfigs(plan, baseDir);
     return plan;
   }
 

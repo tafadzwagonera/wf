@@ -65,6 +65,7 @@ describe('PlanStageService', () => {
           useValue: {
             isEnabledForStage: jest.fn().mockReturnValue(agentEnabled),
             generatePlan: jest.fn().mockResolvedValue({ plan: mockPlan, sessionId: undefined }),
+            enrichPlanWithDirectoryConfigs: jest.fn(),
           },
         },
         {
@@ -627,6 +628,23 @@ describe('PlanStageService', () => {
       writePlanArtifactManifest(manifest);
       return { planPath, plan, hash };
     };
+
+    it('calls enrichPlanWithDirectoryConfigs after generating plan', async () => {
+      const { service, stageAgentService } = await buildService(true);
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-enrichment-'));
+      const ticketPath = path.join(tempDir, 'TEST-ENRICH.md');
+      fs.writeFileSync(ticketPath, '# TEST-ENRICH: Test');
+
+      await service.createPlanArtifact(
+        { ticketKey: 'TEST-ENRICH', content: '# TEST-ENRICH: Test', path: ticketPath },
+        { action: 'fix' }
+      );
+
+      expect(stageAgentService.enrichPlanWithDirectoryConfigs).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(String)
+      );
+    });
 
     it('createPlanArtifact returns cached plan without prompting when actions match', async () => {
       const { service } = await buildService();
@@ -1214,6 +1232,17 @@ describe('PlanStageService', () => {
         '# WBP-EMPTY: Test',
         expect.objectContaining({ skillNames: undefined })
       );
+    });
+  });
+
+  describe('enrichPlanWithDirectoryConfigs', () => {
+    it('delegates to stageAgentService.enrichPlanWithDirectoryConfigs', async () => {
+      const { service, stageAgentService } = await buildService();
+      const plan = { summary: 'test', steps: [], estimatedComplexity: 'low', affectedRepositories: ['wf'] } as any;
+
+      service.enrichPlanWithDirectoryConfigs(plan, '/repos/wf');
+
+      expect(stageAgentService.enrichPlanWithDirectoryConfigs).toHaveBeenCalledWith(plan, '/repos/wf');
     });
   });
 });

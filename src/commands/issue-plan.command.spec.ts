@@ -97,6 +97,7 @@ async function buildCommand(): Promise<{
         provide: PlanStageService,
         useValue: {
           generatePlan: jest.fn(),
+          enrichPlanWithDirectoryConfigs: jest.fn(),
         },
       },
       {
@@ -1266,5 +1267,50 @@ describe('IssuePlanCommand', () => {
 
     exitSpy.mockRestore();
     consoleErrorSpy.mockRestore();
+  });
+
+  it('calls planStageService.enrichPlanWithDirectoryConfigs after validateGeneratedPlan', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-TEST',
+      content: '# WBP-TEST: Test\n\n## Description\n\nTest enrichment',
+      path: '/tmp/.wf/repo-a/jira/WBP-TEST.md',
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-TEST',
+      content: '# WBP-TEST: Test\n\n## Description\n\nTest enrichment',
+      path: '/tmp/.wf/repo-a/jira/WBP-TEST.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix',
+        summary: 'Test',
+        estimatedComplexity: 'low',
+        steps: ['Test'],
+        affectedFiles: ['repo-a/src/test.ts'],
+        affectedRepositories: ['repo-a'],
+      },
+      sessionId: undefined,
+    });
+
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    cwdSpy.mockReturnValue(mockCwd);
+
+    await command.run([], {
+      ticketKey: 'WBP-TEST',
+      action: 'fix',
+      repos: ['repo-a'],
+    });
+
+    expect(planStageService.enrichPlanWithDirectoryConfigs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'fix',
+        summary: 'Test',
+      }),
+      expect.any(String),
+    );
+
+    writeFileSpy.mockRestore();
   });
 });
