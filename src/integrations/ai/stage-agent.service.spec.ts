@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { StageAgentService } from './stage-agent.service';
 import { ExecutionError } from '../../shared/utils/errors';
+import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
 
 jest.mock('./adapters/claude-cli-runner', () => ({
   assertClaudeCliAvailable: jest.fn(),
@@ -17,6 +18,17 @@ jest.mock('./adapters/codex-cli-runner', () => ({
 const { spawnCli }: { spawnCli: jest.Mock } = jest.requireMock('./adapters/claude-cli-runner');
 const { spawnCodex }: { spawnCodex: jest.Mock } = jest.requireMock('./adapters/codex-cli-runner');
 const { buildCliArgs }: { buildCliArgs: jest.Mock } = jest.requireMock('./adapters/claude-cli-runner');
+const mockDiscoverDirAgentConfigs = discoverDirAgentConfigs as jest.MockedFunction<typeof discoverDirAgentConfigs>;
+
+jest.mock('./adapters/discover-dir-agent-configs', () => ({
+  discoverDirAgentConfigs: jest.fn().mockReturnValue([]),
+  PROVIDER_CONFIG_FILENAMES: {
+    anthropic: 'CLAUDE.md',
+    openai: 'AGENTS.md',
+    google: 'GEMINI.md',
+    deepseek: 'DEEPSEEK.md',
+  },
+}));
 
 describe('StageAgentService', () => {
   const createConfigService = (): ConfigService =>
@@ -1722,5 +1734,122 @@ describe('StageAgentService', () => {
     expect(mockRunStagePrompt).toHaveBeenCalledWith(expect.objectContaining({ onProgress }));
 
     jest.restoreAllMocks();
+  });
+
+  describe('enrichPlanWithDirectoryConfigs', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('appends discovered config paths to plan.affectedFilesContext', () => {
+      const config = createConfigService();
+      const service = new StageAgentService(config);
+      const plan: any = {
+        summary: 'test',
+        steps: [],
+        estimatedComplexity: 'low',
+        affectedFiles: [{ filePath: 'wf/src/agents/planner.ts', status: 'found' }],
+        affectedRepositories: ['wf'],
+        affectedFilesContext: [],
+      };
+      mockDiscoverDirAgentConfigs.mockReturnValue([
+        { filePath: 'wf/src/agents/CLAUDE.md', status: 'found' },
+      ]);
+
+      service.enrichPlanWithDirectoryConfigs(plan, '/repos/wf');
+
+      expect(plan.affectedFilesContext).toContainEqual({
+        filePath: 'wf/src/agents/CLAUDE.md',
+        status: 'found',
+      });
+    });
+
+    it('does not duplicate paths already in affectedFilesContext', () => {
+      const config = createConfigService();
+      const service = new StageAgentService(config);
+      const existing = { filePath: 'wf/src/agents/CLAUDE.md', status: 'found' as const };
+      const plan: any = {
+        summary: 'test',
+        steps: [],
+        estimatedComplexity: 'low',
+        affectedFiles: [{ filePath: 'wf/src/agents/planner.ts', status: 'found' }],
+        affectedRepositories: ['wf'],
+        affectedFilesContext: [existing],
+      };
+      mockDiscoverDirAgentConfigs.mockReturnValue([existing]);
+
+      service.enrichPlanWithDirectoryConfigs(plan, '/repos/wf');
+
+      const matches = plan.affectedFilesContext.filter(
+        (e: any) => e.filePath === 'wf/src/agents/CLAUDE.md',
+      );
+      expect(matches).toHaveLength(1);
+    });
+
+    it('uses implement stage provider from config for filename resolution', () => {
+      const config = {
+        get: jest.fn((key: string) =>
+          key === 'stages.implement.provider' ? 'openai' : undefined,
+        ),
+      } as unknown as ConfigService;
+      const service = new StageAgentService(config);
+      const plan: any = {
+        summary: 'test',
+        steps: [],
+        estimatedComplexity: 'low',
+        affectedFiles: [{ filePath: 'wf/src/commands/plan.ts', status: 'found' }],
+        affectedRepositories: ['wf'],
+        affectedFilesContext: [],
+      };
+      mockDiscoverDirAgentConfigs.mockReturnValue([]);
+
+      service.enrichPlanWithDirectoryConfigs(plan, '/repos/wf');
+
+      expect(mockDiscoverDirAgentConfigs).toHaveBeenCalledWith(
+        expect.any(Array),
+        'openai',
+        expect.any(String),
+      );
+    });
+
+    it('is a no-op when no config files are found', () => {
+      const config = createConfigService();
+      const service = new StageAgentService(config);
+      const plan: any = {
+        summary: 'test',
+        steps: [],
+        estimatedComplexity: 'low',
+        affectedFiles: [],
+        affectedRepositories: ['wf'],
+        affectedFilesContext: [{ filePath: 'wf/package.json', status: 'found' }],
+      };
+      mockDiscoverDirAgentConfigs.mockReturnValue([]);
+
+      service.enrichPlanWithDirectoryConfigs(plan, '/repos/wf');
+
+      expect(plan.affectedFilesContext).toHaveLength(1);
+    });
+
+    it('initializes affectedFilesContext as [] when originally undefined', () => {
+      const config = createConfigService();
+      const service = new StageAgentService(config);
+      const plan: any = {
+        summary: 'test',
+        steps: [],
+        estimatedComplexity: 'low',
+        affectedFiles: [{ filePath: 'wf/src/agents/planner.ts', status: 'found' }],
+        affectedRepositories: ['wf'],
+        affectedFilesContext: undefined,
+      };
+      mockDiscoverDirAgentConfigs.mockReturnValue([
+        { filePath: 'wf/src/agents/CLAUDE.md', status: 'found' },
+      ]);
+
+      service.enrichPlanWithDirectoryConfigs(plan, '/repos/wf');
+
+      expect(plan.affectedFilesContext).toEqual([
+        { filePath: 'wf/src/agents/CLAUDE.md', status: 'found' },
+      ]);
+    });
   });
 });

@@ -13,6 +13,7 @@ import { formatProgressMessage as formatAnthropicProgressMessage } from './adapt
 import { formatProgressMessage as formatOpenAiProgressMessage } from './adapters/openai-agent.adapter';
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
+import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 import { DEFAULT_STALL_THRESHOLD } from './adapters/verification-report';
 import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
@@ -26,6 +27,7 @@ import type { WfBackendMode } from '../../config/public-config';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import {
   CodeReview,
+  normalizeFileEntries,
   parseJsonResponse,
   requireAiResponseContent,
   requireReviewResponseContent,
@@ -36,6 +38,7 @@ import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import { AIError, ExecutionError, isAIErrorLike } from '../../shared/utils/errors';
 import type { TestInfraContext } from '../../shared/types/detection.types';
+import type { WfAiProviderName } from '../../shared/types/config.types';
 import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 import {
@@ -1086,6 +1089,34 @@ export class StageAgentService {
   isEnabledForStage(stage: AgentStageName): boolean {
     const backend = this.resolveStageBackend(stage);
     return backend === 'agent' || backend === 'cli';
+  }
+
+  enrichPlanWithDirectoryConfigs(plan: ResolutionPlan, repoDir: string): void {
+    const provider = (
+      this.configService.get<string>('stages.implement.provider')
+      ?? this.configService.get<string>('ai.provider')
+      ?? 'anthropic'
+    ) as WfAiProviderName;
+
+    const affectedPaths = normalizeFileEntries(plan.affectedFiles ?? []).map(e => e.filePath);
+    const contextPaths = normalizeFileEntries(plan.affectedFilesContext ?? []).map(e => e.filePath);
+
+    const discovered = discoverDirAgentConfigs(
+      [...affectedPaths, ...contextPaths],
+      provider,
+      path.dirname(repoDir),
+    );
+
+    if (discovered.length === 0) return;
+
+    const existingPaths = new Set(contextPaths);
+    const newEntries = discovered.filter(e => !existingPaths.has(e.filePath));
+
+    if (newEntries.length === 0) return;
+
+    if (!plan.affectedFilesContext) plan.affectedFilesContext = [];
+    plan.affectedFilesContext.push(...newEntries);
+    console.log(chalk.cyan(`  Discovered ${newEntries.length} per-directory agent config(s)`));
   }
 
   async generatePlan(params: GeneratePlanParams & {
