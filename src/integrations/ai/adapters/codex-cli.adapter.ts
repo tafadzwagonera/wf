@@ -429,8 +429,9 @@ export class CodexCliAdapter implements ImplementerBackend {
   }
 
   private evaluateVerificationPass(
-    scripts: VerificationScript[], repoDir: string,
+    scripts: VerificationScript[], repoDir: string, passNumber: number,
   ): { outcomes: VerificationOutcome[]; codeFailures: VerificationOutcome[] } {
+    console.log(chalk.bold(`\n  Running verification (pass ${passNumber})...`));
     const outcomes = runProgrammaticVerification(scripts, repoDir);
     const { codeFailures, commandFailures } = partitionFailures(getEnforcedFailures(outcomes));
     for (const cf of commandFailures) {
@@ -460,16 +461,16 @@ export class CodexCliAdapter implements ImplementerBackend {
   private async runProgrammaticVerificationLoop(p: CodexVerificationLoopParams): Promise<VerificationOutcome[]> {
     let prevFails = Infinity, stalled = 0, passNumber = 0, { sessionId } = p;
     const ctx = this.buildBaseStreamContext(p.params, p.activityState, p.touchedFiles, p.repoDir);
-    while (true) {
-      console.log(chalk.bold(`\n  Running verification (pass ${++passNumber})...`));
-      const { outcomes, codeFailures } = this.evaluateVerificationPass(p.params.verificationScripts, p.repoDir);
-      if (codeFailures.length === 0 || !sessionId) return outcomes;
-      stalled = checkVerificationStall(codeFailures.length, prevFails, stalled, CODEX_ADAPTER_LABEL);
-      if (stalled === -1) return outcomes;
-      prevFails = codeFailures.length;
+    const verify = () => this.evaluateVerificationPass(p.params.verificationScripts, p.repoDir, ++passNumber);
+    let { outcomes, codeFailures } = verify();
+    while (codeFailures.length > 0 && sessionId) {
       const fix = await this.attemptCodexFix(ctx, p, passNumber, sessionId, codeFailures);
-      if (!fix.wrote) return outcomes;
-      sessionId = fix.sessionId;
+      if (!(sessionId = fix.sessionId) || !fix.wrote) continue;
+      ({ outcomes, codeFailures } = verify());
+      stalled = checkVerificationStall(codeFailures.length, prevFails, stalled, CODEX_ADAPTER_LABEL);
+      if (stalled === -1) break;
+      prevFails = codeFailures.length;
     }
+    return outcomes;
   }
 }

@@ -1,0 +1,44 @@
+Manual smoke test: verification loop exits when session ends during read-only pass
+
+Scenario: The verification loop must exit cleanly when the CLI session ends
+(sessionId becomes undefined) during a read-only fix pass. The inline
+assignment `if (!(sessionId = fix.sessionId) || !fix.wrote) continue`
+updates sessionId before the continue. The while condition
+`codeFailures.length > 0 && sessionId` then evaluates sessionId as
+undefined, causing the loop to terminate and return the last known outcomes.
+
+Config under test:
+  ai: [{ provider: 'anthropic', default: true }]
+  stages: {
+    implement: {
+      provider: 'anthropic',
+      backend: 'cli',
+      verificationConditions: ['yarn typecheck']
+    }
+  }
+
+Preconditions:
+  - A target repo with a type error that requires multiple fix attempts
+  - A plan artifact directing the agent to fix the issue
+  - ANTHROPIC_API_KEY set in environment
+  - Constrained token budget or max_turns to force session exhaustion
+    before the fix completes (e.g. a very small model context or a
+    deliberately complex type error)
+
+Verify:
+  1. wf issue:implement runs against the target repo
+  2. Initial verification detects the type error
+  3. The agent enters the fix loop and eventually exhausts its session
+     (the CLI returns a result without a session_id)
+  4. Console does NOT show "Running verification (pass N)..." after the
+     session-ending fix pass — re-verification is skipped because the
+     session is gone
+  5. The command exits gracefully with the last verification outcomes,
+     not with an unhandled error or infinite loop
+  6. The .wf/state/ artifact records the final verification outcomes
+
+Wire up: create a minimal target repo with a complex type error that the
+agent cannot fix in a single short session. Configure a tight token budget
+to force session exhaustion. Run `wf issue:implement -t TEST-1` and observe
+the exit sequence.
+Teardown: delete the temporary target repo.

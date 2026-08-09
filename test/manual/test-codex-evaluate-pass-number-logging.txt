@@ -1,0 +1,40 @@
+Manual smoke test: codex evaluateVerificationPass logs pass number internally
+
+Scenario: The codex adapter's evaluateVerificationPass previously did not
+accept a passNumber parameter — the caller logged the pass number inline
+before calling the method. After the alignment change, the method accepts
+passNumber and logs "Running verification (pass N)..." internally, matching
+the claude adapter's pattern. This eliminates duplicated logging when the
+loop is restructured.
+
+Config under test:
+  ai: [{ provider: 'openai', default: true }]
+  stages: {
+    implement: {
+      provider: 'openai',
+      backend: 'codex-cli',
+      verificationConditions: ['echo ok']
+    }
+  }
+
+Preconditions:
+  - A target repo with a trivial change (no real failures expected)
+  - A plan artifact with a single-file change
+  - OPENAI_API_KEY set in environment
+  - Codex CLI installed and available on PATH
+
+Verify:
+  1. wf issue:implement runs against the target repo using codex backend
+  2. Console shows "Running verification (pass 1)..." exactly once for the
+     initial verification — not duplicated
+  3. The pass number in the log message is a concrete integer, never
+     "undefined" or "NaN"
+  4. If the verification triggers a fix loop, subsequent passes show
+     incrementing pass numbers: "pass 2", "pass 3", etc.
+  5. The codex adapter's log prefix matches the claude adapter's format
+     exactly: bold text, "\n  Running verification (pass N)..."
+
+Wire up: create a minimal target repo, configure codex as the backend, run
+`wf issue:implement -t TEST-1`, and inspect console output for the
+verification pass log lines.
+Teardown: delete the temporary target repo.

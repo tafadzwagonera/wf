@@ -585,19 +585,19 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   }
 
   private async runProgrammaticVerificationLoop(
-    p: ContinuationLoopParams, sessionId: string | undefined,
-  ): Promise<VerificationOutcome[]> {
+    p: ContinuationLoopParams, sessionId: string | undefined): Promise<VerificationOutcome[]> {
     let prevFails = Infinity, stalled = 0, passNumber = 0;
-    while (true) {
-      const { outcomes, codeFailures } = this.evaluateVerificationPass(p.verificationScripts, p.repoDir, ++passNumber);
-      if (codeFailures.length === 0 || !sessionId) return outcomes;
-      stalled = checkVerificationStall(codeFailures.length, prevFails, stalled, CLI_ADAPTER_LABEL);
-      if (stalled === -1) return outcomes;
-      prevFails = codeFailures.length;
+    const verify = () => this.evaluateVerificationPass(p.verificationScripts, p.repoDir, ++passNumber);
+    let { outcomes, codeFailures } = verify();
+    while (codeFailures.length > 0 && sessionId) {
       const fix = await this.attemptVerificationFix(p, passNumber, sessionId, codeFailures);
-      if (!fix.wrote) return outcomes;
-      sessionId = fix.sessionId;
+      if (!(sessionId = fix.sessionId) || !fix.wrote) continue;
+      ({ outcomes, codeFailures } = verify());
+      stalled = checkVerificationStall(codeFailures.length, prevFails, stalled, CLI_ADAPTER_LABEL);
+      if (stalled === -1) break;
+      prevFails = codeFailures.length;
     }
+    return outcomes;
   }
 
   private async runContinuationLoop(p: ContinuationLoopParams): Promise<string | undefined> {
