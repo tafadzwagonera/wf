@@ -58,7 +58,7 @@ jest.mock('inquirer', () => ({
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { CommandMeta } from 'nest-commander/src/constants';
-import { IssueCommand } from './issue.command';
+import { IssueCommand, shouldForkReviewSession, FORK_PASS_THRESHOLD } from './issue.command';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -2423,6 +2423,40 @@ describe('IssueCommand', () => {
       expect(commitSpy).toHaveBeenCalledWith(
         expect.anything(), expect.anything(), ['repoA', 'newRepo'], expect.anything()
       );
+    });
+  });
+
+  describe('shouldForkReviewSession', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('returns true when estimatedComplexity is high and a session exists', () => {
+      expect(shouldForkReviewSession('high', undefined, 'session-123')).toBe(true);
+    });
+
+    it('returns true when passCount exceeds FORK_PASS_THRESHOLD and a session exists', () => {
+      expect(shouldForkReviewSession('medium', FORK_PASS_THRESHOLD + 1, 'session-123')).toBe(true);
+    });
+
+    it('returns false when passCount equals FORK_PASS_THRESHOLD (not strictly greater)', () => {
+      expect(shouldForkReviewSession('medium', FORK_PASS_THRESHOLD, 'session-123')).toBe(false);
+    });
+
+    it('returns false when passCount is below FORK_PASS_THRESHOLD', () => {
+      expect(shouldForkReviewSession('medium', 3, 'session-123')).toBe(false);
+    });
+
+    it('returns false when complexity is low and passCount is undefined', () => {
+      expect(shouldForkReviewSession('low', undefined, 'session-123')).toBe(false);
+    });
+
+    it('returns false when resumeSessionId is undefined regardless of complexity', () => {
+      expect(shouldForkReviewSession('high', undefined, undefined)).toBe(false);
+    });
+
+    it('returns true at the passCount boundary one above threshold', () => {
+      expect(shouldForkReviewSession('medium', 6, 'session-123')).toBe(true);
     });
   });
 });

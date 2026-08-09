@@ -1338,6 +1338,7 @@ describe('StageAgentService', () => {
           appendSystemPrompt:
             'You are an expert code reviewer providing constructive feedback.\n'
             + 'You may inspect repository files with read-only tools before answering.\n'
+            + 'Return your response as a JSON object matching the CodeReview interface.\n'
             + 'Focus on code quality, bugs, security, and the changed execution path.\n'
             + 'Ignore JSON or markdown files under .wf/ and tracker artifact directories.',
           model: 'claude-sonnet-4-5-20250514',
@@ -1664,7 +1665,7 @@ describe('StageAgentService', () => {
         }),
       }) as unknown as ConfigService;
 
-    it('review stage CLI call does not pass a jsonSchema', async () => {
+    it('review stage CLI call passes a jsonSchema for structured output', async () => {
       buildCliArgs.mockClear();
       spawnCli
         .mockImplementationOnce(async function* () {
@@ -1693,7 +1694,7 @@ describe('StageAgentService', () => {
       await service.reviewCode('diff --git a/f b/f', [], '/tmp/repo');
 
       const mainCallArgs = buildCliArgs.mock.calls[0];
-      expect((mainCallArgs[0] as Record<string, unknown>).jsonSchema).toBeUndefined();
+      expect((mainCallArgs[0] as Record<string, unknown>).jsonSchema).toBeDefined();
     });
 
     it('tryFinalizeCliPass accepts valid JSON result on plan stage', () => {

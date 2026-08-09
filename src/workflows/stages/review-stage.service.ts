@@ -42,6 +42,7 @@ interface ReviewDiffOptions {
   repoDir?: string;
   priorStageSummary?: string;
   resumeProviderSessionId?: string;
+  forkSession?: boolean;
   onProgress?: StageProgressCallback;
   skillNames?: string[];
 }
@@ -123,13 +124,13 @@ export class ReviewStageService {
     return this.reviewViaAgent(diff, guidelines, { ...options, skillNames });
   }
 
-  private async reviewViaAgent(
-    diff: string, guidelines: string[], options: ReviewDiffOptions
+  private async reviewViaAgent(diff: string, guidelines: string[], options: ReviewDiffOptions
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     try {
       const result = await this.stageAgentService.reviewCode(
         diff, guidelines, options.repoDir, options.priorStageSummary,
-        options.resumeProviderSessionId, options.onProgress, options.skillNames
+        options.resumeProviderSessionId, options.onProgress,
+        { skillNames: options.skillNames, forkSession: options.forkSession }
       );
       return { review: result.review, sessionId: result.sessionId };
     } catch (error) {

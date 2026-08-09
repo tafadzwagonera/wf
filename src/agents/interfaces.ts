@@ -28,7 +28,7 @@ export type {
 } from '../shared/types/agent.types';
 
 export type ImplementerResult
-  = | { type: 'implementation'; hasChanges: boolean; branchName: string | null; sessionId?: string; verificationOutcomes: VerificationOutcome[] }
+  = | { type: 'implementation'; hasChanges: boolean; branchName: string | null; sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount?: number }
     | { type: 'investigation'; artifact: FindingsArtifact };
 
 export interface FetcherOptions {
@@ -56,6 +56,7 @@ export interface ReviewerOptions {
   silent?: boolean;
   resumeProviderSessionId?: string;
   priorStageSummary?: string;
+  forkSession?: boolean;
   onProgress?: (line: string) => void;
 }
 
@@ -76,5 +77,5 @@ export interface ImplementerBackend {
     trackedFilePaths: string[];
     conventionsSection?: string;
     skillNames?: string[];
-  }): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }>;
+  }): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount?: number }>;
 }

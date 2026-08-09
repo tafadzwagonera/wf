@@ -1379,22 +1379,23 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       jest.restoreAllMocks();
     });
 
-    it('throws AIError when LLM response is missing suggestions field', async () => {
+    it('throws AIError when LLM response is missing suggestions field and retry cannot fix it', async () => {
       const adapter = createAdapter();
-      adapter.execute.mockResolvedValueOnce({
-        content: JSON.stringify({
-          summary: 'Review summary',
-          issues: [],
-          approved: true,
-          // Missing suggestions field
-        }),
+      const invalidContent = JSON.stringify({
+        summary: 'Review summary',
+        issues: [],
+        approved: true,
+        // Missing suggestions field
+      });
+      adapter.execute.mockResolvedValue({
+        content: invalidContent,
         provider: 'openai',
         model: 'gpt-5.4',
       });
       const service = new AiService(mockLogger, adapter, createConfigService());
 
       await expect(service.reviewCode('diff', ['guideline'])).rejects.toMatchObject({
-        message: expect.stringContaining('Review JSON lacks required top-level fields'),
+        message: expect.stringContaining('Review JSON could not be corrected'),
       });
     });
 
@@ -1580,16 +1581,62 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(adapter.execute).not.toHaveBeenCalled();
     });
 
-    it('throws AIError immediately when the JSON lacks required top-level fields', async () => {
+    it('corrects review JSON with missing top-level fields via retry', async () => {
       const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: 'Recovered',
+          issues: [],
+          suggestions: [],
+          approved: true,
+        }),
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
       const service = new AiService(mockLogger, adapter, createConfigService());
       const rawJson = JSON.stringify({ message: 'unexpected shape' });
 
-      await expect(service.validateReviewJson(rawJson, 'diff')).rejects.toMatchObject({
-        message: 'Review JSON lacks required top-level fields (summary, issues, suggestions, approved)',
+      const review = await service.validateReviewJson(rawJson, 'diff');
+
+      expect(review.approved).toBe(true);
+      expect(review.summary).toBe('Recovered');
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('corrects review JSON where approved is named verdict via retry', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: 'Good',
+          issues: [],
+          suggestions: [],
+          approved: true,
+        }),
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const rawJson = JSON.stringify({ summary: 'Good', issues: [], suggestions: [], verdict: true });
+
+      const review = await service.validateReviewJson(rawJson, 'diff');
+
+      expect(review.approved).toBe(true);
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws AIError when retries are exhausted on completely unparseable input', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValue({
+        content: 'not json at all',
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(service.validateReviewJson('not json at all', 'diff')).rejects.toMatchObject({
+        message: expect.stringContaining('could not be corrected'),
         category: 'parse',
       });
-      expect(adapter.execute).not.toHaveBeenCalled();
     });
 
     it('corrects invalid JSON via one retry and returns the fixed review', async () => {
@@ -1685,8 +1732,20 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(adapter.execute).not.toHaveBeenCalled();
     });
 
-    it('throws AIError immediately when required top-level fields are missing', async () => {
+    it('corrects plan JSON with missing action field via retry', async () => {
       const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Missing action recovered',
+          steps: ['Step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: ['repo/src/file.ts'],
+          affectedRepositories: ['repo'],
+        }),
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
       const service = new AiService(mockLogger, adapter, createConfigService());
       const rawJson = JSON.stringify({
         summary: 'Missing action',
@@ -1694,11 +1753,11 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
         estimatedComplexity: 'low',
       });
 
-      await expect(service.validatePlanJson(rawJson)).rejects.toMatchObject({
-        message: 'Plan JSON lacks required top-level fields (action, summary, steps)',
-        category: 'parse',
-      });
-      expect(adapter.execute).not.toHaveBeenCalled();
+      const plan = await service.validatePlanJson(rawJson);
+
+      expect(plan.action).toBe('fix');
+      expect(plan.summary).toBe('Missing action recovered');
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
     });
 
     it('corrects invalid JSON via one retry and returns the fixed plan', async () => {

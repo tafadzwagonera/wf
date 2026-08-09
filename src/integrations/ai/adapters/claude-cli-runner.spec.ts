@@ -164,6 +164,45 @@ describe('claude-cli-runner', () => {
       expect(args).toContain('session-123');
     });
 
+    it('includes --fork-session after --resume when forkSession is true and sessionId is set', () => {
+      const args = buildCliArgs({
+        prompt: 'test',
+        model: 'claude-sonnet-4-6',
+        cwd: '/repo',
+        sessionId: 'session-123',
+        forkSession: true,
+      });
+
+      expect(args).toContain('--resume');
+      expect(args).toContain('session-123');
+      expect(args).toContain('--fork-session');
+      const resumeIdx = args.indexOf('--resume');
+      const forkIdx = args.indexOf('--fork-session');
+      expect(forkIdx).toBeGreaterThan(resumeIdx);
+    });
+
+    it('omits --fork-session when forkSession is true but sessionId is absent', () => {
+      const args = buildCliArgs({
+        prompt: 'test',
+        model: 'claude-sonnet-4-6',
+        cwd: '/repo',
+        forkSession: true,
+      });
+
+      expect(args).not.toContain('--fork-session');
+    });
+
+    it('omits --fork-session when forkSession is undefined and sessionId is set', () => {
+      const args = buildCliArgs({
+        prompt: 'test',
+        model: 'claude-sonnet-4-6',
+        cwd: '/repo',
+        sessionId: 'session-123',
+      });
+
+      expect(args).not.toContain('--fork-session');
+    });
+
     it('includes allowedTools when tools are specified', () => {
       const args = buildCliArgs({
         prompt: 'test',

@@ -81,6 +81,18 @@ const STAGE_ORDER = [
   WorkflowStage.COMMIT,
 ];
 
+export const FORK_PASS_THRESHOLD = 5;
+
+export const shouldForkReviewSession = (
+  estimatedComplexity: string | undefined,
+  passCount: number | undefined,
+  resumeSessionId: string | undefined
+): boolean => {
+  if (!resumeSessionId) return false;
+  if (estimatedComplexity === 'high') return true;
+  return passCount !== undefined && passCount > FORK_PASS_THRESHOLD;
+};
+
 interface IssueOptions {
   action?: string;
   branch?: boolean;
@@ -1345,18 +1357,35 @@ export class IssueCommand extends CommandRunner {
     implementerResult: ImplementerResult | undefined,
     ticketKey: string
   ): Promise<{ reviewArtifact: ReviewArtifact | null; sessionState: SessionState | undefined }> {
-    const implSessionId = implementerResult?.type === 'implementation' ? implementerResult.sessionId : undefined;
-    const prepared = await this.prepareReviewSession(sessionState, implSessionId);
+    const { prepared, forkSession } = await this.resolveReviewFork(sessionState, implementerResult, planArtifact);
     sessionState = prepared.sessionState;
     this.printStageHeader(repos.length > 1, options?.silent, '🔍 STAGE 4: Code Review');
-
     const reviewArtifact = await this.runReviewLoop(
-      ticketArtifact, planArtifact, repos, options, prepared.sessionContext, ticketKey
+      ticketArtifact, planArtifact, repos, options, { ...prepared.sessionContext, forkSession }, ticketKey
     );
-
     sessionState = await this.recordReviewProviderSession(sessionState, reviewArtifact);
     sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'review', null);
     return { reviewArtifact, sessionState };
+  }
+
+  /**
+   * @param sessionState - current workflow session state
+   * @param implementerResult - result from the implement stage (passCount, sessionId)
+   * @param planArtifact - plan artifact carrying estimatedComplexity
+   * @returns prepared session context and whether the review CLI session should be forked
+   */
+  private async resolveReviewFork(
+    sessionState: SessionState | undefined,
+    implementerResult: ImplementerResult | undefined,
+    planArtifact: PlanArtifact | undefined,
+  ): Promise<{ prepared: StageSessionResult; forkSession: boolean }> {
+    const implId = implementerResult?.type === 'implementation' ? implementerResult.sessionId : undefined;
+    const prepared = await this.prepareReviewSession(sessionState, implId);
+    const passCount = implementerResult?.type === 'implementation' ? implementerResult.passCount : undefined;
+    const forkSession = shouldForkReviewSession(
+      planArtifact?.plan.estimatedComplexity, passCount, prepared.sessionContext.resumeProviderSessionId
+    );
+    return { prepared, forkSession };
   }
 
   private async recordReviewProviderSession(
@@ -1380,7 +1409,7 @@ export class IssueCommand extends CommandRunner {
   private async runReviewLoop(
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact | undefined,
     repos: (string | undefined)[], options: IssueOptions,
-    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string },
+    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string; forkSession?: boolean },
     ticketKey: string
   ): Promise<ReviewArtifact | null> {
     const isMultiRepo = repos.length > 1;

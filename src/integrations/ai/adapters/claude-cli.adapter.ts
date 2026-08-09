@@ -482,7 +482,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   async generateAndVerify(
     params: GenerateAndVerifyParams,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number }> {
     assertClaudeCliAvailable();
     return this.runCliSession(await this.buildCliSessionParams(params));
   }
@@ -509,7 +509,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   private async runCliSession(
     p: CliSessionParams,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number }> {
     const cliArgs = buildImplementCliArgs(p);
     console.log(chalk.bold.cyan(`\n  [${CLI_ADAPTER_LABEL}] Running CLI agent in ${p.repoDir}...`));
     const touchedFiles = new Set<string>();
@@ -525,12 +525,12 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   private async finalizeCliSession(
     p: ContinuationLoopParams,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
-    const sessionId = await this.runContinuationLoop(p);
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number }> {
+    const { sessionId, passCount } = await this.runContinuationLoop(p);
     this.logFileSummary(p.touchedFiles);
     const verificationOutcomes = await this.runProgrammaticVerificationLoop(p, sessionId);
     printVerificationReport(verificationOutcomes);
-    return { sessionId, verificationOutcomes };
+    return { sessionId, verificationOutcomes, passCount };
   }
 
   private logFileSummary(touchedFiles: Set<string>): void {
@@ -600,10 +600,10 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     return outcomes;
   }
 
-  private async runContinuationLoop(p: ContinuationLoopParams): Promise<string | undefined> {
-    let previousWorkload = Infinity;
-    let stalledPasses = 0;
-    let passNumber = 0;
+  private async runContinuationLoop(
+    p: ContinuationLoopParams,
+  ): Promise<{ sessionId: string | undefined; passCount: number }> {
+    let previousWorkload = Infinity, stalledPasses = 0, passNumber = 0;
     let sessionId = p.sessionId;
     while (sessionId) {
       const currentUnvisited = computeUnvisitedFiles(p.repoFiles, p.repoName, p.touchedFiles);
@@ -613,7 +613,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       previousWorkload = currentUnvisited.length;
       sessionId = await this.executePassAndDiscover(p, ++passNumber, sessionId, currentUnvisited);
     }
-    return sessionId;
+    return { sessionId, passCount: passNumber };
   }
 
   private async executePassAndDiscover(

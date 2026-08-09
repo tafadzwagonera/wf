@@ -346,7 +346,7 @@ describe('ReviewStageService', () => {
       undefined,
       undefined,
       undefined,
-      undefined
+      { skillNames: undefined, forkSession: undefined }
     );
     expect(aiService.reviewCode).not.toHaveBeenCalled();
     expect(review.executionMode).toBe('agent');
@@ -387,7 +387,7 @@ describe('ReviewStageService', () => {
       undefined,
       undefined,
       undefined,
-      undefined
+      { skillNames: undefined, forkSession: undefined }
     );
     expect(aiService.reviewCode).not.toHaveBeenCalled();
     expect(review.executionMode).toBe('cli');
@@ -506,7 +506,7 @@ describe('ReviewStageService', () => {
       undefined,
       undefined,
       onProgress,
-      undefined
+      { skillNames: undefined, forkSession: undefined }
     );
   });
 
@@ -612,7 +612,7 @@ describe('ReviewStageService', () => {
         undefined,
         undefined,
         undefined,
-        ['receiving-code-review']
+        { skillNames: ['receiving-code-review'], forkSession: undefined }
       );
     });
 
@@ -631,7 +631,7 @@ describe('ReviewStageService', () => {
         undefined,
         undefined,
         undefined,
-        undefined
+        { skillNames: undefined, forkSession: undefined }
       );
     });
 

@@ -6,6 +6,7 @@ import type { BranchInfo } from '../shared/types/git.types';
 import { AiService, normalizeFileEntries } from '../integrations/ai/ai.service';
 import {
   ImplementBackendSelection,
+  ImplementerBackend,
   TicketArtifact,
   PlanArtifact,
   ImplementerOptions,
@@ -149,7 +150,7 @@ export class ImplementerAgent {
     const result = await this.executeBackendAdapter(ticket, planArtifact, options, resolved);
     this.logCompletionStatus(planArtifact);
     const hasChanges = (await this.gitService.getStatus(options.repoDir)).files.length > 0;
-    return { type: 'implementation', hasChanges, branchName, sessionId: result.sessionId, verificationOutcomes: result.verificationOutcomes };
+    return { type: 'implementation', hasChanges, branchName, sessionId: result.sessionId, verificationOutcomes: result.verificationOutcomes, passCount: result.passCount };
   }
 
   private async executeBackendAdapter(
@@ -620,7 +621,7 @@ export class ImplementerAgent {
     throw new ConfigurationError(`Implement stage requires provider "anthropic" or "openai". Got "${provider}".`);
   }
 
-  private createAdapter(backendSelection: ImplementBackendSelection) {
+  private createAdapter(backendSelection: ImplementBackendSelection): ImplementerBackend {
     switch (backendSelection.selected) {
       case 'claude-cli': return new ClaudeCliAdapter(this.configService);
       case 'codex-cli': return new CodexCliAdapter(this.configService);

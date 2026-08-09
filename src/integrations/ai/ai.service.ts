@@ -941,12 +941,6 @@ const getValidationCorrectionEmptyMessage = (stage: 'plan' | 'review'): string =
     ? 'AI provider returned an empty plan correction response'
     : 'AI provider returned an empty review correction response';
 
-const hasMinimumReviewShape = (obj: Record<string, unknown>): boolean =>
-  'summary' in obj && 'issues' in obj && 'suggestions' in obj && 'approved' in obj;
-
-const hasMinimumPlanShape = (obj: Record<string, unknown>): boolean =>
-  'action' in obj && 'summary' in obj && 'steps' in obj;
-
 const resolveValidationFailureMessage = (stage: 'plan' | 'review'): string =>
   stage === 'plan' ? 'Plan JSON could not be corrected' : 'Review JSON could not be corrected';
 
@@ -1399,10 +1393,9 @@ export class AiService {
    * @param diff Git diff used for trace sanitization
    * @param maxTokens Optional token limit for correction calls
    * @returns Validated and post-processed CodeReview
-   * @throws AIError when the JSON lacks required top-level fields or cannot be corrected
+   * @throws AIError when the review JSON cannot be corrected after retries
    */
   async validateReviewJson(rawJson: string, diff: string, maxTokens?: number): Promise<CodeReview> {
-    this.assertMinimumReviewShape(rawJson);
     const reviewMaxTokens = maxTokens ?? this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
     return this.retryValidationParsing(
       rawJson,
@@ -1417,10 +1410,9 @@ export class AiService {
    * Validate and repair raw plan JSON via Zod, retrying up to VALIDATION_RETRY_LIMIT times.
    * @param rawJson Raw JSON string from the AI provider
    * @returns Validated and stamped ResolutionPlan
-   * @throws AIError when the JSON lacks required top-level fields or cannot be corrected
+   * @throws AIError when the plan JSON cannot be corrected after retries
    */
   async validatePlanJson(rawJson: string): Promise<ResolutionPlan> {
-    this.assertMinimumPlanShape(rawJson);
     const planMaxTokens = this.configService.get<number>('stages.plan.maxTokens', DEFAULT_PLAN_MAX_TOKENS);
     const plan = await this.retryValidationParsing<ResolutionPlan>(
       rawJson,
@@ -1431,36 +1423,6 @@ export class AiService {
     );
     this.stampPlanMetadata(plan, {});
     return plan;
-  }
-
-  private assertMinimumReviewShape(content: string): void {
-    let initial: Record<string, unknown>;
-    try {
-      initial = parseJsonResponse<Record<string, unknown>>(content);
-    } catch {
-      throw new AIError('Review response is not valid JSON', { response: content }, true, 'parse');
-    }
-    if (!hasMinimumReviewShape(initial)) {
-      throw new AIError(
-        'Review JSON lacks required top-level fields (summary, issues, suggestions, approved)',
-        { response: content }, true, 'parse'
-      );
-    }
-  }
-
-  private assertMinimumPlanShape(content: string): void {
-    let initial: Record<string, unknown>;
-    try {
-      initial = parseJsonResponse<Record<string, unknown>>(content);
-    } catch {
-      throw new AIError('Plan response is not valid JSON', { response: content }, true, 'parse');
-    }
-    if (!hasMinimumPlanShape(initial)) {
-      throw new AIError(
-        'Plan JSON lacks required top-level fields (action, summary, steps)',
-        { response: content }, true, 'parse'
-      );
-    }
   }
 
   private parseAndProcessReviewContent(content: string, diff: string): CodeReview {

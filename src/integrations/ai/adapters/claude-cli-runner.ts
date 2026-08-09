@@ -35,6 +35,7 @@ export interface CliRunnerParams {
   addDirs?: string[];
   env?: Record<string, string>;
   jsonSchema?: string;
+  forkSession?: boolean;
 }
 
 const CLI_TIMEOUT_MS = 10 * 60 * 1000;
@@ -203,6 +204,7 @@ export const buildCliArgs = (params: CliRunnerParams): string[] => {
   appendOptionalArg(args, '--permission-mode', params.permissionMode);
   appendOptionalArg(args, '--append-system-prompt', params.appendSystemPrompt);
   appendOptionalArg(args, '--resume', params.sessionId);
+  if (params.forkSession && params.sessionId) args.push('--fork-session');
   if (params.tools?.length) args.push('--allowedTools', params.tools.join(','));
   appendAddDirs(args, params.addDirs);
   appendOptionalArg(args, '--json-schema', params.jsonSchema);

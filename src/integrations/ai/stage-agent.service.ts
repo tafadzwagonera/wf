@@ -128,6 +128,7 @@ type CliChatPassOpts = {
 
 type CliStagePassOpts = {
   allowInspection: boolean;
+  forkSession?: boolean;
   jsonSchema?: string;
   model: string;
   onProgress?: StageProgressCallback;
@@ -146,6 +147,7 @@ Return your response as a JSON object matching the ResolutionPlan interface.`;
 
 const REVIEW_SYSTEM_PROMPT = `You are an expert code reviewer providing constructive feedback.
 You may inspect repository files with read-only tools before answering.
+Return your response as a JSON object matching the CodeReview interface.
 Focus on code quality, bugs, security, and the changed execution path.
 Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
 
@@ -243,6 +245,7 @@ type OpenAiStageContext = {
 };
 
 type StagePromptParams = {
+  forkSession?: boolean;
   onProgress?: StageProgressCallback;
   priorStageSummary?: string;
   prompt: string;
@@ -1187,11 +1190,11 @@ export class StageAgentService {
     priorStageSummary?: string,
     resumeProviderSessionId?: string,
     onProgress?: StageProgressCallback,
-    skillNames?: string[]
+    opts?: { skillNames?: string[]; forkSession?: boolean }
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const { content: response, sessionId } = await this.runStagePrompt({
-      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, skillNames), systemPrompt: REVIEW_SYSTEM_PROMPT,
-      repoDir, priorStageSummary, resumeProviderSessionId, onProgress,
+      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, opts?.skillNames), systemPrompt: REVIEW_SYSTEM_PROMPT,
+      repoDir, priorStageSummary, resumeProviderSessionId, onProgress, forkSession: opts?.forkSession,
     });
     return this.parseStageReviewResponse(response, sessionId, repoDir, REVIEW_SYSTEM_PROMPT, priorStageSummary);
   }
@@ -1310,6 +1313,15 @@ export class StageAgentService {
 
   private resolveStageInactivityTimeoutMs(stage: AgentStageName): number {
     return this.configService.get<number>(`stages.${stage}.inactivityTimeoutMs`, CLI_INACTIVITY_TIMEOUT_MS);
+  }
+
+  private resolveStageJsonSchema(stage: AgentStageName): string | undefined {
+    const schemaMap: Partial<Record<AgentStageName, unknown>> = {
+      plan: z.toJSONSchema(resolutionPlanSchema),
+      review: z.toJSONSchema(codeReviewSchema),
+    };
+    const schema = schemaMap[stage];
+    return schema ? JSON.stringify(schema) : undefined;
   }
 
   private async runStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
@@ -1570,8 +1582,9 @@ export class StageAgentService {
       stage: params.stage, prompt: params.prompt, systemPrompt,
       model: this.resolveStageModel(params.stage), resolvedRepoDir: params.repoDir ?? process.cwd(),
       allowInspection: Boolean(params.repoDir),
-      jsonSchema: params.stage === 'plan' ? JSON.stringify(z.toJSONSchema(resolutionPlanSchema)) : undefined,
+      jsonSchema: this.resolveStageJsonSchema(params.stage),
       resumeProviderSessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
+      forkSession: params.forkSession,
     };
     return this.runCliRetryLoop(passOpts, params.stage, params.resumeProviderSessionId);
   }
@@ -1680,6 +1693,7 @@ export class StageAgentService {
       prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: opts.resolvedRepoDir,
       tools: opts.allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [],
       permissionMode: 'plan', sessionId: isResume ? opts.sessionId : undefined, jsonSchema: opts.jsonSchema,
+      forkSession: opts.passNumber === 1 ? opts.forkSession : undefined,
     });
     const timeoutMs = this.resolveStageTimeoutMs(opts.stage);
     const inactivityTimeoutMs = this.resolveStageInactivityTimeoutMs(opts.stage);
