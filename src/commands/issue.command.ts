@@ -20,6 +20,7 @@ import { resolveCustomSourcePath } from '../shared/utils/custom-source';
 import { parseReposOption } from './utils/repos-option';
 import { ConfigService } from '@nestjs/config';
 import { AiService, REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../integrations/ai/ai.service';
+import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
@@ -156,6 +157,7 @@ export class IssueCommand extends CommandRunner {
     private readonly agents: AgentOrchestrator,
     private readonly aiService: AiService,
     private readonly sessionService: SessionService,
+    private readonly reviewPresenter: ReviewPresenter,
   ) {
     super();
   }
@@ -1435,12 +1437,7 @@ export class IssueCommand extends CommandRunner {
       console.log(artifact.path);
       return;
     }
-    console.log(chalk.bold('\n  Status:'));
-    if (artifact.approved) {
-      console.log(chalk.cyan('    Changes approved - proceeding to commit stage'));
-      return;
-    }
-    console.log(chalk.yellow('    ⚠  Review suggestions are optional — commit stage will still execute'));
+    this.reviewPresenter.displayReview(artifact.review);
   }
 
   private async offerReviewChat(

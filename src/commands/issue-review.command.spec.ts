@@ -67,6 +67,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
+import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveRepoBasePath } from '../agents/utils';
 import * as os from 'os';
@@ -381,6 +382,10 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
           previewFileRead: jest.fn(),
           previewFileWrite: jest.fn(),
         },
+      },
+      {
+        provide: ReviewPresenter,
+        useValue: new ReviewPresenter(),
       },
     ],
   }).compile();
@@ -995,20 +1000,6 @@ describe('IssueReviewCommand', () => {
       expect(output).toContain('Execution mode: agent\n  Provenance: evidence-based');
     });
 
-    it('does not leak array indices into the colorized provenance output', async () => {
-      const { command } = await buildCommand();
-
-      const output = (command as any).formatCallStackInline({
-        ...mockReview,
-        executionMode: 'cli',
-        traceProvenance: 'evidence-based',
-      });
-
-      expect(output).not.toMatch(/Execution mode: \w+ \d/);
-      expect(output).toContain('Execution mode: cli');
-      expect(output).toContain('Provenance: evidence-based');
-    });
-
     it('renders paired suggestions directly under each issue in text output and keeps extras trailing', async () => {
       const { command } = await buildCommand();
 
@@ -1033,12 +1024,12 @@ describe('IssueReviewCommand', () => {
         suggestions: ['Extra idea'],
       });
 
-      expect(output).toContain('1. [WARNING] First issue');
+      expect(output).toContain('1. [warning] First issue');
       expect(output).toContain('   Suggestion: First suggestion');
-      expect(output.indexOf('1. [WARNING] First issue')).toBeLessThan(
+      expect(output.indexOf('1. [warning] First issue')).toBeLessThan(
         output.indexOf('   Suggestion: First suggestion')
       );
-      expect(output.indexOf('   Suggestion: First suggestion')).toBeLessThan(output.indexOf('2. [ERROR] Second issue'));
+      expect(output.indexOf('   Suggestion: First suggestion')).toBeLessThan(output.indexOf('2. [error] Second issue'));
       expect(output).toContain('SUGGESTIONS (1):');
       expect(output).toContain('1. Extra idea');
     });

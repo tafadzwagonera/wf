@@ -59,6 +59,7 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { CommandMeta } from 'nest-commander/src/constants';
 import { IssueCommand, shouldForkReviewSession, FORK_PASS_THRESHOLD } from './issue.command';
+import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -153,6 +154,10 @@ async function buildCommand(): Promise<IssueCommand> {
       },
       { provide: SessionService, useValue: mockSessionService },
       { provide: SummaryService, useValue: mockSummaryService },
+      {
+        provide: ReviewPresenter,
+        useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+      },
     ],
   }).compile();
 
@@ -422,6 +427,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -560,6 +569,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -683,6 +696,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -814,6 +831,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -917,6 +938,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -1030,6 +1055,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -1135,6 +1164,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -1246,6 +1279,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -1307,6 +1344,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -1393,6 +1434,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -1486,6 +1531,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -1588,6 +1637,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -1675,6 +1728,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -1754,6 +1811,10 @@ describe('IssueCommand', () => {
         },
         { provide: SessionService, useValue: mockSessionService },
         { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
       ],
     }).compile();
     const command = module.get(IssueCommand);
@@ -1835,6 +1896,10 @@ describe('IssueCommand', () => {
           },
           { provide: SessionService, useValue: mockSessionService },
           { provide: SummaryService, useValue: mockSummaryService },
+          {
+            provide: ReviewPresenter,
+            useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+          },
         ],
       }).compile();
       return module.get(IssueCommand);

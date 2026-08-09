@@ -16,7 +16,7 @@ import * as path from 'path';
 import chalk from 'chalk';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { ReviewPresenter } from '../../src/shared/presentation/review-presenter.service';
 
 async function run(): Promise<void> {
   console.log('Manual smoke: colorized provenance output\n');
@@ -25,7 +25,7 @@ async function run(): Promise<void> {
     logger: ['error'],
   });
 
-  const command = app.get(IssueReviewCommand);
+  const presenter = app.get(ReviewPresenter);
 
   let passed = 0;
   let failed = 0;
@@ -39,7 +39,6 @@ async function run(): Promise<void> {
     failed++;
   };
 
-  // --- Test 1: colorized provenance lines do not contain leaked indices ---
   console.log('Test 1: colorized provenance output is clean');
 
   const mockReview = {
@@ -53,9 +52,8 @@ async function run(): Promise<void> {
     stateTransition: { from: 'idle', to: 'active' },
   };
 
-  // formatCallStackInline uses colorized=true
-  const callStackOutput: string = (command as any).formatCallStackInline(mockReview);
-  const stateTransitionOutput: string = (command as any).formatStateTransitionInline(mockReview);
+  const callStackOutput: string = (presenter as any).formatCallStackInline(mockReview);
+  const stateTransitionOutput: string = (presenter as any).formatStateTransitionInline(mockReview);
 
   // The bug caused output like: "Execution mode: cli 0   Execution mode: cli,  Provenance: ..."
   // A digit immediately after the execution mode value indicates index leakage.
@@ -106,7 +104,6 @@ async function run(): Promise<void> {
     pass('"Provenance:" appears exactly once');
   }
 
-  // --- Test 2: session-id help example uses {UUID} placeholder ---
   console.log('\nTest 2: session-id help example uses {UUID}');
 
   const sourceFile = fs.readFileSync(
@@ -126,7 +123,6 @@ async function run(): Promise<void> {
     fail('Source help example does not contain "--session-id {UUID}"');
   }
 
-  // --- Test 3: README does not contain the old hardcoded session-id value ---
   console.log('\nTest 3: README has no hardcoded session-id example');
 
   const readme = fs.readFileSync(path.join(__dirname, '../../README.md'), 'utf-8');
@@ -137,7 +133,6 @@ async function run(): Promise<void> {
     pass('No hardcoded "review-session-42" in README');
   }
 
-  // --- Summary ---
   console.log(`\n${passed} passed, ${failed} failed`);
 
   await app.close();

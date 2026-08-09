@@ -1,10 +1,9 @@
-// src/agents/reviewer.agent.ts
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'node:fs';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import type { CodeReview } from '../shared/types/review.types';
-import { REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../shared/types/review.types';
+import { REVIEW_VERDICT_APPROVED } from '../shared/types/review.types';
 import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
@@ -46,7 +45,6 @@ export class ReviewerAgent {
       ?? (options.silent ? undefined : (line: string) => this.presenter.progress(line));
 
     const { review, sessionId } = await this.stageAndReview(ticket, options, onProgress);
-    if (!options.silent) this.logReview(review);
 
     const artifact = this.reviewStageService.createReviewArtifact(ticket, review, sessionId);
     if (!options.silent) this.presenter.detail('Saved to', artifact.path);
@@ -98,35 +96,5 @@ export class ReviewerAgent {
       forkSession: options.forkSession,
       onProgress,
     });
-  }
-
-  private logReview(review: CodeReview): void {
-    this.presenter.outcome('success', 'Review complete');
-    this.presenter.detail('Summary', review.summary);
-    this.logIssues(review.issues);
-    this.logSuggestions(review.suggestions);
-    this.presenter.outcome(
-      review.approved ? 'success' : 'error',
-      review.approved ? REVIEW_VERDICT_APPROVED : REVIEW_VERDICT_CHANGES_REQUESTED
-    );
-  }
-
-  private logIssues(issues: CodeReview['issues']): void {
-    if (issues.length === 0) return;
-    this.presenter.progress('  Issues found:');
-    for (const issue of issues) {
-      console.log(`    [${issue.severity}] ${issue.message}`);
-      if (issue.file) {
-        this.presenter.progress(`      ${issue.file}${issue.line ? `:${issue.line}` : ''}`);
-      }
-    }
-  }
-
-  private logSuggestions(suggestions: string[]): void {
-    if (suggestions.length === 0) return;
-    this.presenter.progress('  Suggestions:');
-    for (const s of suggestions) {
-      console.log(`    - ${s}`);
-    }
   }
 }

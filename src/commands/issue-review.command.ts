@@ -11,8 +11,8 @@ import {
   REVIEW_VERDICT_CHANGES_REQUESTED,
 } from '../integrations/ai/ai.service';
 import { buildCodeReviewPresentation } from '../review/code-review-post-processing';
-import { formatIssueFileLocation } from '../shared/schemas/review.schema';
 import { formatReviewCallStack, formatReviewStateTransition } from '../integrations/ai/review-trace';
+import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
 import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -63,8 +63,6 @@ interface ReviewedTarget extends ReviewTarget {
   review: CodeReview;
 }
 
-type TraceProvenance = 'evidence-based' | 'best-effort' | 'unavailable';
-
 interface DiscoveredPullRequestTarget {
   adapterName: string;
   commentRef: string;
@@ -78,35 +76,6 @@ interface PullRequestDiscoveryResult {
   attemptedLookupCount: number;
   missingRepoScopeErrors: string[];
 }
-
-const PROVENANCE_LABELS: Record<TraceProvenance, string> = {
-  'evidence-based': 'Provenance: evidence-based (code-path trace backed by the execution backend)',
-  'best-effort': 'Provenance: best-effort (code-path trace inferred from the diff and AI output)',
-  unavailable: 'Provenance: unavailable (no concrete code-path trace could be inferred from the diff)',
-};
-
-const PROVENANCE_COLORS: Record<TraceProvenance, typeof chalk.green> = {
-  'evidence-based': chalk.green,
-  'best-effort': chalk.yellow,
-  unavailable: chalk.gray,
-};
-
-type SectionLabel = 'call stack' | 'state transition';
-
-const TRACE_DETAIL_LINES: Record<'evidence-based' | 'unavailable', (s: SectionLabel) => string> = {
-  'evidence-based': s => 'Evidence: the ' + s + ' section is grounded in a code-path trace from the changed code.',
-  unavailable: s => 'Trace unavailable: no concrete code-path trace could be inferred for the ' + s + ' section.',
-};
-
-const BEST_EFFORT_TEXT: Record<SectionLabel, string> = {
-  'call stack': 'Best effort: call stack is inferred from the changed code and AI output.',
-  'state transition': 'Best effort: state transitions are inferred from the changed code and AI output.',
-};
-
-const HINDRANCE_TEXT: Record<SectionLabel, string> = {
-  'call stack': 'Hindrance: there is no runtime execution trace backend in this path.',
-  'state transition': 'Hindrance: the review pipeline does not emit a machine-verified state trace.',
-};
 
 const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
   {
@@ -188,7 +157,8 @@ export class IssueReviewCommand extends CommandRunner {
     private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
     private readonly reviewStageService: ReviewStageService,
-    private readonly conversationService: ConversationService
+    private readonly conversationService: ConversationService,
+    private readonly reviewPresenter: ReviewPresenter
   ) {
     super();
   }
@@ -813,69 +783,6 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   /**
-   * Resolve the trace provenance from AI output, defaulting to best-effort
-   * when structured trace data is present but no explicit provenance exists.
-   * @param review The AI review result
-   * @returns Provenance label for trace sections
-   */
-  private resolveTraceProvenance(review: CodeReview): TraceProvenance {
-    const hasStructuredTrace
-      = Boolean(review.callStack?.length) || Object.keys(review.stateTransition ?? {}).length > 0;
-    if (!hasStructuredTrace || review.traceProvenance === 'unavailable') {
-      return 'unavailable';
-    }
-
-    if (review.executionMode === 'agent') {
-      return 'evidence-based';
-    }
-    if (review.traceProvenance) {
-      return review.traceProvenance;
-    }
-    return 'best-effort';
-  }
-
-  /**
-   * Render a provenance note for trace sections.
-   * @param review The AI review result
-   * @param colorized Whether terminal colors should be applied
-   * @returns Rendered provenance note block
-   */
-  private formatTraceProvenanceNote(review: CodeReview, colorized: boolean): string {
-    const provenance = this.resolveTraceProvenance(review);
-    const modeLine = '  Execution mode: ' + (review.executionMode ?? 'standard');
-    const line = '  ' + PROVENANCE_LABELS[provenance];
-    const rendered = [modeLine, line];
-    if (!colorized) return rendered.join('\n');
-
-    const colorFn = PROVENANCE_COLORS[provenance] ?? chalk.gray;
-    return rendered.map(l => colorFn(l)).join('\n');
-  }
-
-  /**
-   * Render the supporting note block for a trace section based on provenance.
-   * @param review The AI review result
-   * @param colorized Whether terminal colors should be applied
-   * @param sectionLabel Human-friendly section label
-   * @returns Supporting note block for the trace section
-   */
-  private formatTraceSectionNotes(
-    review: CodeReview,
-    colorized: boolean,
-    sectionLabel: 'call stack' | 'state transition'
-  ): string[] {
-    const provenance = this.resolveTraceProvenance(review);
-    const provenanceNote = this.formatTraceProvenanceNote(review, colorized);
-    if (provenance === 'best-effort') {
-      return [provenanceNote, this.formatBestEffortNote(
-        BEST_EFFORT_TEXT[sectionLabel], HINDRANCE_TEXT[sectionLabel], colorized,
-      )];
-    }
-    const detail = TRACE_DETAIL_LINES[provenance](sectionLabel);
-    const colorFn = PROVENANCE_COLORS[provenance] ?? chalk.gray;
-    return [provenanceNote, colorized ? colorFn('  ' + detail) : '  ' + detail];
-  }
-
-  /**
    * Post the AI review as a pull request comment when the adapter supports it.
    * @param target Review target metadata
    * @param review The AI review result
@@ -1425,126 +1332,12 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   /**
-   * Render a best-effort note with an explicit hindrance statement.
-   * @param bestEffortText Best-effort description
-   * @param hindranceText Hindrance description
-   * @param colorized Whether terminal colors should be applied
-   * @returns Rendered note text
-   */
-  private formatBestEffortNote(bestEffortText: string, hindranceText: string, colorized: boolean): string {
-    if (!colorized) {
-      return `  ${bestEffortText}\n  ${hindranceText}`;
-    }
-
-    return [chalk.yellow(`  ${bestEffortText}`), chalk.gray(`  ${hindranceText}`)].join('\n');
-  }
-
-  /**
-   * Map an issue severity level to its terminal color function.
-   * @param severity Issue severity
-   * @returns chalk color function
-   */
-  private resolveSeverityColor(severity: string): chalk.Chalk {
-    switch (severity) {
-      case 'error':
-        return chalk.red;
-      case 'warning':
-        return chalk.yellow;
-      default:
-        return chalk.blue;
-    }
-  }
-
-  /**
-   * Apply semantic colors to a call stack branch marker.
-   * @param branch Branch marker
-   * @returns Colorized branch marker
-   */
-  private colorizeBranch(branch: string): string {
-    return chalk.blueBright(branch);
-  }
-
-  /**
-   * Apply muted formatting to a single informational line.
-   * @param line Plain text line
-   * @returns Muted line
-   */
-  private colorizeMutedLine(line: string): string {
-    return chalk.gray(line);
-  }
-
-  /**
-   * Colorize a structured trace line for terminal output.
-   * @param line Plain text trace line
-   * @returns Pretty-printed and colorized text
-   */
-  private colorizeTraceLine(line: string): string {
-    if (!line.trim()) return line;
-    if (this.isBranchLine(line)) return this.colorizeBranchLine(line);
-    if (this.isLabelLine(line)) return this.colorizeLabelLine(line);
-    if (this.isKeyValueLine(line)) return this.colorizeKeyValueLine(line);
-    return chalk.gray(line);
-  }
-
-  private isBranchLine(line: string): boolean {
-    return /^(\s*)(├─|└─)\s*(.*)$/.test(line);
-  }
-
-  private isLabelLine(line: string): boolean {
-    return /^(\s*)(from|to|captured|changes):\s*(.*)$/.test(line);
-  }
-
-  private isKeyValueLine(line: string): boolean {
-    return /^(\s*)(.+?)\s*=\s*(.*)$/.test(line);
-  }
-
-  private colorizeBranchLine(line: string): string {
-    const match = /^(\s*)(├─|└─)\s*(.*)$/.exec(line);
-    if (!match) return chalk.gray(line);
-    const [, indent, branch, rest] = match;
-    return indent + this.colorizeBranch(branch) + ' ' + chalk.gray(rest);
-  }
-
-  private colorizeLabelLine(line: string): string {
-    const match = /^(\s*)(from|to|captured|changes):\s*(.*)$/.exec(line);
-    if (!match) return chalk.gray(line);
-    const [, indent, label, rest] = match;
-    return (indent + chalk.cyan(label + ':') + ' ' + (rest ? chalk.gray(rest) : '')).trimEnd();
-  }
-
-  private colorizeKeyValueLine(line: string): string {
-    const match = /^(\s*)(.+?)\s*=\s*(.*)$/.exec(line);
-    if (!match) return chalk.gray(line);
-    const [, indent, key, rest] = match;
-    return indent + chalk.cyan(key) + ' = ' + chalk.gray(rest);
-  }
-
-  /**
-   * Format the call stack as a tree-like visual block.
-   * @param review The AI review result
-   * @returns Tree-like text block
-   */
-  private formatCallStackInline(review: CodeReview): string {
-    const lines = this.formatTraceSectionNotes(review, true, 'call stack');
-    const callStack = formatReviewCallStack(review.callStack);
-
-    if (!callStack.length) {
-      lines.push(this.colorizeMutedLine('  (no structured call stack was returned)'));
-      return lines.join('\n');
-    }
-
-    lines.push(...callStack.map(line => `  ${this.colorizeTraceLine(line)}`));
-
-    return lines.join('\n');
-  }
-
-  /**
    * Format the call stack as plain text for markdown artifacts.
    * @param review The AI review result
    * @returns Plain-text tree-like block
    */
   private formatCallStackPlain(review: CodeReview): string {
-    const lines = this.formatTraceSectionNotes(review, false, 'call stack');
+    const lines = [...this.reviewPresenter.formatTraceSectionNotes(review, false, 'call stack')];
     const callStack = formatReviewCallStack(review.callStack);
 
     if (!callStack.length) {
@@ -1558,30 +1351,12 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   /**
-   * Format the state transition as a frame-aligned visual block.
-   * @param review The AI review result
-   * @returns Pretty-printed trace block
-   */
-  private formatStateTransitionInline(review: CodeReview): string {
-    const lines = this.formatTraceSectionNotes(review, true, 'state transition');
-    const stateTransition = formatReviewStateTransition(review.stateTransition);
-
-    if (!stateTransition.length) {
-      lines.push(this.colorizeMutedLine('  (no structured state transition was returned)'));
-      return lines.join('\n');
-    }
-
-    lines.push(...stateTransition.map(line => `  ${this.colorizeTraceLine(line)}`));
-    return lines.join('\n');
-  }
-
-  /**
    * Format the state transition as plain text for markdown artifacts.
    * @param review The AI review result
    * @returns Plain-text trace block
    */
   private formatStateTransitionPlain(review: CodeReview): string {
-    const lines = this.formatTraceSectionNotes(review, false, 'state transition');
+    const lines = [...this.reviewPresenter.formatTraceSectionNotes(review, false, 'state transition')];
     const stateTransition = formatReviewStateTransition(review.stateTransition);
 
     if (!stateTransition.length) {
@@ -1595,54 +1370,12 @@ export class IssueReviewCommand extends CommandRunner {
 
   /**
    * Display review results
+   * @param review The AI review result
+   * @param heading Optional heading to print before the review
    */
   private displayReview(review: CodeReview, heading?: string): void {
-    const presentation = buildCodeReviewPresentation(review);
     if (heading) console.log(chalk.bold.cyan('\n' + heading + '\n'));
-
-    console.log(chalk.bold('Summary:'));
-    console.log(chalk.bold.cyan('  ' + review.summary));
-    this.displayIssueRows(presentation.issueRows);
-
-    console.log(chalk.bold('\nCall Stack:'));
-    console.log(this.formatCallStackInline(review));
-    console.log(chalk.bold('\nState Transition:'));
-    console.log(this.formatStateTransitionInline(review));
-
-    this.displaySuggestions(presentation.unmatchedSuggestions);
-    this.displayApprovalStatus(review.approved);
-    console.log();
-  }
-
-  private displayIssueRows(rows: ReturnType<typeof buildCodeReviewPresentation>['issueRows']): void {
-    if (rows.length === 0) {
-      console.log(chalk.green('\n✔ No issues found'));
-      return;
-    }
-    console.log(chalk.bold('\nIssues Found:'));
-    for (const { issue, suggestion } of rows) {
-      const color = this.resolveSeverityColor(issue.severity);
-      console.log(color('  [' + issue.severity.toUpperCase() + '] ' + issue.message));
-      if (issue.file) console.log(chalk.gray('    File: ' + formatIssueFileLocation(issue)));
-      if (suggestion) console.log(chalk.cyan('    Suggestion: ' + suggestion));
-    }
-  }
-
-  private displaySuggestions(suggestions: string[]): void {
-    if (suggestions.length === 0) {
-      console.log(chalk.green('\n✔ No suggestions'));
-      return;
-    }
-    console.log(chalk.bold('\nSuggestions:'));
-    for (const s of suggestions) console.log(chalk.cyan('  💡 ' + s));
-  }
-
-  private displayApprovalStatus(approved: boolean): void {
-    const verdict = approved
-      ? chalk.green('✔ ' + REVIEW_VERDICT_APPROVED)
-      : chalk.red('✗ ' + REVIEW_VERDICT_CHANGES_REQUESTED);
-    console.log(chalk.bold('\nApproval Status:'), verdict);
-    if (!approved) console.log(chalk.yellow('\n⚠ Address the issues above before proceeding'));
+    this.reviewPresenter.displayReview(review);
   }
 
   /**
@@ -1709,7 +1442,7 @@ export class IssueReviewCommand extends CommandRunner {
     const lines = ['ISSUES FOUND (' + rows.length + '):'];
     for (const [i, { issue, suggestion }] of rows.entries()) {
       const lineRef = issue.line ? ':' + issue.line : '';
-      lines.push('', (i + 1) + '. [' + issue.severity.toUpperCase() + '] ' + issue.message);
+      lines.push('', (i + 1) + '. [' + issue.severity + '] ' + issue.message);
       if (issue.file) lines.push('   File: ' + issue.file + lineRef);
       if (suggestion) lines.push('   Suggestion: ' + suggestion);
     }

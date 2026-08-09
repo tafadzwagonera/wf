@@ -88,7 +88,6 @@ describe('ReviewerAgent', () => {
         repoDir: '/tmp/repo',
       })
     );
-    expect(presenter.outcome).toHaveBeenCalledWith('success', 'Approved');
   });
 
   it('skips review when artifact exists and skipExisting is true', async () => {
