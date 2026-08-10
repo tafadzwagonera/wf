@@ -23,11 +23,12 @@ export class ReviewPresenter {
    * Render a full review to the terminal.
    * @param review Parsed AI review result
    */
-  displayReview(review: CodeReview): void {
+  displayReview(review: CodeReview, sonarOutput?: string): void {
     const presentation = buildCodeReviewPresentation(review);
 
     console.log(chalk.bold('Summary:'));
     console.log(chalk.bold.cyan('  ' + review.summary));
+    this.displayStaticAnalysis(sonarOutput);
     this.displayIssueRows(presentation.issueRows);
 
     console.log(chalk.bold('\nCall Stack:'));
@@ -58,6 +59,12 @@ export class ReviewPresenter {
     const detail = TRACE_DETAIL_LINES[provenance](sectionLabel);
     const colorFn = PROVENANCE_COLORS[provenance] ?? chalk.gray;
     return [provenanceNote, colorized ? colorFn('  ' + detail) : '  ' + detail];
+  }
+
+  private displayStaticAnalysis(sonarOutput?: string): void {
+    if (!sonarOutput) return;
+    console.log(chalk.bold('\nStatic Analysis (SonarScanner):'));
+    console.log(chalk.gray(sonarOutput));
   }
 
   private displayIssueRows(rows: ReturnType<typeof buildCodeReviewPresentation>['issueRows']): void {

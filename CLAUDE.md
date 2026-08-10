@@ -20,9 +20,6 @@ TypeScript NestJS project with CommonJS module format. Verify config files exist
 - `stages.<command>` — per-stage overrides: `provider`, `agent` (boolean), `verificationConditions`
 - `atlassian`, `slack`, `git`, `branching`, `state`, `log`, `app`, `workflows`, `output`
 
-## Build & Test
-Run `yarn build` after code changes before testing CLI commands.
-
 ## Git Workflow
 Always `git add` before `git commit`. Never assume files are pre-staged.
 
@@ -31,8 +28,6 @@ After every fix or feature, run a manual test from `test/manual/` via `nr test:m
 
 ## Test Conventions
 - Jest 30, specs co-located as `*.spec.ts` next to source files in `src/`
-- Prefix mocks with `mock` and create matching factories: `mockEvent`, `createMockEvent`
-- Nest `describe` suites around user cases and business outcomes, not implementation details
 
 ## Common Pitfalls
 - **Stale dist**: TypeScript changes have no effect until `nest build` runs. Manual tests use `ts-node` so they bypass dist — but CLI commands (`wf ...`) use `dist/`.

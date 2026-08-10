@@ -441,6 +441,7 @@ wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 | `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
 | `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
+| `--skip-sonar` | Skip SonarScanner static analysis even when sonar-project.properties is present |
 | `-k, --ticket-key <key>` | Ticket key to review (e.g. WBP-2971) |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker |
 <!-- END GENERATED COMMAND DOCS: issue:review -->

@@ -898,13 +898,21 @@ const reviewInstructions = `    Provide a code review with:
     8. Whether the code is approved
 `;
 
-const buildReviewPrompt = (diff: string, guidelines: string[], skillNames?: string[]): string => {
+const buildSonarSection = (sonarOutput?: string): string => {
+  if (!sonarOutput) return '';
+  return '\nStatic Analysis (SonarScanner) Output:\n```\n' + sonarOutput + '\n```\n'
+    + 'Consider the above static analysis findings as additional context when reviewing. '
+    + 'They do not independently determine approval.\n';
+};
+
+const buildReviewPrompt = (diff: string, guidelines: string[], skillNames?: string[], sonarOutput?: string): string => {
   const codeSection = '\nCode Changes:\n```\n' + diff + '\n```\n';
-  const guidelinesSection = '    Review Guidelines:\n' + formatReviewGuidelines(guidelines) + '\n';
+  const sonarSection = buildSonarSection(sonarOutput);
   const skillSection = formatReviewSkillSection(skillNames);
   return [
     codeSection,
-    guidelinesSection,
+    ...(sonarSection ? [sonarSection] : []),
+    '    Review Guidelines:\n' + formatReviewGuidelines(guidelines) + '\n',
     reviewInstructions,
     ...(skillSection ? [skillSection] : []),
     reviewTraceRules,
@@ -1147,12 +1155,12 @@ export class AiService {
     return requireAiResponseContent(response, 'AI provider returned an empty commit message response');
   }
 
-  async reviewCode(diff: string, guidelines: string[], onProgress?: StageProgressCallback): Promise<CodeReview> {
+  async reviewCode(
+    diff: string, guidelines: string[], onProgress?: StageProgressCallback, sonarOutput?: string
+  ): Promise<CodeReview> {
     onProgress?.('Synthesizing review...');
     const reviewMaxTokens = this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
-    const reviewSkillIds = this.configService.get<string[]>('stages.review.skills') ?? [];
-    const reviewSkillNames = await this.resolveReviewSkillNames(reviewSkillIds);
-    const reviewPrompt = buildReviewPrompt(diff, guidelines, reviewSkillNames.length ? reviewSkillNames : undefined);
+    const reviewPrompt = await this.buildReviewPromptFrom(diff, guidelines, sonarOutput);
     const response = await retryOnUnusableResponse(
       () => this.executeReviewPrompt(reviewPrompt, reviewMaxTokens),
       requireReviewJsonContent,
@@ -1160,6 +1168,12 @@ export class AiService {
     );
     throwIfTruncated(response, 'Review');
     return this.validateReviewJson(requireReviewResponseContent(response), diff, reviewMaxTokens);
+  }
+
+  private async buildReviewPromptFrom(diff: string, guidelines: string[], sonarOutput?: string): Promise<string> {
+    const reviewSkillIds = this.configService.get<string[]>('stages.review.skills') ?? [];
+    const reviewSkillNames = await this.resolveReviewSkillNames(reviewSkillIds);
+    return buildReviewPrompt(diff, guidelines, reviewSkillNames.length ? reviewSkillNames : undefined, sonarOutput);
   }
 
   /**

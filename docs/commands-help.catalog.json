@@ -454,6 +454,10 @@
         "description": "Suppress decorative output and interactive prompts. Emits only the review artifact path for piping"
       },
       {
+        "flags": "--skip-sonar",
+        "description": "Skip SonarScanner static analysis even when sonar-project.properties is present"
+      },
+      {
         "flags": "-k, --ticket-key <key>",
         "description": "Ticket key to review (e.g. WBP-2971)"
       },

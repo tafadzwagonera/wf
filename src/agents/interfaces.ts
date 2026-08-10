@@ -58,6 +58,8 @@ export interface ReviewerOptions {
   priorStageSummary?: string;
   forkSession?: boolean;
   onProgress?: (line: string) => void;
+  estimatedComplexity?: string;
+  passCount?: number;
 }
 
 /**

@@ -216,6 +216,7 @@ describe('ReviewStageService', () => {
         expect.stringContaining('ticket WBP-123: Fix auth callback'),
         'Accessibility: keyboard flow still works',
       ]),
+      undefined,
       undefined
     );
   });
@@ -232,6 +233,7 @@ describe('ReviewStageService', () => {
       expect(aiService.reviewCode).toHaveBeenCalledWith(
         'diff --git a/file b/file',
         expect.arrayContaining([expect.stringContaining(criterion)]),
+        undefined,
         undefined
       );
     }
@@ -346,7 +348,7 @@ describe('ReviewStageService', () => {
       undefined,
       undefined,
       undefined,
-      { skillNames: undefined, forkSession: undefined }
+      { skillNames: undefined, forkSession: undefined, sonarOutput: undefined }
     );
     expect(aiService.reviewCode).not.toHaveBeenCalled();
     expect(review.executionMode).toBe('agent');
@@ -387,7 +389,7 @@ describe('ReviewStageService', () => {
       undefined,
       undefined,
       undefined,
-      { skillNames: undefined, forkSession: undefined }
+      { skillNames: undefined, forkSession: undefined, sonarOutput: undefined }
     );
     expect(aiService.reviewCode).not.toHaveBeenCalled();
     expect(review.executionMode).toBe('cli');
@@ -506,7 +508,7 @@ describe('ReviewStageService', () => {
       undefined,
       undefined,
       onProgress,
-      { skillNames: undefined, forkSession: undefined }
+      { skillNames: undefined, forkSession: undefined, sonarOutput: undefined }
     );
   });
 
@@ -522,7 +524,8 @@ describe('ReviewStageService', () => {
     expect(aiService.reviewCode).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Array),
-      onProgress
+      onProgress,
+      undefined
     );
   });
 
@@ -612,7 +615,7 @@ describe('ReviewStageService', () => {
         undefined,
         undefined,
         undefined,
-        { skillNames: ['receiving-code-review'], forkSession: undefined }
+        { skillNames: ['receiving-code-review'], forkSession: undefined, sonarOutput: undefined }
       );
     });
 
@@ -631,7 +634,7 @@ describe('ReviewStageService', () => {
         undefined,
         undefined,
         undefined,
-        { skillNames: undefined, forkSession: undefined }
+        { skillNames: undefined, forkSession: undefined, sonarOutput: undefined }
       );
     });
 

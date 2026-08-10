@@ -39,6 +39,10 @@ export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   maxStalledPasses: z.number().int().min(1).optional(),
 });
 
+export const wfReviewStageConfigSchema = wfAiStageTargetConfigSchema.extend({
+  sonar: z.boolean().optional(),
+});
+
 export const wfCreateStageConfigSchema = z.object({
   provider: wfAiProviderNameSchema.optional(),
   model: z.string().optional(),
@@ -111,7 +115,7 @@ export const wfConfigSchema = z.object({
       plan: wfAiStageTargetConfigSchema.optional(),
       implement: wfImplementStageConfigSchema.optional(),
       create: wfCreateStageConfigSchema.optional(),
-      review: wfAiStageTargetConfigSchema.optional(),
+      review: wfReviewStageConfigSchema.optional(),
       generate: wfAiStageTargetConfigSchema.optional(),
       fetch: z.string().optional(),
       commit: wfAiStageTargetConfigSchema.optional(),

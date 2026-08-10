@@ -45,6 +45,14 @@ import * as crypto from 'node:crypto';
 
 const WF_CONFIG_EXTENSIONS = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
 
+type ReviewLoopContext = {
+  resumeProviderSessionId?: string;
+  priorStageSummary?: string;
+  forkSession?: boolean;
+  estimatedComplexity?: string;
+  passCount?: number;
+};
+
 const VALID_MODEL_ROUTING: ModelRouting[] = ['auto', 'default', 'mechanical'];
 
 const ISSUE_EXAMPLES: CliExample[] = [
@@ -1351,19 +1359,18 @@ export class IssueCommand extends CommandRunner {
   }
 
   private async executeReviewStage(
-    ticketArtifact: TicketArtifact,
-    planArtifact: PlanArtifact | undefined,
-    repos: (string | undefined)[],
-    options: IssueOptions,
-    sessionState: SessionState | undefined,
-    implementerResult: ImplementerResult | undefined,
-    ticketKey: string
+    ticketArtifact: TicketArtifact, planArtifact: PlanArtifact | undefined,
+    repos: (string | undefined)[], options: IssueOptions, sessionState: SessionState | undefined,
+    implementerResult: ImplementerResult | undefined, ticketKey: string
   ): Promise<{ reviewArtifact: ReviewArtifact | null; sessionState: SessionState | undefined }> {
+    const passCount = implementerResult?.type === 'implementation' ? implementerResult.passCount : undefined;
+    const estimatedComplexity = planArtifact?.plan.estimatedComplexity;
     const { prepared, forkSession } = await this.resolveReviewFork(sessionState, implementerResult, planArtifact);
     sessionState = prepared.sessionState;
     this.printStageHeader(repos.length > 1, options?.silent, '🔍 STAGE 4: Code Review');
     const reviewArtifact = await this.runReviewLoop(
-      ticketArtifact, planArtifact, repos, options, { ...prepared.sessionContext, forkSession }, ticketKey
+      ticketArtifact, planArtifact, repos, options,
+      { ...prepared.sessionContext, forkSession, estimatedComplexity, passCount }, ticketKey
     );
     sessionState = await this.recordReviewProviderSession(sessionState, reviewArtifact);
     sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'review', null);
@@ -1411,7 +1418,7 @@ export class IssueCommand extends CommandRunner {
   private async runReviewLoop(
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact | undefined,
     repos: (string | undefined)[], options: IssueOptions,
-    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string; forkSession?: boolean },
+    sessionContext: ReviewLoopContext,
     ticketKey: string
   ): Promise<ReviewArtifact | null> {
     const isMultiRepo = repos.length > 1;

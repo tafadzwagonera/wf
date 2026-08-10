@@ -45,6 +45,7 @@ interface ReviewDiffOptions {
   forkSession?: boolean;
   onProgress?: StageProgressCallback;
   skillNames?: string[];
+  sonarOutput?: string;
 }
 
 @Injectable()
@@ -118,7 +119,7 @@ export class ReviewStageService {
     options: ReviewDiffOptions
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     if (!this.stageAgentService.isEnabledForStage('review')) {
-      return { review: await this.aiService.reviewCode(diff, guidelines, options.onProgress) };
+      return { review: await this.aiService.reviewCode(diff, guidelines, options.onProgress, options.sonarOutput) };
     }
     const skillNames = await this.resolveReviewSkillNames();
     return this.reviewViaAgent(diff, guidelines, { ...options, skillNames });
@@ -130,7 +131,7 @@ export class ReviewStageService {
       const result = await this.stageAgentService.reviewCode(
         diff, guidelines, options.repoDir, options.priorStageSummary,
         options.resumeProviderSessionId, options.onProgress,
-        { skillNames: options.skillNames, forkSession: options.forkSession }
+        { skillNames: options.skillNames, forkSession: options.forkSession, sonarOutput: options.sonarOutput }
       );
       return { review: result.review, sessionId: result.sessionId };
     } catch (error) {
@@ -163,10 +164,12 @@ export class ReviewStageService {
     };
   }
 
-  createReviewArtifact(ticket: TicketArtifact, review: CodeReview, sessionId?: string): ReviewArtifact {
+  createReviewArtifact(
+    ticket: TicketArtifact, review: CodeReview, sessionId?: string, sonarOutput?: string
+  ): ReviewArtifact {
     const reviewPath = deriveReviewArtifactPath(ticket.path);
     fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
-    fs.writeFileSync(reviewPath, this.formatReviewMarkdown(ticket.ticketKey, review));
+    fs.writeFileSync(reviewPath, this.formatReviewMarkdown(ticket.ticketKey, review, sonarOutput));
 
     return {
       review,
@@ -176,15 +179,16 @@ export class ReviewStageService {
     };
   }
 
-  private formatReviewMarkdown(ticketKey: string, review: CodeReview): string {
+  private formatReviewMarkdown(ticketKey: string, review: CodeReview, sonarOutput?: string): string {
     const presentation = buildCodeReviewPresentation(review);
-    const sections = this.collectReviewSections(review, presentation);
+    const sections = this.collectReviewSections(review, presentation, sonarOutput);
     return this.buildReviewMarkdownString(ticketKey, review, sections);
   }
 
   private collectReviewSections(
     review: CodeReview,
-    presentation: ReturnType<typeof buildCodeReviewPresentation>
+    presentation: ReturnType<typeof buildCodeReviewPresentation>,
+    sonarOutput?: string
   ): Record<string, string> {
     return {
       callStack: this.formatCallStackMarkdown(review.callStack),
@@ -192,6 +196,7 @@ export class ReviewStageService {
       provenance: this.formatTraceProvenance(review),
       issues: this.formatIssuesSection(presentation),
       suggestions: this.formatTrailingSuggestionsSection(presentation),
+      staticAnalysis: sonarOutput ? '```\n' + sonarOutput + '\n```' : '',
     };
   }
 
@@ -202,6 +207,7 @@ export class ReviewStageService {
   ): string {
     const parts = [
       `# Code Review: ${ticketKey}\n\n## Summary\n${review.summary}\n`,
+      ...(sections.staticAnalysis ? [`## Static Analysis (SonarScanner)\n${sections.staticAnalysis}\n`] : []),
       `## Issues\n${sections.issues}\n`,
       `## Call Stack\n${sections.provenance}\n${sections.callStack}\n`,
       `## State Transition\n${sections.provenance}\n${sections.stateTransition}\n${sections.suggestions}\n`,

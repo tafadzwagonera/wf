@@ -557,8 +557,20 @@ const buildStageReviewSkillSection = (skillNames: string[]): string =>
   + skillNames.map(s => `- Skill('${s}')`).join('\n')
   + '\nFollow each skill\'s instructions fully before proceeding.\n';
 
-const buildStageReviewPrompt = (diff: string, guidelines: string[], skillNames?: string[]): string => [
+const buildStageSonarItems = (sonarOutput?: string): string[] => {
+  if (!sonarOutput) return [];
+  return [
+    `\nStatic Analysis (SonarScanner) Output:\n\`\`\`\n${sonarOutput}\n\`\`\`\n`
+    + 'Consider the above static analysis findings as additional context when reviewing. '
+    + 'They do not independently determine approval.',
+  ];
+};
+
+const buildStageReviewPrompt = (
+  diff: string, guidelines: string[], skillNames?: string[], sonarOutput?: string
+): string => [
   `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
+  ...buildStageSonarItems(sonarOutput),
   `\nReview Guidelines:\n${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}`,
   `\n${reviewInstructions}`,
   ...(skillNames?.length ? [buildStageReviewSkillSection(skillNames)] : []),
@@ -1178,10 +1190,10 @@ export class StageAgentService {
     priorStageSummary?: string,
     resumeProviderSessionId?: string,
     onProgress?: StageProgressCallback,
-    opts?: { skillNames?: string[]; forkSession?: boolean }
+    opts?: { skillNames?: string[]; forkSession?: boolean; sonarOutput?: string }
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const { content: response, sessionId } = await this.runStagePrompt({
-      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, opts?.skillNames), systemPrompt: reviewSystemPrompt,
+      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, opts?.skillNames, opts?.sonarOutput), systemPrompt: reviewSystemPrompt,
       repoDir, priorStageSummary, resumeProviderSessionId, onProgress, forkSession: opts?.forkSession,
     });
     return this.parseStageReviewResponse(response, sessionId, repoDir, reviewSystemPrompt, priorStageSummary);
