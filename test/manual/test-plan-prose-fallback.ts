@@ -6,8 +6,8 @@
  * Verifies:
  *   1. formatProgressMessage uses custom label when provided.
  *   2. formatProgressMessage defaults to 'claude-agent-sdk' when no label given.
- *   3. PlanStageService falls back to standard completion on prose AIError.
- *   4. PlanStageService re-throws non-parsing AIErrors.
+ *   3. PlanStageService falls back to standard completion on prose AiProviderError.
+ *   4. PlanStageService re-throws non-parsing AiProviderErrors.
  *   5. PlanStageService throws when fallback result is structurally invalid.
  *   6. (continued from 5) Valid plan passes the structural gate.
  *   7. globalThis.fetch is available in the Node.js runtime.
@@ -15,7 +15,7 @@
 import chalk from 'chalk';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { formatProgressMessage } from '../../src/integrations/ai/adapters/anthropic-agent.adapter';
-import { AIError, isAIErrorLike } from '../../src/shared/utils/errors';
+import { AiProviderError, isAiProviderErrorLike } from '../../src/shared/utils/errors';
 
 let passed = 0;
 let failed = 0;
@@ -71,27 +71,27 @@ async function main(): Promise<void> {
     sdkMessage ?? 'received null'
   );
 
-  console.log(chalk.bold('\nTest 3: isAIErrorLike identifies AIError with prose response'));
-  const proseError = new AIError('Failed to parse resolution plan from agent response', {
+  console.log(chalk.bold('\nTest 3: isAiProviderErrorLike identifies AiProviderError with prose response'));
+  const proseError = new AiProviderError('Failed to parse resolution plan from agent response', {
     response: 'Here is my analysis...',
   });
-  assert('isAIErrorLike returns true for AIError', isAIErrorLike(proseError));
+  assert('isAiProviderErrorLike returns true for AiProviderError', isAiProviderErrorLike(proseError));
   assert('Error message matches fallback trigger', proseError.message.includes('Failed to parse resolution plan'));
   assert(
     'Error details contain prose response',
     typeof proseError.details?.response === 'string' && proseError.details.response.length > 0
   );
 
-  console.log(chalk.bold('\nTest 4: Non-parsing AIErrors do not trigger fallback'));
-  const rateLimitError = new AIError('Rate limit exceeded', { status: 429 });
-  assert('isAIErrorLike returns true for rate limit error', isAIErrorLike(rateLimitError));
+  console.log(chalk.bold('\nTest 4: Non-parsing AiProviderErrors do not trigger fallback'));
+  const rateLimitError = new AiProviderError('Rate limit exceeded', { status: 429 });
+  assert('isAiProviderErrorLike returns true for rate limit error', isAiProviderErrorLike(rateLimitError));
   assert(
     'Rate limit error does NOT contain fallback trigger string',
     !rateLimitError.message.includes('Failed to parse resolution plan')
   );
 
   console.log(chalk.bold('\nTest 5: Empty prose response is rejected'));
-  const emptyProseError = new AIError('Failed to parse resolution plan from agent response', {
+  const emptyProseError = new AiProviderError('Failed to parse resolution plan from agent response', {
     response: '',
   });
   const agentProse = emptyProseError.details?.response;

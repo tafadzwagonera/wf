@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { classifyAiSdkError } from './ai-error.classify';
+import { classifyAiSdkError } from './ai-provider-error.classify';
 
 describe('classifyAiSdkError', () => {
   it('returns timeout for Anthropic APIConnectionTimeoutError', () => {

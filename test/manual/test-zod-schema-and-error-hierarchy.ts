@@ -5,7 +5,7 @@
  * 1. Zod schemas parse valid data and reject invalid data
  * 2. AppError replaces AgentError with identical behaviour
  * 3. Error subclass names, codes, and recoverability are preserved
- * 4. isAIErrorLike duck-typing guard works across boundaries
+ * 4. isAiProviderErrorLike duck-typing guard works across boundaries
  * 5. Re-export facades keep downstream imports working
  * 6. ERROR_CODE const object mirrors the legacy ErrorCode enum values
  */
@@ -25,7 +25,7 @@ import { ticketTypeSchema } from '../../src/shared/schemas/ticket.schema';
 import {
   AppError,
   ApiError,
-  AIError,
+  AiProviderError,
   GitError,
   JiraApiError,
   ValidationError,
@@ -35,13 +35,13 @@ import {
   UserCancelledError,
   ConfigurationError,
   FileSystemError,
-  isAIErrorLike,
+  isAiProviderErrorLike,
 } from '../../src/shared/errors/app.error';
 
 // --- Re-export facade imports (backward compat) ---
 import {
-  AIError as FacadeAIError,
-  isAIErrorLike as facadeIsAIErrorLike,
+  AiProviderError as FacadeAiProviderError,
+  isAiProviderErrorLike as facadeIsAiProviderErrorLike,
   ErrorCode,
 } from '../../src/shared/utils/errors';
 
@@ -156,9 +156,9 @@ test('AppError has correct name and code', () => {
   assert.ok(err instanceof Error);
 });
 
-test('AIError defaults to recoverable', () => {
-  const err = new AIError('test');
-  assert.equal(err.name, 'AIError');
+test('AiProviderError defaults to recoverable', () => {
+  const err = new AiProviderError('test');
+  assert.equal(err.name, 'AiProviderError');
   assert.equal(err.code, 'AI_PROVIDER_ERROR');
   assert.equal(err.recoverable, true);
 });
@@ -219,7 +219,7 @@ test('StateError defaults to recoverable', () => {
 
 test('All error subclasses extend AppError', () => {
   const errors = [
-    new AIError('x'),
+    new AiProviderError('x'),
     new GitError('x'),
     new JiraApiError('x'),
     new ValidationError('x'),
@@ -236,41 +236,41 @@ test('All error subclasses extend AppError', () => {
   }
 });
 
-// --- 3. isAIErrorLike duck-typing ---
-console.log(chalk.bold('\n--- isAIErrorLike duck-typing ---'));
+// --- 3. isAiProviderErrorLike duck-typing ---
+console.log(chalk.bold('\n--- isAiProviderErrorLike duck-typing ---'));
 
-test('isAIErrorLike detects AIError instance', () => {
-  assert.ok(isAIErrorLike(new AIError('test')));
+test('isAiProviderErrorLike detects AiProviderError instance', () => {
+  assert.ok(isAiProviderErrorLike(new AiProviderError('test')));
 });
 
-test('isAIErrorLike detects duck-typed object with code', () => {
-  assert.ok(isAIErrorLike({ code: 'AI_PROVIDER_ERROR', name: 'SomeError', message: 'x' }));
+test('isAiProviderErrorLike detects duck-typed object with code', () => {
+  assert.ok(isAiProviderErrorLike({ code: 'AI_PROVIDER_ERROR', name: 'SomeError', message: 'x' }));
 });
 
-test('isAIErrorLike detects legacy duck-typed object with old code', () => {
-  assert.ok(isAIErrorLike({ code: 'AI_ERROR', name: 'SomeError', message: 'x' }));
+test('isAiProviderErrorLike detects legacy duck-typed object with old code', () => {
+  assert.ok(isAiProviderErrorLike({ code: 'AI_ERROR', name: 'SomeError', message: 'x' }));
 });
 
-test('isAIErrorLike detects duck-typed object with name', () => {
-  assert.ok(isAIErrorLike({ name: 'AIError', message: 'x' }));
+test('isAiProviderErrorLike detects duck-typed object with name', () => {
+  assert.ok(isAiProviderErrorLike({ name: 'AiProviderError', message: 'x' }));
 });
 
-test('isAIErrorLike rejects non-AI errors', () => {
-  assert.ok(!isAIErrorLike(new GitError('test')));
-  assert.ok(!isAIErrorLike(new Error('test')));
-  assert.ok(!isAIErrorLike(null));
-  assert.ok(!isAIErrorLike(undefined));
+test('isAiProviderErrorLike rejects non-AI errors', () => {
+  assert.ok(!isAiProviderErrorLike(new GitError('test')));
+  assert.ok(!isAiProviderErrorLike(new Error('test')));
+  assert.ok(!isAiProviderErrorLike(null));
+  assert.ok(!isAiProviderErrorLike(undefined));
 });
 
 // --- 4. Facade backward compatibility ---
 console.log(chalk.bold('\n--- Facade backward compatibility ---'));
 
-test('Facade AIError is same as direct AIError', () => {
-  assert.equal(FacadeAIError, AIError);
+test('Facade AiProviderError is same as direct AiProviderError', () => {
+  assert.equal(FacadeAiProviderError, AiProviderError);
 });
 
-test('Facade isAIErrorLike is same as direct', () => {
-  assert.equal(facadeIsAIErrorLike, isAIErrorLike);
+test('Facade isAiProviderErrorLike is same as direct', () => {
+  assert.equal(facadeIsAiProviderErrorLike, isAiProviderErrorLike);
 });
 
 test('ErrorCode enum values match ERROR_CODE const', () => {

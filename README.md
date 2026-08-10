@@ -1289,7 +1289,7 @@ IssueCommand.run()
                  ├─ 1. structured_output  ◄── --json-schema → ToolSearch → StructuredOutput
                  ├─ 2. result             ◄── CLI summary field
                  ├─ 3. assistant_text     ◄── message.content[].text (last turn)
-                 └─ stall detection (2 empty passes) → resume session OR AIError
+                 └─ stall detection (2 empty passes) → resume session OR AiProviderError
                      └─ PlanStageService fallback → AiService.generatePlan()
 ```
 
@@ -1300,7 +1300,7 @@ Each extraction path logs `[claude-cli] Result extracted via <source> (pass N)` 
 | 1 | populated | — | — | Primary path extracts JSON |
 | 2 | — | prose | — | `parseJsonResponse` extracts JSON or fallback engages |
 | 3 | — | — | populated | Fallback captures text; `parseJsonResponse` extracts JSON |
-| 4 | — | — | — | Stall detection → AIError → PlanStageService fallback |
+| 4 | — | — | — | Stall detection → AiProviderError → PlanStageService fallback |
 
 **Root cause**: `ToolSearch` → `StructuredOutput` competes with `Read`, `Glob`, `Grep`, `Bash` for the model's tool-call budget. In multi-turn exploration conversations, the model non-deterministically skips the `StructuredOutput` call.
 

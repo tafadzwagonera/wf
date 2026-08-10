@@ -101,7 +101,7 @@ describe('StageAgentService', () => {
     jest.restoreAllMocks();
   });
 
-  it('raises an AIError with provider metadata when the plan response is blank', async () => {
+  it('raises an AiProviderError with provider metadata when the plan response is blank', async () => {
     const service = new StageAgentService(createConfigService());
     (
       service as unknown as {
@@ -123,7 +123,7 @@ describe('StageAgentService', () => {
     });
   });
 
-  it('raises an AIError with provider metadata when generated content is blank', async () => {
+  it('raises an AiProviderError with provider metadata when generated content is blank', async () => {
     const service = new StageAgentService(createConfigService());
     (
       service as unknown as {
@@ -140,7 +140,7 @@ describe('StageAgentService', () => {
     });
   });
 
-  it('raises an AIError with provider metadata when an OpenAI chat turn is blank', async () => {
+  it('raises an AiProviderError with provider metadata when an OpenAI chat turn is blank', async () => {
     const service = new StageAgentService(createConfigService());
     (
       service as unknown as {
@@ -741,7 +741,7 @@ describe('StageAgentService', () => {
       logSpy.mockRestore();
     });
 
-    it('throws AIError when CLI result has stop_reason max_tokens', async () => {
+    it('throws AiProviderError when CLI result has stop_reason max_tokens', async () => {
       async function* fakeSpawn() {
         yield { type: 'result', result: '{"action":"fix"}', stop_reason: 'max_tokens' };
       }
@@ -1024,7 +1024,7 @@ describe('StageAgentService', () => {
       jest.restoreAllMocks();
     });
 
-    it('throws AIError when LLM response is missing suggestions field', async () => {
+    it('throws AiProviderError when LLM response is missing suggestions field', async () => {
       const configService = createConfigService();
       const service = new StageAgentService(configService);
       const mockReviewJson = JSON.stringify({
@@ -1128,7 +1128,7 @@ describe('StageAgentService', () => {
       expect(result.sessionId).toBe('tid-123');
     });
 
-    it('throws AIError containing "without returning a result" when no agent_message events are emitted', async () => {
+    it('throws AiProviderError containing "without returning a result" when no agent_message events are emitted', async () => {
       spawnCodex.mockImplementation(makeCodexStream({ type: 'thread.started', thread_id: 'tid-123' }));
 
       const service = new StageAgentService(createCodexConfigService());
@@ -1180,7 +1180,7 @@ describe('StageAgentService', () => {
       expect(result.plan.summary).toBe('Third');
     });
 
-    it('throws AIError when Codex agent_message is truncated', async () => {
+    it('throws AiProviderError when Codex agent_message is truncated', async () => {
       spawnCodex.mockImplementation(
         makeCodexStream({
           type: 'item.completed',
@@ -1430,7 +1430,7 @@ describe('StageAgentService', () => {
     });
   });
 
-  describe('parseStagePlanResponse fallback — sessionId preserved in AIError', () => {
+  describe('parseStagePlanResponse fallback — sessionId preserved in AiProviderError', () => {
     const createCliConfigService = (): ConfigService =>
       ({
         get: jest.fn((key: string, defaultValue?: unknown) => {
@@ -1449,7 +1449,7 @@ describe('StageAgentService', () => {
       jest.restoreAllMocks();
     });
 
-    it('includes sessionId in the thrown AIError when plan parsing fails', async () => {
+    it('includes sessionId in the thrown AiProviderError when plan parsing fails', async () => {
       const fakeSessionId = 'sess_plan_fallback_test';
 
       const service = new StageAgentService(createCliConfigService());

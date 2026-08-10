@@ -36,7 +36,7 @@ import {
 } from './ai.service';
 import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
-import { AIError, ExecutionError, isAIErrorLike } from '../../shared/utils/errors';
+import { AiProviderError, ExecutionError, isAiProviderErrorLike } from '../../shared/utils/errors';
 import type { TestInfraContext } from '../../shared/types/detection.types';
 import type { WfAiProviderName } from '../../shared/types/config.types';
 import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
@@ -710,7 +710,7 @@ const finalizeCodexResult = (result: string, sessionId?: string): { content: str
   if (!result) {
     console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] No result message received from Codex CLI`));
     if (sessionId) console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] Provider session: ${sessionId}`));
-    throw new AIError('Codex CLI finished without returning a result.', null, true, 'stall');
+    throw new AiProviderError('Codex CLI finished without returning a result.', null, true, 'stall');
   }
   if (sessionId) console.log(chalk.gray(`  [${CODEX_STAGE_LABEL}] Provider session: ${sessionId}`));
   return { content: result.trim(), sessionId };
@@ -751,7 +751,7 @@ const accumulateCodexStageResult = (
 };
 
 const throwCodexTruncationError = (stage: AgentStageName, stopReason: string): never => {
-  throw new AIError(
+  throw new AiProviderError(
     'CLI response was truncated due to output token limit — the model ran out of space before '
     + 'completing the response. Reduce prompt/context size or switch to provider-backed OpenAI '
     + 'if you need a larger output budget.',
@@ -908,7 +908,7 @@ const advanceCliRetryState = (state: CliRetryState, passResult: CliPassResult): 
 const checkCliStallCondition = (stalledPasses: number, passNumber: number, lastDiagnostics: string[]): void => {
   if (stalledPasses < CLI_STALL_THRESHOLD) return;
   const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
-  throw new AIError(
+  throw new AiProviderError(
     `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`,
     null, true, 'stall'
   );
@@ -1138,8 +1138,8 @@ export class StageAgentService {
       const plan = this.parseAndValidatePlan(response);
       return { plan, sessionId };
     } catch (error) {
-      if (isAIErrorLike(error)) throw error;
-      throw new AIError('Failed to parse resolution plan from agent response', { response, error, sessionId }, true, 'parse');
+      if (isAiProviderErrorLike(error)) throw error;
+      throw new AiProviderError('Failed to parse resolution plan from agent response', { response, error, sessionId }, true, 'parse');
     }
   }
 
@@ -1217,15 +1217,15 @@ export class StageAgentService {
       await this.trySendReviewEpilogue(backend, sessionId, repoDir, systemPrompt, priorStageSummary);
       return { review: { ...review, executionMode: backend === 'cli' ? 'cli' : 'agent' }, sessionId };
     } catch (error) {
-      if (isAIErrorLike(error)) throw error;
-      throw new AIError('Failed to parse code review from agent response', { response, error, sessionId }, true, 'parse');
+      if (isAiProviderErrorLike(error)) throw error;
+      throw new AiProviderError('Failed to parse code review from agent response', { response, error, sessionId }, true, 'parse');
     }
   }
 
   /**
    * @param response - raw AI response content
    * @returns parsed and post-processed code review
-   * @throws AIError when the response JSON is missing required fields (summary, issues, suggestions, approved)
+   * @throws AiProviderError when the response JSON is missing required fields (summary, issues, suggestions, approved)
    */
   private parseAndProcessReview(response: string): CodeReview {
     const parsed = codeReviewSchema.parse(
@@ -1603,7 +1603,7 @@ export class StageAgentService {
     try {
       return await this.executeCliPasses(state, stage, runPass);
     } catch (error) {
-      if (state.sessionId && isAIErrorLike(error)) {
+      if (state.sessionId && isAiProviderErrorLike(error)) {
         error.details = { ...error.details, sessionId: state.sessionId };
       }
       throw error;
@@ -1674,7 +1674,7 @@ export class StageAgentService {
    */
   private checkCliMaxTokens(stopReason: string | undefined, stage: AgentStageName): void {
     if (stopReason !== 'max_tokens') return;
-    throw new AIError(
+    throw new AiProviderError(
       `CLI response was truncated due to output token limit — the model ran out of space before `
       + `completing the response. Reduce prompt/context size or switch to provider-backed OpenAI if you need a larger output budget.`,
       { stopReason, stage }, true, 'truncation'

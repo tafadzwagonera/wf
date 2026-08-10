@@ -5,7 +5,7 @@ import { ChatUIService } from './chat-ui.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { ConversationContext } from './interfaces';
 import { StageAgentService } from '../stage-agent.service';
-import { AIError } from '../../../shared/utils/errors';
+import { AiProviderError } from '../../../shared/utils/errors';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -202,7 +202,7 @@ describe('ConversationService', () => {
       await expect(service.getAssistantResponse('invalid-id')).rejects.toThrow('Conversation not found');
     });
 
-    it('raises an AIError when the standard assistant response is blank', async () => {
+    it('raises an AiProviderError when the standard assistant response is blank', async () => {
       const ticketKey = 'TEST-123';
       const context: ConversationContext = {
         ticketKey,
@@ -225,7 +225,7 @@ describe('ConversationService', () => {
           provider: 'openai',
           model: 'gpt-5.4',
         }),
-      } satisfies Partial<AIError>);
+      } satisfies Partial<AiProviderError>);
     });
   });
 

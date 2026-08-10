@@ -11,7 +11,7 @@ import {
   hashPlanArtifactSources,
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
-import { AIError, ValidationError } from '../../shared/utils/errors';
+import { AiProviderError, ValidationError } from '../../shared/utils/errors';
 import { detectTestInfra } from '../../shared/utils/detect-test-infra';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -286,7 +286,7 @@ describe('PlanStageService', () => {
 
   it('falls back to standard completion when agent plan repair fails', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
-    const proseError = new AIError(
+    const proseError = new AiProviderError(
       'Failed to parse resolution plan from agent response',
       {
         response: 'Here is my analysis of the codebase. The auth module needs updating...',
@@ -299,7 +299,7 @@ describe('PlanStageService', () => {
     (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(proseError);
     (aiService.validatePlanJson as jest.Mock).mockImplementationOnce(async () => {
       callOrder.push('validate');
-      throw new AIError('Plan JSON could not be corrected', { response: proseError.details.response }, true, 'parse');
+      throw new AiProviderError('Plan JSON could not be corrected', { response: proseError.details.response }, true, 'parse');
     });
     (aiService.generatePlan as jest.Mock).mockImplementationOnce(async () => {
       callOrder.push('fallback');
@@ -326,7 +326,7 @@ describe('PlanStageService', () => {
 
   it('returns repaired plan and preserves sessionId when validation succeeds', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
-    const proseError = new AIError(
+    const proseError = new AiProviderError(
       'Failed to parse resolution plan from agent response',
       {
         response: JSON.stringify({
@@ -362,9 +362,9 @@ describe('PlanStageService', () => {
     expect(aiService.generatePlan).not.toHaveBeenCalled();
   });
 
-  it('re-throws non-parsing AIErrors without falling back', async () => {
+  it('re-throws non-parsing AiProviderErrors without falling back', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
-    const rateLimitError = new AIError('Rate limit exceeded', { status: 429 });
+    const rateLimitError = new AiProviderError('Rate limit exceeded', { status: 429 });
     (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(rateLimitError);
 
     await expect(service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-401' })).rejects.toThrow(
@@ -376,7 +376,7 @@ describe('PlanStageService', () => {
 
   it('falls back to structured completion when agent prose response is empty', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
-    const emptyProseError = new AIError(
+    const emptyProseError = new AiProviderError(
       'Failed to parse resolution plan from agent response',
       {
         response: '',
@@ -386,7 +386,7 @@ describe('PlanStageService', () => {
     );
     (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(emptyProseError);
     (aiService.validatePlanJson as jest.Mock).mockRejectedValueOnce(
-      new AIError('Plan JSON could not be corrected', { response: '' }, true, 'parse')
+      new AiProviderError('Plan JSON could not be corrected', { response: '' }, true, 'parse')
     );
 
     const result = await service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-402' });
@@ -398,7 +398,7 @@ describe('PlanStageService', () => {
 
   it('rethrows non-parse repair errors instead of falling back', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
-    const proseError = new AIError(
+    const proseError = new AiProviderError(
       'Failed to parse resolution plan from agent response',
       {
         response: 'Here is my analysis of the codebase. The auth module needs updating...',
@@ -408,7 +408,7 @@ describe('PlanStageService', () => {
     );
     (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(proseError);
     (aiService.validatePlanJson as jest.Mock).mockRejectedValueOnce(
-      new AIError('Rate limit exceeded', { status: 429 }, true, 'api')
+      new AiProviderError('Rate limit exceeded', { status: 429 }, true, 'api')
     );
 
     await expect(
@@ -425,7 +425,7 @@ describe('PlanStageService', () => {
 
   it('throws when fallback result is structurally invalid', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
-    const proseError = new AIError('Failed to parse resolution plan from agent response', {
+    const proseError = new AiProviderError('Failed to parse resolution plan from agent response', {
       response: 'Some analysis prose...',
     });
     (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(proseError);

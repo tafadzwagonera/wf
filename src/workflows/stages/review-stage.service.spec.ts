@@ -7,7 +7,7 @@ import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { AIError } from '../../shared/utils/errors';
+import { AiProviderError } from '../../shared/utils/errors';
 import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
 import type { SkillDefinition } from '../../skills/skill.types';
 
@@ -453,7 +453,7 @@ describe('ReviewStageService', () => {
   it('propagates empty-response AI errors from the standard review path', async () => {
     const { service, aiService } = await buildService();
     (aiService.reviewCode as jest.Mock).mockRejectedValueOnce(
-      new AIError('AI provider returned an empty review response', {
+      new AiProviderError('AI provider returned an empty review response', {
         provider: 'google',
         model: 'gemini-2.5-pro',
       })
@@ -530,7 +530,7 @@ describe('ReviewStageService', () => {
   });
 
   describe('agent parse-error recovery', () => {
-    it('recovers a valid review via validateReviewJson when the agent throws a parse AIError', async () => {
+    it('recovers a valid review via validateReviewJson when the agent throws a parse AiProviderError', async () => {
       const recoveredReview = {
         ...mockReview,
         executionMode: 'standard' as const,
@@ -540,7 +540,7 @@ describe('ReviewStageService', () => {
         reviewBackend: 'agent',
       });
       (stageAgentService.reviewCode as jest.Mock).mockRejectedValueOnce(
-        new AIError('Review JSON could not be corrected', {
+        new AiProviderError('Review JSON could not be corrected', {
           response: JSON.stringify({
             summary: mockReview.summary,
             issues: [],
@@ -564,13 +564,13 @@ describe('ReviewStageService', () => {
       );
     });
 
-    it('rethrows non-parse AIErrors from the agent without recovery', async () => {
+    it('rethrows non-parse AiProviderErrors from the agent without recovery', async () => {
       const { service, stageAgentService } = await buildService({
         agentEnabled: true,
         reviewBackend: 'agent',
       });
       (stageAgentService.reviewCode as jest.Mock).mockRejectedValueOnce(
-        new AIError('API rate limit exceeded', {}, false, 'api')
+        new AiProviderError('API rate limit exceeded', {}, false, 'api')
       );
 
       await expect(
@@ -667,7 +667,7 @@ describe('ReviewStageService', () => {
         reviewBackend: 'agent',
       });
       (stageAgentService.reviewCode as jest.Mock).mockRejectedValueOnce(
-        new AIError('parse fail', { response: '{"summary":"ok","issues":[],"suggestions":[],"approved":true}', sessionId: 'review-sess-2' }, true, 'parse')
+        new AiProviderError('parse fail', { response: '{"summary":"ok","issues":[],"suggestions":[],"approved":true}', sessionId: 'review-sess-2' }, true, 'parse')
       );
       const svc = aiService as unknown as Record<string, unknown>;
       svc.validateReviewJson = jest.fn().mockResolvedValue({

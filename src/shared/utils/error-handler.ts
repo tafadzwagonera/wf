@@ -1,4 +1,4 @@
-import { AppError, AIError, ERROR_CODE, type AIErrorCategory } from '../errors/app.error';
+import { AppError, AiProviderError, ERROR_CODE, type AiProviderErrorCategory } from '../errors/app.error';
 import { appendToLogFile } from '../logger/log-file-writer';
 import { isZodErrorLike, formatZodError } from './zod-error.util';
 import chalk from 'chalk';
@@ -66,8 +66,8 @@ export class ErrorHandler {
 
   // eslint-disable-next-line max-lines-per-function -- category check + full suggestions map are both required here
   private static getSuggestion(error: AppError): string | null {
-    if (error instanceof AIError && error.category) {
-      const categorySuggestions: Partial<Record<AIErrorCategory, string>> = {
+    if (error instanceof AiProviderError && error.category) {
+      const categorySuggestions: Partial<Record<AiProviderErrorCategory, string>> = {
         timeout: 'The AI provider request timed out. Check your network connection and retry — the provider may be temporarily overloaded.',
         auth: 'Authentication failed. Verify the API key for the selected provider in your wf.config.* file.',
         api: 'The AI provider returned a service error (e.g. rate limit or overload). Wait briefly and retry.',

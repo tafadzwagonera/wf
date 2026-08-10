@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import dayjs from 'dayjs';
-import { AIError, isAIErrorLike } from '../../shared/utils/errors';
+import { AiProviderError, isAiProviderErrorLike } from '../../shared/utils/errors';
 import { formatZodError, isZodErrorLike } from '../../shared/utils/zod-error.util';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
@@ -401,20 +401,20 @@ const hasRecoverableBlankReviewMetadata = (response: ReviewResponseDiagnostics):
  *
  * @param response - Adapter or stage-agent response plus diagnostics
  * @returns Trimmed response content when non-empty
- * @throws AIError when the provider returned blank or non-text review output
+ * @throws AiProviderError when the provider returned blank or non-text review output
  */
 export const requireReviewResponseContent = (response: ReviewResponseDiagnostics): string =>
   requireAiResponseContent(response, 'AI provider returned an empty review response');
 
 /**
- * Build the AIError thrown when the provider returns empty content.
+ * Build the AiProviderError thrown when the provider returns empty content.
  * @param response Adapter response diagnostics
  * @param message Human-readable error message
- * @returns Constructed AIError
+ * @returns Constructed AiProviderError
  */
 // eslint-disable-next-line max-lines-per-function -- category arg extends parity with requireReviewJsonContent
-const buildEmptyResponseError = (response: ResponseContentDiagnostics, message: string): AIError =>
-  new AIError(
+const buildEmptyResponseError = (response: ResponseContentDiagnostics, message: string): AiProviderError =>
+  new AiProviderError(
     message,
     {
       provider: response.provider,
@@ -436,7 +436,7 @@ const buildEmptyResponseError = (response: ResponseContentDiagnostics, message: 
  * @param response - Adapter response plus diagnostics
  * @param message - Error message to raise for empty output
  * @returns Trimmed response content when non-empty
- * @throws AIError when the provider returned blank output
+ * @throws AiProviderError when the provider returned blank output
  */
 export const requireAiResponseContent = (response: ResponseContentDiagnostics, message: string): string => {
   if (!isBlankReviewResponse(response)) return response.content.trim();
@@ -449,14 +449,14 @@ export const requireAiResponseContent = (response: ResponseContentDiagnostics, m
  *
  * @param response - Adapter or stage-agent response plus diagnostics
  * @returns Trimmed response content when it contains at least one `{`
- * @throws AIError when the provider returned blank output (delegated to requireReviewResponseContent)
- * @throws AIError when the provider returned non-blank prose without any JSON
+ * @throws AiProviderError when the provider returned blank output (delegated to requireReviewResponseContent)
+ * @throws AiProviderError when the provider returned non-blank prose without any JSON
  */
 // eslint-disable-next-line max-lines-per-function -- parity with buildEmptyResponseError detail fields
 const requireReviewJsonContent = (response: ReviewResponseDiagnostics): string => {
   const content = requireReviewResponseContent(response);
   if (hasJsonContent(content)) return content;
-  throw new AIError(
+  throw new AiProviderError(
     'AI provider returned a prose review response without JSON',
     {
       provider: response.provider,
@@ -827,7 +827,7 @@ const throwIfTruncated = (response: AIResponse, stage: string): void => {
       || response.finishReason === 'length'
       || response.finishReason === 'MAX_TOKENS';
   if (!truncated) return;
-  throw new AIError(
+  throw new AiProviderError(
     `${stage} response was truncated due to output token limit — the model ran out of space before completing the JSON. Increase stages.${stage.toLowerCase()}.maxTokens in wf.config.ts.`,
     { stopReason: response.stopReason, finishReason: response.finishReason, usage: response.usage },
     true,
@@ -963,7 +963,7 @@ const runValidationRetryLoop = async <T>(args: ValidationRetryLoopArgs<T>): Prom
       content = await args.requestCorrection(content, correction.zodErrors);
     }
   }
-  throw new AIError(args.failureMessage, { response: content }, true, 'parse');
+  throw new AiProviderError(args.failureMessage, { response: content }, true, 'parse');
 };
 
 const buildPlanProseErrorDetails = (
@@ -999,7 +999,7 @@ const retryOnUnusableResponse = async (
       validateFn(response);
       return response;
     } catch (error) {
-      if (!isAIErrorLike(error) || !error.recoverable) throw error;
+      if (!isAiProviderErrorLike(error) || !error.recoverable) throw error;
       response = await executeFn();
     }
   }
@@ -1238,7 +1238,7 @@ export class AiService {
     const stageProvider = resolveStageProvider(this.configService, stage);
     const stageModel = resolveStageModel(this.configService, stage);
     if (!stageProvider && !stageModel) return fallback;
-    if (!stageProvider || !stageModel) throw new AIError(`AI stage target for "${stage}" must define provider and model together.`);
+    if (!stageProvider || !stageModel) throw new AiProviderError(`AI stage target for "${stage}" must define provider and model together.`);
     return { provider: stageProvider, model: stageModel };
   }
 
@@ -1248,7 +1248,7 @@ export class AiService {
     modelOverride?: string
   ): { provider?: string; model?: string } {
     if (providerOverride || modelOverride) {
-      if (!providerOverride || !modelOverride) throw new AIError('AI provider and model overrides must be supplied together.');
+      if (!providerOverride || !modelOverride) throw new AiProviderError('AI provider and model overrides must be supplied together.');
       return { provider: providerOverride, model: modelOverride };
     }
     const provider = this.configService.get<string>('ai.provider', 'anthropic');
@@ -1326,7 +1326,7 @@ export class AiService {
   private requirePlanJsonContent(response: AIResponse): string {
     const content = requireAiResponseContent(response, 'AI provider returned an empty plan response');
     if (hasJsonContent(content)) return content;
-    throw new AIError(
+    throw new AiProviderError(
       'AI provider returned a prose plan response without JSON',
       buildPlanProseErrorDetails(response, content),
       hasRecoverableBlankReviewMetadata(response),
@@ -1348,7 +1348,7 @@ export class AiService {
    * Parse and normalize the AI response into a ResolutionPlan.
    * @param response Raw AI response from the plan execution call
    * @returns Normalized ResolutionPlan with provider metadata
-   * @throws AIError on empty or unparseable response
+   * @throws AiProviderError on empty or unparseable response
    */
   private parsePlanResponse(response: AIResponse): ResolutionPlan {
     try {
@@ -1359,9 +1359,9 @@ export class AiService {
       this.stampPlanMetadata(plan, response);
       return plan;
     } catch (error) {
-      if (isAIErrorLike(error)) throw error;
+      if (isAiProviderErrorLike(error)) throw error;
       this.logger.error('Failed to parse AI response as JSON', error);
-      throw new AIError('Failed to parse resolution plan from AI response', { response: response.content, error }, true, 'parse');
+      throw new AiProviderError('Failed to parse resolution plan from AI response', { response: response.content, error }, true, 'parse');
     }
   }
 
@@ -1373,7 +1373,7 @@ export class AiService {
    * Parse the findings AI response into a FindingsDocument.
    * @param response Raw AI response from the findings execution call
    * @returns Parsed FindingsDocument
-   * @throws AIError on empty or unparseable response
+   * @throws AiProviderError on empty or unparseable response
    */
   private parseFindingsResponse(response: AIResponse): FindingsDocument {
     try {
@@ -1381,9 +1381,9 @@ export class AiService {
         requireAiResponseContent(response, 'AI provider returned an empty investigation findings response')
       );
     } catch (error) {
-      if (isAIErrorLike(error)) throw error;
+      if (isAiProviderErrorLike(error)) throw error;
       this.logger.error('Failed to parse findings response', error);
-      throw new AIError('Failed to parse investigation findings from AI response', { response: response.content, error }, true, 'parse');
+      throw new AiProviderError('Failed to parse investigation findings from AI response', { response: response.content, error }, true, 'parse');
     }
   }
 
@@ -1393,7 +1393,7 @@ export class AiService {
    * @param diff Git diff used for trace sanitization
    * @param maxTokens Optional token limit for correction calls
    * @returns Validated and post-processed CodeReview
-   * @throws AIError when the review JSON cannot be corrected after retries
+   * @throws AiProviderError when the review JSON cannot be corrected after retries
    */
   async validateReviewJson(rawJson: string, diff: string, maxTokens?: number): Promise<CodeReview> {
     const reviewMaxTokens = maxTokens ?? this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
@@ -1410,7 +1410,7 @@ export class AiService {
    * Validate and repair raw plan JSON via Zod, retrying up to VALIDATION_RETRY_LIMIT times.
    * @param rawJson Raw JSON string from the AI provider
    * @returns Validated and stamped ResolutionPlan
-   * @throws AIError when the plan JSON cannot be corrected after retries
+   * @throws AiProviderError when the plan JSON cannot be corrected after retries
    */
   async validatePlanJson(rawJson: string): Promise<ResolutionPlan> {
     const planMaxTokens = this.configService.get<number>('stages.plan.maxTokens', DEFAULT_PLAN_MAX_TOKENS);
@@ -1481,7 +1481,7 @@ export class AiService {
   private evaluateValidationCorrection(
     error: unknown, attempt: number, previousErrorCount: number
   ): { zodErrors: string; errorCount: number } | null {
-    if (isAIErrorLike(error)) throw error;
+    if (isAiProviderErrorLike(error)) throw error;
     const errorCount = isZodErrorLike(error) ? error.issues.length : Infinity;
     const stalled = attempt > 0 && errorCount >= previousErrorCount;
     if (stalled || attempt >= VALIDATION_RETRY_LIMIT) return null;

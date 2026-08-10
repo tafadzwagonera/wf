@@ -19,7 +19,7 @@ import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults'
 import { deriveReviewArtifactPath } from '../../shared/utils/plan-artifact';
 import { StageProgressCallback } from '../../shared/types/agent.types';
 import { resolveSkills } from '../../skills';
-import { isAIErrorLike } from '../../shared/utils/errors';
+import { isAiProviderErrorLike } from '../../shared/utils/errors';
 
 const DEFAULT_REVIEW_GUIDELINES = [
   'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
@@ -135,14 +135,14 @@ export class ReviewStageService {
       );
       return { review: result.review, sessionId: result.sessionId };
     } catch (error) {
-      const sessionId = isAIErrorLike(error) ? error.details?.sessionId : undefined;
+      const sessionId = isAiProviderErrorLike(error) ? error.details?.sessionId : undefined;
       const review = await this.recoverReviewFromValidation(error, diff);
       return { review, sessionId };
     }
   }
 
   private async recoverReviewFromValidation(error: unknown, diff: string): Promise<CodeReview> {
-    if (!isAIErrorLike(error) || error.category !== 'parse' || !error.details?.response) throw error;
+    if (!isAiProviderErrorLike(error) || error.category !== 'parse' || !error.details?.response) throw error;
     const review = await this.aiService.validateReviewJson(error.details.response as string, diff);
     const backend = this.configService.get<string>('stages.review.backend', resolveDefaultStageBackend('review'));
     return { ...review, executionMode: backend === 'cli' ? 'cli' : 'agent' };

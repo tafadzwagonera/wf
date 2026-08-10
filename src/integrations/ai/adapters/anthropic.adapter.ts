@@ -5,11 +5,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { AIConversationRequest, AIRequest, AIResponse } from '../ai.service';
 import type { LlmAdapter } from '../llm-adapter.interface';
-import { AIError } from '../../../shared/utils/errors';
+import { AiProviderError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
 import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
-import { classifyAiSdkError } from './ai-error.classify';
+import { classifyAiSdkError } from './ai-provider-error.classify';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
 
@@ -95,12 +95,12 @@ const mapAnthropicResponse = (response: Anthropic.Messages.Message, model: strin
 const buildMessageHistory = (request: AIConversationRequest): Anthropic.MessageParam[] => request.messages;
 
 /**
- * Wraps an Anthropic.APIError into a retryable AIError.
+ * Wraps an Anthropic.APIError into a retryable AiProviderError.
  * @param error - The caught Anthropic API error
- * @returns A new AIError with status metadata
+ * @returns A new AiProviderError with status metadata
  */
-const wrapApiError = (error: InstanceType<typeof Anthropic.APIError>): AIError =>
-  new AIError(`Claude API error: ${error.message}`, { status: error.status }, true, classifyAiSdkError(error));
+const wrapApiError = (error: InstanceType<typeof Anthropic.APIError>): AiProviderError =>
+  new AiProviderError(`Claude API error: ${error.message}`, { status: error.status }, true, classifyAiSdkError(error));
 
 /**
  * Calls the Anthropic messages API and maps the result to AIResponse.
@@ -121,7 +121,7 @@ const callMessages = async (
     return mapAnthropicResponse(response, model);
   } catch (error) {
     if (error instanceof Anthropic.APIError) throw wrapApiError(error);
-    throw new AIError(errorMsg, error, true, classifyAiSdkError(error));
+    throw new AiProviderError(errorMsg, error, true, classifyAiSdkError(error));
   }
 };
 
@@ -178,7 +178,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
 
   private assertClient(): Anthropic {
     if (!this.client) {
-      throw new AIError(
+      throw new AiProviderError(
         'Anthropic client not initialized. Configure `ai[].apiKey` for the `anthropic` provider in wf.config.*.',
         null,
         false

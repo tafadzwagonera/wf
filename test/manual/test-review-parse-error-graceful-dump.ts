@@ -4,15 +4,15 @@
  * Run: nr test:manual -- test-review-parse-error-graceful-dump
  *
  * Verifies:
- *   1. Parse AIError prints warning and raw payload, does not crash
- *   2. Non-parse AIError propagates to caller
+ *   1. Parse AiProviderError prints warning and raw payload, does not crash
+ *   2. Non-parse AiProviderError propagates to caller
  *   3. Silent mode suppresses output but still skips the target
  *
  * @returns Promise that resolves when the smoke test completes
  */
 import chalk from 'chalk';
-import { AIError } from '../../src/shared/errors/app.error';
-import { isAIErrorLike } from '../../src/shared/utils/errors';
+import { AiProviderError } from '../../src/shared/errors/app.error';
+import { isAiProviderErrorLike } from '../../src/shared/utils/errors';
 
 let passed = 0;
 let failed = 0;
@@ -36,7 +36,7 @@ const assert = (message: string, condition: boolean, detail?: string): void => {
 };
 
 const handleReviewParseError = (error: unknown, silent?: boolean): void => {
-  if (!isAIErrorLike(error) || error.category !== 'parse') throw error;
+  if (!isAiProviderErrorLike(error) || error.category !== 'parse') throw error;
   if (silent) return;
   console.log(chalk.yellow('\n⚠ Review JSON could not be fully validated. Dumping raw payload for manual inspection.\n'));
   console.log(error.details?.response ?? '');
@@ -45,10 +45,10 @@ const handleReviewParseError = (error: unknown, silent?: boolean): void => {
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\nReview parse error graceful dump smoke test\n'));
 
-  console.log(chalk.bold('Test 1: parse AIError prints warning, does not throw'));
+  console.log(chalk.bold('Test 1: parse AiProviderError prints warning, does not throw'));
   {
     const rawPayload = '{"broken": true}';
-    const parseError = new AIError('parse fail', { response: rawPayload }, true, 'parse');
+    const parseError = new AiProviderError('parse fail', { response: rawPayload }, true, 'parse');
 
     const lines: string[] = [];
     const originalLog = console.log;
@@ -78,9 +78,9 @@ async function main(): Promise<void> {
     );
   }
 
-  console.log(chalk.bold('\nTest 2: non-parse AIError propagates'));
+  console.log(chalk.bold('\nTest 2: non-parse AiProviderError propagates'));
   {
-    const authError = new AIError('auth fail', {}, true, 'auth');
+    const authError = new AiProviderError('auth fail', {}, true, 'auth');
     let caughtError: unknown;
     try {
       handleReviewParseError(authError);
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
 
   console.log(chalk.bold('\nTest 3: silent mode suppresses output'));
   {
-    const parseError = new AIError('parse fail', { response: 'raw' }, true, 'parse');
+    const parseError = new AiProviderError('parse fail', { response: 'raw' }, true, 'parse');
 
     const lines: string[] = [];
     const originalLog = console.log;

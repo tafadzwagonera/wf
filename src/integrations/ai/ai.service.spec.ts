@@ -2,7 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { AiService, parseJsonResponse } from './ai.service';
 import { LoggerService } from '../../shared/logger/logger.service';
 import type { LlmAdapter } from './llm-adapter.interface';
-import { AIError } from '../../shared/utils/errors';
+import { AiProviderError } from '../../shared/utils/errors';
 import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
 
 describe('AiService', () => {
@@ -663,7 +663,7 @@ describe('AiService', () => {
       });
     });
 
-    it('throws an actionable AIError when the plan response is truncated', async () => {
+    it('throws an actionable AiProviderError when the plan response is truncated', async () => {
       const adapter = {
         execute: jest.fn().mockResolvedValue({
           content: '{"action":"fix","summary":"Truncated',
@@ -697,7 +697,7 @@ describe('AiService', () => {
   });
 
   describe('non-review empty response handling', () => {
-    it('raises an AIError with provider metadata when findings output is blank', async () => {
+    it('raises an AiProviderError with provider metadata when findings output is blank', async () => {
       const adapter = createAdapter();
       adapter.execute.mockResolvedValueOnce({
         content: '  ',
@@ -724,7 +724,7 @@ describe('AiService', () => {
       });
     });
 
-    it('raises an AIError with provider metadata when commit output is blank', async () => {
+    it('raises an AiProviderError with provider metadata when commit output is blank', async () => {
       const adapter = createAdapter();
       adapter.execute.mockResolvedValueOnce({
         content: '',
@@ -749,7 +749,7 @@ describe('AiService', () => {
       jest.restoreAllMocks();
     });
 
-    it('raises an AIError with provider metadata when the review response is blank', async () => {
+    it('raises an AiProviderError with provider metadata when the review response is blank', async () => {
       const adapter = createAdapter();
       adapter.execute
         .mockResolvedValueOnce({
@@ -1326,7 +1326,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(review.summary).toBe('ok');
     });
 
-    it('raises an AIError with prose message when both attempts return prose', async () => {
+    it('raises an AiProviderError with prose message when both attempts return prose', async () => {
       const adapter = createAdapter();
       adapter.execute
         .mockResolvedValueOnce({
@@ -1379,7 +1379,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       jest.restoreAllMocks();
     });
 
-    it('throws AIError when LLM response is missing suggestions field and retry cannot fix it', async () => {
+    it('throws AiProviderError when LLM response is missing suggestions field and retry cannot fix it', async () => {
       const adapter = createAdapter();
       const invalidContent = JSON.stringify({
         summary: 'Review summary',
@@ -1624,7 +1624,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(adapter.execute).toHaveBeenCalledTimes(1);
     });
 
-    it('throws AIError when retries are exhausted on completely unparseable input', async () => {
+    it('throws AiProviderError when retries are exhausted on completely unparseable input', async () => {
       const adapter = createAdapter();
       adapter.execute.mockResolvedValue({
         content: 'not json at all',
@@ -1665,7 +1665,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(adapter.execute).toHaveBeenCalledTimes(1);
     });
 
-    it('throws AIError when retries are exhausted without improvement', async () => {
+    it('throws AiProviderError when retries are exhausted without improvement', async () => {
       const adapter = createAdapter();
       const stillInvalidJson = JSON.stringify({
         summary: 'Still broken',
@@ -1790,7 +1790,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(adapter.execute).toHaveBeenCalledTimes(1);
     });
 
-    it('throws AIError when the correction response stalls', async () => {
+    it('throws AiProviderError when the correction response stalls', async () => {
       const adapter = createAdapter();
       const stillInvalidJson = JSON.stringify({
         action: 'fix',

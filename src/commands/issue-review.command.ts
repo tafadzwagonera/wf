@@ -17,7 +17,7 @@ import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { ValidationError, ExecutionError, FileSystemError, GitError, isAIErrorLike } from '../shared/utils/errors';
+import { ValidationError, ExecutionError, FileSystemError, GitError, isAiProviderErrorLike } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
@@ -611,7 +611,7 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   private handleReviewParseError(error: unknown, options?: IssueReviewOptions): void {
-    if (!isAIErrorLike(error) || error.category !== 'parse') throw error;
+    if (!isAiProviderErrorLike(error) || error.category !== 'parse') throw error;
     this.logger.warn('Review target skipped — parse error: ' + (error.message ?? 'unknown'));
     if (options?.silent) return;
     console.log(chalk.yellow('\n⚠ Review JSON could not be fully validated. Dumping raw payload for manual inspection.\n'));

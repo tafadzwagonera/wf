@@ -5,11 +5,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { AIConversationRequest, AIRequest, AIResponse } from '../ai.service';
 import type { LlmAdapter } from '../llm-adapter.interface';
-import { AIError } from '../../../shared/utils/errors';
+import { AiProviderError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
 import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
-import { classifyAiSdkError } from './ai-error.classify';
+import { classifyAiSdkError } from './ai-provider-error.classify';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
 
@@ -180,7 +180,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
 
   private assertClient(): GoogleGenerativeAI {
     if (this.client) return this.client;
-    throw new AIError(
+    throw new AiProviderError(
       'Gemini client not initialized. Configure `ai[].apiKey` for the `google` provider in wf.config.*.',
       null,
       false
@@ -204,7 +204,7 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
       const result = await generativeModel.generateContent(request.prompt);
       return this.buildResponseMetadata(result.response.text(), model, result.response);
     } catch (error) {
-      throw new AIError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true, classifyAiSdkError(error));
+      throw new AiProviderError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true, classifyAiSdkError(error));
     }
   }
 
@@ -216,11 +216,11 @@ export class GeminiAdapter implements LlmAdapter, OnModuleInit {
       const { model, generativeModel } = this.buildModel(client, request);
       const history = buildGeminiHistory(request.messages);
       const lastMessage = request.messages.at(-1);
-      if (!lastMessage) throw new AIError('Cannot execute conversation with empty message history', undefined, false);
+      if (!lastMessage) throw new AiProviderError('Cannot execute conversation with empty message history', undefined, false);
       const result = await generativeModel.startChat({ history }).sendMessage(lastMessage.content);
       return this.buildResponseMetadata(result.response.text(), model, result.response);
     } catch (error) {
-      throw new AIError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true, classifyAiSdkError(error));
+      throw new AiProviderError(`Gemini API error: ${error instanceof Error ? error.message : String(error)}`, error, true, classifyAiSdkError(error));
     }
   }
 }

@@ -17,7 +17,7 @@ import {
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
-import { AIError, isAIErrorLike, ValidationError } from '../../shared/utils/errors';
+import { AiProviderError, isAiProviderErrorLike, ValidationError } from '../../shared/utils/errors';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { validatePlanQuality } from '../../shared/utils/plan-quality';
 import type { RepoConventionsContext,
@@ -97,7 +97,7 @@ export class PlanStageService {
           });
         } catch (error) {
           const isFallbackEligible
-            = isAIErrorLike(error)
+            = isAiProviderErrorLike(error)
               && (error.message.includes('Failed to parse resolution plan')
                 || error.message.includes('CLI finished without returning a result'));
 
@@ -126,7 +126,7 @@ export class PlanStageService {
           });
 
           if (!fallbackResult?.action || !fallbackResult?.summary || !Array.isArray(fallbackResult?.steps)) {
-            throw new AIError(
+            throw new AiProviderError(
               'Fallback completion did not produce a valid resolution plan. Both agent and standard completion failed to return JSON.',
               { agentResponse: agentProse?.slice(0, 500), fallbackResult },
               true,
@@ -193,7 +193,7 @@ export class PlanStageService {
     error: unknown,
     sessionId?: string
   ): Promise<{ plan: ResolutionPlan; sessionId?: string } | undefined> {
-    if (!isAIErrorLike(error) || error.category !== 'parse' || typeof error.details?.response !== 'string') {
+    if (!isAiProviderErrorLike(error) || error.category !== 'parse' || typeof error.details?.response !== 'string') {
       return undefined;
     }
 
@@ -201,7 +201,7 @@ export class PlanStageService {
       .validatePlanJson(error.details.response)
       .then(plan => ({ plan, sessionId }))
       .catch(repairError => {
-        if (!isAIErrorLike(repairError) || repairError.category !== 'parse') throw repairError;
+        if (!isAiProviderErrorLike(repairError) || repairError.category !== 'parse') throw repairError;
         return undefined;
       });
   }

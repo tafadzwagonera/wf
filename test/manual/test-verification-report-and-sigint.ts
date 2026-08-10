@@ -7,7 +7,7 @@
  *   1. runProgrammaticVerification runs each configured script and records pass/fail
  *   2. runProgrammaticVerification records correct id and status per script
  *   3. main.ts SIGINT handler does not exit on first signal (graceful shutdown)
- *   4. AIError includes sessionId in details when thrown from parseStagePlanResponse
+ *   4. AiProviderError includes sessionId in details when thrown from parseStagePlanResponse
  *   5. ImplementerResult type includes verificationOutcomes field
  *   6. assertEnforcedVerificationsPassed blocks on enforced failures
  *   7. assertEnforcedVerificationsPassed allows best_effort failures
@@ -68,11 +68,11 @@ async function main(): Promise<void> {
     fail('First SIGINT still calls process.exit(130) immediately');
   }
 
-  console.log('\nTest 4: AIError includes sessionId in details');
-  const { AIError: AIErrorClass } = require('../../src/shared/utils/errors') as { AIError: any };
-  const error = new AIErrorClass('test error', { sessionId: 'abc-123', response: 'prose' });
+  console.log('\nTest 4: AiProviderError includes sessionId in details');
+  const { AiProviderError: AiProviderErrorClass } = require('../../src/shared/utils/errors') as { AiProviderError: any };
+  const error = new AiProviderErrorClass('test error', { sessionId: 'abc-123', response: 'prose' });
   if (error.details?.sessionId === 'abc-123') {
-    pass('AIError.details.sessionId accessible');
+    pass('AiProviderError.details.sessionId accessible');
   } else {
     fail(`Expected sessionId "abc-123", got "${error.details?.sessionId}"`);
   }

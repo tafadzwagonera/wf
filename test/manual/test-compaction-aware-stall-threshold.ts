@@ -183,7 +183,7 @@ const checkCliStallCondition = (
   const error = new Error(
     `Claude CLI finished without returning a result after ${passNumber} pass(es) \u2014 workload not decreasing.${detail}`
   );
-  error.name = 'AIError';
+  error.name = 'AiProviderError';
   throw error;
 };
 

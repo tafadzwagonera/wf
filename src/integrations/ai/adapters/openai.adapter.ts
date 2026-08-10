@@ -5,11 +5,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { AIConversationRequest, AIRequest, AIResponse } from '../ai.service';
 import type { LlmAdapter } from '../llm-adapter.interface';
-import { AIError } from '../../../shared/utils/errors';
+import { AiProviderError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
 import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
-import { classifyAiSdkError } from './ai-error.classify';
+import { classifyAiSdkError } from './ai-provider-error.classify';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
 
@@ -153,7 +153,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
 
   private assertClient(): OpenAI {
     if (!this.client) {
-      throw new AIError(
+      throw new AiProviderError(
         'OpenAI client not initialized. Configure `ai[].apiKey` for the `openai` provider in wf.config.*.',
         null,
         false
@@ -164,7 +164,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
 
   /**
    * Invokes the OpenAI chat completions API and maps the result to AIResponse.
-   * Wraps OpenAI.APIError and generic errors with AIError.
+   * Wraps OpenAI.APIError and generic errors with AiProviderError.
    * @param params - The chat completion request parameters.
    * @param model - The model identifier used for the request.
    * @param errorMsg - The message to use when wrapping a generic error.
@@ -180,9 +180,9 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
       return mapOpenAiResponse(response, model);
     } catch (error) {
       if (error instanceof OpenAI.APIError) {
-        throw new AIError(`OpenAI API error: ${error.message}`, getApiErrorDetails(error), true, classifyAiSdkError(error));
+        throw new AiProviderError(`OpenAI API error: ${error.message}`, getApiErrorDetails(error), true, classifyAiSdkError(error));
       }
-      throw new AIError(errorMsg, error, true, classifyAiSdkError(error));
+      throw new AiProviderError(errorMsg, error, true, classifyAiSdkError(error));
     }
   }
 

@@ -10,7 +10,7 @@ import {
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { isAIErrorLike, ValidationError, ExecutionError, FileSystemError } from '../shared/utils/errors';
+import { isAiProviderErrorLike, ValidationError, ExecutionError, FileSystemError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import {
   buildSyntheticTicketArtifact,
@@ -664,7 +664,7 @@ export class IssueImplementCommand extends CommandRunner {
     try {
       return JSON.parse(jsonMatch[1] ?? jsonMatch[0]);
     } catch (error) {
-      if (isAIErrorLike(error)) {
+      if (isAiProviderErrorLike(error)) {
         throw error;
       }
       throw new ExecutionError('Failed to parse investigation findings from AI response');

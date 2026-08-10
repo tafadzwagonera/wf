@@ -4,7 +4,7 @@ import { FormatConverterService } from '../common/converters/format-converter.se
 import { AiService, requireAiResponseContent } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { isAIErrorLike, ValidationError, ExecutionError, ConfigurationError } from '../shared/utils/errors';
+import { isAiProviderErrorLike, ValidationError, ExecutionError, ConfigurationError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { SlackService } from '../integrations/slack/slack.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
@@ -1345,7 +1345,7 @@ export class IssueGenerateCommand extends CommandRunner {
       );
       return this.parseStringArray(content);
     } catch (error) {
-      if (isAIErrorLike(error)) throw error;
+      if (isAiProviderErrorLike(error)) throw error;
       return [];
     }
   }

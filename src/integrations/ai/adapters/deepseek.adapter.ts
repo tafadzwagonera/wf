@@ -5,11 +5,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { AIConversationRequest, AIRequest, AIResponse } from '../ai.service';
 import type { LlmAdapter } from '../llm-adapter.interface';
-import { AIError } from '../../../shared/utils/errors';
+import { AiProviderError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
 import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
-import { classifyAiSdkError } from './ai-error.classify';
+import { classifyAiSdkError } from './ai-provider-error.classify';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
 
@@ -93,13 +93,13 @@ const buildMessageHistory = (
 /**
  * @param error - Caught error from OpenAI client
  * @param fallbackMessage - Human-readable fallback message for non-API errors
- * @throws AIError always
+ * @throws AiProviderError always
  */
 const throwDeepSeekError = (error: unknown, fallbackMessage: string): never => {
   if (error instanceof OpenAI.APIError) {
-    throw new AIError(`DeepSeek API error: ${error.message}`, { status: error.status }, true, classifyAiSdkError(error));
+    throw new AiProviderError(`DeepSeek API error: ${error.message}`, { status: error.status }, true, classifyAiSdkError(error));
   }
-  throw new AIError(fallbackMessage, error, true, classifyAiSdkError(error));
+  throw new AiProviderError(fallbackMessage, error, true, classifyAiSdkError(error));
 };
 
 /**
@@ -170,7 +170,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
 
   private assertClient(): OpenAI {
     if (!this.client) {
-      throw new AIError(
+      throw new AiProviderError(
         'DeepSeek client not initialized. Configure `ai[].apiKey` for the `deepseek` provider in wf.config.*.',
         null,
         false

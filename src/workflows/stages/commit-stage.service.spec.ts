@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { AiService } from '../../integrations/ai/ai.service';
 import { CommitStageService } from './commit-stage.service';
-import { AIError } from '../../shared/utils/errors';
+import { AiProviderError } from '../../shared/utils/errors';
 
 describe('CommitStageService', () => {
   const buildService = async () => {
@@ -66,7 +66,7 @@ describe('CommitStageService', () => {
     expect(message).toBe('WBP-123: restore login redirect');
   });
 
-  it('raises an AIError instead of normalizing a blank standalone commit response', async () => {
+  it('raises an AiProviderError instead of normalizing a blank standalone commit response', async () => {
     const { service, aiService } = await buildService();
     (aiService.execute as jest.Mock).mockResolvedValueOnce({
       content: '',
@@ -86,6 +86,6 @@ describe('CommitStageService', () => {
         provider: 'openai',
         model: 'gpt-5.4',
       }),
-    } satisfies Partial<AIError>);
+    } satisfies Partial<AiProviderError>);
   });
 });
