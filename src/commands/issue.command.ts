@@ -1433,6 +1433,8 @@ export class IssueCommand extends CommandRunner {
 
       if (!reviewArtifact) continue;
       this.printReviewStatus(reviewArtifact, options?.silent);
+      this.agents.reviewer.persistArtifact(reviewArtifact, ticketArtifact.ticketKey);
+      if (!options?.silent) console.log(chalk.gray('  Saved to ' + reviewArtifact.path));
       await this.offerReviewChat(ticketArtifact, planArtifact, reviewArtifact, ticketKey, repos, options);
     }
 

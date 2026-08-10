@@ -46,9 +46,11 @@ export class ReviewerAgent {
 
     const { review, sessionId } = await this.stageAndReview(ticket, options, onProgress);
 
-    const artifact = this.reviewStageService.createReviewArtifact(ticket, review, sessionId);
-    if (!options.silent) this.presenter.detail('Saved to', artifact.path);
-    return artifact;
+    return this.reviewStageService.buildReviewArtifact(ticket, review, sessionId);
+  }
+
+  persistArtifact(artifact: ReviewArtifact, ticketKey: string): void {
+    this.reviewStageService.persistReviewArtifact(artifact, ticketKey);
   }
 
   private tryLoadCachedReview(ticketPath: string, options: ReviewerOptions): ReviewArtifact | null {

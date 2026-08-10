@@ -48,7 +48,7 @@ describe('ReviewerAgent', () => {
                 approved: true,
               },
             }),
-            createReviewArtifact: jest.fn().mockReturnValue({
+            buildReviewArtifact: jest.fn().mockReturnValue({
               review: {
                 summary: 'ok',
                 issues: [],
@@ -113,7 +113,7 @@ describe('ReviewerAgent', () => {
           provide: ReviewStageService,
           useValue: {
             reviewDiff: jest.fn(),
-            createReviewArtifact: jest.fn(),
+            buildReviewArtifact: jest.fn(),
           },
         },
         {
@@ -158,7 +158,7 @@ describe('ReviewerAgent', () => {
           provide: ReviewStageService,
           useValue: {
             reviewDiff: jest.fn(),
-            createReviewArtifact: jest.fn(),
+            buildReviewArtifact: jest.fn(),
           },
         },
         {
@@ -217,7 +217,7 @@ describe('ReviewerAgent', () => {
           provide: ReviewStageService,
           useValue: {
             reviewDiff: mockReviewDiff,
-            createReviewArtifact: jest.fn().mockReturnValue({
+            buildReviewArtifact: jest.fn().mockReturnValue({
               review: { summary: 'ok', issues: [], suggestions: [], approved: true },
               path: '/tmp/.wf/repo/jira/WBP-123-review.md',
               approved: true,
@@ -277,7 +277,7 @@ describe('ReviewerAgent', () => {
           provide: ReviewStageService,
           useValue: {
             reviewDiff: mockReviewDiff,
-            createReviewArtifact: jest.fn().mockReturnValue({
+            buildReviewArtifact: jest.fn().mockReturnValue({
               review: { summary: 'ok', issues: [], suggestions: [], approved: true },
               path: '/tmp/.wf/repo/jira/WBP-123-review.md',
               approved: true,
@@ -337,7 +337,7 @@ describe('ReviewerAgent', () => {
           provide: ReviewStageService,
           useValue: {
             reviewDiff: mockReviewDiff,
-            createReviewArtifact: jest.fn().mockReturnValue({
+            buildReviewArtifact: jest.fn().mockReturnValue({
               review: { summary: 'ok', issues: [], suggestions: [], approved: true },
               path: '/tmp/.wf/repo/jira/WBP-123-review.md',
               approved: true,

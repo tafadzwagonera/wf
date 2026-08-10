@@ -1937,7 +1937,7 @@ describe('IssueCommand', () => {
             sessionId: undefined, verificationOutcomes: [],
           }),
         },
-        reviewer: { execute: mockReviewerExecute },
+        reviewer: { execute: mockReviewerExecute, persistArtifact: jest.fn() },
       };
 
       const command = await buildTestCommand(mockOrchestrator);
@@ -1966,7 +1966,7 @@ describe('IssueCommand', () => {
             sessionId: undefined, verificationOutcomes: [],
           }),
         },
-        reviewer: { execute: mockReviewerExecute },
+        reviewer: { execute: mockReviewerExecute, persistArtifact: jest.fn() },
       };
 
       const command = await buildTestCommand(mockOrchestrator);
@@ -1994,7 +1994,7 @@ describe('IssueCommand', () => {
             plan: JSON.parse(planJson),
           }),
         },
-        reviewer: { execute: mockReviewerExecute },
+        reviewer: { execute: mockReviewerExecute, persistArtifact: jest.fn() },
       };
 
       const command = await buildTestCommand(mockOrchestrator);
@@ -2026,7 +2026,7 @@ describe('IssueCommand', () => {
             sessionId: undefined, verificationOutcomes: [],
           }),
         },
-        reviewer: { execute: mockReviewerExecute },
+        reviewer: { execute: mockReviewerExecute, persistArtifact: jest.fn() },
       };
 
       const command = await buildTestCommand(mockOrchestrator);

@@ -164,19 +164,28 @@ export class ReviewStageService {
     };
   }
 
-  createReviewArtifact(
-    ticket: TicketArtifact, review: CodeReview, sessionId?: string, sonarOutput?: string
+  buildReviewArtifact(
+    ticket: TicketArtifact, review: CodeReview, sessionId?: string
   ): ReviewArtifact {
-    const reviewPath = deriveReviewArtifactPath(ticket.path);
-    fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
-    fs.writeFileSync(reviewPath, this.formatReviewMarkdown(ticket.ticketKey, review, sonarOutput));
-
     return {
       review,
-      path: reviewPath,
+      path: deriveReviewArtifactPath(ticket.path),
       approved: review.approved,
       sessionId,
     };
+  }
+
+  persistReviewArtifact(artifact: ReviewArtifact, ticketKey: string, sonarOutput?: string): void {
+    fs.mkdirSync(path.dirname(artifact.path), { recursive: true });
+    fs.writeFileSync(artifact.path, this.formatReviewMarkdown(ticketKey, artifact.review, sonarOutput));
+  }
+
+  createReviewArtifact(
+    ticket: TicketArtifact, review: CodeReview, sessionId?: string, sonarOutput?: string
+  ): ReviewArtifact {
+    const artifact = this.buildReviewArtifact(ticket, review, sessionId);
+    this.persistReviewArtifact(artifact, ticket.ticketKey, sonarOutput);
+    return artifact;
   }
 
   private formatReviewMarkdown(ticketKey: string, review: CodeReview, sonarOutput?: string): string {
