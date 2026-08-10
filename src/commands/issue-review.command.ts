@@ -395,6 +395,7 @@ export class IssueReviewCommand extends CommandRunner {
       title: 'Current repository changes (' + this.formatRepoScope(repoDirs) + ')',
       diff,
       context: this.buildRepoContext(repoDirs, 'current repository changes'),
+      repoDir: repoDirs[0],
     };
   }
 
