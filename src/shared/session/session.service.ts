@@ -13,6 +13,7 @@ import type {
 import { getWfSessionDir } from '../utils/wf-paths';
 
 const STAGE_ORDER = ['plan', 'implement', 'review', 'commit'];
+const RESUME_STAGE_ORDER = ['fetch', ...STAGE_ORDER];
 const DEFAULT_TTL_DAYS = 7;
 
 const RESUMABLE_COMBINATIONS = new Set([
@@ -204,6 +205,13 @@ export class SessionService {
     const now = new Date();
     const diffMs = now.getTime() - createdAt.getTime();
     return diffMs > ttlDays * 24 * 60 * 60 * 1000;
+  }
+
+  inferNextStage(session: SessionState): string | null {
+    const lastCompleted = RESUME_STAGE_ORDER.findLastIndex(stage => session.stages[stage]?.completedAt);
+    if (lastCompleted < 0) return session.sourceType === 'custom' ? 'plan' : 'fetch';
+    if (lastCompleted >= RESUME_STAGE_ORDER.length - 1) return null;
+    return RESUME_STAGE_ORDER[lastCompleted + 1];
   }
 
   async deleteBySessionId(sessionId: string): Promise<boolean> {

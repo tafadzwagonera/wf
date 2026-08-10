@@ -43,13 +43,15 @@ async function main() {
   const sessionState = {
     sessionId,
     ticketKey,
+    toStage: 'commit',
+    action: null,
+    sourceType: 'ticket' as const,
+    customPlanRef: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     completedAt: null,
     stages: {},
   };
-
-  // ── Test 1: save() writes file for empty-stages session ──────────────
 
   console.log('Test 1: save() writes file for empty-stages session');
 
@@ -64,8 +66,6 @@ async function main() {
   } else {
     fail('Session file not created on disk');
   }
-
-  // ── Test 2: load() reads back the empty-stages session ───────────────
 
   console.log('\nTest 2: load() reads back the empty-stages session');
 
@@ -85,8 +85,6 @@ async function main() {
     fail('Session could not be loaded back');
   }
 
-  // ── Test 3: findByTicketKey() discovers the empty-stages session ─────
-
   console.log('\nTest 3: findByTicketKey() discovers the empty-stages session');
 
   const found = await sessionService.findByTicketKey(ticketKey);
@@ -97,13 +95,22 @@ async function main() {
     fail('findByTicketKey did not find the saved session');
   }
 
-  // ── Test 4: Raw file content has all required fields ─────────────────
-
   console.log('\nTest 4: Raw file content has all required fields');
 
   if (fileExists) {
     const raw = JSON.parse(fs.readFileSync(expectedFilePath, 'utf-8'));
-    const requiredFields = ['sessionId', 'ticketKey', 'createdAt', 'updatedAt', 'completedAt', 'stages'];
+    const requiredFields = [
+      'sessionId',
+      'ticketKey',
+      'toStage',
+      'action',
+      'sourceType',
+      'customPlanRef',
+      'createdAt',
+      'updatedAt',
+      'completedAt',
+      'stages',
+    ];
 
     for (const field of requiredFields) {
       if (field in raw) {
@@ -121,8 +128,6 @@ async function main() {
   } else {
     fail('Cannot verify raw content — file does not exist');
   }
-
-  // ── Test 5: recordStageStart after initial save does not corrupt ──────
 
   console.log('\nTest 5: recordStageStart after initial save does not corrupt');
 
@@ -148,8 +153,6 @@ async function main() {
     fail('Session could not be loaded after recordStageStart');
   }
 
-  // ── Cleanup ──────────────────────────────────────────────────────────
-
   await sessionService.deleteBySessionId(sessionId);
   const cleanedUp = !fs.existsSync(expectedFilePath);
 
@@ -158,8 +161,6 @@ async function main() {
   } else {
     fail('Cleanup: session file still exists');
   }
-
-  // ── Summary ──────────────────────────────────────────────────────────
 
   await app.close();
 

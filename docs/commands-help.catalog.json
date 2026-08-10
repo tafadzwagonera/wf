@@ -490,7 +490,7 @@
     ]
   },
   "issue": {
-    "description": "Complete workflow: fetch, plan, implement, review, and commit. Use --from and --to to control stage range. Pass --repos to specify repositories: the first repo anchors artifact storage; remaining repos expand execution context. Resuming from `--from implement` can accept a hashed plan token or a hashed plan filename; if `--action` is provided, it is validated against the resolved artifact.",
+    "description": "Complete workflow: fetch, plan, implement, review, and commit. Use --from and --to to control stage range. Pass --repos to specify repositories: the first repo anchors artifact storage; remaining repos expand execution context. Resuming from `--from implement` can accept a hashed plan token or a hashed plan filename; if `--action` is provided, it is validated against the resolved artifact. When `--session-id` is provided, the command resumes saved workflow metadata and rejects a redundant positional plan token.",
     "usage": "wf issue [plan-token] [options]",
     "options": [
       {
@@ -515,7 +515,7 @@
       },
       {
         "flags": "--from <stage>",
-        "description": "Start from stage (fetch|plan|implement|review|commit) — defaults to `plan` when `--custom-plan` is provided, `implement` when a plan token is provided"
+        "description": "Start from stage (fetch|plan|implement|review|commit) — defaults to `plan` when `--custom-plan` is provided, `implement` when a plan token is provided, or the saved session stage when `--session-id` is used"
       },
       {
         "flags": "--model-routing <mode>",
@@ -535,7 +535,7 @@
       },
       {
         "flags": "--session-id <id>",
-        "description": "Resume a wf session by UUID (persisted to ~/.wf/state/sessions/); omit to auto-generate a new one"
+        "description": "Resume a wf session by UUID (persisted to ~/.wf/state/sessions/); resumes saved workflow metadata and cannot be combined with a positional plan token"
       },
       {
         "flags": "-s, --silent",
@@ -570,6 +570,10 @@
       {
         "comment": "Resume from a hashed plan artifact without --action (--from defaults to implement)",
         "command": "wf issue 2026-05-04-1a2b3c4d-fix-plan.json --to review"
+      },
+      {
+        "comment": "Resume a saved workflow session without restating source flags",
+        "command": "wf issue --session-id 550e8400-e29b-41d4-a716-446655440000"
       }
     ]
   }

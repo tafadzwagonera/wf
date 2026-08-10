@@ -627,7 +627,7 @@ wf issue:pr WBP-2971 --dry-run
 
 #### `wf issue [plan-token]`
 
-Orchestrate the full issue workflow in a single command. Runs any contiguous range of stages: `fetch → plan → implement → review → commit`.
+Orchestrate the full issue workflow in a single command. Runs any contiguous range of stages: `fetch → plan → implement → review → commit`. `--session-id` resumes saved workflow metadata and rejects a redundant positional plan token.
 
 ```bash
 # Full workflow from scratch
@@ -644,6 +644,9 @@ wf issue 2026-05-04-1a2b3c4d-fix-plan.json --to review
 
 # Custom plan (--from defaults to plan)
 wf issue --custom-plan dark-building-creek-fix.md --action fix
+
+# Resume a saved workflow session without restating source flags
+wf issue --session-id 550e8400-e29b-41d4-a716-446655440000
 
 # Force refresh even when local artifacts already exist
 wf issue -k WBP-2971 --from fetch --action fix --force
@@ -666,7 +669,7 @@ wf issue -k WBP-2971 --from fetch --action fix --dry-run
 
 | Flag                        | Description                                                                                                                                        | Default            |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `--from <stage>`            | Start stage: `fetch \| plan \| implement \| review \| commit` — defaults to `plan` when `--custom-plan` is provided, `implement` when a plan token is provided | —                  |
+| `--from <stage>`            | Start stage: `fetch \| plan \| implement \| review \| commit` — defaults to `plan` when `--custom-plan` is provided, `implement` when a plan token is provided, or the saved session stage when `--session-id` is used | —                  |
 | `--to <stage>`              | Stop stage (inclusive)                                                                                                                             | `commit`           |
 | `--action <action>`         | Resolution action: `feature \| fix \| investigate` — required when `plan` stage runs, optional when resuming from a canonical hashed plan artifact | —                  |
 | `-t, --tracker <tracker>` | Tracker: `jira \| github \| bitbucket`                                                                                                            | `TRACKER` |
@@ -708,7 +711,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 | `--model-routing <mode>` | Model selection strategy: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto. |
 | `--no-branch` | Suppress branch creation; work directly on the current branch |
 | `-r, --repos <repos...>` | Space-separated repositories; the first repository reference anchors artifact lookup and is an execution context. The remaining repository references are execution contexts for a multi-repository issue. Implementation runs per-repo with cross-repo read context from all other repos |
-| `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
+| `--session-id <id>` | Resume a wf session by UUID (persisted to ~/.wf/state/sessions/); resumes saved workflow metadata and cannot be combined with a positional plan token |
 | `-s, --silent` | Auto-stash without prompting; branch selection and naming still prompt when a TTY is available |
 | `-k, --ticket-key <key>` | Ticket key to implement (e.g. WBP-2971) |
 | `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
@@ -996,13 +999,13 @@ wf/
 - **Agent vs completion mode.** Most stages (plan, implement, review, generate, create) default to agent mode via the Claude Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode. The commit stage defaults to standard (completion API). Controlled by `stages.<command>.backend: 'agent' | 'cli' | 'standard'`.
 - **Adapter pattern.** Platform adapters (Jira, GitHub, Bitbucket) and AI adapters (Anthropic, OpenAI, Gemini, DeepSeek) share a common interface so new providers can be added without changing command or agent code.
 - **Config resolution.** `wf` resolves config from the target repository when `--repos` is supplied, not from the caller's cwd. This lets a single wf installation manage many repositories with different settings.
-- **Session continuity.** `--session-id` enables conversation resumption across invocations. See [Session Continuity](#session-continuity) below.
+- **Session continuity.** `--session-id` enables conversation resumption across invocations. For `wf issue`, it also restores saved workflow metadata so `wf issue --session-id <uuid>` can resume without restating source flags. See [Session Continuity](#session-continuity) below.
 
 ### Session Continuity
 
 Session continuity enables context awareness across workflow stages. It operates at two levels with distinct session identity semantics:
 
-- **wf sessions** are workflow-level UUIDs managed by the orchestrator command (`wf issue`). They track per-stage fingerprints (`{provider, backend}`), provider session IDs, and AI-generated summaries. Persisted to `~/.wf/state/sessions/<ticketKey>-<sessionId>.json`.
+- **wf sessions** are workflow-level UUIDs managed by the orchestrator command (`wf issue`). They track per-stage fingerprints (`{provider, backend}`), provider session IDs, AI-generated summaries, and saved workflow defaults such as `ticketKey`, `from`, `to`, `action`, and source metadata. Persisted to `~/.wf/state/sessions/<ticketKey>-<sessionId>.json`.
 - **Provider sessions** are agent SDK or CLI session identifiers (e.g. Anthropic `sess_abc123`, Codex CLI session IDs). Standalone commands pass these directly to the backend for conversation resumption.
 
 For CLI-backed review sessions, `wf issue:review` first parses the structured review payload, then sends a final summary-only epilogue to the same provider session. This keeps wf's downstream behavior JSON-driven while ensuring a later manual provider resume such as `claude --resume <provider-session-id>` or `codex exec resume <provider-session-id>` replays a short human-readable summary instead of the raw review JSON.
@@ -1021,6 +1024,7 @@ The `--session-id` flag means different things depending on the command:
 #### Orchestrated workflow
 
 `wf issue -k <ticket> --session-id <wf-id>` manages a wf session across stages. A new UUID is generated via `crypto.randomUUID()` if `--session-id` is omitted.
+`wf issue --session-id <wf-id>` resumes the saved workflow defaults from disk. Explicit CLI values still win when you restate them, but a positional plan token is not allowed together with `--session-id`.
 
 ```
 IssueCommand.run(options.sessionId)                            # wf session ID (or auto-generated)

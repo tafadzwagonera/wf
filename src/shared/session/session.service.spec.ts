@@ -9,6 +9,10 @@ import * as os from 'os';
 const createMockSessionState = (overrides?: Partial<SessionState>): SessionState => ({
   sessionId: 'test-session-id',
   ticketKey: 'PROJ-123',
+  toStage: 'commit',
+  action: null,
+  sourceType: 'ticket',
+  customPlanRef: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   completedAt: null,
@@ -45,6 +49,7 @@ describe('SessionService', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -188,6 +193,111 @@ describe('SessionService', () => {
     const filtered = await service.listSessions({ ticketKey: 'PROJ-123' });
     expect(filtered).toHaveLength(2);
     expect(filtered.every(s => s.ticketKey === 'PROJ-123')).toBe(true);
+  });
+
+  describe('inferNextStage', () => {
+    it('returns plan when no stages are completed for a custom session', () => {
+      const session = createMockSessionState({ sourceType: 'custom' });
+
+      expect(service.inferNextStage(session)).toBe('plan');
+    });
+
+    it('returns fetch when no stages are completed for a ticket session', () => {
+      const session = createMockSessionState({ sourceType: 'ticket' });
+
+      expect(service.inferNextStage(session)).toBe('fetch');
+    });
+
+    it('advances from fetch to plan when fetch already completed', () => {
+      const completedAt = new Date().toISOString();
+      const session = createMockSessionState({
+        stages: {
+          fetch: {
+            config: mockFingerprint,
+            model: 'claude-sonnet-4-20250514',
+            providerSessionId: null,
+            summary: null,
+            startedAt: completedAt,
+            completedAt,
+          },
+        },
+      });
+
+      expect(service.inferNextStage(session)).toBe('plan');
+    });
+
+    it('returns the next workflow stage after the last completed stage', () => {
+      const session = createMockSessionState({
+        stages: {
+          plan: {
+            config: mockFingerprint,
+            model: 'claude-sonnet-4-20250514',
+            providerSessionId: null,
+            summary: 'done',
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      expect(service.inferNextStage(session)).toBe('implement');
+    });
+
+    it('returns null after all resumable stages are completed', () => {
+      const completedAt = new Date().toISOString();
+      const buildStage = () => ({
+        config: mockFingerprint,
+        model: 'claude-sonnet-4-20250514',
+        providerSessionId: null,
+        summary: 'done',
+        startedAt: completedAt,
+        completedAt,
+      });
+      const session = createMockSessionState({
+        stages: {
+          plan: buildStage(),
+          implement: buildStage(),
+          review: buildStage(),
+          commit: buildStage(),
+        },
+      });
+
+      expect(service.inferNextStage(session)).toBeNull();
+    });
+  });
+
+  it('load fills missing workflow metadata with null defaults for older session files', async () => {
+    const legacySession = {
+      sessionId: 'legacy-session-id',
+      ticketKey: 'PROJ-123',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: null,
+      stages: {
+        plan: {
+          config: mockFingerprint,
+          model: 'claude-sonnet-4-20250514',
+          providerSessionId: null,
+          summary: null,
+          startedAt: new Date().toISOString(),
+        },
+      },
+    };
+    fs.writeFileSync(
+      path.join(tmpDir, `${legacySession.ticketKey}-${legacySession.sessionId}.json`),
+      JSON.stringify(legacySession, null, 2)
+    );
+
+    const loaded = await service.load(legacySession.sessionId);
+
+    expect(loaded).not.toBeNull();
+    expect(loaded?.toStage).toBeNull();
+    expect(loaded?.action).toBeNull();
+    expect(loaded?.sourceType).toBeNull();
+    expect(loaded?.customPlanRef).toBeNull();
+    expect(loaded?.stages.plan.providerSessionId).toBeNull();
+    expect(loaded?.stages.plan.summary).toBeNull();
+    expect(loaded?.stages.plan.completedAt).toBeNull();
   });
 
   describe('validateForStage', () => {

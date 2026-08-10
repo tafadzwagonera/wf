@@ -82,6 +82,7 @@ const mockSessionService = {
   recordProviderSessionId: jest.fn().mockImplementation(session => Promise.resolve(session)),
   recordStageComplete: jest.fn().mockImplementation(session => Promise.resolve(session)),
   markComplete: jest.fn().mockImplementation(session => Promise.resolve(session)),
+  inferNextStage: jest.fn().mockReturnValue('fetch'),
   validateForStage: jest
     .fn()
     .mockReturnValue({ canResume: false, resumableProviderSessionId: null, priorSummary: null, warnings: [] }),
@@ -104,6 +105,68 @@ const setInteractiveSession = (): void => {
     value: true,
     configurable: true,
   });
+};
+
+const createMockSessionState = (overrides?: Record<string, unknown>) => ({
+  sessionId: 'existing-uuid',
+  ticketKey: 'WBP-100',
+  toStage: 'review',
+  action: 'fix',
+  sourceType: 'ticket',
+  customPlanRef: null,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  completedAt: null,
+  stages: {},
+  ...overrides,
+});
+
+const resetMockSessionService = (): void => {
+  mockSessionService.load.mockReset();
+  mockSessionService.load.mockResolvedValue(null);
+  mockSessionService.save.mockReset();
+  mockSessionService.save.mockResolvedValue(undefined);
+  mockSessionService.findByTicketKey.mockReset();
+  mockSessionService.findByTicketKey.mockResolvedValue(null);
+  mockSessionService.recordStageStart.mockReset();
+  mockSessionService.recordStageStart.mockImplementation(session => Promise.resolve(session));
+  mockSessionService.recordProviderSessionId.mockReset();
+  mockSessionService.recordProviderSessionId.mockImplementation(session => Promise.resolve(session));
+  mockSessionService.recordStageComplete.mockReset();
+  mockSessionService.recordStageComplete.mockImplementation(session => Promise.resolve(session));
+  mockSessionService.markComplete.mockReset();
+  mockSessionService.markComplete.mockImplementation(session => Promise.resolve(session));
+  mockSessionService.inferNextStage.mockReset();
+  mockSessionService.inferNextStage.mockReturnValue('fetch');
+  mockSessionService.validateForStage.mockReset();
+  mockSessionService.validateForStage.mockReturnValue({
+    canResume: false,
+    resumableProviderSessionId: null,
+    priorSummary: null,
+    warnings: [],
+  });
+  mockSessionService.isExpired.mockReset();
+  mockSessionService.isExpired.mockReturnValue(false);
+  mockSessionService.getSessionDir.mockReset();
+  mockSessionService.getSessionDir.mockReturnValue('/tmp/sessions');
+
+  (inquirer.prompt as unknown as jest.Mock).mockReset();
+
+  const agentsUtils = require('../agents/utils') as {
+    resolveRepoBasePath: jest.Mock;
+    isRepoResolvable: jest.Mock;
+    scaffoldNewRepo: jest.Mock;
+  };
+  agentsUtils.resolveRepoBasePath.mockReset();
+  agentsUtils.resolveRepoBasePath.mockImplementation((repo?: string) =>
+    repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app'
+  );
+  agentsUtils.isRepoResolvable.mockReset();
+  agentsUtils.isRepoResolvable.mockReturnValue(true);
+  agentsUtils.scaffoldNewRepo.mockReset();
+  agentsUtils.scaffoldNewRepo.mockImplementation((repo: string, baseDir: string) =>
+    path.resolve(baseDir, '..', repo)
+  );
 };
 
 async function buildCommand(): Promise<IssueCommand> {
@@ -168,7 +231,7 @@ describe('IssueCommand', () => {
   let cwdSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    resetMockSessionService();
     cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(mockCwd);
   });
 
@@ -200,6 +263,26 @@ describe('IssueCommand', () => {
 
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--custom-plan');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('rejects plan-token together with --session-id', async () => {
+    const command = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run(['dark-plan.json'], {
+      sessionId: 'existing-uuid',
+      from: 'implement',
+      action: 'fix',
+      silent: true,
+    } as any);
+
+    expect(mockSessionService.load).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--session-id');
 
     exitSpy.mockRestore();
     consoleErrorSpy.mockRestore();
@@ -281,6 +364,134 @@ describe('IssueCommand', () => {
     exitSpy.mockRestore();
     consoleErrorSpy.mockRestore();
     consoleLogSpy.mockRestore();
+  });
+
+  it('infers ticket workflow options from a loaded session when only --session-id is provided', async () => {
+    const command = await buildCommand();
+    const session = createMockSessionState({
+      ticketKey: 'WBP-200',
+      toStage: 'review',
+      action: 'fix',
+      sourceType: 'ticket',
+      stages: {
+        fetch: {
+          config: { provider: 'openai', backend: 'cli' },
+          model: 'gpt-5',
+          providerSessionId: null,
+          summary: 'fetched',
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        },
+      },
+    });
+    mockSessionService.load.mockResolvedValueOnce(session);
+    mockSessionService.inferNextStage.mockReturnValueOnce('plan');
+
+    const ctx = await (command as any).validateAndResolveInputs([], { sessionId: 'existing-uuid', silent: true });
+
+    expect(mockSessionService.load).toHaveBeenCalledWith('existing-uuid');
+    expect(mockSessionService.inferNextStage).toHaveBeenCalledWith(session);
+    expect(ctx.ticketKey).toBe('WBP-200');
+    expect(ctx.action).toBe('fix');
+    expect(ctx.fromStage).toBe('plan');
+    expect(ctx.toStage).toBe('review');
+    expect(ctx.options.ticketKey).toBe('WBP-200');
+    expect(ctx.preloadedSession).toEqual(session);
+  });
+
+  it('prefers explicit CLI stage options over session defaults', async () => {
+    const command = await buildCommand();
+    mockSessionService.load.mockResolvedValueOnce(createMockSessionState({
+      ticketKey: 'WBP-201',
+      toStage: 'review',
+      sourceType: 'ticket',
+    }));
+    mockSessionService.inferNextStage.mockReturnValueOnce('plan');
+
+    const ctx = await (command as any).validateAndResolveInputs([], {
+      sessionId: 'existing-uuid',
+      to: 'commit',
+      from: 'implement',
+      ticketKey: 'WBP-201',
+      silent: true,
+    });
+
+    expect(ctx.fromStage).toBe('implement');
+    expect(ctx.toStage).toBe('commit');
+    expect(ctx.options.to).toBe('commit');
+    expect(ctx.options.from).toBe('implement');
+  });
+
+  it('infers custom plan workflow options from a loaded session', async () => {
+    const command = await buildCommand();
+    const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+    const session = createMockSessionState({
+      ticketKey: 'custom-plan',
+      toStage: 'commit',
+      action: 'fix',
+      sourceType: 'custom',
+      customPlanRef: 'plans/custom-plan.md',
+    });
+    mockSessionService.load.mockResolvedValueOnce(session);
+    mockSessionService.inferNextStage.mockReturnValueOnce('plan');
+
+    const ctx = await (command as any).validateAndResolveInputs([], { sessionId: 'existing-uuid', silent: true });
+
+    expect(ctx.ticketKey).toBe('custom-plan');
+    expect(ctx.customSourcePath).toContain('plans/custom-plan.md');
+    expect(ctx.options.customPlan).toBe('plans/custom-plan.md');
+    expect(ctx.fromStage).toBe('plan');
+    existsSyncSpy.mockRestore();
+  });
+
+  it('merges legacy session defaults but still requires a known action', async () => {
+    const command = await buildCommand();
+    const legacySession = createMockSessionState({
+      ticketKey: 'WBP-202',
+      toStage: null,
+      action: null,
+      sourceType: null,
+      customPlanRef: null,
+    });
+    mockSessionService.load.mockResolvedValue(legacySession);
+    mockSessionService.inferNextStage.mockReturnValueOnce('fetch');
+
+    const merged = await (command as any).loadAndMergeSessionDefaults({ sessionId: 'existing-uuid', silent: true });
+    expect(merged.options.ticketKey).toBe('WBP-202');
+    expect(merged.options.to).toBe('commit');
+
+    await expect(
+      (command as any).validateAndResolveInputs([], { sessionId: 'existing-uuid', silent: true })
+    ).rejects.toThrow('--action is required when running PLAN stage');
+  });
+
+  it('prompts before clearing a missing session in interactive mode', async () => {
+    const command = await buildCommand();
+    mockSessionService.load.mockResolvedValueOnce(null);
+    (inquirer.prompt as unknown as jest.Mock).mockResolvedValueOnce({ proceed: true });
+    setInteractiveSession();
+
+    const merged = await (command as any).loadAndMergeSessionDefaults({ sessionId: 'missing-uuid', silent: true });
+
+    expect(inquirer.prompt).toHaveBeenCalled();
+    expect(merged.options.sessionId).toBeUndefined();
+  });
+
+  it('exits with the existing not-found error in non-interactive mode', async () => {
+    const command = await buildCommand();
+    mockSessionService.load.mockResolvedValueOnce(null);
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run([], { sessionId: 'missing-uuid', silent: true } as any);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain(
+      'Session missing-uuid not found'
+    );
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
   });
 
   it('rejects --custom-plan with non-.md extension', async () => {
@@ -982,6 +1193,7 @@ describe('IssueCommand', () => {
 
     await command.run([planFilename], { from: 'implement', to: 'implement' });
 
+    expect(mockSessionService.save.mock.calls[0][0]).toEqual(expect.objectContaining({ sourceType: 'custom' }));
     expect(inquirer.prompt).toHaveBeenCalled();
     // recordStageStart must be called before recordProviderSessionId so the stage record exists
     expect(mockSessionService.recordStageStart).toHaveBeenCalledWith(
@@ -1654,7 +1866,7 @@ describe('IssueCommand', () => {
     (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ providerSessionId: 'sess-resume-789' });
     setInteractiveSession();
 
-    await command.run(['WBP-22'], { from: 'plan', to: 'plan', action: 'fix', sessionId: 'existing-uuid' });
+    await command.run([], { from: 'plan', to: 'plan', action: 'fix', sessionId: 'existing-uuid' });
 
     expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'existing-uuid' }),

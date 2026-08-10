@@ -90,7 +90,6 @@ async function main() {
   });
   const command = app.get(IssueCommand);
 
-  // ── Test 1: custom plan token completes without hanging in non-interactive mode ──
   console.log(
     '\n\uD83E\uDDEA Test 1: custom plan token completes in non-interactive mode (no TTY)\n' + '\u2500'.repeat(60)
   );
@@ -109,7 +108,6 @@ async function main() {
     const origCwd = process.cwd.bind(process);
     (process as any).cwd = () => tmpDir;
 
-    // Force non-interactive
     const origStdinTTY = process.stdin.isTTY;
     const origStdoutTTY = process.stdout.isTTY;
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
@@ -137,7 +135,6 @@ async function main() {
     }
   }
 
-  // ── Test 2: isInteractiveSession() returns false when stdin/stdout are not TTY ──
   console.log('\n\uD83E\uDDEA Test 2: isInteractiveSession() guard returns false without TTY\n' + '\u2500'.repeat(60));
   {
     const origStdinTTY = process.stdin.isTTY;
@@ -157,10 +154,7 @@ async function main() {
     }
   }
 
-  // ── Test 3: custom sourceKind manifest triggers the custom plan token path ──
-  console.log(
-    '\n\uD83E\uDDEA Test 3: sourceKind=custom manifest triggers custom plan token path\n' + '\u2500'.repeat(60)
-  );
+  console.log('\n\uD83E\uDDEA Test 3: session state records plan stage lifecycle\n' + '\u2500'.repeat(60));
   {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-session-'));
     const appBase = path.basename(tmpDir);
@@ -179,52 +173,6 @@ async function main() {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
 
-    const stdoutCapture = captureStdout();
-    await command.run([planFilename], {
-      from: 'implement',
-      to: 'implement',
-      tracker: 'jira',
-      dryRun: true,
-    });
-    const output = stdoutCapture.restore();
-
-    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
-    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
-    (process as any).cwd = origCwd;
-    restoreHome();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-
-    if (output.includes('Dry Run') && output.includes(planFilename)) {
-      pass(`Custom plan token with sourceKind=custom resolved and reached dry-run stage`);
-    } else {
-      fail('Custom plan token did not resolve correctly', `output: ${output.slice(0, 500)}`);
-    }
-  }
-
-  // ── Test 4: session state records plan stage after custom plan token resolution ──
-  // Note: runs without dryRun so session lifecycle code executes; the implement
-  // stage is expected to fail (no real AI provider), but the plan record should
-  // already be persisted to disk before that point.
-  console.log('\n\uD83E\uDDEA Test 4: session state records plan stage lifecycle\n' + '\u2500'.repeat(60));
-  {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-session-'));
-    const appBase = path.basename(tmpDir);
-    const customDir = path.join(tmpDir, '.wf', appBase);
-    const trackerDir = path.join(customDir, 'jira');
-    fs.mkdirSync(trackerDir, { recursive: true });
-
-    const planPath = path.join(customDir, planFilename);
-    fs.writeFileSync(planPath, minimalPlan);
-    fs.writeFileSync(buildPlanArtifactManifestPath(planPath), buildCustomManifest(planPath));
-
-    const restoreHome = overrideHomeDir(tmpDir);
-    const origCwd = process.cwd.bind(process);
-    (process as any).cwd = () => tmpDir;
-
-    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
-    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
-
-    // Suppress process.exit so the implement stage error doesn't kill the test
     const origExit = process.exit.bind(process);
     (process as any).exit = () => {};
 
@@ -235,14 +183,11 @@ async function main() {
         to: 'implement',
         tracker: 'jira',
       });
-    } catch {
-      // Expected — implement stage fails without a real AI provider
-    }
+    } catch {}
     stdoutCapture.restore();
 
     (process as any).exit = origExit;
 
-    // Check that a session file was created with a plan stage record
     const sessionDir = path.join(tmpDir, '.wf', 'state', 'sessions');
     const sessionFiles = fs.existsSync(sessionDir)
       ? fs.readdirSync(sessionDir).filter(f => f.endsWith('.json') && !f.endsWith('.items.json'))

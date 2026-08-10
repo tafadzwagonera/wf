@@ -72,6 +72,10 @@ const ISSUE_EXAMPLES: CliExample[] = [
     comment: 'Resume from a hashed plan artifact without --action (--from defaults to implement)',
     command: 'wf issue 2026-05-04-1a2b3c4d-fix-plan.json --to review',
   },
+  {
+    comment: 'Resume a saved workflow session without restating source flags',
+    command: 'wf issue --session-id 550e8400-e29b-41d4-a716-446655440000',
+  },
 ];
 
 enum WorkflowStage {
@@ -109,7 +113,7 @@ interface IssueOptions {
   customPlan?: string;
   dryRun?: boolean;
   force?: boolean;
-  from: string;
+  from?: string;
   modelRouting?: string;
   noBranch?: boolean;
   pr?: boolean;
@@ -126,6 +130,7 @@ interface ResolvedWorkflowContext {
   customSourcePath?: string;
   fromStage: WorkflowStage;
   options: IssueOptions;
+  preloadedSession?: SessionState;
   planTokenResolution?: PlanTokenResolution;
   repoBaseDir: string;
   repos: (string | undefined)[];
@@ -148,12 +153,23 @@ interface DryRunStageCounters {
   totalFilesCreated: number;
 }
 
+type ReviewRepoContext = {
+  isMultiRepo: boolean;
+  options: IssueOptions;
+  planArtifact: PlanArtifact | undefined;
+  repos: (string | undefined)[];
+  sessionContext: ReviewLoopContext;
+  ticketArtifact: TicketArtifact;
+  ticketKey: string;
+};
+
 @Command({
   name: 'issue',
   description:
     'Complete workflow: fetch, plan, implement, review, and commit. Use --from and --to to control stage range. '
     + 'Pass --repos to specify repositories: the first repo anchors artifact storage; remaining repos expand execution context. '
-    + 'Resuming from `--from implement` can accept a hashed plan token or a hashed plan filename; if `--action` is provided, it is validated against the resolved artifact.',
+    + 'Resuming from `--from implement` can accept a hashed plan token or a hashed plan filename; if `--action` is provided, it is validated against the resolved artifact. '
+    + 'When `--session-id` is provided, the command resumes saved workflow metadata and rejects a redundant positional plan token.',
   arguments: '[plan-token]',
   options: { isDefault: false },
 })
@@ -214,7 +230,7 @@ export class IssueCommand extends CommandRunner {
   @Option({
     flags: '--from <stage>',
     description:
-      'Start from stage (fetch|plan|implement|review|commit) — defaults to `plan` when `--custom-plan` is provided, `implement` when a plan token is provided',
+      'Start from stage (fetch|plan|implement|review|commit) — defaults to `plan` when `--custom-plan` is provided, `implement` when a plan token is provided, or the saved session stage when `--session-id` is used',
   })
   parseFrom(val: string): string {
     return val;
@@ -239,8 +255,6 @@ export class IssueCommand extends CommandRunner {
     description: 'Suppress branch creation; work directly on the current branch',
   })
   parseNoBranch(): boolean {
-    // Commander maps --no-X flags as boolean negation of X.
-    // Return false so that options.branch becomes false when --no-branch is passed.
     return false;
   }
 
@@ -263,7 +277,8 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--session-id <id>',
-    description: 'Resume a wf session by UUID (persisted to ~/.wf/state/sessions/); omit to auto-generate a new one',
+    description:
+      'Resume a wf session by UUID (persisted to ~/.wf/state/sessions/); resumes saved workflow metadata and cannot be combined with a positional plan token',
   })
   parseSessionId(val: string): string {
     return val;
@@ -308,7 +323,7 @@ export class IssueCommand extends CommandRunner {
     }
 
     await executeAsyncWithCatch({ fn: async () => {
-      const ctx = this.validateAndResolveInputs(passedParams, options);
+      const ctx = await this.validateAndResolveInputs(passedParams, options);
 
       if (ctx.options?.dryRun) {
         return this.previewDryRun(ctx);
@@ -319,16 +334,45 @@ export class IssueCommand extends CommandRunner {
     } });
   }
 
-  private validateAndResolveInputs(passedParams: string[], options?: IssueOptions): ResolvedWorkflowContext {
+  private async validateAndResolveInputs(
+    passedParams: string[], options?: IssueOptions
+  ): Promise<ResolvedWorkflowContext> {
     if (!options?.silent) printExamples(ISSUE_EXAMPLES);
 
     const planToken = passedParams[0];
-    const validatedOptions = this.validateInputExclusions(planToken, options);
+    if (planToken && options?.sessionId) {
+      throw new ValidationError('Provide either --session-id or a plan token, not both');
+    }
+    const { options: mergedOptions, preloadedSession } = await this.loadAndMergeSessionDefaults(options);
+    const validatedOptions = this.validateInputExclusions(planToken, mergedOptions);
+    return this.buildResolvedWorkflowContext(planToken, validatedOptions, preloadedSession);
+  }
+
+  private async loadAndMergeSessionDefaults(
+    options?: IssueOptions
+  ): Promise<{ options?: IssueOptions; preloadedSession?: SessionState }> {
+    if (!options?.sessionId) return { options };
+
+    const session = await this.sessionService.load(options.sessionId);
+    if (!session) return this.resetMissingSessionOption(options);
+    if (this.sessionService.isExpired(session)) return this.resetExpiredSessionOption(options);
+
+    const mergedOptions = { ...options };
+    this.applySessionSourceDefaults(mergedOptions, session);
+    this.applySessionStageDefaults(mergedOptions, session);
+
+    return { options: mergedOptions, preloadedSession: session };
+  }
+
+  private buildResolvedWorkflowContext(
+    planToken: string | undefined,
+    validatedOptions: IssueOptions,
+    preloadedSession?: SessionState
+  ): ResolvedWorkflowContext {
     const { fromStage, toStage, stagesToRun } = this.resolveStageRange(validatedOptions);
     const trackerName = validatedOptions?.tracker || this.configService.get<string>('tracker') || 'jira';
     const repoBaseDir = resolveRepoBasePath(validatedOptions.repos?.[0]);
     const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
-
     const { ticketKey, customSourcePath, planTokenResolution } = this.resolveSourceInputs(
       planToken, validatedOptions, stagesToRun, repoBaseDir, trackerDir
     );
@@ -338,8 +382,40 @@ export class IssueCommand extends CommandRunner {
       fromStage, toStage, stagesToRun, trackerName, repoBaseDir, trackerDir,
       repos: validatedOptions.repos?.length ? validatedOptions.repos : [undefined],
       skipExisting: !validatedOptions?.force, customSourcePath, planTokenResolution,
-      options: validatedOptions,
+      options: validatedOptions, preloadedSession,
     };
+  }
+
+  private async resetMissingSessionOption(
+    options: IssueOptions
+  ): Promise<{ options: IssueOptions; preloadedSession?: SessionState }> {
+    if (!options.sessionId) return { options };
+    await this.handleMissingSession(options.sessionId);
+    return { options: { ...options, sessionId: undefined } };
+  }
+
+  private resetExpiredSessionOption(
+    options: IssueOptions
+  ): { options: IssueOptions; preloadedSession?: SessionState } {
+    console.log(chalk.yellow(`  Session ${options.sessionId} expired — starting fresh`));
+    return { options: { ...options, sessionId: undefined } };
+  }
+
+  private applySessionSourceDefaults(options: IssueOptions, session: SessionState): void {
+    const sourceType = session.sourceType ?? (session.customPlanRef ? 'custom' : 'ticket');
+    if (sourceType === 'custom') {
+      if (session.customPlanRef) options.customPlan ??= session.customPlanRef;
+      else options.ticketKey ??= session.ticketKey;
+      return;
+    }
+
+    options.ticketKey ??= session.ticketKey;
+  }
+
+  private applySessionStageDefaults(options: IssueOptions, session: SessionState): void {
+    options.action ??= session.action ?? undefined;
+    options.to ??= session.toStage ?? 'commit';
+    options.from ??= this.sessionService.inferNextStage(session) ?? undefined;
   }
 
   private validateInputExclusions(planToken: string | undefined, options?: IssueOptions): IssueOptions {
@@ -392,7 +468,7 @@ export class IssueCommand extends CommandRunner {
   private resolveStageRange(options: IssueOptions): {
     fromStage: WorkflowStage; toStage: WorkflowStage; stagesToRun: WorkflowStage[];
   } {
-    let fromStage = this.parseStage(options.from);
+    let fromStage = this.parseStage(this.requireFromStage(options));
     const toStage = options.to ? this.parseStage(options.to) : WorkflowStage.COMMIT;
 
     if (options?.customPlan && fromStage === WorkflowStage.FETCH) {
@@ -440,7 +516,7 @@ export class IssueCommand extends CommandRunner {
     if (!planToken || options?.ticketKey || options?.customPlan) return undefined;
     if (!stagesToRun.some(s => laterStages.has(s))) return undefined;
 
-    if (['fetch', 'plan'].includes(options.from.toLowerCase())) {
+    if (['fetch', 'plan'].includes(this.requireFromStage(options).toLowerCase())) {
       throw new ValidationError(
         'A plan token is only valid when resuming from --from implement or later.\n'
         + 'A plan token references a plan artifact that already exists.\n'
@@ -449,6 +525,13 @@ export class IssueCommand extends CommandRunner {
     }
 
     return resolvePlanToken(planToken, trackerDir, repoBaseDir);
+  }
+
+  private requireFromStage(options: IssueOptions): string {
+    if (!options.from) {
+      throw new ValidationError('Internal error: workflow stage resolution completed without a --from value.');
+    }
+    return options.from;
   }
 
   private resolveAction(raw?: string, stagesToRun?: WorkflowStage[]): ResolutionAction | undefined {
@@ -482,7 +565,7 @@ export class IssueCommand extends CommandRunner {
   }
 
   private async executeWorkflow(ctx: ResolvedWorkflowContext): Promise<void> {
-    let sessionState = await this.initializeSession(ctx.ticketKey, ctx.options);
+    let sessionState = await this.initializeSession(ctx, ctx.preloadedSession);
     const artifacts = await this.resolveWorkflowArtifacts(ctx, sessionState);
     sessionState = artifacts.sessionState;
 
@@ -522,6 +605,7 @@ export class IssueCommand extends CommandRunner {
     const custom = await this.resolveCustomPlanToken(ctx.planTokenResolution, sessionState);
     if (custom) {
       ({ action, ticketArtifact, planArtifact, sessionState } = custom);
+      sessionState = await this.persistResolvedSessionAction(sessionState, action);
     }
 
     if (!planArtifact) ticketArtifact = await this.resolveTicketArtifact(ctx);
@@ -530,6 +614,7 @@ export class IssueCommand extends CommandRunner {
       const result = await this.executePlanStage(ticketArtifact, action, ctx, sessionState);
       planArtifact = result.planArtifact;
       sessionState = result.sessionState;
+      sessionState = await this.persistResolvedSessionAction(sessionState, action);
     }
 
     return { ticketArtifact, planArtifact, action, sessionState };
@@ -900,23 +985,40 @@ export class IssueCommand extends CommandRunner {
     }
   }
 
-  private async initializeSession(ticketKey: string, options: IssueOptions): Promise<SessionState | undefined> {
-    let sessionState: SessionState | undefined;
+  private async initializeSession(
+    ctx: ResolvedWorkflowContext,
+    preloadedSession?: SessionState
+  ): Promise<SessionState | undefined> {
+    const { options, ticketKey } = ctx;
+    let sessionState: SessionState | undefined = preloadedSession;
     let wfSessionId: string | undefined = options.sessionId;
-    if (wfSessionId) sessionState = (await this.sessionService.load(wfSessionId)) ?? undefined;
+    ({ sessionState, wfSessionId } = await this.loadRequestedSession(sessionState, wfSessionId));
+    this.validateSessionOwnership(sessionState, wfSessionId, ticketKey);
+    ({ sessionState, wfSessionId } = this.dropExpiredSession(sessionState, wfSessionId));
+    sessionState ||= await this.createNewSession(ctx);
+    this.printSessionId(sessionState.sessionId, options?.silent);
+    return sessionState;
+  }
+
+  private async loadRequestedSession(
+    sessionState: SessionState | undefined,
+    wfSessionId: string | undefined
+  ): Promise<{ sessionState: SessionState | undefined; wfSessionId: string | undefined }> {
+    if (wfSessionId && !sessionState) sessionState = (await this.sessionService.load(wfSessionId)) ?? undefined;
     if (wfSessionId && !sessionState) {
       await this.handleMissingSession(wfSessionId);
       wfSessionId = undefined;
     }
-    this.validateSessionOwnership(sessionState, wfSessionId, ticketKey);
-    if (sessionState && this.sessionService.isExpired(sessionState)) {
-      console.log(chalk.yellow(`  Session ${wfSessionId} expired — starting fresh`));
-      sessionState = undefined;
-      wfSessionId = undefined;
-    }
-    sessionState ||= await this.createNewSession(ticketKey);
-    this.printSessionId(sessionState.sessionId, options?.silent);
-    return sessionState;
+    return { sessionState, wfSessionId };
+  }
+
+  private dropExpiredSession(
+    sessionState: SessionState | undefined,
+    wfSessionId: string | undefined
+  ): { sessionState: SessionState | undefined; wfSessionId: string | undefined } {
+    if (!sessionState || !this.sessionService.isExpired(sessionState)) return { sessionState, wfSessionId };
+    console.log(chalk.yellow(`  Session ${wfSessionId} expired — starting fresh`));
+    return { sessionState: undefined, wfSessionId: undefined };
   }
 
   private async handleMissingSession(sessionId: string): Promise<void> {
@@ -940,10 +1042,15 @@ export class IssueCommand extends CommandRunner {
     }
   }
 
-  private async createNewSession(ticketKey: string): Promise<SessionState> {
+  private async createNewSession(ctx: ResolvedWorkflowContext): Promise<SessionState> {
+    const sourceType = ctx.customSourcePath || ctx.planTokenResolution?.kind === 'custom' ? 'custom' : 'ticket';
     const sessionState: SessionState = {
       sessionId: crypto.randomUUID(),
-      ticketKey,
+      ticketKey: ctx.ticketKey,
+      toStage: ctx.toStage,
+      action: ctx.action ?? null,
+      sourceType,
+      customPlanRef: ctx.options.customPlan ?? null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       completedAt: null,
@@ -956,6 +1063,20 @@ export class IssueCommand extends CommandRunner {
   private printSessionId(sessionId: string | undefined, silent?: boolean): void {
     if (!silent) console.log(chalk.gray(`  wf session: ${sessionId}`));
     if (silent && sessionId) console.log(`session:${sessionId}`);
+  }
+
+  private async persistResolvedSessionAction(
+    sessionState: SessionState | undefined,
+    action: ResolutionAction | undefined
+  ): Promise<SessionState | undefined> {
+    if (!sessionState || !action || sessionState.action) return sessionState;
+    const updatedSession: SessionState = {
+      ...sessionState,
+      action,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.sessionService.save(updatedSession);
+    return updatedSession;
   }
 
   /**
@@ -1209,13 +1330,11 @@ export class IssueCommand extends CommandRunner {
         const repoPath = scaffoldNewRepo(repo, baseDir);
         if (!silent) console.log(chalk.green(`  Scaffolded new repository: ${repoPath}`));
       }
-      // New repos first so isNewRepo is applied before existing repos run verification
       return [...newRepos, ...repos];
     }
 
     const readyRepos = await this.promptManualRepoSetup(newRepos, baseDir);
     if (readyRepos.length === 0) return repos;
-    // New repos first so isNewRepo is applied before existing repos run verification
     return [...readyRepos, ...repos];
   }
 
@@ -1421,24 +1540,70 @@ export class IssueCommand extends CommandRunner {
     sessionContext: ReviewLoopContext,
     ticketKey: string
   ): Promise<ReviewArtifact | null> {
-    const isMultiRepo = repos.length > 1;
+    const reviewContext = this.createReviewRepoContext(
+      ticketArtifact, planArtifact, repos, options, sessionContext, ticketKey
+    );
     let reviewArtifact: ReviewArtifact | null = null;
 
     for (const repo of repos) {
-      if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
-      reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
-        skipExisting: !options?.force, repoDir: resolveRepoBasePath(repo),
-        suppressHeader: isMultiRepo, silent: options?.silent, ...sessionContext,
-      });
-
-      if (!reviewArtifact) continue;
-      this.printReviewStatus(reviewArtifact, options?.silent);
-      this.agents.reviewer.persistArtifact(reviewArtifact, ticketArtifact.ticketKey);
-      if (!options?.silent) console.log(chalk.gray('  Saved to ' + reviewArtifact.path));
-      await this.offerReviewChat(ticketArtifact, planArtifact, reviewArtifact, ticketKey, repos, options);
+      reviewArtifact = await this.runReviewForRepo(repo, reviewContext);
     }
 
     return reviewArtifact;
+  }
+
+  private async runReviewForRepo(
+    repo: string | undefined,
+    reviewContext: ReviewRepoContext
+  ): Promise<ReviewArtifact | null> {
+    const { isMultiRepo, options, planArtifact, repos, sessionContext, ticketArtifact } = reviewContext;
+    if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
+    const reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
+      skipExisting: !options?.force, repoDir: resolveRepoBasePath(repo),
+      suppressHeader: isMultiRepo, silent: options?.silent, ...sessionContext,
+    });
+    if (!reviewArtifact) return null;
+
+    await this.persistAndPresentReview(ticketArtifact, planArtifact, reviewArtifact, reviewContext);
+    return reviewArtifact;
+  }
+
+  private createReviewRepoContext(
+    ticketArtifact: TicketArtifact,
+    planArtifact: PlanArtifact | undefined,
+    repos: (string | undefined)[],
+    options: IssueOptions,
+    sessionContext: ReviewLoopContext,
+    ticketKey: string
+  ): ReviewRepoContext {
+    return {
+      isMultiRepo: repos.length > 1,
+      options,
+      planArtifact,
+      repos,
+      sessionContext,
+      ticketArtifact,
+      ticketKey,
+    };
+  }
+
+  private async persistAndPresentReview(
+    ticketArtifact: TicketArtifact,
+    planArtifact: PlanArtifact | undefined,
+    reviewArtifact: ReviewArtifact,
+    reviewContext: ReviewRepoContext
+  ): Promise<void> {
+    this.printReviewStatus(reviewArtifact, reviewContext.options?.silent);
+    this.agents.reviewer.persistArtifact(reviewArtifact, ticketArtifact.ticketKey);
+    if (!reviewContext.options?.silent) console.log(chalk.gray('  Saved to ' + reviewArtifact.path));
+    await this.offerReviewChat(
+      ticketArtifact,
+      planArtifact,
+      reviewArtifact,
+      reviewContext.ticketKey,
+      reviewContext.repos,
+      reviewContext.options
+    );
   }
 
   private printReviewStatus(artifact: ReviewArtifact, silent?: boolean): void {

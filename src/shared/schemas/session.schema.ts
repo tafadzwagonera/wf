@@ -9,15 +9,19 @@ export const stageConfigFingerprintSchema = z.object({
 export const stageRecordSchema = z.object({
   config: stageConfigFingerprintSchema,
   model: z.string(),
-  providerSessionId: z.string().nullable(),
-  summary: z.string().nullable(),
+  providerSessionId: z.string().nullable().default(null),
+  summary: z.string().nullable().default(null),
   startedAt: z.string(),
-  completedAt: z.string().nullable(),
+  completedAt: z.string().nullable().default(null),
 });
 
 export const sessionStateSchema = z.object({
   sessionId: z.string(),
   ticketKey: z.string(),
+  toStage: z.string().nullable().default(null),
+  action: z.string().nullable().default(null),
+  sourceType: z.enum(['ticket', 'custom']).nullable().default(null),
+  customPlanRef: z.string().nullable().default(null),
   createdAt: z.string(),
   updatedAt: z.string(),
   completedAt: z.string().nullable(),
