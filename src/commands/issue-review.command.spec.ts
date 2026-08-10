@@ -77,6 +77,7 @@ import { ConversationService } from '../integrations/ai/conversation/conversatio
 import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveRepoBasePath } from '../agents/utils';
+import { runSonarScanForReview } from '../review/sonar-scanner';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -594,6 +595,18 @@ describe('IssueReviewCommand', () => {
 
       expect(consoleLogSpy).toHaveBeenCalledWith('  [claude-cli] Analyzing...');
       expect(consoleLogSpy).not.toHaveBeenCalledWith('    [claude-cli] Analyzing...');
+    });
+
+    it('runs SonarScanner when review sonar config is undefined', async () => {
+      const { command } = await buildCommand();
+      const mockRunSonar = runSonarScanForReview as jest.MockedFunction<typeof runSonarScanForReview>;
+      mockRunSonar.mockClear();
+      const target = { repoDir: '/tmp/repo' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, {});
+
+      expect(mockRunSonar).toHaveBeenCalledWith(expect.objectContaining({ repoDir: '/tmp/repo' }));
+      expect(mockRunSonar).toHaveBeenCalledTimes(1);
     });
 
     it('uses the current repo name as a discovery hint when --repos is omitted', async () => {

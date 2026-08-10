@@ -342,7 +342,7 @@ describe('ReviewerAgent', () => {
             }),
           },
         },
-        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(true) } },
       ],
     }).compile();
 
@@ -386,7 +386,7 @@ describe('ReviewerAgent', () => {
             }),
           },
         },
-        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(true) } },
       ],
     }).compile();
 
@@ -405,6 +405,51 @@ describe('ReviewerAgent', () => {
     expect(mockRunSonar).toHaveBeenCalledWith(
       expect.objectContaining({ repoDir: '/tmp/repo', skipForFork: true })
     );
+  });
+
+  it('runs SonarScanner when review sonar config is undefined', async () => {
+    type SonarFn = typeof sonarScanner.runSonarScanForReview;
+    const mockRunSonar = sonarScanner.runSonarScanForReview as jest.MockedFunction<SonarFn>;
+    mockRunSonar.mockClear();
+    mockRunSonar.mockResolvedValue(undefined);
+
+    const module = await Test.createTestingModule({
+      providers: [
+        ReviewerAgent,
+        { provide: CliPresenter, useValue: createMockPresenter() },
+        {
+          provide: GitService,
+          useValue: {
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            stageAll: jest.fn().mockResolvedValue(undefined),
+            getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+          },
+        },
+        {
+          provide: ReviewStageService,
+          useValue: {
+            reviewDiff: jest.fn().mockResolvedValue({
+              review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+            }),
+            buildReviewArtifact: jest.fn().mockReturnValue({
+              review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+              path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+              approved: true,
+            }),
+          },
+        },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
+      ],
+    }).compile();
+
+    const agent = module.get(ReviewerAgent);
+    await agent.execute(
+      { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+      { repoDir: '/tmp/repo' }
+    );
+
+    expect(mockRunSonar).toHaveBeenCalledWith(expect.objectContaining({ repoDir: '/tmp/repo' }));
+    expect(mockRunSonar).toHaveBeenCalledTimes(1);
   });
 
   it('suppresses progress when silent is true and no onProgress is provided', async () => {

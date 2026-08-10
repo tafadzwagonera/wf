@@ -415,7 +415,7 @@ When `--repos` points at a local checkout, `issue:plan` inspects `~/.wf/<repo>/*
 #### `wf issue:review [pr-url]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:review -->
-AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
+AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner runs by default for review unless `--skip-sonar` is set or `stages.review.sonar` is `false`. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
 
 ```bash
 wf issue:review
@@ -427,6 +427,8 @@ wf issue:review --ticket-key WBP-2971 --tracker jira --repos service-tourv3
 wf issue:review --ticket-key WBP-2971 --force --tracker jira -r service-bookingv3
 
 wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
+
+wf issue:review --ticket-key WBP-2971 --skip-sonar
 ```
 
 **Options:**
@@ -468,6 +470,8 @@ When `--ticket-key` is supplied, `issue:review` fetches ticket context from the 
 If no `--repos` value is supplied and adapters cannot determine a remote repository on their own, the command now exits with an actionable error instead of guessing from the current directory.
 
 If `--repos` is supplied for ticket review but a listed repository is not available as a local path or sibling directory, remote PR review can still succeed. However, if no PR is found, the command now exits with an actionable error instead of falling back to reviewing the current directory.
+
+SonarScanner runs by default during review when `stages.review.sonar` is unset or `true`. Use `--skip-sonar` or set `stages.review.sonar: false` to disable it for a given run or repository config.
 
 The current review output keeps `Call Stack` and `State Transition` in the same order before any trailing unmatched `Suggestions`, with `Approval Status` after `Suggestions`. Paired model suggestions now render directly under their corresponding issues in terminal output, exported text, workflow artifacts, and PR summary comments. Each trace section includes explicit provenance text so the output says whether the trace is evidence-based from an agent or CLI backend, best-effort from the standard completion path, or unavailable. The `Call Stack` section renders as a nested tree of concrete frames, and `State Transition` shows the variable changes observed at each frame.
 
@@ -711,7 +715,7 @@ Carry out an implementation plan from a ticket-backed, hashed, or custom plan ar
 | `--model-routing <mode>` | Model selection strategy: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto. |
 | `--no-branch` | Suppress branch creation; work directly on the current branch |
 | `-r, --repos <repos...>` | Space-separated repositories; the first repository reference anchors artifact lookup and is an execution context. The remaining repository references are execution contexts for a multi-repository issue. Implementation runs per-repo with cross-repo read context from all other repos |
-| `--session-id <id>` | Resume a wf session by UUID (persisted to ~/.wf/state/sessions/); resumes saved workflow metadata and cannot be combined with a positional plan token |
+| `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 | `-s, --silent` | Auto-stash without prompting; branch selection and naming still prompt when a TTY is available |
 | `-k, --ticket-key <key>` | Ticket key to implement (e.g. WBP-2971) |
 | `-t, --tracker <tracker>` | Tracker to fetch from if local artifact not found |
@@ -999,6 +1003,7 @@ wf/
 - **Agent vs completion mode.** Most stages (plan, implement, review, generate, create) default to agent mode via the Claude Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode. The commit stage defaults to standard (completion API). Controlled by `stages.<command>.backend: 'agent' | 'cli' | 'standard'`.
 - **Adapter pattern.** Platform adapters (Jira, GitHub, Bitbucket) and AI adapters (Anthropic, OpenAI, Gemini, DeepSeek) share a common interface so new providers can be added without changing command or agent code.
 - **Config resolution.** `wf` resolves config from the target repository when `--repos` is supplied, not from the caller's cwd. This lets a single wf installation manage many repositories with different settings.
+- **Review sonar gating.** `stages.review.sonar` defaults to enabled when omitted. Set it to `false` or pass `--skip-sonar` to suppress SonarScanner during review.
 - **Session continuity.** `--session-id` enables conversation resumption across invocations. For `wf issue`, it also restores saved workflow metadata so `wf issue --session-id <uuid>` can resume without restating source flags. See [Session Continuity](#session-continuity) below.
 
 ### Session Continuity

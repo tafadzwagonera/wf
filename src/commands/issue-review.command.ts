@@ -105,6 +105,10 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
     command: 'wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment',
   },
   {
+    comment: 'Review ticket changes without running SonarScanner',
+    command: 'wf issue:review --ticket-key WBP-2971 --skip-sonar',
+  },
+  {
     comment:
       'Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail',
     command: 'wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3',
@@ -149,7 +153,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 @Command({
   name: 'issue:review',
   description:
-    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
+    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner runs by default for review unless `--skip-sonar` is set or `stages.review.sonar` is `false`. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
   arguments: '[pr-url]',
   options: { isDefault: false },
 })
@@ -910,10 +914,9 @@ export class IssueReviewCommand extends CommandRunner {
       throw new GitError(`Not a git repository: ${repoDir}`);
     }
 
-    // Try to get diff (staged or unstaged)
-    let diff = await this.gitService.getDiff(true, repoDir); // Try staged first
+    let diff = await this.gitService.getDiff(true, repoDir);
     if (!diff || diff.trim().length === 0) {
-      diff = await this.gitService.getDiff(false, repoDir); // Try unstaged
+      diff = await this.gitService.getDiff(false, repoDir);
     }
 
     return diff;
