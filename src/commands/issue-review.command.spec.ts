@@ -51,6 +51,11 @@ jest.mock('../agents/utils', () => {
   };
 });
 
+jest.mock('../review/sonar-scanner', () => ({
+  hasSonarProjectProperties: jest.fn(() => false),
+  runSonarScan: jest.fn(),
+}));
+
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import inquirer from 'inquirer';

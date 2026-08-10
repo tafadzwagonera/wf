@@ -15,7 +15,7 @@ import { assertCodexCliAvailable, buildCodexCliArgs, spawnCodex, type CodexCliMe
 import {
   printVerificationReport, getEnforcedFailures,
   buildVerificationFixPrompt, runProgrammaticVerification,
-  checkVerificationStall, partitionFailures,
+  checkVerificationStall, partitionFailures, DEFAULT_STALL_THRESHOLD,
 } from './verification-report';
 
 const DEFAULT_MECHANICAL_MODEL = 'gpt-5.4-mini';
@@ -459,16 +459,16 @@ export class CodexCliAdapter implements ImplementerBackend {
   }
 
   private async runProgrammaticVerificationLoop(p: CodexVerificationLoopParams): Promise<VerificationOutcome[]> {
-    let prevFails = Infinity, stalled = 0, passNumber = 0, { sessionId } = p;
+    let prevFails = Infinity, stalled = 0, readOnly = 0, passNumber = 0, { sessionId } = p;
     const ctx = this.buildBaseStreamContext(p.params, p.activityState, p.touchedFiles, p.repoDir);
     const verify = () => this.evaluateVerificationPass(p.params.verificationScripts, p.repoDir, ++passNumber);
     let { outcomes, codeFailures } = verify();
-    while (codeFailures.length > 0 && sessionId) {
+    while (codeFailures.length > 0 && sessionId && readOnly++ < DEFAULT_STALL_THRESHOLD) {
       const fix = await this.attemptCodexFix(ctx, p, passNumber, sessionId, codeFailures);
       if (!(sessionId = fix.sessionId) || !fix.wrote) continue;
+      readOnly = 0;
       ({ outcomes, codeFailures } = verify());
-      stalled = checkVerificationStall(codeFailures.length, prevFails, stalled, CODEX_ADAPTER_LABEL);
-      if (stalled === -1) break;
+      if ((stalled = checkVerificationStall(codeFailures.length, prevFails, stalled, CODEX_ADAPTER_LABEL)) < 0) break;
       prevFails = codeFailures.length;
     }
     return outcomes;

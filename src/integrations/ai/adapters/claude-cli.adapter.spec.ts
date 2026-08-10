@@ -1,6 +1,7 @@
 import { ClaudeCliAdapter } from './claude-cli.adapter';
 import * as cliRunner from './claude-cli-runner';
 
+jest.mock('@anthropic-ai/claude-agent-sdk', () => ({ __esModule: true }));
 jest.mock('./claude-cli-runner');
 
 const mockAssert = cliRunner.assertClaudeCliAvailable as jest.MockedFunction<typeof cliRunner.assertClaudeCliAvailable>;
@@ -15,9 +16,9 @@ const createMockConfigService = (overrides: Record<string, unknown> = {}) => ({
   }),
 });
 
-describe.skip('ClaudeCliAdapter', () => {
+describe('ClaudeCliAdapter', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     mockAssert.mockImplementation(() => undefined);
     mockBuildCliArgs.mockReturnValue(['-p', '--output-format', 'stream-json']);
   });
@@ -64,29 +65,15 @@ describe.skip('ClaudeCliAdapter', () => {
   });
 
   it('includes task brief in continuation prompts', async () => {
+    const mockStream = (sid?: string) =>
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: sid, num_turns: 1, total_cost_usd: 0.01 };
+      })();
+
     mockSpawnCli
-      .mockReturnValueOnce(
-        (async function* () {
-          yield {
-            type: 'result',
-            result: 'done',
-            session_id: 's1',
-            num_turns: 1,
-            total_cost_usd: 0.01,
-          };
-        })()
-      )
-      .mockReturnValueOnce(
-        (async function* () {
-          yield {
-            type: 'result',
-            result: 'done',
-            session_id: 's1',
-            num_turns: 1,
-            total_cost_usd: 0.01,
-          };
-        })()
-      );
+      .mockReturnValueOnce(mockStream('s1'))
+      .mockReturnValueOnce(mockStream('s1'))
+      .mockImplementation(() => mockStream(undefined));
 
     const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
     await adapter.generateAndVerify({
@@ -119,29 +106,15 @@ describe.skip('ClaudeCliAdapter', () => {
   });
 
   it('includes progress, goal, plan steps, and verification in continuation prompts', async () => {
+    const mockStream = (sid?: string) =>
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: sid, num_turns: 1, total_cost_usd: 0.01 };
+      })();
+
     mockSpawnCli
-      .mockReturnValueOnce(
-        (async function* () {
-          yield {
-            type: 'result',
-            result: 'done',
-            session_id: 's1',
-            num_turns: 1,
-            total_cost_usd: 0.01,
-          };
-        })()
-      )
-      .mockReturnValueOnce(
-        (async function* () {
-          yield {
-            type: 'result',
-            result: 'done',
-            session_id: 's1',
-            num_turns: 1,
-            total_cost_usd: 0.01,
-          };
-        })()
-      );
+      .mockReturnValueOnce(mockStream('s1'))
+      .mockReturnValueOnce(mockStream('s1'))
+      .mockImplementation(() => mockStream(undefined));
 
     const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
     await adapter.generateAndVerify({
