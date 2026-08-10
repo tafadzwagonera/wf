@@ -15,6 +15,19 @@ import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
+import {
+  buildPlanSkillSection,
+  buildPlanTestConventionsBlock,
+  buildPlanVerificationBlock,
+  buildReviewSkillSection,
+  buildSonarSection,
+  deriveModelSource,
+  planFileListingInstructions,
+  planMinimalChangePrinciple,
+  planStepPrinciples,
+  reviewInstructions,
+  reviewOutputSchema,
+} from './prompt-fragments';
 import { DEFAULT_STALL_THRESHOLD } from './adapters/verification-report';
 import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
 import {
@@ -298,31 +311,9 @@ const buildPlanDiscoveryBlock = (params: GeneratePlanParams): string => {
   return parts.length > 0 ? `\n${parts.join('\n\n')}\n` : '';
 };
 
-/**
- * @param params - plan generation parameters including test infra context
- * @returns test conventions block for inclusion in the plan prompt
- */
-const buildPlanTestConventionsBlock = (params: GeneratePlanParams): string => {
-  if (!params.testInfra) return '';
-  return `When a plan step includes test code snippets or prescribes test changes:
-   - Follow ALL test conventions listed above (mock cleanup, DI setup, error handling).
-   - Mock isolation steps MUST be concrete, not conditional — prescribe the exact call, do not say "check whether X or add Y".
-   - Test setup MUST match the DI wiring the code path requires — every injected service the code reaches MUST have a mock provider, not an empty object.
-   - Follow the repo's existing test isolation conventions (detected above). If tests use jest.restoreAllMocks() in afterEach, new tests MUST do the same — do not introduce a different cleanup strategy.
-`;
-};
+// buildPlanTestConventionsBlock imported from prompt-fragments
 
-/**
- * @param hasNodeTestInfra - whether the project has Node.js test infrastructure
- * @returns shell-safety guidance block for verification commands
- */
-const buildPlanShellSafetyBlock = (hasNodeTestInfra: boolean): string => {
-  if (!hasNodeTestInfra) return '';
-  return `   - Verification commands MUST be shell-safe by construction. For inline \`node -e\`, prefer
-     single-quoted JS strings or properly escaped backticks — never rely on unescaped
-     template literals inside double-quoted shell strings.
-`;
-};
+// Shell safety absorbed into buildPlanVerificationBlock (prompt-fragments)
 
 /**
  * @param params - plan generation parameters
@@ -346,131 +337,23 @@ const buildStagePlanPrompt = (params: GeneratePlanParams): string => {
     retryFeedbackBlock: buildRetryFeedbackBlock(params.planQualityFeedback),
     discoveryBlock: buildPlanDiscoveryBlock(params),
     testInfraSection: params.testInfra ? formatTestInfraPromptSection(params.testInfra) : '',
-    testConventionsBlock: buildPlanTestConventionsBlock(params),
-    shellSafetyBlock: buildPlanShellSafetyBlock(hasNodeTestInfra),
+    hasNodeInfra: hasNodeTestInfra,
     skillNames: params.skillNames,
   });
 };
 
-// Step instructions for the plan prompt — extracted to stay under max-lines-per-function
-const planStepInstructions = `   Every rename, move, or refactoring step should state both the current name/path and the
-   replacement name/path (e.g., "Rename class \`PaymentService\` to \`PaymentProcessorService\`
-   in src/payments/payment.service.ts"). A step that says only "rename X" without the target
-   leaves the implementer guessing and risks misinterpretation.
-   When a step adds a new call site to an existing function or method, trace every existing call site for that function and note whether the shared code path already handles the new case. If it does, state so explicitly and skip the redundant change. If it does not, list which call sites need updating.
-   When a step adds or modifies a JSDoc comment or docstring, cross-check the prose against the implementation's guard clauses. If the function throws on null input, the docstring must document that. If the function silently returns undefined, the docstring must not claim it throws.
-   When a step says "remove line X inside block Y", state whether the
-   surrounding block (function, if-branch, class) becomes dead code after the removal
-   and whether it should also be removed. Surfacing dead code here avoids a surprise during review.
-   When prescribing a new module-level helper near existing class methods, explicitly
-   state its placement: "add as a module-level function outside the class, near the
-   existing \`<CONSTANT_NAME>\` constant at line N". Clear placement avoids ambiguity during implementation.
-   When a step introduces an interface field typed with \`| null\` or \`.nullable()\`,
-   trace every consumer of that interface and specify the concrete
-   behaviour for the null case (skip, default value, throw). Specifying null behaviour up front prevents review-time surprises.
-   When a plan involves operations where cache state affects network access (e.g.,
-   reading a cached token before calling an API), explicitly state that the cache check happens before the network call and note the consequence of
-   reversing the order. Cache-before-network ordering bugs are silent and hard to
-   catch in review.
-   Generated-doc workflows (e.g., auto-generated README sections, API docs from
-   schemas) are source-of-truth updates. The plan should prescribe
-   re-running the generator — not manually patching the output file. If no generator
-   exists, the plan should say so and prescribe the manual edit as a stopgap with a
-   TODO to add generation later.
-
-   When a step specifies the return type of a function or method, derive the return type from the call-site options that will actually be passed — not the function's
-   default return type. If the call site passes options that narrow or widen the return
-   type (e.g., an overload, a generic parameter, or a conditional return), the plan
-   must state the concrete type the caller will see and use that in downstream steps.
-
-   When a plan prescribes adding specific text to a file (e.g., a prompt paragraph, a
-   config key, a schema field), include a verification step that greps
-   for a unique, distinctive substring of that text in the target file. If the substring
-   is already present, the step should be marked as "already implemented" and skipped.
-   Do not conclude that prescribed text is present based on thematic similarity to
-   nearby content — perform an exact substring check.
-
-   When a plan changes the semantics of a CLI option (e.g., making an option optional,
-   changing its default, renaming it, or restricting its values), trace every user-facing surface that references that option — help text, command
-   documentation, README examples, man pages — and include update steps for each.
-   Restricting the affected-files list to only the implementation and its test misses
-   help/doc text drift.
-
-   When the implementation stage involves iterative fix-and-retry cycles, require verification of both working-tree and staged/index state before
-   handoff (e.g., before commit). A file with both staged and unstaged changes can
-   cause the commit to ship a stale version. The plan should prescribe an explicit
-   clean-state check before the handoff step.
-
-   When a plan includes a manual smoke test as an acceptance check, the implementation stage should either run it or explicitly mark it as incomplete with a reason. A plan
-   that lists a smoke test but never executes it appears complete when one of its
-   acceptance criteria was silently skipped.
-
-   When a plan step prescribes a test, trace the execution path
-   through the mock/DI setup to the first point where the command returns or
-   fails downstream. State whether the test will reach a clean return or a
-   downstream error, and prescribe the strongest viable positive assertion for
-   that path. A test that only asserts "no throw" proves nothing if the mock
-   setup silently short-circuits the code under test.
-
-   When new code intentionally swallows or downgrades errors (e.g., "log a warning
-   and continue" instead of throwing), include failure-path test coverage for that behaviour. Verify that the warning is emitted, the return value
-   is correct on the failure path, and downstream code handles the degraded state.
-   Silent error swallowing without coverage is a latent bug.`;
-
-const planFileListingInstructions = `3. Estimated complexity (low/medium/high)
-4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
-   path with its repository name. Use REAL file paths from the repository — not globs, not
-   placeholders. Set status to "found" for existing files or "to-create" for new files.
-   Do not guess or infer file paths from conventions. Use your read-only
-   tools (grep, find, or directory listings) to verify each path exists before listing it.
-   Hallucinated paths cause the implementer to stall.
-5. Files needed for **context only** (read, not edit) — same object shape as affectedFiles.
-   E.g., reading package.json to confirm a dependency. All context files must have status
-   "found". Verify each path exists with tools before listing it.
-6. Potential risks or considerations
-7. Repositories that will be affected (if known)
-8. New repositories that must be created (not yet existing locally) — a subset of affectedRepositories. Omit or leave empty when the plan only touches existing repos`;
-
-const planVerificationInstructions = `9. Task-specific verification only when needed:
-   - Use "verification.targeted" for focused checks required by this specific plan
-   - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
-   - Omit "verification" entirely when no targeted checks or waivers are needed
-   - Verification commands run from the selected repository root
-   - Every verification command must exit 0 when it succeeds
-   - Commands must be copy-paste-runnable: reference ONLY scripts/binaries listed in the
-     "Available test infrastructure" section. Do not invent scripts.
-   - Verification commands are validated against the allowlist above. Any command
-     that does not match an allowed form will be rejected. When unsure, use: node -e "..."`;
-
-const planVerificationTailInstructions = `   - Each verification command MUST be relevant to this plan: it should verify a side effect
-     or behavior introduced by the steps above, not just run the whole test suite.
-   - Each verification command MUST target the specific behavior introduced by the step it validates
-     — not unrelated output like global README string order or full-file snapshots.
-     A verification that checks something the step did not change will produce false failures.
-   - Verification commands that use CLI flags (e.g., jest --forceExit, tsc --noEmit) MUST
-     cross-check flag names against the installed framework version. If the flag was added
-     in a later version or renamed, the command will fail for reasons unrelated to the
-     change. When uncertain, prefer the long-form flag name and note the minimum version.
-   - For inline assertions, prefer: node -e "const assert = require('node:assert'); ..."
-     (when node:test is available) or the installed test framework CLI
-   - If you need to prove an expected failure, wrap it in a shell assertion that exits 0`;
-
-const planMinimalChangeInstructions = `Minimal-change principles — apply to every plan:
-- Propose the smallest effective change. Do not modify files unrelated to the ticket.
-- Limit verification to files edited by this plan.
-- Each component should be designed to address a single responsibility.
-- Prefer changes that are replaceable or deletable without cascading effects on other components.`;
+// planStepPrinciples, planFileListingInstructions, planMinimalChangePrinciple,
+// buildPlanVerificationBlock, buildPlanTestConventionsBlock imported from prompt-fragments
 
 type PlanPromptBodyOpts = {
   action: string;
   affectedRepositories?: string[];
   discoveryBlock: string;
+  hasNodeInfra: boolean;
   issueContent: string;
   repoExample: string;
   retryFeedbackBlock: string;
-  shellSafetyBlock: string;
   skillNames?: string[];
-  testConventionsBlock: string;
   testInfraSection: string;
   ticketKey?: string;
 };
@@ -490,7 +373,7 @@ ${opts.retryFeedbackBlock}${opts.discoveryBlock}
 Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
 2. Specific, actionable steps to ${opts.action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
-${planStepInstructions}
+${planStepPrinciples}
 ${planFileListingInstructions}`;
 
 /**
@@ -505,12 +388,7 @@ When an optional field has no value, omit it from the JSON entirely. Do not use 
 
 ${JSON_OUTPUT_RULES}`;
 
-const buildPlanSkillSection = (skillNames: string[] | undefined): string => {
-  if (!skillNames?.length) return '';
-  return '\n\nSkill-specific instructions:\nBefore starting work, invoke each of the following skills using the Skill tool:\n'
-    + skillNames.map(s => `- Skill('${s}')`).join('\n')
-    + '\nFollow each skill\'s instructions fully before proceeding.';
-};
+// buildPlanSkillSection imported from prompt-fragments
 
 /**
  * @param opts - pre-computed prompt fragments
@@ -519,79 +397,26 @@ const buildPlanSkillSection = (skillNames: string[] | undefined): string => {
 const buildPlanPromptBody = (opts: PlanPromptBodyOpts): string => [
   buildPlanPromptPreamble(opts),
   opts.testInfraSection,
-  opts.testConventionsBlock,
-  planMinimalChangeInstructions,
-  planVerificationInstructions,
-  opts.shellSafetyBlock,
-  planVerificationTailInstructions,
+  buildPlanTestConventionsBlock(!!opts.testInfraSection),
+  planMinimalChangePrinciple,
+  buildPlanVerificationBlock(opts.hasNodeInfra),
   buildPlanJsonSchemaExample(opts),
   buildPlanSkillSection(opts.skillNames),
 ].join('\n');
 
-const reviewInstructions = `Provide a code review with:
-1. A brief summary of the changes
-2. Any issues found
-3. A trace provenance label: evidence-based, best-effort, or unavailable
-4. A nested tree-like call stack that walks the changed code path
-5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack
-6. A suggestion for each issue when remediation is clear — each suggestion must recommend the smallest effective fix (the minimum change that resolves the issue without introducing unnecessary scope). Write suggestions in plain, human-friendly language: be concise, use everyday phrasing, and avoid jargon-heavy or robotic sentences.
-7. Optional trailing suggestions for general follow-up work that is not tied to a single issue — each must also prefer the smallest effective fix and use the same concise, human-friendly tone
-8. Whether the code is approved`;
-
-const reviewOutputSchema = `Return ONLY a valid JSON object. Reference:
-    {"summary":"Rename display label from X to Y across all user-facing text.","issues":[{"severity":"warning","message":"Missing JSDoc block on new private method.","file":"src/service.ts","line":42,"suggestion":"Add a minimal JSDoc block."},{"severity":"info","message":"Unused import spans multiple lines.","file":"src/utils.ts","line":10,"endLine":14},{"severity":"info","message":"Log message change loses diagnostic value."}],"traceProvenance":"evidence-based","callStack":[{"frame":"Service.method(params)","children":[{"frame":"Helper.transform(input)","children":[]}]}],"stateTransition":{"from":"entry-frame","to":"exit-frame","steps":[{"frame":"Service.method(params)","captured":{"dep":"Dep { ... }"},"changes":{"dep":{"before":"old","after":"new"}},"children":[]}]},"suggestions":["Extract predicate into a named helper for readability."],"approved":true}
-
-    Prefer an absolute line number. Degrade to a line range (line + endLine) when the issue spans multiple lines. Omit line and endLine entirely when the issue cannot be pinned to specific lines.
-    When an optional field has no value, omit it from the JSON entirely. Do not use null.
-
-${JSON_OUTPUT_RULES}`;
-
-/**
- * @param diff - unified diff string
- * @param guidelines - review guidelines list
- * @param skillNames - optional skill IDs to inject into the prompt
- * @returns the fully assembled review prompt string
- */
-const buildStageReviewSkillSection = (skillNames: string[]): string =>
-  '\nSkill-specific instructions:\nBefore starting review, invoke each of the following skills using the Skill tool:\n'
-  + skillNames.map(s => `- Skill('${s}')`).join('\n')
-  + '\nFollow each skill\'s instructions fully before proceeding.\n';
-
-const buildStageSonarItems = (sonarOutput?: string): string[] => {
-  if (!sonarOutput) return [];
-  return [
-    `\nStatic Analysis (SonarScanner) Output:\n\`\`\`\n${sonarOutput}\n\`\`\`\n`
-    + 'Consider the above static analysis findings as additional context when reviewing. '
-    + 'They do not independently determine approval.',
-  ];
-};
+// reviewInstructions, reviewOutputSchema, buildReviewSkillSection,
+// buildSonarSection, deriveModelSource imported from prompt-fragments
 
 const buildStageReviewPrompt = (
   diff: string, guidelines: string[], skillNames?: string[], sonarOutput?: string
 ): string => [
   `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
-  ...buildStageSonarItems(sonarOutput),
+  ...(sonarOutput ? [buildSonarSection(sonarOutput)] : []),
   `\nReview Guidelines:\n${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}`,
   `\n${reviewInstructions}`,
-  ...(skillNames?.length ? [buildStageReviewSkillSection(skillNames)] : []),
+  ...(skillNames?.length ? [buildReviewSkillSection(skillNames)] : []),
   `\n${reviewOutputSchema}`,
 ].join('\n');
-
-/**
- * @param provider - AI provider name
- * @param model - model identifier
- * @returns model source label stripped of vendor prefix
- */
-const derivePlanSource = (provider: string, model: string): string => {
-  const prefixMap: Record<string, string> = {
-    anthropic: 'claude-',
-    deepseek: 'deepseek-',
-    google: 'gemini-',
-    openai: 'gpt-',
-  };
-  const prefix = prefixMap[provider] ?? '';
-  return model.startsWith(prefix) ? model.slice(prefix.length) : model;
-};
 
 /**
  * @param toolName - name of the tool being invoked
@@ -1168,7 +993,7 @@ export class StageAgentService {
   private applyPlanMetadata(plan: ResolutionPlan): ResolutionPlan {
     const provider = this.resolveStageProvider('plan');
     plan.provider = provider;
-    plan.source = derivePlanSource(provider, this.resolveStageModel('plan'));
+    plan.source = deriveModelSource(provider, this.resolveStageModel('plan'));
     plan.timestamp = dayjs().toISOString();
     return plan;
   }

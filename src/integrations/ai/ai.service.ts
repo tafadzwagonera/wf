@@ -36,6 +36,20 @@ import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import type { ResolutionAction, StageProgressCallback } from '../../shared/types/agent.types';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
+import {
+  buildPlanSkillSection,
+  buildPlanTestConventionsBlock,
+  buildPlanVerificationBlock,
+  buildReviewSkillSection,
+  buildSonarSection,
+  deriveModelSource,
+  planFileListingInstructions,
+  planMinimalChangePrinciple,
+  planStepPrinciples,
+  reviewInstructions,
+  reviewOutputSchema,
+  reviewTraceGuidance,
+} from './prompt-fragments';
 
 export type {
   AIRequest,
@@ -566,146 +580,11 @@ ${repoHint}${retryFeedbackBlock}`;
 const planStepInstructions = `Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
 2. Specific, actionable steps to resolve the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
-   Every rename, move, or refactoring step should state both the current name/path and the
-   replacement name/path (e.g., "Rename class \`PaymentService\` to \`PaymentProcessorService\`
-   in src/payments/payment.service.ts"). A step that says only "rename X" without the target
-   leaves the implementer guessing and risks misinterpretation.
-   When a step adds a new call site to an existing function or method, trace every existing call site for that function and note whether the shared code path already handles the new case. If it does, state so explicitly and skip the redundant change. If it does not, list which call sites need updating.
-   When a step adds or modifies a JSDoc comment or docstring, cross-check the prose against the implementation's guard clauses. If the function throws on null input, the docstring must document that. If the function silently returns undefined, the docstring must not claim it throws.
-   When a step says "remove line X inside block Y", state whether the
-   surrounding block (function, if-branch, class) becomes dead code after the removal
-   and whether it should also be removed. Surfacing dead code here avoids a surprise during review.
-   When prescribing a new module-level helper near existing class methods, explicitly
-   state its placement: "add as a module-level function outside the class, near the
-   existing \`<CONSTANT_NAME>\` constant at line N". Clear placement avoids ambiguity during implementation.
-   When a step introduces an interface field typed with \`| null\` or \`.nullable()\`,
-   trace every consumer of that interface and specify the concrete
-   behaviour for the null case (skip, default value, throw). Specifying null behaviour up front prevents review-time surprises.
-   When a plan involves operations where cache state affects network access (e.g.,
-   reading a cached token before calling an API), explicitly state that the cache check happens before the network call and note the consequence of
-   reversing the order. Cache-before-network ordering bugs are silent and hard to
-   catch in review.
-   Generated-doc workflows (e.g., auto-generated README sections, API docs from
-   schemas) are source-of-truth updates. The plan should prescribe
-   re-running the generator — not manually patching the output file. If no generator
-   exists, the plan should say so and prescribe the manual edit as a stopgap with a
-   TODO to add generation later.
+${planStepPrinciples}
+${planFileListingInstructions}`;
 
-   When a step specifies the return type of a function or method, derive the return type from the call-site options that will actually be passed — not the function's
-   default return type. If the call site passes options that narrow or widen the return
-   type (e.g., an overload, a generic parameter, or a conditional return), the plan
-   must state the concrete type the caller will see and use that in downstream steps.
-
-   When a plan prescribes adding specific text to a file (e.g., a prompt paragraph, a
-   config key, a schema field), include a verification step that greps
-   for a unique, distinctive substring of that text in the target file. If the substring
-   is already present, the step should be marked as "already implemented" and skipped.
-   Do not conclude that prescribed text is present based on thematic similarity to
-   nearby content — perform an exact substring check.
-
-   When a plan changes the semantics of a CLI option (e.g., making an option optional,
-   changing its default, renaming it, or restricting its values), trace every user-facing surface that references that option — help text, command
-   documentation, README examples, man pages — and include update steps for each.
-   Restricting the affected-files list to only the implementation and its test misses
-   help/doc text drift.
-
-   When the implementation stage involves iterative fix-and-retry cycles, require verification of both working-tree and staged/index state before
-   handoff (e.g., before commit). A file with both staged and unstaged changes can
-   cause the commit to ship a stale version. The plan should prescribe an explicit
-   clean-state check before the handoff step.
-
-   When a plan includes a manual smoke test as an acceptance check, the implementation stage should either run it or explicitly mark it as incomplete with a reason. A plan
-   that lists a smoke test but never executes it appears complete when one of its
-   acceptance criteria was silently skipped.
-
-   When a plan step prescribes a test, trace the execution path
-   through the mock/DI setup to the first point where the command returns or
-   fails downstream. State whether the test will reach a clean return or a
-   downstream error, and prescribe the strongest viable positive assertion for
-   that path. A test that only asserts "no throw" proves nothing if the mock
-   setup silently short-circuits the code under test.
-
-   When new code intentionally swallows or downgrades errors (e.g., "log a warning
-   and continue" instead of throwing), include failure-path test coverage for that behaviour. Verify that the warning is emitted, the return value
-   is correct on the failure path, and downstream code handles the degraded state.
-   Silent error swallowing without coverage is a latent bug.
-
-   When a plan affects more than 10 files, group the steps into phases. Each phase should contain related changes that can be verified together (e.g., "Phase 1: Schema changes", "Phase 2: Service layer", "Phase 3: Tests"). Add a \`phases\` array to the JSON output:
-
-     "phases": [
-       { "label": "Schema changes", "stepIndices": [0, 1, 2], "verifyAfter": ["yarn test -- src/shared/schemas/"] },
-       { "label": "Service updates", "stepIndices": [3, 4, 5] }
-     ]
-
-   Each phase's \`verifyAfter\` commands run after that group completes. These commands MUST be a subset of the commands in \`verification.targeted\` — do not invent commands that are not in the verification whitelist. Omit \`verifyAfter\` when no meaningful intermediate check exists. Steps not assigned to a phase are executed after all phases.
-3. Estimated complexity (low/medium/high)
-4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
-   path with its repository name (e.g., "service-tourv3/src/pricing/pricing.service.ts").
-   Use the repository names from affectedRepositories when available. Use REAL file paths
-   from the repository — not globs, not placeholders. Set status to "found" for existing
-   files or "to-create" for new files the plan will create.
-   IMPORTANT: Do NOT guess or infer file paths from conventions. You MUST verify each path
-   exists by searching the repository (e.g., grep, find, or reading directory listings)
-   before listing it. Hallucinated paths cause the implementer to stall.
-5. Files needed for **context only** (read, not edit) — same object shape as affectedFiles.
-   E.g., reading package.json to confirm a dependency is installed. All context files must
-   have status "found" — you cannot read a file that does not exist yet. Verify each path
-   exists before listing it.
-6. Potential risks or considerations
-7. Repositories that will be affected (if known — use provided hints or infer from ticket text)
-8. New repositories that must be created (not yet existing locally) — a subset of affectedRepositories. Omit or leave empty when the plan only touches existing repos`;
-
-const planVerificationCoreInstructions = `9. Task-specific verification only when needed:
-   - Use "verification.targeted" for focused checks required by this specific plan
-   - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
-   - Omit "verification" entirely when no targeted checks or waivers are needed
-   - Verification commands run from the selected repository root
-   - Every verification command must exit 0 when it succeeds
-   - Commands must be copy-paste-runnable: reference ONLY scripts/binaries listed in the
-     "Available test infrastructure" section. Do not invent scripts.
-   - CRITICAL: verification commands are validated against the allowlist above. Any command
-     that does not match an allowed form will be rejected. When unsure, use: node -e "..."`;
-
-const planVerificationNodeAddendum = `   - Verification commands MUST be shell-safe by construction. For inline \`node -e\`, prefer
-     single-quoted JS strings or properly escaped backticks — never rely on unescaped
-     template literals inside double-quoted shell strings.`;
-
-const planVerificationTailInstructions = `   - Each verification command MUST be relevant to this plan: it should verify a side effect
-     or behavior introduced by the steps above, not just run the whole test suite.
-   - Each verification command MUST target the specific behavior introduced by the step it validates
-     — not unrelated output like global README string order or full-file snapshots.
-     A verification that checks something the step did not change will produce false failures.
-     Good: "node -e \\"require('node:assert').ok(require('./src/config').validate())\\""
-     Bad: "yarn test" (too broad — does not target the planned change)
-   - Verification commands that use CLI flags (e.g., jest --forceExit, tsc --noEmit) MUST
-     cross-check flag names against the installed framework version. If the flag was added
-     in a later version or renamed, the command will fail for reasons unrelated to the
-     change. When uncertain, prefer the long-form flag name and note the minimum version.
-   - For inline assertions, prefer: node -e "const assert = require('node:assert'); ..."
-     (when node:test is available) or the installed test framework CLI
-   - If you need to prove an expected failure, wrap it in a shell assertion that exits 0 when the expected failure occurs.`;
-
-const planMinimalChangeInstructions = `Minimal-change principles — apply to every plan:
-- Propose the smallest effective change. Do not modify files unrelated to the ticket.
-- Limit verification to files edited by this plan.
-- Each component should be designed to address a single responsibility.
-- Prefer changes that are replaceable or deletable without cascading effects on other components.`;
-
-const planTestConventionsInstructions = `When a plan step includes test code snippets or prescribes test changes:
-   - Follow ALL test conventions listed above (mock cleanup, DI setup, error handling).
-   - Mock isolation steps should be concrete, not conditional — prescribe the exact call, do not say "check whether X or add Y".
-   - Test setup should match the DI wiring the code path requires — every injected service the code reaches MUST have a mock provider, not an empty object.
-   - Follow the repo's existing test isolation conventions (detected above). If tests use jest.restoreAllMocks() in afterEach, new tests should follow suit — do not introduce a different cleanup strategy.`;
-
-/**
- * Build the verification block, optionally including the Node safety addendum.
- * @param hasNodeTestInfra Whether node test infrastructure was detected
- * @returns Multi-line verification instructions string
- */
-const buildVerificationBlock = (hasNodeTestInfra: boolean): string =>
-  [planVerificationCoreInstructions, hasNodeTestInfra ? planVerificationNodeAddendum : '', planVerificationTailInstructions]
-    .filter(Boolean)
-    .join('\n');
+// planVerification*, planMinimalChange*, planTestConventions*, buildVerificationBlock
+// replaced by imports from prompt-fragments
 
 /**
  * Build the JSON output schema example for the plan prompt.
@@ -740,14 +619,13 @@ const assemblePlanPrompt = (
   outputSchema: string,
   skillSection: string
 ): string =>
-  [preamble, discoveryBlock, planStepInstructions, skillSection, '\n', ...testSections, planMinimalChangeInstructions, '\n', verificationBlock, '\n', outputSchema].join('');
+  [preamble, discoveryBlock, planStepInstructions, skillSection, '\n', ...testSections, planMinimalChangePrinciple, '\n', verificationBlock, '\n', outputSchema].join('');
 
-const buildSkillSection = (context: Record<string, unknown> | undefined): string => {
+// buildPlanSkillSection imported from prompt-fragments
+
+const extractSkillNames = (context: Record<string, unknown> | undefined): string[] | undefined => {
   const skillNames = Array.isArray(context?.skillNames) ? (context.skillNames as string[]) : [];
-  if (!skillNames.length) return '';
-  return '\n\nSkill-specific instructions:\nBefore starting work, invoke each of the following skills using the Skill tool:\n'
-    + skillNames.map((s: string) => `- Skill('${s}')`).join('\n')
-    + '\nFollow each skill\'s instructions fully before proceeding.';
+  return skillNames.length ? skillNames : undefined;
 };
 
 /**
@@ -770,10 +648,10 @@ const buildPlanPromptBody = (
   assemblePlanPrompt(
     buildPlanPreamble(action, issueContent, context),
     discoveryBlock,
-    [context?.testInfra ? formatTestInfraPromptSection(context.testInfra as TestInfraContext) : '', context?.testInfra ? planTestConventionsInstructions : ''],
-    buildVerificationBlock(hasNodeTestInfra),
+    [context?.testInfra ? formatTestInfraPromptSection(context.testInfra as TestInfraContext) : '', buildPlanTestConventionsBlock(!!context?.testInfra)],
+    buildPlanVerificationBlock(hasNodeTestInfra),
     buildPlanOutputSchema(action, repoExample),
-    buildSkillSection(context)
+    buildPlanSkillSection(extractSkillNames(context))
   );
 
 /**
@@ -804,17 +682,7 @@ const normalizePlanSteps = (rawSteps: unknown[]): string[] =>
     return String(step);
   });
 
-/**
- * Derive the short model source identifier from a full model name and provider.
- * @param provider AI provider key
- * @param model Full model name
- * @returns Model name with provider prefix stripped
- */
-const deriveModelSource = (provider: string, model: string): string => {
-  const prefixMap: Record<string, string> = { anthropic: 'claude-', google: 'gemini-', deepseek: 'deepseek-', openai: 'gpt-' };
-  const prefix = prefixMap[provider] ?? '';
-  return model.startsWith(prefix) ? model.slice(prefix.length) : model;
-};
+// deriveModelSource imported from prompt-fragments
 
 /**
  * Throw when a response was truncated by the output token limit.
@@ -847,75 +715,23 @@ const reviewSystemPrompt = `Review the code changes for quality, correctness, an
 Ignore changes to JSON or markdown files under \`.wf/\` or tracker artefact directories (jira/, bitbucket/) — review only application source code.
 Return your response as a JSON object matching the CodeReview interface.`;
 
-const reviewTraceRules = `    Trace guidance:
-    - Describe the code under review, not the review process.
-    - Do not return review-process steps such as "diff loaded", "analyzing", "reviewed", or "issues found" in callStack or stateTransition.
-    - If the changed code cannot be traced confidently, set traceProvenance to "unavailable" and return empty callStack and stateTransition fields.
-    - Evidence-based traces must mention concrete identifiers from the diff.
-    - Use concrete code identifiers as callStack node labels, such as Class.method(...), functionName(...), or Client.method(...).
-    - Nest child callStack nodes under the parent frame that directly invokes or depends on them.
-    - When external effects matter, attach them as leaf nodes beneath the method that performs them, for example HttpClient.get(...), POST /endpoint, or SQL query execution.
-    - Prefer executable units over prose: avoid nodes like "validates request", "maps response", or "calls external API" unless the concrete method name is unavailable in the diff.
-    - Keep the tree in execution tense by naming the callable units and effect leaves, not by narrating what the reviewer thinks the code does.
-    - For the state transition tree, use the same frame labels and capture the variable changes observed at each frame.
-    - Use \`captured\` for the variables or objects observed at a frame, and \`changes\` for the values that changed between the current frame and the previous one.
-    - For detailed traces, include important intermediate methods, mappers, helpers, and client calls when they materially affect the changed path.
-    - Prefer multiple distinct tree levels when downstream dependencies are nested.`;
+// reviewTraceGuidance, reviewInstructions, reviewOutputSchema, buildReviewSkillSection,
+// buildSonarSection imported from prompt-fragments
 
-const reviewOutputSchema = `    Return ONLY a valid JSON object. Reference:
-    {"summary":"Rename display label from X to Y across all user-facing text.","issues":[{"severity":"warning","message":"Missing JSDoc block on new private method.","file":"src/service.ts","line":42,"suggestion":"Add a minimal JSDoc block."},{"severity":"info","message":"Unused import spans multiple lines.","file":"src/utils.ts","line":10,"endLine":14},{"severity":"info","message":"Log message change loses diagnostic value."}],"traceProvenance":"evidence-based","callStack":[{"frame":"Service.method(params)","children":[{"frame":"Helper.transform(input)","children":[]}]}],"stateTransition":{"from":"entry-frame","to":"exit-frame","steps":[{"frame":"Service.method(params)","captured":{"dep":"Dep { ... }"},"changes":{"dep":{"before":"old","after":"new"}},"children":[]}]},"suggestions":["Extract predicate into a named helper for readability."],"approved":true}
-
-    Prefer an absolute line number. Degrade to a line range (line + endLine) when the issue spans multiple lines. Omit line and endLine entirely when the issue cannot be pinned to specific lines.
-    When an optional field has no value, omit it from the JSON entirely. Do not use null.
-
-    ${JSON_OUTPUT_RULES}`;
-
-/**
- * Build the user-facing code review prompt.
- * @param diff Git diff text to review
- * @param guidelines Ordered review guideline strings
- * @param skillNames Optional skill IDs to include as Skill-tool invocation hints in the prompt
- * @returns Full review prompt string
- */
 const formatReviewGuidelines = (guidelines: string[]): string =>
   guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
-
-const formatReviewSkillSection = (skillNames?: string[]): string => {
-  if (!skillNames?.length) return '';
-  const items = skillNames.map(s => '- Skill(\'' + s + '\')').join('\n');
-  return '\nSkill-specific instructions:\nBefore starting review, invoke each of the following skills using the Skill tool:\n'
-    + items + '\nFollow each skill\'s instructions fully before proceeding.\n';
-};
-
-const reviewInstructions = `    Provide a code review with:
-    1. A brief summary of the changes
-    2. Any issues found (errors, warnings, or info)
-    3. A trace provenance label: evidence-based, best-effort, or unavailable
-    4. A nested tree-like call stack that walks the changed code path, starting from concrete functions, handlers, or methods in the diff
-    5. A frame-aligned state transition tree that captures variable changes between the frames in the call stack, not the reviewer's analysis flow
-    6. A suggestion for each issue when remediation is clear — each suggestion must recommend the smallest effective fix (the minimum change that resolves the issue without introducing unnecessary scope). Write suggestions in plain, human-friendly language: be concise, use everyday phrasing, and avoid jargon-heavy or robotic sentences.
-    7. Optional trailing suggestions for general follow-up work that is not tied to a single issue — each must also prefer the smallest effective fix and use the same concise, human-friendly tone
-    8. Whether the code is approved
-`;
-
-const buildSonarSection = (sonarOutput?: string): string => {
-  if (!sonarOutput) return '';
-  return '\nStatic Analysis (SonarScanner) Output:\n```\n' + sonarOutput + '\n```\n'
-    + 'Consider the above static analysis findings as additional context when reviewing. '
-    + 'They do not independently determine approval.\n';
-};
 
 const buildReviewPrompt = (diff: string, guidelines: string[], skillNames?: string[], sonarOutput?: string): string => {
   const codeSection = '\nCode Changes:\n```\n' + diff + '\n```\n';
   const sonarSection = buildSonarSection(sonarOutput);
-  const skillSection = formatReviewSkillSection(skillNames);
+  const skillSection = buildReviewSkillSection(skillNames);
   return [
     codeSection,
     ...(sonarSection ? [sonarSection] : []),
-    '    Review Guidelines:\n' + formatReviewGuidelines(guidelines) + '\n',
+    'Review Guidelines:\n' + formatReviewGuidelines(guidelines) + '\n',
     reviewInstructions,
     ...(skillSection ? [skillSection] : []),
-    reviewTraceRules,
+    reviewTraceGuidance,
     '\n',
     reviewOutputSchema,
   ].join('\n');

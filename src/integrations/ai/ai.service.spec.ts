@@ -332,35 +332,35 @@ describe('AiService', () => {
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'If you need to prove an expected failure, wrap it in a shell assertion that exits 0 when the expected failure occurs.'
+            'Each command must target the specific behavior this plan introduces'
           ),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Verification commands MUST be shell-safe by construction. For inline `node -e`, prefer'
+            'Verification commands must be shell-safe'
           ),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Each verification command MUST target the specific behavior introduced by the step it validates'
+            'Cross-check CLI flag names against the installed framework version'
           ),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'When a step says "remove line X inside block Y", state whether the'
+            'Surface hidden gaps'
           ),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Generated-doc workflows (e.g., auto-generated README sections, API docs from'
+            'Prefer re-running generators over manually patching'
           ),
         })
       );
@@ -388,13 +388,13 @@ describe('AiService', () => {
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('A step that says only "rename X" without the target'),
+          prompt: expect.stringContaining('Be explicit about before and after'),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'When a step introduces an interface field typed with `| null` or `.nullable()`,'
+            'Trace impact across the codebase'
           ),
         })
       );
@@ -911,37 +911,30 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('walks the changed code path'),
+          prompt: expect.stringContaining('walking the changed code path'),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('Do not return review-process steps such as "diff loaded"'),
+          prompt: expect.stringContaining('not review-process steps like "analyzing"'),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('Evidence-based traces must mention concrete identifiers from the diff.'),
+          prompt: expect.stringContaining('concrete identifiers (Class.method('),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Use concrete code identifiers as callStack node labels, such as Class.method(...), functionName(...), or Client.method(...).'
+            'Nest callStack nodes by invocation'
           ),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Nest child callStack nodes under the parent frame that directly invokes or depends on them.'
-          ),
-        })
-      );
-      expect(adapter.execute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prompt: expect.stringContaining(
-            'Use `captured` for the variables or objects observed at a frame, and `changes` for the values that changed between the current frame and the previous one.'
+            '`captured` for observed variables and `changes` for values that changed'
           ),
         })
       );
@@ -1275,7 +1268,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('A suggestion for each issue when remediation is clear'),
+          prompt: expect.stringContaining('A suggestion for each issue'),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(

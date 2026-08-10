@@ -251,20 +251,20 @@ describe('StageAgentService', () => {
 
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: expect.stringContaining('A step that says only "rename X" without the target'),
+        prompt: expect.stringContaining('Be explicit about before and after'),
       })
     );
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: expect.stringContaining(
-          'Verification commands MUST be shell-safe by construction. For inline `node -e`, prefer'
+          'Verification commands must be shell-safe'
         ),
       })
     );
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: expect.stringContaining(
-          'When a step introduces an interface field typed with `| null` or `.nullable()`,'
+          'Trace impact across the codebase'
         ),
       })
     );
@@ -280,47 +280,22 @@ describe('StageAgentService', () => {
     );
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: expect.stringContaining('Generated-doc workflows (e.g., auto-generated README sections, API docs from'),
+        prompt: expect.stringContaining('Prefer re-running generators over manually patching'),
       })
     );
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: expect.stringContaining('Mock isolation: always prescribe'),
+        prompt: expect.stringContaining('Mock setup must be concrete and complete'),
       })
     );
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: expect.stringContaining('testing-module'),
+        prompt: expect.stringContaining('Cross-check consistency'),
       })
     );
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: expect.stringContaining('process.exit'),
-      })
-    );
-    expect(mockRunStagePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.stringContaining('help/doc text drift'),
-      })
-    );
-    expect(mockRunStagePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.stringContaining('verification of both working-tree and staged/index state'),
-      })
-    );
-    expect(mockRunStagePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.stringContaining('explicitly mark it as incomplete with a reason'),
-      })
-    );
-    expect(mockRunStagePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.stringContaining('strongest viable positive assertion'),
-      })
-    );
-    expect(mockRunStagePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.stringContaining('Silent error swallowing without coverage is a latent bug'),
+        prompt: expect.stringContaining('Surface hidden gaps'),
       })
     );
   });
@@ -980,7 +955,7 @@ describe('StageAgentService', () => {
 
     const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
 
-    expect(prompt).toContain('"approved":true}\n\n    Prefer an absolute line number.');
+    expect(prompt).toContain('"approved":true}\n\nPrefer an absolute line number.');
     expect(prompt).not.toContain('"approved":true}\nIMPORTANT: Minify the JSON');
   });
 
