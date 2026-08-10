@@ -113,13 +113,6 @@ export const buildReviewSkillSection = (skillNames?: string[]): string => {
     + '\nFollow each skill\'s instructions fully before proceeding.\n';
 };
 
-export const buildSonarSection = (sonarOutput?: string): string => {
-  if (!sonarOutput) return '';
-  return '\nStatic Analysis (SonarScanner) Output:\n```\n' + sonarOutput + '\n```\n'
-    + 'Consider the above static analysis findings as additional context when reviewing. '
-    + 'They do not independently determine approval.\n';
-};
-
 export const deriveModelSource = (provider: string, model: string): string => {
   const prefixMap: Record<string, string> = { anthropic: 'claude-', deepseek: 'deepseek-', google: 'gemini-', openai: 'gpt-' };
   const prefix = prefixMap[provider] ?? '';

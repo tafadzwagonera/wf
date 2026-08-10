@@ -32,7 +32,8 @@ import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
-import { hasSonarProjectProperties, runSonarScan } from '../review/sonar-scanner';
+import { runSonarScanForReview } from '../review/sonar-scanner';
+import { shouldForkReviewSession } from './issue.command';
 
 type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 
@@ -50,6 +51,9 @@ interface IssueReviewOptions {
   silent?: boolean;
   sessionId?: string;
   skipSonar?: boolean;
+  estimatedComplexity?: string;
+  passCount?: number;
+  resumeSessionId?: string;
 }
 
 interface ReviewTarget {
@@ -575,13 +579,13 @@ export class IssueReviewCommand extends CommandRunner {
     const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
     for (const target of targets) {
       try {
-        const sonarOutput = await this.resolveSonarOutputForTarget(target, options, onProgress);
+        await this.resolveSonarOutputForTarget(target, options, onProgress);
         const { review } = await this.reviewStageService.reviewDiff(target.diff, {
           context: target.context, extraCriteria: extraCriteria ?? undefined,
           replaceCriteria: Boolean(options?.replaceCriteria),
-          repoDir: target.repoDir, resumeProviderSessionId: options?.sessionId, onProgress, sonarOutput });
+          repoDir: target.repoDir, resumeProviderSessionId: options?.sessionId, onProgress });
         reviewed.push({ ...target, review });
-        if (!options?.silent) this.displayReview(review, target.title, sonarOutput);
+        if (!options?.silent) this.displayReview(review, target.title);
         if (options?.comment) await this.postReviewComment(target, review);
       } catch (error) {
         this.handleReviewParseError(error, options);
@@ -592,22 +596,13 @@ export class IssueReviewCommand extends CommandRunner {
 
   private async resolveSonarOutputForTarget(
     target: ReviewTarget, options?: IssueReviewOptions, onProgress?: (line: string) => void
-  ): Promise<string | undefined> {
-    if (options?.skipSonar) return undefined;
-    if (this.configService.get<boolean>('stages.review.sonar') === false) return undefined;
-    if (!target.repoDir) {
-      onProgress?.('SonarScanner skipped: no repo directory');
-      return undefined;
-    }
-    if (!hasSonarProjectProperties(target.repoDir)) {
-      onProgress?.('SonarScanner skipped: no sonar-project.properties found');
-      return undefined;
-    }
-    const scanResult = await runSonarScan({ repoDir: target.repoDir, onProgress });
-    if (scanResult.exitCode !== 0) {
-      onProgress?.('SonarScanner exited with code ' + scanResult.exitCode + ' — output captured for AI review');
-    }
-    return (scanResult.stdout + '\n' + scanResult.stderr).trim() || undefined;
+  ): Promise<void> {
+    if (options?.skipSonar) return;
+    if (this.configService.get<boolean>('stages.review.sonar') === false) return;
+    const skipForFork = shouldForkReviewSession(
+      options?.estimatedComplexity, options?.passCount, options?.resumeSessionId
+    );
+    await runSonarScanForReview({ repoDir: target.repoDir, onProgress, skipForFork });
   }
 
   private handleReviewParseError(error: unknown, options?: IssueReviewOptions): void {
@@ -1404,9 +1399,9 @@ export class IssueReviewCommand extends CommandRunner {
    * @param review The AI review result
    * @param heading Optional heading to print before the review
    */
-  private displayReview(review: CodeReview, heading?: string, sonarOutput?: string): void {
+  private displayReview(review: CodeReview, heading?: string): void {
     if (heading) console.log(chalk.bold.cyan('\n' + heading + '\n'));
-    this.reviewPresenter.displayReview(review, sonarOutput);
+    this.reviewPresenter.displayReview(review);
   }
 
   /**

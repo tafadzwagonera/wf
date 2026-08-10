@@ -25,6 +25,18 @@ export function hasSonarProjectProperties(repoDir: string): boolean {
   return fs.existsSync(path.join(repoDir, 'sonar-project.properties'));
 }
 
+/**
+ * Returns true when `sonar-project.properties` contains a `sonar.host.url` line,
+ * indicating a remote SonarQube/SonarCloud instance that cannot be analyzed locally.
+ * @param repoDir Absolute path to the repository root
+ */
+export function hasSonarHostUrl(repoDir: string): boolean {
+  const propsPath = path.join(repoDir, 'sonar-project.properties');
+  if (!fs.existsSync(propsPath)) return false;
+  const content = fs.readFileSync(propsPath, 'utf-8');
+  return content.split('\n').some(line => line.startsWith('sonar.host.url='));
+}
+
 type ExecError = Error & { code?: number; stdout?: string; stderr?: string };
 
 const buildExecErrorResult = (err: ExecError, fallbackOut: string, fallbackErr: string): SonarScanResult => ({
@@ -59,12 +71,42 @@ export function buildSkippedSonarResult(reason: string): SonarScanResult {
   return { stdout: '', stderr: '', exitCode: 0, skipped: true, skipReason: reason };
 }
 
+interface SonarScanForReviewOptions {
+  repoDir?: string;
+  onProgress?: (line: string) => void;
+  skipForFork?: boolean;
+}
+
 /**
- * Returns true when the review's complexity or pass count warrants waiving the SonarScanner scan.
- * Mirrors the `shouldForkReviewSession` guard logic (strict `>`, not `>=`).
- * @param estimatedComplexity Plan complexity estimate (e.g. 'high')
- * @param passCount Number of verification passes completed by the implementer
+ * Evaluates sonar skip guards and runs the scan if applicable.
+ * Logs scan output and skip reasons to `onProgress`.
  */
-export function shouldWaiveSonarScan(estimatedComplexity?: string, passCount?: number): boolean {
-  return estimatedComplexity === 'high' || (passCount !== undefined && passCount > 5);
+export async function runSonarScanForReview(options: SonarScanForReviewOptions): Promise<void> {
+  const { repoDir, onProgress, skipForFork } = options;
+  if (!repoDir) {
+    onProgress?.('SonarScanner skipped: no repo directory');
+    return;
+  }
+  const skipReason = resolveSonarSkipReason(repoDir, skipForFork);
+  if (skipReason) {
+    onProgress?.(skipReason);
+    return;
+  }
+  await runAndLogSonarScan(repoDir, onProgress);
+}
+
+function resolveSonarSkipReason(repoDir: string, skipForFork?: boolean): string | undefined {
+  if (!hasSonarProjectProperties(repoDir)) return 'SonarScanner skipped: no sonar-project.properties found';
+  if (hasSonarHostUrl(repoDir)) {
+    return 'SonarScanner skipped: sonar.host.url is configured; remote analysis not supported locally';
+  }
+  if (skipForFork) return 'SonarScanner skipped: review session forked';
+  return undefined;
+}
+
+async function runAndLogSonarScan(repoDir: string, onProgress?: (line: string) => void): Promise<void> {
+  const scanResult = await runSonarScan({ repoDir, onProgress });
+  const combinedOutput = (scanResult.stdout + '\n' + scanResult.stderr).trim();
+  if (combinedOutput) onProgress?.(combinedOutput);
+  if (scanResult.exitCode !== 0) onProgress?.('SonarScanner exited with code ' + scanResult.exitCode);
 }

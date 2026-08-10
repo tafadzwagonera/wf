@@ -53,7 +53,9 @@ jest.mock('../agents/utils', () => {
 
 jest.mock('../review/sonar-scanner', () => ({
   hasSonarProjectProperties: jest.fn(() => false),
+  hasSonarHostUrl: jest.fn(() => false),
   runSonarScan: jest.fn(),
+  runSonarScanForReview: jest.fn().mockResolvedValue(undefined),
 }));
 
 import { Test } from '@nestjs/testing';

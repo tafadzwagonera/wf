@@ -8,6 +8,7 @@ import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
+import { runSonarScanForReview } from '../review/sonar-scanner';
 
 @Injectable()
 export class ReviewerAgent {
@@ -83,13 +84,15 @@ export class ReviewerAgent {
   }
 
   private async stageAndReview(
-    ticket: TicketArtifact,
-    options: ReviewerOptions,
-    onProgress?: (line: string) => void
+    ticket: TicketArtifact, options: ReviewerOptions, onProgress?: (line: string) => void
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     await this.gitService.stageAll(options.repoDir);
+    if (this.configService.get<boolean>('stages.review.sonar') !== false) {
+      await runSonarScanForReview({
+        repoDir: options.repoDir, onProgress, skipForFork: options.forkSession,
+      });
+    }
     const diff = await this.gitService.getDiff(true, options.repoDir);
-
     return this.reviewStageService.reviewDiff(diff, {
       context: `ticket ${ticket.ticketKey}`,
       repoDir: options.repoDir,

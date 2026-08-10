@@ -5,6 +5,9 @@ import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { GitService } from '../integrations/git/git.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import * as fs from 'fs';
+import * as sonarScanner from '../review/sonar-scanner';
+
+jest.mock('../review/sonar-scanner');
 
 describe('ReviewerAgent', () => {
   const createMockPresenter = () => ({
@@ -301,6 +304,107 @@ describe('ReviewerAgent', () => {
 
     expect(mockOnProgress).toHaveBeenCalledWith('Synthesizing review...');
     expect(presenter.progress).not.toHaveBeenCalledWith('Synthesizing review...');
+  });
+
+  it('calls runSonarScanForReview before reviewDiff', async () => {
+    type SonarFn = typeof sonarScanner.runSonarScanForReview;
+    const mockRunSonar = sonarScanner.runSonarScanForReview as jest.MockedFunction<SonarFn>;
+
+    const callOrder: string[] = [];
+    mockRunSonar.mockImplementation(async () => {
+      callOrder.push('sonar');
+    });
+    const mockReviewDiff = jest.fn().mockImplementation(async () => {
+      callOrder.push('review');
+      return { review: { summary: 'ok', issues: [], suggestions: [], approved: true } };
+    });
+
+    const module = await Test.createTestingModule({
+      providers: [
+        ReviewerAgent,
+        { provide: CliPresenter, useValue: createMockPresenter() },
+        {
+          provide: GitService,
+          useValue: {
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            stageAll: jest.fn().mockResolvedValue(undefined),
+            getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+          },
+        },
+        {
+          provide: ReviewStageService,
+          useValue: {
+            reviewDiff: mockReviewDiff,
+            buildReviewArtifact: jest.fn().mockReturnValue({
+              review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+              path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+              approved: true,
+            }),
+          },
+        },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
+      ],
+    }).compile();
+
+    const agent = module.get(ReviewerAgent);
+    await agent.execute(
+      { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+      { repoDir: '/tmp/repo' }
+    );
+
+    expect(mockRunSonar).toHaveBeenCalledWith(expect.objectContaining({ repoDir: '/tmp/repo' }));
+    expect(callOrder).toEqual(['sonar', 'review']);
+  });
+
+  it('passes fork context to runSonarScanForReview', async () => {
+    type SonarFn = typeof sonarScanner.runSonarScanForReview;
+    const mockRunSonar = sonarScanner.runSonarScanForReview as jest.MockedFunction<SonarFn>;
+    mockRunSonar.mockResolvedValue(undefined);
+
+    const module = await Test.createTestingModule({
+      providers: [
+        ReviewerAgent,
+        { provide: CliPresenter, useValue: createMockPresenter() },
+        {
+          provide: GitService,
+          useValue: {
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            stageAll: jest.fn().mockResolvedValue(undefined),
+            getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+          },
+        },
+        {
+          provide: ReviewStageService,
+          useValue: {
+            reviewDiff: jest.fn().mockResolvedValue({
+              review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+            }),
+            buildReviewArtifact: jest.fn().mockReturnValue({
+              review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+              path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+              approved: true,
+            }),
+          },
+        },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
+      ],
+    }).compile();
+
+    const agent = module.get(ReviewerAgent);
+    await agent.execute(
+      { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+      {
+        repoDir: '/tmp/repo',
+        forkSession: true,
+        estimatedComplexity: 'high',
+        passCount: 6,
+        resumeProviderSessionId: 'session-1',
+      }
+    );
+
+    expect(mockRunSonar).toHaveBeenCalledWith(
+      expect.objectContaining({ repoDir: '/tmp/repo', skipForFork: true })
+    );
   });
 
   it('suppresses progress when silent is true and no onProgress is provided', async () => {

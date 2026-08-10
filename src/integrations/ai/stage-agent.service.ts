@@ -20,7 +20,6 @@ import {
   buildPlanTestConventionsBlock,
   buildPlanVerificationBlock,
   buildReviewSkillSection,
-  buildSonarSection,
   deriveModelSource,
   planFileListingInstructions,
   planMinimalChangePrinciple,
@@ -396,10 +395,9 @@ const buildPlanPromptBody = (opts: PlanPromptBodyOpts): string => [
 ].join('\n');
 
 const buildStageReviewPrompt = (
-  diff: string, guidelines: string[], skillNames?: string[], sonarOutput?: string
+  diff: string, guidelines: string[], skillNames?: string[]
 ): string => [
   `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
-  ...(sonarOutput ? [buildSonarSection(sonarOutput)] : []),
   `\nReview Guidelines:\n${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}`,
   `\n${reviewInstructions}`,
   ...(skillNames?.length ? [buildReviewSkillSection(skillNames)] : []),
@@ -1004,10 +1002,10 @@ export class StageAgentService {
     priorStageSummary?: string,
     resumeProviderSessionId?: string,
     onProgress?: StageProgressCallback,
-    opts?: { skillNames?: string[]; forkSession?: boolean; sonarOutput?: string }
+    opts?: { skillNames?: string[]; forkSession?: boolean }
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const { content: response, sessionId } = await this.runStagePrompt({
-      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, opts?.skillNames, opts?.sonarOutput), systemPrompt: reviewSystemPrompt,
+      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, opts?.skillNames), systemPrompt: reviewSystemPrompt,
       repoDir, priorStageSummary, resumeProviderSessionId, onProgress, forkSession: opts?.forkSession,
     });
     return this.parseStageReviewResponse(response, sessionId, repoDir, reviewSystemPrompt, priorStageSummary);

@@ -45,7 +45,6 @@ interface ReviewDiffOptions {
   forkSession?: boolean;
   onProgress?: StageProgressCallback;
   skillNames?: string[];
-  sonarOutput?: string;
 }
 
 @Injectable()
@@ -119,7 +118,7 @@ export class ReviewStageService {
     options: ReviewDiffOptions
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     if (!this.stageAgentService.isEnabledForStage('review')) {
-      return { review: await this.aiService.reviewCode(diff, guidelines, options.onProgress, options.sonarOutput) };
+      return { review: await this.aiService.reviewCode(diff, guidelines, options.onProgress) };
     }
     const skillNames = await this.resolveReviewSkillNames();
     return this.reviewViaAgent(diff, guidelines, { ...options, skillNames });
@@ -131,7 +130,7 @@ export class ReviewStageService {
       const result = await this.stageAgentService.reviewCode(
         diff, guidelines, options.repoDir, options.priorStageSummary,
         options.resumeProviderSessionId, options.onProgress,
-        { skillNames: options.skillNames, forkSession: options.forkSession, sonarOutput: options.sonarOutput }
+        { skillNames: options.skillNames, forkSession: options.forkSession }
       );
       return { review: result.review, sessionId: result.sessionId };
     } catch (error) {
@@ -175,29 +174,28 @@ export class ReviewStageService {
     };
   }
 
-  persistReviewArtifact(artifact: ReviewArtifact, ticketKey: string, sonarOutput?: string): void {
+  persistReviewArtifact(artifact: ReviewArtifact, ticketKey: string): void {
     fs.mkdirSync(path.dirname(artifact.path), { recursive: true });
-    fs.writeFileSync(artifact.path, this.formatReviewMarkdown(ticketKey, artifact.review, sonarOutput));
+    fs.writeFileSync(artifact.path, this.formatReviewMarkdown(ticketKey, artifact.review));
   }
 
   createReviewArtifact(
-    ticket: TicketArtifact, review: CodeReview, sessionId?: string, sonarOutput?: string
+    ticket: TicketArtifact, review: CodeReview, sessionId?: string
   ): ReviewArtifact {
     const artifact = this.buildReviewArtifact(ticket, review, sessionId);
-    this.persistReviewArtifact(artifact, ticket.ticketKey, sonarOutput);
+    this.persistReviewArtifact(artifact, ticket.ticketKey);
     return artifact;
   }
 
-  private formatReviewMarkdown(ticketKey: string, review: CodeReview, sonarOutput?: string): string {
+  private formatReviewMarkdown(ticketKey: string, review: CodeReview): string {
     const presentation = buildCodeReviewPresentation(review);
-    const sections = this.collectReviewSections(review, presentation, sonarOutput);
+    const sections = this.collectReviewSections(review, presentation);
     return this.buildReviewMarkdownString(ticketKey, review, sections);
   }
 
   private collectReviewSections(
     review: CodeReview,
-    presentation: ReturnType<typeof buildCodeReviewPresentation>,
-    sonarOutput?: string
+    presentation: ReturnType<typeof buildCodeReviewPresentation>
   ): Record<string, string> {
     return {
       callStack: this.formatCallStackMarkdown(review.callStack),
@@ -205,7 +203,6 @@ export class ReviewStageService {
       provenance: this.formatTraceProvenance(review),
       issues: this.formatIssuesSection(presentation),
       suggestions: this.formatTrailingSuggestionsSection(presentation),
-      staticAnalysis: sonarOutput ? '```\n' + sonarOutput + '\n```' : '',
     };
   }
 
@@ -216,7 +213,6 @@ export class ReviewStageService {
   ): string {
     const parts = [
       `# Code Review: ${ticketKey}\n\n## Summary\n${review.summary}\n`,
-      ...(sections.staticAnalysis ? [`## Static Analysis (SonarScanner)\n${sections.staticAnalysis}\n`] : []),
       `## Issues\n${sections.issues}\n`,
       `## Call Stack\n${sections.provenance}\n${sections.callStack}\n`,
       `## State Transition\n${sections.provenance}\n${sections.stateTransition}\n${sections.suggestions}\n`,

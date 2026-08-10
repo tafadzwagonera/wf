@@ -41,7 +41,6 @@ import {
   buildPlanTestConventionsBlock,
   buildPlanVerificationBlock,
   buildReviewSkillSection,
-  buildSonarSection,
   deriveModelSource,
   planFileListingInstructions,
   planMinimalChangePrinciple,
@@ -711,13 +710,11 @@ Return your response as a JSON object matching the CodeReview interface.`;
 const formatReviewGuidelines = (guidelines: string[]): string =>
   guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
 
-const buildReviewPrompt = (diff: string, guidelines: string[], skillNames?: string[], sonarOutput?: string): string => {
+const buildReviewPrompt = (diff: string, guidelines: string[], skillNames?: string[]): string => {
   const codeSection = '\nCode Changes:\n```\n' + diff + '\n```\n';
-  const sonarSection = buildSonarSection(sonarOutput);
   const skillSection = buildReviewSkillSection(skillNames);
   return [
     codeSection,
-    ...(sonarSection ? [sonarSection] : []),
     'Review Guidelines:\n' + formatReviewGuidelines(guidelines) + '\n',
     reviewInstructions,
     ...(skillSection ? [skillSection] : []),
@@ -969,11 +966,11 @@ export class AiService {
   }
 
   async reviewCode(
-    diff: string, guidelines: string[], onProgress?: StageProgressCallback, sonarOutput?: string
+    diff: string, guidelines: string[], onProgress?: StageProgressCallback
   ): Promise<CodeReview> {
     onProgress?.('Synthesizing review...');
     const reviewMaxTokens = this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
-    const reviewPrompt = await this.buildReviewPromptFrom(diff, guidelines, sonarOutput);
+    const reviewPrompt = await this.buildReviewPromptFrom(diff, guidelines);
     const response = await retryOnUnusableResponse(
       () => this.executeReviewPrompt(reviewPrompt, reviewMaxTokens),
       requireReviewJsonContent,
@@ -983,10 +980,10 @@ export class AiService {
     return this.validateReviewJson(requireReviewResponseContent(response), diff, reviewMaxTokens);
   }
 
-  private async buildReviewPromptFrom(diff: string, guidelines: string[], sonarOutput?: string): Promise<string> {
+  private async buildReviewPromptFrom(diff: string, guidelines: string[]): Promise<string> {
     const reviewSkillIds = this.configService.get<string[]>('stages.review.skills') ?? [];
     const reviewSkillNames = await this.resolveReviewSkillNames(reviewSkillIds);
-    return buildReviewPrompt(diff, guidelines, reviewSkillNames.length ? reviewSkillNames : undefined, sonarOutput);
+    return buildReviewPrompt(diff, guidelines, reviewSkillNames.length ? reviewSkillNames : undefined);
   }
 
   /**

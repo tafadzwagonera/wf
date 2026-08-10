@@ -5,7 +5,8 @@ import {
   hasSonarProjectProperties,
   runSonarScan,
   buildSkippedSonarResult,
-  shouldWaiveSonarScan,
+  hasSonarHostUrl,
+  runSonarScanForReview,
 } from './sonar-scanner';
 
 jest.mock('node:fs');
@@ -97,20 +98,110 @@ describe('buildSkippedSonarResult', () => {
   });
 });
 
-describe('shouldWaiveSonarScan', () => {
-  it('returns true when estimatedComplexity is high', () => {
-    expect(shouldWaiveSonarScan('high', undefined)).toBe(true);
+describe('hasSonarHostUrl', () => {
+  it('returns true when sonar.host.url is present in properties file', () => {
+    mockExistsSync.mockReturnValue(true);
+    jest.spyOn(fs, 'readFileSync').mockReturnValue('sonar.projectKey=my-project\nsonar.host.url=https://sonarcloud.io\n');
+
+    expect(hasSonarHostUrl('/some/repo')).toBe(true);
   });
 
-  it('returns true when passCount is greater than 5', () => {
-    expect(shouldWaiveSonarScan(undefined, 6)).toBe(true);
+  it('returns false when sonar.host.url is absent from properties file', () => {
+    mockExistsSync.mockReturnValue(true);
+    jest.spyOn(fs, 'readFileSync').mockReturnValue('sonar.projectKey=my-project\nsonar.sources=src\n');
+
+    expect(hasSonarHostUrl('/some/repo')).toBe(false);
   });
 
-  it('returns false when passCount is exactly 5 (strict greater-than)', () => {
-    expect(shouldWaiveSonarScan(undefined, 5)).toBe(false);
+  it('returns false when sonar-project.properties does not exist', () => {
+    mockExistsSync.mockReturnValue(false);
+
+    expect(hasSonarHostUrl('/some/repo')).toBe(false);
+  });
+});
+
+describe('runSonarScanForReview', () => {
+  beforeEach(() => {
+    mockExec.mockClear();
+    mockExistsSync.mockReset();
   });
 
-  it('returns false when both estimatedComplexity and passCount are undefined', () => {
-    expect(shouldWaiveSonarScan(undefined, undefined)).toBe(false);
+  it('skips when repoDir is undefined', async () => {
+    const onProgress = jest.fn();
+
+    await runSonarScanForReview({ onProgress });
+
+    expect(onProgress).toHaveBeenCalledWith('SonarScanner skipped: no repo directory');
+    expect(mockExec).not.toHaveBeenCalled();
+  });
+
+  it('skips when sonar-project.properties does not exist', async () => {
+    mockExistsSync.mockReturnValue(false);
+    const onProgress = jest.fn();
+
+    await runSonarScanForReview({ repoDir: '/some/repo', onProgress });
+
+    expect(onProgress).toHaveBeenCalledWith('SonarScanner skipped: no sonar-project.properties found');
+    expect(mockExec).not.toHaveBeenCalled();
+  });
+
+  it('skips when sonar.host.url is configured', async () => {
+    mockExistsSync.mockReturnValue(true);
+    jest.spyOn(fs, 'readFileSync').mockReturnValue('sonar.host.url=https://sonarcloud.io\n');
+    const onProgress = jest.fn();
+
+    await runSonarScanForReview({ repoDir: '/some/repo', onProgress });
+
+    expect(onProgress).toHaveBeenCalledWith(
+      'SonarScanner skipped: sonar.host.url is configured; remote analysis not supported locally'
+    );
+    expect(mockExec).not.toHaveBeenCalled();
+  });
+
+  it('skips when skipForFork is true', async () => {
+    mockExistsSync.mockImplementation(p =>
+      String(p).endsWith('sonar-project.properties')
+    );
+    jest.spyOn(fs, 'readFileSync').mockReturnValue('sonar.projectKey=wf\n');
+    const onProgress = jest.fn();
+
+    await runSonarScanForReview({ repoDir: '/some/repo', onProgress, skipForFork: true });
+
+    expect(onProgress).toHaveBeenCalledWith('SonarScanner skipped: review session forked');
+    expect(mockExec).not.toHaveBeenCalled();
+  });
+
+  it('runs scan and logs output when no guard fires', async () => {
+    mockExistsSync.mockImplementation(p =>
+      String(p).endsWith('sonar-project.properties')
+    );
+    jest.spyOn(fs, 'readFileSync').mockReturnValue('sonar.projectKey=wf\n');
+    mockExec.mockImplementation((_cmd, _opts, callback) => {
+      (callback as (e: Error | null, stdout: string, stderr: string) => void)(null, 'INFO: done', '');
+      return {} as childProcess.ChildProcess;
+    });
+    const onProgress = jest.fn();
+
+    await runSonarScanForReview({ repoDir: '/some/repo', onProgress });
+
+    expect(mockExec).toHaveBeenCalled();
+    expect(onProgress).toHaveBeenCalledWith('INFO: done');
+  });
+
+  it('logs exit code when scan fails', async () => {
+    mockExistsSync.mockImplementation(p =>
+      String(p).endsWith('sonar-project.properties')
+    );
+    jest.spyOn(fs, 'readFileSync').mockReturnValue('sonar.projectKey=wf\n');
+    mockExec.mockImplementation((_cmd, _opts, callback) => {
+      const err = Object.assign(new Error('fail'), { code: 1, stdout: '', stderr: 'error' });
+      (callback as (e: Error | null, stdout: string, stderr: string) => void)(err, '', 'error');
+      return {} as childProcess.ChildProcess;
+    });
+    const onProgress = jest.fn();
+
+    await runSonarScanForReview({ repoDir: '/some/repo', onProgress });
+
+    expect(onProgress).toHaveBeenCalledWith('SonarScanner exited with code 1');
   });
 });
