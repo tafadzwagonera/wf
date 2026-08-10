@@ -332,21 +332,21 @@ describe('AiService', () => {
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Each command must target the specific behavior this plan introduces'
+            'verify the specific behavior this plan introduces'
           ),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Verification commands must be shell-safe'
+            'shell-safe'
           ),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Cross-check CLI flag names against the installed framework version'
+            'Cross-check CLI flags against the installed framework version'
           ),
         })
       );
@@ -911,12 +911,12 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('walking the changed code path'),
+          prompt: expect.stringContaining('concrete call stack using real identifiers'),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('not review-process steps like "analyzing"'),
+          prompt: expect.stringContaining('reflect the actual call path, not the review process'),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
@@ -927,14 +927,14 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'Nest callStack nodes by invocation'
+            'Structure callStack nodes by real invocation depth'
           ),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            '`captured` for observed variables and `changes` for values that changed'
+            'Distinguish observed state (captured) from mutations (changes)'
           ),
         })
       );
@@ -1268,7 +1268,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('A suggestion for each issue'),
+          prompt: expect.stringContaining('suggest the smallest effective fix'),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(

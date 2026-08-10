@@ -1243,9 +1243,9 @@ export class IssueGenerateCommand extends CommandRunner {
 
   private buildOversizedSourcePrompt(source: SourceContent): string {
     const raw = typeof source.content === 'string' ? source.content : JSON.stringify(source.content);
-    return `Summarise the following source into concise bullet points that capture every key fact, `
-      + `decision, root cause, timeline entry, and action item. Do not omit technical details `
-      + `(error messages, config values, IDs, commands). `
+    return `Summarise the following source into concise bullet points. `
+      + `Preserve technical precision — error messages, config values, identifiers, and commands `
+      + `matter as much as narrative. Cover facts, decisions, root causes, timeline, and actions. `
       + `Return ONLY a Markdown bullet list (- item).\n\n`
       + `### Source: ${source.source} (${source.type})\n`
       + `\`\`\`\n${raw}\n\`\`\``;

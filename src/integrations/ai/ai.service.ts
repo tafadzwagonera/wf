@@ -583,9 +583,6 @@ const planStepInstructions = `Create a detailed resolution plan with:
 ${planStepPrinciples}
 ${planFileListingInstructions}`;
 
-// planVerification*, planMinimalChange*, planTestConventions*, buildVerificationBlock
-// replaced by imports from prompt-fragments
-
 /**
  * Build the JSON output schema example for the plan prompt.
  * @param action Plan action type
@@ -620,8 +617,6 @@ const assemblePlanPrompt = (
   skillSection: string
 ): string =>
   [preamble, discoveryBlock, planStepInstructions, skillSection, '\n', ...testSections, planMinimalChangePrinciple, '\n', verificationBlock, '\n', outputSchema].join('');
-
-// buildPlanSkillSection imported from prompt-fragments
 
 const extractSkillNames = (context: Record<string, unknown> | undefined): string[] | undefined => {
   const skillNames = Array.isArray(context?.skillNames) ? (context.skillNames as string[]) : [];
@@ -682,8 +677,6 @@ const normalizePlanSteps = (rawSteps: unknown[]): string[] =>
     return String(step);
   });
 
-// deriveModelSource imported from prompt-fragments
-
 /**
  * Throw when a response was truncated by the output token limit.
  * @param response AI response to inspect
@@ -703,20 +696,17 @@ const throwIfTruncated = (response: AIResponse, stage: string): void => {
   );
 };
 
-const planSystemPrompt = `Create a structured resolution plan with clear, actionable steps based on the issue described below.
+const planSystemPrompt = `You are a software architect producing resolution plans. Prioritize correctness and minimal blast radius.
 Return your response as a JSON object matching the ResolutionPlan interface.`;
 
-const findingsSystemPrompt = `Analyse the investigation plan and any available ticket context to produce structured, actionable findings.
+const findingsSystemPrompt = `You are a software investigator. Distinguish root causes from symptoms, and ground every finding in concrete evidence.
 Return your response as a JSON object.`;
 
-const commitSystemPrompt = `Generate a clear, concise git commit message from the diff and commit history provided.`;
+const commitSystemPrompt = `You are a commit message author. Capture intent over mechanics — the reader should understand "why" without opening the diff.`;
 
-const reviewSystemPrompt = `Review the code changes for quality, correctness, and security.
-Ignore changes to JSON or markdown files under \`.wf/\` or tracker artefact directories (jira/, bitbucket/) — review only application source code.
+const reviewSystemPrompt = `You are a code reviewer. Assess quality, correctness, and security using your judgment — flag what matters, skip noise.
+Ignore JSON or markdown files under \`.wf/\` or tracker artefact directories (jira/, bitbucket/) — review only application source code.
 Return your response as a JSON object matching the CodeReview interface.`;
-
-// reviewTraceGuidance, reviewInstructions, reviewOutputSchema, buildReviewSkillSection,
-// buildSonarSection imported from prompt-fragments
 
 const formatReviewGuidelines = (guidelines: string[]): string =>
   guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
@@ -823,6 +813,22 @@ const retryOnUnusableResponse = async (
   return response;
 };
 
+const findingsInvestigationPrinciples = `Investigation principles:
+- Follow the plan's investigation steps, but surface findings you discover beyond them
+- Distinguish root causes from symptoms — recommendations should address causes
+- Be specific: reference files, config keys, error messages, and identifiers`;
+
+const findingsOutputSchema = `Return ONLY a valid JSON object:
+{
+  "action": "investigate",
+  "summary": "Brief summary of what was investigated and the key findings",
+  "findings": ["finding 1", "finding 2", ...],
+  "recommendations": ["recommendation 1", ...],
+  "conclusion": "Overall conclusion and suggested next steps"
+}
+
+${JSON_OUTPUT_RULES}`;
+
 /**
  * Build the findings prompt from an investigation plan.
  * @param plan The investigation plan to summarize
@@ -833,18 +839,9 @@ const buildFindingsPrompt = (plan: ResolutionPlan, ticketContent?: string): stri
 Investigation Plan:
 ${JSON.stringify(plan, null, 2)}
 ${ticketContent ? `\nTicket Context:\n${ticketContent}\n` : ''}
-Perform the investigation described in the plan and generate structured findings and recommendations.
+${findingsInvestigationPrinciples}
 
-Return ONLY a valid JSON object:
-{
-  "action": "investigate",
-  "summary": "Brief summary of what was investigated and the key findings",
-  "findings": ["finding 1", "finding 2", ...],
-  "recommendations": ["recommendation 1", ...],
-  "conclusion": "Overall conclusion and suggested next steps"
-}
-
-${JSON_OUTPUT_RULES}`;
+${findingsOutputSchema}`;
 
 /**
  * Resolve the commit format instructions string for the given format.
@@ -877,7 +874,7 @@ const buildCommitPrompt = (
   const ticketContextSection = ticketContext ? `Ticket context: ${ticketContext}\n\n` : '';
   const diffSection = `${diff.substring(0, 3000)} ${diff.length > 3000 ? '...(truncated)' : ''}`;
   const styleRule = detectedFormat === 'conventional' ? 'Follows conventional commits format' : 'Follows the existing commit message style';
-  return `\n${ticketContextSection}Git Diff:\n\`\`\`\n${diffSection}\n\`\`\`\n\nRecent Commit History:\n${commitHistory.slice(0, 5).join('\n')}\n\n${formatInstructions}\n\nGenerate a commit message that:\n1. Reflects the ticket's intent, not just the code change pattern\n2. Follows the repository's commit message style\n3. Is concise but informative\n4. ${styleRule}\n\nDo NOT include ticket IDs, issue keys, or project codes in your message (e.g. WBP-1234, TAD-575). The ticket prefix is added automatically.\nReturn ONLY the commit message description, nothing else.`;
+  return `\n${ticketContextSection}Git Diff:\n\`\`\`\n${diffSection}\n\`\`\`\n\nRecent Commit History:\n${commitHistory.slice(0, 5).join('\n')}\n\n${formatInstructions}\n\nCommit message principles:\n- Capture the ticket's intent, not just the mechanical code change\n- Match the repository's existing commit style and ${styleRule.toLowerCase()}\n- Be concise but informative — a reader should understand the "why" without opening the diff\n- Omit ticket IDs or project codes (e.g. WBP-1234) — the prefix is added automatically\n\nReturn ONLY the commit message description, nothing else.`;
 };
 
 /**

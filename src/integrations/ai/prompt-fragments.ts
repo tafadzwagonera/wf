@@ -36,44 +36,58 @@ export const planFileListingInstructions = `3. Estimated complexity (low/medium/
 export const planMinimalChangePrinciple = `Minimal-change principle: propose the smallest effective change scoped to the ticket. Limit verification to files edited by this plan. Prefer changes that are replaceable or deletable without cascading effects.`;
 
 /**
- * Build verification instructions, optionally including the Node shell-safety addendum.
+ * Judgment-oriented verification principles.
+ * Gen-5 models produce better verification steps when guided by intent
+ * rather than exhaustive constraint lists.
  */
 export const buildPlanVerificationBlock = (hasNodeInfra: boolean): string => {
   const shellSafety = hasNodeInfra
-    ? `\n   - Verification commands must be shell-safe. For inline \`node -e\`, prefer single-quoted JS strings or properly escaped backticks.`
+    ? `\n   - Keep inline \`node -e\` commands shell-safe (single-quoted JS or escaped backticks).`
     : '';
-  return `9. Task-specific verification only when needed:
-   - Use "verification.targeted" for focused checks required by this plan
-   - Use "verification.waivers" only to explicitly waive a repo-level baseline check
-   - Omit "verification" entirely when no targeted checks or waivers are needed
-   - Commands run from the repository root and must exit 0 on success
-   - Commands must be copy-paste-runnable: reference only scripts from "Available test infrastructure"
-   - Each command must target the specific behavior this plan introduces — not the whole test suite or unrelated output
-   - Cross-check CLI flag names against the installed framework version${shellSafety}`;
+  return `9. Verification principles — include only when the plan introduces testable behavior:
+   - Write commands that verify the specific behavior this plan introduces, not the entire test suite.
+     A good verification command is copy-paste-runnable from the repo root, exits 0 on success,
+     and references real scripts from "Available test infrastructure."
+   - Use "verification.targeted" for focused checks, "verification.waivers" to explicitly waive
+     a baseline check, or omit "verification" entirely when neither applies.
+   - Cross-check CLI flags against the installed framework version — stale flags cause false passes.${shellSafety}`;
 };
 
 export const buildPlanTestConventionsBlock = (hasTestInfra: boolean): string => {
   if (!hasTestInfra) return '';
-  return `When prescribing test changes, follow all test conventions detected above — mock cleanup, DI wiring, and the repo's existing isolation strategy. Mock setup must be concrete and complete, not conditional.`;
+  return `Test convention principle: match the repo's detected patterns for mock cleanup, DI wiring, and isolation. Keep mock setup concrete — conditional or partial mocks hide failures.`;
 };
 
 // ─── Review prompt fragments ─────────────────────────────────────────────────
 
-export const reviewInstructions = `Provide a code review with:
-1. A brief summary of the changes
-2. Any issues found (errors, warnings, or info)
-3. A trace provenance label: evidence-based, best-effort, or unavailable
-4. A nested tree-like call stack walking the changed code path from concrete functions in the diff
-5. A frame-aligned state transition tree capturing variable changes between frames
-6. A suggestion for each issue — recommend the smallest effective fix in plain, human-friendly language
-7. Optional trailing suggestions for general follow-up not tied to a single issue
-8. Whether the code is approved`;
+/**
+ * Judgment-oriented review instructions.
+ * Gen-5 models produce better reviews when guided by principles
+ * rather than exhaustive output checklists.
+ */
+export const reviewInstructions = `   Review principles — apply judgment to each area:
+1. Summarize the intent and scope of the changes
+2. Surface issues by severity (error, warning, info) — flag what matters, skip noise
+3. Assess trace confidence honestly: evidence-based when you can follow the path,
+   best-effort when partially visible, unavailable when opaque
+4. Walk the changed code path as a concrete call stack using real identifiers from the diff
+5. Capture variable state transitions between frames to show what moved
+6. For each issue, suggest the smallest effective fix in plain language
+7. Offer follow-up suggestions only when they add value beyond the immediate issues
+8. Approve when the changes are sound — reject only with clear justification`;
 
-export const reviewTraceGuidance = `Trace guidance:
-- Describe the changed code path using concrete identifiers (Class.method(...), functionName(...)), not review-process steps like "analyzing" or "issues found".
-- Nest callStack nodes by invocation; attach external effects (HTTP calls, DB queries) as leaf nodes.
-- For state transitions, use \`captured\` for observed variables and \`changes\` for values that changed between frames.
-- Set traceProvenance to "unavailable" with empty callStack/stateTransition when the path cannot be traced confidently.`;
+/**
+ * Judgment-oriented trace guidance, matching the planStepPrinciples style.
+ */
+export const reviewTraceGuidance = `   Trace principles — use judgment, not mechanical rules:
+   - Ground traces in concrete identifiers (Class.method(...), functionName(...));
+     reflect the actual call path, not the review process.
+   - Structure callStack nodes by real invocation depth; external effects (HTTP, DB)
+     belong as leaf nodes.
+   - Distinguish observed state (captured) from mutations (changes) so readers can
+     follow what was inspected versus what moved.
+   - Prefer honest provenance: label "unavailable" with empty structures rather than
+     fabricating a path you cannot trace confidently.`;
 
 export const reviewOutputSchema = `Return ONLY a valid JSON object. Reference:
 {"summary":"Rename display label from X to Y across all user-facing text.","issues":[{"severity":"warning","message":"Missing JSDoc block on new private method.","file":"src/service.ts","line":42,"suggestion":"Add a minimal JSDoc block."},{"severity":"info","message":"Unused import spans multiple lines.","file":"src/utils.ts","line":10,"endLine":14},{"severity":"info","message":"Log message change loses diagnostic value."}],"traceProvenance":"evidence-based","callStack":[{"frame":"Service.method(params)","children":[{"frame":"Helper.transform(input)","children":[]}]}],"stateTransition":{"from":"entry-frame","to":"exit-frame","steps":[{"frame":"Service.method(params)","captured":{"dep":"Dep { ... }"},"changes":{"dep":{"before":"old","after":"new"}},"children":[]}]},"suggestions":["Extract predicate into a named helper for readability."],"approved":true}

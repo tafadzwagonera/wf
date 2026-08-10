@@ -90,9 +90,9 @@ export class ReviewStageService {
   }
 
   private buildSummarisationPrompt(file: string, patch: string): string {
-    return `Summarise the following diff for ${file} into concise bullet points that capture every `
-      + `changed function, added/removed import, modified signature, and behavioural change. `
-      + `Do not omit technical details (identifiers, types, values). `
+    return `Summarise the following diff for ${file} into concise bullet points. `
+      + `Preserve technical precision — identifiers, types, and values matter as much as narrative. `
+      + `Cover changed functions, import changes, signature modifications, and behavioural shifts. `
       + `Return ONLY a Markdown bullet list (- item).\n\n`
       + `\`\`\`diff\n${patch}\n\`\`\``;
   }

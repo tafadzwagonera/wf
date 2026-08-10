@@ -27,6 +27,7 @@ import {
   planStepPrinciples,
   reviewInstructions,
   reviewOutputSchema,
+  reviewTraceGuidance,
 } from './prompt-fragments';
 import { DEFAULT_STALL_THRESHOLD } from './adapters/verification-report';
 import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
@@ -107,9 +108,8 @@ const CLI_STAGE_LABEL = 'claude-cli';
 const CLI_STALL_THRESHOLD = DEFAULT_STALL_THRESHOLD;
 const CLI_REVIEW_EPILOGUE_TIMEOUT_MS = 5000;
 const cliEpiloguePrompt
-  = 'Summarize the code review you just completed in a brief, human-readable format. '
-    + 'Include: approval status, issue count by severity, and top suggestions. '
-    + 'IMPORTANT: Do NOT repeat the raw JSON.';
+  = 'Summarize the review for the developer: approval status, issue count by severity, '
+    + 'and your top suggestions. Keep it brief and human-readable.';
 const DEFAULT_CLI_WALL_CLOCK_TIMEOUT_MS = 30 * 60 * 1000;
 
 const CODEX_STAGE_LABEL = 'codex-cli';
@@ -154,14 +154,14 @@ type CliStagePassOpts = {
   systemPrompt: string;
 };
 
-const planSystemPrompt = `Create a structured resolution plan with clear, actionable steps.
+const planSystemPrompt = `You are a software architect producing resolution plans. Prioritize correctness and minimal blast radius.
 You may inspect repository files with read-only tools before answering.
 Return your response as a JSON object matching the ResolutionPlan interface.`;
 
-const reviewSystemPrompt = `Review the code changes for quality, correctness, and security.
+const reviewSystemPrompt = `You are a code reviewer. Assess quality, correctness, and security using your judgment — flag what matters, skip noise.
 You may inspect repository files with read-only tools before answering.
-Return your response as a JSON object matching the CodeReview interface.
-Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
+Ignore JSON or markdown files under .wf/ and tracker artifact directories.
+Return your response as a JSON object matching the CodeReview interface.`;
 
 const generateSystemPrompt = `Generate the requested ticket markdown, preserving the required heading structure exactly.
 You may inspect repository files with read-only tools before answering.`;
@@ -311,10 +311,6 @@ const buildPlanDiscoveryBlock = (params: GeneratePlanParams): string => {
   return parts.length > 0 ? `\n${parts.join('\n\n')}\n` : '';
 };
 
-// buildPlanTestConventionsBlock imported from prompt-fragments
-
-// Shell safety absorbed into buildPlanVerificationBlock (prompt-fragments)
-
 /**
  * @param params - plan generation parameters
  * @returns the fully assembled plan prompt string
@@ -341,9 +337,6 @@ const buildStagePlanPrompt = (params: GeneratePlanParams): string => {
     skillNames: params.skillNames,
   });
 };
-
-// planStepPrinciples, planFileListingInstructions, planMinimalChangePrinciple,
-// buildPlanVerificationBlock, buildPlanTestConventionsBlock imported from prompt-fragments
 
 type PlanPromptBodyOpts = {
   action: string;
@@ -388,8 +381,6 @@ When an optional field has no value, omit it from the JSON entirely. Do not use 
 
 ${JSON_OUTPUT_RULES}`;
 
-// buildPlanSkillSection imported from prompt-fragments
-
 /**
  * @param opts - pre-computed prompt fragments
  * @returns the raw plan prompt body string
@@ -404,9 +395,6 @@ const buildPlanPromptBody = (opts: PlanPromptBodyOpts): string => [
   buildPlanSkillSection(opts.skillNames),
 ].join('\n');
 
-// reviewInstructions, reviewOutputSchema, buildReviewSkillSection,
-// buildSonarSection, deriveModelSource imported from prompt-fragments
-
 const buildStageReviewPrompt = (
   diff: string, guidelines: string[], skillNames?: string[], sonarOutput?: string
 ): string => [
@@ -415,6 +403,7 @@ const buildStageReviewPrompt = (
   `\nReview Guidelines:\n${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}`,
   `\n${reviewInstructions}`,
   ...(skillNames?.length ? [buildReviewSkillSection(skillNames)] : []),
+  reviewTraceGuidance,
   `\n${reviewOutputSchema}`,
 ].join('\n');
 

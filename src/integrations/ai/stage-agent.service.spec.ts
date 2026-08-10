@@ -257,7 +257,7 @@ describe('StageAgentService', () => {
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: expect.stringContaining(
-          'Verification commands must be shell-safe'
+          'shell-safe'
         ),
       })
     );
@@ -285,7 +285,7 @@ describe('StageAgentService', () => {
     );
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: expect.stringContaining('Mock setup must be concrete and complete'),
+        prompt: expect.stringContaining('Keep mock setup concrete'),
       })
     );
     expect(mockRunStagePrompt).toHaveBeenCalledWith(
@@ -1244,7 +1244,7 @@ describe('StageAgentService', () => {
       expect(spawnCodex).toHaveBeenLastCalledWith(
         expect.any(Array),
         process.cwd(),
-        expect.stringContaining('Summarize the code review you just completed'),
+        expect.stringContaining('Summarize the review for the developer'),
         undefined,
         5000
       );
@@ -1278,7 +1278,7 @@ describe('StageAgentService', () => {
       expect(spawnCli).toHaveBeenLastCalledWith(
         expect.any(Array),
         process.cwd(),
-        expect.stringContaining('Summarize the code review you just completed'),
+        expect.stringContaining('Summarize the review for the developer'),
         undefined,
         5000
       );
@@ -1309,12 +1309,12 @@ describe('StageAgentService', () => {
 
       expect(buildCliArgs).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('Summarize the code review you just completed'),
+          prompt: expect.stringContaining('Summarize the review for the developer'),
           appendSystemPrompt:
-            'Review the code changes for quality, correctness, and security.\n'
+            'You are a code reviewer. Assess quality, correctness, and security using your judgment — flag what matters, skip noise.\n'
             + 'You may inspect repository files with read-only tools before answering.\n'
-            + 'Return your response as a JSON object matching the CodeReview interface.\n'
-            + 'Ignore JSON or markdown files under .wf/ and tracker artifact directories.',
+            + 'Ignore JSON or markdown files under .wf/ and tracker artifact directories.\n'
+            + 'Return your response as a JSON object matching the CodeReview interface.',
           model: 'claude-sonnet-4-5-20250514',
           sessionId: 'claude-review-session-42',
           cwd: '/tmp/repo',
