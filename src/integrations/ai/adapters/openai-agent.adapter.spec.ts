@@ -1506,7 +1506,7 @@ describe('OpenAIAgentAdapter', () => {
       const initialPrompt = (runMock.mock.calls[0] as unknown as [unknown, string])[1];
 
       expect(agentConfig.instructions).not.toContain('Plan steps:');
-      expect(agentConfig.instructions).toContain('You MUST implement ALL plan steps');
+      expect(agentConfig.instructions).toContain('Implement all plan steps');
       expect(agentConfig.instructions).toContain('Repository conventions (primary):');
       expect(agentConfig.instructions).toContain('Formatter: prettier');
 

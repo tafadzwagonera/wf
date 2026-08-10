@@ -290,11 +290,9 @@ const formatVerificationList = (scripts: VerificationScript[]): string => {
     .join('\n');
   return `${numbered}
 
-IMPORTANT: After completing ALL code edits, you MUST run each verification
-command above exactly as written, in order. Do NOT modify, abbreviate, or
-pipe the commands. Run each one verbatim using Bash. If a command fails,
-fix the code and re-run that same command until it passes before moving
-to the next one.`;
+After completing all code edits, run each verification command above exactly as written, in order.
+Do not modify, abbreviate, or pipe the commands — run each one verbatim using Bash.
+If a command fails, fix the code and re-run that same command until it passes before moving to the next one.`;
 };
 
 /**
@@ -341,20 +339,20 @@ export type ImplementerToolNames = {
  * @returns Combined rules and workflow rules string
  */
 export const buildImplementerRulesSection = (t: ImplementerToolNames): string => `Rules:
-- NEVER output free-form text, commentary, or planning at any point during the run. Every response you produce MUST contain at least one tool call. The ONLY exception is the final summary (using the exact template below) which you output after ALL work is done and ALL verification passes. If you feel the urge to describe what you will do next, call a tool instead. Text output without a tool call terminates the run immediately.
-- ALWAYS use ${t.edit} instead of ${t.write} for existing files. ${t.write} should only be used for creating new files. Using ${t.write} on existing files wastes context on unchanged lines.
+- Respond exclusively with tool calls — text without a tool call terminates the run. The only exception is the final summary (template below), output after all work and verification passes.
+- Use ${t.edit} for existing files and ${t.write} only for new files — writing a full file wastes context on unchanged lines.
 - Use ${t.search} to find relevant line numbers, then ${t.read} with offset/limit to read only the section you need. Avoid reading entire large files.
 - For mechanical migrations (e.g. replacing Logger with PinoLogger across many files): use ${t.search} to find all call sites, then apply ${t.edit} to each file without re-reading the full file — the search results show enough context.
 - Use ${t.glob} to discover file paths instead of guessing.
-- ${t.verify} is the only way to execute a shell command, and it will reject any command outside the verification whitelist. Never invent or call any other shell command tool.
-- Never duplicate a function. To add a parameter, modify the existing function signature. To change behavior, edit the existing function body. This applies to constructors, methods, and standalone functions alike.
-- NEVER add eslint-disable comments (inline, block, or file-level) to files you create or modify. If a lint rule fails in a file you are editing — whether the violation is new or pre-existing — fix the underlying code so the rule passes. Suppressing lint errors masks real problems. Fix all ESLint violations in every file you touch, not just the lines you changed.
+- ${t.verify} is the only way to execute a shell command and rejects anything outside the verification whitelist.
+- Modify existing functions in place rather than duplicating them — this applies to constructors, methods, and standalone functions.
+- Fix lint violations in every file you touch rather than suppressing them with eslint-disable comments — suppression masks real problems.
 - If you need to create a file not listed in "Files to implement", first check whether any verification command contains an inline allowlist of file paths. If it does, the new file must not cause that check to fail. Creating an unplanned file that is caught by a verification grep or assertion will block you — the verification whitelist is frozen and cannot be changed during this session.
-- You MUST implement ALL plan steps listed above. Do not stop after completing only the core infrastructure — continue through every step until all tasks are done.
-- Treat the returned progress signal as a heuristic only — never use a 'complete' verdict as a reason to stop. The verdict reflects a single verification command, not overall plan completion.
+- Implement all plan steps — do not stop after core infrastructure when remaining steps exist.
+- The returned progress signal reflects a single verification command, not overall plan completion — treat it as a heuristic.
 - Use verification commands as intermediate checkpoints to catch regressions. After each passing verification, check whether ALL plan steps are done. If any migration or refactoring work remains, continue working.
-- After verification passes, run ${t.search} to count remaining instances of the patterns you are migrating (e.g. 'new Logger('). If the search returns ANY matches, you MUST continue editing those files — do NOT output a summary or any text. Producing a summary that says "remaining work needed" or "follow-up required" is a failure. Keep calling ${t.edit} until the search returns zero matches.
-- Only stop when the migration search confirms zero remaining instances AND all verification commands pass (exit 0) — or when you determine no file changes are required. Then output ONLY the following summary, filled in with actual results. Do not add preamble or planning text.`;
+- After verification passes, run ${t.search} to count remaining migration patterns. If any matches remain, keep editing — do not output a summary until the search returns zero matches.
+- Stop only when migration search confirms zero remaining instances and all verification commands pass (exit 0), or when no file changes are required. Then output the following summary filled in with actual results.`;
 
 const formatPhaseEntry = (phase: PlanPhase, index: number, planSteps: string[]): string => {
   const stepRange = phase.stepIndices.map(idx => idx + 1).join(', ');
@@ -364,11 +362,11 @@ const formatPhaseEntry = (phase: PlanPhase, index: number, planSteps: string[]):
   return `Phase ${index + 1}: ${phase.label} (steps ${stepRange})\n${stepLabels}\n${verifyLine}`;
 };
 
-const PHASE_CHECKPOINT_HEADER = '\n\n## Phase checkpoints\n\nThis plan is organized into phases. After completing all steps in each phase, run the phase\'s verification commands before proceeding to the next phase. If verification fails, fix the issues before moving on.\n';
+const phaseCheckpointHeader = '\n\n## Phase checkpoints\n\nThis plan is organized into phases. After completing all steps in each phase, run the phase\'s verification commands before proceeding to the next phase. If verification fails, fix the issues before moving on.\n';
 
 const buildPhaseCheckpointSection = (phases: PlanPhase[] | undefined, planSteps: string[]): string => {
   if (!phases || phases.length === 0) return '';
-  return [PHASE_CHECKPOINT_HEADER, ...phases.map((p, i) => formatPhaseEntry(p, i, planSteps))].join('\n');
+  return [phaseCheckpointHeader, ...phases.map((p, i) => formatPhaseEntry(p, i, planSteps))].join('\n');
 };
 
 const buildImplementSkillSection = (skillNames: string[] | undefined): string => {

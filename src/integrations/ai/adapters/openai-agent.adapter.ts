@@ -591,7 +591,7 @@ export const validateTypeScriptEdit = (filePath: string, content: string): strin
   return visitTsNode(sf, ts);
 };
 
-const AVAILABLE_TOOLS_BLOCK = `Available tools:
+const availableToolsBlock = `Available tools:
 - read_file(path, offset?, limit?): read a file with optional line range (default: first ${MAX_READ_LINES} lines)
 - write_file(path, content): write a full file into the primary repository only
 - edit_file(path, old_string, new_string): surgically replace a unique string in a file
@@ -606,7 +606,7 @@ const implementerRulesSection = buildImplementerRulesSection({
 })
 + '\n- Use delete_file only when a file should be removed.';
 
-const SUMMARY_TEMPLATE = `### What I changed
+const implementerSummaryTemplate = `### What I changed
 <Bullet list of actual edits made. If nothing was changed, write: "No file content changes were required.">
 
 ### Verification run
@@ -649,7 +649,7 @@ const buildSystemPrompt = (p: SystemPromptParams): string => {
   const behavioralContext = buildBehavioralContext(p.repoDir);
   const conventionsPart = p.conventionsSection ? `\n\n${p.conventionsSection}` : '';
   const rules = buildScopedRules(p.repoDir);
-  return `${behavioralContext}${conventionsPart}\n\n${AVAILABLE_TOOLS_BLOCK}\n\n${rules}\n\n${SUMMARY_TEMPLATE}`;
+  return `${behavioralContext}${conventionsPart}\n\n${availableToolsBlock}\n\n${rules}\n\n${implementerSummaryTemplate}`;
 };
 
 /**

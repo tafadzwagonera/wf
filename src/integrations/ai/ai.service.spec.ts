@@ -353,7 +353,7 @@ describe('AiService', () => {
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining(
-            'When a step says "remove line X inside block Y", the plan MUST state whether the'
+            'When a step says "remove line X inside block Y", state whether the'
           ),
         })
       );

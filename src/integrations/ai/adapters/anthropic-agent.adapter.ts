@@ -296,7 +296,7 @@ const logProgressMessage = (message: SDKMessage): boolean => {
   return true;
 };
 
-const ANTHROPIC_TOOLS_BLOCK = `Available tools:
+const anthropicToolsBlock = `Available tools:
 - Read(file_path, offset?, limit?): read a file with optional line range
 - Write(file_path, content): write a full file into the primary repository only
 - Edit(file_path, old_string, new_string): surgically replace a unique string in a file
@@ -309,7 +309,7 @@ const implementerRulesSection = buildImplementerRulesSection({
   read: 'Read', write: 'Write', edit: 'Edit', search: 'Grep', glob: 'Glob', verify: 'Bash',
 });
 
-const IMPLEMENTER_SUMMARY_TEMPLATE = `### What I changed
+const implementerSummaryTemplate = `### What I changed
 <Bullet list of actual edits made. If nothing was changed, write: "No file content changes were required.">
 
 ### Verification run
@@ -341,8 +341,8 @@ const assembleSystemPrompt = (
     conventionsSection ?? '',
     `\nWrites must stay scoped to the primary repository (${repoDir}).`,
     `Reads may target ${repoDir} and any configured read-only sibling repositories.\n`,
-    `${ANTHROPIC_TOOLS_BLOCK}\n\n${implementerRulesSection}`,
-    IMPLEMENTER_SUMMARY_TEMPLATE,
+    `${anthropicToolsBlock}\n\n${implementerRulesSection}`,
+    implementerSummaryTemplate,
   ].join('\n\n');
 
 type SystemPromptParams = {

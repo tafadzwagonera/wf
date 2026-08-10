@@ -93,7 +93,7 @@ const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => 
 const CLI_STAGE_LABEL = 'claude-cli';
 const CLI_STALL_THRESHOLD = DEFAULT_STALL_THRESHOLD;
 const CLI_REVIEW_EPILOGUE_TIMEOUT_MS = 5000;
-const CLI_EPILOGUE_PROMPT
+const cliEpiloguePrompt
   = 'Summarize the code review you just completed in a brief, human-readable format. '
     + 'Include: approval status, issue count by severity, and top suggestions. '
     + 'IMPORTANT: Do NOT repeat the raw JSON.';
@@ -101,10 +101,10 @@ const DEFAULT_CLI_WALL_CLOCK_TIMEOUT_MS = 30 * 60 * 1000;
 
 const CODEX_STAGE_LABEL = 'codex-cli';
 
-const CLI_RETRY_PROMPT
+const cliRetryPrompt
   = 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines). JSON string values must not contain literal newline characters — use \\n for line breaks within strings.';
 
-const CLI_CHAT_RETRY_PROMPT
+const cliChatRetryPrompt
   = 'Your previous response did not include a usable result. Please respond with the requested content directly.';
 
 type CliPassResult = {
@@ -141,19 +141,17 @@ type CliStagePassOpts = {
   systemPrompt: string;
 };
 
-const PLAN_SYSTEM_PROMPT = `You are an expert software engineer creating detailed resolution plans.
+const planSystemPrompt = `Create a structured resolution plan with clear, actionable steps.
 You may inspect repository files with read-only tools before answering.
 Return your response as a JSON object matching the ResolutionPlan interface.`;
 
-const REVIEW_SYSTEM_PROMPT = `You are an expert code reviewer providing constructive feedback.
+const reviewSystemPrompt = `Review the code changes for quality, correctness, and security.
 You may inspect repository files with read-only tools before answering.
 Return your response as a JSON object matching the CodeReview interface.
-Focus on code quality, bugs, security, and the changed execution path.
 Ignore JSON or markdown files under .wf/ and tracker artifact directories.`;
 
-const GENERATE_SYSTEM_PROMPT = `You are an expert technical writer and repository analyst.
-You may inspect repository files with read-only tools before answering.
-Return only the requested ticket markdown and preserve the required heading structure exactly.`;
+const generateSystemPrompt = `Generate the requested ticket markdown, preserving the required heading structure exactly.
+You may inspect repository files with read-only tools before answering.`;
 
 /**
  * @param text - raw text to truncate
@@ -355,68 +353,59 @@ const buildStagePlanPrompt = (params: GeneratePlanParams): string => {
 };
 
 // Step instructions for the plan prompt — extracted to stay under max-lines-per-function
-const PLAN_STEP_INSTRUCTIONS = `   Every rename, move, or refactoring step MUST state both the current name/path AND the
+const planStepInstructions = `   Every rename, move, or refactoring step should state both the current name/path and the
    replacement name/path (e.g., "Rename class \`PaymentService\` to \`PaymentProcessorService\`
    in src/payments/payment.service.ts"). A step that says only "rename X" without the target
-   is unusable by the implementer and will be rejected.
-   When a step adds a new call site to an existing function or method, the plan MUST trace every existing call site for that function and note whether the shared code path already handles the new case. If it does, state so explicitly and skip the redundant change. If it does not, list which call sites need updating.
-   When a step adds or modifies a JSDoc comment or docstring, the prose MUST be cross-checked against the implementation's guard clauses. If the function throws on null input, the docstring must document that. If the function silently returns undefined, the docstring must not claim it throws.
-   When a step says "remove line X inside block Y", the plan MUST state whether the
+   leaves the implementer guessing and risks misinterpretation.
+   When a step adds a new call site to an existing function or method, trace every existing call site for that function and note whether the shared code path already handles the new case. If it does, state so explicitly and skip the redundant change. If it does not, list which call sites need updating.
+   When a step adds or modifies a JSDoc comment or docstring, cross-check the prose against the implementation's guard clauses. If the function throws on null input, the docstring must document that. If the function silently returns undefined, the docstring must not claim it throws.
+   When a step says "remove line X inside block Y", state whether the
    surrounding block (function, if-branch, class) becomes dead code after the removal
-   and whether it should also be removed. Do not leave dead-code discovery to the
-   implementer.
+   and whether it should also be removed. Surfacing dead code here avoids a surprise during review.
    When prescribing a new module-level helper near existing class methods, explicitly
    state its placement: "add as a module-level function outside the class, near the
-   existing \`<CONSTANT_NAME>\` constant at line N". Do not leave placement ambiguous —
-   the implementer should not have to guess whether it belongs inside or outside the
-   class.
+   existing \`<CONSTANT_NAME>\` constant at line N". Clear placement avoids ambiguity during implementation.
    When a step introduces an interface field typed with \`| null\` or \`.nullable()\`,
-   the plan MUST trace every consumer of that interface and specify the concrete
-   behaviour for the null case (skip, default value, throw). Do not leave null
-   handling to the implementer to discover during review.
+   trace every consumer of that interface and specify the concrete
+   behaviour for the null case (skip, default value, throw). Specifying null behaviour up front prevents review-time surprises.
    When a plan involves operations where cache state affects network access (e.g.,
-   reading a cached token before calling an API), the plan MUST explicitly state
-   that the cache check happens before the network call and note the consequence of
+   reading a cached token before calling an API), explicitly state that the cache check happens before the network call and note the consequence of
    reversing the order. Cache-before-network ordering bugs are silent and hard to
    catch in review.
    Generated-doc workflows (e.g., auto-generated README sections, API docs from
-   schemas) MUST be treated as source-of-truth updates. The plan should prescribe
+   schemas) are source-of-truth updates. The plan should prescribe
    re-running the generator — not manually patching the output file. If no generator
    exists, the plan should say so and prescribe the manual edit as a stopgap with a
    TODO to add generation later.
 
-   When a step specifies the return type of a function or method, the plan MUST derive
-   it from the call-site options that will actually be passed — not the function's
+   When a step specifies the return type of a function or method, derive the return type from the call-site options that will actually be passed — not the function's
    default return type. If the call site passes options that narrow or widen the return
    type (e.g., an overload, a generic parameter, or a conditional return), the plan
    must state the concrete type the caller will see and use that in downstream steps.
 
    When a plan prescribes adding specific text to a file (e.g., a prompt paragraph, a
-   config key, a schema field), the plan MUST include a verification step that greps
+   config key, a schema field), include a verification step that greps
    for a unique, distinctive substring of that text in the target file. If the substring
    is already present, the step should be marked as "already implemented" and skipped.
-   Do NOT conclude that prescribed text is present based on thematic similarity to
+   Do not conclude that prescribed text is present based on thematic similarity to
    nearby content — perform an exact substring check.
 
    When a plan changes the semantics of a CLI option (e.g., making an option optional,
-   changing its default, renaming it, or restricting its values), the plan MUST trace
-   every user-facing surface that references that option — help text, command
+   changing its default, renaming it, or restricting its values), trace every user-facing surface that references that option — help text, command
    documentation, README examples, man pages — and include update steps for each.
    Restricting the affected-files list to only the implementation and its test misses
    help/doc text drift.
 
-   When the implementation stage involves iterative fix-and-retry cycles, the plan
-   MUST require verification of both working-tree and staged/index state before
+   When the implementation stage involves iterative fix-and-retry cycles, require verification of both working-tree and staged/index state before
    handoff (e.g., before commit). A file with both staged and unstaged changes can
    cause the commit to ship a stale version. The plan should prescribe an explicit
    clean-state check before the handoff step.
 
-   When a plan includes a manual smoke test as an acceptance check, the implementation
-   stage MUST either run it or explicitly mark it as incomplete with a reason. A plan
+   When a plan includes a manual smoke test as an acceptance check, the implementation stage should either run it or explicitly mark it as incomplete with a reason. A plan
    that lists a smoke test but never executes it appears complete when one of its
    acceptance criteria was silently skipped.
 
-   When a plan step prescribes a test, the plan MUST trace the execution path
+   When a plan step prescribes a test, trace the execution path
    through the mock/DI setup to the first point where the command returns or
    fails downstream. State whether the test will reach a clean return or a
    downstream error, and prescribe the strongest viable positive assertion for
@@ -424,16 +413,15 @@ const PLAN_STEP_INSTRUCTIONS = `   Every rename, move, or refactoring step MUST 
    setup silently short-circuits the code under test.
 
    When new code intentionally swallows or downgrades errors (e.g., "log a warning
-   and continue" instead of throwing), the plan MUST include failure-path test
-   coverage for that behaviour. Verify that the warning is emitted, the return value
+   and continue" instead of throwing), include failure-path test coverage for that behaviour. Verify that the warning is emitted, the return value
    is correct on the failure path, and downstream code handles the degraded state.
    Silent error swallowing without coverage is a latent bug.`;
 
-const PLAN_FILE_LISTING_INSTRUCTIONS = `3. Estimated complexity (low/medium/high)
+const planFileListingInstructions = `3. Estimated complexity (low/medium/high)
 4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not
    placeholders. Set status to "found" for existing files or "to-create" for new files.
-   IMPORTANT: Do NOT guess or infer file paths from conventions. You MUST use your read-only
+   Do not guess or infer file paths from conventions. Use your read-only
    tools (grep, find, or directory listings) to verify each path exists before listing it.
    Hallucinated paths cause the implementer to stall.
 5. Files needed for **context only** (read, not edit) — same object shape as affectedFiles.
@@ -443,7 +431,7 @@ const PLAN_FILE_LISTING_INSTRUCTIONS = `3. Estimated complexity (low/medium/high
 7. Repositories that will be affected (if known)
 8. New repositories that must be created (not yet existing locally) — a subset of affectedRepositories. Omit or leave empty when the plan only touches existing repos`;
 
-const PLAN_VERIFICATION_INSTRUCTIONS = `9. Task-specific verification only when needed:
+const planVerificationInstructions = `9. Task-specific verification only when needed:
    - Use "verification.targeted" for focused checks required by this specific plan
    - Use "verification.waivers" only when this plan needs to explicitly waive a repo-level baseline check
    - Omit "verification" entirely when no targeted checks or waivers are needed
@@ -451,10 +439,10 @@ const PLAN_VERIFICATION_INSTRUCTIONS = `9. Task-specific verification only when 
    - Every verification command must exit 0 when it succeeds
    - Commands must be copy-paste-runnable: reference ONLY scripts/binaries listed in the
      "Available test infrastructure" section. Do not invent scripts.
-   - CRITICAL: verification commands are validated against the allowlist above. Any command
+   - Verification commands are validated against the allowlist above. Any command
      that does not match an allowed form will be rejected. When unsure, use: node -e "..."`;
 
-const PLAN_VERIFICATION_TAIL = `   - Each verification command MUST be relevant to this plan: it should verify a side effect
+const planVerificationTailInstructions = `   - Each verification command MUST be relevant to this plan: it should verify a side effect
      or behavior introduced by the steps above, not just run the whole test suite.
    - Each verification command MUST target the specific behavior introduced by the step it validates
      — not unrelated output like global README string order or full-file snapshots.
@@ -467,7 +455,7 @@ const PLAN_VERIFICATION_TAIL = `   - Each verification command MUST be relevant 
      (when node:test is available) or the installed test framework CLI
    - If you need to prove an expected failure, wrap it in a shell assertion that exits 0`;
 
-const PLAN_MINIMAL_CHANGE_INSTRUCTIONS = `Minimal-change principles — apply to every plan:
+const planMinimalChangeInstructions = `Minimal-change principles — apply to every plan:
 - Propose the smallest effective change. Do not modify files unrelated to the ticket.
 - Limit verification to files edited by this plan.
 - Each component should be designed to address a single responsibility.
@@ -502,8 +490,8 @@ ${opts.retryFeedbackBlock}${opts.discoveryBlock}
 Create a detailed resolution plan with:
 1. A brief summary of the issue and proposed solution
 2. Specific, actionable steps to ${opts.action} the issue — when the ticket includes code examples, embed relevant snippets inline (e.g., "Replace \`oldFunction()\` with \`newFunction()\` in src/utils.ts")
-${PLAN_STEP_INSTRUCTIONS}
-${PLAN_FILE_LISTING_INSTRUCTIONS}`;
+${planStepInstructions}
+${planFileListingInstructions}`;
 
 /**
  * @param opts - pre-computed prompt fragments
@@ -532,15 +520,15 @@ const buildPlanPromptBody = (opts: PlanPromptBodyOpts): string => [
   buildPlanPromptPreamble(opts),
   opts.testInfraSection,
   opts.testConventionsBlock,
-  PLAN_MINIMAL_CHANGE_INSTRUCTIONS,
-  PLAN_VERIFICATION_INSTRUCTIONS,
+  planMinimalChangeInstructions,
+  planVerificationInstructions,
   opts.shellSafetyBlock,
-  PLAN_VERIFICATION_TAIL,
+  planVerificationTailInstructions,
   buildPlanJsonSchemaExample(opts),
   buildPlanSkillSection(opts.skillNames),
 ].join('\n');
 
-const REVIEW_INSTRUCTIONS = `Provide a code review with:
+const reviewInstructions = `Provide a code review with:
 1. A brief summary of the changes
 2. Any issues found
 3. A trace provenance label: evidence-based, best-effort, or unavailable
@@ -550,7 +538,7 @@ const REVIEW_INSTRUCTIONS = `Provide a code review with:
 7. Optional trailing suggestions for general follow-up work that is not tied to a single issue — each must also prefer the smallest effective fix and use the same concise, human-friendly tone
 8. Whether the code is approved`;
 
-const REVIEW_JSON_SCHEMA = `Return ONLY a valid JSON object. Reference:
+const reviewOutputSchema = `Return ONLY a valid JSON object. Reference:
     {"summary":"Rename display label from X to Y across all user-facing text.","issues":[{"severity":"warning","message":"Missing JSDoc block on new private method.","file":"src/service.ts","line":42,"suggestion":"Add a minimal JSDoc block."},{"severity":"info","message":"Unused import spans multiple lines.","file":"src/utils.ts","line":10,"endLine":14},{"severity":"info","message":"Log message change loses diagnostic value."}],"traceProvenance":"evidence-based","callStack":[{"frame":"Service.method(params)","children":[{"frame":"Helper.transform(input)","children":[]}]}],"stateTransition":{"from":"entry-frame","to":"exit-frame","steps":[{"frame":"Service.method(params)","captured":{"dep":"Dep { ... }"},"changes":{"dep":{"before":"old","after":"new"}},"children":[]}]},"suggestions":["Extract predicate into a named helper for readability."],"approved":true}
 
     Prefer an absolute line number. Degrade to a line range (line + endLine) when the issue spans multiple lines. Omit line and endLine entirely when the issue cannot be pinned to specific lines.
@@ -572,9 +560,9 @@ const buildStageReviewSkillSection = (skillNames: string[]): string =>
 const buildStageReviewPrompt = (diff: string, guidelines: string[], skillNames?: string[]): string => [
   `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
   `\nReview Guidelines:\n${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}`,
-  `\n${REVIEW_INSTRUCTIONS}`,
+  `\n${reviewInstructions}`,
   ...(skillNames?.length ? [buildStageReviewSkillSection(skillNames)] : []),
-  `\n${REVIEW_JSON_SCHEMA}`,
+  `\n${reviewOutputSchema}`,
 ].join('\n');
 
 /**
@@ -1121,7 +1109,7 @@ export class StageAgentService {
     resumeProviderSessionId?: string;
   }): Promise<{ plan: ResolutionPlan; sessionId?: string }> {
     const { content: response, sessionId } = await this.runStagePrompt({
-      stage: 'plan', prompt: buildStagePlanPrompt(params), systemPrompt: PLAN_SYSTEM_PROMPT,
+      stage: 'plan', prompt: buildStagePlanPrompt(params), systemPrompt: planSystemPrompt,
       repoDir: process.cwd(), onProgress: params.onProgress,
       priorStageSummary: params.priorStageSummary, resumeProviderSessionId: params.resumeProviderSessionId,
     });
@@ -1193,10 +1181,10 @@ export class StageAgentService {
     opts?: { skillNames?: string[]; forkSession?: boolean }
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const { content: response, sessionId } = await this.runStagePrompt({
-      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, opts?.skillNames), systemPrompt: REVIEW_SYSTEM_PROMPT,
+      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, opts?.skillNames), systemPrompt: reviewSystemPrompt,
       repoDir, priorStageSummary, resumeProviderSessionId, onProgress, forkSession: opts?.forkSession,
     });
-    return this.parseStageReviewResponse(response, sessionId, repoDir, REVIEW_SYSTEM_PROMPT, priorStageSummary);
+    return this.parseStageReviewResponse(response, sessionId, repoDir, reviewSystemPrompt, priorStageSummary);
   }
 
   /**
@@ -1264,7 +1252,7 @@ export class StageAgentService {
     const { content: response } = await this.runStagePrompt({
       stage: 'generate',
       prompt,
-      systemPrompt: GENERATE_SYSTEM_PROMPT,
+      systemPrompt: generateSystemPrompt,
       onProgress,
     });
     return requireAiResponseContent(
@@ -1687,7 +1675,7 @@ export class StageAgentService {
    */
   private async runCliStagePass(opts: CliStagePassOpts & { passNumber: number }): Promise<CliPassResult> {
     const isResume = (opts.passNumber > 1 && opts.sessionId) || (opts.passNumber === 1 && opts.resumeProviderSessionId);
-    const retryPrompt = opts.jsonSchema ? CLI_RETRY_PROMPT : CLI_CHAT_RETRY_PROMPT;
+    const retryPrompt = opts.jsonSchema ? cliRetryPrompt : cliChatRetryPrompt;
     const prompt = isResume && opts.passNumber > 1 ? retryPrompt : opts.prompt;
     const args = buildCliArgs({
       prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: opts.resolvedRepoDir,
@@ -1746,8 +1734,8 @@ export class StageAgentService {
    * @returns nothing; drains the Codex epilogue stream
    */
   private async sendCodexEpilogue(sessionId: string, repoDir: string, model: string): Promise<void> {
-    const args = buildCodexCliArgs({ prompt: CLI_EPILOGUE_PROMPT, sessionId, model, cwd: repoDir });
-    const stream = spawnCodex(args, repoDir, CLI_EPILOGUE_PROMPT, undefined, CLI_REVIEW_EPILOGUE_TIMEOUT_MS);
+    const args = buildCodexCliArgs({ prompt: cliEpiloguePrompt, sessionId, model, cwd: repoDir });
+    const stream = spawnCodex(args, repoDir, cliEpiloguePrompt, undefined, CLI_REVIEW_EPILOGUE_TIMEOUT_MS);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     for await (const _ of stream) { /* drain */ }
   }
@@ -1767,11 +1755,11 @@ export class StageAgentService {
     const preambleWithNewline = preamble ? `${preamble}\n\n` : '';
     const allowInspection = Boolean(repoDir);
     const args = buildCliArgs({
-      prompt: CLI_EPILOGUE_PROMPT, appendSystemPrompt: `${preambleWithNewline}${systemPrompt}`,
+      prompt: cliEpiloguePrompt, appendSystemPrompt: `${preambleWithNewline}${systemPrompt}`,
       model, sessionId, cwd: repoDir, permissionMode: 'plan',
       tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [], jsonSchema: undefined,
     });
-    const stream = spawnCli(args, repoDir, CLI_EPILOGUE_PROMPT, undefined, CLI_REVIEW_EPILOGUE_TIMEOUT_MS);
+    const stream = spawnCli(args, repoDir, cliEpiloguePrompt, undefined, CLI_REVIEW_EPILOGUE_TIMEOUT_MS);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     for await (const _ of stream) { /* drain */ }
   }
@@ -1810,7 +1798,7 @@ export class StageAgentService {
     opts: CliChatPassOpts & { sessionId?: string; passNumber: number }
   ): Promise<CliPassResult> {
     const isResume = opts.passNumber > 1 && opts.sessionId;
-    const prompt = isResume ? CLI_CHAT_RETRY_PROMPT : opts.userMessage;
+    const prompt = isResume ? cliChatRetryPrompt : opts.userMessage;
     const args = buildCliArgs({
       prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: opts.resolvedRepoDir,
       sessionId: isResume ? opts.sessionId : opts.initialSessionId,

@@ -203,7 +203,7 @@ type CliContinuationPromptParams = {
   taskBriefParams: BuildPlanContextParams;
 };
 
-const CLI_CONTINUATION_TAIL
+const cliContinuationTail
   = '\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. '
     + 'After addressing all listed files, run each verification command above exactly as written. '
     + 'Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. '
@@ -221,7 +221,7 @@ const buildContinuationPrompt = (p: CliContinuationPromptParams): string => {
     `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
     buildTaskBrief(p.taskBriefParams),
     `\nContinue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}`,
-    CLI_CONTINUATION_TAIL,
+    cliContinuationTail,
   ].join('\n');
 };
 
