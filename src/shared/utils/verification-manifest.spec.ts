@@ -1,4 +1,4 @@
-import { normalizeTargetedStepCommand, parseVerificationManifest } from './verification-manifest';
+import { mergeVerificationSteps, normalizeTargetedStepCommand, parseVerificationManifest } from './verification-manifest';
 
 describe('parseVerificationManifest', () => {
   it('parses enforced and best-effort baseline steps', () => {
@@ -131,5 +131,123 @@ describe('normalizeTargetedStepCommand', () => {
 
   it('leaves --forceExit unchanged', () => {
     expect(normalizeTargetedStepCommand('yarn test --forceExit')).toBe('yarn test --forceExit');
+  });
+});
+
+describe('mergeVerificationSteps', () => {
+  it('drops targeted step whose command duplicates a baseline script', () => {
+    const baseline = [
+      { id: 'build', run: 'yarn build', policy: 'enforced' as const },
+      { id: 'test', run: 'yarn test', policy: 'enforced' as const },
+    ];
+    const targeted = [
+      { id: 'typescript-build', run: 'yarn build', policy: 'enforced' as const },
+      { id: 'no-stale-symbols', run: "bash -c 'grep -rn ...'", policy: 'enforced' as const },
+    ];
+
+    const result = mergeVerificationSteps(baseline, targeted);
+
+    expect(result).toEqual([
+      { id: 'build', run: 'yarn build', policy: 'enforced' },
+      { id: 'test', run: 'yarn test', policy: 'enforced' },
+      { id: 'no-stale-symbols', run: "bash -c 'grep -rn ...'", policy: 'enforced' },
+    ]);
+  });
+
+  it('drops targeted step matching a baseline script across package managers', () => {
+    const baseline = [
+      { id: 'build', run: 'yarn build', policy: 'enforced' as const },
+    ];
+    const targeted = [
+      { id: 'npm-build', run: 'npm build', policy: 'enforced' as const },
+      { id: 'pnpm-build', run: 'pnpm build', policy: 'enforced' as const },
+      { id: 'unique-check', run: 'node -e "assert(true)"', policy: 'enforced' as const },
+    ];
+
+    const result = mergeVerificationSteps(baseline, targeted);
+
+    expect(result).toEqual([
+      { id: 'build', run: 'yarn build', policy: 'enforced' },
+      { id: 'unique-check', run: 'node -e "assert(true)"', policy: 'enforced' },
+    ]);
+  });
+
+  it('drops targeted step matching deno task syntax', () => {
+    const baseline = [
+      { id: 'test', run: 'deno task test', policy: 'enforced' as const },
+    ];
+    const targeted = [
+      { id: 'unit-tests', run: 'yarn test', policy: 'enforced' as const },
+    ];
+
+    const result = mergeVerificationSteps(baseline, targeted);
+
+    expect(result).toEqual([
+      { id: 'test', run: 'deno task test', policy: 'enforced' },
+    ]);
+  });
+
+  it('allows override policy to bypass command-duplicate check and append the targeted step', () => {
+    const baseline = [
+      { id: 'test', run: 'yarn test', policy: 'enforced' as const },
+    ];
+    const targeted = [
+      { id: 'scoped-test', run: 'yarn test -- src/foo.spec.ts', policy: 'override' as const },
+    ];
+
+    const result = mergeVerificationSteps(baseline, targeted);
+
+    expect(result).toEqual([
+      { id: 'test', run: 'yarn test', policy: 'enforced' },
+      { id: 'scoped-test', run: 'yarn test -- src/foo.spec.ts', policy: 'override' },
+    ]);
+  });
+
+  it('allows override policy with same ID to replace a baseline step', () => {
+    const baseline = [
+      { id: 'test', run: 'yarn test', policy: 'enforced' as const },
+    ];
+    const targeted = [
+      { id: 'test', run: 'yarn test --coverage', policy: 'override' as const },
+    ];
+
+    const result = mergeVerificationSteps(baseline, targeted);
+
+    expect(result).toEqual([
+      { id: 'test', run: 'yarn test --coverage', policy: 'override' },
+    ]);
+  });
+
+  it('preserves targeted steps with unique non-script commands', () => {
+    const baseline = [
+      { id: 'build', run: 'yarn build', policy: 'enforced' as const },
+    ];
+    const targeted = [
+      { id: 'stale-check', run: "bash -c 'grep -rn old_symbol src/'", policy: 'enforced' as const },
+      { id: 'inline-assert', run: 'node -e "require(\'assert\').ok(true)"', policy: 'enforced' as const },
+    ];
+
+    const result = mergeVerificationSteps(baseline, targeted);
+
+    expect(result).toEqual([
+      { id: 'build', run: 'yarn build', policy: 'enforced' },
+      { id: 'stale-check', run: "bash -c 'grep -rn old_symbol src/'", policy: 'enforced' },
+      { id: 'inline-assert', run: 'node -e "require(\'assert\').ok(true)"', policy: 'enforced' },
+    ]);
+  });
+
+  it('retains ID-based dedup when targeted ID matches a baseline ID', () => {
+    const baseline = [
+      { id: 'lint', run: 'yarn lint', policy: 'enforced' as const },
+    ];
+    const targeted = [
+      { id: 'lint', run: 'yarn lint --fix', policy: 'enforced' as const },
+    ];
+
+    const result = mergeVerificationSteps(baseline, targeted);
+
+    expect(result).toEqual([
+      { id: 'lint', run: 'yarn lint', policy: 'enforced' },
+    ]);
   });
 });

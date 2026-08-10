@@ -13,34 +13,24 @@ export type { VerificationPolicy, VerificationStep, VerificationWaiver, Verifica
 
 const VALID_POLICIES = new Set<string>(verificationPolicySchema.options);
 
+const extractStepFields = (rawStep: Record<string, unknown>) => ({
+  id: typeof rawStep.id === 'string' ? rawStep.id.trim() : '',
+  run: typeof rawStep.run === 'string' ? rawStep.run.trim() : '',
+  policy: rawStep.policy,
+  reason: typeof rawStep.reason === 'string' ? rawStep.reason.trim() || undefined : undefined,
+});
+
 const normalizeStep = (value: unknown, filePath: string): VerificationStep => {
   if (!value || typeof value !== 'object') {
     throw new Error(`Verification step is not valid: ${filePath}`);
   }
-
-  const rawStep = value as Record<string, unknown>;
-  const id = typeof rawStep.id === 'string' ? rawStep.id.trim() : '';
-  const run = typeof rawStep.run === 'string' ? rawStep.run.trim() : '';
-  const policy = rawStep.policy;
-
-  if (!id) {
-    throw new Error(`Verification step is missing id: ${filePath}`);
-  }
-
-  if (!run) {
-    throw new Error(`Verification step is missing run command: ${filePath}`);
-  }
-
+  const { id, run, policy, reason } = extractStepFields(value as Record<string, unknown>);
+  if (!id) throw new Error(`Verification step is missing id: ${filePath}`);
+  if (!run) throw new Error(`Verification step is missing run command: ${filePath}`);
   if (typeof policy !== 'string' || !VALID_POLICIES.has(policy)) {
     throw new Error(`Verification step has an invalid policy: ${filePath}`);
   }
-
-  return {
-    id,
-    run,
-    policy: policy as VerificationPolicy,
-    reason: typeof rawStep.reason === 'string' && rawStep.reason.trim() ? rawStep.reason.trim() : undefined,
-  };
+  return { id, run, policy: policy as VerificationPolicy, reason };
 };
 
 const normalizeWaiver = (value: unknown, filePath: string): VerificationWaiver => {
@@ -63,25 +53,45 @@ const normalizeWaiver = (value: unknown, filePath: string): VerificationWaiver =
   return { id, reason };
 };
 
+const KNOWN_SCRIPT_PATTERN = /(npm|yarn|pnpm|bun|deno)\s+(task\s+)?(build|lint|test|typecheck)\b/;
+
 /**
- * Merge baseline and targeted verification steps by ID.
- * Targeted steps with `policy: 'override'` replace a baseline entry with
- * the same ID; other targeted duplicates are silently dropped (baseline wins).
+ * Extracts the canonical script name (e.g. "build", "test") from a command
+ * that invokes a well-known package-manager script. Returns undefined for
+ * commands that don't match the pattern.
+ */
+const extractCanonicalScript = (command: string): string | undefined =>
+  KNOWN_SCRIPT_PATTERN.exec(command)?.[3];
+
+const isRedundantTargetedStep = (
+  step: VerificationStep,
+  mergedById: Map<string, VerificationStep>,
+  baselineScripts: Set<string>,
+): boolean => {
+  if (mergedById.has(step.id)) return true;
+  const script = extractCanonicalScript(step.run);
+  return !!script && baselineScripts.has(script);
+};
+
+/**
+ * Merge baseline and targeted verification steps by ID and command content.
+ * Targeted steps with `policy: 'override'` bypass all deduplication and are
+ * always inserted (replacing if IDs match, appending otherwise).
+ * Other targeted duplicates are silently dropped (baseline wins).
+ * Targeted steps whose command invokes the same well-known script as a
+ * baseline entry (e.g. `yarn build` vs `npm build`) are also dropped,
+ * since the baseline already covers that check.
  * New targeted IDs are appended in order.
- *
- * @param baseline - Steps from the verification manifest
- * @param targeted - Steps from the plan's targeted verification config
- * @returns Deduplicated steps preserving baseline insertion order
  */
 export const mergeVerificationSteps = (
   baseline: VerificationStep[],
   targeted: VerificationStep[],
 ): VerificationStep[] => {
   const mergedById = new Map(baseline.map(s => [s.id, s]));
+  const baselineScripts = new Set(baseline.map(s => extractCanonicalScript(s.run)).filter((s): s is string => !!s));
   for (const step of targeted) {
-    if (step.policy === 'override' || !mergedById.has(step.id)) {
-      mergedById.set(step.id, step);
-    }
+    const dominated = step.policy !== 'override' && isRedundantTargetedStep(step, mergedById, baselineScripts);
+    if (!dominated) mergedById.set(step.id, step);
   }
   return [...mergedById.values()];
 };
@@ -106,28 +116,19 @@ export const normalizeTargetedStepCommand = (command: string): string => {
   // --testPathPatterns is a yargs array-type flag: a preceding `-- `
   // separator alters argument forwarding and causes yargs to consume
   // subsequent flags (e.g. --verbose) as extra pattern elements.
-  result = result.replace(/\s--\s+(--testPathPatterns\b)/g, ' $1');
+  result = result.replaceAll(/\s--\s+(--testPathPatterns\b)/g, ' $1');
   return result;
 };
 
 export const normalizePlanVerification = (value: unknown, filePath: string): PlanVerificationConfig | undefined => {
-  if (value === undefined) {
-    return undefined;
-  }
-
+  if (value === undefined) return undefined;
   if (!value || typeof value !== 'object') {
     throw new Error(`Plan verification is not valid: ${filePath}`);
   }
-
-  const rawVerification = value as Record<string, unknown>;
-
+  const raw = value as Record<string, unknown>;
   return {
-    targeted: Array.isArray(rawVerification.targeted)
-      ? rawVerification.targeted.map(item => normalizeStep(item, filePath))
-      : undefined,
-    waivers: Array.isArray(rawVerification.waivers)
-      ? rawVerification.waivers.map(item => normalizeWaiver(item, filePath))
-      : undefined,
+    targeted: Array.isArray(raw.targeted) ? raw.targeted.map(item => normalizeStep(item, filePath)) : undefined,
+    waivers: Array.isArray(raw.waivers) ? raw.waivers.map(item => normalizeWaiver(item, filePath)) : undefined,
   };
 };
 
@@ -142,46 +143,25 @@ export const normalizePlanVerification = (value: unknown, filePath: string): Pla
  */
 export const parseVerificationManifest = (content: string, filePath: string, stage?: string): VerificationManifest => {
   const parsed = JSON.parse(content) as Record<string, unknown>;
-
-  if (parsed.version === 2) {
-    return parseV2Manifest(parsed, filePath, stage ?? 'implement');
-  }
-
-  if (parsed.version !== 1) {
-    throw new Error(`Unsupported verification manifest version: ${filePath}`);
-  }
-
+  if (parsed.version === 2) return parseV2Manifest(parsed, filePath, stage ?? 'implement');
+  if (parsed.version !== 1) throw new Error(`Unsupported verification manifest version: ${filePath}`);
   if (!Array.isArray(parsed.baseline)) {
     throw new Error(`Verification manifest baseline is not valid: ${filePath}`);
   }
-
-  return {
-    version: 1,
-    baseline: parsed.baseline.map(item => normalizeStep(item, filePath)),
-  };
+  return { version: 1, baseline: parsed.baseline.map(item => normalizeStep(item, filePath)) };
 };
 
 const parseV2Manifest = (parsed: Record<string, unknown>, filePath: string, stage: string): VerificationManifest => {
   const stageBlock = parsed[stage];
-
-  if (stageBlock === undefined) {
-    return { version: 1, baseline: [] };
-  }
-
+  if (stageBlock === undefined) return { version: 1, baseline: [] };
   if (!stageBlock || typeof stageBlock !== 'object') {
     throw new Error(`Verification manifest "${stage}" block is not valid: ${filePath}`);
   }
-
   const stageRecord = stageBlock as Record<string, unknown>;
-
   if (!Array.isArray(stageRecord.baseline)) {
     throw new Error(`Verification manifest "${stage}.baseline" is not valid: ${filePath}`);
   }
-
-  return {
-    version: 1,
-    baseline: stageRecord.baseline.map(item => normalizeStep(item, filePath)),
-  };
+  return { version: 1, baseline: stageRecord.baseline.map(item => normalizeStep(item, filePath)) };
 };
 
 /**
