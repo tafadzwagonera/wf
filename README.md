@@ -134,7 +134,7 @@ export default defineConfig({
       provider: 'anthropic',
       model: 'claude-haiku-4-5-20251001',
       backend: 'cli',
-      skills: ['test-driven-development'],
+      skills: ['coding-style', 'test-driven-development'],
       verificationConditions: {
         policyFile: 'verification.policy.json',
       },
@@ -146,6 +146,7 @@ export default defineConfig({
     review: {
       provider: 'anthropic',
       backend: 'cli',
+      inactivityTimeoutMs: 600000,
       skills: ['receiving-code-review'],
     },
     commit: {
@@ -202,7 +203,7 @@ stages:
     provider: anthropic
     model: claude-haiku-4-5-20251001
     backend: cli
-    skills: [test-driven-development]
+    skills: [coding-style, test-driven-development]
     verificationConditions:
       policyFile: verification.policy.json
   create:
@@ -211,6 +212,7 @@ stages:
   review:
     provider: anthropic
     backend: cli
+    inactivityTimeoutMs: 600000
     skills: [receiving-code-review]
   commit:
     provider: google
@@ -266,7 +268,7 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - `ai[].default` is optional when only one provider is configured, and required when two or more providers are configured.
 - `ai[].maxTokens` is only applied to Gemini provider entries using Gemini models; other providers ignore it.
 - `stages.generate`, `stages.plan`, `stages.review`, and `stages.implement` accept `{ provider, model, backend? }`.
-- `stages.plan`, `stages.implement`, and `stages.review` accept `skills?: string[]` to opt in to registered skills for the stage. Each skill ID must be registered in the skill registry and must support the target stage; a mismatch throws a `ConfigurationError`. In interactive sessions, unknown skill IDs prompt for correction; in non-interactive mode they throw immediately. For the review stage, resolved skill names are injected as Skill-tool invocation hints in the review prompt so the model invokes them before reviewing. For the implement stage, all backends (Anthropic Agent SDK, OpenAI Agents SDK, Claude CLI, and Codex CLI) inject skill invocation hints into the system prompt. Codex CLI also has native skill support at `~/.codex/superpowers/skills/` and can discover and invoke skills autonomously.
+- `stages.plan`, `stages.implement`, and `stages.review` accept a typed `skills` array to opt in to registered skills for the stage. Valid skill names are enforced per stage: plan accepts `frontend-design`, `test-driven-development`, and `writing-plans`; implement accepts `coding-style`, `frontend-design`, `receiving-code-review`, and `test-driven-development`; review accepts `receiving-code-review`. Each skill ID must be registered in the skill registry and must support the target stage; a mismatch throws a `ConfigurationError`. In interactive sessions, unknown skill IDs prompt for correction; in non-interactive mode they throw immediately. For the review stage, resolved skill names are injected as Skill-tool invocation hints in the review prompt so the model invokes them before reviewing. For the implement stage, all backends (Anthropic Agent SDK, OpenAI Agents SDK, Claude CLI, and Codex CLI) inject skill invocation hints into the system prompt. Codex CLI also has native skill support at `~/.codex/superpowers/skills/` and can discover and invoke skills autonomously.
 - `stages.plan`, `stages.implement`, and `stages.review` accept `maxTokens?: number` to set the output token ceiling for the stage (default: 16384). Increase this if the model truncates verbose JSON responses. This setting applies to provider-backed stages only; Claude Code CLI and Codex CLI do not expose a wf-controlled output-token limit, so the CLI backend detects truncation (`stop_reason: 'max_tokens'`) automatically instead of applying this knob.
 - `stages.plan`, `stages.review`, and `stages.generate` accept `timeoutMs?: number` to set the wall-clock timeout for CLI backend invocations (default: 30 minutes). They also accept `inactivityTimeoutMs?: number` to set the per-message inactivity timeout (default: 2 minutes). The inactivity timer resets on each non-system-chatter message (compaction, status, and rate-limit events are ignored), so an actively-working model is never killed prematurely. Increase `inactivityTimeoutMs` (e.g. `600000` for 10 minutes) when using models with extended thinking that produce no output for several minutes.
 - `stages.generate`, `stages.plan`, and `stages.review` also accept `outputFormat?: 'json' | 'md' | 'yaml' | 'yml'` to override the per-stage default format (generate=md, plan=json, review=md).

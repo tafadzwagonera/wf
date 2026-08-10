@@ -4,6 +4,23 @@ export const wfAiProviderNameSchema = z.enum(['anthropic', 'openai', 'google', '
 
 export const wfBackendModeSchema = z.enum(['agent', 'cli', 'standard']);
 
+export const wfPlanSkillNameSchema = z.enum([
+  'frontend-design',
+  'test-driven-development',
+  'writing-plans',
+]);
+
+export const wfImplementSkillNameSchema = z.enum([
+  'coding-style',
+  'frontend-design',
+  'receiving-code-review',
+  'test-driven-development',
+]);
+
+export const wfReviewSkillNameSchema = z.enum([
+  'receiving-code-review',
+]);
+
 export const wfAiProviderConfigSchema = z.object({
   provider: wfAiProviderNameSchema,
   apiKey: z.string().optional(),
@@ -23,6 +40,10 @@ export const wfAiStageTargetConfigSchema = z.object({
   skills: z.array(z.string()).optional(),
 });
 
+export const wfPlanStageConfigSchema = wfAiStageTargetConfigSchema.extend({
+  skills: z.array(wfPlanSkillNameSchema).optional(),
+});
+
 export const wfVerificationConditionsConfigSchema = z.object({
   policyFile: z.string().optional(),
   scripts: z.record(z.string(), z.string()).optional(),
@@ -34,12 +55,14 @@ export const wfImplementStageModelsConfigSchema = z.object({
 });
 
 export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({
-  models: wfImplementStageModelsConfigSchema.optional(),
-  verificationConditions: wfVerificationConditionsConfigSchema.optional(),
   maxStalledPasses: z.number().int().min(1).optional(),
+  models: wfImplementStageModelsConfigSchema.optional(),
+  skills: z.array(wfImplementSkillNameSchema).optional(),
+  verificationConditions: wfVerificationConditionsConfigSchema.optional(),
 });
 
 export const wfReviewStageConfigSchema = wfAiStageTargetConfigSchema.extend({
+  skills: z.array(wfReviewSkillNameSchema).optional(),
   sonar: z.boolean().optional(),
 });
 
@@ -112,7 +135,7 @@ export const wfConfigSchema = z.object({
     .optional(),
   stages: z
     .object({
-      plan: wfAiStageTargetConfigSchema.optional(),
+      plan: wfPlanStageConfigSchema.optional(),
       implement: wfImplementStageConfigSchema.optional(),
       create: wfCreateStageConfigSchema.optional(),
       review: wfReviewStageConfigSchema.optional(),

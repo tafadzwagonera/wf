@@ -29,7 +29,9 @@ describe('readSkillContent', () => {
   });
 
   it('returns file content when SKILL.md is found via glob pattern', async () => {
-    mockReadFile.mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockReadFile
+      .mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
+      .mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     mockGlob.mockResolvedValueOnce(['/home/.claude/plugins/cache/claude-plugins-official/v1/skills/glob-skill/SKILL.md'] as never);
     mockReadFile.mockResolvedValueOnce('# Glob Skill\nFound via wildcard.' as never);
 

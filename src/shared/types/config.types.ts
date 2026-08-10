@@ -11,8 +11,12 @@ import type {
   wfBackendModeSchema,
   wfConfigSchema,
   wfCreateStageConfigSchema,
+  wfImplementSkillNameSchema,
   wfImplementStageConfigSchema,
   wfImplementStageModelsConfigSchema,
+  wfPlanSkillNameSchema,
+  wfPlanStageConfigSchema,
+  wfReviewSkillNameSchema,
   wfVerificationConditionsConfigSchema,
 } from '../schemas/config.schema';
 
@@ -27,6 +31,10 @@ export type WfAiStageTargetConfig = z.infer<typeof wfAiStageTargetConfigSchema>;
 export type WfBackendMode = z.infer<typeof wfBackendModeSchema>;
 export type WfConfig = z.infer<typeof wfConfigSchema>;
 export type WfCreateStageConfig = z.infer<typeof wfCreateStageConfigSchema>;
+export type WfImplementSkillName = z.infer<typeof wfImplementSkillNameSchema>;
 export type WfImplementStageConfig = z.infer<typeof wfImplementStageConfigSchema>;
 export type WfImplementStageModelsConfig = z.infer<typeof wfImplementStageModelsConfigSchema>;
+export type WfPlanSkillName = z.infer<typeof wfPlanSkillNameSchema>;
+export type WfPlanStageConfig = z.infer<typeof wfPlanStageConfigSchema>;
+export type WfReviewSkillName = z.infer<typeof wfReviewSkillNameSchema>;
 export type WfVerificationConditionsConfig = z.infer<typeof wfVerificationConditionsConfigSchema>;

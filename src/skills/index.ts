@@ -1,3 +1,4 @@
+import './coding-style.skill';
 import './frontend-design.skill';
 import './test-driven-development.skill';
 import './writing-plans.skill';

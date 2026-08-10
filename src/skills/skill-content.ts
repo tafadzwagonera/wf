@@ -5,6 +5,8 @@ import { glob } from 'glob';
 import { ConfigurationError } from '../shared/errors/app.error';
 
 const buildSkillSearchPatterns = (skillId: string): string[] => [
+  path.join(os.homedir(), '.claude', 'skills', skillId, 'SKILL.md'),
+  path.join(os.homedir(), '.codex', 'skills', skillId, 'SKILL.md'),
   path.join(os.homedir(), '.claude', 'plugins', 'cache', 'claude-plugins-official', '*', 'skills', skillId, 'SKILL.md'),
   path.join(os.homedir(), '.claude', 'plugins', 'cache', 'claude-plugins-official', '*', '*', 'skills', skillId, 'SKILL.md'),
   path.join(os.homedir(), '.codex', 'superpowers', 'skills', skillId, 'SKILL.md'),

@@ -5,11 +5,15 @@ export type {
   WfBackendMode,
   WfAiProviderConfig,
   WfAiStageTargetConfig,
-  WfVerificationConditionsConfig,
-  WfImplementStageModelsConfig,
-  WfImplementStageConfig,
   WfCreateStageConfig,
   WfConfig,
+  WfImplementSkillName,
+  WfImplementStageConfig,
+  WfImplementStageModelsConfig,
+  WfPlanSkillName,
+  WfPlanStageConfig,
+  WfReviewSkillName,
+  WfVerificationConditionsConfig,
 } from '../shared/types/config.types';
 
 export interface WfAtlassianConfig {
