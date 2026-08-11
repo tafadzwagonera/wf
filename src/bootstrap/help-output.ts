@@ -26,30 +26,25 @@ const findRequestedCommand = (argv: string[]): string | undefined => argv.find(a
 const getVisibleLength = (value: string): number =>
   value.replace(ANSI_PATTERN, '').replace(MOCK_STYLE_TAG_PATTERN, '').length;
 
-const splitPlainLongToken = (token: string, maxTokenWidth: number): string[] => {
-  if (token.length <= maxTokenWidth) {
-    return [token];
-  }
+function findPreferredSplitIndex(candidate: string, maxTokenWidth: number): number {
+  const splitMatches = Array.from(candidate.matchAll(/[/?&=_-]/g));
+  return splitMatches.length > 0 ? (splitMatches.at(-1)?.index ?? 0) + 1 : maxTokenWidth;
+}
 
+function splitPlainLongToken(token: string, maxTokenWidth: number): string[] {
+  if (token.length <= maxTokenWidth) return [token];
   const chunks: string[] = [];
   let remaining = token;
-  const preferredSplitPattern = /[/?&=_-]/g;
-
   while (remaining.length > maxTokenWidth) {
-    const candidate = remaining.slice(0, maxTokenWidth);
-    const splitMatches = Array.from(candidate.matchAll(preferredSplitPattern));
-    const splitIndex = splitMatches.length > 0 ? (splitMatches.at(-1)!.index ?? 0) + 1 : maxTokenWidth;
-
+    const splitIndex = findPreferredSplitIndex(remaining.slice(0, maxTokenWidth), maxTokenWidth);
     chunks.push(remaining.slice(0, splitIndex));
     remaining = remaining.slice(splitIndex);
   }
-
   if (remaining.length > 0) {
     chunks.push(remaining);
   }
-
   return chunks;
-};
+}
 
 const expandLongTokensForWrapping = (tokens: string[], maxTokenWidth: number): string[] =>
   tokens.flatMap(token => {
@@ -68,48 +63,12 @@ const expandLongTokensForWrapping = (tokens: string[], maxTokenWidth: number): s
     return splitPlainLongToken(token, maxTokenWidth);
   });
 
-const wrapText = (text: string, initialIndent = '', subsequentIndent = initialIndent): string[] => {
-  const words = text.split(/\s+/).filter(word => word.length > 0);
-  if (words.length === 0) {
-    return [initialIndent.trimEnd()];
-  }
-
+function buildWrappedLines(tokens: string[], initialIndent: string, subsequentIndent: string): string[] {
   const lines: string[] = [];
   let currentLine = initialIndent;
 
-  for (const word of words) {
-    const separator = currentLine.trim().length === 0 ? '' : ' ';
-    const nextLine = `${currentLine}${separator}${word}`;
-
-    if (getVisibleLength(nextLine) <= MAX_HELP_WIDTH || currentLine === initialIndent) {
-      currentLine = nextLine;
-      continue;
-    }
-
-    lines.push(currentLine);
-    currentLine = `${subsequentIndent}${word}`;
-  }
-
-  lines.push(currentLine);
-  return lines;
-};
-
-const wrapStyledTokens = (tokens: string[], initialIndent = '', subsequentIndent = initialIndent): string[] => {
-  const normalizedTokens = expandLongTokensForWrapping(
-    tokens,
-    MAX_HELP_WIDTH - Math.max(getVisibleLength(initialIndent), getVisibleLength(subsequentIndent))
-  );
-
-  if (normalizedTokens.length === 0) {
-    return [initialIndent.trimEnd()];
-  }
-
-  const lines: string[] = [];
-  let currentLine = initialIndent;
-
-  for (const token of normalizedTokens) {
-    const separator = currentLine.trim().length === 0 ? '' : ' ';
-    const nextLine = `${currentLine}${separator}${token}`;
+  for (const token of tokens) {
+    const nextLine = `${currentLine}${currentLine.trim().length === 0 ? '' : ' '}${token}`;
 
     if (getVisibleLength(nextLine) <= MAX_HELP_WIDTH || currentLine === initialIndent) {
       currentLine = nextLine;
@@ -122,7 +81,30 @@ const wrapStyledTokens = (tokens: string[], initialIndent = '', subsequentIndent
 
   lines.push(currentLine);
   return lines;
-};
+}
+
+function wrapText(text: string, initialIndent = '', subsequentIndent = initialIndent): string[] {
+  const words = text.split(/\s+/).filter(word => word.length > 0);
+
+  if (words.length === 0) {
+    return [initialIndent.trimEnd()];
+  }
+
+  return buildWrappedLines(words, initialIndent, subsequentIndent);
+}
+
+function wrapStyledTokens(tokens: string[], initialIndent = '', subsequentIndent = initialIndent): string[] {
+  const normalizedTokens = expandLongTokensForWrapping(
+    tokens,
+    MAX_HELP_WIDTH - Math.max(getVisibleLength(initialIndent), getVisibleLength(subsequentIndent))
+  );
+
+  if (normalizedTokens.length === 0) {
+    return [initialIndent.trimEnd()];
+  }
+
+  return buildWrappedLines(normalizedTokens, initialIndent, subsequentIndent);
+}
 
 const formatOptionLine = (option: CommandHelpOption): string[] => {
   const flags = option.flags;
@@ -144,26 +126,22 @@ const formatExampleLines = (example: CommandHelpExample): string[] => {
   return wrapStyledTokens(formatCliCommandTokens(example.command), '  ', '  ');
 };
 
-export const getHelpText = (argv: string[], catalog?: Record<string, CommandHelpEntry>): string => {
-  const commandHelp = catalog ?? loadCatalogFromDisk();
-  const requestedCommand = findRequestedCommand(argv.filter(arg => !HELP_FLAG_PATTERN.test(arg)));
-  const entry = requestedCommand ? commandHelp[requestedCommand] : undefined;
+function formatGlobalHelp(commandHelp: Record<string, CommandHelpEntry>): string {
+  const commandLines = Object.entries(commandHelp).map(
+    ([commandName, commandEntry]) => `  ${commandName.padEnd(16)} ${commandEntry.description}`
+  );
 
-  if (!requestedCommand || !entry) {
-    const commandLines = Object.entries(commandHelp).map(
-      ([commandName, commandEntry]) => `  ${commandName.padEnd(16)} ${commandEntry.description}`
-    );
+  return [
+    `${chalk.bold.cyan('Usage:')} ${chalk.cyan('wf')} <command> [options]`,
+    '',
+    chalk.bold.cyan('Commands:'),
+    ...commandLines,
+    '',
+    `${chalk.gray('Use')} ${chalk.cyan('wf')} <command> ${chalk.yellow('--help')} ${chalk.gray('for command-specific details.')}`,
+  ].join('\n');
+}
 
-    return [
-      `${chalk.bold.cyan('Usage:')} ${chalk.cyan('wf')} <command> [options]`,
-      '',
-      chalk.bold.cyan('Commands:'),
-      ...commandLines,
-      '',
-      `${chalk.gray('Use')} ${chalk.cyan('wf')} <command> ${chalk.yellow('--help')} ${chalk.gray('for command-specific details.')}`,
-    ].join('\n');
-  }
-
+function formatCommandHelp(entry: CommandHelpEntry): string {
   const lines = [
     ...wrapStyledTokens([chalk.bold.cyan('Usage:'), ...formatCliCommandTokens(entry.usage)], '', '       '),
     '',
@@ -179,4 +157,16 @@ export const getHelpText = (argv: string[], catalog?: Record<string, CommandHelp
   }
 
   return lines.join('\n');
-};
+}
+
+export function getHelpText(argv: string[], catalog?: Record<string, CommandHelpEntry>): string {
+  const commandHelp = catalog ?? loadCatalogFromDisk();
+  const requestedCommand = findRequestedCommand(argv.filter(arg => !HELP_FLAG_PATTERN.test(arg)));
+  const entry = requestedCommand ? commandHelp[requestedCommand] : undefined;
+
+  if (!requestedCommand || !entry) {
+    return formatGlobalHelp(commandHelp);
+  }
+
+  return formatCommandHelp(entry);
+}

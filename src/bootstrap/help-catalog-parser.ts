@@ -22,142 +22,87 @@ const evaluateStringExpression = (expression?: string): string | undefined => {
   return parts.length > 0 ? parts.join('') : undefined;
 };
 
-const findMatchingBrace = (source: string, startIndex: number): number => {
-  let depth = 0;
-  let activeQuote: '\'' | '"' | '`' | null = null;
-  let isEscaped = false;
-
+function skipQuotedSection(source: string, startIndex: number, quoteChar: string): number {
   for (let index = startIndex; index < source.length; index += 1) {
     const char = source[index];
-
-    if (activeQuote) {
-      if (isEscaped) {
-        isEscaped = false;
-        continue;
-      }
-
-      if (char === '\\') {
-        isEscaped = true;
-        continue;
-      }
-
-      if (char === activeQuote) {
-        activeQuote = null;
-      }
+    if (char === '\\') {
+      index += 1;
       continue;
     }
-
-    if (char === '\'' || char === '"' || char === '`') {
-      activeQuote = char;
-      continue;
-    }
-
-    if (char === '{') {
-      depth += 1;
-      continue;
-    }
-
-    if (char === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        return index;
-      }
+    if (char === quoteChar) {
+      return index;
     }
   }
+  return source.length;
+}
 
+function findMatchingBrace(source: string, startIndex: number): number {
+  let depth = 0;
+  for (let index = startIndex; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '\'' || char === '"' || char === '`') {
+      index = skipQuotedSection(source, index + 1, char);
+    } else if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
   return -1;
-};
+}
 
-const extractDecoratorBlocks = (source: string, decoratorName: 'Command' | 'Option' | 'SubCommand'): string[] => {
+function extractDecoratorBlocks(source: string, decoratorName: 'Command' | 'Option' | 'SubCommand'): string[] {
   const blocks: string[] = [];
-  const marker = `@${decoratorName}({`;
   let searchIndex = 0;
-
   while (searchIndex < source.length) {
-    const markerIndex = source.indexOf(marker, searchIndex);
-    if (markerIndex === -1) {
-      break;
-    }
-
+    const markerIndex = source.indexOf(`@${decoratorName}({`, searchIndex);
+    if (markerIndex === -1) break;
     const objectStart = source.indexOf('{', markerIndex);
-    if (objectStart === -1) {
-      break;
-    }
-
+    if (objectStart === -1) break;
     const objectEnd = findMatchingBrace(source, objectStart);
-    if (objectEnd === -1) {
-      break;
-    }
-
+    if (objectEnd === -1) break;
     blocks.push(source.slice(objectStart + 1, objectEnd));
     searchIndex = objectEnd + 1;
   }
-
   return blocks;
-};
+}
 
-const splitTopLevelSegments = (block: string): string[] => {
-  const segments: string[] = [];
-  let currentSegment = '';
+function adjustDepthForChar(char: string, depth: number): number {
+  if ('{[('.includes(char)) return depth + 1;
+  if ('}])'.includes(char)) return depth - 1;
+  return depth;
+}
+
+function findNextTopLevelComma(block: string, startIndex: number): number {
   let depth = 0;
-  let activeQuote: '\'' | '"' | '`' | null = null;
-  let isEscaped = false;
-
-  for (const char of block) {
-    if (activeQuote) {
-      currentSegment += char;
-
-      if (isEscaped) {
-        isEscaped = false;
-        continue;
-      }
-
-      if (char === '\\') {
-        isEscaped = true;
-        continue;
-      }
-
-      if (char === activeQuote) {
-        activeQuote = null;
-      }
-      continue;
-    }
-
+  for (let index = startIndex; index < block.length; index += 1) {
+    const char = block[index];
     if (char === '\'' || char === '"' || char === '`') {
-      activeQuote = char;
-      currentSegment += char;
-      continue;
+      index = skipQuotedSection(block, index + 1, char);
+    } else if (char === ',' && depth === 0) {
+      return index;
+    } else {
+      depth = adjustDepthForChar(char, depth);
     }
-
-    if (char === '{' || char === '[' || char === '(') {
-      depth += 1;
-      currentSegment += char;
-      continue;
-    }
-
-    if (char === '}' || char === ']' || char === ')') {
-      depth -= 1;
-      currentSegment += char;
-      continue;
-    }
-
-    if (char === ',' && depth === 0) {
-      if (currentSegment.trim().length > 0) {
-        segments.push(currentSegment.trim());
-      }
-      currentSegment = '';
-      continue;
-    }
-
-    currentSegment += char;
   }
+  return -1;
+}
 
-  if (currentSegment.trim().length > 0) {
-    segments.push(currentSegment.trim());
+function splitTopLevelSegments(block: string): string[] {
+  const segments: string[] = [];
+  let start = 0;
+  let commaIndex = findNextTopLevelComma(block, start);
+  while (commaIndex !== -1) {
+    const segment = block.slice(start, commaIndex).trim();
+    if (segment.length > 0) segments.push(segment);
+    start = commaIndex + 1;
+    commaIndex = findNextTopLevelComma(block, start);
   }
-
+  const lastSegment = block.slice(start).trim();
+  if (lastSegment.length > 0) segments.push(lastSegment);
   return segments;
-};
+}
 
 const parseObjectProperties = (block: string): Map<string, string> => {
   const properties = new Map<string, string>();
@@ -176,7 +121,14 @@ const parseObjectProperties = (block: string): Map<string, string> => {
   return properties;
 };
 
-const extractExamples = (source: string): CommandHelpExample[] => {
+function parseExampleEntry(properties: Map<string, string>): CommandHelpExample | undefined {
+  const command = evaluateStringExpression(properties.get('command'));
+  if (!command) return undefined;
+  const comment = evaluateStringExpression(properties.get('comment'));
+  return comment ? { comment, command } : { command };
+}
+
+function extractExamples(source: string): CommandHelpExample[] {
   const examplesArrayMatch = /const\s+\w+_EXAMPLES\s*:\s*CliExample\[\]\s*=\s*\[(.*?)\];/s.exec(source);
   if (!examplesArrayMatch) {
     return [];
@@ -184,22 +136,9 @@ const extractExamples = (source: string): CommandHelpExample[] => {
 
   return Array.from(examplesArrayMatch[1].matchAll(/\{([\s\S]*?)\}/g))
     .map(match => parseObjectProperties(match[1]))
-    .map(properties => ({
-      comment: evaluateStringExpression(properties.get('comment')),
-      command: evaluateStringExpression(properties.get('command')),
-    }))
-    .filter(
-      (
-        example
-      ): example is {
-        comment: string | undefined;
-        command: string;
-      } => Boolean(example.command)
-    )
-    .map(example =>
-      example.comment ? { comment: example.comment, command: example.command } : { command: example.command }
-    );
-};
+    .map(properties => parseExampleEntry(properties))
+    .filter((example): example is CommandHelpExample => example !== undefined);
+}
 
 const formatFlagForHelp = (flagsExpression?: string): string | undefined => {
   const flags = evaluateStringExpression(flagsExpression);
@@ -208,17 +147,14 @@ const formatFlagForHelp = (flagsExpression?: string): string | undefined => {
   return flags.trim();
 };
 
-const buildUsage = ({
-  commandName,
-  argumentsValue,
-  hasOptions,
-  subcommandNames,
-}: {
+interface BuildUsageOptions {
   commandName: string;
   argumentsValue?: string;
   hasOptions: boolean;
   subcommandNames: string[];
-}): string => {
+}
+
+function buildUsage({ commandName, argumentsValue, hasOptions, subcommandNames }: BuildUsageOptions): string {
   if (subcommandNames.length > 0) {
     return `wf ${commandName} <${subcommandNames.join('|')}> [args]`;
   }
@@ -227,62 +163,58 @@ const buildUsage = ({
   const optionsSection = hasOptions ? ' [options]' : '';
 
   return `wf ${commandName}${argumentSection}${optionsSection}`;
-};
+}
 
-export const getCommandHelpCatalog = (commandsDir: string): Record<string, CommandHelpEntry> => {
-  const catalog: Record<string, CommandHelpEntry> = {};
-  const commandFiles = fs
+function parseSubcommandNames(source: string): string[] {
+  return extractDecoratorBlocks(source, 'SubCommand')
+    .map(block => parseObjectProperties(block))
+    .map(properties => evaluateStringExpression(properties.get('name')))
+    .filter((name): name is string => Boolean(name));
+}
+
+function parseOptions(source: string): CommandHelpOption[] {
+  return extractDecoratorBlocks(source, 'Option')
+    .map(block => parseObjectProperties(block))
+    .map(properties => ({
+      flags: formatFlagForHelp(properties.get('flags')),
+      description: evaluateStringExpression(properties.get('description')),
+    }))
+    .filter((option): option is CommandHelpOption => Boolean(option.flags && option.description))
+    .sort((a, b) => {
+      const longFlag = (f: string): string => ((/--([a-z][\w-]*)/.exec(f))?.[1] ?? f).toLowerCase();
+      return longFlag(a.flags).localeCompare(longFlag(b.flags));
+    });
+}
+
+function buildCommandEntry(source: string, name: string, description: string, argsExpr?: string): CommandHelpEntry {
+  const subcommandNames = parseSubcommandNames(source);
+  const options = parseOptions(source);
+  const examples = extractExamples(source);
+  const argumentsValue = evaluateStringExpression(argsExpr);
+  const usage = buildUsage({ commandName: name, argumentsValue, hasOptions: options.length > 0, subcommandNames });
+  const optionalOptions = options.length > 0 ? options : undefined;
+  const optionalExamples = examples.length > 0 ? examples : undefined;
+  return { description, usage, options: optionalOptions, examples: optionalExamples };
+}
+
+function listCommandFiles(commandsDir: string): string[] {
+  return fs
     .readdirSync(commandsDir)
     .filter(fileName => fileName.endsWith('.ts') && !fileName.endsWith('.spec.ts'))
     .sort();
+}
 
-  for (const fileName of commandFiles) {
+export function getCommandHelpCatalog(commandsDir: string): Record<string, CommandHelpEntry> {
+  const catalog: Record<string, CommandHelpEntry> = {};
+  for (const fileName of listCommandFiles(commandsDir)) {
     const source = fs.readFileSync(path.join(commandsDir, fileName), 'utf8');
     const commandBlock = extractDecoratorBlocks(source, 'Command')[0];
-
-    if (!commandBlock) {
-      continue;
-    }
-
+    if (!commandBlock) continue;
     const commandProperties = parseObjectProperties(commandBlock);
     const commandName = evaluateStringExpression(commandProperties.get('name'));
     const description = evaluateStringExpression(commandProperties.get('description'));
-
-    if (!commandName || !description) {
-      continue;
-    }
-
-    const subcommandNames = extractDecoratorBlocks(source, 'SubCommand')
-      .map(block => parseObjectProperties(block))
-      .map(properties => evaluateStringExpression(properties.get('name')))
-      .filter((name): name is string => Boolean(name));
-
-    const options = extractDecoratorBlocks(source, 'Option')
-      .map(block => parseObjectProperties(block))
-      .map(properties => ({
-        flags: formatFlagForHelp(properties.get('flags')),
-        description: evaluateStringExpression(properties.get('description')),
-      }))
-      .filter((option): option is CommandHelpOption => Boolean(option.flags && option.description))
-      .sort((a, b) => {
-        const longFlag = (f: string): string => ((/--([a-z][\w-]*)/.exec(f))?.[1] ?? f).toLowerCase();
-        return longFlag(a.flags).localeCompare(longFlag(b.flags));
-      });
-
-    const examples = extractExamples(source);
-
-    catalog[commandName] = {
-      description,
-      usage: buildUsage({
-        commandName,
-        argumentsValue: evaluateStringExpression(commandProperties.get('arguments')),
-        hasOptions: options.length > 0,
-        subcommandNames,
-      }),
-      options: options.length > 0 ? options : undefined,
-      examples: examples.length > 0 ? examples : undefined,
-    };
+    if (!commandName || !description) continue;
+    catalog[commandName] = buildCommandEntry(source, commandName, description, commandProperties.get('arguments'));
   }
-
   return catalog;
-};
+}

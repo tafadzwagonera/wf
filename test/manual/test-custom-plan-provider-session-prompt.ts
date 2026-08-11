@@ -183,7 +183,9 @@ async function main() {
         to: 'implement',
         tracker: 'jira',
       });
-    } catch {}
+    } catch {
+      // Expected: command exits after run
+    }
     stdoutCapture.restore();
 
     (process as any).exit = origExit;
