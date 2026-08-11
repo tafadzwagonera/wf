@@ -20,8 +20,8 @@ After every fix or feature, run a manual test from `test/manual/` via `nr test:m
 - **`.wf/` in commits**: `.wf/state/` and `.wf/logs/` are tooling artifacts created inside target repos — they must never be committed. Nothing in `.gitignore` protects them by default.
 
 ## Deep Reference (read on demand)
-- `.claude/docs/debugging.md`
-- `.claude/docs/config.md`
-- `.claude/docs/integrations.md`
-- `.claude/docs/technologies.md`
-- `.claude/docs/standards.md`
+- `.claude/docs/debugging.md` — when a `wf` CLI command fails, hangs, or produces unexpected output
+- `.claude/docs/config.md` — when adding, changing, or troubleshooting `wf.config.ts` fields
+- `.claude/docs/integrations.md` — when working with Bitbucket, Jira, or Slack API auth
+- `.claude/docs/technologies.md` — when checking dependency versions, available SDKs, or runtime constraints
+- `.claude/docs/standards.md` — when writing or reviewing specs, services, or Zod schemas
