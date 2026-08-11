@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
+import { ConfigurationError } from '../shared/utils/errors';
 
 export type SonarScanResult = {
   stdout: string;
@@ -23,18 +24,6 @@ interface SonarScanOptions {
  */
 export function hasSonarProjectProperties(repoDir: string): boolean {
   return fs.existsSync(path.join(repoDir, 'sonar-project.properties'));
-}
-
-/**
- * Returns true when `sonar-project.properties` contains a `sonar.host.url` line,
- * indicating a remote SonarQube/SonarCloud instance that cannot be analyzed locally.
- * @param repoDir Absolute path to the repository root
- */
-export function hasSonarHostUrl(repoDir: string): boolean {
-  const propsPath = path.join(repoDir, 'sonar-project.properties');
-  if (!fs.existsSync(propsPath)) return false;
-  const content = fs.readFileSync(propsPath, 'utf-8');
-  return content.split('\n').some(line => line.startsWith('sonar.host.url='));
 }
 
 type ExecError = Error & { code?: number; stdout?: string; stderr?: string };
@@ -74,34 +63,22 @@ export function buildSkippedSonarResult(reason: string): SonarScanResult {
 interface SonarScanForReviewOptions {
   repoDir?: string;
   onProgress?: (line: string) => void;
-  skipForFork?: boolean;
 }
 
 /**
- * Evaluates sonar skip guards and runs the scan if applicable.
- * Logs scan output and skip reasons to `onProgress`.
+ * Validates review-time sonar prerequisites and runs the scan if applicable.
+ * Missing `repoDir` is treated as a configuration error; missing properties skip quietly.
  */
 export async function runSonarScanForReview(options: SonarScanForReviewOptions): Promise<void> {
-  const { repoDir, onProgress, skipForFork } = options;
+  const { repoDir, onProgress } = options;
   if (!repoDir) {
-    onProgress?.('SonarScanner skipped: no repo directory');
-    return;
+    throw new ConfigurationError('SonarScanner requires a repository directory.');
   }
-  const skipReason = resolveSonarSkipReason(repoDir, skipForFork);
-  if (skipReason) {
-    onProgress?.(skipReason);
+  if (!hasSonarProjectProperties(repoDir)) {
+    onProgress?.('SonarScanner skipped: no sonar-project.properties found');
     return;
   }
   await runAndLogSonarScan(repoDir, onProgress);
-}
-
-function resolveSonarSkipReason(repoDir: string, skipForFork?: boolean): string | undefined {
-  if (!hasSonarProjectProperties(repoDir)) return 'SonarScanner skipped: no sonar-project.properties found';
-  if (hasSonarHostUrl(repoDir)) {
-    return 'SonarScanner skipped: sonar.host.url is configured; remote analysis not supported locally';
-  }
-  if (skipForFork) return 'SonarScanner skipped: review session forked';
-  return undefined;
 }
 
 async function runAndLogSonarScan(repoDir: string, onProgress?: (line: string) => void): Promise<void> {

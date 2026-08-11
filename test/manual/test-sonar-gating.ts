@@ -1,13 +1,12 @@
 /**
  * Manual smoke test: SonarScanner gating in issue:review
  *
- * Verifies the six gating paths:
+ * Verifies the four gating paths:
  *   1. --skip-sonar flag → immediate return, no progress
  *   2. stages.review.sonar: false config → immediate return, no progress
- *   3. No repoDir → skip with "no repo directory" message
- *   4. No sonar-project.properties → skip with distinct message
- *   5. sonar.host.url present → skip with remote analysis message
- *   6. skipForFork=true → skip with "review session forked" message
+ *   2b. stages.review.sonar: undefined (default) → immediate return, no progress
+ *   3. No repoDir (with sonar: true) → throws a terminal error
+ *   4. No sonar-project.properties (with sonar: true) → skip with distinct message
  *
  * Run: nr test:manual -- test-sonar-gating
  */
@@ -19,7 +18,6 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueReviewCommand } from '../../src/commands/issue-review.command';
 import { ConfigService } from '@nestjs/config';
-import { runSonarScanForReview } from '../../src/review/sonar-scanner';
 import chalk from 'chalk';
 
 type ResolveFn = (
@@ -57,12 +55,6 @@ async function run(): Promise<void> {
 
   const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-no-props-'));
 
-  const hostUrlDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-host-url-'));
-  fs.writeFileSync(
-    path.join(hostUrlDir, 'sonar-project.properties'),
-    'sonar.projectKey=test\nsonar.host.url=https://sonarcloud.io\n'
-  );
-
   console.log(chalk.bold.cyan('\nTest 1: --skip-sonar flag bypasses scan'));
 
   const msgs1: string[] = [];
@@ -95,17 +87,40 @@ async function run(): Promise<void> {
   if (msgs2.length === 0) pass('No progress emitted when config sonar is false');
   else fail(`Expected no messages, got: ${JSON.stringify(msgs2)}`);
 
-  console.log(chalk.bold.cyan('\nTest 3: undefined repoDir → distinct skip message'));
+  console.log(chalk.bold.cyan('\nTest 2b: stages.review.sonar: undefined (default) bypasses scan'));
 
-  const msgs3: string[] = [];
+  const msgs2b: string[] = [];
   await resolve(
-    { diff: '', title: '', context: '' },
+    { repoDir: tempDir, diff: '', title: '', context: '' },
     {},
-    (m: string) => msgs3.push(m)
+    (m: string) => msgs2b.push(m)
   );
 
-  if (msgs3.some(m => m.includes('no repo directory'))) pass('Progress says "no repo directory"');
-  else fail(`Expected "no repo directory", got: ${JSON.stringify(msgs3)}`);
+  if (msgs2b.length === 0) pass('No progress emitted when config sonar is undefined');
+  else fail(`Expected no messages, got: ${JSON.stringify(msgs2b)}`);
+
+  const sonarEnabledGet = (key: string, ...rest: unknown[]) => {
+    if (key === 'stages.review.sonar') return true;
+    return originalGet(key, ...rest);
+  };
+  (configService as unknown as Record<string, unknown>)['get'] = sonarEnabledGet;
+
+  console.log(chalk.bold.cyan('\nTest 3: undefined repoDir now throws an error'));
+
+  const msgs3: string[] = [];
+  try {
+    await resolve(
+      { diff: '', title: '', context: '' },
+      {},
+      (m: string) => msgs3.push(m)
+    );
+    fail('Expected an error for missing repoDir');
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('repository directory')) pass('Missing repoDir throws a terminal error');
+    else fail(`Unexpected error for missing repoDir: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (msgs3.length === 0) pass('No progress emitted before the terminal error');
+  else fail(`Expected no progress messages, got: ${JSON.stringify(msgs3)}`);
 
   console.log(chalk.bold.cyan('\nTest 4: no sonar-project.properties → skip with correct message'));
 
@@ -116,41 +131,13 @@ async function run(): Promise<void> {
     (m: string) => msgs4.push(m)
   );
 
+  (configService as unknown as Record<string, unknown>)['get'] = originalGet;
+
   if (msgs4.some(m => m.includes('no sonar-project.properties found'))) pass('Progress says "no sonar-project.properties found"');
   else fail(`Expected "no sonar-project.properties found", got: ${JSON.stringify(msgs4)}`);
 
-  console.log(chalk.bold.cyan('\nTest 5: sonar.host.url present → skip with remote analysis message'));
-
-  const msgs5: string[] = [];
-  await runSonarScanForReview({
-    repoDir: hostUrlDir,
-    onProgress: (m: string) => msgs5.push(m),
-  });
-
-  if (msgs5.some(m => m.includes('sonar.host.url is configured'))) pass('Progress says "sonar.host.url is configured"');
-  else fail(`Expected host.url skip message, got: ${JSON.stringify(msgs5)}`);
-
-  if (msgs5.some(m => m.includes('Running SonarScanner'))) fail('Scanner ran despite sonar.host.url being configured');
-  else pass('Scanner did not run');
-
-  console.log(chalk.bold.cyan('\nTest 6: skipForFork=true → skip with review session forked message'));
-
-  const msgs6: string[] = [];
-  await runSonarScanForReview({
-    repoDir: tempDir,
-    onProgress: (m: string) => msgs6.push(m),
-    skipForFork: true,
-  });
-
-  if (msgs6.some(m => m.includes('review session forked'))) pass('Progress says "review session forked"');
-  else fail(`Expected fork skip message, got: ${JSON.stringify(msgs6)}`);
-
-  if (msgs6.some(m => m.includes('Running SonarScanner'))) fail('Scanner ran despite skipForFork being true');
-  else pass('Scanner did not run');
-
   fs.rmSync(tempDir, { recursive: true, force: true });
   fs.rmSync(emptyDir, { recursive: true, force: true });
-  fs.rmSync(hostUrlDir, { recursive: true, force: true });
 
   console.log(`\n${passed} passed, ${failed} failed`);
   await app.close();

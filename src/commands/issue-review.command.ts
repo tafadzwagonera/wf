@@ -33,7 +33,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
 import { runSonarScanForReview } from '../review/sonar-scanner';
-import { shouldForkReviewSession } from './issue.command';
 
 type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 
@@ -153,7 +152,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 @Command({
   name: 'issue:review',
   description:
-    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner runs by default for review unless `--skip-sonar` is set or `stages.review.sonar` is `false`. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
+    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. Use `--skip-sonar` to bypass even when enabled. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
   arguments: '[pr-url]',
   options: { isDefault: false },
 })
@@ -602,11 +601,8 @@ export class IssueReviewCommand extends CommandRunner {
     target: ReviewTarget, options?: IssueReviewOptions, onProgress?: (line: string) => void
   ): Promise<void> {
     if (options?.skipSonar) return;
-    if (this.configService.get<boolean>('stages.review.sonar') === false) return;
-    const skipForFork = shouldForkReviewSession(
-      options?.estimatedComplexity, options?.passCount, options?.resumeSessionId
-    );
-    await runSonarScanForReview({ repoDir: target.repoDir, onProgress, skipForFork });
+    if (this.configService.get<boolean>('stages.review.sonar') !== true) return;
+    await runSonarScanForReview({ repoDir: target.repoDir, onProgress });
   }
 
   private handleReviewParseError(error: unknown, options?: IssueReviewOptions): void {

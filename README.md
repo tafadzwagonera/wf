@@ -415,7 +415,7 @@ When `--repos` points at a local checkout, `issue:plan` inspects `~/.wf/<repo>/*
 #### `wf issue:review [pr-url]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:review -->
-AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner runs by default for review unless `--skip-sonar` is set or `stages.review.sonar` is `false`. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
+AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. Use `--skip-sonar` to bypass even when enabled. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
 
 ```bash
 wf issue:review
@@ -471,7 +471,7 @@ If no `--repos` value is supplied and adapters cannot determine a remote reposit
 
 If `--repos` is supplied for ticket review but a listed repository is not available as a local path or sibling directory, remote PR review can still succeed. However, if no PR is found, the command now exits with an actionable error instead of falling back to reviewing the current directory.
 
-SonarScanner runs by default during review when `stages.review.sonar` is unset or `true`. Use `--skip-sonar` or set `stages.review.sonar: false` to disable it for a given run or repository config.
+SonarScanner only runs when `stages.review.sonar` is explicitly set to `true` in the config and `sonar-project.properties` exists. Missing repo directory fails loudly on the terminal, while scanner execution failures are logged and review continues. Use `--skip-sonar` to bypass it for a single run even when enabled.
 
 The current review output keeps `Call Stack` and `State Transition` in the same order before any trailing unmatched `Suggestions`, with `Approval Status` after `Suggestions`. Paired model suggestions now render directly under their corresponding issues in terminal output, exported text, workflow artifacts, and PR summary comments. Each trace section includes explicit provenance text so the output says whether the trace is evidence-based from an agent or CLI backend, best-effort from the standard completion path, or unavailable. The `Call Stack` section renders as a nested tree of concrete frames, and `State Transition` shows the variable changes observed at each frame.
 
@@ -1003,7 +1003,7 @@ wf/
 - **Agent vs completion mode.** Most stages (plan, implement, review, generate, create) default to agent mode via the Claude Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode. The commit stage defaults to standard (completion API). Controlled by `stages.<command>.backend: 'agent' | 'cli' | 'standard'`.
 - **Adapter pattern.** Platform adapters (Jira, GitHub, Bitbucket) and AI adapters (Anthropic, OpenAI, Gemini, DeepSeek) share a common interface so new providers can be added without changing command or agent code.
 - **Config resolution.** `wf` resolves config from the target repository when `--repos` is supplied, not from the caller's cwd. This lets a single wf installation manage many repositories with different settings.
-- **Review sonar gating.** `stages.review.sonar` defaults to enabled when omitted. Set it to `false` or pass `--skip-sonar` to suppress SonarScanner during review.
+- **Review sonar gating.** `stages.review.sonar` defaults to disabled when omitted. Set it to `true` to enable SonarScanner during review when `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. Pass `--skip-sonar` to suppress it for a single run.
 - **Session continuity.** `--session-id` enables conversation resumption across invocations. For `wf issue`, it also restores saved workflow metadata so `wf issue --session-id <uuid>` can resume without restating source flags. See [Session Continuity](#session-continuity) below.
 
 ### Session Continuity

@@ -53,7 +53,6 @@ jest.mock('../agents/utils', () => {
 
 jest.mock('../review/sonar-scanner', () => ({
   hasSonarProjectProperties: jest.fn(() => false),
-  hasSonarHostUrl: jest.fn(() => false),
   runSonarScan: jest.fn(),
   runSonarScanForReview: jest.fn().mockResolvedValue(undefined),
 }));
@@ -597,7 +596,7 @@ describe('IssueReviewCommand', () => {
       expect(consoleLogSpy).not.toHaveBeenCalledWith('    [claude-cli] Analyzing...');
     });
 
-    it('runs SonarScanner when review sonar config is undefined', async () => {
+    it('skips SonarScanner when review sonar config is undefined', async () => {
       const { command } = await buildCommand();
       const mockRunSonar = runSonarScanForReview as jest.MockedFunction<typeof runSonarScanForReview>;
       mockRunSonar.mockClear();
@@ -605,8 +604,7 @@ describe('IssueReviewCommand', () => {
 
       await (command as any).resolveSonarOutputForTarget(target, {});
 
-      expect(mockRunSonar).toHaveBeenCalledWith(expect.objectContaining({ repoDir: '/tmp/repo' }));
-      expect(mockRunSonar).toHaveBeenCalledTimes(1);
+      expect(mockRunSonar).not.toHaveBeenCalled();
     });
 
     it('uses the current repo name as a discovery hint when --repos is omitted', async () => {

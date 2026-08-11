@@ -86,16 +86,15 @@ export class ReviewerAgent {
   private async stageAndReview(
     ticket: TicketArtifact, options: ReviewerOptions, onProgress?: (line: string) => void
   ): Promise<{ review: CodeReview; sessionId?: string }> {
-    await this.gitService.stageAll(options.repoDir);
-    if (this.configService.get<boolean>('stages.review.sonar') !== false) {
-      await runSonarScanForReview({
-        repoDir: options.repoDir, onProgress, skipForFork: options.forkSession,
-      });
+    const repoDir = options.repoDir ?? process.cwd();
+    await this.gitService.stageAll(repoDir);
+    if (this.configService.get<boolean>('stages.review.sonar') === true) {
+      await runSonarScanForReview({ repoDir, onProgress });
     }
-    const diff = await this.gitService.getDiff(true, options.repoDir);
+    const diff = await this.gitService.getDiff(true, repoDir);
     return this.reviewStageService.reviewDiff(diff, {
       context: `ticket ${ticket.ticketKey}`,
-      repoDir: options.repoDir,
+      repoDir,
       resumeProviderSessionId: options.resumeProviderSessionId,
       priorStageSummary: options.priorStageSummary,
       forkSession: options.forkSession,
