@@ -6,6 +6,7 @@ import { JiraService } from './jira.service';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { JiraApiError } from '../../shared/utils/errors';
 import { IssueTrackerConfigService } from '../issue-trackers/issue-tracker-config.service';
+import { WIKI_MARKUP_FIXTURES, PROSE_REFERENCE_FIXTURES } from './wiki-markup-fixtures';
 
 describe('JiraService', () => {
   let service: JiraService;
@@ -988,6 +989,122 @@ describe('JiraService', () => {
       const nodes = JSON.stringify(adf);
       expect(nodes).toContain('heading');
       expect(nodes).not.toContain('orderedList');
+    });
+  });
+
+  describe('wiki markup fixtures (shared corpus)', () => {
+    describe('write path (markdownToADF)', () => {
+      for (const fixture of WIKI_MARKUP_FIXTURES) {
+        it(`should normalise ${fixture.label}`, () => {
+          const adf = service.markdownToADF(fixture.writeInput);
+          const nodes = JSON.stringify(adf);
+          for (const expected of fixture.writeExpectContains) {
+            expect(nodes).toContain(expected);
+          }
+          for (const unexpected of fixture.writeExpectNotContains) {
+            expect(nodes).not.toContain(unexpected);
+          }
+        });
+      }
+
+      for (const fixture of PROSE_REFERENCE_FIXTURES) {
+        it(`should preserve ${fixture.label}`, () => {
+          const adf = service.markdownToADF(fixture.writeInput);
+          const nodes = JSON.stringify(adf);
+          expect(nodes).toContain(fixture.expectPreserved);
+          expect(nodes).not.toContain('codeBlock');
+        });
+      }
+    });
+
+    describe('read path (adfToMarkdown)', () => {
+      for (const fixture of WIKI_MARKUP_FIXTURES) {
+        it(`should normalise ${fixture.label}`, () => {
+          const adf = {
+            type: 'doc',
+            version: 1,
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: fixture.readInput }],
+              },
+            ],
+          };
+          const markdown = service.adfToMarkdown(adf);
+          for (const expected of fixture.readExpectContains) {
+            expect(markdown).toContain(expected);
+          }
+          for (const unexpected of fixture.readExpectNotContains) {
+            expect(markdown).not.toContain(unexpected);
+          }
+        });
+      }
+    });
+  });
+
+  describe('round-trip invariants (markdownToADF → adfToMarkdown)', () => {
+    it('should preserve code block content and language through a round trip', () => {
+      const input = '{code:css}\n.a4-page { display: block; }\n{code}';
+      const adf = service.markdownToADF(input);
+      const output = service.adfToMarkdown(adf);
+      expect(output).toContain('```css');
+      expect(output).toContain('.a4-page');
+      expect(output).toContain('```');
+      expect(output).not.toContain('{code');
+    });
+
+    it('should preserve {noformat} content through a round trip', () => {
+      const input = '{noformat}\nraw output here\n{noformat}';
+      const adf = service.markdownToADF(input);
+      const output = service.adfToMarkdown(adf);
+      expect(output).toContain('```');
+      expect(output).toContain('raw output here');
+      expect(output).not.toContain('{noformat}');
+    });
+
+    it('should preserve inline code through a round trip', () => {
+      const input = 'The {{bufferPx}} variable controls spacing.';
+      const adf = service.markdownToADF(input);
+      const output = service.adfToMarkdown(adf);
+      expect(output).toContain('bufferPx');
+      expect(output).not.toContain('{{');
+    });
+
+    it('should preserve ordered list items through a round trip', () => {
+      const input = '# Open the editor\n# Export to PDF\n# Observe the output';
+      const adf = service.markdownToADF(input);
+      const output = service.adfToMarkdown(adf);
+      expect(output).toContain('Open the editor');
+      expect(output).toContain('Export to PDF');
+      expect(output).toContain('Observe the output');
+    });
+
+    it('should preserve bullet list items through a round trip', () => {
+      const input = '* Introduce a utility.\n* The normalizer must operate.';
+      const adf = service.markdownToADF(input);
+      const output = service.adfToMarkdown(adf);
+      expect(output).toContain('Introduce a utility.');
+      expect(output).toContain('The normalizer must operate.');
+    });
+
+    it('should not garble a description mixing real code blocks with prose text', () => {
+      const input = [
+        '### Summary',
+        'When the user writes wiki markup in prose, it should not corrupt the output.',
+        '',
+        '{code:css}',
+        '.a4-page { display: block; }',
+        '{code}',
+        '',
+        'The {{bufferPx}} variable controls spacing.',
+      ].join('\n');
+      const adf = service.markdownToADF(input);
+      const output = service.adfToMarkdown(adf);
+
+      expect(output).toContain('```css');
+      expect(output).toContain('.a4-page');
+      expect(output).toContain('wiki markup');
+      expect(output).toContain('bufferPx');
     });
   });
 

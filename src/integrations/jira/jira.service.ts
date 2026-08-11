@@ -33,6 +33,8 @@ const DEFAULT_SEARCH_FIELDS = [
  * - `* item` → `- item` bullet list normalization (anchored)
  * - `{{text}}` → inline code `` `text` ``
  *
+ * Keep in sync with normalizeWikiMarkupInMarkdown (read path).
+ *
  * @param markdown - Raw description content from the ticket artifact
  * @returns Markdown normalized for the ADF parser
  */
@@ -53,6 +55,8 @@ const normalizeMarkdownForADF = (markdown: string): string =>
 /**
  * Convert Jira wiki markup patterns embedded in ADF text content into
  * standard markdown so downstream consumers receive clean output.
+ *
+ * Keep in sync with normalizeMarkdownForADF (write path).
  *
  * @param text - Raw markdown output from ADF text nodes
  * @returns Markdown with wiki markup patterns normalized
