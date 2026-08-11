@@ -24,3 +24,4 @@ After every fix or feature, run a manual test from `test/manual/` via `nr test:m
 - `.claude/docs/config.md`
 - `.claude/docs/integrations.md`
 - `.claude/docs/technologies.md`
+- `.claude/docs/standards.md`
