@@ -884,8 +884,9 @@ export class IssueGenerateCommand extends CommandRunner {
    * Resolve a raw source argument into concrete sources for fetching.
    *
    * Filename-only sources are checked against repo-scoped `~/.wf/<repo>/`
-   * artifacts only when `--repos` is supplied, before the live checkout path
-   * and cwd-relative fallback.
+   * artifacts when `--repos` is supplied. When no `--repos` is provided,
+   * falls back to `~/.wf/<cwd-basename>/<source>` (artifact dir inferred
+   * from cwd).
    *
    * @param source - Raw CLI source argument
    * @param repos - Optional repos supplied via `--repos`
@@ -899,7 +900,12 @@ export class IssueGenerateCommand extends CommandRunner {
     const resolvedRepoSources = await this.resolveRepoRelativeSources(source, repos, silent);
     if (resolvedRepoSources.concreteSources.length > 0) return resolvedRepoSources.concreteSources;
 
-    return fs.existsSync(source) ? [source] : [];
+    if (!path.isAbsolute(source)) {
+      const cwdArtifactPath = path.join(resolveCustomArtifactDir(process.cwd()), source);
+      if (fs.existsSync(cwdArtifactPath)) return [cwdArtifactPath];
+    }
+
+    return [];
   }
 
   private isNonFileSource(source: string): boolean {

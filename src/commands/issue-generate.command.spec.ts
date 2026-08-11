@@ -723,6 +723,104 @@ describe('IssueGenerateCommand', () => {
     });
   });
 
+  describe('cwd-inferred artifact resolution', () => {
+    it('resolves a bare filename to the artifact dir inferred from cwd', async () => {
+      const { command } = await buildCommand();
+      const cwdBasename = path.basename(process.cwd());
+      const source = 'plan.md';
+      const expectedPath = path.join(os.homedir(), '.wf', cwdBasename, source);
+
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(
+        input => String(input) === expectedPath,
+      );
+
+      const resolvedSources = await (command as any).resolveSourceInputs(source, undefined, false);
+
+      expect(resolvedSources).toEqual([expectedPath]);
+    });
+
+    it('returns empty when the file exists in neither the artifact dir nor anywhere else', async () => {
+      const { command } = await buildCommand();
+
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReturnValue(false);
+
+      const resolvedSources = await (command as any).resolveSourceInputs('missing.md', undefined, false);
+
+      expect(resolvedSources).toEqual([]);
+    });
+
+    it('prefers --repos resolution over cwd-inferred artifact fallback', async () => {
+      const { command } = await buildCommand();
+      const repoName = 'service-tourv3';
+      const repoBasePath = path.join('/tmp/consumer-app', repoName);
+      const source = 'spec.md';
+      const repoArtifactPath = path.join(os.homedir(), '.wf', repoName, source);
+
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
+        const filePath = String(input);
+        return filePath === repoBasePath || filePath === repoArtifactPath;
+      });
+
+      const resolvedSources = await (command as any).resolveSourceInputs(source, [repoName], false);
+
+      expect(resolvedSources).toEqual([repoArtifactPath]);
+    });
+
+    it('does not attempt artifact fallback for absolute paths that do not exist', async () => {
+      const { command } = await buildCommand();
+
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReturnValue(false);
+
+      const resolvedSources = await (command as any).resolveSourceInputs('/abs/path/plan.md', undefined, false);
+
+      expect(resolvedSources).toEqual([]);
+    });
+
+    it('resolves a subdirectory-qualified source under the artifact dir', async () => {
+      const { command } = await buildCommand();
+      const cwdBasename = path.basename(process.cwd());
+      const source = 'src/plan.md';
+      const expectedPath = path.join(os.homedir(), '.wf', cwdBasename, source);
+
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(
+        input => String(input) === expectedPath,
+      );
+
+      const resolvedSources = await (command as any).resolveSourceInputs(source, undefined, false);
+
+      expect(resolvedSources).toEqual([expectedPath]);
+    });
+
+    it('normalizes ./ prefix and resolves the same as a bare filename', async () => {
+      const { command } = await buildCommand();
+      const cwdBasename = path.basename(process.cwd());
+      const expectedPath = path.join(os.homedir(), '.wf', cwdBasename, 'plan.md');
+
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(
+        input => String(input) === expectedPath,
+      );
+
+      const resolvedSources = await (command as any).resolveSourceInputs('./plan.md', undefined, false);
+
+      expect(resolvedSources).toEqual([expectedPath]);
+    });
+
+    it('resolves a deeply nested source path under the artifact dir', async () => {
+      const { command } = await buildCommand();
+      const cwdBasename = path.basename(process.cwd());
+      const source = 'path/to/some/deeply/nested/dir/spec.md';
+      const expectedPath = path.join(os.homedir(), '.wf', cwdBasename, source);
+
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(
+        input => String(input) === expectedPath,
+      );
+
+      const resolvedSources = await (command as any).resolveSourceInputs(source, undefined, false);
+
+      expect(resolvedSources).toEqual([expectedPath]);
+    });
+  });
+
   describe('unresolved local source diagnostics', () => {
     it('explains that unresolved artifact filenames require --repos', async () => {
       const { command } = await buildCommand();
