@@ -520,8 +520,8 @@ describe('IssueCreateCommand', () => {
     expect(ticket.description).not.toContain('### Unit Test Scope');
     expect(ticket.description).not.toContain('#### Dependencies');
     expect(ticket.description).not.toContain('### Affected Repositories');
+    expect(ticket.description).not.toContain('### Risks & Assumptions');
     expect(ticket.description).toContain('### Acceptance Criteria');
-    expect(ticket.description).toContain('### Risks & Assumptions');
     expect(ticket.description).toContain('#### Out of Scope');
   });
 

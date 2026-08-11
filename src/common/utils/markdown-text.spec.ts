@@ -34,19 +34,19 @@ describe('stripRedundantSections', () => {
     '- Refund handling',
   ].join('\n');
 
-  it('removes all four stripped sections', () => {
+  it('removes all five stripped sections', () => {
     const result = stripRedundantSections(description);
     expect(result).not.toContain('### Unit Test Scope');
     expect(result).not.toContain('#### Dependencies');
     expect(result).not.toContain('### Affected Repositories');
     expect(result).not.toContain('#### References');
+    expect(result).not.toContain('### Risks & Assumptions');
   });
 
   it('preserves retained sections', () => {
     const result = stripRedundantSections(description);
     expect(result).toContain('### Summary');
     expect(result).toContain('### Acceptance Criteria');
-    expect(result).toContain('### Risks & Assumptions');
     expect(result).toContain('#### Out of Scope');
   });
 

@@ -15,11 +15,18 @@ export const stripInlineMarkdownDelimiters = (text: string): string =>
 /**
  * Headings whose content is stripped from ticket descriptions before
  * creation or update. These sections are either internal provenance
- * (References), redundant with CLI options (Affected Repositories), or
+ * (References), redundant with CLI options (Affected Repositories),
  * implementation-level detail better suited to the plan artifact
- * (Unit Test Scope, Dependencies).
+ * (Unit Test Scope, Dependencies), or advisory context that adds noise
+ * to the live ticket (Risks & Assumptions).
  */
-const STRIPPED_SECTIONS = ['#### References', '### Unit Test Scope', '#### Dependencies', '### Affected Repositories'];
+const STRIPPED_SECTIONS = [
+  '#### References',
+  '### Unit Test Scope',
+  '#### Dependencies',
+  '### Affected Repositories',
+  '### Risks & Assumptions',
+];
 
 /**
  * Remove ticket-template sections that should not appear on the tracker.
