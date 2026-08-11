@@ -770,6 +770,44 @@ describe('JiraService', () => {
       expect(markdown).toContain('IN PROGRESS');
     });
 
+    it('should convert mention inline node', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'Assigned to ' },
+              { type: 'mention', attrs: { text: '@alice' } },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain('@alice');
+    });
+
+    it('should convert emoji inline node', () => {
+      const adf = {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'Status: ' },
+              { type: 'emoji', attrs: { shortName: ':thumbsup:' } },
+            ],
+          },
+        ],
+      };
+
+      const markdown = service.adfToMarkdown(adf);
+      expect(markdown).toContain(':thumbsup:');
+    });
+
     it('should handle strikethrough mark', () => {
       const adf = {
         type: 'doc',
@@ -864,7 +902,7 @@ describe('JiraService', () => {
       expect(nodes).toContain('codeBlock');
     });
 
-    it('should handle inline {code:lang} on write path via normalizeMarkdownForADF', () => {
+    it('should handle single-line {code:css} block at start of line on write path', () => {
       const markdown = '{code:css}.a4-page { display: block; }{code}';
       const adf = service.markdownToADF(markdown);
       const nodes = JSON.stringify(adf);
@@ -879,6 +917,77 @@ describe('JiraService', () => {
       expect(nodes).not.toContain('{{');
       expect(nodes).not.toContain('}}');
       expect(nodes).toContain('code');
+    });
+
+    it('should handle multi-line {code:css} block at start of line on write path', () => {
+      const markdown = '{code:css}\n.a4-page {\n  display: block;\n}\n{code}';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).toContain('codeBlock');
+      expect(nodes).toContain('"language":"css"');
+      expect(nodes).toContain('.a4-page');
+      expect(nodes).not.toContain('{code');
+    });
+
+    it('should handle {code} without language specifier on write path', () => {
+      const markdown = '{code}\nraw content here\n{code}';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).toContain('codeBlock');
+      expect(nodes).toContain('raw content here');
+      expect(nodes).not.toContain('{code}');
+    });
+
+    it('should handle indented {code:lang} block on write path', () => {
+      const markdown = '  {code:css}\n  .a4-page { display: block; }\n  {code}';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).toContain('codeBlock');
+      expect(nodes).toContain('"language":"css"');
+      expect(nodes).toContain('.a4-page');
+      expect(nodes).not.toContain('{code');
+    });
+
+    it('should handle indented {noformat} block on write path', () => {
+      const markdown = '  {noformat}\n  raw output\n  {noformat}';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).toContain('codeBlock');
+      expect(nodes).not.toContain('{noformat}');
+    });
+
+    it('should not match mid-line {code:lang}...{code} references in prose', () => {
+      const markdown = 'Specifically, {code:lang}...{code} blocks should not be converted inline.';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).toContain('{code:lang}');
+      expect(nodes).not.toContain('codeBlock');
+    });
+
+    it('should not match mid-line {noformat}...{noformat} references in prose', () => {
+      const markdown = 'The {noformat}...{noformat} pattern should not be converted inline.';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).toContain('{noformat}');
+      expect(nodes).not.toContain('codeBlock');
+    });
+
+    it('should convert consecutive # items to a numbered list on write path', () => {
+      const markdown = '# Open the editor\n# Export to PDF\n# Observe the output';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).toContain('orderedList');
+      expect(nodes).toContain('Open the editor');
+      expect(nodes).toContain('Export to PDF');
+      expect(nodes).toContain('Observe the output');
+    });
+
+    it('should not convert a single # heading to a numbered list on write path', () => {
+      const markdown = '# Summary';
+      const adf = service.markdownToADF(markdown);
+      const nodes = JSON.stringify(adf);
+      expect(nodes).toContain('heading');
+      expect(nodes).not.toContain('orderedList');
     });
   });
 

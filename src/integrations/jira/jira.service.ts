@@ -26,16 +26,27 @@ const DEFAULT_SEARCH_FIELDS = [
  * Normalize near-markdown formatting that commonly appears in generated Jira
  * ticket artifacts before converting the content to ADF.
  *
+ * Transformations (start-of-line anchored where noted):
+ * - `{code:lang}...{code}` → fenced code block with language (anchored)
+ * - `{noformat}...{noformat}` → fenced code block without language (anchored)
+ * - Consecutive `# item` lines → numbered list (`1. item`, `2. item`, …)
+ * - `* item` → `- item` bullet list normalization (anchored)
+ * - `{{text}}` → inline code `` `text` ``
+ *
  * @param markdown - Raw description content from the ticket artifact
  * @returns Markdown normalized for the ADF parser
  */
 const normalizeMarkdownForADF = (markdown: string): string =>
   markdown
-    .replaceAll(/\{code(?::([^}\n]+))?}([\s\S]*?)\{code}/g, (_match, language: string | undefined, code: string) => {
+    .replaceAll(/^[ \t]*\{code(?::([^}\n]+))?}([\s\S]*?)\{code}/gm, (_match, language: string | undefined, code: string) => {
       const lang = language?.trim() ?? '';
       return `\`\`\`${lang}\n${code.trim()}\n\`\`\``;
     })
-    .replaceAll(/\{noformat}([\s\S]*?)\{noformat}/g, (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``)
+    .replaceAll(/^[ \t]*\{noformat}([\s\S]*?)\{noformat}/gm, (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``)
+    .replaceAll(/^(# .+(?:\n# .+)+)$/gm, block => {
+      const items = block.split('\n');
+      return items.map((line, i) => `${i + 1}. ${line.replace(/^#\s+/, '')}`).join('\n');
+    })
     .replaceAll(/^[ \t]*\*\s+/gm, '- ')
     .replaceAll(/\{\{([^}]+)}}/g, (_match, content: string) => `\`${content}\``);
 

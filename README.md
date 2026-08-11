@@ -514,7 +514,7 @@ yarn test:manual test-issue-update-jira-adf-smoke WBP-3092 --description-file /U
 
 When creating Jira tickets, `wf` resolves the requested priority against Jira create metadata for the target project and issue type. Exact allowed names win first; otherwise normalized values such as `medium` can resolve to project values such as `Minor`. If priority is hidden from the create screen or Jira still rejects it, `wf` creates the ticket without a priority field.
 
-For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF before sending the create request. Inline Markdown delimiters in plain-text fields such as summaries are stripped, and inline-code spans in descriptions are preserved as Jira ADF inline code marks without leaking Jira wiki markers like `{{value}}`. Use `--dry-run` to inspect the formatting summary before creating a ticket.
+For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF before sending the create request. Inline Markdown delimiters in plain-text fields such as summaries are stripped. Before ADF conversion, the write path normalises embedded Jira wiki markup: `{code:lang}...{code}` and `{noformat}...{noformat}` blocks at the start of a line become fenced code blocks, consecutive `# item` lines become numbered lists, `* item` bullets become `- item`, and `{{text}}` becomes inline code. Mid-line prose references to these patterns are preserved as literal text. Use `--dry-run` to inspect the formatting summary before creating a ticket.
 
 ---
 
