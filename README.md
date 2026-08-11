@@ -508,7 +508,7 @@ yarn test:manual test-issue-update-jira-adf-smoke WBP-3092 --description-file /U
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the ticket key for piping |
 | `--ticket-project <project>` | Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file |
-| `-t, --tracker <tracker>` | Target tracker (jira\|github\|bitbucket) - default from config |
+| `--tracker <tracker>` | Target tracker (jira\|github\|bitbucket) - default from config |
 | `-t, --type <type>` | Issue type (task\|bug\|story\|todo) - overrides input file |
 <!-- END GENERATED COMMAND DOCS: issue:create -->
 

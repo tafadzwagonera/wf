@@ -84,7 +84,7 @@
         "description": "Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file"
       },
       {
-        "flags": "-t, --tracker <tracker>",
+        "flags": "--tracker <tracker>",
         "description": "Target tracker (jira|github|bitbucket) - default from config"
       },
       {

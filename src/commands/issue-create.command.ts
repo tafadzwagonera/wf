@@ -400,7 +400,7 @@ export class IssueCreateCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
+    flags: '--tracker <tracker>',
     description: 'Target tracker (jira|github|bitbucket) - default from config',
   })
   parseTracker(val: string): string {
