@@ -38,6 +38,7 @@ export interface CodexCliRunnerParams {
   tools?: string[];
   permissionMode?: string;
   env?: Record<string, string>;
+  codexVersion?: { major: number; minor: number; patch: number };
 }
 
 const CLI_TIMEOUT_MS = 10 * 60 * 1000;
@@ -47,6 +48,8 @@ const CODEX_ERROR_LINE_PATTERN = /^ERROR:\s*(.+)$/;
 const SIGKILL_GRACE_MS = 5000;
 const REQUIRED_CODEX_CLI_MAJOR = 0;
 const REQUIRED_CODEX_CLI_MIN_MINOR = 142;
+// SHIM: remove when 0.142-0.146 support is dropped — always use --sandbox workspace-write.
+const SANDBOX_WRITE_MIN_MINOR = 147;
 const SKIP_VERSION_CHECK_ENV = 'WF_SKIP_CLI_VERSION_CHECK';
 
 /**
@@ -93,6 +96,20 @@ export const parseCodexCliVersion = (raw: string): { major: number; minor: numbe
   const match = /(\d+)\.(\d+)\.(\d+)/.exec(raw.trim());
   if (!match) return null;
   return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
+};
+
+let cachedCodexVersion: { major: number; minor: number; patch: number } | undefined;
+
+/**
+ * Returns the Codex CLI version detected by the last `assertCodexCliAvailable` call.
+ * Returns `undefined` when the version check was skipped or has not run yet.
+ */
+export const getCodexCliVersion = (): { major: number; minor: number; patch: number } | undefined =>
+  cachedCodexVersion;
+
+/** @internal Test-only — resets the cached version for test isolation. */
+export const resetCodexCliVersionCache = (): void => {
+  cachedCodexVersion = undefined;
 };
 
 /**
@@ -192,7 +209,23 @@ export const assertCodexCliAvailable = (): void => {
   }
 
   validateVersionRange(version, REQUIRED_CODEX_CLI_MAJOR, REQUIRED_CODEX_CLI_MIN_MINOR);
+  cachedCodexVersion = version;
 };
+
+/**
+ * Returns the CLI flag(s) that grant full file-system autonomy.
+ * Before 0.147 Codex accepted `--full-auto`; from 0.147 onward it
+ * requires `--sandbox workspace-write`.
+ *
+ * SHIM: remove when 0.142-0.146 support is dropped — always use `--sandbox workspace-write`.
+ *
+ * @param version - Parsed Codex CLI version; `undefined` falls back to `--full-auto`
+ * @returns Argument tokens for the auto-approval mode
+ */
+const resolveAutoApprovalArgs = (version?: { minor: number }): string[] =>
+  version && version.minor >= SANDBOX_WRITE_MIN_MINOR
+    ? ['--sandbox', 'workspace-write']
+    : ['--full-auto'];
 
 /**
  * Builds the argument array for spawning the Codex CLI.
@@ -211,7 +244,7 @@ export const buildCodexCliArgs = (params: CodexCliRunnerParams): string[] => {
 
   const args: string[] = ['exec', '--json'];
   if (params.model) args.push('--model', params.model);
-  if (params.permissionMode === 'full-auto') args.push('--full-auto');
+  if (params.permissionMode === 'full-auto') args.push(...resolveAutoApprovalArgs(params.codexVersion));
   return args;
 };
 
@@ -298,7 +331,7 @@ const collectCodexResult = (yieldedAny: boolean, stderrChunks: Buffer[]): void =
  * @param timeoutMs - The timeout duration in milliseconds
  * @returns A `CodexCliMessage` representing a timeout error
  */
-const buildTimeoutMessage = (timeoutMs: number): CodexCliMessage => ({
+export const buildTimeoutMessage = (timeoutMs: number): CodexCliMessage => ({
   type: 'error',
   subtype: 'timeout',
   is_error: true,

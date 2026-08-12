@@ -11,7 +11,7 @@ import type {
 } from '../../../agents/interfaces';
 import { resolveModelRouting, resolveProviderModel, discoverChangedFiles } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
-import { assertCodexCliAvailable, buildCodexCliArgs, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
+import { assertCodexCliAvailable, buildCodexCliArgs, getCodexCliVersion, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
 import {
   printVerificationReport, getEnforcedFailures,
   buildVerificationFixPrompt, runProgrammaticVerification,
@@ -353,6 +353,7 @@ const buildStreamContext = (
   const cliArgs = buildCodexCliArgs({
     prompt: implementPrompt, model, cwd: repoDir,
     permissionMode: 'full-auto', sessionId: params.options.resumeProviderSessionId,
+    codexVersion: getCodexCliVersion(),
   });
   return {
     cliArgs, repoDir, implementPrompt,
@@ -420,7 +421,8 @@ export class CodexCliAdapter implements ImplementerBackend {
     this.logFixPassStart(p.passNumber, p.codeFailures.length);
     const fixPrompt = buildVerificationFixPrompt(p.codeFailures);
     const fixArgs = buildCodexCliArgs(
-      { prompt: fixPrompt, model: p.model, cwd: p.ctx.repoDir, permissionMode: 'full-auto', sessionId: p.sessionId },
+      { prompt: fixPrompt, model: p.model, cwd: p.ctx.repoDir, permissionMode: 'full-auto', sessionId: p.sessionId,
+        codexVersion: getCodexCliVersion() },
     );
     const fixCtx = { ...p.ctx, cliArgs: fixArgs, implementPrompt: fixPrompt };
     const { sessionId, wrote } = await processCodexStream(fixCtx, p.sessionId);
