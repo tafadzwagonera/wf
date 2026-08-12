@@ -43,9 +43,10 @@ const SIGKILL_GRACE_MS = 5000;
 export const CLI_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000;
 const REQUIRED_CLAUDE_CLI_MAJOR = 2;
 const REQUIRED_CLAUDE_CLI_MIN_MINOR = 1;
+const REQUIRED_CLAUDE_CLI_MIN_PATCH = 219;
 const SKIP_VERSION_CHECK_ENV = 'WF_SKIP_CLI_VERSION_CHECK';
 const CLAUDE_INSTALL_URL = 'https://docs.anthropic.com/en/docs/claude-code';
-const UPGRADE_CMD = 'npm install -g @anthropic-ai/claude-code@latest';
+const UPGRADE_CMD = 'brew upgrade --cask claude-code';
 
 /** Return type for the child process setup bundle. */
 interface ChildBundle {
@@ -135,20 +136,34 @@ const assertMinorSufficient = (vStr: string, reqStr: string): void => {
   throw new Error(`Claude CLI version ${vStr} is too old. Required: ${reqStr}. Upgrade: ${UPGRADE_CMD}. ${bypass}`);
 };
 
+const assertPatchSufficient = (vStr: string, reqStr: string): void => {
+  const bypass = `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`;
+  throw new Error(`Claude CLI version ${vStr} is too old. Required: ${reqStr}. Upgrade: ${UPGRADE_CMD}. ${bypass}`);
+};
+
 /**
- * Validates a parsed version against required major/minor constraints; throws with upgrade instructions.
+ * Validates a parsed version against required major/minor/patch constraints; throws with upgrade instructions.
  *
  * @param version - Parsed version object
- * @param required - Required major and minimum minor version numbers
+ * @param required - Required major, minimum minor, and optional minimum patch version numbers
  */
 const validateVersionRange = (
   version: { major: number; minor: number; patch: number },
-  required: { major: number; minMinor: number }
+  required: { major: number; minMinor: number; minPatch?: number },
 ): void => {
   const vStr = `${version.major}.${version.minor}.${version.patch}`;
-  const reqStr = `>=${required.major}.${required.minMinor}`;
+  const reqStr = required.minPatch !== undefined
+    ? `>=${required.major}.${required.minMinor}.${required.minPatch}`
+    : `>=${required.major}.${required.minMinor}`;
   if (version.major !== required.major) assertMajorMatch(vStr, reqStr, required);
   if (version.minor < required.minMinor) assertMinorSufficient(vStr, reqStr);
+  if (
+    required.minPatch !== undefined
+    && version.minor === required.minMinor
+    && version.patch < required.minPatch
+  ) {
+    assertPatchSufficient(vStr, reqStr);
+  }
 };
 
 /**
@@ -167,7 +182,11 @@ export const assertClaudeCliAvailable = (): void => {
       `Unrecognised Claude CLI version format: "${raw.trim()}". Set ${SKIP_VERSION_CHECK_ENV}=1 to bypass this check.`
     );
   }
-  validateVersionRange(version, { major: REQUIRED_CLAUDE_CLI_MAJOR, minMinor: REQUIRED_CLAUDE_CLI_MIN_MINOR });
+  validateVersionRange(version, {
+    major: REQUIRED_CLAUDE_CLI_MAJOR,
+    minMinor: REQUIRED_CLAUDE_CLI_MIN_MINOR,
+    minPatch: REQUIRED_CLAUDE_CLI_MIN_PATCH,
+  });
 };
 
 /**

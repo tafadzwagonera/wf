@@ -1133,7 +1133,10 @@ export class StageAgentService {
       review: z.toJSONSchema(codeReviewSchema),
     };
     const schema = schemaMap[stage];
-    return schema ? JSON.stringify(schema) : undefined;
+    if (!schema || typeof schema !== 'object') return undefined;
+    const sanitised = { ...(schema as Record<string, unknown>) };
+    delete sanitised['$schema'];
+    return JSON.stringify(sanitised);
   }
 
   private async runStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {

@@ -1671,6 +1671,40 @@ describe('StageAgentService', () => {
       expect((mainCallArgs[0] as Record<string, unknown>).jsonSchema).toBeDefined();
     });
 
+    it('review stage CLI call strips $schema from jsonSchema payload', async () => {
+      buildCliArgs.mockClear();
+      spawnCli
+        .mockImplementationOnce(async function* () {
+          yield {
+            type: 'result',
+            subtype: 'success',
+            result: JSON.stringify({
+              summary: 'Looks good overall',
+              issues: [],
+              suggestions: [],
+              approved: true,
+            }),
+            session_id: 'claude-review-session-100',
+          };
+        })
+        .mockImplementationOnce(async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: 'Approved.' }] },
+          };
+        });
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await service.reviewCode('diff --git a/f b/f', [], '/tmp/repo');
+
+      const mainCallArgs = buildCliArgs.mock.calls[0];
+      const jsonSchema = (mainCallArgs[0] as Record<string, unknown>).jsonSchema as string;
+      expect(jsonSchema).toBeDefined();
+      expect(jsonSchema).not.toContain('$schema');
+    });
+
     it('tryFinalizeCliPass accepts valid JSON result on plan stage', () => {
       const service = new StageAgentService(createClaudeCliPlanConfigService());
       jest.spyOn(console, 'log').mockImplementation(() => {});

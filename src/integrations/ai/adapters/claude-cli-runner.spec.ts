@@ -52,7 +52,7 @@ describe('claude-cli-runner', () => {
     it('does not throw when claude is available', () => {
       mockExecSync
         .mockReturnValueOnce(Buffer.from('/usr/local/bin/claude'))
-        .mockReturnValueOnce('2.1.80 (Claude Code)' as any);
+        .mockReturnValueOnce('2.1.228 (Claude Code)' as any);
       expect(() => assertClaudeCliAvailable()).not.toThrow();
     });
 
@@ -72,6 +72,20 @@ describe('claude-cli-runner', () => {
     it('throws when the installed minor version is too old', () => {
       mockExecSync.mockReturnValueOnce(Buffer.from('/usr/local/bin/claude')).mockReturnValueOnce('2.0.5' as any);
       expect(() => assertClaudeCliAvailable()).toThrow(/2\.0\.5 is too old/);
+    });
+
+    it('throws when the installed patch version is too old', () => {
+      mockExecSync
+        .mockReturnValueOnce(Buffer.from('/usr/local/bin/claude'))
+        .mockReturnValueOnce('2.1.80 (Claude Code)' as any);
+      expect(() => assertClaudeCliAvailable()).toThrow(/2\.1\.80 is too old/);
+    });
+
+    it('does not throw when the installed patch matches the minimum', () => {
+      mockExecSync
+        .mockReturnValueOnce(Buffer.from('/usr/local/bin/claude'))
+        .mockReturnValueOnce('2.1.219 (Claude Code)' as any);
+      expect(() => assertClaudeCliAvailable()).not.toThrow();
     });
 
     it('does not throw when the installed minor version is newer than the minimum', () => {
