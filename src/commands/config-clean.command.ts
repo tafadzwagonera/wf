@@ -155,27 +155,24 @@ export class ConfigCleanCommand extends CommandRunner {
   }
 
   private buildFilterPredicates(options?: ConfigCleanOptions): SessionPredicate[] {
-    const rules: [boolean, () => SessionPredicate][] = [
-      [Boolean(options?.sessionId), () => s => s.sessionId === options!.sessionId],
-      [Boolean(options?.ticket), () => s => s.ticketKey === options!.ticket],
-      [Boolean(options?.before), () => createdBefore(options!.before!)],
-      [Boolean(options?.after), () => createdAfter(options!.after!)],
-      [Boolean(options?.pattern), () => matchesPattern(options!.pattern!)],
-      [Boolean(options?.expired), () => s => this.sessionService.isExpired(s)],
-    ];
+    const { sessionId, ticket, before, after, pattern, expired } = options ?? {};
+    const predicates: SessionPredicate[] = [];
 
-    return rules
-      .filter(([active]) => active)
-      .map(([, factory]) => factory());
+    if (sessionId) predicates.push(s => s.sessionId === sessionId);
+    if (ticket) predicates.push(s => s.ticketKey === ticket);
+    if (before) predicates.push(createdBefore(before));
+    if (after) predicates.push(createdAfter(after));
+    if (pattern) predicates.push(matchesPattern(pattern));
+    if (expired) predicates.push(s => this.sessionService.isExpired(s));
+
+    return predicates;
   }
 
   private displayMatchedSessions(sessions: SessionState[]): void {
     console.log(chalk.bold.cyan(`\nMatched ${sessions.length} session(s):\n`));
     for (const session of sessions) {
       const stageCount = Object.keys(session.stages).length;
-      let status = 'active';
-      if (session.completedAt) status = 'completed';
-      if (!session.completedAt && this.sessionService.isExpired(session)) status = 'expired';
+      const status = this.sessionStatus(session);
       console.log(
         chalk.gray(
           `  ${session.ticketKey}  ${session.sessionId}  created: ${session.createdAt}  stages: ${stageCount}  status: ${status}`,
@@ -185,22 +182,23 @@ export class ConfigCleanCommand extends CommandRunner {
     console.log();
   }
 
+  private sessionStatus(session: SessionState): string {
+    if (session.completedAt) return 'completed';
+    if (this.sessionService.isExpired(session)) return 'expired';
+    return 'active';
+  }
+
   private async confirmOrThrow(count: number, force?: boolean): Promise<void> {
-    const isInteractive = process.stdout.isTTY && process.stdin.isTTY;
-
-    if (!force && isInteractive) {
-      const { confirm } = await inquirer.prompt([
-        { type: 'confirm', name: 'confirm', message: `Delete ${count} session(s)?`, prefix: ' ', default: false },
-      ]);
-      if (!confirm) {
-        console.log(chalk.yellow('Aborted.'));
-        throw new ValidationError('User cancelled deletion.');
-      }
-    }
-
-    if (!force && !isInteractive) {
+    if (force) return;
+    if (!(process.stdout.isTTY && process.stdin.isTTY)) {
       throw new ValidationError('Non-interactive mode requires --force to delete sessions.');
     }
+    const { confirm } = await inquirer.prompt([
+      { type: 'confirm', name: 'confirm', message: `Delete ${count} session(s)?`, prefix: ' ', default: false },
+    ]);
+    if (confirm) return;
+    console.log(chalk.yellow('Aborted.'));
+    throw new ValidationError('User cancelled deletion.');
   }
 
   private async deleteSessions(sessions: SessionState[]): Promise<number> {
