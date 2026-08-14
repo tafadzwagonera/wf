@@ -64,6 +64,102 @@ describe('ClaudeCliAdapter', () => {
     expect(mockBuildCliArgs.mock.calls[0][0].appendSystemPrompt).toContain('Repository conventions (repo):');
   });
 
+  describe('errored result reporting', () => {
+    const runWith = async (
+      resultMessage: Record<string, unknown>,
+      configOverrides: Record<string, unknown> = {}
+    ) => {
+      mockSpawnCli.mockReturnValue((async function* () {
+        yield resultMessage as never;
+      })());
+      const adapter = new ClaudeCliAdapter(createMockConfigService(configOverrides) as any);
+      return adapter.generateAndVerify({
+        ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+        planArtifact: {
+          plan: {
+            action: 'feature', summary: 'test', steps: ['step 1'], estimatedComplexity: 'low',
+            affectedFiles: [], affectedRepositories: [], risks: [],
+          },
+          action: 'feature',
+          path: '/tmp/p.json',
+        },
+        options: { trackerName: 'jira', repoDir: '/repo' },
+        verificationScripts: [],
+        repoFiles: [],
+        repoName: 'repo',
+        trackedFilePaths: [],
+        conventionsSection: 'conventions',
+      } as never);
+    };
+
+    it('surfaces errors[] and terminal_reason instead of "unknown error"', async () => {
+      await expect(runWith({
+        type: 'result',
+        is_error: true,
+        subtype: 'error_during_execution',
+        terminal_reason: 'aborted_tools',
+        errors: ['tool execution aborted'],
+        num_turns: 12,
+      })).rejects.toThrow(/tool execution aborted.*terminal_reason=aborted_tools.*subtype=error_during_execution/);
+    });
+
+    it('names a max-turns failure that carries no result text', async () => {
+      await expect(runWith({
+        type: 'result', is_error: true, subtype: 'error_max_turns', num_turns: 40,
+      })).rejects.toThrow(/subtype=error_max_turns \| turns=40/);
+    });
+
+    it('still falls back to "unknown error" when the CLI reports nothing at all', async () => {
+      await expect(runWith({ type: 'result', is_error: true }))
+        .rejects.toThrow('Claude CLI failed: unknown error');
+    });
+
+    it('prefers the result string when the CLI provides one', async () => {
+      await expect(runWith({ type: 'result', is_error: true, result: 'explicit reason' }))
+        .rejects.toThrow(/Claude CLI failed: explicit reason/);
+    });
+  });
+
+  describe('implement stage timeouts', () => {
+    const yieldOk = () => (async function* () {
+      yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1 } as never;
+    })();
+
+    const generate = async (configOverrides: Record<string, unknown>) => {
+      mockSpawnCli.mockImplementation(() => yieldOk());
+      const adapter = new ClaudeCliAdapter(createMockConfigService(configOverrides) as any);
+      await adapter.generateAndVerify({
+        ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+        planArtifact: {
+          plan: {
+            action: 'feature', summary: 'test', steps: ['step 1'], estimatedComplexity: 'low',
+            affectedFiles: [], affectedRepositories: [], risks: [],
+          },
+          action: 'feature',
+          path: '/tmp/p.json',
+        },
+        options: { trackerName: 'jira', repoDir: '/repo' },
+        verificationScripts: [],
+        repoFiles: [],
+        repoName: 'repo',
+        trackedFilePaths: [],
+        conventionsSection: 'conventions',
+      } as never);
+    };
+
+    it('forwards configured implement timeouts to spawnCli', async () => {
+      await generate({ 'stages.implement.timeoutMs': 1800000, 'stages.implement.inactivityTimeoutMs': 600000 });
+      expect(mockSpawnCli.mock.calls[0][4]).toBe(1800000);
+      expect(mockSpawnCli.mock.calls[0][5]).toBe(600000);
+    });
+
+    it('falls back to runner defaults when implement timeouts are unset', async () => {
+      await generate({});
+      expect(mockSpawnCli.mock.calls[0][4]).toBe(cliRunner.CLI_TIMEOUT_MS);
+      expect(mockSpawnCli.mock.calls[0][5]).toBe(cliRunner.CLI_INACTIVITY_TIMEOUT_MS);
+    });
+  });
+
   it('includes task brief in continuation prompts', async () => {
     const mockStream = (sid?: string) =>
       (async function* () {

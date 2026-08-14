@@ -636,6 +636,53 @@ describe('StageAgentService', () => {
       expect(spawnCli).toHaveBeenCalledTimes(2);
     });
 
+    it('records each unusable pass and the stall to the log file', async () => {
+      const logFileWriter = require('../../shared/logger/log-file-writer');
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+
+      async function* pass() {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'thinking...' }] }, session_id: 'sess_log_1' };
+      }
+      spawnCli.mockImplementationOnce(pass).mockImplementationOnce(pass);
+
+      const service = new StageAgentService(createCliConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      await expect(runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' })).rejects.toThrow();
+
+      const lines = appendSpy.mock.calls.map(call => String(call[1]));
+      const passLines = lines.filter(line => line.startsWith('cli.pass_unusable'));
+      expect(passLines.length).toBeGreaterThanOrEqual(1);
+      expect(passLines[0]).toContain('source=assistant_text');
+      expect(passLines[0]).toContain('pass=1');
+
+      const stallLine = lines.find(line => line.startsWith('cli.stall'));
+      expect(stallLine).toContain('workload not decreasing');
+      expect(stallLine).not.toContain('\n');
+
+      appendSpy.mockRestore();
+    });
+
+    it('stall error carries pass count and diagnostics in details', async () => {
+      async function* pass() {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'thinking...' }] }, session_id: 'sess_detail' };
+      }
+      spawnCli.mockImplementationOnce(pass).mockImplementationOnce(pass);
+
+      const service = new StageAgentService(createCliConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      try {
+        await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
+        throw new Error('should not reach');
+      } catch (error: unknown) {
+        expect((error as any).details?.passes).toBe(2);
+        expect((error as any).details?.sessionId).toBe('sess_detail');
+      }
+    });
+
     it('stall error includes sessionId from CLI stream', async () => {
       async function* firstPass() {
         yield { type: 'assistant', message: { content: [{ type: 'text', text: 'thinking...' }] }, session_id: 'sess_stall_123' };

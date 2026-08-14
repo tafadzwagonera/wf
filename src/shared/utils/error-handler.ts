@@ -74,6 +74,7 @@ export class ErrorHandler {
         parse: 'The AI response could not be parsed. This is usually transient — retry the command.',
         truncation: 'The AI response was cut short. Reduce prompt/context size or increase the token budget where supported.',
         stall: 'The AI agent stalled without producing output. Retry or check agent configuration.',
+        config: 'The AI SDK rejected the request before sending it. Check the stage\'s model and maxTokens in wf.config.* — retrying will not help until they change.',
       };
       const categorySuggestion = categorySuggestions[error.category];
       if (categorySuggestion) return categorySuggestion;
@@ -101,6 +102,18 @@ export class ErrorHandler {
   }
 
   /**
+   * Truncates an over-long `response` field in place so a full agent transcript
+   * never floods the terminal.
+   *
+   * @param sanitized - Mutable copy of error details
+   */
+  private static truncateResponseField(sanitized: Record<string, unknown>): void {
+    const response = sanitized['response'];
+    if (typeof response !== 'string' || response.length <= 200) return;
+    sanitized['response'] = `${response.slice(0, 200)}... [truncated, ${response.length} chars total]`;
+  }
+
+  /**
    * Returns a sanitized shallow copy of error details safe for display.
    * Truncates long response strings and flattens nested Error objects.
    * Never mutates the original details object.
@@ -111,11 +124,13 @@ export class ErrorHandler {
   private static sanitizeDetailsForDisplay(details: unknown): unknown {
     if (!details) return undefined;
     if (typeof details !== 'object') return details;
-    const sanitized = { ...(details as Record<string, unknown>) };
-    if (typeof sanitized['response'] === 'string' && sanitized['response'].length > 200) {
-      const totalLength = sanitized['response'].length;
-      sanitized['response'] = sanitized['response'].slice(0, 200) + `... [truncated, ${totalLength} chars total]`;
+    // An Error spreads to {} because message/stack are non-enumerable, which silently
+    // erased the cause of every non-API SDK failure. Lift the useful fields by name.
+    if (details instanceof Error) {
+      return { name: details.name, message: details.message, stack: details.stack };
     }
+    const sanitized = { ...(details as Record<string, unknown>) };
+    ErrorHandler.truncateResponseField(sanitized);
     if (sanitized['error'] !== null && typeof sanitized['error'] === 'object' && 'message' in sanitized['error']) {
       sanitized['error'] = (sanitized['error'] as { message: string }).message;
     }

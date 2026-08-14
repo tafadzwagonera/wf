@@ -284,6 +284,36 @@ describe('PlanStageService', () => {
     expect(stageAgentService.generatePlan).toHaveBeenCalledWith(expect.objectContaining({ onProgress: undefined }));
   });
 
+  it('records the discarded agent error before falling back', async () => {
+    const logFileWriter = require('../../shared/logger/log-file-writer');
+    const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+
+    const { service, aiService, stageAgentService } = await buildService(true);
+    const stallError = new AiProviderError(
+      'Claude CLI finished without returning a result after 2 pass(es) — workload not decreasing. Diagnostics:\nno result message',
+      { passes: 2, sessionId: 'sess_stall_plan' },
+      true,
+      'stall'
+    );
+    (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(stallError);
+    (aiService.generatePlan as jest.Mock).mockResolvedValueOnce(mockPlan);
+
+    await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-401',
+      affectedRepositories: ['repo-a'],
+    });
+
+    const line = appendSpy.mock.calls.map(call => String(call[1])).find(l => l.startsWith('plan.fallback'));
+    expect(line).toContain('reason=no result');
+    expect(line).toContain('category=stall');
+    expect(line).toContain('session=sess_stall_plan');
+    expect(line).toContain('workload not decreasing');
+    expect(line).not.toContain('\n');
+
+    appendSpy.mockRestore();
+  });
+
   it('falls back to standard completion when agent plan repair fails', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
     const proseError = new AiProviderError(

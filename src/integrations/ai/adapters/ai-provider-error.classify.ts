@@ -27,5 +27,23 @@ export const classifyAiSdkError = (error: unknown): AiProviderErrorCategory | un
 
   if (error instanceof Error && /\btimed?\s*out\b/i.test(error.message)) return 'timeout';
 
+  // Client-side SDK errors are thrown before any request leaves the process, so the
+  // request parameters themselves are invalid. Retrying cannot help.
+  if (isClientSideSdkError(error)) return 'config';
+
   return undefined;
+};
+
+/**
+ * Detects SDK errors raised locally during request validation rather than returned by
+ * the provider. These are base SDK error types that are not APIError subclasses — e.g.
+ * the Anthropic SDK rejecting a non-streaming request whose max_tokens implies a
+ * response longer than its 10-minute non-streaming ceiling.
+ *
+ * @param error - Unknown thrown value from an AI SDK call
+ * @returns True when the SDK rejected the request before dispatching it
+ */
+const isClientSideSdkError = (error: unknown): boolean => {
+  if (error instanceof Anthropic.APIError || error instanceof OpenAI.APIError) return false;
+  return error instanceof Anthropic.AnthropicError || error instanceof OpenAI.OpenAIError;
 };

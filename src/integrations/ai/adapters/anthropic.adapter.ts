@@ -45,6 +45,14 @@ const isTemperatureRestricted = (model: string): boolean =>
   /^claude-(opus-4-[7-9]|opus-[5-9]|sonnet-[5-9]|fable-|mythos-)/.test(model);
 
 /**
+ * Largest max_tokens the SDK accepts on a non-streaming request. It derives an expected
+ * duration of `60min * max_tokens / 128000` and refuses anything over its 10-minute
+ * non-streaming ceiling, so 128000/6 is the cutoff. Above this we must stream, otherwise
+ * the SDK throws locally before the request is ever sent.
+ */
+const NON_STREAMING_MAX_TOKENS = 21333;
+
+/**
  * Builds the messages.create parameter object for a single-turn request.
  * @param model - Resolved model identifier
  * @param maxTokens - Maximum tokens for the response
@@ -103,6 +111,22 @@ const wrapApiError = (error: InstanceType<typeof Anthropic.APIError>): AiProvide
   new AiProviderError(`Claude API error: ${error.message}`, { status: error.status }, true, classifyAiSdkError(error));
 
 /**
+ * Sends the request, streaming when max_tokens exceeds what the SDK allows
+ * non-streaming. Both paths resolve to the same final message shape.
+ *
+ * @param client - Initialized Anthropic client
+ * @param params - Create params built by buildCreateParams
+ * @returns The completed Anthropic message
+ */
+const sendMessages = async (
+  client: Anthropic,
+  params: Anthropic.MessageCreateParamsNonStreaming
+): Promise<Anthropic.Messages.Message> =>
+  params.max_tokens > NON_STREAMING_MAX_TOKENS
+    ? client.messages.stream(params).finalMessage()
+    : client.messages.create(params);
+
+/**
  * Calls the Anthropic messages API and maps the result to AIResponse.
  * @param client - Initialized Anthropic client
  * @param params - Create params built by buildCreateParams
@@ -117,13 +141,52 @@ const callMessages = async (
   errorMsg: string
 ): Promise<AIResponse> => {
   try {
-    const response = await client.messages.create(params);
-    return mapAnthropicResponse(response, model);
+    return mapAnthropicResponse(await sendMessages(client, params), model);
   } catch (error) {
     if (error instanceof Anthropic.APIError) throw wrapApiError(error);
-    throw new AiProviderError(errorMsg, error, true, classifyAiSdkError(error));
+    throw wrapNonApiError(error, params, model, errorMsg);
   }
 };
+
+/**
+ * Wraps a non-APIError failure, preserving the cause and the request that produced it.
+ * A `config` category means the SDK rejected the request locally, so it is not recoverable.
+ *
+ * @param error - The caught non-APIError value
+ * @param params - Request params that produced the failure
+ * @param model - Model identifier for the request
+ * @param errorMsg - Error message for the wrapped error
+ * @returns An AiProviderError carrying diagnosable details
+ */
+const wrapNonApiError = (
+  error: unknown,
+  params: Anthropic.MessageCreateParamsNonStreaming,
+  model: string,
+  errorMsg: string
+): AiProviderError => {
+  const category = classifyAiSdkError(error);
+  return new AiProviderError(errorMsg, buildNonApiErrorDetails(error, params, model), category !== 'config', category);
+};
+
+/**
+ * Builds details for a non-API failure. The raw Error is unusable once serialized, and
+ * the request parameters are what makes a client-side rejection diagnosable.
+ *
+ * @param error - The caught non-APIError value
+ * @param params - Request params that produced the failure
+ * @param model - Model identifier for the request
+ * @returns Serializable details describing the failure and the request that caused it
+ */
+const buildNonApiErrorDetails = (
+  error: unknown,
+  params: Anthropic.MessageCreateParamsNonStreaming,
+  model: string
+): Record<string, unknown> => ({
+  errorName: error instanceof Error ? error.name : typeof error,
+  message: error instanceof Error ? error.message : String(error),
+  model,
+  maxTokens: params.max_tokens,
+});
 
 @Injectable()
 export class AnthropicAdapter implements LlmAdapter, OnModuleInit {

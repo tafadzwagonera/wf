@@ -11,7 +11,7 @@ import type {
 } from '../../../agents/interfaces';
 import { resolveModelRouting, resolveProviderModel, discoverChangedFiles } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
-import { assertCodexCliAvailable, buildCodexCliArgs, getCodexCliVersion, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
+import { assertCodexCliAvailable, buildCodexCliArgs, CLI_INACTIVITY_TIMEOUT_MS, CLI_TIMEOUT_MS, getCodexCliVersion, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
 import {
   printVerificationReport, getEnforcedFailures,
   buildVerificationFixPrompt, runProgrammaticVerification,
@@ -57,6 +57,8 @@ type StreamContext = {
   touchedFiles: Set<string>;
   activityState: ActivityState;
   verificationScripts: VerificationScript[];
+  timeoutMs: number;
+  inactivityTimeoutMs: number;
 };
 
 /**
@@ -281,7 +283,9 @@ const processCodexStream = async (
 ): Promise<{ sessionId: string | undefined; wrote: boolean }> => {
   let sessionId = initialSessionId;
   let wrote = false;
-  for await (const message of spawnCodex(ctx.cliArgs, ctx.repoDir, ctx.implementPrompt)) {
+  for await (const message of spawnCodex(
+    ctx.cliArgs, ctx.repoDir, ctx.implementPrompt, undefined, ctx.timeoutMs, ctx.inactivityTimeoutMs,
+  )) {
     const result = processCodexMessage(message, ctx);
     if (result.sessionId) sessionId = result.sessionId;
     if (result.wrote) wrote = true;
@@ -348,6 +352,7 @@ type RunCodexStreamResult = { sessionId: string | undefined; touchedFiles: Set<s
 
 const buildStreamContext = (
   params: GenerateAndVerifyParams, repoDir: string, model: string, activityState: ActivityState,
+  timeoutMs: number, inactivityTimeoutMs: number,
 ): StreamContext => {
   const implementPrompt = buildCodexImplementPrompt(params, repoDir);
   const cliArgs = buildCodexCliArgs({
@@ -356,15 +361,16 @@ const buildStreamContext = (
     codexVersion: getCodexCliVersion(),
   });
   return {
-    cliArgs, repoDir, implementPrompt,
+    cliArgs, repoDir, implementPrompt, timeoutMs, inactivityTimeoutMs,
     touchedFiles: new Set<string>(), activityState, verificationScripts: params.verificationScripts,
   };
 };
 
 const runCodexStream = async (
   params: GenerateAndVerifyParams, repoDir: string, model: string, activityState: ActivityState,
+  timeoutMs: number, inactivityTimeoutMs: number,
 ): Promise<RunCodexStreamResult> => {
-  const ctx = buildStreamContext(params, repoDir, model, activityState);
+  const ctx = buildStreamContext(params, repoDir, model, activityState, timeoutMs, inactivityTimeoutMs);
   const { sessionId } = await processCodexStream(ctx, params.options.resumeProviderSessionId);
   return { sessionId, touchedFiles: ctx.touchedFiles };
 };
@@ -376,6 +382,15 @@ const runCodexStream = async (
 export class CodexCliAdapter implements ImplementerBackend {
   constructor(private readonly configService: ConfigService) {}
 
+  private resolveImplementTimeouts(): { timeoutMs: number; inactivityTimeoutMs: number } {
+    return {
+      timeoutMs: this.configService.get<number>('stages.implement.timeoutMs', CLI_TIMEOUT_MS),
+      inactivityTimeoutMs: this.configService.get<number>(
+        'stages.implement.inactivityTimeoutMs', CLI_INACTIVITY_TIMEOUT_MS,
+      ),
+    };
+  }
+
   async generateAndVerify(
     params: GenerateAndVerifyParams,
   ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
@@ -384,7 +399,10 @@ export class CodexCliAdapter implements ImplementerBackend {
     const model = resolveCodexModel(params.options, params.planArtifact, this.configService);
     console.log(chalk.bold.cyan(`\n  [${CODEX_ADAPTER_LABEL}] Running Codex CLI agent in ${repoDir}...`));
     const activityState: ActivityState = { verificationOutcomes: [] };
-    const { sessionId, touchedFiles } = await runCodexStream(params, repoDir, model, activityState);
+    const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
+    const { sessionId, touchedFiles } = await runCodexStream(
+      params, repoDir, model, activityState, timeoutMs, inactivityTimeoutMs,
+    );
     await discoverChangedFiles(repoDir, touchedFiles);
     return this.finalizeCodexSession(params, activityState, touchedFiles, sessionId, model);
   }
@@ -445,9 +463,11 @@ export class CodexCliAdapter implements ImplementerBackend {
   private buildBaseStreamContext(
     params: GenerateAndVerifyParams, activityState: ActivityState, touchedFiles: Set<string>, repoDir: string,
   ): StreamContext {
+    const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
     return {
       cliArgs: [], repoDir, implementPrompt: '', touchedFiles,
       activityState, verificationScripts: params.verificationScripts,
+      timeoutMs, inactivityTimeoutMs,
     };
   }
 

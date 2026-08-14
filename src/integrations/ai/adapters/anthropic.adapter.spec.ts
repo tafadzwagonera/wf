@@ -76,6 +76,68 @@ describe('AnthropicAdapter', () => {
       );
     });
 
+    it('streams instead of throwing when maxTokens exceeds the non-streaming ceiling', async () => {
+      const adapter = createAdapter();
+      const finalMessage = jest.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'streamed plan' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+      const mockStream = jest.fn().mockReturnValue({ finalMessage });
+      const mockCreate = jest.fn();
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate, stream: mockStream },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model = 'claude-opus-5';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 128000;
+
+      const result = await adapter.execute({ prompt: 'hello', systemPrompt: 'sys' });
+
+      expect(mockStream).toHaveBeenCalledWith(expect.objectContaining({ max_tokens: 128000 }));
+      expect(mockCreate).not.toHaveBeenCalled();
+      expect(result.content).toBe('streamed plan');
+    });
+
+    it('uses the non-streaming path at or below the ceiling', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+      const mockStream = jest.fn();
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate, stream: mockStream },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model = 'claude-opus-5';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 21333;
+
+      await adapter.execute({ prompt: 'hello', systemPrompt: 'sys' });
+
+      expect(mockCreate).toHaveBeenCalled();
+      expect(mockStream).not.toHaveBeenCalled();
+    });
+
+    it('reports the cause, model and maxTokens when a non-API error is thrown', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockRejectedValue(new Error('client-side rejection'));
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model = 'claude-opus-5';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await expect(adapter.execute({ prompt: 'hello', systemPrompt: 'sys' })).rejects.toMatchObject({
+        details: {
+          errorName: 'Error',
+          message: 'client-side rejection',
+          model: 'claude-opus-5',
+          maxTokens: 4096,
+        },
+      });
+    });
+
     it('surfaces non-text content blocks as empty-response diagnostics', async () => {
       const adapter = createAdapter();
       const mockCreate = jest.fn().mockResolvedValue({

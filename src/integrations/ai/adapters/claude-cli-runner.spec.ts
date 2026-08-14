@@ -7,6 +7,7 @@ import {
   parseNdjsonLine,
   spawnCli,
 } from './claude-cli-runner';
+import * as logFileWriter from '../../../shared/logger/log-file-writer';
 import { execSync, spawn } from 'child_process';
 import { EventEmitter, Readable, Writable } from 'stream';
 
@@ -560,6 +561,214 @@ describe('claude-cli-runner', () => {
       await consumePromise;
 
       expect(child.kill).toHaveBeenCalled();
+    });
+  });
+
+  describe('spawnCli diagnostics', () => {
+    let appendSpy: jest.SpyInstance;
+
+    const linesFor = (prefix: string): string[] =>
+      appendSpy.mock.calls.map(call => String(call[1])).filter(line => line.startsWith(prefix));
+
+    const drain = async (gen: AsyncGenerator<ClaudeCliMessage, void, undefined>): Promise<ClaudeCliMessage[]> => {
+      const messages: ClaudeCliMessage[] = [];
+      for await (const msg of gen) messages.push(msg);
+      return messages;
+    };
+
+    /**
+     * Yields to the event loop so the generator body runs. An async generator is lazy:
+     * until the first `next()`, no child listeners are attached, so events emitted
+     * before this resolves are lost (stderr) or thrown as unhandled ('error').
+     */
+    const started = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
+
+    beforeEach(() => {
+      appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('records the model, resolved timeouts, and cwd on spawn', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(
+        ['-p', '--model', 'claude-opus-5', '--append-system-prompt', 'x'.repeat(12043)],
+        '/repo',
+        'prompt',
+        undefined,
+        1800000,
+        120000
+      );
+      child.stdout.push(null);
+      await drain(gen);
+
+      const [spawnLine] = linesFor('cli.spawn ');
+      expect(spawnLine).toContain('model=claude-opus-5');
+      expect(spawnLine).toContain('inactivityTimeoutMs=120000');
+      expect(spawnLine).toContain('cwd=/repo');
+      expect(spawnLine).toContain('<12043 chars>');
+    });
+
+    it('records an inactivity kill and still yields the stall message', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'prompt', undefined, 60000, 50);
+      child.stdout.push('{"type":"system","subtype":"init"}\n');
+      const messages = await drain(gen);
+
+      expect(linesFor('cli.kill ')[0]).toContain('reason=inactivity');
+      const timeoutMsg = messages.find(m => m.subtype === 'timeout');
+      expect(timeoutMsg?.result).toMatch(/stalled/i);
+      expect(timeoutMsg?.result).toMatch(/inactivityTimeoutMs/);
+    });
+
+    it('records a wall-clock kill distinctly from an inactivity kill', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'prompt', undefined, 50, 60000);
+      child.stdout.push('{"type":"system","subtype":"init"}\n');
+      const messages = await drain(gen);
+
+      expect(linesFor('cli.kill ')[0]).toContain('reason=wall-clock');
+      expect(messages.find(m => m.subtype === 'timeout')?.result).toMatch(/wall-clock/i);
+    });
+
+    it('records only the first kill reason when both timers are armed', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'prompt', undefined, 60000, 50);
+      child.stdout.push('{"type":"system","subtype":"init"}\n');
+      await drain(gen);
+
+      const killLines = linesFor('cli.kill ');
+      expect(killLines).toHaveLength(1);
+      expect(killLines[0]).toContain('reason=inactivity');
+    });
+
+    it('records a clean exit at DEBUG and a signalled exit at WARN', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'prompt', undefined, 5000);
+      child.stdout.push(null);
+      await drain(gen);
+      child.emit('exit', 0, null);
+
+      const cleanCall = appendSpy.mock.calls.find(call => String(call[1]).startsWith('cli.exit '));
+      expect(cleanCall?.[0]).toBe('DEBUG');
+      expect(cleanCall?.[1]).toContain('code=0');
+
+      // cli.done must also be DEBUG on a clean run with no stderr — cleanup is not a problem signal
+      const doneCall = appendSpy.mock.calls.find(call => String(call[1]).startsWith('cli.done '));
+      expect(doneCall?.[0]).toBe('DEBUG');
+    });
+
+    it('records a signalled exit at WARN', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'prompt', undefined, 5000);
+      child.stdout.push(null);
+      await drain(gen);
+      child.emit('exit', null, 'SIGTERM');
+
+      const signalledCall = appendSpy.mock.calls.find(call => String(call[1]).startsWith('cli.exit '));
+      expect(signalledCall?.[0]).toBe('WARN');
+      expect(signalledCall?.[1]).toContain('signal=SIGTERM');
+    });
+
+    it('captures stderr even when the run produced output', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'prompt', undefined, 5000);
+      const drained = drain(gen);
+      await started();
+      child.stderr.emit('data', Buffer.from('deprecation warning'));
+      child.stdout.push('{"type":"result","result":"done"}\n');
+      child.stdout.push(null);
+      await drained;
+
+      expect(linesFor('cli.done ')[0]).toContain('deprecation warning');
+    });
+
+    it('captures stderr on the timeout path', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'prompt', undefined, 60000, 50);
+      const drained = drain(gen);
+      await started();
+      child.stderr.emit('data', Buffer.from('stderr before the kill'));
+      child.stdout.push('{"type":"system","subtype":"init"}\n');
+      await drained;
+
+      expect(linesFor('cli.done ')[0]).toContain('stderr before the kill');
+    });
+
+    it('reports a spawn failure explicitly instead of looking like a stall', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'prompt', undefined, 5000);
+      const drained = drain(gen);
+      await started();
+      child.emit('error', new Error('spawn claude ENOENT'));
+      child.stdout.push(null);
+
+      await expect(drained).rejects.toThrow(/Failed to spawn claude.*ENOENT/);
+      expect(linesFor('cli.spawn_error ')).toHaveLength(1);
+    });
+
+    it('does not throw for a spawn error once messages were produced', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'prompt', undefined, 5000);
+      const drained = drain(gen);
+      await started();
+      child.stdout.push('{"type":"result","result":"done"}\n');
+      child.emit('error', new Error('spawn claude ENOENT'));
+      child.stdout.push(null);
+
+      await expect(drained).resolves.toHaveLength(1);
+    });
+
+    it('records the run summary when the consumer breaks early', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'prompt', undefined, 5000);
+      child.stdout.push('{"type":"assistant","result":"hi"}\n');
+
+      for await (const _msg of gen) break;
+
+      expect(linesFor('cli.done ')).toHaveLength(1);
+    });
+
+    it('records a sigint kill and yields no timeout message', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'prompt', undefined, 60000, 60000);
+      child.stdout.push('{"type":"assistant","result":"hi"}\n');
+
+      const messages: ClaudeCliMessage[] = [];
+      const consumePromise = (async () => {
+        for await (const msg of gen) messages.push(msg);
+      })();
+
+      await new Promise(resolve => setImmediate(resolve));
+      process.emit('SIGINT', 'SIGINT');
+      await consumePromise;
+
+      expect(linesFor('cli.kill ')[0]).toContain('reason=sigint');
+      expect(messages.find(m => m.subtype === 'timeout')).toBeUndefined();
     });
   });
 });

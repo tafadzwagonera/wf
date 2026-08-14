@@ -1,5 +1,5 @@
 import {
-  assertCodexCliAvailable, buildCodexCliArgs, buildTimeoutMessage,
+  assertCodexCliAvailable, buildCodexCliArgs, buildInactivityTimeoutMessage, buildTimeoutMessage,
   extractCodexErrorMessages, getCodexCliVersion, parseCodexCliVersion,
   resetCodexCliVersionCache,
 } from './codex-cli-runner';
@@ -250,6 +250,22 @@ describe('codex-cli-runner', () => {
 
     it('rounds fractional seconds', () => {
       const msg = buildTimeoutMessage(90_500);
+      expect(msg.result).toContain('91s');
+    });
+  });
+
+  describe('buildInactivityTimeoutMessage', () => {
+    it('produces an inactivity_timeout subtype with the timeout in seconds', () => {
+      const msg = buildInactivityTimeoutMessage(120_000);
+      expect(msg.type).toBe('error');
+      expect(msg.subtype).toBe('inactivity_timeout');
+      expect(msg.is_error).toBe(true);
+      expect(msg.result).toContain('120s');
+      expect(msg.result).toContain('inactivity');
+    });
+
+    it('rounds fractional seconds', () => {
+      const msg = buildInactivityTimeoutMessage(90_500);
       expect(msg.result).toContain('91s');
     });
   });

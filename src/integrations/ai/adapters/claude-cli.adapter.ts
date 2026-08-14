@@ -26,7 +26,14 @@ import {
   type BuildPlanContextParams,
 } from './shared-routing';
 import { buildSystemPrompt, formatProgressMessage, formatActivityMessages } from './anthropic-agent.adapter';
-import { assertClaudeCliAvailable, buildCliArgs, spawnCli, type ClaudeCliMessage } from './claude-cli-runner';
+import {
+  assertClaudeCliAvailable,
+  buildCliArgs,
+  CLI_INACTIVITY_TIMEOUT_MS,
+  CLI_TIMEOUT_MS,
+  spawnCli,
+  type ClaudeCliMessage,
+} from './claude-cli-runner';
 
 const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const CLI_ADAPTER_LABEL = 'claude-cli';
@@ -158,12 +165,32 @@ const logCliResultSummary = (message: ClaudeCliMessage): void => {
 };
 
 /**
+ * Describes why the CLI failed. An errored result has no `result` string — the detail
+ * lives in `errors` and the cause in `terminal_reason` — so reading `result` alone
+ * renders every failure as "unknown error". Falls back through progressively weaker
+ * sources rather than discarding what the CLI did report.
+ *
+ * @param message - A result-type CLI message with is_error set
+ * @returns Human-readable failure description
+ */
+const describeCliFailure = (message: ClaudeCliMessage): string => {
+  const parts = [
+    message.result,
+    message.errors?.length ? message.errors.join('; ') : undefined,
+    message.terminal_reason ? `terminal_reason=${message.terminal_reason}` : undefined,
+    message.subtype ? `subtype=${message.subtype}` : undefined,
+    message.num_turns ? `turns=${message.num_turns}` : undefined,
+  ].filter(Boolean);
+  return parts.length ? parts.join(' | ') : 'unknown error';
+};
+
+/**
  * Logs the final result of the initial CLI run (summary, turns, cost, session).
  * @param message - A result-type CLI message.
  * @param sessionId - The resolved session ID to display.
  */
 const logCliResult = (message: ClaudeCliMessage, sessionId: string | undefined): void => {
-  if (message.is_error) throw new Error(`Claude CLI failed: ${message.result ?? 'unknown error'}`);
+  if (message.is_error) throw new Error(`Claude CLI failed: ${describeCliFailure(message)}`);
   logCliResultSummary(message);
   if (message.num_turns) {
     console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Completed in ${message.num_turns} turn(s).`));
@@ -306,13 +333,6 @@ const logCliProgressEvent = (message: ClaudeCliMessage, repoDir: string, activit
   return activityLines.length > 0;
 };
 
-/**
- * Logs a Write or Edit tool invocation.
- * @param toolName - Either 'Write' or 'Edit'.
- * @param input - The tool input block.
- * @param repoDir - Absolute path to the repository directory.
- * @param touchedFiles - Set of relative file paths to update.
- */
 /**
  * @returns True if the block contained a valid file path (i.e. a write occurred).
  */
@@ -507,20 +527,66 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     });
   }
 
+  /**
+   * Resolves the implement stage's wall-clock and inactivity timeouts from config.
+   * Without this the hardcoded defaults apply, and `stages.implement.timeoutMs` /
+   * `inactivityTimeoutMs` are silently ignored even though the schema accepts them.
+   *
+   * @returns Wall-clock and inactivity timeouts in milliseconds
+   */
+  private resolveImplementTimeouts(): { timeoutMs: number; inactivityTimeoutMs: number } {
+    return {
+      timeoutMs: this.configService.get<number>('stages.implement.timeoutMs', CLI_TIMEOUT_MS),
+      inactivityTimeoutMs: this.configService.get<number>(
+        'stages.implement.inactivityTimeoutMs',
+        CLI_INACTIVITY_TIMEOUT_MS
+      ),
+    };
+  }
+
+  /**
+   * Discovers files changed outside the streamed tool events, then finalizes the session.
+   *
+   * @param p - Session parameters
+   * @param sessionId - Resolved provider session id
+   * @param touchedFiles - Files reported as touched during the stream
+   * @param activityState - Accumulated verification outcomes
+   * @returns The finalized session result
+   */
+  private async completeCliSession(
+    p: CliSessionParams,
+    sessionId: string | undefined,
+    touchedFiles: Set<string>,
+    activityState: ActivityState
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number }> {
+    await discoverChangedFiles(p.repoDir, touchedFiles);
+    return this.finalizeCliSession({ ...p, sessionId, touchedFiles, activityState });
+  }
+
+  /**
+   * Opens the initial implement-stage CLI stream with the configured timeouts.
+   *
+   * @param p - Session parameters
+   * @returns Async stream of CLI messages
+   */
+  private openImplementStream(p: CliSessionParams): AsyncGenerator<ClaudeCliMessage, void, undefined> {
+    const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
+    const prompt = buildInitialUserPrompt(p.taskBriefParams);
+    return spawnCli(buildImplementCliArgs(p), p.repoDir, prompt, undefined, timeoutMs, inactivityTimeoutMs);
+  }
+
   private async runCliSession(
     p: CliSessionParams,
   ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number }> {
-    const cliArgs = buildImplementCliArgs(p);
     console.log(chalk.bold.cyan(`\n  [${CLI_ADAPTER_LABEL}] Running CLI agent in ${p.repoDir}...`));
     const touchedFiles = new Set<string>();
     const activityState: ActivityState = { verificationOutcomes: [] };
     let sessionId: string | undefined = p.options.resumeProviderSessionId;
-    for await (const message of spawnCli(cliArgs, p.repoDir, buildInitialUserPrompt(p.taskBriefParams))) {
+    for await (const message of this.openImplementStream(p)) {
       this.logCliMessage(message, p.repoDir, activityState, touchedFiles);
       sessionId = processCliStream(message, p.repoDir, sessionId, touchedFiles);
     }
-    await discoverChangedFiles(p.repoDir, touchedFiles);
-    return this.finalizeCliSession({ ...p, sessionId, touchedFiles, activityState });
+    return this.completeCliSession(p, sessionId, touchedFiles, activityState);
   }
 
   private async finalizeCliSession(
@@ -645,7 +711,9 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     const continueArgs = buildPassCliArgs(p, continuationPrompt);
     let sessionId: string | undefined = p.sessionId;
     let wrote = false;
-    for await (const message of spawnCli(continueArgs, repoDir, continuationPrompt)) {
+    const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
+    const stream = spawnCli(continueArgs, repoDir, continuationPrompt, undefined, timeoutMs, inactivityTimeoutMs);
+    for await (const message of stream) {
       if (this.logCliMessage(message, repoDir, activityState, touchedFiles)) wrote = true;
       sessionId = processCliStream(message, repoDir, sessionId, touchedFiles);
       logContinuationPassResult(passNumber, message);

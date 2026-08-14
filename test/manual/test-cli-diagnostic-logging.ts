@@ -277,8 +277,8 @@ async function main(): Promise<void> {
   // 9. Session ID from result
   assert(
     'Result logs session ID',
-    lines.some(l => /Session:.*s1/.test(l)),
-    `no match in: ${lines.filter(l => /Session/.test(l)).join(' | ') || '(none)'}`
+    lines.some(l => /Provider session:.*s1/.test(l)),
+    `no match in: ${lines.filter(l => /[Ss]ession/.test(l)).join(' | ') || '(none)'}`
   );
 
   // 10. No session ID when absent

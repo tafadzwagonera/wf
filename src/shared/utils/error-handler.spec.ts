@@ -115,6 +115,15 @@ describe('ErrorHandler', () => {
       expect(exitSpy).toHaveBeenCalledWith(1);
     });
 
+    it('surfaces an Error passed as details instead of rendering {}', () => {
+      const cause = new Error('Streaming is required for operations that may take longer than 10 minutes.');
+      ErrorHandler.handle(new AiProviderError('Failed to execute AI request', cause, false, 'config'));
+      const output = allOutput();
+      expect(output).toContain('Streaming is required');
+      expect(output).not.toMatch(/Details:\s*\{\}/);
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    });
+
     it('passes through details without response or error keys unchanged', () => {
       ErrorHandler.handle(new AiProviderError('msg', { someKey: 'someValue' }, true, 'parse'));
       expect(allOutput()).toContain('someValue');

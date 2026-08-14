@@ -18,6 +18,7 @@ import {
 } from '../../shared/utils/plan-artifact';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
 import { AiProviderError, isAiProviderErrorLike, ValidationError } from '../../shared/utils/errors';
+import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { validatePlanQuality } from '../../shared/utils/plan-quality';
 import type { RepoConventionsContext,
@@ -118,6 +119,7 @@ export class PlanStageService {
           }
 
           const fallbackReason = agentProse ? 'prose' : 'no result';
+          this.logFallbackDecision(error, { fallbackReason, sessionId });
           console.log(chalk.yellow(`  \u26A0\uFE0F Agent returned ${fallbackReason} \u2014 falling back to structured completion`));
           const fallbackResult = await this.aiService.generatePlan(options.action, ticketContent, {
             ...standardContext,
@@ -187,6 +189,27 @@ export class PlanStageService {
     }
 
     return retryAttempt;
+  }
+
+  /**
+   * Records the agent failure that triggered the fallback. The caught error is otherwise
+   * discarded here, so when the fallback itself fails the original cause is unrecoverable.
+   *
+   * @param error - The agent error being swallowed by the fallback
+   * @param context - Why the fallback fired and the provider session it came from
+   */
+  private logFallbackDecision(
+    error: unknown,
+    context: { fallbackReason: string; sessionId?: string }
+  ): void {
+    const category = isAiProviderErrorLike(error) ? error.category ?? 'none' : 'none';
+    const message = error instanceof Error ? error.message : String(error);
+    const fields = [
+      `reason=${context.fallbackReason}`,
+      `category=${category}`,
+      `session=${context.sessionId ?? 'none'}`,
+    ].join(' ');
+    appendToLogFile('WARN', `plan.fallback ${fields} cause=${message.replaceAll('\n', ' | ')}`, 'plan-stage');
   }
 
   private async recoverPlanFromParseError(

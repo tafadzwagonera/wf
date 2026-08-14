@@ -41,7 +41,8 @@ export interface CodexCliRunnerParams {
   codexVersion?: { major: number; minor: number; patch: number };
 }
 
-const CLI_TIMEOUT_MS = 10 * 60 * 1000;
+export const CLI_TIMEOUT_MS = 10 * 60 * 1000;
+export const CLI_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000;
 
 const CODEX_ERROR_LINE_PATTERN = /^ERROR:\s*(.+)$/;
 
@@ -248,9 +249,18 @@ export const buildCodexCliArgs = (params: CodexCliRunnerParams): string[] => {
   return args;
 };
 
+interface KillState {
+  killed: boolean;
+  timedOut: boolean;
+  inactivityTimedOut: boolean;
+  inactivityHandle: ReturnType<typeof setTimeout> | undefined;
+}
+
 interface KillController {
   kill: () => void;
   timedOut: () => boolean;
+  inactivityTimedOut: () => boolean;
+  resetInactivity: () => void;
   timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 }
 
@@ -287,28 +297,51 @@ const escalateToSigkill = (proc: ChildProcess): void => {
   if (!proc.killed) proc.kill('SIGKILL');
 };
 
-/**
- * Creates a kill controller that wraps a child process with SIGTERM/SIGKILL escalation
- * and an optional wall-clock timeout.
- *
- * @param proc - Child process to control
- * @param timeoutMs - Milliseconds before forceful termination; 0 disables the timer
- * @returns KillController with a `kill` method, `timedOut` predicate, and `timeoutHandle`
- */
-const buildKillController = (proc: ChildProcess, timeoutMs: number): KillController => {
-  let killed = false, _timedOut = false;
-  const kill = () => {
-    if (killed) return;
-    killed = true;
+const makeKillFn = (proc: ChildProcess, state: KillState): (() => void) => {
+  return () => {
+    if (state.killed) return;
+    state.killed = true;
+    if (state.inactivityHandle) clearTimeout(state.inactivityHandle);
     proc.kill('SIGTERM');
     setTimeout(() => escalateToSigkill(proc), SIGKILL_GRACE_MS);
   };
+};
+
+const makeResetInactivity = (
+  state: KillState, inactivityTimeoutMs: number, onInactivity: () => void,
+): (() => void) => {
+  return () => {
+    if (!state.inactivityHandle || state.killed) return;
+    clearTimeout(state.inactivityHandle);
+    state.inactivityHandle = setTimeout(onInactivity, inactivityTimeoutMs);
+  };
+};
+
+const buildTimers = (
+  state: KillState, timeoutMs: number, inactivityTimeoutMs: number, kill: () => void,
+) => {
   const onTimeout = () => {
-    _timedOut = true;
+    state.timedOut = true;
     kill();
   };
+  const onInactivity = () => {
+    state.inactivityTimedOut = true;
+    kill();
+  };
+  state.inactivityHandle = inactivityTimeoutMs > 0 ? setTimeout(onInactivity, inactivityTimeoutMs) : undefined;
   const timeoutHandle = timeoutMs > 0 ? setTimeout(onTimeout, timeoutMs) : undefined;
-  return { kill, timedOut: () => _timedOut, timeoutHandle };
+  return { timeoutHandle, resetInactivity: makeResetInactivity(state, inactivityTimeoutMs, onInactivity) };
+};
+
+const buildKillController = (proc: ChildProcess, timeoutMs: number, inactivityTimeoutMs: number): KillController => {
+  const state: KillState = { killed: false, timedOut: false, inactivityTimedOut: false, inactivityHandle: undefined };
+  const kill = makeKillFn(proc, state);
+  const { timeoutHandle, resetInactivity } = buildTimers(state, timeoutMs, inactivityTimeoutMs, kill);
+  return {
+    kill, timeoutHandle, resetInactivity,
+    timedOut: () => state.timedOut,
+    inactivityTimedOut: () => state.inactivityTimedOut,
+  };
 };
 
 /**
@@ -336,6 +369,13 @@ export const buildTimeoutMessage = (timeoutMs: number): CodexCliMessage => ({
   subtype: 'timeout',
   is_error: true,
   result: `Codex CLI timed out after ${Math.round(timeoutMs / 1000)}s without returning a result.`,
+});
+
+export const buildInactivityTimeoutMessage = (inactivityTimeoutMs: number): CodexCliMessage => ({
+  type: 'error',
+  subtype: 'inactivity_timeout',
+  is_error: true,
+  result: `Codex CLI timed out after ${Math.round(inactivityTimeoutMs / 1000)}s of inactivity.`,
 });
 
 /**
@@ -366,12 +406,12 @@ interface CodexSession {
  * @param timeoutMs - Milliseconds before the kill controller fires
  * @returns Fully initialised `CodexSession` ready for the generator loop
  */
-const buildCodexSession = (child: ChildProcess, timeoutMs: number): CodexSession => {
+const buildCodexSession = (child: ChildProcess, timeoutMs: number, inactivityTimeoutMs: number): CodexSession => {
   if (!child.stdout) throw new Error('codex child process stdout not available');
   return {
     rl: createInterface({ input: child.stdout }),
     stderrChunks: attachStderrCollector(child),
-    ctrl: buildKillController(child, timeoutMs),
+    ctrl: buildKillController(child, timeoutMs, inactivityTimeoutMs),
     yieldedRef: [false],
   };
 };
@@ -387,11 +427,13 @@ const buildCodexSession = (child: ChildProcess, timeoutMs: number): CodexSession
 async function* readCodexLines(
   rl: ReturnType<typeof createInterface>,
   yieldedRef: [boolean],
+  resetInactivity: () => void,
 ): AsyncGenerator<CodexCliMessage, void, undefined> {
   for await (const line of rl) {
     const message = parseNdjsonLine(line) as CodexCliMessage | null;
     if (message) {
       yieldedRef[0] = true;
+      resetInactivity();
       yield message;
     }
   }
@@ -429,20 +471,30 @@ async function* runCodexStream(
   session: CodexSession, onSigint: () => void,
 ): AsyncGenerator<CodexCliMessage, void, undefined> {
   try {
-    yield* readCodexLines(session.rl, session.yieldedRef);
+    yield* readCodexLines(session.rl, session.yieldedRef, session.ctrl.resetInactivity);
   } finally {
     cleanupCodexSession(onSigint, session.ctrl, session.rl);
   }
 }
 
+const resolveTimeoutMessage = (
+  ctrl: KillController, timeoutMs: number, inactivityTimeoutMs: number,
+): CodexCliMessage | undefined => {
+  if (ctrl.timedOut()) return buildTimeoutMessage(timeoutMs);
+  if (ctrl.inactivityTimedOut()) return buildInactivityTimeoutMessage(inactivityTimeoutMs);
+  return undefined;
+};
+
 export async function* spawnCodex(
-  args: string[], cwd: string, prompt?: string, env?: Record<string, string>, timeoutMs = CLI_TIMEOUT_MS,
+  args: string[], cwd: string, prompt?: string, env?: Record<string, string>,
+  timeoutMs = CLI_TIMEOUT_MS, inactivityTimeoutMs = CLI_INACTIVITY_TIMEOUT_MS,
 ): AsyncGenerator<CodexCliMessage, void, undefined> {
   const child = spawnCodexProcess(args, cwd, env, prompt);
-  const session = buildCodexSession(child, timeoutMs);
+  const session = buildCodexSession(child, timeoutMs, inactivityTimeoutMs);
   yield* runCodexStream(session, installCodexSigintHandler(child, session.rl));
-  if (session.ctrl.timedOut()) {
-    yield buildTimeoutMessage(timeoutMs);
+  const timeoutMsg = resolveTimeoutMessage(session.ctrl, timeoutMs, inactivityTimeoutMs);
+  if (timeoutMsg) {
+    yield timeoutMsg;
     return;
   }
   collectCodexResult(session.yieldedRef[0], session.stderrChunks);

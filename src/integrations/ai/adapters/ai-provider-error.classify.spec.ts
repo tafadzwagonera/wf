@@ -39,6 +39,18 @@ describe('classifyAiSdkError', () => {
     expect(classifyAiSdkError(new Error('Request timed out.'))).toBe('timeout');
   });
 
+  it('returns config for a client-side AnthropicError', () => {
+    expect(classifyAiSdkError(new Anthropic.AnthropicError('Streaming is required for operations that may take longer than 10 minutes.'))).toBe('config');
+  });
+
+  it('returns config for a client-side OpenAIError', () => {
+    expect(classifyAiSdkError(new OpenAI.OpenAIError('bad request shape'))).toBe('config');
+  });
+
+  it('prefers the specific category over config for typed API errors', () => {
+    expect(classifyAiSdkError(new Anthropic.AuthenticationError(401, undefined, 'bad key', new Headers()))).toBe('auth');
+  });
+
   it('returns undefined for a generic Error without a timeout message', () => {
     expect(classifyAiSdkError(new Error('Some other error'))).toBeUndefined();
   });

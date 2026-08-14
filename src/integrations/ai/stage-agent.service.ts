@@ -28,6 +28,7 @@ import {
   reviewOutputSchema,
   reviewTraceGuidance,
 } from './prompt-fragments';
+import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import { DEFAULT_STALL_THRESHOLD } from './adapters/verification-report';
 import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
 import {
@@ -165,22 +166,9 @@ Return your response as a JSON object matching the CodeReview interface.`;
 const generateSystemPrompt = `Generate the requested ticket markdown, preserving the required heading structure exactly.
 You may inspect repository files with read-only tools before answering.`;
 
-/**
- * @param text - raw text to truncate
- * @param maxLength - maximum allowed character count
- * @returns truncated text with ellipsis if over limit, original otherwise
- */
 const truncateCodexText = (text: string, maxLength: number): string =>
   text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
 
-/**
- * @param item - completed command execution item
- * @returns formatted command completion line
- */
-/**
- * @param exitCode - process exit code
- * @returns human-readable completion status
- */
 const resolveExitStatus = (exitCode?: number): string => {
   if (exitCode == null) return 'status unknown';
   return exitCode === 0 ? 'completed' : `exit ${exitCode}`;
@@ -310,14 +298,6 @@ const buildPlanDiscoveryBlock = (params: GeneratePlanParams): string => {
   return parts.length > 0 ? `\n${parts.join('\n\n')}\n` : '';
 };
 
-/**
- * @param params - plan generation parameters
- * @returns the fully assembled plan prompt string
- */
-/**
- * @param feedback - plan quality feedback array
- * @returns formatted retry feedback block or empty string
- */
 const buildRetryFeedbackBlock = (feedback?: string[]): string =>
   feedback && feedback.length > 0
     ? `Previous plan attempt was rejected for these exact reasons:\n${feedback.join('\n')}\n\nRegenerate the full plan and fix every listed problem. Do not repeat any rejected step wording.\n\n`
@@ -467,15 +447,6 @@ type AnthropicStageOpts = {
   systemPrompt: string;
 };
 
-/**
- * @param opts - options for building the Anthropic stage query
- * @returns the anthropic agent options sub-object
- */
-/**
- * @param opts - Anthropic stage options
- * @param systemAppend - system prompt append content
- * @returns base anthropic query options without resume
- */
 const buildAnthropicBaseOptions = (opts: AnthropicStageOpts, systemAppend: string) => {
   const tools = opts.allowInspection ? [...ANTHROPIC_STAGE_TOOLS] : [];
   return {
@@ -504,20 +475,6 @@ const buildAnthropicStageOptions = (opts: AnthropicStageOpts) => ({
   options: buildAnthropicStageQueryOptions(opts),
 });
 
-/**
- * @param args - Codex CLI arguments
- * @param repoDir - repository directory
- * @param fullPrompt - full prompt text
- * @param initialSessionId - session ID from a prior invocation
- * @param onProgress - optional progress callback
- * @returns content and session ID from the Codex CLI run
- */
-/**
- * @param result - extracted result text
- * @param sessionId - session ID from the codex run
- * @returns content and session ID
- * @throws when no result was produced
- */
 const finalizeCodexResult = (result: string, sessionId?: string): { content: string; sessionId?: string } => {
   if (!result) {
     console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] No result message received from Codex CLI`));
@@ -586,17 +543,21 @@ const finalizeCodexStageResult = (
   return finalizeCodexResult(state.result, state.sessionId);
 };
 
+interface CodexStageResultOpts {
+  sessionId?: string;
+  onProgress?: StageProgressCallback;
+  timeoutMs?: number;
+  inactivityTimeoutMs?: number;
+}
+
 const processCodexStageResult = async (
-  args: string[],
-  repoDir: string,
-  fullPrompt: string,
-  stage: AgentStageName,
-  initialSessionId?: string,
-  onProgress?: StageProgressCallback
+  args: string[], repoDir: string, fullPrompt: string, stage: AgentStageName,
+  opts?: CodexStageResultOpts,
 ): Promise<{ content: string; sessionId?: string }> => {
-  const state: CodexStageResultState = { sessionId: initialSessionId, result: '', agentMessageCount: 0 };
-  for await (const message of spawnCodex(args, repoDir, fullPrompt)) {
-    accumulateCodexStageResult(state, message, onProgress);
+  const state: CodexStageResultState = { sessionId: opts?.sessionId, result: '', agentMessageCount: 0 };
+  const stream = spawnCodex(args, repoDir, fullPrompt, undefined, opts?.timeoutMs, opts?.inactivityTimeoutMs);
+  for await (const message of stream) {
+    accumulateCodexStageResult(state, message, opts?.onProgress);
   }
   return finalizeCodexStageResult(state, stage);
 };
@@ -705,10 +666,32 @@ type CliRetryState = { sessionId?: string; stalledPasses: number; passNumber: nu
 const advanceCliRetryState = (state: CliRetryState, passResult: CliPassResult): void => {
   const madeProgress = passResult.hadContent && passResult.source !== 'assistant_text';
   state.stalledPasses = madeProgress ? 0 : state.stalledPasses + 1;
+  logCliPassOutcome(state, passResult);
   checkCliStallCondition(state.stalledPasses, state.passNumber, state.lastDiagnostics);
   state.lastDiagnostics = passResult.diagnostics;
   const sourceHint = passResult.source === 'assistant_text' ? ' (assistant_text demoted)' : '';
   console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${state.passNumber}: no usable result${sourceHint} — resuming session`));
+};
+
+/**
+ * Records why a pass produced no usable result. The console line is transient and the
+ * stall error only survives if the loop gives up, so without this a pass that is
+ * retried — or one whose error is swallowed by a downstream fallback — leaves no trace.
+ *
+ * @param state - Current retry loop state
+ * @param passResult - Result from the latest CLI pass
+ */
+const logCliPassOutcome = (state: CliRetryState, passResult: CliPassResult): void => {
+  const fields = [
+    `pass=${state.passNumber}`,
+    `stalledPasses=${state.stalledPasses}`,
+    `source=${passResult.source ?? 'none'}`,
+    `hadContent=${passResult.hadContent}`,
+    `resultChars=${passResult.result?.length ?? 0}`,
+    `session=${state.sessionId ?? 'none'}`,
+  ].join(' ');
+  const diagnostics = passResult.diagnostics.length ? ` diagnostics=${passResult.diagnostics.join(' | ')}` : '';
+  appendToLogFile('WARN', `cli.pass_unusable ${fields}${diagnostics}`, CLI_STAGE_LABEL);
 };
 
 /**
@@ -720,10 +703,11 @@ const advanceCliRetryState = (state: CliRetryState, passResult: CliPassResult): 
 const checkCliStallCondition = (stalledPasses: number, passNumber: number, lastDiagnostics: string[]): void => {
   if (stalledPasses < CLI_STALL_THRESHOLD) return;
   const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
-  throw new AiProviderError(
-    `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`,
-    null, true, 'stall'
-  );
+  const message = `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`;
+  // Logged here rather than at the throw site: callers such as PlanStageService catch this
+  // to fall back, discarding the message and its diagnostics before anything records them.
+  appendToLogFile('ERROR', `cli.stall ${message.replaceAll('\n', ' | ')}`, CLI_STAGE_LABEL);
+  throw new AiProviderError(message, { passes: passNumber, diagnostics: lastDiagnostics }, true, 'stall');
 };
 
 type AnthropicChatOpts = {
@@ -1518,17 +1502,17 @@ export class StageAgentService {
   private async runCodexCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     assertCodexCliAvailable();
     const model = this.resolveStageModel(params.stage);
-    const resolvedRepoDir = params.repoDir ?? process.cwd();
+    const repoDir = params.repoDir ?? process.cwd();
     const preamble = buildPriorStagePreamble(params.priorStageSummary);
-    const preambleWithNewline = preamble ? `${preamble}\n\n` : '';
-    const fullPrompt = `${preambleWithNewline}${params.systemPrompt}\n\n${params.prompt}`;
+    const fullPrompt = `${preamble ? `${preamble}\n\n` : ''}${params.systemPrompt}\n\n${params.prompt}`;
     const args = buildCodexCliArgs({
-      prompt: fullPrompt, model, cwd: resolvedRepoDir,
-      sessionId: params.resumeProviderSessionId,
+      prompt: fullPrompt, model, cwd: repoDir, sessionId: params.resumeProviderSessionId,
     });
-    return processCodexStageResult(
-      args, resolvedRepoDir, fullPrompt, params.stage, params.resumeProviderSessionId, params.onProgress
-    );
+    return processCodexStageResult(args, repoDir, fullPrompt, params.stage, {
+      sessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
+      timeoutMs: this.resolveStageTimeoutMs(params.stage),
+      inactivityTimeoutMs: this.resolveStageInactivityTimeoutMs(params.stage),
+    });
   }
 
   /**
