@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import type { CodeReview } from '../shared/types/review.types';
 import { REVIEW_VERDICT_APPROVED } from '../shared/types/review.types';
@@ -9,6 +10,9 @@ import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
 import { runSonarScanForReview } from '../review/sonar-scanner';
+import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
+import { resolveVerificationSummary } from '../shared/utils/implement-verification';
+import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
 
 @Injectable()
 export class ReviewerAgent {
@@ -33,6 +37,8 @@ export class ReviewerAgent {
   async execute(ticket: TicketArtifact, options: ReviewerOptions = {}): Promise<ReviewArtifact | null> {
     const cached = this.tryLoadCachedReview(ticket.path, options);
     if (cached) return cached;
+
+    await runPostPullDependencyInstall(options.repoDir ?? process.cwd());
 
     if (!options.suppressHeader && !options.silent) {
       this.presenter.stageHeader(4, 'Code Review');
@@ -92,13 +98,23 @@ export class ReviewerAgent {
       await runSonarScanForReview({ repoDir, onProgress });
     }
     const diff = await this.gitService.getDiff(true, repoDir);
+
     return this.reviewStageService.reviewDiff(diff, {
-      context: `ticket ${ticket.ticketKey}`,
+      context: this.buildReviewContext(ticket.ticketKey, repoDir),
       repoDir,
       resumeProviderSessionId: options.resumeProviderSessionId,
       priorStageSummary: options.priorStageSummary,
       forkSession: options.forkSession,
       onProgress,
     });
+  }
+
+  private buildReviewContext(ticketKey: string, repoDir: string): string {
+    const verificationSummary = resolveVerificationSummary(repoDir, ticketKey);
+    const conventions = detectRepoConventions(repoDir);
+    const conventionsSection = formatRepoConventionsPromptSection(conventions, path.basename(repoDir));
+    const extraContext = [verificationSummary, conventionsSection].filter(Boolean).join('\n\n');
+
+    return extraContext ? `ticket ${ticketKey}\n\n${extraContext}` : `ticket ${ticketKey}`;
   }
 }

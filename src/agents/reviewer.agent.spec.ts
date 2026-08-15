@@ -6,8 +6,19 @@ import { GitService } from '../integrations/git/git.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import * as fs from 'fs';
 import * as sonarScanner from '../review/sonar-scanner';
+import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
+import { resolveVerificationSummary } from '../shared/utils/implement-verification';
+import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
 
 jest.mock('../review/sonar-scanner');
+jest.mock('../shared/utils/post-pull-install');
+jest.mock('../shared/utils/implement-verification');
+jest.mock('../shared/utils/detect-repo-conventions');
+
+const mockRunPostPullDependencyInstall = jest.mocked(runPostPullDependencyInstall);
+const mockResolveVerificationSummary = jest.mocked(resolveVerificationSummary);
+const mockDetectRepoConventions = jest.mocked(detectRepoConventions);
+const mockFormatRepoConventionsPromptSection = jest.mocked(formatRepoConventionsPromptSection);
 
 describe('ReviewerAgent', () => {
   const createMockPresenter = () => ({
@@ -21,6 +32,10 @@ describe('ReviewerAgent', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+    mockRunPostPullDependencyInstall.mockReset();
+    mockResolveVerificationSummary.mockReset();
+    mockDetectRepoConventions.mockReset();
+    mockFormatRepoConventionsPromptSection.mockReset();
   });
 
   it('delegates review generation to ReviewStageService', async () => {
@@ -552,5 +567,117 @@ describe('ReviewerAgent', () => {
     );
 
     expect(presenter.progress).not.toHaveBeenCalledWith('Synthesizing review...');
+  });
+
+  describe('pre-flight and context enrichment', () => {
+    const ticket = {
+      ticketKey: 'WBP-123',
+      content: '# WBP-123: Fix auth callback',
+      path: '/tmp/.wf/repo/jira/WBP-123.md',
+    };
+
+    const buildModule = async (reviewDiffImpl?: jest.Mock) => {
+      const reviewDiff = reviewDiffImpl ?? jest.fn().mockResolvedValue({
+        review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+      });
+
+      const module = await Test.createTestingModule({
+        providers: [
+          ReviewerAgent,
+          { provide: CliPresenter, useValue: createMockPresenter() },
+          {
+            provide: GitService,
+            useValue: {
+              getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+              stageAll: jest.fn().mockResolvedValue(undefined),
+              getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+            },
+          },
+          {
+            provide: ReviewStageService,
+            useValue: {
+              reviewDiff,
+              buildReviewArtifact: jest.fn().mockReturnValue({
+                review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+                path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+                approved: true,
+              }),
+            },
+          },
+          { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
+        ],
+      }).compile();
+
+      return { agent: module.get(ReviewerAgent), reviewStageService: module.get(ReviewStageService) };
+    };
+
+    beforeEach(() => {
+      mockRunPostPullDependencyInstall.mockReset().mockResolvedValue(undefined);
+      mockResolveVerificationSummary.mockReset().mockReturnValue('');
+      mockDetectRepoConventions.mockReset().mockReturnValue({} as ReturnType<typeof detectRepoConventions>);
+      mockFormatRepoConventionsPromptSection.mockReset().mockReturnValue('');
+    });
+
+    it('runs post-pull dependency install with the resolved repoDir before reviewDiff', async () => {
+      const callOrder: string[] = [];
+      mockRunPostPullDependencyInstall.mockImplementation(async () => {
+        callOrder.push('post-pull');
+      });
+      const reviewDiff = jest.fn().mockImplementation(async () => {
+        callOrder.push('review');
+        return { review: { summary: 'ok', issues: [], suggestions: [], approved: true } };
+      });
+      const { agent } = await buildModule(reviewDiff);
+
+      await agent.execute(ticket, { repoDir: '/repo' });
+
+      expect(mockRunPostPullDependencyInstall).toHaveBeenCalledWith('/repo');
+      expect(callOrder).toEqual(['post-pull', 'review']);
+    });
+
+    it('includes a non-empty verification summary in the reviewDiff context', async () => {
+      mockResolveVerificationSummary.mockReturnValue('Prior implement run (ticket WBP-123): 1 attempt(s).');
+      const { agent, reviewStageService } = await buildModule();
+
+      await agent.execute(ticket, { repoDir: '/repo' });
+
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ context: expect.stringContaining('Prior implement run (ticket WBP-123)') })
+      );
+    });
+
+    it('includes a non-empty repo conventions section in the reviewDiff context', async () => {
+      mockFormatRepoConventionsPromptSection.mockReturnValue('Repository conventions (repo):\n- Language: typescript');
+      const { agent, reviewStageService } = await buildModule();
+
+      await agent.execute(ticket, { repoDir: '/repo' });
+
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ context: expect.stringContaining('Repository conventions (repo)') })
+      );
+    });
+
+    it('passes the bare ticket context when verification and conventions are both empty', async () => {
+      const { agent, reviewStageService } = await buildModule();
+
+      await agent.execute(ticket, { repoDir: '/repo' });
+
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ context: 'ticket WBP-123' })
+      );
+    });
+
+    it('does not run post-pull dependency install when the review is served from cache', async () => {
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+      jest.spyOn(require('fs'), 'readFileSync').mockReturnValue('## Approval Status\n✔ Approved');
+      const { agent } = await buildModule();
+
+      await agent.execute(ticket, { skipExisting: true, repoDir: '/repo' });
+
+      expect(mockRunPostPullDependencyInstall).not.toHaveBeenCalled();
+    });
   });
 });
