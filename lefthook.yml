@@ -1,14 +1,29 @@
+# `skip: [rebase, merge]` on the commit-time hooks: `docs-drift` rewrites tracked
+# files (README.md, docs/commands-help.catalog.json) from the current checkout.
+# Replaying commits leaves those regenerated files unstaged, which aborts the
+# sequencer on the next commit that touches them.
 pre-commit:
   parallel: true
-  commands:
-    lint:
+  skip: [rebase, merge]
+  jobs:
+    - name: lint
       run: yarn lint
-    typecheck:
+    - name: typecheck
       run: yarn typecheck
-    test:
+    - name: test
       run: yarn test:ci
-    docs-drift:
-      run: yarn generated-docs:sync
+    # `docs-drift` and `build` (via postbuild) both write
+    # docs/commands-help.catalog.json, and `prebuild` rm -rf's the dist/ copy
+    # while docs-drift writes it — so they are piped, never parallel.
+    # `build` runs last so dist/ is left compiled from the final sources.
+    - name: generated-docs
+      group:
+        piped: true
+        jobs:
+          - name: docs-drift
+            run: yarn generated-docs:sync
+          - name: build
+            run: yarn build
 
 pre-push:
   commands:
@@ -16,9 +31,10 @@ pre-push:
       run: yarn test:ci
 
 post-commit:
+  skip: [rebase, merge]
   commands:
     generated-docs-check:
-      run: yarn generated-docs:check && yarn build
+      run: yarn generated-docs:check
 
 commit-msg:
   scripts:
