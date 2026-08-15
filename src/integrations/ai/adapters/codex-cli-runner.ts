@@ -41,7 +41,7 @@ export interface CodexCliRunnerParams {
   codexVersion?: { major: number; minor: number; patch: number };
 }
 
-export const CLI_TIMEOUT_MS = 10 * 60 * 1000;
+export const CLI_TIMEOUT_MS = 15 * 60 * 1000;
 export const CLI_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000;
 
 const CODEX_ERROR_LINE_PATTERN = /^ERROR:\s*(.+)$/;

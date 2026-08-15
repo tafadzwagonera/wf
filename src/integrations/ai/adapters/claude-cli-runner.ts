@@ -57,7 +57,7 @@ export interface CliRunnerParams {
   forkSession?: boolean;
 }
 
-export const CLI_TIMEOUT_MS = 10 * 60 * 1000;
+export const CLI_TIMEOUT_MS = 15 * 60 * 1000;
 const SIGKILL_GRACE_MS = 5000;
 export const CLI_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000;
 const REQUIRED_CLAUDE_CLI_MAJOR = 2;
