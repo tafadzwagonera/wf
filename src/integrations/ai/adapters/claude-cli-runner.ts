@@ -1,5 +1,6 @@
 import { execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
 import {
   buildRunId,
   extractArgValue,
@@ -138,7 +139,7 @@ const assertBinaryExists = (name: string, installUrl: string): void => {
     execSync(`command -v ${name}`, { stdio: 'pipe' });
   } catch {
     const displayName = name.charAt(0).toUpperCase() + name.slice(1);
-    throw new Error(`${displayName} CLI is not installed. Install it by following: ${installUrl}`);
+    throw new ConfigurationError(`${displayName} CLI is not installed. Install it by following: ${installUrl}`);
   }
 };
 
@@ -152,7 +153,7 @@ const getVersionOrThrow = (name: string): string => {
   try {
     return execSync(`${name} --version`, { stdio: 'pipe', encoding: 'utf-8' });
   } catch {
-    throw new Error(`${name} CLI version check failed. Run \`${name} --version\` to diagnose.`);
+    throw new ConfigurationError(`${name} CLI version check failed. Run \`${name} --version\` to diagnose.`);
   }
 };
 
@@ -165,7 +166,7 @@ const getVersionOrThrow = (name: string): string => {
  */
 const assertMajorMatch = (vStr: string, reqStr: string, required: { major: number; minMinor: number }): void => {
   const bypass = `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`;
-  throw new Error(
+  throw new ConfigurationError(
     `Incompatible Claude CLI version ${vStr}. Required: major=${required.major} (${reqStr}). `
     + `Upgrade: ${UPGRADE_CMD}. ${bypass}`
   );
@@ -179,12 +180,12 @@ const assertMajorMatch = (vStr: string, reqStr: string, required: { major: numbe
  */
 const assertMinorSufficient = (vStr: string, reqStr: string): void => {
   const bypass = `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`;
-  throw new Error(`Claude CLI version ${vStr} is too old. Required: ${reqStr}. Upgrade: ${UPGRADE_CMD}. ${bypass}`);
+  throw new ConfigurationError(`Claude CLI version ${vStr} is too old. Required: ${reqStr}. Upgrade: ${UPGRADE_CMD}. ${bypass}`);
 };
 
 const assertPatchSufficient = (vStr: string, reqStr: string): void => {
   const bypass = `Or set ${SKIP_VERSION_CHECK_ENV}=1 to bypass.`;
-  throw new Error(`Claude CLI version ${vStr} is too old. Required: ${reqStr}. Upgrade: ${UPGRADE_CMD}. ${bypass}`);
+  throw new ConfigurationError(`Claude CLI version ${vStr} is too old. Required: ${reqStr}. Upgrade: ${UPGRADE_CMD}. ${bypass}`);
 };
 
 /**
@@ -241,7 +242,7 @@ const readClaudeCliVersionOrThrow = (): { major: number; minor: number; patch: n
   const raw = getVersionOrThrow('claude');
   const version = parseClaudeCliVersion(raw);
   if (!version) {
-    throw new Error(
+    throw new ConfigurationError(
       `Unrecognised Claude CLI version format: "${raw.trim()}". Set ${SKIP_VERSION_CHECK_ENV}=1 to bypass this check.`
     );
   }
@@ -417,8 +418,8 @@ const pipePrompt = (child: ReturnType<typeof spawn>, prompt: string | undefined)
 const spawnChildProcess = (params: SpawnChildProcessParams): ChildBundle => {
   const { child, exitRecord } = spawnChild(params);
   pipePrompt(child, params.prompt);
-  if (!child.stdout) throw new Error('claude child process stdout not available');
-  if (!child.stderr) throw new Error('claude child process stderr not available');
+  if (!child.stdout) throw new ExecutionError('claude child process stdout not available');
+  if (!child.stderr) throw new ExecutionError('claude child process stderr not available');
   const rl = createInterface({ input: child.stdout });
   const stderrChunks: Buffer[] = [];
   child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
@@ -630,9 +631,9 @@ const initCliSession = (params: InitCliSessionParams): CliSession => {
 const assertCliProducedOutput = (session: CliSession): void => {
   if (session.messageCount > 0) return;
   const { spawnError } = session.exitRecord;
-  if (spawnError) throw new Error(`Failed to spawn claude: ${spawnError.message}`);
+  if (spawnError) throw new ExecutionError(`Failed to spawn claude: ${spawnError.message}`);
   const stderr = Buffer.concat(session.stderrChunks).toString('utf-8').trim();
-  if (stderr) throw new Error(`Claude CLI failed to produce output: ${stderr}`);
+  if (stderr) throw new AiProviderError(`Claude CLI failed to produce output: ${stderr}`);
 };
 
 /**

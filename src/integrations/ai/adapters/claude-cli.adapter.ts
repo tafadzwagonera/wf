@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import * as path from 'node:path';
+import { AiProviderError, ExecutionError } from '../../../shared/utils/errors';
 import type {
   TicketArtifact,
   PlanArtifact,
@@ -190,7 +191,7 @@ const describeCliFailure = (message: ClaudeCliMessage): string => {
  * @param sessionId - The resolved session ID to display.
  */
 const logCliResult = (message: ClaudeCliMessage, sessionId: string | undefined): void => {
-  if (message.is_error) throw new Error(`Claude CLI failed: ${describeCliFailure(message)}`);
+  if (message.is_error) throw new AiProviderError(`Claude CLI failed: ${describeCliFailure(message)}`);
   logCliResultSummary(message);
   if (message.num_turns) {
     console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Completed in ${message.num_turns} turn(s).`));
@@ -698,7 +699,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   }
 
   private buildPassPrompt(p: SinglePassParams): string {
-    if (!p.taskBriefParams) throw new Error('[claude-cli] taskBriefParams is required to build a continuation prompt');
+    if (!p.taskBriefParams) throw new ExecutionError('[claude-cli] taskBriefParams is required to build a continuation prompt');
     return buildContinuationPrompt({
       currentUnvisited: p.currentUnvisited, totalPlanned: p.totalPlanned ?? p.currentUnvisited.length,
       passNumber: p.passNumber, taskBriefParams: p.taskBriefParams,

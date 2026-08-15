@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Bitbucket } from 'bitbucket';
 import { IssueTrackerAdapter, IssueTrackerFeature } from '../issue-tracker-adapter.interface';
+import { ValidationError } from '../../../shared/utils/errors';
 import {
   UniversalTicket,
   IssueTrackerTicketReference,
@@ -291,7 +292,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
       return { workspace, repo };
     }
     if (p && this.defaultWorkspace) return { workspace: this.defaultWorkspace, repo: p };
-    throw new Error(
+    throw new ValidationError(
       'No BitBucket repository specified. Provide the repository as "workspace/repo" or pass --repos <repo> so the configured workspace can be used.'
     );
   }
@@ -311,7 +312,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
       return { workspace, repo, issueId: Number.parseInt(id, 10) };
     }
 
-    throw new Error(`Invalid BitBucket issue reference: "${reference}". Expected format: workspace/repo#123`);
+    throw new ValidationError(`Invalid BitBucket issue reference: "${reference}". Expected format: workspace/repo#123`);
   }
 
   /**
@@ -325,7 +326,7 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     // Format: https://bitbucket.org/workspace/repo/pull-requests/123
     const match = new RegExp(/bitbucket\.org\/([^/]+)\/([^/]+)\/pull-requests\/(\d+)/).exec(url);
     if (!match) {
-      throw new Error(`Invalid BitBucket PR URL: ${url}`);
+      throw new ValidationError(`Invalid BitBucket PR URL: ${url}`);
     }
 
     return {

@@ -1,5 +1,6 @@
 import { ChildProcess, execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
 import { parseNdjsonLine } from './claude-cli-runner';
 
 export interface CodexCliMessage {
@@ -124,7 +125,7 @@ const assertBinaryExists = (name: string, installUrl: string): void => {
   try {
     execSync(`command -v ${name}`, { stdio: 'pipe' });
   } catch {
-    throw new Error(`${name} CLI is not installed. Install it by following: ${installUrl}`);
+    throw new ConfigurationError(`${name} CLI is not installed. Install it by following: ${installUrl}`);
   }
 };
 
@@ -139,7 +140,7 @@ const getVersionOrThrow = (name: string): string => {
   try {
     return execSync(`${name} --version`, { stdio: 'pipe', encoding: 'utf-8' });
   } catch {
-    throw new Error(`${name} CLI version check failed. Run \`${name} --version\` to diagnose.`);
+    throw new ConfigurationError(`${name} CLI version check failed. Run \`${name} --version\` to diagnose.`);
   }
 };
 
@@ -153,7 +154,7 @@ const CODEX_UPGRADE_HINT = 'Upgrade: npm install -g @openai/codex@latest. Or set
  * @param minMinor - Minimum minor version shown in the error
  */
 const throwMajorMismatch = (vStr: string, requiredMajor: number, minMinor: number): never => {
-  throw new Error(
+  throw new ConfigurationError(
     `Incompatible Codex CLI version ${vStr}. `
     + `Required: major=${requiredMajor} (>=${requiredMajor}.${minMinor}). ${CODEX_UPGRADE_HINT}`
   );
@@ -167,7 +168,7 @@ const throwMajorMismatch = (vStr: string, requiredMajor: number, minMinor: numbe
  * @param minMinor - Minimum required minor version
  */
 const throwMinorTooOld = (vStr: string, requiredMajor: number, minMinor: number): never => {
-  throw new Error(
+  throw new ConfigurationError(
     `Codex CLI version ${vStr} is too old. Required: >=${requiredMajor}.${minMinor}. ${CODEX_UPGRADE_HINT}`
   );
 };
@@ -204,7 +205,7 @@ export const assertCodexCliAvailable = (): void => {
   const version = parseCodexCliVersion(raw);
 
   if (!version) {
-    throw new Error(
+    throw new ConfigurationError(
       `Unrecognised Codex CLI version format: "${raw.trim()}". Set ${SKIP_VERSION_CHECK_ENV}=1 to bypass this check.`
     );
   }
@@ -355,7 +356,7 @@ const collectCodexResult = (yieldedAny: boolean, stderrChunks: Buffer[]): void =
   if (yieldedAny || stderrChunks.length === 0) return;
   const stderr = Buffer.concat(stderrChunks).toString('utf-8').trim();
   if (!stderr) return;
-  throw new Error(`Codex CLI failed: ${extractCodexErrorMessages(stderr)}`);
+  throw new AiProviderError(`Codex CLI failed: ${extractCodexErrorMessages(stderr)}`);
 };
 
 /**
@@ -386,7 +387,7 @@ export const buildInactivityTimeoutMessage = (inactivityTimeoutMs: number): Code
  */
 const attachStderrCollector = (proc: ChildProcess): Buffer[] => {
   const chunks: Buffer[] = [];
-  if (!proc.stderr) throw new Error('codex child process stderr not available');
+  if (!proc.stderr) throw new ExecutionError('codex child process stderr not available');
   proc.stderr.on('data', (chunk: Buffer) => chunks.push(chunk));
   return chunks;
 };
@@ -407,7 +408,7 @@ interface CodexSession {
  * @returns Fully initialised `CodexSession` ready for the generator loop
  */
 const buildCodexSession = (child: ChildProcess, timeoutMs: number, inactivityTimeoutMs: number): CodexSession => {
-  if (!child.stdout) throw new Error('codex child process stdout not available');
+  if (!child.stdout) throw new ExecutionError('codex child process stdout not available');
   return {
     rl: createInterface({ input: child.stdout }),
     stderrChunks: attachStderrCollector(child),

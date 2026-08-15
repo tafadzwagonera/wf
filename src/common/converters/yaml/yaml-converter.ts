@@ -4,6 +4,7 @@ import { validateSync } from 'class-validator';
 import * as YAML from 'yaml';
 import { FormatConverter } from '../format-converter.interface';
 import { UniversalTicket } from '../../dto/universal-ticket.dto';
+import { WorkflowParseError } from '../../../shared/utils/errors';
 
 /**
  * YAML format converter for UniversalTicket
@@ -16,27 +17,36 @@ export class YamlConverter implements FormatConverter {
    */
   parse(content: string): UniversalTicket {
     try {
-      const parsed = YAML.parse(content);
-
-      if (!parsed || typeof parsed !== 'object') {
-        throw new Error('YAML content must be an object');
-      }
-
-      const ticket = plainToInstance(UniversalTicket, parsed);
-
-      // Validate the ticket
-      const errors = validateSync(ticket);
-      if (errors.length > 0) {
-        const messages = errors.map(e => Object.values(e.constraints || {}));
-        throw new Error(`Validation failed: ${messages.join(', ')}`);
-      }
-
+      const ticket = this.parseObject(content);
+      this.assertValid(ticket);
       return ticket;
     } catch (error) {
       if (error instanceof YAML.YAMLParseError) {
-        throw new Error(`Invalid YAML format: ${error.message}`);
+        throw new WorkflowParseError(`Invalid YAML format: ${error.message}`);
       }
       throw error;
+    }
+  }
+
+  /**
+   * Parse raw YAML content into a UniversalTicket instance, without validation
+   */
+  private parseObject(content: string): UniversalTicket {
+    const parsed = YAML.parse(content);
+    if (!parsed || typeof parsed !== 'object') {
+      throw new WorkflowParseError('YAML content must be an object');
+    }
+    return plainToInstance(UniversalTicket, parsed);
+  }
+
+  /**
+   * Throw when a parsed ticket fails class-validator validation
+   */
+  private assertValid(ticket: UniversalTicket): void {
+    const errors = validateSync(ticket);
+    if (errors.length > 0) {
+      const messages = errors.map(e => Object.values(e.constraints || {}));
+      throw new WorkflowParseError(`Validation failed: ${messages.join(', ')}`);
     }
   }
 
@@ -54,7 +64,7 @@ export class YamlConverter implements FormatConverter {
         minContentWidth: 0,
       });
     } catch (error) {
-      throw new Error(`YAML serialization failed: ${error.message}`);
+      throw new WorkflowParseError(`YAML serialization failed: ${error.message}`);
     }
   }
 

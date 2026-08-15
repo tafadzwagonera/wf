@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { AiProviderError, ConfigurationError, ExecutionError, ValidationError } from '../../../shared/utils/errors';
 import {
   Agent,
   MaxTurnsExceededError,
@@ -310,7 +311,7 @@ const matchRootPrefix = (segments: string[], roots: WorkspaceRoot[]): string | u
  */
 const resolveRepoPrefixedPath = (requestedPath: string, roots: WorkspaceRoot[], defaultRoot: string): string => {
   const trimmed = requestedPath.trim();
-  if (!trimmed) throw new Error('File path is required.');
+  if (!trimmed) throw new ValidationError('File path is required.');
   if (path.isAbsolute(trimmed)) return path.resolve(trimmed);
   const segments = trimmed.split(/[\\/]/).filter(Boolean);
   return matchRootPrefix(segments, roots) ?? path.resolve(defaultRoot, trimmed);
@@ -326,7 +327,7 @@ const resolveRepoPrefixedPath = (requestedPath: string, roots: WorkspaceRoot[], 
 const resolveReadablePath = (requestedPath: string, ctx: OpenAiImplementerContext): string => {
   const abs = resolveRepoPrefixedPath(requestedPath, ctx.readRoots, ctx.repoDir);
   if (!ctx.readRoots.some(r => isWithinRoot(abs, r.root))) {
-    throw new Error(`Read path is outside the allowed workspace roots: ${requestedPath}`);
+    throw new ValidationError(`Read path is outside the allowed workspace roots: ${requestedPath}`, { path: requestedPath });
   }
   return abs;
 };
@@ -342,7 +343,7 @@ const resolveWritablePath = (requestedPath: string, ctx: OpenAiImplementerContex
   const abs = resolveRepoPrefixedPath(requestedPath, ctx.readRoots, ctx.repoDir);
   const primaryRoot = ctx.readRoots[0]?.root ?? ctx.repoDir;
   if (!isWithinRoot(abs, primaryRoot) && abs !== primaryRoot) {
-    throw new Error(`Write path is outside the primary repository: ${requestedPath}`);
+    throw new ValidationError(`Write path is outside the primary repository: ${requestedPath}`, { path: requestedPath });
   }
   return abs;
 };
@@ -355,7 +356,7 @@ const resolveWritablePath = (requestedPath: string, ctx: OpenAiImplementerContex
  */
 const getToolContext = (runContext: RunContext<unknown> | undefined): OpenAiImplementerContext => {
   const ctx = runContext?.context as OpenAiImplementerContext | undefined;
-  if (!ctx) throw new Error('OpenAI agent tool context is missing.');
+  if (!ctx) throw new ExecutionError('OpenAI agent tool context is missing.');
   return ctx;
 };
 
@@ -1463,7 +1464,7 @@ const resumeAfterRateLimit = async (
  */
 const throwAgentError = (cls: AgentClassification, label: string): never => {
   console.log(chalk.red(`  [openai-agent] ${label}${cls.label}: ${cls.detail}`));
-  throw new Error(`OpenAI agent run failed (${cls.label}): ${cls.detail}`);
+  throw new AiProviderError(`OpenAI agent run failed (${cls.label}): ${cls.detail}`);
 };
 
 /**
@@ -2135,7 +2136,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
    */
   private initProvider(options: ImplementerOptions, plan?: ResolutionPlan) {
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
-    if (!apiKey) throw new Error('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
+    if (!apiKey) throw new ConfigurationError('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
     const { client, provider } = initOpenAiClient(apiKey);
     const { model, logMessage } = resolveModel(this.configService, options.modelRouting, plan);
     console.log(chalk.cyan(`  ${logMessage}`));

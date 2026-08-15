@@ -50,7 +50,7 @@ import {
 } from './ai.service';
 import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
-import { AiProviderError, ExecutionError, isAiProviderErrorLike } from '../../shared/utils/errors';
+import { AiProviderError, ConfigurationError, ExecutionError, isAiProviderErrorLike } from '../../shared/utils/errors';
 import type { TestInfraContext } from '../../shared/types/detection.types';
 import type { WfAiProviderName } from '../../shared/types/config.types';
 import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
@@ -840,7 +840,7 @@ const drainAnthropicSession = async (
       return { ...result, sessionId };
     }
   } finally { session.close(); }
-  throw new Error('Claude Agent SDK finished without returning a result.');
+  throw new AiProviderError('Claude Agent SDK finished without returning a result.');
 };
 
 const STALE_RESUME_PATTERNS = [
@@ -876,7 +876,7 @@ const extractAnthropicResultMessage = (
   const result = message as { subtype: string; is_error?: boolean; errors?: string[]; result: string };
   if (result.subtype !== 'success' || result.is_error) {
     const errorSummary = result.errors?.length ? result.errors.join('; ') : 'unknown error';
-    throw new Error(`Claude Agent SDK failed (${result.subtype}): ${errorSummary}`);
+    throw new AiProviderError(`Claude Agent SDK failed (${result.subtype}): ${errorSummary}`);
   }
   return result.result;
 };
@@ -1078,7 +1078,7 @@ export class StageAgentService {
       = this.configService.get<string>(`stages.${stage}.provider`)
         ?? this.configService.get<string>('ai.provider', 'anthropic');
     if (provider !== 'anthropic' && provider !== 'openai') {
-      throw new Error(
+      throw new ConfigurationError(
         `${stage} stage agent backend is unsupported for provider "${provider}". Configure ${stage}.provider as anthropic or openai, or set stages.${stage}.backend to "standard".`
       );
     }
@@ -1196,7 +1196,7 @@ export class StageAgentService {
    */
   private requireAnthropicApiKey(): string {
     const apiKey = this.configService.get<string>('ai.anthropicApiKey');
-    if (!apiKey) throw new Error('Anthropic agent backend requires `ai.anthropicApiKey` to be configured.');
+    if (!apiKey) throw new ConfigurationError('Anthropic agent backend requires `ai.anthropicApiKey` to be configured.');
     return apiKey;
   }
 
@@ -1233,7 +1233,7 @@ export class StageAgentService {
    */
   private requireOpenAiApiKey(): string {
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
-    if (!apiKey) throw new Error('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
+    if (!apiKey) throw new ConfigurationError('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
     return apiKey;
   }
 
@@ -1277,7 +1277,7 @@ export class StageAgentService {
         if (formatted) onProgress(formatted.message);
       }
     }
-    if (streamedRun.error) throw new Error(`OpenAI agent run failed: ${this.extractStreamError(streamedRun.error)}`);
+    if (streamedRun.error) throw new AiProviderError(`OpenAI agent run failed: ${this.extractStreamError(streamedRun.error)}`);
     return typeof streamedRun.finalOutput === 'string' ? streamedRun.finalOutput.trim() : '';
   }
 

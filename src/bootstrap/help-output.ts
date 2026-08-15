@@ -3,6 +3,7 @@ import * as path from 'path';
 import chalk from 'chalk';
 import { formatCliCommandTokens } from '../shared/utils/cli-command-colors';
 import { CommandHelpEntry, CommandHelpExample, CommandHelpOption } from './help-catalog-parser';
+import { FileSystemError } from '../shared/utils/errors';
 
 const CATALOG_PATH = path.join(__dirname, '..', '..', 'dist', 'bootstrap', 'commands-help.catalog.json');
 const HELP_FLAG_PATTERN = /^--help$|^-h$/;
@@ -15,7 +16,7 @@ const MOCK_STYLE_TAG_PATTERN = /<\/?(?:cyan|yellow|green|gray|bold-cyan)>/g;
 
 const loadCatalogFromDisk = (): Record<string, CommandHelpEntry> => {
   if (!fs.existsSync(CATALOG_PATH)) {
-    throw new Error(`Help catalog not found at ${CATALOG_PATH}. Run \`yarn build\` to generate it.`);
+    throw new FileSystemError(`Help catalog not found at ${CATALOG_PATH}. Run \`yarn build\` to generate it.`);
   }
 
   return JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8')) as Record<string, CommandHelpEntry>;

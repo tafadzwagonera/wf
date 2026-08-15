@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
+import { GitError } from '../shared/utils/errors';
 
 /**
  * Resolve the artifact storage directory for a given tracker.
@@ -102,7 +103,7 @@ export const scaffoldNewRepo = (repo: string, baseDir: string): string => {
   try {
     execSync('git commit --allow-empty -m "chore: initial commit"', { cwd: repoPath, stdio: 'pipe' });
   } catch {
-    throw new Error(`scaffoldNewRepo: git commit failed in ${repoPath}. Ensure git user.name and user.email are configured.`);
+    throw new GitError(`scaffoldNewRepo: git commit failed in ${repoPath}. Ensure git user.name and user.email are configured.`, { repoPath });
   }
   return repoPath;
 };

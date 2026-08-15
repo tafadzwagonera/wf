@@ -1,4 +1,4 @@
-import { AiProviderError, AiProviderErrorCategory, ERROR_CODE, isAiProviderErrorLike } from './app.error';
+import { AiProviderError, AiProviderErrorCategory, AppError, ApprovalError, ERROR_CODE, isAiProviderErrorLike } from './app.error';
 
 describe('AiProviderError category', () => {
   afterEach(() => jest.restoreAllMocks());
@@ -40,5 +40,18 @@ describe('AiProviderError category', () => {
         expect(error.category).toBe(category);
       });
     }
+  });
+});
+
+describe('ApprovalError', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('carries the APPROVAL_ERROR code, non-recoverable, and details', () => {
+    const error = new ApprovalError('approval denied', { approvalId: 'abc-123' });
+    expect(error.code).toBe(ERROR_CODE.APPROVAL_ERROR);
+    expect(error.name).toBe('ApprovalError');
+    expect(error.recoverable).toBe(false);
+    expect(error.details).toEqual({ approvalId: 'abc-123' });
+    expect(error).toBeInstanceOf(AppError);
   });
 });

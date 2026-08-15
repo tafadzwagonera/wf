@@ -5,7 +5,7 @@ import { FormatConverterService } from '../common/converters/format-converter.se
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { ValidationError, FileSystemError } from '../shared/utils/errors';
+import { ValidationError, FileSystemError, ExecutionError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { TicketPriority, TicketType } from '../common/dto/universal-ticket.dto';
 import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
@@ -158,7 +158,7 @@ const readStdin = (): Promise<string> =>
     const timer = setTimeout(() => {
       process.stdin.removeAllListeners('data');
       process.stdin.removeAllListeners('end');
-      reject(new Error('Timed out waiting for stdin input'));
+      reject(new ExecutionError('Timed out waiting for stdin input'));
     }, STDIN_TIMEOUT_IN_MS);
     process.stdin.on('data', chunk => chunks.push(chunk));
     process.stdin.on('end', () => {

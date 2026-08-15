@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import { exec } from 'node:child_process';
+import { ConfigurationError } from '../../../shared/utils/errors';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -136,7 +137,7 @@ const resolveModelConfig = (
   const singleModel = configService.get<string>('stages.implement.model');
   const modelsConfig
     = configService.get<import('../../../config/public-config').WfImplementStageModelsConfig>('stages.implement.models');
-  if (singleModel && modelsConfig) throw new Error(MODEL_CONFIG_EXCLUSIVE_ERROR);
+  if (singleModel && modelsConfig) throw new ConfigurationError(MODEL_CONFIG_EXCLUSIVE_ERROR);
   return {
     defaultModel: modelsConfig?.default || singleModel || fallbackDefaultModel,
     mechanicalModel: modelsConfig?.mechanical || singleModel || defaultMechanicalModel,

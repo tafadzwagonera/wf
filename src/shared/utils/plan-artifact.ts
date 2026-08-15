@@ -8,6 +8,7 @@ import { resolveCustomArtifactDir } from '../../agents/utils';
 import type { PlanArtifactManifest, PlanArtifactReference, PlanTokenResolution } from '../types/plan-artifact.types';
 import { hashGeneratedTicketSources, matchesGeneratedTicketToken } from './generated-ticket-artifact';
 import { normalizePlanVerification } from './verification-manifest';
+import { ValidationError, WorkflowParseError } from '../errors/app.error';
 
 export type { PlanArtifactManifest, PlanArtifactReference };
 
@@ -383,7 +384,7 @@ const resolveManifestMatch = (
   }
 
   if (candidates.length > 1) {
-    throw new Error(
+    throw new ValidationError(
       `Multiple plan artifacts found for '${identifierStem}': ${candidates
         .map(candidate => path.basename(candidate.artifactPath))
         .join(', ')}. Use the explicit hashed filename or remove stale artifacts.`
@@ -421,7 +422,7 @@ export const resolvePlanArtifactReference = (
   const identifierStem = stripArtifactExtension(path.basename(identifier.trim()));
   const requestedAction = resolveActionFromIdentifier(identifierStem, options.action);
   if (parseShortHashedStem(identifierStem)) {
-    throw new Error(`Non-canonical plan identifier '${identifier}'. Use YYYY-MM-DD-<hash>-<action>-plan.<ext>.`);
+    throw new ValidationError(`Non-canonical plan identifier '${identifier}'. Use YYYY-MM-DD-<hash>-<action>-plan.<ext>.`);
   }
 
   const manifestMatch = resolveManifestMatch(artifactDir, identifierStem, requestedAction);
@@ -435,7 +436,7 @@ export const resolvePlanArtifactReference = (
           extension => `YYYY-MM-DD-${hashPlanArtifactSources([identifierStem])}-${requestedAction}-plan.${extension}`
         )
       : ['YYYY-MM-DD-<hash>-<action>-plan.<ext>'];
-  throw new Error(
+  throw new ValidationError(
     `Plan artifact not found for '${identifier}' in ${artifactDir}. Checked: ${candidateList.join(', ')}`
   );
 };
@@ -445,7 +446,7 @@ const resolveDatePrefix = (createdAt?: Date | string): string => {
   if (createdAt instanceof Date) date = createdAt;
   else if (typeof createdAt === 'string') date = new Date(createdAt);
   if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid createdAt value for plan artifact: ${createdAt}`);
+    throw new ValidationError(`Invalid createdAt value for plan artifact: ${createdAt}`);
   }
   return date.toISOString().slice(0, 10);
 };
@@ -472,7 +473,7 @@ export const parsePlanArtifact = (content: string, filePath: string): Resolution
     return parseMarkdownPlan(content, filePath);
   }
 
-  throw new Error(`Unsupported plan file format: ${filePath}`);
+  throw new WorkflowParseError(`Unsupported plan file format: ${filePath}`);
 };
 
 /**
@@ -486,7 +487,7 @@ export const getPlanArtifactExtension = (format: PlanArtifactFormat): PlanArtifa
 // eslint-disable-next-line max-lines-per-function
 const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
   if (!value || typeof value !== 'object') {
-    throw new Error(`Plan file is not valid: ${filePath}`);
+    throw new WorkflowParseError(`Plan file is not valid: ${filePath}`);
   }
 
   const rawPlan = value as Record<string, unknown>;
@@ -573,7 +574,7 @@ const normalizeAction = (value: unknown, filePath: string): ResolutionAction => 
     return value as ResolutionAction;
   }
 
-  throw new Error(`Plan file has an invalid action: ${filePath}`);
+  throw new WorkflowParseError(`Plan file has an invalid action: ${filePath}`);
 };
 
 const normalizeComplexity = (value: unknown, filePath: string): PlanComplexity => {
@@ -585,7 +586,7 @@ const normalizeComplexity = (value: unknown, filePath: string): PlanComplexity =
     return value as PlanComplexity;
   }
 
-  throw new Error(`Plan file has an invalid complexity: ${filePath}`);
+  throw new WorkflowParseError(`Plan file has an invalid complexity: ${filePath}`);
 };
 
 const normalizeStringList = (value: unknown): string[] => {

@@ -1,5 +1,6 @@
 // src/integrations/ai/adapters/anthropic-agent.adapter.ts
 import { ConfigService } from '@nestjs/config';
+import { AiProviderError, ConfigurationError } from '../../../shared/utils/errors';
 import {
   type CanUseTool,
   type SDKResultMessage,
@@ -603,7 +604,7 @@ const logSdkCompletion = (result: SDKResultMessage, touchedFiles: Set<string>): 
 const assertPassSuccess = (result: SDKResultMessage, passLabel: string): void => {
   if (result.subtype !== 'success') {
     const errorSummary = 'errors' in result && result.errors.length > 0 ? result.errors.join('; ') : 'unknown error';
-    throw new Error(`Claude Agent SDK ${passLabel} failed (${result.subtype}): ${errorSummary}`);
+    throw new AiProviderError(`Claude Agent SDK ${passLabel} failed (${result.subtype}): ${errorSummary}`);
   }
 };
 
@@ -690,7 +691,7 @@ const buildPassPromptParams = (p: ContinuationPassParams): ContinuationPromptPar
 const finalizeContinuationResult = (
   result: SDKResultMessage | undefined, passNumber: number
 ): ContinuationPassResult => {
-  if (!result) throw new Error(`Claude Agent SDK pass ${passNumber} finished without returning a result.`);
+  if (!result) throw new AiProviderError(`Claude Agent SDK pass ${passNumber} finished without returning a result.`);
   if (result.num_turns !== undefined && result.num_turns <= 1) logIdlePassDiagnostic(result, passNumber);
   return { sessionId: validateAndLogPassResult(result, passNumber - 1), numTurns: result.num_turns ?? 2 };
 };
@@ -928,7 +929,7 @@ type InitialSessionParams = {
 const assertNoAgentError = (result: SDKResultMessage): void => {
   if (!result.is_error) return;
   const errorSummary = 'errors' in result && result.errors.length > 0 ? result.errors.join('; ') : 'unknown error';
-  throw new Error(`Claude Agent SDK failed: ${errorSummary}`);
+  throw new AiProviderError(`Claude Agent SDK failed: ${errorSummary}`);
 };
 
 const runInitialSdkSession = async (p: InitialSessionParams): Promise<SDKResultMessage> => {
@@ -940,7 +941,7 @@ const runInitialSdkSession = async (p: InitialSessionParams): Promise<SDKResultM
   // Supplement files_persisted tracking with git-based discovery since
   // the SDK may not emit files_persisted for all writes in acceptEdits mode.
   await discoverChangedFiles(p.repoDir, p.touchedFiles);
-  if (!finalResult) throw new Error('Claude Agent SDK finished without returning a result.');
+  if (!finalResult) throw new AiProviderError('Claude Agent SDK finished without returning a result.');
   assertPassSuccess(finalResult, 'initial session');
   assertNoAgentError(finalResult);
   return finalResult;
@@ -1004,7 +1005,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
 
   private resolveApiKey(): string {
     const apiKey = this.configService.get<string>('ai.anthropicApiKey');
-    if (!apiKey) throw new Error('Anthropic Agent SDK backend requires `ai.anthropicApiKey` to be configured.');
+    if (!apiKey) throw new ConfigurationError('Anthropic Agent SDK backend requires `ai.anthropicApiKey` to be configured.');
     return apiKey;
   }
 

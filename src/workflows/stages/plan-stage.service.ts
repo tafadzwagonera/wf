@@ -17,7 +17,7 @@ import {
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
-import { AiProviderError, isAiProviderErrorLike, ValidationError } from '../../shared/utils/errors';
+import { AiProviderError, AppError, isAiProviderErrorLike, ValidationError, WorkflowParseError } from '../../shared/utils/errors';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { validatePlanQuality } from '../../shared/utils/plan-quality';
@@ -334,7 +334,8 @@ export class PlanStageService {
     try {
       return parsePlanArtifact(fs.readFileSync(planPath, 'utf-8'), planPath);
     } catch (error) {
-      throw new Error(error instanceof Error ? error.message : `Plan file is not valid: ${path.basename(planPath)}`);
+      if (error instanceof AppError) throw error;
+      throw new WorkflowParseError(error instanceof Error ? error.message : `Plan file is not valid: ${path.basename(planPath)}`);
     }
   }
 

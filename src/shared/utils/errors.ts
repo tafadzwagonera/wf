@@ -31,6 +31,7 @@ export {
   isAiProviderErrorLike,
   StateError,
   UserCancelledError,
+  ApprovalError,
   ConfigurationError,
   FileSystemError,
   ERROR_CODE,

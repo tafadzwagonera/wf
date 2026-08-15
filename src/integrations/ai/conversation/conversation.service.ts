@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AiService, AIConversationRequest, requireAiResponseContent } from '../ai.service';
 import { LoggerService } from '../../../shared/logger/logger.service';
+import { StateError } from '../../../shared/utils/errors';
 import { ChatUIService } from './chat-ui.service';
 import {
   ConversationMessage,
@@ -146,7 +147,7 @@ export class ConversationService {
     const state = this.conversations.get(conversationId);
 
     if (!state) {
-      throw new Error(`Conversation not found: ${conversationId}`);
+      throw new StateError(`Conversation not found: ${conversationId}`, { conversationId });
     }
 
     const message: ConversationMessage = {
@@ -197,7 +198,7 @@ export class ConversationService {
     stage?: WorkflowStage
   ): Promise<ConversationMessage> {
     const state = this.conversations.get(conversationId);
-    if (!state) throw new Error(`Conversation not found: ${conversationId}`);
+    if (!state) throw new StateError(`Conversation not found: ${conversationId}`, { conversationId });
     const messages = buildApiMessages(state);
     this.logger.debug(`Getting assistant response for conversation: ${conversationId} with ${messages.length} messages`);
     const stageOverride = stage ? { stage: stage as AIConversationRequest['stage'] } : {};
@@ -396,7 +397,7 @@ export class ConversationService {
    */
   async startChatSession(conversationId: string, options?: ChatSessionOptions): Promise<void> {
     const state = this.conversations.get(conversationId);
-    if (!state) throw new Error(`Conversation not found: ${conversationId}`);
+    if (!state) throw new StateError(`Conversation not found: ${conversationId}`, { conversationId });
     const resolvedOptions = { maxTurns: 20, ...options };
     const useAgentBackend = this.resolveAgentBackend(resolvedOptions.stage);
     const initialAgentSession = useAgentBackend && resolvedOptions.resumeProviderSessionId

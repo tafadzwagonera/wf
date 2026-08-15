@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { ValidationError } from '../errors/app.error';
 import type {
   ImplementBackendSelection,
   ImplementRunArtifact,
@@ -60,6 +61,12 @@ const ERROR_CLASS_SEVERITY: Record<string, number> = {
   format: 1,
 };
 
+interface ClassifyVerificationFailureParams {
+  command: string;
+  stdout: string;
+  stderr: string;
+}
+
 /**
  * Classify a verification failure using command identity and deterministic
  * output patterns.
@@ -67,18 +74,14 @@ const ERROR_CLASS_SEVERITY: Record<string, number> = {
  * @param params - Verification command and captured output
  * @returns A structured classification for retry scope and observability
  */
-export const classifyVerificationFailure = (params: {
-  command: string;
-  stdout: string;
-  stderr: string;
-}): VerificationFailureClassification => {
+export const classifyVerificationFailure = (
+  params: ClassifyVerificationFailureParams
+): VerificationFailureClassification => {
   const output = `${params.stdout}\n${params.stderr}`.trim();
-  const implicatedFiles = extractDiagnosticFiles(output);
   const signal = detectVerificationSignal(params.command, output);
-
   return {
     category: signal.category,
-    implicatedFiles,
+    implicatedFiles: extractDiagnosticFiles(output),
     companionFiles: [],
     rootSignal: signal.rootSignal,
     strategy: signal.strategy,
@@ -144,12 +147,12 @@ export const writeImplementVerificationRunFile = (
  */
 export const readImplementVerificationRunFile = (filePath: string): ImplementVerificationRunFile => {
   if (!fs.existsSync(filePath)) {
-    throw new Error(`Verification run file not found: ${filePath}`);
+    throw new ValidationError(`Verification run file not found: ${filePath}`);
   }
 
   const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Partial<ImplementVerificationRunFile>;
   if (!parsed.run || !Array.isArray(parsed.attempts)) {
-    throw new Error(`Verification run file is invalid: ${filePath}`);
+    throw new ValidationError(`Verification run file is invalid: ${filePath}`);
   }
 
   return {
@@ -187,112 +190,122 @@ export const buildMutationProgressSignal = (mutation: ImplementProgressMutation)
   };
 };
 
+interface ProgressSignalParams {
+  currentSnapshot: ImplementProgressVerificationSnapshot;
+  previousSnapshot?: ImplementProgressVerificationSnapshot;
+  changedFilesSinceLastVerification: string[];
+}
+
+const VERIFICATION_COMPLETE_SIGNAL: ImplementProgressSignal = {
+  score: 10,
+  verdict: 'complete',
+  reasons: ['verification passed'],
+  nextAction: 'Stop and summarize the finished changes.',
+};
+
+interface SnapshotFlag {
+  active: boolean;
+  delta: number;
+  reason: string;
+}
+
+const buildCommandStageFlags = (
+  current: ImplementProgressVerificationSnapshot,
+  previous: ImplementProgressVerificationSnapshot
+): SnapshotFlag[] => [
+  { active: current.commandIndex > previous.commandIndex, delta: 3, reason: 'verification advanced to a later command' },
+  { active: current.commandIndex < previous.commandIndex, delta: -3, reason: 'verification regressed to an earlier command' },
+  { active: current.diagnosticLineCount < previous.diagnosticLineCount, delta: 2, reason: 'diagnostic output shrank' },
+  { active: current.diagnosticLineCount > previous.diagnosticLineCount, delta: -1, reason: 'diagnostic output grew' },
+];
+
+const buildErrorClassFlags = (
+  current: ImplementProgressVerificationSnapshot,
+  previous: ImplementProgressVerificationSnapshot
+): SnapshotFlag[] => {
+  const resolved = [...previous.errorClasses].filter(c => !current.errorClasses.has(c));
+  const introduced = [...current.errorClasses].filter(c => !previous.errorClasses.has(c));
+  const previousSeverity = getHighestErrorSeverity(previous.errorClasses);
+  const currentSeverity = getHighestErrorSeverity(current.errorClasses);
+  return [
+    { active: resolved.length > 0, delta: 2, reason: `resolved error classes: ${resolved.join(', ')}` },
+    { active: introduced.length > resolved.length, delta: -1, reason: `introduced error classes: ${introduced.join(', ')}` },
+    { active: currentSeverity < previousSeverity, delta: 2, reason: 'highest-severity diagnostics decreased' },
+  ];
+};
+
+const isRepeatedFailure = (
+  current: ImplementProgressVerificationSnapshot,
+  previous: ImplementProgressVerificationSnapshot,
+  changedFileCount: number
+): boolean =>
+  changedFileCount === 0
+  && current.commandIndex === previous.commandIndex
+  && getHighestErrorSeverity(current.errorClasses) >= getHighestErrorSeverity(previous.errorClasses)
+  && current.diagnosticLineCount >= previous.diagnosticLineCount;
+
+const buildSnapshotFlags = (
+  current: ImplementProgressVerificationSnapshot,
+  previous: ImplementProgressVerificationSnapshot,
+  changedFileCount: number
+): SnapshotFlag[] => [
+  ...buildCommandStageFlags(current, previous),
+  ...buildErrorClassFlags(current, previous),
+  { active: isRepeatedFailure(current, previous, changedFileCount), delta: -3, reason: 'same failure pattern repeated without new edits' },
+];
+
+const compareSnapshots = (
+  current: ImplementProgressVerificationSnapshot,
+  previous: ImplementProgressVerificationSnapshot,
+  changedFileCount: number
+): { scoreDelta: number; reasons: string[] } => {
+  const flags = buildSnapshotFlags(current, previous, changedFileCount).filter(flag => flag.active);
+  return { scoreDelta: flags.reduce((sum, flag) => sum + flag.delta, 0), reasons: flags.map(flag => flag.reason) };
+};
+
+const computeProgressScore = (params: ProgressSignalParams): { score: number; reasons: string[] } => {
+  const changedFileCount = params.changedFilesSinceLastVerification.length;
+  const filesReason = changedFileCount > 0 ? `recent file changes: ${params.changedFilesSinceLastVerification.join(', ')}` : undefined;
+  const filesDelta = changedFileCount > 0 ? Math.min(5, 3 + changedFileCount) : 0;
+
+  const snapshotResult = params.previousSnapshot
+    ? compareSnapshots(params.currentSnapshot, params.previousSnapshot, changedFileCount)
+    : { scoreDelta: 1, reasons: ['first failed verification snapshot'] };
+
+  const reasons = [filesReason, ...snapshotResult.reasons].filter((reason): reason is string => Boolean(reason));
+  return { score: Math.max(0, Math.min(10, filesDelta + snapshotResult.scoreDelta)), reasons };
+};
+
+const resolveProgressVerdict = (score: number): ImplementProgressVerdict => {
+  if (score >= 5) return 'continue';
+  if (score >= 2) return 'revisit';
+  return 'regress';
+};
+
+const PROGRESS_NEXT_ACTIONS: Record<ImplementProgressVerdict, string> = {
+  complete: 'Stop and summarize the finished changes.',
+  continue: 'Keep editing the most recently changed files and rerun verification.',
+  revisit: 'Narrow the next pass to the latest changed files before verifying again.',
+  regress: 'Inspect the latest verification failure before broadening scope.',
+};
+
 /**
  * Build a progress signal from a verification command result.
  *
  * @param params - Latest verification result plus previous state
  * @returns A bounded heuristic signal that favors convergence when failures shrink
  */
-export const buildVerificationProgressSignal = (params: {
-  currentSnapshot: ImplementProgressVerificationSnapshot;
-  previousSnapshot?: ImplementProgressVerificationSnapshot;
-  changedFilesSinceLastVerification: string[];
-}): ImplementProgressSignal => {
-  if (params.currentSnapshot.exitCode === 0) {
-    return {
-      score: 10,
-      verdict: 'complete',
-      reasons: ['verification passed'],
-      nextAction: 'Stop and summarize the finished changes.',
-    };
-  }
+export const buildVerificationProgressSignal = (params: ProgressSignalParams): ImplementProgressSignal => {
+  if (params.currentSnapshot.exitCode === 0) return VERIFICATION_COMPLETE_SIGNAL;
 
-  const reasons: string[] = [];
-  let score = 0;
-
-  if (params.changedFilesSinceLastVerification.length > 0) {
-    score += Math.min(5, 3 + params.changedFilesSinceLastVerification.length);
-    reasons.push(`recent file changes: ${params.changedFilesSinceLastVerification.join(', ')}`);
-  }
-
-  const previousSnapshot = params.previousSnapshot;
-  if (!previousSnapshot) {
-    score += 1;
-    reasons.push('first failed verification snapshot');
-  } else {
-    const stageAdvanced = params.currentSnapshot.commandIndex > previousSnapshot.commandIndex;
-    const stageRegressed = params.currentSnapshot.commandIndex < previousSnapshot.commandIndex;
-    const diagnosticLinesReduced = params.currentSnapshot.diagnosticLineCount < previousSnapshot.diagnosticLineCount;
-    const diagnosticLinesIncreased = params.currentSnapshot.diagnosticLineCount > previousSnapshot.diagnosticLineCount;
-    const previousErrorClasses = previousSnapshot.errorClasses;
-    const currentErrorClasses = params.currentSnapshot.errorClasses;
-    const resolvedErrorClasses = [...previousErrorClasses].filter(errorClass => !currentErrorClasses.has(errorClass));
-    const introducedErrorClasses = [...currentErrorClasses].filter(errorClass => !previousErrorClasses.has(errorClass));
-    const previousSeverity = getHighestErrorSeverity(previousErrorClasses);
-    const currentSeverity = getHighestErrorSeverity(currentErrorClasses);
-    const severityImproved = currentSeverity < previousSeverity;
-    const repeatedFailurePattern
-      = params.changedFilesSinceLastVerification.length === 0
-        && params.currentSnapshot.commandIndex === previousSnapshot.commandIndex
-        && currentSeverity >= previousSeverity
-        && params.currentSnapshot.diagnosticLineCount >= previousSnapshot.diagnosticLineCount;
-
-    if (stageAdvanced) {
-      score += 3;
-      reasons.push('verification advanced to a later command');
-    }
-
-    if (stageRegressed) {
-      score -= 3;
-      reasons.push('verification regressed to an earlier command');
-    }
-
-    if (diagnosticLinesReduced) {
-      score += 2;
-      reasons.push('diagnostic output shrank');
-    }
-
-    if (diagnosticLinesIncreased) {
-      score -= 1;
-      reasons.push('diagnostic output grew');
-    }
-
-    if (resolvedErrorClasses.length > 0) {
-      score += 2;
-      reasons.push(`resolved error classes: ${resolvedErrorClasses.join(', ')}`);
-    }
-
-    if (introducedErrorClasses.length > resolvedErrorClasses.length) {
-      score -= 1;
-      reasons.push(`introduced error classes: ${introducedErrorClasses.join(', ')}`);
-    }
-
-    if (severityImproved) {
-      score += 2;
-      reasons.push('highest-severity diagnostics decreased');
-    }
-
-    if (repeatedFailurePattern) {
-      score -= 3;
-      reasons.push('same failure pattern repeated without new edits');
-    }
-  }
-
-  score = Math.max(0, Math.min(10, score));
-
-  let verdict: ImplementProgressVerdict = 'regress';
-  if (score >= 5) verdict = 'continue';
-  else if (score >= 2) verdict = 'revisit';
+  const { score, reasons } = computeProgressScore(params);
+  const verdict = resolveProgressVerdict(score);
 
   return {
     score,
     verdict,
     reasons: reasons.length > 0 ? reasons : ['no meaningful convergence signal'],
-    nextAction: (() => {
-      if (verdict === 'continue') return 'Keep editing the most recently changed files and rerun verification.';
-      if (verdict === 'revisit') return 'Narrow the next pass to the latest changed files before verifying again.';
-      return 'Inspect the latest verification failure before broadening scope.';
-    })(),
+    nextAction: PROGRESS_NEXT_ACTIONS[verdict],
   };
 };
 
@@ -315,6 +328,16 @@ export const countDiagnosticLines = (stdout?: string, stderr?: string): number =
     .filter(Boolean).length;
 };
 
+const ERROR_CLASS_PATTERNS: Array<[string, RegExp]> = [
+  ['format', /prettier|format|code style/],
+  ['lint', /eslint|lint|no-[a-z-]+/],
+  ['syntax', /syntaxerror|parsing error|unexpected token|ts1005/],
+  ['type', /typeerror|type .* assignable|ts2322|ts2345|ts2741|ts2769/],
+  ['reference', /referenceerror|cannot find name|not defined|ts2304/],
+  ['module', /cannot find module|module not found|ts2307/],
+  ['test', /fail\s|expected:|received:|expect\(|assertion/],
+];
+
 /**
  * Extract coarse error classes from verification output.
  *
@@ -323,36 +346,29 @@ export const countDiagnosticLines = (stdout?: string, stderr?: string): number =
  * @returns Set of detected error classes
  */
 export const extractVerificationErrorClasses = (stdout?: string, stderr?: string): Set<string> => {
-  const errorClasses = new Set<string>();
   const diagnosticText = [stdout, stderr].filter(Boolean).join('\n').toLowerCase();
-
-  if (/prettier|format|code style/.test(diagnosticText)) {
-    errorClasses.add('format');
-  }
-  if (/eslint|lint|no-[a-z-]+/.test(diagnosticText)) {
-    errorClasses.add('lint');
-  }
-  if (/syntaxerror|parsing error|unexpected token|ts1005/.test(diagnosticText)) {
-    errorClasses.add('syntax');
-  }
-  if (/typeerror|type .* assignable|ts2322|ts2345|ts2741|ts2769/.test(diagnosticText)) {
-    errorClasses.add('type');
-  }
-  if (/referenceerror|cannot find name|not defined|ts2304/.test(diagnosticText)) {
-    errorClasses.add('reference');
-  }
-  if (/cannot find module|module not found|ts2307/.test(diagnosticText)) {
-    errorClasses.add('module');
-  }
-  if (/fail\s|expected:|received:|expect\(|assertion/.test(diagnosticText)) {
-    errorClasses.add('test');
-  }
+  const errorClasses = new Set(
+    ERROR_CLASS_PATTERNS.filter(([, pattern]) => pattern.test(diagnosticText)).map(([errorClass]) => errorClass)
+  );
 
   if (errorClasses.size === 0 && diagnosticText.trim()) {
     errorClasses.add('generic');
   }
 
   return errorClasses;
+};
+
+const buildTaskProgressSignal = (event: ImplementProgressStreamEvent): ImplementProgressSignal => {
+  const reasons = [event.summary?.trim() || 'task progress reported'];
+  if (event.lastToolName) reasons.push(`last tool: ${event.lastToolName}`);
+  return { score: 4, verdict: 'continue', reasons, nextAction: 'Keep the current pass focused and continue editing.' };
+};
+
+const buildToolProgressSignal = (event: ImplementProgressStreamEvent): ImplementProgressSignal => {
+  const reasons = [event.toolName ? `tool progress: ${event.toolName}` : 'tool progress'];
+  if (typeof event.elapsedTimeSeconds === 'number') reasons.push(`elapsed: ${event.elapsedTimeSeconds.toFixed(1)}s`);
+  if (event.taskId) reasons.push(`task: ${event.taskId}`);
+  return { score: 3, verdict: 'continue', reasons, nextAction: 'Continue the current pass and verify once the edit settles.' };
 };
 
 /**
@@ -362,34 +378,8 @@ export const extractVerificationErrorClasses = (stdout?: string, stderr?: string
  * @returns A heuristic signal for terminal output and prompt feedback
  */
 export const buildStreamProgressSignal = (event: ImplementProgressStreamEvent): ImplementProgressSignal => {
-  if (event.kind === 'task_progress') {
-    const reasons = [event.summary?.trim() || 'task progress reported'];
-    if (event.lastToolName) {
-      reasons.push(`last tool: ${event.lastToolName}`);
-    }
-
-    return {
-      score: 4,
-      verdict: 'continue',
-      reasons,
-      nextAction: 'Keep the current pass focused and continue editing.',
-    };
-  }
-
-  const reasons = [event.toolName ? `tool progress: ${event.toolName}` : 'tool progress'];
-  if (typeof event.elapsedTimeSeconds === 'number') {
-    reasons.push(`elapsed: ${event.elapsedTimeSeconds.toFixed(1)}s`);
-  }
-  if (event.taskId) {
-    reasons.push(`task: ${event.taskId}`);
-  }
-
-  return {
-    score: 3,
-    verdict: 'continue',
-    reasons,
-    nextAction: 'Continue the current pass and verify once the edit settles.',
-  };
+  if (event.kind === 'task_progress') return buildTaskProgressSignal(event);
+  return buildToolProgressSignal(event);
 };
 
 /**
@@ -403,59 +393,43 @@ export const formatImplementProgressSignal = (signal: ImplementProgressSignal): 
   return `progress: ${signal.verdict} (score ${signal.score})${reasons ? ` · ${reasons}` : ''}`;
 };
 
+const VERIFICATION_SIGNAL_RULES: Array<{
+  matches: (lowerCommand: string, output: string) => boolean;
+  signal: VerificationSignal;
+}> = [
+  {
+    matches: (_lowerCommand, output) => matchesAny(output, SYNTAX_ERROR_PATTERNS),
+    signal: { category: 'parse', rootSignal: 'syntax-error', strategy: 'surgical', confidence: 'high' },
+  },
+  {
+    matches: (lowerCommand, output) => matchesAny(output, LINT_ERROR_PATTERNS) || lowerCommand.includes('lint'),
+    signal: { category: 'lint', rootSignal: 'lint-diagnostic', strategy: 'surgical', confidence: 'high' },
+  },
+  {
+    matches: (lowerCommand, output) => matchesAny(output, TYPECHECK_ERROR_PATTERNS) || lowerCommand.includes('typecheck'),
+    signal: { category: 'typecheck', rootSignal: 'type-diagnostic', strategy: 'paired-files', confidence: 'high' },
+  },
+  {
+    matches: lowerCommand => lowerCommand.includes('build'),
+    signal: { category: 'build', rootSignal: 'build-command', strategy: 'broad-context', confidence: 'medium' },
+  },
+  {
+    matches: (lowerCommand, output) => matchesAny(output, TEST_RUNTIME_PATTERNS) || lowerCommand.includes('test'),
+    signal: { category: 'test-runtime', rootSignal: 'test-diagnostic', strategy: 'paired-files', confidence: 'medium' },
+  },
+];
+
+const UNKNOWN_VERIFICATION_SIGNAL: VerificationSignal = {
+  category: 'unknown',
+  rootSignal: 'unclassified',
+  strategy: 'broad-context',
+  confidence: 'low',
+};
+
 const detectVerificationSignal = (command: string, output: string): VerificationSignal => {
   const lowerCommand = command.toLowerCase();
-  if (matchesAny(output, SYNTAX_ERROR_PATTERNS)) {
-    return {
-      category: 'parse',
-      rootSignal: 'syntax-error',
-      strategy: 'surgical',
-      confidence: 'high',
-    };
-  }
-
-  if (matchesAny(output, LINT_ERROR_PATTERNS) || lowerCommand.includes('lint')) {
-    return {
-      category: 'lint',
-      rootSignal: 'lint-diagnostic',
-      strategy: 'surgical',
-      confidence: 'high',
-    };
-  }
-
-  if (matchesAny(output, TYPECHECK_ERROR_PATTERNS) || lowerCommand.includes('typecheck')) {
-    return {
-      category: 'typecheck',
-      rootSignal: 'type-diagnostic',
-      strategy: 'paired-files',
-      confidence: 'high',
-    };
-  }
-
-  if (lowerCommand.includes('build')) {
-    return {
-      category: 'build',
-      rootSignal: 'build-command',
-      strategy: 'broad-context',
-      confidence: 'medium',
-    };
-  }
-
-  if (matchesAny(output, TEST_RUNTIME_PATTERNS) || lowerCommand.includes('test')) {
-    return {
-      category: 'test-runtime',
-      rootSignal: 'test-diagnostic',
-      strategy: 'paired-files',
-      confidence: 'medium',
-    };
-  }
-
-  return {
-    category: 'unknown',
-    rootSignal: 'unclassified',
-    strategy: 'broad-context',
-    confidence: 'low',
-  };
+  const rule = VERIFICATION_SIGNAL_RULES.find(candidate => candidate.matches(lowerCommand, output));
+  return rule?.signal ?? UNKNOWN_VERIFICATION_SIGNAL;
 };
 
 const extractDiagnosticFiles = (output: string): string[] => {

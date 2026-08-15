@@ -4,6 +4,7 @@ import { validateSync } from 'class-validator';
 import { FormatConverter } from '../format-converter.interface';
 import { UniversalTicket, TicketType, TicketPriority } from '../../dto/universal-ticket.dto';
 import { stripInlineMarkdownDelimiters } from '../../utils/markdown-text';
+import { AppError, WorkflowParseError } from '../../../shared/utils/errors';
 
 const SYNTHETIC_TITLE_LABEL_PATTERN = /^(?:title|heading)\s*:\s*(.+)$/i;
 
@@ -16,6 +17,23 @@ const SYNTHETIC_TITLE_LABEL_PATTERN = /^(?:title|heading)\s*:\s*(.+)$/i;
 const normalizeMarkdownTitle = (title: string): string => {
   const match = SYNTHETIC_TITLE_LABEL_PATTERN.exec(title.trim());
   return stripInlineMarkdownDelimiters(match?.[1] ?? title);
+};
+
+const setListField = (data: Partial<UniversalTicket>, value: string, key: 'labels' | 'components'): void => {
+  if (value && value !== 'None') data[key] = value.split(',').map(v => v.trim());
+};
+
+const METADATA_FIELD_SETTERS: Record<string, (data: Partial<UniversalTicket>, value: string) => void> = {
+  type: (data, value) => { data.type = value.toLowerCase() as TicketType; },
+  status: (data, value) => { data.status = value; },
+  priority: (data, value) => { data.priority = value.toLowerCase() as TicketPriority; },
+  assignee: (data, value) => { if (value && value !== 'Unassigned') data.assignee = value; },
+  reporter: (data, value) => { if (value && value !== 'Unknown') data.reporter = value; },
+  project: (data, value) => { data.project = value; },
+  labels: (data, value) => setListField(data, value, 'labels'),
+  components: (data, value) => setListField(data, value, 'components'),
+  created: (data, value) => { data.created = new Date(value); },
+  updated: (data, value) => { data.updated = new Date(value); },
 };
 
 /**
@@ -36,56 +54,58 @@ export class MarkdownConverter implements FormatConverter {
    */
   parse(content: string): UniversalTicket {
     try {
-      const lines = content.split('\n');
-      const data: Partial<UniversalTicket> = {};
-
-      // Parse title and key from first line (# [KEY]: Title or # Title)
-      const titleLine = lines.find(l => l.trim().startsWith('#'));
-      if (titleLine) {
-        const titleMatch = /^#\s+(?:\[([^\]]+)\]:\s*)?(.+)$/.exec(titleLine);
-        if (titleMatch) {
-          if (titleMatch[1]) {
-            data.key = titleMatch[1].trim();
-          }
-          data.title = normalizeMarkdownTitle(titleMatch[2]);
-        }
-      }
-
-      // Parse metadata fields
-      for (const line of lines) {
-        this.applyMetadataField(line, data);
-      }
-
-      // Parse description section
-      const descriptionIndex = lines.findIndex(l => /^##\s+Description$/i.exec(l.trim()));
-      if (descriptionIndex !== -1) {
-        const descriptionLines = lines.slice(descriptionIndex + 1);
-        data.description = descriptionLines.join('\n').trim();
-      }
-
-      // Validate required fields
-      if (!data.title) {
-        throw new Error('Markdown must contain a title');
-      }
-      if (!data.description) {
-        data.description = ''; // Allow empty description
-      }
-
-      const ticket = plainToInstance(UniversalTicket, data);
-
-      // Validate the ticket
-      const errors = validateSync(ticket);
-      if (errors.length > 0) {
-        const messages = errors.map(e => Object.values(e.constraints || {}));
-        throw new Error(`Validation failed: ${messages.join(', ')}`);
-      }
-
+      const ticket = plainToInstance(UniversalTicket, this.parseTicketData(content));
+      this.assertValid(ticket);
       return ticket;
     } catch (error) {
-      if (error.message && error.message.includes('Validation failed')) {
-        throw error;
-      }
-      throw new Error(`Invalid Markdown format: ${error.message}`);
+      if (error instanceof AppError) throw error;
+      throw new WorkflowParseError(`Invalid Markdown format: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Parse markdown content into the raw ticket field data used to build a UniversalTicket
+   */
+  private parseTicketData(content: string): Partial<UniversalTicket> {
+    const lines = content.split('\n');
+    const data: Partial<UniversalTicket> = { ...this.parseTitleAndKey(lines) };
+    for (const line of lines) this.applyMetadataField(line, data);
+    if (!data.title) throw new WorkflowParseError('Markdown must contain a title');
+    data.description = this.parseDescription(lines) || ''; // Allow empty description
+    return data;
+  }
+
+  /**
+   * Parse title and optional key from the first markdown heading (# [KEY]: Title or # Title)
+   */
+  private parseTitleAndKey(lines: string[]): Pick<Partial<UniversalTicket>, 'key' | 'title'> {
+    const titleLine = lines.find(l => l.trim().startsWith('#'));
+    if (!titleLine) return {};
+    const titleMatch = /^#\s+(?:\[([^\]]+)\]:\s*)?(.+)$/.exec(titleLine);
+    if (!titleMatch) return {};
+    return {
+      key: titleMatch[1] ? titleMatch[1].trim() : undefined,
+      title: normalizeMarkdownTitle(titleMatch[2]),
+    };
+  }
+
+  /**
+   * Extract the description section following a "## Description" heading
+   */
+  private parseDescription(lines: string[]): string | undefined {
+    const descriptionIndex = lines.findIndex(l => /^##\s+Description$/i.exec(l.trim()));
+    if (descriptionIndex === -1) return undefined;
+    return lines.slice(descriptionIndex + 1).join('\n').trim();
+  }
+
+  /**
+   * Throw when a parsed ticket fails class-validator validation
+   */
+  private assertValid(ticket: UniversalTicket): void {
+    const errors = validateSync(ticket);
+    if (errors.length > 0) {
+      const messages = errors.map(e => Object.values(e.constraints || {}));
+      throw new WorkflowParseError(`Validation failed: ${messages.join(', ')}`);
     }
   }
 
@@ -93,60 +113,35 @@ export class MarkdownConverter implements FormatConverter {
    * Serialize a UniversalTicket into Markdown format
    */
   serialize(ticket: UniversalTicket): string {
+    const titleLine = ticket.key ? `# [${ticket.key}]: ${ticket.title}` : `# ${ticket.title}`;
+    return [
+      titleLine,
+      '',
+      ...this.buildMetadataLines(ticket),
+      '',
+      '## Description',
+      '',
+      ticket.description,
+    ].join('\n');
+  }
+
+  /**
+   * Build the "**Field:** value" metadata lines present in the serialized markdown
+   */
+  private buildMetadataLines(ticket: UniversalTicket): string[] {
+    const formatDate = (value: Date | string): string => (value instanceof Date ? value.toLocaleDateString() : value);
     const lines: string[] = [];
-
-    // Title with optional key
-    if (ticket.key) {
-      lines.push(`# [${ticket.key}]: ${ticket.title}`);
-    } else {
-      lines.push(`# ${ticket.title}`);
-    }
-    lines.push('');
-
-    // Metadata fields
-    if (ticket.type) {
-      lines.push(`**Type:** ${ticket.type}`);
-    }
-    if (ticket.status) {
-      lines.push(`**Status:** ${ticket.status}`);
-    }
-    if (ticket.priority) {
-      lines.push(`**Priority:** ${ticket.priority}`);
-    }
-    if (ticket.assignee) {
-      lines.push(`**Assignee:** ${ticket.assignee}`);
-    }
-    if (ticket.reporter) {
-      lines.push(`**Reporter:** ${ticket.reporter}`);
-    }
-    if (ticket.project) {
-      lines.push(`**Project:** ${ticket.project}`);
-    }
-    if (ticket.created) {
-      lines.push(
-        `**Created:** ${ticket.created instanceof Date ? ticket.created.toLocaleDateString() : ticket.created}`
-      );
-    }
-    if (ticket.updated) {
-      lines.push(
-        `**Updated:** ${ticket.updated instanceof Date ? ticket.updated.toLocaleDateString() : ticket.updated}`
-      );
-    }
-    if (ticket.labels && ticket.labels.length > 0) {
-      lines.push(`**Labels:** ${ticket.labels.join(', ')}`);
-    }
-    if (ticket.components && ticket.components.length > 0) {
-      lines.push(`**Components:** ${ticket.components.join(', ')}`);
-    }
-
-    lines.push('');
-
-    // Description section
-    lines.push('## Description');
-    lines.push('');
-    lines.push(ticket.description);
-
-    return lines.join('\n');
+    if (ticket.type) lines.push(`**Type:** ${ticket.type}`);
+    if (ticket.status) lines.push(`**Status:** ${ticket.status}`);
+    if (ticket.priority) lines.push(`**Priority:** ${ticket.priority}`);
+    if (ticket.assignee) lines.push(`**Assignee:** ${ticket.assignee}`);
+    if (ticket.reporter) lines.push(`**Reporter:** ${ticket.reporter}`);
+    if (ticket.project) lines.push(`**Project:** ${ticket.project}`);
+    if (ticket.created) lines.push(`**Created:** ${formatDate(ticket.created)}`);
+    if (ticket.updated) lines.push(`**Updated:** ${formatDate(ticket.updated)}`);
+    if (ticket.labels && ticket.labels.length > 0) lines.push(`**Labels:** ${ticket.labels.join(', ')}`);
+    if (ticket.components && ticket.components.length > 0) lines.push(`**Components:** ${ticket.components.join(', ')}`);
+    return lines;
   }
 
   /**
@@ -187,40 +182,8 @@ export class MarkdownConverter implements FormatConverter {
     const metadataMatch = /^\*\*([^:]+):\*\*\s*(.+)$/.exec(line);
     if (!metadataMatch) return;
 
-    const field = metadataMatch[1].trim();
+    const field = metadataMatch[1].trim().toLowerCase();
     const value = metadataMatch[2].trim();
-
-    switch (field.toLowerCase()) {
-      case 'type':
-        data.type = value.toLowerCase() as TicketType;
-        break;
-      case 'status':
-        data.status = value;
-        break;
-      case 'priority':
-        data.priority = value.toLowerCase() as TicketPriority;
-        break;
-      case 'assignee':
-        if (value && value !== 'Unassigned') data.assignee = value;
-        break;
-      case 'reporter':
-        if (value && value !== 'Unknown') data.reporter = value;
-        break;
-      case 'project':
-        data.project = value;
-        break;
-      case 'labels':
-        if (value && value !== 'None') data.labels = value.split(',').map(l => l.trim());
-        break;
-      case 'components':
-        if (value && value !== 'None') data.components = value.split(',').map(c => c.trim());
-        break;
-      case 'created':
-        data.created = new Date(value);
-        break;
-      case 'updated':
-        data.updated = new Date(value);
-        break;
-    }
+    METADATA_FIELD_SETTERS[field]?.(data, value);
   }
 }

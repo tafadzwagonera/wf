@@ -6,6 +6,7 @@ import { UniversalTicket } from '../../common/dto/universal-ticket.dto';
 import { IssueTrackerService } from '../../integrations/issue-trackers/issue-tracker.service';
 import { FetcherOptions, TicketArtifact } from '../../agents/interfaces';
 import { resolveArtifactDir } from '../../agents/utils';
+import { ConfigurationError, FileSystemError } from '../../shared/utils/errors';
 
 interface FetchTicketOptions {
   trackerName: string;
@@ -30,43 +31,28 @@ export class FetchStageService {
     const ticketPath = path.join(trackerDir, `${ticketKey}.md`);
 
     if (options.skipExisting && fs.existsSync(ticketPath)) {
-      return {
-        ticketKey,
-        content: fs.readFileSync(ticketPath, 'utf-8'),
-        path: ticketPath,
-        fromCache: true,
-      };
+      return this.readArtifactFromCache(ticketKey, ticketPath);
     }
 
-    const ticket = await this.fetchTicket(ticketKey, {
-      trackerName: options.trackerName,
-      repo: options.repo,
-    });
-
+    const ticket = await this.fetchTicket(ticketKey, { trackerName: options.trackerName, repo: options.repo });
     fs.mkdirSync(trackerDir, { recursive: true });
     const content = this.formatTicketMarkdown(ticket, ticketKey);
     fs.writeFileSync(ticketPath, content);
 
-    return {
-      ticketKey,
-      content,
-      path: ticketPath,
-      fromCache: false,
-    };
+    return { ticketKey, content, path: ticketPath, fromCache: false };
+  }
+
+  private readArtifactFromCache(ticketKey: string, ticketPath: string): TicketArtifact {
+    return { ticketKey, content: fs.readFileSync(ticketPath, 'utf-8'), path: ticketPath, fromCache: true };
   }
 
   loadArtifact(ticketKey: string, trackerName: string, baseDir: string = process.cwd()): TicketArtifact {
     const ticketPath = path.join(resolveArtifactDir(baseDir, trackerName), `${ticketKey}.md`);
     if (!fs.existsSync(ticketPath)) {
-      throw new Error(`Ticket file not found: ${ticketPath}. Run with --from fetch first.`);
+      throw new FileSystemError(`Ticket file not found: ${ticketPath}. Run with --from fetch first.`);
     }
 
-    return {
-      ticketKey,
-      content: fs.readFileSync(ticketPath, 'utf-8'),
-      path: ticketPath,
-      fromCache: true,
-    };
+    return this.readArtifactFromCache(ticketKey, ticketPath);
   }
 
   formatTicketMarkdown(ticket: UniversalTicket, ticketKey: string): string {
@@ -99,7 +85,7 @@ ${ticket.description ?? ''}
 
     const workspace = this.configService.get<string>('atlassian.bitbucket.workspace');
     if (!workspace) {
-      throw new Error(
+      throw new ConfigurationError(
         'Workspace required. Provide as workspace/repo or set atlassian.bitbucket.workspace in wf.config.*'
       );
     }

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Octokit } from '@octokit/rest';
 import { IssueTrackerAdapter, IssueTrackerFeature, CreatePullRequestOptions } from '../issue-tracker-adapter.interface';
+import { ValidationError } from '../../../shared/utils/errors';
 import {
   UniversalTicket,
   IssueTrackerTicketReference,
@@ -210,7 +211,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
       return { owner, repo };
     }
     if (this.defaultOwner && this.defaultRepo) return { owner: this.defaultOwner, repo: this.defaultRepo };
-    throw new Error(
+    throw new ValidationError(
       'No GitHub repository specified and no default repository configured. '
       + 'Provide project as "owner/repo" or set github.defaultRepo in wf.config.*.'
     );
@@ -225,12 +226,12 @@ export class GitHubAdapter implements IssueTrackerAdapter {
 
     if (/^\d+$/.test(reference)) {
       if (!this.defaultOwner || !this.defaultRepo) {
-        throw new Error('Cannot use issue number without default repository configured');
+        throw new ValidationError('Cannot use issue number without default repository configured');
       }
       return { owner: this.defaultOwner, repo: this.defaultRepo, issueNumber: Number.parseInt(reference, 10) };
     }
 
-    throw new Error(`Invalid GitHub issue reference: ${reference}`);
+    throw new ValidationError(`Invalid GitHub issue reference: ${reference}`);
   }
 
   /**
@@ -244,7 +245,7 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     // Format: https://github.com/owner/repo/pull/123
     const match = new RegExp(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/).exec(url);
     if (!match) {
-      throw new Error(`Invalid GitHub PR URL: ${url}`);
+      throw new ValidationError(`Invalid GitHub PR URL: ${url}`);
     }
 
     return {

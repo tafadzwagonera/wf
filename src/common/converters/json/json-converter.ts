@@ -3,6 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import { FormatConverter } from '../format-converter.interface';
 import { UniversalTicket } from '../../dto/universal-ticket.dto';
+import { WorkflowParseError } from '../../../shared/utils/errors';
 
 /**
  * JSON format converter for UniversalTicket
@@ -17,20 +18,24 @@ export class JsonConverter implements FormatConverter {
     try {
       const parsed = JSON.parse(content);
       const ticket = plainToInstance(UniversalTicket, parsed);
-
-      // Validate the ticket
-      const errors = validateSync(ticket);
-      if (errors.length > 0) {
-        const messages = errors.map(e => Object.values(e.constraints || {}));
-        throw new Error(`Validation failed: ${messages.join(', ')}`);
-      }
-
+      this.assertValid(ticket);
       return ticket;
     } catch (error) {
       if (error instanceof SyntaxError) {
-        throw new Error(`Invalid JSON format: ${error.message}`);
+        throw new WorkflowParseError(`Invalid JSON format: ${error.message}`);
       }
       throw error;
+    }
+  }
+
+  /**
+   * Throw when a parsed ticket fails class-validator validation
+   */
+  private assertValid(ticket: UniversalTicket): void {
+    const errors = validateSync(ticket);
+    if (errors.length > 0) {
+      const messages = errors.map(e => Object.values(e.constraints || {}));
+      throw new WorkflowParseError(`Validation failed: ${messages.join(', ')}`);
     }
   }
 
@@ -43,7 +48,7 @@ export class JsonConverter implements FormatConverter {
       const plain = this.toPlainObject(ticket);
       return JSON.stringify(plain, null, 2);
     } catch (error) {
-      throw new Error(`JSON serialization failed: ${error.message}`);
+      throw new WorkflowParseError(`JSON serialization failed: ${error.message}`);
     }
   }
 

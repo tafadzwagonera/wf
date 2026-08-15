@@ -111,6 +111,13 @@ export class UserCancelledError extends AppError {
   }
 }
 
+export class ApprovalError extends AppError {
+  constructor(message: string, details?: any) {
+    super(ERROR_CODE.APPROVAL_ERROR, message, details, false);
+    this.name = 'ApprovalError';
+  }
+}
+
 export class ConfigurationError extends AppError {
   constructor(message: string, details?: any) {
     super(ERROR_CODE.CONFIGURATION_ERROR, message, details, false);

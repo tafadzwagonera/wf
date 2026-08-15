@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import { ConfigurationError } from '../shared/errors/app.error';
+import { ConfigurationError, ValidationError } from '../shared/errors/app.error';
 import type { SkillDefinition, SkillQualityRule, SkillStage } from './skill.types';
 
 export const KNOWN_SKILLS = new Map<string, SkillDefinition>();
@@ -11,7 +11,7 @@ export const KNOWN_SKILLS = new Map<string, SkillDefinition>();
  */
 export const registerSkill = (skill: SkillDefinition): void => {
   if (KNOWN_SKILLS.has(skill.id)) {
-    throw new Error(`Skill "${skill.id}" is already registered.`);
+    throw new ValidationError(`Skill "${skill.id}" is already registered.`, { skillId: skill.id });
   }
   KNOWN_SKILLS.set(skill.id, skill);
 };

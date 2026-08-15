@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { verificationPolicySchema } from '../schemas/verification.schema';
+import { ValidationError } from '../errors/app.error';
 import type {
   VerificationPolicy,
   VerificationStep,
@@ -22,20 +23,20 @@ const extractStepFields = (rawStep: Record<string, unknown>) => ({
 
 const normalizeStep = (value: unknown, filePath: string): VerificationStep => {
   if (!value || typeof value !== 'object') {
-    throw new Error(`Verification step is not valid: ${filePath}`);
+    throw new ValidationError(`Verification step is not valid: ${filePath}`);
   }
   const { id, run, policy, reason } = extractStepFields(value as Record<string, unknown>);
-  if (!id) throw new Error(`Verification step is missing id: ${filePath}`);
-  if (!run) throw new Error(`Verification step is missing run command: ${filePath}`);
+  if (!id) throw new ValidationError(`Verification step is missing id: ${filePath}`);
+  if (!run) throw new ValidationError(`Verification step is missing run command: ${filePath}`);
   if (typeof policy !== 'string' || !VALID_POLICIES.has(policy)) {
-    throw new Error(`Verification step has an invalid policy: ${filePath}`);
+    throw new ValidationError(`Verification step has an invalid policy: ${filePath}`);
   }
   return { id, run, policy: policy as VerificationPolicy, reason };
 };
 
 const normalizeWaiver = (value: unknown, filePath: string): VerificationWaiver => {
   if (!value || typeof value !== 'object') {
-    throw new Error(`Verification waiver is not valid: ${filePath}`);
+    throw new ValidationError(`Verification waiver is not valid: ${filePath}`);
   }
 
   const rawWaiver = value as Record<string, unknown>;
@@ -43,11 +44,11 @@ const normalizeWaiver = (value: unknown, filePath: string): VerificationWaiver =
   const reason = typeof rawWaiver.reason === 'string' ? rawWaiver.reason.trim() : '';
 
   if (!id) {
-    throw new Error(`Verification waiver is missing id: ${filePath}`);
+    throw new ValidationError(`Verification waiver is missing id: ${filePath}`);
   }
 
   if (!reason) {
-    throw new Error(`Verification waiver is missing reason: ${filePath}`);
+    throw new ValidationError(`Verification waiver is missing reason: ${filePath}`);
   }
 
   return { id, reason };
@@ -123,7 +124,7 @@ export const normalizeTargetedStepCommand = (command: string): string => {
 export const normalizePlanVerification = (value: unknown, filePath: string): PlanVerificationConfig | undefined => {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object') {
-    throw new Error(`Plan verification is not valid: ${filePath}`);
+    throw new ValidationError(`Plan verification is not valid: ${filePath}`);
   }
   const raw = value as Record<string, unknown>;
   return {
@@ -144,9 +145,9 @@ export const normalizePlanVerification = (value: unknown, filePath: string): Pla
 export const parseVerificationManifest = (content: string, filePath: string, stage?: string): VerificationManifest => {
   const parsed = JSON.parse(content) as Record<string, unknown>;
   if (parsed.version === 2) return parseV2Manifest(parsed, filePath, stage ?? 'implement');
-  if (parsed.version !== 1) throw new Error(`Unsupported verification manifest version: ${filePath}`);
+  if (parsed.version !== 1) throw new ValidationError(`Unsupported verification manifest version: ${filePath}`);
   if (!Array.isArray(parsed.baseline)) {
-    throw new Error(`Verification manifest baseline is not valid: ${filePath}`);
+    throw new ValidationError(`Verification manifest baseline is not valid: ${filePath}`);
   }
   return { version: 1, baseline: parsed.baseline.map(item => normalizeStep(item, filePath)) };
 };
@@ -155,11 +156,11 @@ const parseV2Manifest = (parsed: Record<string, unknown>, filePath: string, stag
   const stageBlock = parsed[stage];
   if (stageBlock === undefined) return { version: 1, baseline: [] };
   if (!stageBlock || typeof stageBlock !== 'object') {
-    throw new Error(`Verification manifest "${stage}" block is not valid: ${filePath}`);
+    throw new ValidationError(`Verification manifest "${stage}" block is not valid: ${filePath}`);
   }
   const stageRecord = stageBlock as Record<string, unknown>;
   if (!Array.isArray(stageRecord.baseline)) {
-    throw new Error(`Verification manifest "${stage}.baseline" is not valid: ${filePath}`);
+    throw new ValidationError(`Verification manifest "${stage}.baseline" is not valid: ${filePath}`);
   }
   return { version: 1, baseline: stageRecord.baseline.map(item => normalizeStep(item, filePath)) };
 };
@@ -174,7 +175,7 @@ const parseV2Manifest = (parsed: Record<string, unknown>, filePath: string, stag
 export const loadVerificationManifest = (filePath: string, stage?: string): VerificationManifest => {
   const resolvedPath = path.resolve(filePath);
   if (!fs.existsSync(resolvedPath)) {
-    throw new Error(`Verification manifest not found: ${resolvedPath}`);
+    throw new ValidationError(`Verification manifest not found: ${resolvedPath}`);
   }
 
   return parseVerificationManifest(fs.readFileSync(resolvedPath, 'utf-8'), resolvedPath, stage);
