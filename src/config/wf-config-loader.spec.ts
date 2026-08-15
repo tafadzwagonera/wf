@@ -454,6 +454,36 @@ describe('wf-config-loader', () => {
       expect(config.stages.implement?.inactivityTimeoutMs).toBe(300000);
     });
 
+    it('accepts timeoutMs: 0 on implement stage config to disable wall-clock limit', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          implement: {
+            provider: 'openai',
+            model: 'gpt-5.4',
+            timeoutMs: 0,
+          },
+        },
+      });
+
+      expect(config.stages.implement?.timeoutMs).toBe(0);
+    });
+
+    it('accepts inactivityTimeoutMs: 0 on implement stage config to disable inactivity limit', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          implement: {
+            provider: 'openai',
+            model: 'gpt-5.4',
+            inactivityTimeoutMs: 0,
+          },
+        },
+      });
+
+      expect(config.stages.implement?.inactivityTimeoutMs).toBe(0);
+    });
+
     it('normalizes both timeout fields alongside other implement stage fields', () => {
       const config = normalizeWfConfig({
         ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],

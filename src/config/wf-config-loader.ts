@@ -154,8 +154,8 @@ const aiStageTargetSchema = z.object({
   backend: z.enum(backendModes).optional(),
   maxTokens: z.number().int().min(1).optional(),
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
-  timeoutMs: z.number().int().min(1000).optional(),
-  inactivityTimeoutMs: z.number().int().min(1000).optional(),
+  timeoutMs: z.number().int().min(0).optional(),
+  inactivityTimeoutMs: z.number().int().min(0).optional(),
   skills: z.array(z.string()).optional(),
 });
 
@@ -179,8 +179,8 @@ const implementStageSchema = z
       .optional(),
     backend: z.enum(backendModes).optional(),
     maxTokens: z.number().int().min(1).optional(),
-    timeoutMs: z.number().int().min(1000).optional(),
-    inactivityTimeoutMs: z.number().int().min(1000).optional(),
+    timeoutMs: z.number().int().min(0).optional(),
+    inactivityTimeoutMs: z.number().int().min(0).optional(),
     skills: z.array(z.string()).optional(),
     verificationConditions: verificationConditionsSchema.optional(),
   })

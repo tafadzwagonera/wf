@@ -35,8 +35,8 @@ export const wfAiStageTargetConfigSchema = z.object({
   backend: wfBackendModeSchema.optional(),
   maxTokens: z.number().int().min(1).optional(),
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
-  timeoutMs: z.number().int().min(1000).optional(),
-  inactivityTimeoutMs: z.number().int().min(1000).optional(),
+  timeoutMs: z.number().int().min(0).optional(),
+  inactivityTimeoutMs: z.number().int().min(0).optional(),
   skills: z.array(z.string()).optional(),
 });
 
@@ -157,8 +157,8 @@ export const normalizedAiStageTargetConfigSchema = z.object({
   backend: wfBackendModeSchema,
   maxTokens: z.number().int().min(1).optional(),
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
-  timeoutMs: z.number().int().min(1000).optional(),
-  inactivityTimeoutMs: z.number().int().min(1000).optional(),
+  timeoutMs: z.number().int().min(0).optional(),
+  inactivityTimeoutMs: z.number().int().min(0).optional(),
   skills: z.array(z.string()).optional(),
 });
 
@@ -173,8 +173,8 @@ export const normalizedImplementStageConfigSchema = z.object({
   models: z.object({ default: z.string().optional(), mechanical: z.string().optional() }).optional(),
   backend: wfBackendModeSchema,
   maxTokens: z.number().int().min(1).optional(),
-  timeoutMs: z.number().int().min(1000).optional(),
-  inactivityTimeoutMs: z.number().int().min(1000).optional(),
+  timeoutMs: z.number().int().min(0).optional(),
+  inactivityTimeoutMs: z.number().int().min(0).optional(),
   verificationConditions: normalizedVerificationConditionsConfigSchema.optional(),
   skills: z.array(z.string()).optional(),
 });
