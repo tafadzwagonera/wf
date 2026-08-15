@@ -13,9 +13,7 @@
  *
  * @returns Promise that resolves when the smoke test completes
  */
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../../src/app.module';
-import { ImplementerAgent } from '../../src/agents/implementer.agent';
+import { runPostPullDependencyInstall } from '../../src/shared/utils/post-pull-install';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -74,9 +72,6 @@ const minimalLockfile = (name = 'x', version = '1.0.0'): string =>
 async function main() {
   console.log(chalk.bold('\nSmoke test: runPostPullDependencyInstall live side effects\n'));
 
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
-  const agent = app.get(ImplementerAgent);
-
   // ─── Scenario 1: package.json changed in merge — install runs ───────────────
   console.log(chalk.gray('  1. package.json changed in pull → install runs'));
   {
@@ -96,7 +91,7 @@ async function main() {
       execSync('git merge feature --no-ff -m "merge feature"', { cwd: tmpDir, stdio: 'pipe' });
 
       const { lines, restore } = captureLogs();
-      await agent['runPostPullDependencyInstall'](tmpDir);
+      await runPostPullDependencyInstall(tmpDir);
       restore();
 
       const logged = lines.join('\n');
@@ -132,7 +127,7 @@ async function main() {
       execSync('git merge feature --no-ff -m "merge feature"', { cwd: tmpDir, stdio: 'pipe' });
 
       const { lines, restore } = captureLogs();
-      await agent['runPostPullDependencyInstall'](tmpDir);
+      await runPostPullDependencyInstall(tmpDir);
       restore();
 
       const logged = lines.join('\n');
@@ -167,7 +162,7 @@ async function main() {
       const { lines, restore } = captureLogs();
       let threw = false;
       try {
-        await agent['runPostPullDependencyInstall'](tmpDir);
+        await runPostPullDependencyInstall(tmpDir);
       } catch {
         threw = true;
       }
@@ -202,7 +197,7 @@ async function main() {
       const { lines, restore } = captureLogs();
       let threw = false;
       try {
-        await agent['runPostPullDependencyInstall'](tmpDir);
+        await runPostPullDependencyInstall(tmpDir);
       } catch {
         threw = true;
       }
@@ -219,8 +214,6 @@ async function main() {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   }
-
-  await app.close();
 
   console.log(chalk.bold(`\n  ${passed} passed, ${failed} failed\n`));
   if (failed > 0) process.exit(1);
