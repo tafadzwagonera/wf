@@ -53,7 +53,6 @@ async function main() {
 
   const tempDirs: string[] = [];
 
-  // --- Test 1-3: Both timeouts configured ---
   {
     console.log('\n  Scenario: both timeouts configured\n');
     const dir = makeTempConfig(
@@ -86,7 +85,6 @@ async function main() {
     await app.close();
   }
 
-  // --- Test 4: Omitting both fields ---
   {
     console.log('\n  Scenario: timeouts omitted (defaults apply)\n');
     const dir = makeTempConfig(
@@ -114,7 +112,6 @@ async function main() {
     await app.close();
   }
 
-  // --- Test 5: Timeouts coexist with verificationConditions ---
   {
     console.log('\n  Scenario: timeouts alongside verificationConditions\n');
     const dir = makeTempConfig(
@@ -151,10 +148,8 @@ async function main() {
     await app.close();
   }
 
-  // --- Cleanup ---
   for (const dir of tempDirs) fs.rmSync(dir, { recursive: true, force: true });
 
-  // --- Summary ---
   console.log(`\n${passed + failed} assertions: ${passed} passed${failed > 0 ? `, ${failed} failed` : ''}\n`);
   if (failed > 0) process.exit(1);
 }
