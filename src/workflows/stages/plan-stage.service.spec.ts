@@ -11,7 +11,7 @@ import {
   hashPlanArtifactSources,
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
-import { AiProviderError, ValidationError } from '../../shared/utils/errors';
+import { AiProviderError, PlanArtifactNotFoundError, ValidationError } from '../../shared/utils/errors';
 import { detectTestInfra } from '../../shared/utils/detect-test-infra';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -1262,6 +1262,75 @@ describe('PlanStageService', () => {
         '# WBP-EMPTY: Test',
         expect.objectContaining({ skillNames: undefined })
       );
+    });
+  });
+
+  describe('tryReuseCachedPlan', () => {
+    it('falls through to generation when no cached plan exists', async () => {
+      const { service } = await buildService();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-notfound-'));
+      const ticketPath = path.join(tempDir, 'WBP-NOTFOUND.md');
+      fs.writeFileSync(ticketPath, '# WBP-NOTFOUND: Test');
+
+      const artifact = await service.createPlanArtifact(
+        { ticketKey: 'WBP-NOTFOUND', content: '# WBP-NOTFOUND: Test', path: ticketPath },
+        { action: 'fix', skipExisting: true }
+      );
+
+      expect(artifact.fromCache).toBe(false);
+    });
+
+    it('rethrows ValidationError when multiple cached plan artifacts are found', async () => {
+      const { service } = await buildService();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-multi-'));
+      const ticketPath = path.join(tempDir, 'WBP-MULTI.md');
+      fs.writeFileSync(ticketPath, '# WBP-MULTI: Test');
+      const hash = hashPlanArtifactSources(['WBP-MULTI']);
+      for (const date of ['2026-01-01', '2026-02-01']) {
+        const planFilename = buildPlanArtifactFilename({
+          createdAt: new Date(`${date}T00:00:00.000Z`), hash, action: 'fix', format: 'json',
+        });
+        const planPath = path.join(tempDir, planFilename);
+        fs.writeFileSync(planPath, JSON.stringify({ ...mockPlan }));
+        const manifest = buildPlanArtifactManifest(
+          planPath, 'fix', 'json', hash, 'WBP-MULTI', 'ticket', new Date(`${date}T00:00:00.000Z`)
+        );
+        writePlanArtifactManifest(manifest);
+      }
+
+      await expect(
+        service.createPlanArtifact(
+          { ticketKey: 'WBP-MULTI', content: '# WBP-MULTI: Test', path: ticketPath },
+          { action: 'fix', skipExisting: true }
+        )
+      ).rejects.toThrow(ValidationError);
+
+      await expect(
+        service.createPlanArtifact(
+          { ticketKey: 'WBP-MULTI', content: '# WBP-MULTI: Test', path: ticketPath },
+          { action: 'fix', skipExisting: true }
+        )
+      ).rejects.toThrow(/Multiple plan artifacts/i);
+    });
+
+    it('rethrows ValidationError for a non-canonical (short-hash) identifier', async () => {
+      const { service } = await buildService();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-noncanon-'));
+      const ticketPath = path.join(tempDir, 'abcdef01-fix-plan.md');
+      fs.writeFileSync(ticketPath, '# abcdef01-fix-plan: Test');
+
+      const rejection = service.createPlanArtifact(
+        { ticketKey: 'abcdef01-fix-plan', content: '# abcdef01-fix-plan: Test', path: ticketPath },
+        { action: 'fix', skipExisting: true }
+      );
+
+      await expect(rejection).rejects.toThrow(ValidationError);
+      await expect(rejection).rejects.not.toThrow(PlanArtifactNotFoundError);
+      await expect(rejection).rejects.toThrow(/Non-canonical/i);
+    });
+
+    it('PlanArtifactNotFoundError is a subtype of ValidationError', () => {
+      expect(new PlanArtifactNotFoundError('test')).toBeInstanceOf(ValidationError);
     });
   });
 

@@ -49,7 +49,7 @@ interface IssueReviewOptions {
   replaceCriteria?: string;
   silent?: boolean;
   sessionId?: string;
-  skipSonar?: boolean;
+  sonar?: boolean;
   estimatedComplexity?: string;
   passCount?: number;
   resumeSessionId?: string;
@@ -104,8 +104,8 @@ const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
     command: 'wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment',
   },
   {
-    comment: 'Review ticket changes without running SonarScanner',
-    command: 'wf issue:review --ticket-key WBP-2971 --skip-sonar',
+    comment: 'Review ticket changes and run SonarScanner regardless of config',
+    command: 'wf issue:review --ticket-key WBP-2971 --sonar',
   },
   {
     comment:
@@ -152,7 +152,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 @Command({
   name: 'issue:review',
   description:
-    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. Use `--skip-sonar` to bypass even when enabled. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
+    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. Use `--sonar` to force SonarScanner on, overriding `stages.review.sonar` config. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
   arguments: '[pr-url]',
   options: { isDefault: false },
 })
@@ -600,8 +600,8 @@ export class IssueReviewCommand extends CommandRunner {
   private async resolveSonarOutputForTarget(
     target: ReviewTarget, options?: IssueReviewOptions, onProgress?: (line: string) => void
   ): Promise<void> {
-    if (options?.skipSonar) return;
-    if (this.configService.get<boolean>('stages.review.sonar') !== true) return;
+    const configEnabled = this.configService.get<boolean>('stages.review.sonar') === true;
+    if (!options?.sonar && !configEnabled) return;
     await runSonarScanForReview({ repoDir: target.repoDir, onProgress });
   }
 
@@ -737,10 +737,10 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--skip-sonar',
-    description: 'Skip SonarScanner static analysis even when sonar-project.properties is present',
+    flags: '--sonar',
+    description: 'Enable SonarScanner static analysis, overriding stages.review.sonar config',
   })
-  parseSkipSonar(): boolean {
+  parseSonar(): boolean {
     return true;
   }
 

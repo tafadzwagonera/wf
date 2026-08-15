@@ -9,6 +9,7 @@ import {
   parsePlanArtifact,
   deriveReviewArtifactPath,
 } from './plan-artifact';
+import { PlanArtifactNotFoundError } from '../errors/app.error';
 
 describe('parsePlanArtifact', () => {
   it('parses plan verification targeted checks and waivers from JSON artifacts', () => {
@@ -188,6 +189,13 @@ describe('plan artifact helpers', () => {
         artifactDir: '/tmp',
       })
     ).toThrow('Non-canonical plan identifier');
+  });
+
+  it('throws PlanArtifactNotFoundError when no matching manifest exists', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-notfound-'));
+    expect(() =>
+      resolvePlanArtifactReference('WBP-NOTFOUND', { artifactDir: tempDir })
+    ).toThrow(PlanArtifactNotFoundError);
   });
 });
 

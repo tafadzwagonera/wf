@@ -18,7 +18,6 @@ export namespace ErrorCode {
   export const AI_ERROR = ErrorCode.AI_PROVIDER_ERROR;
 }
 
-// Re-export everything from new locations
 export {
   AppError,
   ApiError,
@@ -34,5 +33,6 @@ export {
   ApprovalError,
   ConfigurationError,
   FileSystemError,
+  PlanArtifactNotFoundError,
   ERROR_CODE,
 } from '../errors/app.error';

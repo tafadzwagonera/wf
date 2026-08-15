@@ -2,7 +2,7 @@
  * Manual smoke test: SonarScanner gating in issue:review
  *
  * Verifies the four gating paths:
- *   1. --skip-sonar flag → immediate return, no progress
+ *   1. --sonar flag with config undefined → scan runs
  *   2. stages.review.sonar: false config → immediate return, no progress
  *   2b. stages.review.sonar: undefined (default) → immediate return, no progress
  *   3. No repoDir (with sonar: true) → throws a terminal error
@@ -55,17 +55,17 @@ async function run(): Promise<void> {
 
   const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-no-props-'));
 
-  console.log(chalk.bold.cyan('\nTest 1: --skip-sonar flag bypasses scan'));
+  console.log(chalk.bold.cyan('\nTest 1: --sonar flag forces scan when config is undefined'));
 
   const msgs1: string[] = [];
   await resolve(
     { repoDir: tempDir, diff: '', title: '', context: '' },
-    { skipSonar: true },
+    { sonar: true },
     (m: string) => msgs1.push(m)
   );
 
-  if (msgs1.length === 0) pass('No progress emitted when skipSonar is true');
-  else fail(`Expected no messages, got: ${JSON.stringify(msgs1)}`);
+  if (msgs1.length > 0) pass('Scan attempted when --sonar is set and config is undefined');
+  else fail('Expected progress messages, got none');
 
   console.log(chalk.bold.cyan('\nTest 2: stages.review.sonar: false config bypasses scan'));
 

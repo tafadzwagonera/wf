@@ -607,6 +607,17 @@ describe('IssueReviewCommand', () => {
       expect(mockRunSonar).not.toHaveBeenCalled();
     });
 
+    it('runs SonarScanner when the --sonar flag is set and config is undefined', async () => {
+      const { command } = await buildCommand();
+      const mockRunSonar = runSonarScanForReview as jest.MockedFunction<typeof runSonarScanForReview>;
+      mockRunSonar.mockClear();
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect(mockRunSonar).toHaveBeenCalledWith({ repoDir: '/tmp/repo', onProgress: undefined });
+    });
+
     it('uses the current repo name as a discovery hint when --repos is omitted', async () => {
       const { command, adapters } = await buildCommand();
       const handleSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);

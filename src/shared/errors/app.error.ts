@@ -124,3 +124,10 @@ export class FileSystemError extends AppError {
     this.name = 'FileSystemError';
   }
 }
+
+export class PlanArtifactNotFoundError extends ValidationError {
+  constructor(message: string, details?: any) {
+    super(message, details);
+    this.name = 'PlanArtifactNotFoundError';
+  }
+}

@@ -17,7 +17,7 @@ import {
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
-import { AiProviderError, AppError, isAiProviderErrorLike, ValidationError, WorkflowParseError } from '../../shared/utils/errors';
+import { AiProviderError, AppError, isAiProviderErrorLike, PlanArtifactNotFoundError, ValidationError, WorkflowParseError } from '../../shared/utils/errors';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { validatePlanQuality } from '../../shared/utils/plan-quality';
@@ -140,8 +140,9 @@ export class PlanStageService {
     try {
       return await this.resolveCachedPlan(ticket, options, artifactDir);
     } catch (error) {
-      if (error instanceof ValidationError) throw error;
-      return null;
+      // PlanArtifactNotFoundError is the only recoverable case — no prior plan exists, fall through to generation
+      if (error instanceof PlanArtifactNotFoundError) return null;
+      throw error;
     }
   }
 
@@ -174,34 +175,32 @@ export class PlanStageService {
     return { ...result, sessionId };
   }
 
-  // eslint-disable-next-line max-lines-per-function
   async loadPlanArtifact(ticketPath: string, action?: ResolutionAction, repoDir?: string): Promise<PlanArtifact> {
     const artifactDir = path.dirname(ticketPath);
     const sourceName = path.basename(ticketPath, '.md');
-    const resolved = resolvePlanArtifactReference(sourceName, {
-      artifactDir,
-      action,
-    });
-
+    const resolved = resolvePlanArtifactReference(sourceName, { artifactDir, action });
     const plan = this.readPlan(resolved.artifactPath);
-    const filename = path.basename(resolved.artifactPath);
+    return this.resolveLoadedPlanAction(plan, resolved.artifactPath, action, repoDir);
+  }
 
-    if (!action || plan.action === action) {
-      await this.validateLoadedPlan(plan, repoDir);
-      return { plan, action: plan.action, path: resolved.artifactPath, fromCache: true };
-    }
-
+  private async resolveLoadedPlanAction(
+    plan: ResolutionPlan, artifactPath: string, action?: ResolutionAction, repoDir?: string
+  ): Promise<PlanArtifact> {
+    const filename = path.basename(artifactPath);
+    if (!action || plan.action === action) return this.buildLoadedArtifact(plan, artifactPath, repoDir);
     const resolvedAction = await this.resolveActionMismatch(plan.action, action, filename);
-
-    if (resolvedAction === plan.action) {
-      await this.validateLoadedPlan(plan, repoDir);
-      return { plan, action: plan.action, path: resolved.artifactPath, fromCache: true };
-    }
-
+    if (resolvedAction === plan.action) return this.buildLoadedArtifact(plan, artifactPath, repoDir);
     throw new ValidationError(
       `Plan action '${plan.action}' in '${filename}' does not match requested '${action}'. `
       + `Re-run with --from plan to regenerate.`
     );
+  }
+
+  private async buildLoadedArtifact(
+    plan: ResolutionPlan, artifactPath: string, repoDir?: string
+  ): Promise<PlanArtifact> {
+    await this.validateLoadedPlan(plan, repoDir);
+    return { plan, action: plan.action, path: artifactPath, fromCache: true };
   }
 
   extractSummary(content: string): string {

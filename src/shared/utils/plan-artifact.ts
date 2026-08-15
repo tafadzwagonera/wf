@@ -8,7 +8,7 @@ import { resolveCustomArtifactDir } from '../../agents/utils';
 import type { PlanArtifactManifest, PlanArtifactReference, PlanTokenResolution } from '../types/plan-artifact.types';
 import { hashGeneratedTicketSources, matchesGeneratedTicketToken } from './generated-ticket-artifact';
 import { normalizePlanVerification } from './verification-manifest';
-import { ValidationError, WorkflowParseError } from '../errors/app.error';
+import { PlanArtifactNotFoundError, ValidationError, WorkflowParseError } from '../errors/app.error';
 
 export type { PlanArtifactManifest, PlanArtifactReference };
 
@@ -348,7 +348,7 @@ export const resolvePlanArtifactReference = (
           extension => `YYYY-MM-DD-${hashPlanArtifactSources([identifierStem])}-${requestedAction}-plan.${extension}`
         )
       : ['YYYY-MM-DD-<hash>-<action>-plan.<ext>'];
-  throw new ValidationError(
+  throw new PlanArtifactNotFoundError(
     `Plan artifact not found for '${identifier}' in ${artifactDir}. Checked: ${candidateList.join(', ')}`
   );
 };
