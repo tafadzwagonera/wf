@@ -424,6 +424,57 @@ describe('wf-config-loader', () => {
       });
     });
 
+    it('accepts timeoutMs on implement stage config', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          implement: {
+            provider: 'openai',
+            model: 'gpt-5.4',
+            timeoutMs: 1200000,
+          },
+        },
+      });
+
+      expect(config.stages.implement?.timeoutMs).toBe(1200000);
+    });
+
+    it('accepts inactivityTimeoutMs on implement stage config', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          implement: {
+            provider: 'openai',
+            model: 'gpt-5.4',
+            inactivityTimeoutMs: 300000,
+          },
+        },
+      });
+
+      expect(config.stages.implement?.inactivityTimeoutMs).toBe(300000);
+    });
+
+    it('normalizes both timeout fields alongside other implement stage fields', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          implement: {
+            provider: 'openai',
+            model: 'gpt-5.4',
+            timeoutMs: 1800000,
+            inactivityTimeoutMs: 600000,
+            verificationConditions: {
+              scripts: { lint: 'yarn lint' },
+            },
+          },
+        },
+      });
+
+      expect(config.stages.implement?.timeoutMs).toBe(1800000);
+      expect(config.stages.implement?.inactivityTimeoutMs).toBe(600000);
+      expect(config.stages.implement?.verificationConditions?.scripts).toEqual({ lint: 'yarn lint' });
+    });
+
     it('accepts a manifest path without inline scripts', () => {
       const config = normalizeWfConfig({
         ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],

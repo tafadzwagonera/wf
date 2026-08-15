@@ -146,7 +146,11 @@ export const wfConfigSchema = z.object({
     .optional(),
 });
 
-// Normalized config schemas
+export const normalizedAiProviderConfigSchema = wfAiProviderConfigSchema.extend({
+  default: z.boolean(),
+  model: z.string(),
+});
+
 export const normalizedAiStageTargetConfigSchema = z.object({
   provider: wfAiProviderNameSchema,
   model: z.string(),
@@ -169,6 +173,8 @@ export const normalizedImplementStageConfigSchema = z.object({
   models: z.object({ default: z.string().optional(), mechanical: z.string().optional() }).optional(),
   backend: wfBackendModeSchema,
   maxTokens: z.number().int().min(1).optional(),
+  timeoutMs: z.number().int().min(1000).optional(),
+  inactivityTimeoutMs: z.number().int().min(1000).optional(),
   verificationConditions: normalizedVerificationConditionsConfigSchema.optional(),
   skills: z.array(z.string()).optional(),
 });

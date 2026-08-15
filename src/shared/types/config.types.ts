@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import type {
   logLevelSchema,
+  normalizedAiProviderConfigSchema,
   normalizedAiStageTargetConfigSchema,
   normalizedCreateStageConfigSchema,
   normalizedImplementStageConfigSchema,
@@ -21,6 +22,7 @@ import type {
 } from '../schemas/config.schema';
 
 export type LogLevel = z.infer<typeof logLevelSchema>;
+export type NormalizedAiProviderConfig = z.infer<typeof normalizedAiProviderConfigSchema>;
 export type NormalizedAiStageTargetConfig = z.infer<typeof normalizedAiStageTargetConfigSchema>;
 export type NormalizedCreateStageConfig = z.infer<typeof normalizedCreateStageConfigSchema>;
 export type NormalizedImplementStageConfig = z.infer<typeof normalizedImplementStageConfigSchema>;

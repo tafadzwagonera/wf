@@ -9,6 +9,7 @@ import { ValidationError } from '../shared/utils/errors';
 import { formatFieldNames } from '../shared/utils/zod-error.util';
 import type {
   WfVerificationConditionsConfig,
+  NormalizedAiProviderConfig,
   WfAiProviderConfig,
   WfAiStageTargetConfig,
   WfAiProviderName,
@@ -57,13 +58,7 @@ export interface NormalizedWfConfig {
   tracker: 'jira' | 'github' | 'bitbucket';
   ai: {
     provider: WfAiProviderName;
-    providers: Array<
-      WfAiProviderConfig & {
-        default: boolean;
-        model: string;
-        maxTokens?: number;
-      }
-    >;
+    providers: NormalizedAiProviderConfig[];
     apiKey?: string;
     anthropicApiKey?: string;
     openaiApiKey?: string;
@@ -184,6 +179,8 @@ const implementStageSchema = z
       .optional(),
     backend: z.enum(backendModes).optional(),
     maxTokens: z.number().int().min(1).optional(),
+    timeoutMs: z.number().int().min(1000).optional(),
+    inactivityTimeoutMs: z.number().int().min(1000).optional(),
     skills: z.array(z.string()).optional(),
     verificationConditions: verificationConditionsSchema.optional(),
   })
@@ -524,27 +521,14 @@ const loadJitiFromProject = (cwd: string): ((filePath: string) => unknown) | nul
  * @returns Absolute config path or null when no config exists
  */
 export const discoverWfConfigPath = (cwd: string): string | null => {
-  let selectedPath: string | null = null;
-  const extraFiles: string[] = [];
-
-  for (const fileName of CONFIG_FILE_NAMES) {
-    const filePath = path.join(cwd, fileName);
-    if (fs.existsSync(filePath)) {
-      if (!selectedPath) {
-        selectedPath = filePath;
-      } else {
-        extraFiles.push(fileName);
-      }
-    }
-  }
-
-  if (selectedPath && extraFiles.length > 0) {
+  const found = CONFIG_FILE_NAMES.map(f => path.join(cwd, f)).filter(p => fs.existsSync(p));
+  if (found.length === 0) return null;
+  if (found.length > 1) {
     console.warn(
-      `Multiple wf config files found. Using ${path.basename(selectedPath)}, ignoring: ${extraFiles.join(', ')}`
+      `Multiple wf config files found. Using ${path.basename(found[0])}, ignoring: ${found.slice(1).map(p => path.basename(p)).join(', ')}`
     );
   }
-
-  return selectedPath;
+  return found[0];
 };
 
 /**
@@ -614,25 +598,11 @@ const loadConfigFile = async (filePath: string, options: TypeScriptConfigLoadOpt
   return readConfigModule(filePath);
 };
 
-const normalizeProvider = (
-  provider: WfAiProviderConfig
-): WfAiProviderConfig & {
-  default: boolean;
-  model: string;
-  maxTokens?: number;
-} => {
-  if (provider.model) {
-    validateProviderModelMatch(provider.provider, provider.model);
-  }
-
+const normalizeProvider = (provider: WfAiProviderConfig): NormalizedAiProviderConfig => {
+  if (provider.model) validateProviderModelMatch(provider.provider, provider.model);
   const model = provider.model || getDefaultModelForProvider(provider.provider);
-
-  return {
-    ...provider,
-    default: provider.default ?? false,
-    model,
-    maxTokens: isGeminiConfig({ provider: provider.provider, model }) ? (provider.maxTokens ?? 4096) : undefined,
-  };
+  const maxTokens = isGeminiConfig({ provider: provider.provider, model }) ? (provider.maxTokens ?? 4096) : undefined;
+  return { ...provider, default: provider.default ?? false, model, maxTokens };
 };
 
 const normalizeVerificationConditionsConfig = (

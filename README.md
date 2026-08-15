@@ -134,6 +134,7 @@ export default defineConfig({
       provider: 'anthropic',
       model: 'claude-haiku-4-5-20251001',
       backend: 'cli',
+      timeoutMs: 1200000,
       skills: ['coding-style', 'test-driven-development'],
       verificationConditions: {
         policyFile: 'verification.policy.json',
@@ -203,6 +204,7 @@ stages:
     provider: anthropic
     model: claude-haiku-4-5-20251001
     backend: cli
+    timeoutMs: 1200000
     skills: [coding-style, test-driven-development]
     verificationConditions:
       policyFile: verification.policy.json
