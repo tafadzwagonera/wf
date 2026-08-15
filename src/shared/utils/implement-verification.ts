@@ -1,5 +1,8 @@
 import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
 import { ValidationError } from '../errors/app.error';
+import { getWfStateDir } from './wf-paths';
 import type {
   ImplementBackendSelection,
   ImplementRunArtifact,
@@ -371,3 +374,55 @@ const getHighestErrorSeverity = (errorClasses: Set<string>): number =>
     (highestSeverity, errorClass) => Math.max(highestSeverity, ERROR_CLASS_SEVERITY[errorClass] ?? 0),
     0
   );
+
+const findLatestCachedVerificationFile = (repoDir: string, ticketKey: string): string | null => {
+  const dir = path.join(getWfStateDir(), 'implement-verification', path.basename(repoDir));
+  if (!fs.existsSync(dir)) return null;
+
+  const files = fs.readdirSync(dir)
+    .filter((f): f is string => typeof f === 'string' && f.startsWith(`${ticketKey}-`) && f.endsWith('.json'))
+    .map(f => ({ filePath: path.join(dir, f), mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime);
+
+  return files.length > 0 ? files[0].filePath : null;
+};
+
+const formatCachedVerificationSummary = (file: ImplementVerificationRunFile): string => {
+  const { run, attempts } = file;
+  const prefix = `Prior implement run (ticket ${run.ticketKey}):`;
+  if (attempts.length === 0) return `${prefix} no verification attempts recorded.`;
+
+  const [last] = attempts.slice(-1);
+  const status = last.failed ? `failed (exit ${last.exitCode})` : `passed (exit ${last.exitCode})`;
+  return `${prefix} ${attempts.length} attempt(s). Last attempt [${last.command}]: ${status}.`;
+};
+
+const generateFallbackVerificationSummary = (repoDir: string): string => {
+  try {
+    const stat = execSync('git diff --stat HEAD', {
+      cwd: repoDir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return stat.trim() ? `Current diff stat:\n${stat.trim()}` : '';
+  } catch {
+    return '';
+  }
+};
+
+/**
+ * Resolves prior-implement-run context for the review prompt.
+ *
+ * Reads the newest cached implement verification run for the ticket, falling back to a live
+ * `git diff --stat HEAD` when no cache is available. Never throws — returns '' when neither
+ * a cached run nor a diff is available.
+ */
+export const resolveVerificationSummary = (repoDir: string, ticketKey: string): string => {
+  const cachedPath = findLatestCachedVerificationFile(repoDir, ticketKey);
+  if (cachedPath) {
+    try {
+      return formatCachedVerificationSummary(readImplementVerificationRunFile(cachedPath));
+    } catch {
+      // fall through to the git diff fallback
+    }
+  }
+  return generateFallbackVerificationSummary(repoDir);
+};
