@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  detectPackageManager,
   detectRepoConventions,
   formatRepoConventionsPromptSection,
   RepoConventionsContext,
@@ -64,6 +65,7 @@ const createMockEmptyContext = (): RepoConventionsContext => ({
   importStyle: 'unknown',
   keyDependencies: [],
   errorHandlingPaths: [],
+  packageManager: 'npm',
   gitHooks: [],
 });
 
@@ -685,6 +687,7 @@ describe('formatRepoConventionsPromptSection', () => {
         importStyle: 'commonjs',
         keyDependencies: ['@nestjs/core', 'jest'],
         errorHandlingPaths: ['src/shared/utils/errors.ts'],
+        packageManager: 'npm',
         gitHooks: [{ tool: 'lefthook' as const, hooks: { 'pre-commit': ['yarn lint'] } }],
       };
 
@@ -851,5 +854,104 @@ describe('formatRepoConventionsPromptSection', () => {
       const result = formatRepoConventionsPromptSection(ctx, 'test-repo');
       expect(result).toBe('');
     });
+  });
+});
+
+describe('detectPackageManager', () => {
+  afterEach(() => {
+    jest.resetAllMocks();
+  });
+
+  it('returns bun when bun.lockb is present alongside other lockfiles', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      return (
+        s === path.join(REPO_DIR, 'bun.lockb')
+        || s === path.join(REPO_DIR, 'pnpm-lock.yaml')
+        || s === path.join(REPO_DIR, 'yarn.lock')
+      );
+    });
+
+    expect(detectPackageManager(REPO_DIR)).toBe('bun');
+  });
+
+  it('returns pnpm when pnpm-lock.yaml is present', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === path.join(REPO_DIR, 'pnpm-lock.yaml'));
+
+    expect(detectPackageManager(REPO_DIR)).toBe('pnpm');
+  });
+
+  it('returns yarn when yarn.lock is present', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === path.join(REPO_DIR, 'yarn.lock'));
+
+    expect(detectPackageManager(REPO_DIR)).toBe('yarn');
+  });
+
+  it('returns npm as the default when no recognized lockfile is present', () => {
+    // package-lock.json is not a detection signal — npm is the bare fallback.
+    // existsSync returns false for all lockfiles and for package.json itself.
+    mockExistsSync.mockReturnValue(false);
+
+    expect(detectPackageManager(REPO_DIR)).toBe('npm');
+  });
+
+  it('falls back to the packageManager field in package.json when no lockfile is present', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === path.join(REPO_DIR, 'package.json'));
+    mockReadFileSync.mockReturnValue(createMockPackageJson({ packageManager: 'pnpm@9.0.0' }));
+
+    expect(detectPackageManager(REPO_DIR)).toBe('pnpm');
+  });
+
+  it('returns npm when no lockfile and no packageManager field are present', () => {
+    mockExistsSync.mockReturnValue(false);
+
+    expect(detectPackageManager(REPO_DIR)).toBe('npm');
+  });
+
+  it('returns npm when only package-lock.json is present', () => {
+    mockExistsSync.mockImplementation(
+      (p: fs.PathLike) => String(p) === path.join(REPO_DIR, 'package-lock.json'),
+    );
+
+    expect(detectPackageManager(REPO_DIR)).toBe('npm');
+  });
+
+  it('returns yarn when yarn.lock and package-lock.json coexist with no packageManager declaration', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      return s === path.join(REPO_DIR, 'yarn.lock') || s === path.join(REPO_DIR, 'package-lock.json');
+    });
+    // package.json doesn't exist → no packageManager field → yarn has priority
+    mockReadFileSync.mockReturnValue(createMockPackageJson({}));
+
+    expect(detectPackageManager(REPO_DIR)).toBe('yarn');
+  });
+
+  it('returns npm when yarn.lock and package-lock.json coexist and packageManager declares npm', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      return (
+        s === path.join(REPO_DIR, 'yarn.lock')
+        || s === path.join(REPO_DIR, 'package-lock.json')
+        || s === path.join(REPO_DIR, 'package.json')
+      );
+    });
+    mockReadFileSync.mockReturnValue(createMockPackageJson({ packageManager: 'npm@10.0.0' }));
+
+    expect(detectPackageManager(REPO_DIR)).toBe('npm');
+  });
+
+  it('returns yarn when yarn.lock and package-lock.json coexist and packageManager declares yarn', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      return (
+        s === path.join(REPO_DIR, 'yarn.lock')
+        || s === path.join(REPO_DIR, 'package-lock.json')
+        || s === path.join(REPO_DIR, 'package.json')
+      );
+    });
+    mockReadFileSync.mockReturnValue(createMockPackageJson({ packageManager: 'yarn@4.0.0' }));
+
+    expect(detectPackageManager(REPO_DIR)).toBe('yarn');
   });
 });

@@ -22,6 +22,8 @@ import { resolveSkills } from '../skills';
 import { formatBackendSelection, writeImplementVerificationRunFile } from '../shared/utils/implement-verification';
 import { getWfStateDir } from '../shared/utils/wf-paths';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
+import { installDependencies } from '../shared/utils/install-dependencies';
+import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
@@ -935,6 +937,7 @@ export class ImplementerAgent {
     }
     await this.ensureOnSourceBranch(sourceBranch, currentBranch, cwd);
     await this.pullSafe(sourceBranch, cwd);
+    await this.runPostPullDependencyInstall(cwd);
   }
 
   private async tryCheckoutSource(sourceBranch: string, cwd: string | undefined): Promise<boolean> {
@@ -955,6 +958,27 @@ export class ImplementerAgent {
         `  Could not pull ${branch} (no upstream or network issue) — continuing with local state`
       ));
     }
+  }
+
+  private async runPostPullDependencyInstall(cwd: string | undefined): Promise<void> {
+    const repoDir = cwd ?? process.cwd();
+    let changed: string;
+    try {
+      changed = execSync('git diff --name-only HEAD@{1} HEAD', {
+        cwd: repoDir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'],
+      });
+    } catch {
+      return;
+    }
+    if (!changed.split('\n').some(f => f.trim() === 'package.json')) return;
+
+    console.log(chalk.gray('  package.json changed — installing dependencies...'));
+    const result = await installDependencies(repoDir);
+    if (!result.success) {
+      console.log(chalk.yellow(`  ⚠ ${result.warning}`));
+      return;
+    }
+    console.log(chalk.gray(`  ✔ Dependencies updated via ${result.packageManager}`));
   }
 
   private async restoreStash(didStash: boolean, cwd: string | undefined): Promise<void> {
@@ -994,6 +1018,7 @@ export class ImplementerAgent {
     if (shouldPull) {
       const { didStash } = await this.ensureCleanWorkingTree(planArtifact, stashInteractive, cwd);
       await this.pullSafe(branch, cwd);
+      await this.runPostPullDependencyInstall(cwd);
       await this.restoreStash(didStash, cwd);
     }
 

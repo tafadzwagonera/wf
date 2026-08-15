@@ -104,6 +104,7 @@ export const repoConventionsContextSchema = z.object({
   importStyle: z.enum(['commonjs', 'esm', 'unknown']),
   keyDependencies: z.array(z.string()),
   errorHandlingPaths: z.array(z.string()),
+  packageManager: z.enum(['bun', 'pnpm', 'yarn', 'npm']).default('npm'),
   gitHooks: z.array(gitHooksContextSchema).default([]),
 });
 

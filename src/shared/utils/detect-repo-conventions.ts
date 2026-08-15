@@ -6,6 +6,51 @@ import { buildSkipDirs, walkDir } from './walk-dir';
 
 export type { RepoLanguage, RepoConventionsContext };
 
+export type PackageManager = 'bun' | 'pnpm' | 'yarn' | 'npm';
+
+/**
+ * Read the packageManager field declared in package.json, if any.
+ *
+ * @param pkgPath - Absolute path to package.json
+ * @returns The declared package manager, or 'npm' when absent/unreadable
+ */
+const detectPackageManagerFromPkgJson = (pkgPath: string): PackageManager | null => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as Record<string, unknown>;
+    const declared = pkg['packageManager'];
+    if (typeof declared !== 'string') return null;
+    if (declared.startsWith('bun')) return 'bun';
+    if (declared.startsWith('pnpm')) return 'pnpm';
+    if (declared.startsWith('yarn')) return 'yarn';
+    if (declared.startsWith('npm')) return 'npm';
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+// When yarn.lock and package-lock.json coexist, the packageManager field in
+// package.json is authoritative. Yarn keeps priority when the field is absent.
+const resolveYarnNpmLockfileConflict = (repoDir: string): PackageManager => {
+  const pkgPath = path.join(repoDir, 'package.json');
+  const declared = fs.existsSync(pkgPath) ? detectPackageManagerFromPkgJson(pkgPath) : null;
+  return declared ?? 'yarn';
+};
+
+export const detectPackageManager = (repoDir: string): PackageManager => {
+  if (fs.existsSync(path.join(repoDir, 'bun.lockb'))) return 'bun';
+  if (fs.existsSync(path.join(repoDir, 'pnpm-lock.yaml'))) return 'pnpm';
+
+  const hasYarnLock = fs.existsSync(path.join(repoDir, 'yarn.lock'));
+  const hasNpmLock = fs.existsSync(path.join(repoDir, 'package-lock.json'));
+  if (hasYarnLock && hasNpmLock) return resolveYarnNpmLockfileConflict(repoDir);
+  if (hasYarnLock) return 'yarn';
+  if (hasNpmLock) return 'npm';
+
+  const pkgPath = path.join(repoDir, 'package.json');
+  return (fs.existsSync(pkgPath) ? detectPackageManagerFromPkgJson(pkgPath) : null) ?? 'npm';
+};
+
 const KEY_DEPENDENCY_KEYWORDS = [
   '@nestjs/core',
   'express',
@@ -895,19 +940,30 @@ const detectSimpleGitHooks = (repoDir: string, gitHooks: GitHooksContext[]): Git
  * @param inputs - Pre-computed detection inputs
  * @returns A fully assembled conventions context
  */
-const assembleConventions = (inputs: ConventionsInputs): RepoConventionsContext => {
-  const { repoDir, language, hasGoMod, sourceRoots, allDeps, pkgType, skipDirs } = inputs;
-  const langContexts = detectLanguageContexts(inputs);
-
+const assembleStructuralConventions = (
+  inputs: ConventionsInputs,
+  langContexts: ReturnType<typeof detectLanguageContexts>
+): Pick<RepoConventionsContext, 'folderStructure' | 'namingPattern' | 'nestjsDetected' | 'importStyle'> => {
+  const { repoDir, language, sourceRoots, allDeps, pkgType } = inputs;
   return {
-    language,
-    ...langContexts,
     folderStructure: detectFolderStructure(repoDir, language, sourceRoots),
     namingPattern: detectNamingPattern(sourceRoots, repoDir),
     nestjsDetected: '@nestjs/core' in allDeps,
     importStyle: detectImportStyle(langContexts.typescript, pkgType),
+  };
+};
+
+const assembleConventions = (inputs: ConventionsInputs): RepoConventionsContext => {
+  const { repoDir, hasGoMod, sourceRoots, allDeps, skipDirs } = inputs;
+  const langContexts = detectLanguageContexts(inputs);
+
+  return {
+    language: inputs.language,
+    ...langContexts,
+    ...assembleStructuralConventions(inputs, langContexts),
     keyDependencies: detectKeyDependencies(allDeps, hasGoMod, repoDir, langContexts.terraform),
     errorHandlingPaths: detectErrorHandlingPaths(sourceRoots, repoDir, skipDirs),
+    packageManager: detectPackageManager(repoDir),
     gitHooks: detectGitHooks(repoDir),
   };
 };
