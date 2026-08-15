@@ -6,15 +6,8 @@ import { FormatConverter } from '../format-converter.interface';
 import { UniversalTicket } from '../../dto/universal-ticket.dto';
 import { WorkflowParseError } from '../../../shared/utils/errors';
 
-/**
- * YAML format converter for UniversalTicket
- * Handles parsing and serialization of tickets in YAML format
- */
 @Injectable()
 export class YamlConverter implements FormatConverter {
-  /**
-   * Parse YAML content into a UniversalTicket
-   */
   parse(content: string): UniversalTicket {
     try {
       const ticket = this.parseObject(content);
@@ -28,9 +21,6 @@ export class YamlConverter implements FormatConverter {
     }
   }
 
-  /**
-   * Parse raw YAML content into a UniversalTicket instance, without validation
-   */
   private parseObject(content: string): UniversalTicket {
     const parsed = YAML.parse(content);
     if (!parsed || typeof parsed !== 'object') {
@@ -39,9 +29,6 @@ export class YamlConverter implements FormatConverter {
     return plainToInstance(UniversalTicket, parsed);
   }
 
-  /**
-   * Throw when a parsed ticket fails class-validator validation
-   */
   private assertValid(ticket: UniversalTicket): void {
     const errors = validateSync(ticket);
     if (errors.length > 0) {
@@ -50,12 +37,8 @@ export class YamlConverter implements FormatConverter {
     }
   }
 
-  /**
-   * Serialize a UniversalTicket into YAML format
-   */
   serialize(ticket: UniversalTicket): string {
     try {
-      // Convert to plain object and remove undefined values
       const plain = this.toPlainObject(ticket);
 
       return YAML.stringify(plain, {
@@ -68,16 +51,10 @@ export class YamlConverter implements FormatConverter {
     }
   }
 
-  /**
-   * Get the format name
-   */
   getFormatName(): string {
     return 'yaml';
   }
 
-  /**
-   * Validate if content is valid YAML
-   */
   validate(content: string): boolean {
     try {
       YAML.parse(content);
@@ -87,16 +64,10 @@ export class YamlConverter implements FormatConverter {
     }
   }
 
-  /**
-   * Get the file extension
-   */
   getFileExtension(): string {
     return '.yaml';
   }
 
-  /**
-   * Convert UniversalTicket to plain object, removing undefined values
-   */
   private toPlainObject(ticket: UniversalTicket): Record<string, any> {
     const plain: Record<string, any> = {};
 

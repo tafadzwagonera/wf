@@ -54,12 +54,6 @@ const REQUIRED_CODEX_CLI_MIN_MINOR = 142;
 const SANDBOX_WRITE_MIN_MINOR = 147;
 const SKIP_VERSION_CHECK_ENV = 'WF_SKIP_CLI_VERSION_CHECK';
 
-/**
- * Attempts to parse a raw ERROR line as JSON and extract its error message.
- *
- * @param raw - Raw text captured after the `ERROR:` prefix
- * @returns Parsed error message string, or the original raw value if parsing fails
- */
 const parseErrorMessageJson = (raw: string): string => {
   try {
     const parsed = JSON.parse(raw) as { error?: { message?: string } };
@@ -69,12 +63,6 @@ const parseErrorMessageJson = (raw: string): string => {
   }
 };
 
-/**
- * Extracts meaningful error messages from Codex CLI stderr noise.
- *
- * @param stderr - Raw stderr output from the Codex CLI
- * @returns Extracted error message(s) or full stderr if no `ERROR:` lines found
- */
 export const extractCodexErrorMessages = (stderr: string): string => {
   const errorLines = stderr
     .split('\n')
@@ -87,13 +75,6 @@ export const extractCodexErrorMessages = (stderr: string): string => {
   return unique.join('; ');
 };
 
-/**
- * Parses a `codex --version` output string into major/minor/patch components.
- * Returns null when the string does not contain a recognisable semver triple.
- *
- * @param raw - Raw stdout from `codex --version` (e.g. "codex-cli 0.142.5")
- * @returns Parsed version object, or null if the format is unrecognisable
- */
 export const parseCodexCliVersion = (raw: string): { major: number; minor: number; patch: number } | null => {
   const match = /(\d+)\.(\d+)\.(\d+)/.exec(raw.trim());
   if (!match) return null;
@@ -102,10 +83,6 @@ export const parseCodexCliVersion = (raw: string): { major: number; minor: numbe
 
 let cachedCodexVersion: { major: number; minor: number; patch: number } | undefined;
 
-/**
- * Returns the Codex CLI version detected by the last `assertCodexCliAvailable` call.
- * Returns `undefined` when the version check was skipped or has not run yet.
- */
 export const getCodexCliVersion = (): { major: number; minor: number; patch: number } | undefined =>
   cachedCodexVersion;
 
@@ -114,13 +91,6 @@ export const resetCodexCliVersionCache = (): void => {
   cachedCodexVersion = undefined;
 };
 
-/**
- * Asserts that a binary is present on the PATH by running `command -v <name>`.
- * Throws with an install URL when the binary is not found.
- *
- * @param name - Binary name to check (e.g. "codex")
- * @param installUrl - URL shown in the error message if the binary is missing
- */
 const assertBinaryExists = (name: string, installUrl: string): void => {
   try {
     execSync(`command -v ${name}`, { stdio: 'pipe' });
@@ -129,13 +99,6 @@ const assertBinaryExists = (name: string, installUrl: string): void => {
   }
 };
 
-/**
- * Runs `<name> --version` and returns the raw stdout string.
- * Throws a diagnostic error when the command itself fails.
- *
- * @param name - Binary name whose version to query
- * @returns Raw version string printed by the binary
- */
 const getVersionOrThrow = (name: string): string => {
   try {
     return execSync(`${name} --version`, { stdio: 'pipe', encoding: 'utf-8' });
@@ -146,13 +109,6 @@ const getVersionOrThrow = (name: string): string => {
 
 const CODEX_UPGRADE_HINT = 'Upgrade: npm install -g @openai/codex@latest. Or set WF_SKIP_CLI_VERSION_CHECK=1 to bypass.';
 
-/**
- * Throws when the installed Codex CLI major version does not match the required one.
- *
- * @param vStr - Version string for display (e.g. "1.0.0")
- * @param requiredMajor - Expected major version
- * @param minMinor - Minimum minor version shown in the error
- */
 const throwMajorMismatch = (vStr: string, requiredMajor: number, minMinor: number): never => {
   throw new ConfigurationError(
     `Incompatible Codex CLI version ${vStr}. `
@@ -160,27 +116,12 @@ const throwMajorMismatch = (vStr: string, requiredMajor: number, minMinor: numbe
   );
 };
 
-/**
- * Throws when the installed Codex CLI minor version is below the required minimum.
- *
- * @param vStr - Version string for display (e.g. "0.100.0")
- * @param requiredMajor - Required major version shown in the error
- * @param minMinor - Minimum required minor version
- */
 const throwMinorTooOld = (vStr: string, requiredMajor: number, minMinor: number): never => {
   throw new ConfigurationError(
     `Codex CLI version ${vStr} is too old. Required: >=${requiredMajor}.${minMinor}. ${CODEX_UPGRADE_HINT}`
   );
 };
 
-/**
- * Validates that a parsed semver satisfies the required major and minimum minor constraints.
- * Throws a descriptive upgrade error when either constraint is violated.
- *
- * @param version - Parsed semver object to validate
- * @param requiredMajor - Exact major version required
- * @param minMinor - Minimum minor version required when major matches
- */
 const validateVersionRange = (
   version: { major: number; minor: number; patch: number },
   requiredMajor: number,
@@ -191,11 +132,6 @@ const validateVersionRange = (
   if (version.minor < minMinor) throwMinorTooOld(vStr, requiredMajor, minMinor);
 };
 
-/**
- * Asserts that the Codex CLI binary is installed and meets the minimum version requirement.
- * Throws with install/upgrade instructions when the binary is missing or incompatible.
- * Set WF_SKIP_CLI_VERSION_CHECK=1 to bypass the version check (e.g. in CI).
- */
 export const assertCodexCliAvailable = (): void => {
   assertBinaryExists('Codex', 'https://github.com/openai/codex');
 
@@ -214,29 +150,12 @@ export const assertCodexCliAvailable = (): void => {
   cachedCodexVersion = version;
 };
 
-/**
- * Returns the CLI flag(s) that grant full file-system autonomy.
- * Before 0.147 Codex accepted `--full-auto`; from 0.147 onward it
- * requires `--sandbox workspace-write`.
- *
- * SHIM: remove when 0.142-0.146 support is dropped — always use `--sandbox workspace-write`.
- *
- * @param version - Parsed Codex CLI version; `undefined` falls back to `--full-auto`
- * @returns Argument tokens for the auto-approval mode
- */
 const resolveAutoApprovalArgs = (version?: { minor: number }): string[] =>
   version && version.minor >= SANDBOX_WRITE_MIN_MINOR
     ? ['--sandbox', 'workspace-write']
     : ['--full-auto'];
 
-/**
- * Builds the argument array for spawning the Codex CLI.
- * Always includes `--json` so the CLI emits NDJSON on stdout;
- * removing it breaks `parseNdjsonLine` and causes the review stage to throw.
- *
- * @param params - CLI runner parameters
- * @returns Argument array for the `codex` binary
- */
+// Always passes --json so the CLI emits NDJSON on stdout; omitting it breaks parseNdjsonLine.
 export const buildCodexCliArgs = (params: CodexCliRunnerParams): string[] => {
   if (params.sessionId) {
     const args = ['exec', '--json', 'resume', params.sessionId];
@@ -265,15 +184,6 @@ interface KillController {
   timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 }
 
-/**
- * Spawns the codex binary with the given args and writes the optional prompt to stdin.
- *
- * @param args - Arguments passed to the codex binary
- * @param cwd - Working directory for the subprocess
- * @param env - Optional environment variable overrides merged on top of `process.env`
- * @param prompt - Optional text written to the child's stdin before closing it
- * @returns The spawned child process
- */
 const spawnCodexProcess = (
   args: string[], cwd: string, env?: Record<string, string>, prompt?: string,
 ): ChildProcess => {
@@ -289,11 +199,6 @@ const spawnCodexProcess = (
   return child;
 };
 
-/**
- * Sends SIGKILL to a child process if it has not already exited.
- *
- * @param proc - Child process to escalate
- */
 const escalateToSigkill = (proc: ChildProcess): void => {
   if (!proc.killed) proc.kill('SIGKILL');
 };
@@ -345,13 +250,6 @@ const buildKillController = (proc: ChildProcess, timeoutMs: number, inactivityTi
   };
 };
 
-/**
- * Inspects collected stderr chunks after the generator loop exits without yielding any messages.
- * Throws when non-empty stderr is present, surfacing the extracted error text.
- *
- * @param yieldedAny - Whether at least one message was yielded during the session
- * @param stderrChunks - Buffered stderr data collected from the child process
- */
 const collectCodexResult = (yieldedAny: boolean, stderrChunks: Buffer[]): void => {
   if (yieldedAny || stderrChunks.length === 0) return;
   const stderr = Buffer.concat(stderrChunks).toString('utf-8').trim();
@@ -359,12 +257,6 @@ const collectCodexResult = (yieldedAny: boolean, stderrChunks: Buffer[]): void =
   throw new AiProviderError(`Codex CLI failed: ${extractCodexErrorMessages(stderr)}`);
 };
 
-/**
- * Builds a timeout error message for the Codex CLI generator.
- *
- * @param timeoutMs - The timeout duration in milliseconds
- * @returns A `CodexCliMessage` representing a timeout error
- */
 export const buildTimeoutMessage = (timeoutMs: number): CodexCliMessage => ({
   type: 'error',
   subtype: 'timeout',
@@ -379,12 +271,6 @@ export const buildInactivityTimeoutMessage = (inactivityTimeoutMs: number): Code
   result: `Codex CLI timed out after ${Math.round(inactivityTimeoutMs / 1000)}s of inactivity.`,
 });
 
-/**
- * Attaches a stderr data listener to the child process and returns the buffer array.
- *
- * @param proc - Child process whose stderr to collect
- * @returns Mutable array that accumulates raw stderr `Buffer` chunks
- */
 const attachStderrCollector = (proc: ChildProcess): Buffer[] => {
   const chunks: Buffer[] = [];
   if (!proc.stderr) throw new ExecutionError('codex child process stderr not available');
@@ -399,14 +285,6 @@ interface CodexSession {
   yieldedRef: [boolean];
 }
 
-/**
- * Wires up the readline interface, stderr collector, kill controller, and yielded-ref
- * for a spawned Codex child process.
- *
- * @param child - Spawned Codex child process
- * @param timeoutMs - Milliseconds before the kill controller fires
- * @returns Fully initialised `CodexSession` ready for the generator loop
- */
 const buildCodexSession = (child: ChildProcess, timeoutMs: number, inactivityTimeoutMs: number): CodexSession => {
   if (!child.stdout) throw new ExecutionError('codex child process stdout not available');
   return {
@@ -417,14 +295,6 @@ const buildCodexSession = (child: ChildProcess, timeoutMs: number, inactivityTim
   };
 };
 
-/**
- * Reads NDJSON lines from a readline interface and yields parsed messages.
- * Tracks whether any message was successfully yielded via the `yieldedRef`.
- *
- * @param rl - Readline interface wrapping the child process stdout
- * @param yieldedRef - Single-element array used as a mutable boolean reference
- * @returns Async generator that yields parsed `CodexCliMessage` objects
- */
 async function* readCodexLines(
   rl: ReturnType<typeof createInterface>,
   yieldedRef: [boolean],
@@ -440,16 +310,6 @@ async function* readCodexLines(
   }
 }
 
-/**
- * Spawns the Codex CLI as a subprocess and yields parsed NDJSON messages.
- *
- * @param args - CLI arguments (built via `buildCodexCliArgs`)
- * @param cwd - Working directory for the subprocess
- * @param prompt - Prompt text piped to the subprocess via stdin
- * @param env - Optional environment variable overrides
- * @param timeoutMs - Subprocess timeout in milliseconds (default: 10 minutes)
- * @returns Async generator yielding `CodexCliMessage` objects
- */
 const installCodexSigintHandler = (child: ChildProcess, rl: ReturnType<typeof createInterface>): () => void => {
   const onSigint = () => {
     child.kill('SIGINT');

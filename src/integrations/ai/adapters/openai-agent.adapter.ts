@@ -157,13 +157,6 @@ type GenerateAndVerifyParams = {
   skillNames?: string[];
 };
 
-/**
- * Finds a safe prune cut index that avoids orphaning reasoning/function_call pairs.
- *
- * @param items - Generated items array from RunState
- * @param desiredCut - Initial desired cut boundary
- * @returns Safe cut index, or 0 if none exists
- */
 const findSafePruneIndex = (
   items: Array<Record<string, unknown>>,
   desiredCut: number
@@ -180,13 +173,6 @@ const findSafePruneIndex = (
   return cutIndex;
 };
 
-/**
- * Builds a compact summary message for pruned state items.
- *
- * @param cutIndex - Number of items removed
- * @param fileChangeStatus - Map of file paths to change status
- * @returns Summary string
- */
 const buildPruneSummary = (cutIndex: number, fileChangeStatus: Map<string, string>): string => {
   const changed = [...fileChangeStatus.entries()].map(([p, s]) => `${p} (${s})`).join(', ');
   return [
@@ -196,12 +182,6 @@ const buildPruneSummary = (cutIndex: number, fileChangeStatus: Map<string, strin
   ].filter(Boolean).join('\n');
 };
 
-/**
- * Extracts the generated items array from run state if prunable.
- *
- * @param state - The RunState from `streamedRun.state`
- * @returns Items array, or undefined if unavailable or too small
- */
 const extractPrunableItems = (state: unknown): Array<Record<string, unknown>> | undefined => {
   const rec = state as Record<string, unknown> | undefined;
   const items = Array.isArray(rec?._generatedItems)
@@ -210,14 +190,6 @@ const extractPrunableItems = (state: unknown): Array<Record<string, unknown>> | 
   return items && items.length > STATE_PRUNING_KEEP_TAIL_ITEMS ? items : undefined;
 };
 
-/**
- * Prunes the Runner's in-memory `_generatedItems` to keep context within bounds.
- *
- * @param state - RunState from `streamedRun.state`
- * @param lastObservedInputTokens - Input token count from latest response
- * @param fileChangeStatus - Map of file paths to change status
- * @returns Number of items pruned, or 0 if skipped
- */
 const pruneStateIfNeeded = (
   state: unknown,
   lastObservedInputTokens: number,
@@ -233,13 +205,6 @@ const pruneStateIfNeeded = (
   return cutIndex;
 };
 
-/**
- * Truncates command output to the last N lines.
- *
- * @param output - Raw command output
- * @param maxLines - Maximum lines to keep
- * @returns Truncated output string
- */
 const truncateOutput = (output: string, maxLines: number): string => {
   const lines = output.split('\n');
   if (lines.length <= maxLines) return output;
@@ -247,12 +212,6 @@ const truncateOutput = (output: string, maxLines: number): string => {
   return `[... ${lines.length - maxLines} lines truncated — showing last ${maxLines} lines ...]\n${kept.join('\n')}`;
 };
 
-/**
- * Deduplicates workspace roots by composite key.
- *
- * @param roots - Array of roots, possibly with duplicates
- * @returns Deduplicated array
- */
 const deduplicateRoots = (roots: WorkspaceRoot[]): WorkspaceRoot[] => {
   const unique: WorkspaceRoot[] = [];
   const seen = new Set<string>();
@@ -265,13 +224,6 @@ const deduplicateRoots = (roots: WorkspaceRoot[]): WorkspaceRoot[] => {
   return unique;
 };
 
-/**
- * Builds workspace roots from the primary repo and additional dirs.
- *
- * @param repoDir - Primary repository directory
- * @param additionalRepoDirs - Additional read-only directories
- * @returns Deduplicated workspace roots
- */
 const toWorkspaceRoots = (repoDir: string, additionalRepoDirs: string[]): WorkspaceRoot[] => {
   const roots = [
     { name: path.basename(path.resolve(repoDir)), root: path.resolve(repoDir) },
@@ -288,27 +240,12 @@ const isWithinRoot = (absolutePath: string, root: string): boolean => {
   return rel.length > 0 && !rel.startsWith('..');
 };
 
-/**
- * Tries to match a path's prefix against a known workspace root.
- *
- * @param segments - Path segments from the input
- * @param roots - Available workspace roots
- * @returns Resolved absolute path if matched, undefined otherwise
- */
 const matchRootPrefix = (segments: string[], roots: WorkspaceRoot[]): string | undefined => {
   const [prefix, ...rest] = segments;
   const matched = roots.find(r => r.name === prefix);
   return matched && rest.length > 0 ? path.resolve(matched.root, rest.join(path.sep)) : undefined;
 };
 
-/**
- * Resolves a potentially repo-prefixed path to absolute.
- *
- * @param requestedPath - Raw path from tool input
- * @param roots - Available workspace roots
- * @param defaultRoot - Fallback root
- * @returns Resolved absolute path
- */
 const resolveRepoPrefixedPath = (requestedPath: string, roots: WorkspaceRoot[], defaultRoot: string): string => {
   const trimmed = requestedPath.trim();
   if (!trimmed) throw new ValidationError('File path is required.');
@@ -317,13 +254,6 @@ const resolveRepoPrefixedPath = (requestedPath: string, roots: WorkspaceRoot[], 
   return matchRootPrefix(segments, roots) ?? path.resolve(defaultRoot, trimmed);
 };
 
-/**
- * Resolves a path and validates it's within allowed read roots.
- *
- * @param requestedPath - Raw path from tool input
- * @param ctx - Implementer context
- * @returns Resolved absolute path
- */
 const resolveReadablePath = (requestedPath: string, ctx: OpenAiImplementerContext): string => {
   const abs = resolveRepoPrefixedPath(requestedPath, ctx.readRoots, ctx.repoDir);
   if (!ctx.readRoots.some(r => isWithinRoot(abs, r.root))) {
@@ -332,13 +262,6 @@ const resolveReadablePath = (requestedPath: string, ctx: OpenAiImplementerContex
   return abs;
 };
 
-/**
- * Resolves a path and validates it's within the primary repository.
- *
- * @param requestedPath - Raw path from tool input
- * @param ctx - Implementer context
- * @returns Resolved absolute path
- */
 const resolveWritablePath = (requestedPath: string, ctx: OpenAiImplementerContext): string => {
   const abs = resolveRepoPrefixedPath(requestedPath, ctx.readRoots, ctx.repoDir);
   const primaryRoot = ctx.readRoots[0]?.root ?? ctx.repoDir;
@@ -348,24 +271,12 @@ const resolveWritablePath = (requestedPath: string, ctx: OpenAiImplementerContex
   return abs;
 };
 
-/**
- * Extracts and validates the tool context from a run context.
- *
- * @param runContext - OpenAI agent run context
- * @returns Validated implementer context
- */
 const getToolContext = (runContext: RunContext<unknown> | undefined): OpenAiImplementerContext => {
   const ctx = runContext?.context as OpenAiImplementerContext | undefined;
   if (!ctx) throw new ExecutionError('OpenAI agent tool context is missing.');
   return ctx;
 };
 
-/**
- * Parses usage fields from a response_done response object.
- *
- * @param response - Response object from a response_done event
- * @returns Usage summary, or null if absent
- */
 const parseResponseUsage = (response: unknown): OpenAiUsageSummary | null => {
   const usage = (response as Record<string, unknown> | null)?.usage as RawResponseUsage | undefined;
   if (!usage) return null;
@@ -377,12 +288,6 @@ const parseResponseUsage = (response: unknown): OpenAiUsageSummary | null => {
   };
 };
 
-/**
- * Checks whether an event is a response_done raw_model_stream_event.
- *
- * @param event - A stream event from the OpenAI agent SDK
- * @returns Response object if matched, null otherwise
- */
 const extractResponseDone = (event: unknown): Record<string, unknown> | null => {
   if (!event || typeof event !== 'object' || !('type' in event)) return null;
   if ((event as { type?: string }).type !== 'raw_model_stream_event') return null;
@@ -390,24 +295,11 @@ const extractResponseDone = (event: unknown): Record<string, unknown> | null => 
   return raw.data?.type === 'response_done' ? (raw.data.response ?? null) as Record<string, unknown> | null : null;
 };
 
-/**
- * Extracts token usage from a raw_model_stream_event with data.type === 'response_done'.
- *
- * @param event - A stream event from the OpenAI agent SDK
- * @returns Usage summary or null
- */
 export const extractUsageFromEvent = (event: unknown): OpenAiUsageSummary | null => {
   const response = extractResponseDone(event);
   return response ? parseResponseUsage(response) : null;
 };
 
-/**
- * Classifies an HTTP status code error.
- *
- * @param status - HTTP status code
- * @param error - The original error
- * @returns Classification or null
- */
 const classifyByStatus = (
   status: number | undefined,
   error: unknown
@@ -421,23 +313,11 @@ const classifyByStatus = (
   return null;
 };
 
-/**
- * Classifies an HTTP status error from an error object.
- *
- * @param error - An error object potentially with a status property
- * @returns Classification or null
- */
 const classifyHttpStatusError = (error: unknown): AgentClassification | null => {
   if (!error || typeof error !== 'object' || !('status' in error)) return null;
   return classifyByStatus((error as { status?: number }).status, error);
 };
 
-/**
- * Classifies an SDK-specific error by instance type.
- *
- * @param error - The error thrown during an agent run
- * @returns Classification or null
- */
 const classifySdkError = (error: unknown): AgentClassification | null => {
   if (error instanceof MaxTurnsExceededError) return { label: 'Max turns exceeded', detail: error.message, recoverable: false };
   if (error instanceof ToolTimeoutError) return { label: 'Tool timeout', detail: error.message, recoverable: true };
@@ -448,12 +328,6 @@ const classifySdkError = (error: unknown): AgentClassification | null => {
   return null;
 };
 
-/**
- * Classifies an error from the OpenAI agent SDK into a structured label.
- *
- * @param error - The error thrown during an agent run
- * @returns Structured classification
- */
 export const classifyAgentError = (error: unknown): AgentClassification => {
   const sdk = classifySdkError(error);
   if (sdk) return sdk;
@@ -465,12 +339,6 @@ export const classifyAgentError = (error: unknown): AgentClassification => {
   return { label: 'Unknown error', detail: error instanceof Error ? error.message : 'unknown error', recoverable: false };
 };
 
-/**
- * Extracts the retry delay from a rate-limit error message.
- *
- * @param error - The rate-limit error
- * @returns Delay in milliseconds
- */
 export const parseRetryDelayMs = (error: unknown): number => {
   const DEFAULT_DELAY_MS = 30_000;
   if (!(error instanceof Error)) return DEFAULT_DELAY_MS;
@@ -495,15 +363,6 @@ const OPENAI_PRICING: Record<string, OpenAiModelPricing> = {
   'gpt-5.1-codex-mini': { inputPerMToken: 0.5, cachedInputPerMToken: 0.125, outputPerMToken: 2 },
 };
 
-/**
- * Estimates the USD cost of an OpenAI API run.
- *
- * @param model - OpenAI model identifier
- * @param inputTokens - Total input tokens
- * @param outputTokens - Total output tokens
- * @param cachedInputTokens - Cached input tokens
- * @returns Estimated cost in USD, or null
- */
 export const estimateOpenAiCostUsd = (
   model: string, inputTokens: number, outputTokens: number, cachedInputTokens: number
 ): number | null => {
@@ -515,13 +374,6 @@ export const estimateOpenAiCostUsd = (
     + (outputTokens / 1_000_000) * pricing.outputPerMToken;
 };
 
-/**
- * Checks a class declaration for duplicate constructor bodies.
- *
- * @param node - TypeScript AST node
- * @param ts - TypeScript module reference
- * @returns Error message or null
- */
 const checkDuplicateConstructor = (
   node: import('typescript').Node,
   ts: typeof import('typescript')
@@ -534,13 +386,6 @@ const checkDuplicateConstructor = (
     : null;
 };
 
-/**
- * Checks an import declaration for duplicate named bindings.
- *
- * @param node - TypeScript AST node
- * @param ts - TypeScript module reference
- * @returns Error message or null
- */
 const checkDuplicateImport = (
   node: import('typescript').Node,
   ts: typeof import('typescript')
@@ -557,13 +402,6 @@ const checkDuplicateImport = (
   return null;
 };
 
-/**
- * Recursively visits AST nodes checking for structural issues.
- *
- * @param node - Current AST node
- * @param ts - TypeScript module reference
- * @returns Error message or null
- */
 const visitTsNode = (
   node: import('typescript').Node,
   ts: typeof import('typescript')
@@ -573,13 +411,6 @@ const visitTsNode = (
   ?? ts.forEachChild(node, child => visitTsNode(child, ts))
   ?? null;
 
-/**
- * Validates a TypeScript file's content for structural correctness after an edit.
- *
- * @param filePath - File path for filtering and diagnostics
- * @param content - Full file content after proposed edit
- * @returns Error message string if invalid, or null
- */
 export const validateTypeScriptEdit = (filePath: string, content: string): string | null => {
   if (!/\.tsx?$/.test(filePath)) return null;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -621,12 +452,6 @@ const implementerSummaryTemplate = `### What I changed
 ### Assumptions / risk note
 <Any assumptions made or risks identified. Write "None." if there are none.>`;
 
-/**
- * Assembles scope-specific rules for a given repo directory.
- *
- * @param repoDir - Primary repository directory
- * @returns Combined rules text
- */
 const buildScopedRules = (repoDir: string): string => [
   implementerRulesSection,
   `- Writes must stay scoped to the primary repository (${repoDir}).`,
@@ -638,14 +463,6 @@ type SystemPromptParams = {
   conventionsSection?: string;
 };
 
-/**
- * Builds the complete system prompt for the OpenAI agent.
- * Contains behavioral identity, scope rules, tool list, and summary template.
- * Task-specific content (plan steps, files, risks) is injected via user messages.
- *
- * @param p - Repository directory and optional coding conventions
- * @returns Complete system prompt string
- */
 const buildSystemPrompt = (p: SystemPromptParams): string => {
   const behavioralContext = buildBehavioralContext(p.repoDir);
   const conventionsPart = p.conventionsSection ? `\n\n${p.conventionsSection}` : '';
@@ -653,12 +470,6 @@ const buildSystemPrompt = (p: SystemPromptParams): string => {
   return `${behavioralContext}${conventionsPart}\n\n${availableToolsBlock}\n\n${rules}\n\n${implementerSummaryTemplate}`;
 };
 
-/**
- * Accumulates raw token counts into a running summary.
- *
- * @param usage - Single-response usage data
- * @param summary - Running accumulator
- */
 const addTokenCounts = (usage: OpenAiUsageSummary, summary: OpenAiUsageSummary): void => {
   summary.inputTokens += usage.inputTokens;
   summary.outputTokens += usage.outputTokens;
@@ -667,12 +478,6 @@ const addTokenCounts = (usage: OpenAiUsageSummary, summary: OpenAiUsageSummary):
   if (usage.compacted) summary.compacted = true;
 };
 
-/**
- * Accumulate token usage, handle compaction, and trigger state pruning.
- *
- * @param params - Usage event, summary accumulator, run state, and file status
- * @returns Updated lastObservedInputTokens value
- */
 type AccumulateUsageParams = {
   usage: OpenAiUsageSummary;
   summary: OpenAiUsageSummary;
@@ -692,12 +497,6 @@ const accumulateUsage = (p: AccumulateUsageParams): number => {
   return observed;
 };
 
-/**
- * Formats a response_done event into a progress message.
- *
- * @param event - The stream event
- * @returns Formatted message or null
- */
 const formatRawModelEvent = (event: unknown): { message: string; isWarning?: boolean } | null => {
   const usage = extractUsageFromEvent(event);
   if (usage?.compacted) return { message: '  [openai-agent] Context compacted', isWarning: true };
@@ -707,13 +506,6 @@ const formatRawModelEvent = (event: unknown): { message: string; isWarning?: boo
   return null;
 };
 
-/**
- * Formats a run_item_stream_event by event name.
- *
- * @param name - Event name field
- * @param item - Item payload
- * @returns Formatted message or null
- */
 const formatRunItemByName = (
   name: string | undefined,
   item: { name?: string } | undefined
@@ -730,23 +522,11 @@ const formatRunItemByName = (
   }
 };
 
-/**
- * Extracts reasoning text from an item's content arrays.
- *
- * @param item - Run item with content and rawItem
- * @returns Extracted text or empty string
- */
 const extractReasoningText = (item: RunItemShape): string =>
   item.content?.map(p => p.text).filter(Boolean).join(' ')
   || item.rawItem?.content?.map(p => p.text).filter(Boolean).join(' ')
   || '';
 
-/**
- * Formats a run_item_stream_event by item type.
- *
- * @param item - Run item payload
- * @returns Formatted message or null
- */
 const formatRunItemByType = (item: RunItemShape): { message: string } | null => {
   if (item.type === 'function_call') return { message: `  [openai-agent] Tool requested: ${item.name ?? 'unknown'}` };
   if (item.type === 'function_call_result') return { message: `  [openai-agent] Tool completed: ${item.name ?? 'unknown'}` };
@@ -755,13 +535,6 @@ const formatRunItemByType = (item: RunItemShape): { message: string } | null => 
   return { message: text ? `  [openai-agent] Reasoning: ${text.trim().slice(0, 160)}` : '  [openai-agent] Reasoning updated' };
 };
 
-/**
- * Dispatches a run_item_stream_event to name or type formatters.
- *
- * @param eventName - Event name field
- * @param item - Run item payload
- * @returns Formatted message or null
- */
 const formatRunItemEvent = (
   eventName: string | undefined,
   item: RunItemShape | undefined
@@ -771,12 +544,6 @@ const formatRunItemEvent = (
   return item?.type ? formatRunItemByType(item) : null;
 };
 
-/**
- * Formats an OpenAI agent stream event into a progress message.
- *
- * @param event - A stream event from the OpenAI agent SDK
- * @returns Formatted message or null
- */
 export const formatProgressMessage = (event: unknown): { message: string; isWarning?: boolean } | null => {
   if (!event || typeof event !== 'object' || !('type' in event)) return null;
   const eventType = (event as { type?: string }).type;
@@ -793,28 +560,11 @@ export const formatProgressMessage = (event: unknown): { message: string; isWarn
   return formatRunItemEvent(re.name, re.item);
 };
 
-/**
- * Formats a summary section with title and file paths.
- *
- * @param title - Section title
- * @param filePaths - List of file paths
- * @param label - Label prefix for each path
- * @returns Formatted lines
- */
 const formatSummarySection = (title: string, filePaths: string[], label: string): string[] => {
   if (filePaths.length === 0) return [];
   return [`  ${title}:`, ...filePaths.map(fp => `    - ${label}: ${fp}`)];
 };
 
-/**
- * Builds a JSON result for a read_file operation.
- *
- * @param rel - Repo-relative file path
- * @param allLines - All lines in the file
- * @param offset - Starting line offset
- * @param limit - Maximum lines to return
- * @returns JSON string
- */
 const buildReadFileResult = (rel: string, allLines: string[], offset: number, limit: number): string => {
   const total = allLines.length;
   const selected = allLines.slice(offset, offset + limit);
@@ -827,13 +577,6 @@ const buildReadFileResult = (rel: string, allLines: string[], offset: number, li
   });
 };
 
-/**
- * Executes the read_file tool.
- *
- * @param input - Tool input
- * @param runContext - OpenAI agent run context
- * @returns JSON string with file content
- */
 const executeReadFile = async (
   input: { path: string; offset: number; limit: number },
   runContext: RunContext<unknown> | undefined
@@ -846,22 +589,9 @@ const executeReadFile = async (
   return buildReadFileResult(path.relative(ctx.repoDir, abs), content.split('\n'), offset, limit);
 };
 
-/**
- * Checks if a file exists.
- *
- * @param filePath - Absolute file path
- * @returns True if the file exists
- */
 const fileExists = (filePath: string): Promise<boolean> =>
   fs.access(filePath).then(() => true).catch(() => false);
 
-/**
- * Records a file mutation in shared mutable state and logs it.
- *
- * @param rel - Repo-relative file path
- * @param status - Change status
- * @param mutable - Shared mutable state
- */
 const recordFileChange = (
   rel: string,
   status: 'created' | 'updated' | 'deleted',
@@ -872,14 +602,6 @@ const recordFileChange = (
   console.log(chalk.cyan(`  [openai-agent] File ${status}: ${rel}`));
 };
 
-/**
- * Executes the write_file tool.
- *
- * @param input - Tool input
- * @param runContext - OpenAI agent run context
- * @param mutable - Shared mutable state
- * @returns JSON string
- */
 const executeWriteFile = async (
   input: { path: string; content: string },
   runContext: RunContext<unknown> | undefined,
@@ -896,13 +618,6 @@ const executeWriteFile = async (
   return JSON.stringify({ path: rel, status });
 };
 
-/**
- * Executes the delete_file tool.
- *
- * @returns JSON string
- * @param repoDir
- * @param abs
- */
 const buildMissingFileResult = (repoDir: string, abs: string): string =>
   JSON.stringify({ path: path.relative(repoDir, abs), status: 'missing', message: 'File does not exist.' }, null, 2);
 
@@ -918,27 +633,6 @@ const executeDeleteFile = async (
   return JSON.stringify({ path: rel, status: 'deleted' });
 };
 
-/**
- * Builds a verification snapshot and progress signal.
- *
- * @param command - Verification command
- * @param idx - Order index
- * @param exitCode - Process exit code
- * @param stdout - Standard output
- * @param stderr - Standard error
- * @param vs - Mutable verification state
- * @returns Progress signal object
- */
-/**
- * Creates a verification snapshot record.
- *
- * @param command - Verification command
- * @param idx - Order index
- * @param exitCode - Process exit code
- * @param stdout - Standard output
- * @param stderr - Standard error
- * @returns Snapshot record
- */
 const createVerificationSnapshot = (
   command: string, idx: number, exitCode: number, stdout: string, stderr: string
 ): ImplementProgressVerificationSnapshot => ({
@@ -960,27 +654,9 @@ const buildSnapshot = (
   return progress;
 };
 
-/**
- * Builds a denial response for a disallowed verification command.
- *
- * @param command - The command string
- * @param allowed - Array of allowed commands
- * @param message - Denial reason
- * @returns JSON string
- */
 const buildDenial = (command: string, allowed: string[], message: string): string =>
   JSON.stringify({ command, allowed: false, message, allowedCommands: allowed }, null, 2);
 
-/**
- * Handles a successful verification command.
- *
- * @param command - Command that was run
- * @param idx - Order index
- * @param stdout - Standard output
- * @param stderr - Standard error
- * @param vs - Verification state
- * @returns JSON string
- */
 const handleVerifySuccess = (
   command: string, idx: number, stdout: string, stderr: string, vs: VerifyCommandState
 ): string => {
@@ -991,15 +667,6 @@ const handleVerifySuccess = (
   return JSON.stringify({ command, allowed: true, exitCode: 0, progress });
 };
 
-/**
- * Handles a failed verification command.
- *
- * @param command - Command that was run
- * @param idx - Order index
- * @param err - The exec error
- * @param vs - Verification state
- * @returns JSON string
- */
 const handleVerifyFailure = (command: string, idx: number, err: ExecError, vs: VerifyCommandState): string => {
   const stdout = err.stdout?.trim?.() ?? '';
   const stderr = err.stderr?.trim?.() ?? err.message ?? '';
@@ -1016,14 +683,6 @@ const handleVerifyFailure = (command: string, idx: number, err: ExecError, vs: V
   });
 };
 
-/**
- * Runs a whitelisted verification command.
- *
- * @param command - Normalized command
- * @param ctx - Implementer context
- * @param vs - Verification state
- * @returns JSON string
- */
 const runVerificationCommand = async (
   command: string, ctx: OpenAiImplementerContext, vs: VerifyCommandState
 ): Promise<string> => {
@@ -1037,21 +696,6 @@ const runVerificationCommand = async (
   }
 };
 
-/**
- * Executes the verify_command tool.
- *
- * @param input - Tool input
- * @param runContext - OpenAI agent run context
- * @param vs - Verification state
- * @returns JSON string
- */
-/**
- * Builds a denial message for a command not on the whitelist.
- *
- * @param command - The rejected command
- * @param allowed - List of allowed commands
- * @returns Denial message string
- */
 const buildWhitelistDenial = (command: string, allowed: string[]): string => {
   console.log(chalk.red(`  [openai-agent] Verification denied: ${command}`));
   const msg = `Command "${command}" is not in the verification whitelist. Allowed commands: ${allowed.join(', ') || '(none configured)'}.`;
@@ -1069,13 +713,6 @@ const executeVerifyCommand = async (
   return runVerificationCommand(command, ctx, vs);
 };
 
-/**
- * Parses a single grep output line into a match object.
- *
- * @param line - Raw grep output line
- * @param repoDir - Repo root for relative path computation
- * @returns Match object
- */
 const parseGrepLine = (
   line: string, repoDir: string
 ): { file: string; line: number; content: string } => {
@@ -1089,62 +726,22 @@ const parseGrepLine = (
   };
 };
 
-/**
- * Parses grep output into structured match objects.
- *
- * @param stdout - Raw grep output
- * @param repoDir - Repo root
- * @param max - Max matches
- * @returns Array of match objects
- */
 const parseGrepMatches = (
   stdout: string, repoDir: string, max: number
 ): Array<{ file: string; line: number; content: string }> =>
   stdout.split('\n').filter(Boolean).slice(0, max).map(line => parseGrepLine(line, repoDir));
 
-/**
- * Handles a successful grep execution.
- *
- * @param stdout - Grep stdout
- * @param repoDir - Repo root
- * @param pattern - Search pattern
- * @param max - Max results
- * @returns JSON string
- */
 const handleGrepSuccess = (stdout: string, repoDir: string, pattern: string, max: number): string => {
   const matches = parseGrepMatches(stdout, repoDir, max);
   console.log(chalk.cyan(`  [openai-agent] Search: ${matches.length} match(es) for "${pattern}"`));
   return JSON.stringify({ pattern, matches, truncated: matches.length >= max });
 };
 
-/**
- * Handles a grep error.
- *
- * @param err - The exec error
- * @param pattern - Search pattern
- * @returns JSON string
- */
 const handleGrepError = (err: { code?: number; message?: string }, pattern: string): string => {
   if (err.code === 1) return JSON.stringify({ pattern, matches: [], truncated: false });
   return JSON.stringify({ pattern, matches: [], truncated: false, error: err.message ?? 'Search failed' });
 };
 
-/**
- * Executes the search_files tool.
- *
- * @param input - Tool input
- * @param runContext - OpenAI agent run context
- * @returns JSON string
- */
-/**
- * Builds the grep command string.
- *
- * @param pattern - Search pattern
- * @param root - Search root directory
- * @param globArg - Optional glob include argument
- * @param max - Max results
- * @returns Shell command string
- */
 const buildGrepCommand = (pattern: string, root: string, globArg: string, max: number): string =>
   `grep -rn ${globArg} -m ${max} -E ${shellEscape(pattern)} ${shellEscape(root)}`;
 
@@ -1164,13 +761,6 @@ const executeSearchFiles = async (
   }
 };
 
-/**
- * Executes the find_files tool.
- *
- * @param input - Tool input
- * @param runContext - OpenAI agent run context
- * @returns JSON string
- */
 const executeFindFiles = async (
   input: { pattern: string; path: string; max_results: number },
   runContext: RunContext<unknown> | undefined
@@ -1184,13 +774,6 @@ const executeFindFiles = async (
   return JSON.stringify({ pattern: input.pattern, files, truncated });
 };
 
-/**
- * Builds a code context snippet around a specific line.
- *
- * @param content - Full file content
- * @param line - Target line number (1-based)
- * @returns Numbered code snippet
- */
 const buildEditContextSnippet = (content: string, line: number): string => {
   const allLines = content.split('\n');
   const start = Math.max(0, line - 6);
@@ -1198,16 +781,6 @@ const buildEditContextSnippet = (content: string, line: number): string => {
   return allLines.slice(start, end).map((l, i) => `${start + i + 1}: ${l}`).join('\n');
 };
 
-/**
- * Records a validation failure and returns an error response.
- *
- * @param content - Original file content
- * @param rel - Repo-relative path
- * @param valErr - Validation error message
- * @param line - Line number, if known
- * @param failures - Mutable failures array
- * @returns JSON string error response
- */
 const recordValidationFailure = (
   content: string, rel: string, valErr: string, line: number | undefined, failures: ValidationFailure[]
 ): string => {
@@ -1222,16 +795,6 @@ const recordValidationFailure = (
   });
 };
 
-/**
- * Handles the edit validation failure branch.
- *
- * @param content - Original file content
- * @param oldString - String being replaced
- * @param rel - Repo-relative path
- * @param valErr - Validation error
- * @param failures - Mutable failures array
- * @returns JSON error response
- */
 const handleEditValidationError = (
   content: string, oldString: string, rel: string, valErr: string, failures: ValidationFailure[]
 ): string => {
@@ -1240,25 +803,12 @@ const handleEditValidationError = (
   return recordValidationFailure(content, rel, valErr, line, failures);
 };
 
-/**
- * Clears stale validation failures for a file.
- *
- * @param failures - Mutable failures array
- * @param rel - Path to clear
- */
 const clearStaleFailures = (failures: ValidationFailure[], rel: string): void => {
   for (let i = failures.length - 1; i >= 0; i--) {
     if (failures[i].path === rel) failures.splice(i, 1);
   }
 };
 
-/**
- * Checks edit preconditions and returns an error if invalid.
- *
- * @param content - File content
- * @param oldString - String to find
- * @returns Error JSON string or null if preconditions pass
- */
 const checkEditPreconditions = (content: string, oldString: string): string | null => {
   const occurrences = content.split(oldString).length - 1;
   if (occurrences === 0) return JSON.stringify({ error: 'old_string not found in file' });
@@ -1268,15 +818,6 @@ const checkEditPreconditions = (content: string, oldString: string): string | nu
   return null;
 };
 
-/**
- * Applies a validated edit and records the change.
- *
- * @param abs - Absolute file path
- * @param updated - Updated file content
- * @param rel - Repo-relative path
- * @param mutable - Shared mutable state
- * @returns JSON string with success
- */
 const applyValidEdit = async (
   abs: string, updated: string, rel: string, mutable: ToolMutableState
 ): Promise<string> => {
@@ -1286,14 +827,6 @@ const applyValidEdit = async (
   return JSON.stringify({ path: rel, status: 'updated' });
 };
 
-/**
- * Executes the edit_file tool.
- *
- * @param input - Tool input
- * @param runContext - OpenAI agent run context
- * @param mutable - Shared mutable state
- * @returns JSON string
- */
 type EditFileInput = { path: string; old_string: string; new_string: string };
 
 const executeEditFile = async (
@@ -1311,11 +844,6 @@ const executeEditFile = async (
   return applyValidEdit(abs, updated, rel, mutable);
 };
 
-/**
- * Creates the read_file tool.
- *
- * @returns Configured tool instance
- */
 const createReadFileTool = () => tool({
   name: 'read_file',
   description: 'Read a file from the repository workspace. Use offset/limit to read specific line ranges for large files.',
@@ -1323,12 +851,6 @@ const createReadFileTool = () => tool({
   execute: executeReadFile,
 });
 
-/**
- * Creates the write_file tool.
- *
- * @param m - Shared mutable state
- * @returns Configured tool instance
- */
 const createWriteFileTool = (m: ToolMutableState) => tool({
   name: 'write_file',
   description: 'Write a full file into the primary repository workspace.',
@@ -1336,12 +858,6 @@ const createWriteFileTool = (m: ToolMutableState) => tool({
   execute: (input, ctx) => executeWriteFile(input, ctx, m),
 });
 
-/**
- * Creates the delete_file tool.
- *
- * @param m - Shared mutable state
- * @returns Configured tool instance
- */
 const createDeleteFileTool = (m: ToolMutableState) => tool({
   name: 'delete_file',
   description: 'Delete a file from the primary repository workspace.',
@@ -1349,12 +865,6 @@ const createDeleteFileTool = (m: ToolMutableState) => tool({
   execute: (input, ctx) => executeDeleteFile(input, ctx, m),
 });
 
-/**
- * Creates the verify_command tool.
- *
- * @param vs - Verification state
- * @returns Configured tool instance
- */
 const createVerifyCommandTool = (vs: VerifyCommandState) => tool({
   name: 'verify_command',
   description: 'Run an exact verification command only when it appears in the whitelist.',
@@ -1362,11 +872,6 @@ const createVerifyCommandTool = (vs: VerifyCommandState) => tool({
   execute: (input, ctx) => executeVerifyCommand(input, ctx, vs),
 });
 
-/**
- * Creates the search_files tool.
- *
- * @returns Configured tool instance
- */
 const createSearchFilesTool = () => tool({
   name: 'search_files',
   description: 'Search file contents by regex pattern across the workspace.',
@@ -1377,11 +882,6 @@ const createSearchFilesTool = () => tool({
   execute: executeSearchFiles,
 });
 
-/**
- * Creates the find_files tool.
- *
- * @returns Configured tool instance
- */
 const createFindFilesTool = () => tool({
   name: 'find_files',
   description: 'Find files by glob pattern across the workspace.',
@@ -1389,12 +889,6 @@ const createFindFilesTool = () => tool({
   execute: executeFindFiles,
 });
 
-/**
- * Creates the edit_file tool.
- *
- * @param m - Shared mutable state
- * @returns Configured tool instance
- */
 const createEditFileTool = (m: ToolMutableState) => tool({
   name: 'edit_file',
   description: 'Replace a unique string in a file. old_string must appear exactly once.',
@@ -1402,20 +896,6 @@ const createEditFileTool = (m: ToolMutableState) => tool({
   execute: (input, ctx) => executeEditFile(input, ctx, m),
 });
 
-/**
- * Processes events from a streamed run segment.
- *
- * @param run - Active streamed run
- * @param loop - Mutable loop state
- * @returns Number of events processed
- */
-/**
- * Processes a single stream event: accumulates usage and logs progress.
- *
- * @param event - Stream event
- * @param run - Active streamed run
- * @param loop - Mutable loop state
- */
 const processStreamEvent = (event: unknown, run: OaiStreamedRun, loop: StreamLoopState): void => {
   const usage = extractUsageFromEvent(event);
   if (usage) {
@@ -1436,14 +916,6 @@ const drainStreamEvents = async (run: OaiStreamedRun, loop: StreamLoopState): Pr
   }
 };
 
-/**
- * Resumes a streamed run after a rate-limit error.
- *
- * @param error - The rate-limit error
- * @param run - The run that errored
- * @param config - Stream config
- * @returns New streamed run
- */
 const resumeAfterRateLimit = async (
   error: unknown,
   run: OaiStreamedRun,
@@ -1456,34 +928,11 @@ const resumeAfterRateLimit = async (
   });
 };
 
-/**
- * Throws a formatted error for non-recoverable agent failures.
- *
- * @param cls - Classified error
- * @param label - Pass label for the message
- */
 const throwAgentError = (cls: AgentClassification, label: string): never => {
   console.log(chalk.red(`  [openai-agent] ${label}${cls.label}: ${cls.detail}`));
   throw new AiProviderError(`OpenAI agent run failed (${cls.label}): ${cls.detail}`);
 };
 
-/**
- * Handles a stream error with rate-limit retry logic.
- *
- * @param error - The error thrown
- * @param current - Current streamed run
- * @param config - Stream config
- * @param loop - Mutable loop state
- * @param label - Pass label
- * @returns Resumed streamed run
- */
-/**
- * Validates that the error is a recoverable rate-limit and we haven't exhausted retries.
- *
- * @param cls - Classified error
- * @param loop - Loop state with attempt counter
- * @param label - Pass label
- */
 const guardRateLimitRetry = (cls: AgentClassification, loop: StreamLoopState, label: string): void => {
   if (!cls.recoverable || cls.label !== 'Rate limited') throwAgentError(cls, label);
   if (loop.eventsInSegment > 0) loop.consecutiveRateLimitAttempts = 0;
@@ -1502,15 +951,6 @@ const handleStreamRateLimitError = async (
   return resumeAfterRateLimit(error, current, config);
 };
 
-/**
- * Runs the stream loop with rate-limit retry logic.
- *
- * @param run - Initial streamed run
- * @param config - Runner configuration
- * @param loop - Mutable tracking state
- * @param label - Pass label
- * @returns Final streamed run
- */
 const runStreamWithRetry = async (
   run: OaiStreamedRun, config: StreamRunConfig, loop: StreamLoopState, label: string
 ): Promise<OaiStreamedRun> => {
@@ -1526,12 +966,6 @@ const runStreamWithRetry = async (
   }
 };
 
-/**
- * Checks a completed run for errors and throws if present.
- *
- * @param run - Completed streamed run
- * @param label - Pass label
- */
 const throwOnRunError = (
   run: OaiStreamedRun,
   label: string
@@ -1540,12 +974,6 @@ const throwOnRunError = (
   throwAgentError(classifyAgentError(run.error), label);
 };
 
-/**
- * Logs token usage and estimated cost.
- *
- * @param summary - Accumulated usage
- * @param model - Model identifier
- */
 const logUsageSummary = (summary: OpenAiUsageSummary, model: string): void => {
   if (summary.totalTokens <= 0) return;
   const cached = summary.cachedInputTokens > 0 ? ` (${summary.cachedInputTokens} cached)` : '';
@@ -1554,11 +982,6 @@ const logUsageSummary = (summary: OpenAiUsageSummary, model: string): void => {
   if (cost !== null) console.log(chalk.cyan(`  [openai-agent] Cost: ~$${cost.toFixed(4)} USD`));
 };
 
-/**
- * Logs the final agent output summary.
- *
- * @param finalOutput - Agent's final text output
- */
 const logFinalOutput = (finalOutput: string): void => {
   if (!finalOutput) return;
   console.log(chalk.bold('\n  Summary:'));
@@ -1567,13 +990,6 @@ const logFinalOutput = (finalOutput: string): void => {
   }
 };
 
-/**
- * Logs the completion summary after the agent run.
- *
- * @param run - Completed streamed run
- * @param summary - Usage statistics
- * @param model - Model identifier
- */
 const logCompletion = (
   run: OaiStreamedRun,
   summary: OpenAiUsageSummary,
@@ -1586,15 +1002,6 @@ const logCompletion = (
   logFinalOutput(typeof run.finalOutput === 'string' ? run.finalOutput.trim() : '');
 };
 
-/**
- * Computes the current incomplete workload.
- *
- * @param fileChangeStatus - Changed files map
- * @param repoFiles - All planned repo files
- * @param repoName - Repository name
- * @param failures - Validation failures
- * @returns Workload metrics
- */
 const computeWorkload = (
   fileChangeStatus: Map<string, string>, repoFiles: string[], repoName: string, failures: ValidationFailure[]
 ): { total: number; unvisited: string[]; failureCount: number } => {
@@ -1604,12 +1011,6 @@ const computeWorkload = (
   return { total: unvisited.length + failureCount, unvisited, failureCount };
 };
 
-/**
- * Deduplicates validation failures by path:error key.
- *
- * @param failures - Array of validation failures
- * @returns Deduplicated failures as formatted lines
- */
 const formatUniqueFailures = (failures: ValidationFailure[]): string => {
   const unique = new Map<string, ValidationFailure>();
   for (const f of failures) {
@@ -1622,14 +1023,6 @@ const formatUniqueFailures = (failures: ValidationFailure[]): string => {
   }).join('\n');
 };
 
-/**
- * Builds the incomplete-work sections for a continuation prompt.
- *
- * @param unvisited - Unvisited files
- * @param failureCount - Unique failure count
- * @param failures - Validation failures
- * @returns Array of section strings
- */
 const buildIncompleteWorkSections = (
   unvisited: string[], failureCount: number, failures: ValidationFailure[]
 ): string[] => {
@@ -1652,12 +1045,6 @@ type OaiContinuationPromptParams = {
   taskBriefParams: BuildPlanContextParams;
 };
 
-/**
- * Builds an enriched continuation prompt with progress summary, goal, plan steps, and unvisited files.
- *
- * @param p - Continuation prompt parameters
- * @returns Continuation prompt string
- */
 const buildContinuationPrompt = (p: OaiContinuationPromptParams): string => {
   const completed = p.totalPlanned - p.unvisited.length;
   const sections = buildIncompleteWorkSections(p.unvisited, p.failureCount, p.failures);
@@ -1669,22 +1056,9 @@ const buildContinuationPrompt = (p: OaiContinuationPromptParams): string => {
   ].join('\n');
 };
 
-/**
- * Compute the dynamic stall threshold from the concrete (non-glob) file count.
- *
- * @param concreteFileCount - Number of non-glob planned files
- * @param configOverride - Optional override from stage config
- * @returns Stall threshold (minimum DEFAULT_STALL_THRESHOLD)
- */
 const computeStallThreshold = (concreteFileCount: number, configOverride?: number): number =>
   configOverride ?? Math.max(DEFAULT_STALL_THRESHOLD, Math.ceil(concreteFileCount / 5));
 
-/**
- * Logs a stalled workload warning.
- *
- * @param unvisited - Unvisited files
- * @param failureCount - Failure count
- */
 const logStalledWorkload = (unvisited: string[], failureCount: number, threshold: number): void => {
   const parts: string[] = [];
   if (failureCount > 0) parts.push(`${failureCount} unresolved edit validation failure(s)`);
@@ -1693,12 +1067,6 @@ const logStalledWorkload = (unvisited: string[], failureCount: number, threshold
   console.log(chalk.yellow(`  [openai-agent] Remaining: ${parts.join('; ')}`));
 };
 
-/**
- * Appends a user message to the run state.
- *
- * @param state - RunState with _generatedItems
- * @param prompt - Continuation prompt text
- */
 const appendContinuationMessage = (state: unknown, prompt: string): void => {
   const s = state as Record<string, unknown> | undefined;
   if (!s?._generatedItems) return;
@@ -1707,14 +1075,6 @@ const appendContinuationMessage = (state: unknown, prompt: string): void => {
   });
 };
 
-/**
- * Starts a resumed agent run with the continuation state.
- *
- * @param state - Run state or fallback prompt
- * @param prompt - Continuation prompt (fallback)
- * @param config - Stream config
- * @returns New streamed run
- */
 const startContinuationRun = async (
   state: unknown,
   prompt: string,
@@ -1726,16 +1086,6 @@ const startContinuationRun = async (
     { stream: true, context: config.context, maxTurns: config.maxTurns, session: config.compaction }
   );
 
-/**
- * Runs a single continuation pass.
- *
- * @param passNumber - Pass number
- * @param currentRun - Current streamed run
- * @param prompt - Continuation prompt
- * @param config - Stream config
- * @param loop - Mutable loop state
- * @returns Updated streamed run
- */
 const logOaiIdleDiagnostic = (run: OaiStreamedRun, passNumber: number): void => {
   if (run.currentTurn > 1) return;
   const text = typeof run.finalOutput === 'string' ? run.finalOutput.slice(0, 200) : '';
@@ -1756,13 +1106,6 @@ const runContinuationPass = async (
   return run;
 };
 
-/**
- * Logs the start of a continuation pass.
- *
- * @param passNumber - Pass number
- * @param unvisited - Unvisited files
- * @param failureCount - Failure count
- */
 const logPassStart = (passNumber: number, unvisited: string[], failureCount: number): void => {
   const reasons: string[] = [];
   if (failureCount > 0) reasons.push(`${failureCount} edit validation failure(s)`);
@@ -1770,14 +1113,6 @@ const logPassStart = (passNumber: number, unvisited: string[], failureCount: num
   console.log(chalk.yellow(`\n  [openai-agent] Pass ${passNumber}: ${reasons.join(', ')} — continuing`));
 };
 
-/**
- * Evaluates stall progress and updates counters.
- *
- * @param total - Current workload total
- * @param previous - Previous workload total
- * @param stalled - Current stalled pass count
- * @returns Updated stalled count
- */
 const updateStallCounter = (total: number, previous: number, stalled: number): number =>
   total < previous ? 0 : stalled + 1;
 
@@ -1802,14 +1137,6 @@ type ContinuationState = {
   threshold: number;
 };
 
-/**
- * Evaluates whether the continuation loop should stop.
- * Idle passes (currentTurn <= 1) do not consume stall budget.
- *
- * @param wl - Workload metrics
- * @param state - Mutable continuation state
- * @returns True if the loop should break
- */
 const handleOaiIdlePass = (state: ContinuationState): boolean => {
   state.idleCount++;
   if (state.idleCount < MAX_CONSECUTIVE_IDLE_PASSES) return false;
@@ -1836,11 +1163,6 @@ const shouldStopContinuation = (
   return isIdle ? handleOaiIdlePass(state) : handleOaiActivePass(wl, state);
 };
 
-/**
- * Runs the incomplete-work continuation loop.
- *
- * @param p - All state needed for continuation
- */
 const hasReachedOaiHardCap = (passNum: number): boolean => {
   if (passNum < MAX_CONTINUATION_PASSES) return false;
   console.log(chalk.yellow(`\n  [openai-agent] Reached hard cap of ${MAX_CONTINUATION_PASSES} continuation passes — stopping`));
@@ -1873,29 +1195,9 @@ const runContinuationLoop = async (p: ContinuationLoopParams): Promise<void> => 
   }
 };
 
-/**
- * Collects file paths by status.
- *
- * @param map - File change status map
- * @param status - Desired status
- * @returns Sorted list of paths
- */
 const collectSummaryPaths = (map: Map<string, string>, status: string): string[] =>
   [...map.entries()].filter(([, s]) => s === status).map(([p]) => p).sort((a, b) => a.localeCompare(b));
 
-/**
- * Logs the file change summary.
- *
- * @param status - File change status map
- * @param scripts - Verification scripts
- * @param allowed - Allowed verification commands
- */
-/**
- * Builds all file summary lines from the change status map.
- *
- * @param status - File change status map
- * @returns Array of formatted summary lines
- */
 const buildFileSummaryLines = (status: Map<string, string>): string[] => [
   ...formatSummarySection('New files', collectSummaryPaths(status, 'created'), 'created'),
   ...formatSummarySection('Updated files', collectSummaryPaths(status, 'updated'), 'updated'),
@@ -1915,24 +1217,11 @@ const logFileSummary = (status: Map<string, string>, scripts: VerificationScript
   }
 };
 
-/**
- * Builds the prior-stage preamble if available.
- *
- * @param summary - Prior stage summary, or undefined
- * @returns Preamble string or empty string
- */
 const buildPriorStagePreamble = (summary?: string): string =>
   summary
     ? `<prior-stage-context>\n${summary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
     : '';
 
-/**
- * Builds the initial user prompt containing the full task brief and action instruction.
- *
- * @param taskBriefParams - Plan context parameters used to render the task brief
- * @param contextMd - Optional AGENTS.md content
- * @returns Prompt string
- */
 const buildInitialPrompt = (taskBriefParams: BuildPlanContextParams, contextMd: string | null): string =>
   [
     contextMd ? contextMd.trimEnd() : '',
@@ -1940,49 +1229,21 @@ const buildInitialPrompt = (taskBriefParams: BuildPlanContextParams, contextMd: 
     'Implement ALL plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. Output text only as the final summary after all work is done.',
   ].filter(Boolean).join('\n\n');
 
-/**
- * Determines the compaction item threshold based on plan size.
- *
- * @param stepCount - Number of plan steps
- * @returns Compaction threshold
- */
 const resolveCompactionThreshold = (stepCount: number): number => {
   if (stepCount <= 5) return 10;
   if (stepCount <= 10) return 20;
   return 30;
 };
 
-/**
- * Builds a system prompt from GenerateAndVerifyParams.
- *
- * @param p - Core params
- * @param repoDir - Primary repo directory
- * @returns System prompt string
- */
 const buildSystemPromptFromParams = (p: GenerateAndVerifyParams, repoDir: string): string =>
   buildSystemPrompt({ repoDir, conventionsSection: p.conventionsSection });
 
-/**
- * Creates all seven agent tools.
- *
- * @param mutable - Shared mutable state
- * @param vs - Verification state
- * @returns Array of tool instances
- */
 const createAllTools = (mutable: ToolMutableState, vs: VerifyCommandState) => [
   createReadFileTool(), createWriteFileTool(mutable), createEditFileTool(mutable),
   createDeleteFileTool(mutable), createSearchFilesTool(), createFindFilesTool(),
   createVerifyCommandTool(vs),
 ];
 
-/**
- * Resolves model routing configuration.
- *
- * @param configService - NestJS config service
- * @param modelRouting - Routing override
- * @param plan
- * @returns Resolved model name and log message
- */
 const resolveModel = (
   configService: ConfigService, modelRouting: string | undefined, plan?: ResolutionPlan
 ): { model: string; logMessage: string } => {
@@ -1999,26 +1260,12 @@ const resolveModel = (
   return { model: result.model, logMessage: result.logMessage };
 };
 
-/**
- * Initializes the OpenAI client and provider.
- *
- * @param apiKey - OpenAI API key
- * @returns Client and provider
- */
 const initOpenAiClient = (apiKey: string): { client: OpenAI; provider: OpenAIProvider } => {
   setTracingExportApiKey(apiKey);
   const client = new OpenAI({ apiKey });
   return { client, provider: new OpenAIProvider({ openAIClient: client }) };
 };
 
-/**
- * Builds an OpenAI agent instance.
- *
- * @param model - Model identifier
- * @param instructions - Agent instructions
- * @param tools - Array of tools
- * @returns Configured Agent instance
- */
 const buildAgent = (
   model: string,
   instructions: string,
@@ -2030,15 +1277,6 @@ const buildAgent = (
     instructions, model, tools, toolUseBehavior: 'run_llm_again', resetToolChoice: true,
   });
 
-/**
- * Creates a compaction session with plan-size-aware thresholds.
- *
- * @param client - OpenAI client
- * @param model - Model identifier
- * @param stepCount - Plan step count
- * @param loop - Stream loop state (for lastObservedInputTokens)
- * @returns Configured compaction session
- */
 const buildCompactionSession = (
   client: OpenAI, model: string, stepCount: number, loop: StreamLoopState
 ): OpenAIResponsesCompactionSession => {
@@ -2050,11 +1288,6 @@ const buildCompactionSession = (
   });
 };
 
-/**
- * OpenAI Agents SDK-backed implementer backend.
- * The SDK drives the edit loop while this adapter owns the filesystem
- * and verification boundaries.
- */
 const buildOaiTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: string): BuildPlanContextParams => ({
   ticketKey: params.ticket.ticketKey, repoDir, repoName: params.repoName,
   repoFiles: params.repoFiles, trackedFilePaths: params.trackedFilePaths,
@@ -2067,12 +1300,6 @@ const buildOaiTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: strin
 export class OpenAIAgentAdapter implements ImplementerBackend {
   constructor(private readonly configService: ConfigService) {}
 
-  /**
-   * Generates code changes and verifies them using a host-controlled tool set.
-   *
-   * @param params - Implementation inputs, repository context, and verification whitelist
-   * @returns Session result
-   */
   async generateAndVerify(
     params: GenerateAndVerifyParams & { options: ImplementerOptions }
   ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
@@ -2081,13 +1308,6 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     return this.executeAgentRun(params, c);
   }
 
-  /**
-   * Executes the agent run and continuation loop.
-   *
-   * @param c - Run components
-   * @param verificationScripts
-   * @returns Session result
-   */
   private buildRunResult(
     c: Awaited<ReturnType<OpenAIAgentAdapter['buildRunComponents']>>,
     verificationScripts: VerificationScript[],
@@ -2113,12 +1333,6 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     return this.buildRunResult(c, params.verificationScripts);
   }
 
-  /**
-   * Starts the initial agent run.
-   *
-   * @param c - Run components
-   * @returns Streamed run result
-   */
   private startInitialRun(
     c: { agent: OaiAgent; prompt: string; config: StreamRunConfig; context: OpenAiImplementerContext }
   ) {
@@ -2127,13 +1341,6 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     });
   }
 
-  /**
-   * Initializes provider, client, and model routing.
-   *
-   * @param options - Implementer options
-   * @param plan
-   * @returns Provider components
-   */
   private initProvider(options: ImplementerOptions, plan?: ResolutionPlan) {
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
     if (!apiKey) throw new ConfigurationError('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
@@ -2143,12 +1350,6 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     return { apiKey, client, provider, model };
   }
 
-  /**
-   * Creates the mutable state and verification context.
-   *
-   * @param scripts - Verification scripts
-   * @returns Mutable state and verification state
-   */
   private initMutableState(scripts: VerificationScript[]) {
     const mutable: ToolMutableState = {
       fileChangeStatus: new Map(), changedFilesSinceLastVerification: new Set(), validationFailures: [],
@@ -2161,14 +1362,6 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     return { mutable, vs };
   }
 
-  /**
-   * Builds all components needed for an agent run.
-   *
-   * @param params - Full generateAndVerify params
-   * @param repoDir - Primary repo directory
-   * @param options - Implementer options
-   * @returns All run components
-   */
   private async buildRunComponents(params: GenerateAndVerifyParams, repoDir: string, options: ImplementerOptions) {
     const { client, provider, model } = this.initProvider(options, params.planArtifact.plan);
     const { mutable, vs } = this.initMutableState(params.verificationScripts);
@@ -2181,14 +1374,6 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     return { model, config, loop, mutable, vs, agent, prompt, context };
   }
 
-  /**
-   * Builds the implementer context.
-   *
-   * @param repoDir - Primary repo directory
-   * @param additionalDirs - Additional read-only directories
-   * @param scripts - Verification scripts
-   * @returns Implementer context
-   */
   private buildContext(
     repoDir: string, additionalDirs: string[], scripts: VerificationScript[]
   ): OpenAiImplementerContext {
@@ -2198,17 +1383,6 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     };
   }
 
-  /**
-   * Builds the agent instance and user prompt.
-   *
-   * @param params - Core params
-   * @param repoDir - Primary repo directory
-   * @param model - Model identifier
-   * @param mutable - Shared mutable state
-   * @param vs - Verification state
-   * @param options - Implementer options
-   * @returns Agent and prompt
-   */
   private async buildAgentAndPrompt(
     params: GenerateAndVerifyParams, repoDir: string, model: string,
     mutable: ToolMutableState, vs: VerifyCommandState, options: ImplementerOptions
@@ -2221,19 +1395,6 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     return { agent, prompt };
   }
 
-  /**
-   * Creates the agent with tools and system prompt.
-   * When skillNames are provided, SKILL.md content is loaded from disk and
-   * appended to the system prompt since the OpenAI Agent SDK has no native Skill tool.
-   *
-   * @param params - Core params
-   * @param repoDir - Primary repo directory
-   * @param model - Model identifier
-   * @param mutable - Shared mutable state
-   * @param vs - Verification state
-   * @param options - Implementer options
-   * @returns Configured agent
-   */
   private async createAgent(
     params: GenerateAndVerifyParams, repoDir: string, model: string,
     mutable: ToolMutableState, vs: VerifyCommandState, options: ImplementerOptions
@@ -2250,12 +1411,6 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     return buildAgent(model, `${preamble}${sysPrompt}${skillFragment}`, tools);
   }
 
-  /**
-   * Builds the initial stream loop state.
-   *
-   * @param mutable - Shared mutable state
-   * @returns Loop state
-   */
   private buildLoopState(mutable: ToolMutableState): StreamLoopState {
     return {
       usageSummary: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, compacted: false },

@@ -5,15 +5,8 @@ import { FormatConverter } from '../format-converter.interface';
 import { UniversalTicket } from '../../dto/universal-ticket.dto';
 import { WorkflowParseError } from '../../../shared/utils/errors';
 
-/**
- * JSON format converter for UniversalTicket
- * Handles parsing and serialization of tickets in JSON format
- */
 @Injectable()
 export class JsonConverter implements FormatConverter {
-  /**
-   * Parse JSON content into a UniversalTicket
-   */
   parse(content: string): UniversalTicket {
     try {
       const parsed = JSON.parse(content);
@@ -28,9 +21,6 @@ export class JsonConverter implements FormatConverter {
     }
   }
 
-  /**
-   * Throw when a parsed ticket fails class-validator validation
-   */
   private assertValid(ticket: UniversalTicket): void {
     const errors = validateSync(ticket);
     if (errors.length > 0) {
@@ -39,12 +29,8 @@ export class JsonConverter implements FormatConverter {
     }
   }
 
-  /**
-   * Serialize a UniversalTicket into JSON format
-   */
   serialize(ticket: UniversalTicket): string {
     try {
-      // Convert to plain object and remove undefined values
       const plain = this.toPlainObject(ticket);
       return JSON.stringify(plain, null, 2);
     } catch (error) {
@@ -52,16 +38,10 @@ export class JsonConverter implements FormatConverter {
     }
   }
 
-  /**
-   * Get the format name
-   */
   getFormatName(): string {
     return 'json';
   }
 
-  /**
-   * Validate if content is valid JSON
-   */
   validate(content: string): boolean {
     try {
       JSON.parse(content);
@@ -71,16 +51,10 @@ export class JsonConverter implements FormatConverter {
     }
   }
 
-  /**
-   * Get the file extension
-   */
   getFileExtension(): string {
     return '.json';
   }
 
-  /**
-   * Convert UniversalTicket to plain object, removing undefined values
-   */
   private toPlainObject(ticket: UniversalTicket): Record<string, any> {
     const plain: Record<string, any> = {};
 

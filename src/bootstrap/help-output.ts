@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import chalk from 'chalk';
 import { formatCliCommandTokens } from '../shared/utils/cli-command-colors';
 import { CommandHelpEntry, CommandHelpExample, CommandHelpOption } from './help-catalog-parser';
@@ -10,7 +10,7 @@ const HELP_FLAG_PATTERN = /^--help$|^-h$/;
 const MAX_HELP_WIDTH = 80;
 const OPTION_FLAGS_COLUMN_WIDTH = 28;
 const OPTION_DESCRIPTION_COLUMN = 2 + OPTION_FLAGS_COLUMN_WIDTH + 2;
-const ANSI_ESCAPE = String.fromCharCode(27);
+const ANSI_ESCAPE = String.fromCodePoint(27);
 const ANSI_PATTERN = new RegExp(`${ANSI_ESCAPE}\\[[0-9;]*m`, 'g');
 const MOCK_STYLE_TAG_PATTERN = /<\/?(?:cyan|yellow|green|gray|bold-cyan)>/g;
 

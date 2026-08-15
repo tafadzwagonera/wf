@@ -67,13 +67,6 @@ interface ClassifyVerificationFailureParams {
   stderr: string;
 }
 
-/**
- * Classify a verification failure using command identity and deterministic
- * output patterns.
- *
- * @param params - Verification command and captured output
- * @returns A structured classification for retry scope and observability
- */
 export const classifyVerificationFailure = (
   params: ClassifyVerificationFailureParams
 ): VerificationFailureClassification => {
@@ -89,22 +82,9 @@ export const classifyVerificationFailure = (
   };
 };
 
-/**
- * Convert backend-selection details into a single terminal line.
- *
- * @param selection - Backend selection state
- * @returns Human-readable backend selection summary
- */
 export const formatBackendSelection = (selection: ImplementBackendSelection): string =>
   `Implement backend: ${selection.selected} (provider: ${selection.provider})`;
 
-/**
- * Append a verification attempt to the persisted run file.
- *
- * @param filePath - Absolute path of the persisted run file
- * @param attempt - Structured attempt summary to append
- * @returns The updated run file contents
- */
 export const appendImplementVerificationAttempt = (
   filePath: string,
   attempt: VerificationAttemptArtifact
@@ -119,13 +99,6 @@ export const appendImplementVerificationAttempt = (
   return updated;
 };
 
-/**
- * Write a fresh verification run file.
- *
- * @param filePath - Absolute path of the persisted run file
- * @param run - Run metadata to persist
- * @returns The persisted run file contents
- */
 export const writeImplementVerificationRunFile = (
   filePath: string,
   run: ImplementRunArtifact
@@ -139,12 +112,6 @@ export const writeImplementVerificationRunFile = (
   return payload;
 };
 
-/**
- * Read the existing verification run file or create an empty container.
- *
- * @param filePath - Absolute path of the persisted run file
- * @returns The existing or default run file contents
- */
 export const readImplementVerificationRunFile = (filePath: string): ImplementVerificationRunFile => {
   if (!fs.existsSync(filePath)) {
     throw new ValidationError(`Verification run file not found: ${filePath}`);
@@ -161,21 +128,9 @@ export const readImplementVerificationRunFile = (filePath: string): ImplementVer
   };
 };
 
-/**
- * Build a stable command-to-index lookup for the configured verification scripts.
- *
- * @param verificationScripts - Ordered verification scripts from the plan
- * @returns Map from exact command string to its verification index
- */
 export const buildVerificationCommandOrder = (verificationScripts: Array<{ command: string }>): Map<string, number> =>
   new Map(verificationScripts.map((script, index) => [script.command.trim(), index]));
 
-/**
- * Build a progress signal for file mutations before the next verification run.
- *
- * @param mutation - The file mutation details since the last verification
- * @returns A heuristic progress signal that favors continuing the current pass
- */
 export const buildMutationProgressSignal = (mutation: ImplementProgressMutation): ImplementProgressSignal => {
   const changedFileCount = mutation.changedFilesSinceLastVerification.length;
 
@@ -289,12 +244,6 @@ const PROGRESS_NEXT_ACTIONS: Record<ImplementProgressVerdict, string> = {
   regress: 'Inspect the latest verification failure before broadening scope.',
 };
 
-/**
- * Build a progress signal from a verification command result.
- *
- * @param params - Latest verification result plus previous state
- * @returns A bounded heuristic signal that favors convergence when failures shrink
- */
 export const buildVerificationProgressSignal = (params: ProgressSignalParams): ImplementProgressSignal => {
   if (params.currentSnapshot.exitCode === 0) return VERIFICATION_COMPLETE_SIGNAL;
 
@@ -309,13 +258,6 @@ export const buildVerificationProgressSignal = (params: ProgressSignalParams): I
   };
 };
 
-/**
- * Count non-empty diagnostic lines from stdout and stderr.
- *
- * @param stdout - Verification stdout
- * @param stderr - Verification stderr
- * @returns Count of non-empty diagnostic lines
- */
 export const countDiagnosticLines = (stdout?: string, stderr?: string): number => {
   const diagnosticText = [stdout, stderr].filter(Boolean).join('\n');
   if (!diagnosticText.trim()) {
@@ -338,13 +280,6 @@ const ERROR_CLASS_PATTERNS: Array<[string, RegExp]> = [
   ['test', /fail\s|expected:|received:|expect\(|assertion/],
 ];
 
-/**
- * Extract coarse error classes from verification output.
- *
- * @param stdout - Verification stdout
- * @param stderr - Verification stderr
- * @returns Set of detected error classes
- */
 export const extractVerificationErrorClasses = (stdout?: string, stderr?: string): Set<string> => {
   const diagnosticText = [stdout, stderr].filter(Boolean).join('\n').toLowerCase();
   const errorClasses = new Set(
@@ -371,23 +306,11 @@ const buildToolProgressSignal = (event: ImplementProgressStreamEvent): Implement
   return { score: 3, verdict: 'continue', reasons, nextAction: 'Continue the current pass and verify once the edit settles.' };
 };
 
-/**
- * Build a progress signal from a streamed SDK event.
- *
- * @param event - A task or tool progress event from an agent SDK
- * @returns A heuristic signal for terminal output and prompt feedback
- */
 export const buildStreamProgressSignal = (event: ImplementProgressStreamEvent): ImplementProgressSignal => {
   if (event.kind === 'task_progress') return buildTaskProgressSignal(event);
   return buildToolProgressSignal(event);
 };
 
-/**
- * Format a progress signal for compact terminal output.
- *
- * @param signal - The progress signal to render
- * @returns A short human-readable summary line
- */
 export const formatImplementProgressSignal = (signal: ImplementProgressSignal): string => {
   const reasons = signal.reasons.join('; ');
   return `progress: ${signal.verdict} (score ${signal.score})${reasons ? ` · ${reasons}` : ''}`;

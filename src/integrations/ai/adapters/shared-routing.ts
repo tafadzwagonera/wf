@@ -13,7 +13,7 @@ import type { z } from 'zod';
 export type PlanPhase = z.infer<typeof planPhaseSchema>;
 import type { VerificationScript, ModelRouting } from '../../../agents/interfaces';
 import type { BuildTaskBriefParams, BuildPlanContextParams } from '../../../shared/types/agent.types';
-export type { BuildTaskBriefParams, BuildPlanContextParams };
+export type { BuildTaskBriefParams, BuildPlanContextParams } from '../../../shared/types/agent.types';
 
 const execAsync = promisify(exec);
 
@@ -51,33 +51,14 @@ const CREATIVE_SEMANTIC_PATTERNS = [
   /refactor|restructure/i,
 ];
 
-/**
- * Counts how many steps match at least one pattern in the given list.
- *
- * @param steps - Plan steps to test
- * @param patterns - Regular expressions to test against each step
- * @returns Number of steps that matched at least one pattern
- */
 const countPatternMatches = (steps: string[], patterns: RegExp[]): number =>
   steps.filter(step => patterns.some(pattern => pattern.test(step))).length;
 
-/**
- * Counts semantic signal matches in plan steps.
- *
- * @param steps - Plan steps to analyze
- * @returns Object with mechanical and creative signal counts
- */
 const countSemanticSignals = (steps: string[]): { mechanical: number; creative: number } => ({
   mechanical: countPatternMatches(steps, MECHANICAL_SEMANTIC_PATTERNS),
   creative: countPatternMatches(steps, CREATIVE_SEMANTIC_PATTERNS),
 });
 
-/**
- * Returns the first keyword pattern that matches any plan step, or null.
- *
- * @param steps - Plan steps to test
- * @returns The matched RegExp, or null when no keyword pattern matches
- */
 const matchMechanicalKeyword = (steps: string[]): RegExp | null => {
   for (const step of steps) {
     const matched = MECHANICAL_KEYWORD_PATTERNS.find(pattern => pattern.test(step));
@@ -88,12 +69,6 @@ const matchMechanicalKeyword = (steps: string[]): RegExp | null => {
   return null;
 };
 
-/**
- * Detects whether a plan describes a mechanical (repetitive, pattern-based) task.
- *
- * @param plan - The resolution plan to evaluate
- * @returns True when the plan appears mechanical, with a human-readable reason
- */
 export const detectMechanicalTask = (plan: ResolutionPlan): { isMechanical: boolean; reason: string } => {
   const filesCount = plan.affectedFiles?.length ?? 0;
   const stepsCount = plan.steps.length;
@@ -116,14 +91,6 @@ export type ModelRoutingResult = {
   logMessage: string;
 };
 
-/**
- * Resolves the default and mechanical model names from config, with fallbacks.
- *
- * @param configService - NestJS config service instance
- * @param fallbackDefaultModel - Fallback when no config default is set
- * @param defaultMechanicalModel - Fallback when no config mechanical model is set
- * @returns Resolved default and mechanical model names
- */
 const MODEL_CONFIG_EXCLUSIVE_ERROR
   = 'stages.implement.model and stages.implement.models are mutually exclusive.\n'
     + '  Use stages.implement.model for a single model, or\n'
@@ -144,15 +111,6 @@ const resolveModelConfig = (
   };
 };
 
-/**
- * Builds a ModelRoutingResult from a resolved model, default model, adapter label, and suffix.
- *
- * @param model - The selected model identifier
- * @param defaultModel - The resolved default model identifier
- * @param adapterLabel - Label used in log messages
- * @param suffix - Descriptive routing suffix appended to the log message
- * @returns Fully formed routing result with log message
- */
 const buildRoutingResult = (
   model: string,
   defaultModel: string,
@@ -173,12 +131,6 @@ export type ModelRoutingParams = {
   adapterLabel: string;
 };
 
-/**
- * Resolves the model to use based on routing mode, config, and mechanical detection.
- *
- * @param params - Routing context including the adapter label for log messages
- * @returns Selected model and an observability log message
- */
 export const resolveModelRouting = (params: ModelRoutingParams): ModelRoutingResult => {
   const { routing, fallbackDefaultModel, defaultMechanicalModel, configService, plan, adapterLabel } = params;
   const { defaultModel, mechanicalModel }
@@ -191,15 +143,6 @@ export const resolveModelRouting = (params: ModelRoutingParams): ModelRoutingRes
   return buildRoutingResult(autoModel, defaultModel, adapterLabel, autoLabel);
 };
 
-/**
- * Resolves the model configured for a specific provider from the ai.providers array.
- * Falls back to the provided default when the provider is not found or has no model.
- *
- * @param configService - NestJS config service
- * @param providerName - Provider name to look up (e.g. 'anthropic', 'openai')
- * @param fallback - Default model when lookup fails
- * @returns The provider's configured model or the fallback
- */
 export const resolveProviderModel = (
   configService: ConfigService, providerName: string, fallback: string,
 ): string => {
@@ -207,30 +150,11 @@ export const resolveProviderModel = (
   return providers.find(p => p.provider === providerName)?.model ?? fallback;
 };
 
-/**
- * Normalizes a command value to a trimmed string.
- *
- * @param command - The raw command value
- * @returns Trimmed command string, or empty string for non-string input
- */
 export const normalizeCommand = (command: unknown): string => (typeof command === 'string' ? command.trim() : '');
 
-/**
- * Builds a set of allowed verification commands from the scripts config.
- *
- * @param verificationScripts - Verification script definitions
- * @returns Set of trimmed, non-empty command strings
- */
 export const buildAllowedCommands = (verificationScripts: VerificationScript[]): Set<string> =>
   new Set(verificationScripts.map(script => script.command.trim()).filter(command => command.length > 0));
 
-/**
- * Formats a list of repo files with repo-name prefix stripping.
- *
- * @param repoFiles - File paths, possibly prefixed with repo name
- * @param repoName - The repo name prefix to strip
- * @returns Formatted file list string
- */
 export const formatRepoFileList = (repoFiles: string[], repoName: string): string => {
   if (repoFiles.length === 0) {
     return '  (none listed)';
@@ -245,13 +169,6 @@ export const formatRepoFileList = (repoFiles: string[], repoName: string): strin
     .join('\n');
 };
 
-/**
- * Strips the repo-name prefix from a file path.
- *
- * @param filePath - The file path, possibly prefixed with repo name
- * @param repoName - The repo name prefix to strip
- * @returns The file path without the repo prefix
- */
 export const stripRepoPrefix = (filePath: string, repoName: string): string => {
   if (repoName && filePath.startsWith(`${repoName}/`)) {
     return filePath.slice(repoName.length + 1);
@@ -269,21 +186,9 @@ export const stripRepoPrefix = (filePath: string, repoName: string): string => {
  */
 export const isGlobPattern = (filePath: string): boolean => filePath.includes('*') || filePath.includes('?');
 
-/**
- * Formats a numbered list of plan steps for prompt inclusion.
- *
- * @param steps - Plan step strings
- * @returns Formatted numbered list, or fallback when empty
- */
 const formatPlanStepList = (steps: string[]): string =>
   steps.length > 0 ? steps.map((step, i) => `  ${i + 1}. ${step}`).join('\n') : '  (none listed)';
 
-/**
- * Formats verification scripts as a numbered runbook for the AI to execute verbatim.
- *
- * @param scripts - Verification script definitions
- * @returns Formatted numbered runbook, or fallback when empty
- */
 const formatVerificationList = (scripts: VerificationScript[]): string => {
   if (scripts.length === 0) return '  (none configured)';
   const numbered = scripts
@@ -296,23 +201,11 @@ Do not modify, abbreviate, or pipe the commands — run each one verbatim using 
 If a command fails, fix the code and re-run that same command until it passes before moving to the next one.`;
 };
 
-/**
- * Formats risks as a block for inclusion in task briefs.
- *
- * @param planRisks - Optional list of risk strings from the plan artifact
- * @returns A numbered risks block, or empty string when none are present
- */
 export const formatRisksSection = (planRisks?: string[]): string =>
   planRisks && planRisks.length > 0
     ? '\n\nRisks and considerations:\n' + planRisks.map((r, i) => `  ${i + 1}. ${r}`).join('\n')
     : '';
 
-/**
- * Returns a human-readable description of the plan action type.
- *
- * @param planAction - The action type from the plan
- * @returns Sentence describing the action intent
- */
 const describeAction = (planAction: 'fix' | 'feature' | 'investigate' | undefined): string => {
   switch (planAction) {
     case 'fix':
@@ -333,12 +226,6 @@ export type ImplementerToolNames = {
   verify: string;
 };
 
-/**
- * Builds the tool-agnostic implementer rules section parameterised by adapter tool names.
- *
- * @param t - Adapter-specific tool name mapping
- * @returns Combined rules and workflow rules string
- */
 export const buildImplementerRulesSection = (t: ImplementerToolNames): string => `Rules:
 - Respond exclusively with tool calls — text without a tool call terminates the run. The only exception is the final summary (template below), output after all work and verification passes.
 - Use ${t.edit} for existing files and ${t.write} only for new files — writing a full file wastes context on unchanged lines.
@@ -437,13 +324,6 @@ ${formatVerificationList(params.verificationScripts)}${formatRisksSection(params
 export const buildPlanContext = (params: BuildPlanContextParams): string =>
   buildBehavioralContext(params.repoDir) + '\n\n' + buildTaskBrief(params);
 
-/**
- * Builds the initial user prompt that combines the task brief with a standard
- * action instruction. Used by the Anthropic Agent SDK and Claude CLI adapters.
- *
- * @param params - Task brief parameters
- * @returns Full initial user prompt string
- */
 export const buildInitialUserPrompt = (params: BuildTaskBriefParams): string =>
   [
     buildTaskBrief(params),
@@ -458,12 +338,6 @@ const readOptionalFile = async (filePath: string): Promise<string | null> => {
   }
 };
 
-/**
- * Loads CLAUDE.md context from global and repo-level paths.
- *
- * @param repoDir - Repository root directory
- * @returns Combined CLAUDE.md context string
- */
 export const loadClaudeContext = async (repoDir: string): Promise<string> => {
   const globalClaudePath = path.join(os.homedir(), '.claude', 'CLAUDE.md');
   const repoClaudePath = path.join(repoDir, 'CLAUDE.md');
@@ -479,12 +353,6 @@ export const loadClaudeContext = async (repoDir: string): Promise<string> => {
   ].filter(Boolean).join('\n\n');
 };
 
-/**
- * Splits output lines and adds each non-empty trimmed line into a set.
- *
- * @param lines - Raw newline-delimited output string
- * @param into - Target set to accumulate file paths
- */
 const addNonEmptyLines = (lines: string, into: Set<string>): void => {
   for (const line of lines.split('\n')) {
     const trimmed = line.trim();
@@ -492,14 +360,6 @@ const addNonEmptyLines = (lines: string, into: Set<string>): void => {
   }
 };
 
-/**
- * Discovers files changed on disk since the last commit using git.
- * Falls back to the provided set if git is unavailable.
- *
- * @param repoDir - Repository root directory
- * @param existing - Existing set of touched files to merge into
- * @returns Merged set of relative file paths
- */
 export const discoverChangedFiles = async (repoDir: string, existing: Set<string>): Promise<Set<string>> => {
   try {
     const { stdout } = await execAsync(

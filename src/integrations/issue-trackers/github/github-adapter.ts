@@ -12,11 +12,6 @@ import {
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { IssueTrackerConfigService } from '../issue-tracker-config.service';
 
-/**
- * Return the name string from a GitHub label, regardless of whether it is a plain string or an object.
- * @param label - A GitHub label value (string or object with a `name` property)
- * @returns The label name string
- */
 const getLabelName = (label: string | { name: string }): string =>
   typeof label === 'string' ? label : label.name;
 
@@ -41,12 +36,6 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     }
   }
 
-  /**
-   * Initialize the Octokit client, warning when the token is absent.
-   * @param token - GitHub personal access token
-   * @param hasPartialConfig - Whether any GitHub config key is set
-   * @returns Configured Octokit instance
-   */
   private initOctokit(token: string | undefined, hasPartialConfig: boolean): Octokit {
     if (!token) {
       if (this.issueTrackerConfig.isTrackerEnabled('github', hasPartialConfig)) {
@@ -70,18 +59,12 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     return { tracker: 'github', id: number.toString(), key: `${owner}/${repo}#${number}`, url: html_url };
   }
 
-  /**
-   * Get an issue from GitHub
-   */
   async getTicket(reference: string): Promise<UniversalTicket> {
     const { owner, repo, issueNumber } = this.parseReference(reference);
     const response = await this.octokit.issues.get({ owner, repo, issue_number: issueNumber });
     return this.mapGitHubIssueToUniversal(response.data, owner, repo);
   }
 
-  /**
-   * Update an issue on GitHub
-   */
   async updateTicket(reference: string, updates: Partial<UniversalTicket>): Promise<void> {
     const { owner, repo, issueNumber } = this.parseReference(reference);
     await this.octokit.issues.update({
@@ -92,9 +75,6 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     });
   }
 
-  /**
-   * Check if GitHub supports a feature
-   */
   supports(feature: IssueTrackerFeature): boolean {
     const supportedFeatures = [
       IssueTrackerFeature.CREATE_TICKET,
@@ -111,19 +91,10 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     return supportedFeatures.includes(feature);
   }
 
-  /**
-   * Get a platform name
-   */
   getTrackerName(): string {
     return 'github';
   }
 
-  /**
-   * Create a pull request on GitHub
-   *
-   * @param options - PR creation parameters
-   * @returns URL of the created pull request
-   */
   async createPullRequest(options: CreatePullRequestOptions): Promise<string> {
     const repoString = options.repo || this.configService.get<string>('github.defaultRepo') || '';
 
@@ -141,9 +112,6 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     return response.data.html_url;
   }
 
-  /**
-   * Get pull request diff from GitHub
-   */
   async getPullRequestDiff(url: string): Promise<string> {
     const { owner, repo, prNumber } = this.parsePullRequestUrl(url);
 
@@ -159,11 +127,6 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     return response.data as unknown as string;
   }
 
-  /**
-   * Post a comment on a GitHub pull request or issue.
-   * @param reference PR URL or issue reference
-   * @param body Markdown comment body
-   */
   async createComment(reference: string, body: string): Promise<void> {
     if (reference.includes('github.com') && reference.includes('/pull/')) {
       const { owner, repo, prNumber } = this.parsePullRequestUrl(reference);
@@ -174,12 +137,6 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     await this.octokit.issues.createComment({ owner, repo, issue_number: issueNumber, body });
   }
 
-  /**
-   * Find open pull requests whose title or branch contains the ticket key.
-   * @param ticketKey Ticket key to search for
-   * @param repoOverride Optional repo in "owner/repo" format; falls back to default
-   * @returns Matching PR URLs sorted by pull request number
-   */
   async findPullRequestsByTicketKey(ticketKey: string, repoOverride?: string): Promise<string[]> {
     const { owner, repo } = this.parseProjectOrDefault(repoOverride);
     const response = await this.octokit.search.issuesAndPullRequests({
@@ -194,9 +151,6 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     return [...pullRequestUrls].sort(sortByNumber);
   }
 
-  /**
-   * Search issues on GitHub
-   */
   async searchTickets(query: string): Promise<UniversalTicket[]> {
     const response = await this.octokit.search.issuesAndPullRequests({ q: query, per_page: 50 });
     return response.data.items.map(issue => {
@@ -234,9 +188,6 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     throw new ValidationError(`Invalid GitHub issue reference: ${reference}`);
   }
 
-  /**
-   * Parse pull request URL
-   */
   private parsePullRequestUrl(url: string): {
     owner: string;
     repo: string;
@@ -260,13 +211,6 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     return match ? Number.parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
   }
 
-  /**
-   * Map a raw GitHub issue object to a UniversalTicket.
-   * @param issue - Raw issue from the Octokit response
-   * @param owner - GitHub repository owner
-   * @param repo - GitHub repository name
-   * @returns Populated UniversalTicket
-   */
   private mapGitHubIssueToUniversal(issue: any, owner: string, repo: string): UniversalTicket {
     const project = `${owner}/${repo}`;
     return new UniversalTicket({
@@ -281,11 +225,6 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     });
   }
 
-  /**
-   * Build a GitHub issues.update body from partial UniversalTicket fields.
-   * @param updates - Partial ticket fields to apply
-   * @returns Object with only the defined update fields
-   */
   private buildGitHubUpdateBody(updates: Partial<UniversalTicket>): Record<string, unknown> {
     const body: Record<string, unknown> = {};
     if (updates.title) body.title = updates.title;
@@ -296,9 +235,6 @@ export class GitHubAdapter implements IssueTrackerAdapter {
     return body;
   }
 
-  /**
-   * Build a label array including type and priority
-   */
   private buildLabels(ticket: UniversalTicket): string[] {
     const labels = [...(ticket.labels || [])];
 

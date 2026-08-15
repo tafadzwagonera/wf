@@ -4,11 +4,6 @@ import type { SkillDefinition, SkillQualityRule, SkillStage } from './skill.type
 
 export const KNOWN_SKILLS = new Map<string, SkillDefinition>();
 
-/**
- * Register a skill definition. Throws if a skill with the same ID is already registered.
- *
- * @param skill - The skill definition to register
- */
 export const registerSkill = (skill: SkillDefinition): void => {
   if (KNOWN_SKILLS.has(skill.id)) {
     throw new ValidationError(`Skill "${skill.id}" is already registered.`, { skillId: skill.id });
@@ -40,16 +35,6 @@ const resolveUnknownSkillInteractively = async (id: string): Promise<SkillDefini
 
 type ResolveSkillsOpts = { interactive: boolean; stage?: SkillStage };
 
-/**
- * Resolve skill IDs to definitions. Unknown IDs are handled based on the interactive flag.
- * Interactive: prompts via inquirer to correct or skip unknown IDs.
- * Non-interactive: throws ConfigurationError listing the unknown ID and available skills.
- * When stage is provided, rejects skills that do not support the given stage.
- *
- * @param ids - Skill IDs declared in config
- * @param opts - Options with interactive flag and optional stage filter
- * @returns Resolved skill definitions
- */
 export const resolveSkills = async (ids: string[], opts: ResolveSkillsOpts): Promise<SkillDefinition[]> => {
   const resolved: SkillDefinition[] = [];
   for (const id of ids) {
@@ -66,11 +51,5 @@ export const resolveSkills = async (ids: string[], opts: ResolveSkillsOpts): Pro
   return resolved;
 };
 
-/**
- * Collect quality rules from skill definitions that provide them.
- *
- * @param skills - Resolved skill definitions
- * @returns Merged list of quality rules
- */
 export const collectQualityRules = (skills: SkillDefinition[]): SkillQualityRule[] =>
   skills.flatMap(skill => skill.getQualityRules?.() ?? []);

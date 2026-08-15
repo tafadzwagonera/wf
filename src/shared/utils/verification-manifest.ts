@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { verificationPolicySchema } from '../schemas/verification.schema';
 import { ValidationError } from '../errors/app.error';
 import type {
@@ -10,7 +10,13 @@ import type {
   PlanVerificationConfig,
 } from '../types/verification.types';
 
-export type { VerificationPolicy, VerificationStep, VerificationWaiver, VerificationManifest, PlanVerificationConfig };
+export type {
+  VerificationPolicy,
+  VerificationStep,
+  VerificationWaiver,
+  VerificationManifest,
+  PlanVerificationConfig,
+} from '../types/verification.types';
 
 const VALID_POLICIES = new Set<string>(verificationPolicySchema.options);
 
@@ -56,11 +62,6 @@ const normalizeWaiver = (value: unknown, filePath: string): VerificationWaiver =
 
 const KNOWN_SCRIPT_PATTERN = /(npm|yarn|pnpm|bun|deno)\s+(task\s+)?(build|lint|test|typecheck)\b/;
 
-/**
- * Extracts the canonical script name (e.g. "build", "test") from a command
- * that invokes a well-known package-manager script. Returns undefined for
- * commands that don't match the pattern.
- */
 const extractCanonicalScript = (command: string): string | undefined =>
   KNOWN_SCRIPT_PATTERN.exec(command)?.[3];
 
@@ -74,16 +75,6 @@ const isRedundantTargetedStep = (
   return !!script && baselineScripts.has(script);
 };
 
-/**
- * Merge baseline and targeted verification steps by ID and command content.
- * Targeted steps with `policy: 'override'` bypass all deduplication and are
- * always inserted (replacing if IDs match, appending otherwise).
- * Other targeted duplicates are silently dropped (baseline wins).
- * Targeted steps whose command invokes the same well-known script as a
- * baseline entry (e.g. `yarn build` vs `npm build`) are also dropped,
- * since the baseline already covers that check.
- * New targeted IDs are appended in order.
- */
 export const mergeVerificationSteps = (
   baseline: VerificationStep[],
   targeted: VerificationStep[],
@@ -102,13 +93,6 @@ const DEPRECATED_FLAG_REWRITES: [RegExp, string][] = [
   [/--forceExit(?=\s|$)/g, '--forceExit'],
 ];
 
-/**
- * Rewrites known deprecated CLI flags in targeted verification commands.
- * Only applied to AI-generated targeted steps, not user-authored baselines.
- *
- * @param command - The raw command string from a targeted step.
- * @returns The command with deprecated flags replaced.
- */
 export const normalizeTargetedStepCommand = (command: string): string => {
   let result = command;
   for (const [pattern, replacement] of DEPRECATED_FLAG_REWRITES) {
@@ -133,15 +117,6 @@ export const normalizePlanVerification = (value: unknown, filePath: string): Pla
   };
 };
 
-/**
- * Parse a verification manifest (v1 or v2) and return a normalized v1-shaped
- * result scoped to the requested stage.
- *
- * @param content - Raw JSON string
- * @param filePath - Source path for error messages
- * @param stage - Stage to extract from a v2 manifest (ignored for v1)
- * @returns Normalized manifest with `baseline` for the requested stage
- */
 export const parseVerificationManifest = (content: string, filePath: string, stage?: string): VerificationManifest => {
   const parsed = JSON.parse(content) as Record<string, unknown>;
   if (parsed.version === 2) return parseV2Manifest(parsed, filePath, stage ?? 'implement');
@@ -165,13 +140,6 @@ const parseV2Manifest = (parsed: Record<string, unknown>, filePath: string, stag
   return { version: 1, baseline: stageRecord.baseline.map(item => normalizeStep(item, filePath)) };
 };
 
-/**
- * Load and parse a verification manifest from disk.
- *
- * @param filePath - Absolute or relative path to the manifest file
- * @param stage - Stage to extract from a v2 manifest (ignored for v1)
- * @returns Normalized manifest with `baseline` for the requested stage
- */
 export const loadVerificationManifest = (filePath: string, stage?: string): VerificationManifest => {
   const resolvedPath = path.resolve(filePath);
   if (!fs.existsSync(resolvedPath)) {

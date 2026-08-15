@@ -1,7 +1,6 @@
 import type { ErrorCode } from '../schemas/error.schema';
 import { ERROR_CODE } from '../schemas/error.schema';
-
-export { ERROR_CODE };
+export { ERROR_CODE } from '../schemas/error.schema';
 
 export class AppError extends Error {
   constructor(
@@ -79,12 +78,6 @@ export class AiProviderError extends AppError {
   }
 }
 
-/**
- * Detects AI errors even when they cross module or runtime boundaries.
- *
- * @param error - Unknown thrown value
- * @returns True when the value represents an AI error
- */
 export const isAiProviderErrorLike = (error: unknown): error is AiProviderError => {
   if (error instanceof AiProviderError) return true;
   if (error instanceof AppError && error.code === ERROR_CODE.AI_PROVIDER_ERROR) {

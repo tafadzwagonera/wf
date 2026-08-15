@@ -1,15 +1,3 @@
-/**
- * Manual smoke test: raw `new Error` → `AppError` subclass migration
- *
- * Run: nr test:manual -- test-apperror-migration
- *
- * Verifies:
- *   1. `ApprovalError` carries the APPROVAL_ERROR code and is non-recoverable
- *   2. `isAiProviderErrorLike` still detects `AiProviderError` instances
- *   3. No raw `new Error(` remains in `src/` outside the two documented exclusions
- *
- * @returns void
- */
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

@@ -27,6 +27,16 @@ import type { RepoConventionsContext,
   CrossRepoContext
 } from '../../shared/types/detection.types';
 
+type PlanResult = { plan: ResolutionPlan; sessionId?: string };
+
+interface PlanGenerationContext {
+  ticketContent: string;
+  options: GeneratePlanOptions;
+  testInfra: TestInfraContext;
+  skillIds: string[];
+  skillRules: SkillQualityRule[];
+}
+
 interface GeneratePlanOptions {
   action: ResolutionAction;
   ticketKey?: string;
@@ -50,144 +60,17 @@ export class PlanStageService {
     private readonly configService: ConfigService
   ) {}
 
-  // eslint-disable-next-line max-lines-per-function
   async generatePlan(
     ticketContent: string,
     options: GeneratePlanOptions
-  ): Promise<{ plan: ResolutionPlan; sessionId?: string }> {
-    const testInfra = detectTestInfra(options.repoDir ?? process.cwd());
-    const skillIds = this.configService.get<string[]>('stages.plan.skills') ?? [];
-    const skills = skillIds.length
-      ? await resolveSkills(skillIds, { interactive: this.isInteractiveSession(), stage: 'plan' })
-      : [];
-    const skillRules = collectQualityRules(skills);
-
-    const standardContext = {
-      ticketKey: options.ticketKey,
-      summary: this.extractSummary(ticketContent),
-      affectedRepositories: options.affectedRepositories,
-      testInfra,
-      conventions: options.conventions,
-      priorPlans: options.priorPlans,
-      planCorrelation: options.planCorrelation,
-      crossRepoPatterns: options.crossRepoPatterns,
-      skillNames: skillIds.length ? skillIds : undefined,
-    };
-
-    // eslint-disable-next-line max-lines-per-function
-    const generatePlanAttempt = async (
-      planQualityFeedback?: string[]
-    ): Promise<{ plan: ResolutionPlan; sessionId?: string }> => {
-      if (this.stageAgentService.isEnabledForStage('plan')) {
-        try {
-          return await this.stageAgentService.generatePlan({
-            action: options.action,
-            issueContent: ticketContent,
-            ticketKey: options.ticketKey,
-            affectedRepositories: options.affectedRepositories,
-            planQualityFeedback,
-            testInfra,
-            conventions: options.conventions,
-            priorPlans: options.priorPlans,
-            planCorrelation: options.planCorrelation,
-            crossRepoPatterns: options.crossRepoPatterns,
-            skillNames: skillIds.length ? skillIds : undefined,
-            onProgress: options.onProgress,
-            priorStageSummary: options.priorStageSummary,
-            resumeProviderSessionId: options.resumeProviderSessionId,
-          });
-        } catch (error) {
-          const isFallbackEligible
-            = isAiProviderErrorLike(error)
-              && (error.message.includes('Failed to parse resolution plan')
-                || error.message.includes('CLI finished without returning a result'));
-
-          if (!isFallbackEligible) {
-            throw error;
-          }
-
-          const agentProse
-            = typeof error.details?.response === 'string' && error.details.response.trim()
-              ? error.details.response
-              : undefined;
-
-          const sessionId = typeof error.details?.sessionId === 'string' ? error.details.sessionId : undefined;
-
-          const repairedPlan = await this.recoverPlanFromParseError(error, sessionId);
-          if (repairedPlan) {
-            return repairedPlan;
-          }
-
-          const fallbackReason = agentProse ? 'prose' : 'no result';
-          this.logFallbackDecision(error, { fallbackReason, sessionId });
-          console.log(chalk.yellow(`  \u26A0\uFE0F Agent returned ${fallbackReason} \u2014 falling back to structured completion`));
-          const fallbackResult = await this.aiService.generatePlan(options.action, ticketContent, {
-            ...standardContext,
-            planQualityFeedback,
-            ...(agentProse ? { agentAnalysis: agentProse } : {}),
-          });
-
-          if (!fallbackResult?.action || !fallbackResult?.summary || !Array.isArray(fallbackResult?.steps)) {
-            throw new AiProviderError(
-              'Fallback completion did not produce a valid resolution plan. Both agent and standard completion failed to return JSON.',
-              { agentResponse: agentProse?.slice(0, 500), fallbackResult },
-              true,
-              'parse'
-            );
-          }
-
-          console.log(chalk.green('  ✔ Fallback produced valid plan'));
-          return { plan: fallbackResult, sessionId };
-        }
-      }
-
-      const plan = await this.aiService.generatePlan(
-        options.action,
-        ticketContent,
-        {
-          ...standardContext,
-          planQualityFeedback,
-        }
-      );
-      return { plan };
-    };
-
-    const validatePlan = (plan: ResolutionPlan): string[] => {
-      const violations = validatePlanQuality({
-        plan,
-        affectedRepositories: options.affectedRepositories,
-        testInfra,
-        skillRules,
-      });
-      return violations.map(violation => `[${violation.ruleId}] ${violation.message}`);
-    };
-
-    const firstAttempt = await generatePlanAttempt();
-    const firstAttemptViolations = validatePlan(firstAttempt.plan);
-
-    if (firstAttemptViolations.length === 0) {
-      return firstAttempt;
-    }
-
-    const retryAttempt = await generatePlanAttempt(firstAttemptViolations);
-    const retryViolations = validatePlan(retryAttempt.plan);
-
-    if (retryViolations.length > 0) {
-      console.log(
-        chalk.yellow(
-          `  ⚠ Plan quality violations persisted after retry:\n${retryViolations.map(v => `      ${v}`).join('\n')}`
-        )
-      );
-      const existingRisks = retryAttempt.plan.risks ?? [];
-      return {
-        ...retryAttempt,
-        plan: {
-          ...retryAttempt.plan,
-          risks: [...existingRisks, ...retryViolations.map(v => `[plan-quality] ${v}`)],
-        },
-      };
-    }
-
+  ): Promise<PlanResult> {
+    const ctx = await this.buildPlanContext(ticketContent, options);
+    const firstAttempt = await this.generatePlanAttempt(ctx);
+    const firstViolations = this.validatePlanViolations(firstAttempt.plan, ctx);
+    if (firstViolations.length === 0) return firstAttempt;
+    const retryAttempt = await this.generatePlanAttempt(ctx, firstViolations);
+    const retryViolations = this.validatePlanViolations(retryAttempt.plan, ctx);
+    if (retryViolations.length > 0) return this.applyQualityViolationsToRisks(retryAttempt, retryViolations);
     return retryAttempt;
   }
 
@@ -432,5 +315,139 @@ export class PlanStageService {
       const siblingPath = path.join(artifactDir, name);
       if (siblingPath !== retainedPlanPath && fs.existsSync(siblingPath)) this.removeArtifactAndManifest(siblingPath);
     }
+  }
+
+  private async buildPlanContext(
+    ticketContent: string, options: GeneratePlanOptions
+  ): Promise<PlanGenerationContext> {
+    const testInfra = detectTestInfra(options.repoDir ?? process.cwd());
+    const skillIds = this.configService.get<string[]>('stages.plan.skills') ?? [];
+    const skills = skillIds.length
+      ? await resolveSkills(skillIds, { interactive: this.isInteractiveSession(), stage: 'plan' })
+      : [];
+    const skillRules = collectQualityRules(skills);
+    return { ticketContent, options, testInfra, skillIds, skillRules };
+  }
+
+  private validatePlanViolations(plan: ResolutionPlan, ctx: PlanGenerationContext): string[] {
+    const violations = validatePlanQuality({
+      plan,
+      affectedRepositories: ctx.options.affectedRepositories,
+      testInfra: ctx.testInfra,
+      skillRules: ctx.skillRules,
+    });
+    return violations.map(v => `[${v.ruleId}] ${v.message}`);
+  }
+
+  private applyQualityViolationsToRisks(attempt: PlanResult, violations: string[]): PlanResult {
+    const bullets = violations.map(v => '      ' + v).join('\n');
+    console.log(chalk.yellow(`  ⚠ Plan quality violations persisted after retry:\n${bullets}`));
+    const existingRisks = attempt.plan.risks ?? [];
+    const qualityRisks = violations.map(v => `[plan-quality] ${v}`);
+    return {
+      ...attempt,
+      plan: { ...attempt.plan, risks: [...existingRisks, ...qualityRisks] },
+    };
+  }
+
+  private buildStandardContext(ctx: PlanGenerationContext) {
+    const { options: o, ticketContent, testInfra, skillIds } = ctx;
+    return {
+      ticketKey: o.ticketKey,
+      summary: this.extractSummary(ticketContent),
+      affectedRepositories: o.affectedRepositories,
+      testInfra,
+      conventions: o.conventions,
+      priorPlans: o.priorPlans,
+      planCorrelation: o.planCorrelation,
+      crossRepoPatterns: o.crossRepoPatterns,
+      skillNames: skillIds.length ? skillIds : undefined,
+    };
+  }
+
+  private buildAgentPlanParams(ctx: PlanGenerationContext, feedback?: string[]) {
+    const { options: o, ticketContent, testInfra, skillIds } = ctx;
+    return {
+      action: o.action, issueContent: ticketContent, planQualityFeedback: feedback,
+      ticketKey: o.ticketKey, affectedRepositories: o.affectedRepositories, testInfra,
+      conventions: o.conventions, priorPlans: o.priorPlans, planCorrelation: o.planCorrelation,
+      crossRepoPatterns: o.crossRepoPatterns, skillNames: skillIds.length ? skillIds : undefined,
+      onProgress: o.onProgress, priorStageSummary: o.priorStageSummary,
+      resumeProviderSessionId: o.resumeProviderSessionId,
+    };
+  }
+
+  private async generatePlanViaAgent(
+    ctx: PlanGenerationContext, feedback?: string[]
+  ): Promise<PlanResult> {
+    try {
+      return await this.stageAgentService.generatePlan(this.buildAgentPlanParams(ctx, feedback));
+    } catch (error) {
+      return this.handleAgentPlanError(error, ctx, feedback);
+    }
+  }
+
+  private async handleAgentPlanError(
+    error: unknown, ctx: PlanGenerationContext, feedback?: string[]
+  ): Promise<PlanResult> {
+    if (!isAiProviderErrorLike(error)) throw error;
+    const eligible = error.message.includes('Failed to parse resolution plan')
+      || error.message.includes('CLI finished without returning a result');
+    if (!eligible) throw error;
+    const agentProse = typeof error.details?.response === 'string' && error.details.response.trim()
+      ? error.details.response
+      : undefined;
+    const sessionId = typeof error.details?.sessionId === 'string' ? error.details.sessionId : undefined;
+    const repaired = await this.recoverPlanFromParseError(error, sessionId);
+    if (repaired) return repaired;
+    return this.executeFallbackCompletion(error, agentProse, sessionId, ctx, feedback);
+  }
+
+  private notifyFallback(error: unknown, fallbackReason: string, sessionId?: string): void {
+    this.logFallbackDecision(error, { fallbackReason, sessionId });
+    console.log(chalk.yellow(`  ⚠ Agent returned ${fallbackReason} — falling back to structured completion`));
+  }
+
+  private isValidPlan(result: unknown): result is ResolutionPlan {
+    const r = result as Partial<ResolutionPlan>;
+    return Boolean(r?.action && r?.summary && Array.isArray(r?.steps));
+  }
+
+  private throwInvalidFallbackPlan(agentProse: string | undefined, result: unknown): never {
+    throw new AiProviderError(
+      'Fallback completion did not produce a valid resolution plan.'
+      + ' Both agent and standard completion failed to return JSON.',
+      { agentResponse: agentProse?.slice(0, 500), fallbackResult: result },
+      true, 'parse'
+    );
+  }
+
+  private async executeFallbackCompletion(
+    error: unknown, agentProse: string | undefined, sessionId: string | undefined,
+    ctx: PlanGenerationContext, feedback?: string[]
+  ): Promise<PlanResult> {
+    const fallbackReason = agentProse ? 'prose' : 'no result';
+    this.notifyFallback(error, fallbackReason, sessionId);
+    const result = await this.aiService.generatePlan(ctx.options.action, ctx.ticketContent, {
+      ...this.buildStandardContext(ctx),
+      planQualityFeedback: feedback,
+      ...(agentProse ? { agentAnalysis: agentProse } : {}),
+    });
+    if (!this.isValidPlan(result)) this.throwInvalidFallbackPlan(agentProse, result);
+    console.log(chalk.green('  ✔ Fallback produced valid plan'));
+    return { plan: result, sessionId };
+  }
+
+  private async generatePlanAttempt(
+    ctx: PlanGenerationContext, feedback?: string[]
+  ): Promise<PlanResult> {
+    if (this.stageAgentService.isEnabledForStage('plan')) {
+      return this.generatePlanViaAgent(ctx, feedback);
+    }
+    const plan = await this.aiService.generatePlan(ctx.options.action, ctx.ticketContent, {
+      ...this.buildStandardContext(ctx),
+      planQualityFeedback: feedback,
+    });
+    return { plan };
   }
 }

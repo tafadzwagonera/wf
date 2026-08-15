@@ -115,7 +115,7 @@ const DEFAULT_CLI_WALL_CLOCK_TIMEOUT_MS = 30 * 60 * 1000;
 const CODEX_STAGE_LABEL = 'codex-cli';
 
 const cliRetryPrompt
-  = 'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines). JSON string values must not contain literal newline characters — use \\n for line breaks within strings.';
+  = String.raw`Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines). JSON string values must not contain literal newline characters — use \n for line breaks within strings.`;
 
 const cliChatRetryPrompt
   = 'Your previous response did not include a usable result. Please respond with the requested content directly.';
@@ -177,20 +177,12 @@ const resolveExitStatus = (exitCode?: number): string => {
 const formatCodexCommandCompletion = (item: { exit_code?: number | null; command?: string }): string =>
   `  [${CODEX_STAGE_LABEL}] Command ${resolveExitStatus(item.exit_code ?? undefined)}: ${truncateCodexText(item.command ?? 'unknown', 60)}`;
 
-/**
- * @param message - a completed-item Codex CLI message
- * @returns formatted progress string or null
- */
 const formatCodexCompletedItem = (message: CodexCliMessage): string | null => {
   if (message.item?.type === 'agent_message' && message.item.text) return `  [${CODEX_STAGE_LABEL}] Agent: ${truncateCodexText(message.item.text, 120)}`;
   if (message.item?.type === 'command_execution') return formatCodexCommandCompletion(message.item);
   return null;
 };
 
-/**
- * @param message - a parsed Codex CLI NDJSON message
- * @returns formatted progress string or null if the message type is not display-worthy
- */
 const formatCodexProgressMessage = (message: CodexCliMessage): string | null => {
   if (message.type === 'thread.started' && message.thread_id) return `  [${CODEX_STAGE_LABEL}] Session started: ${message.thread_id}`;
   if (message.type === 'item.started' && message.item?.type === 'command_execution' && message.item.command) return `  [${CODEX_STAGE_LABEL}] Running: ${truncateCodexText(message.item.command, 80)}`;
@@ -199,24 +191,12 @@ const formatCodexProgressMessage = (message: CodexCliMessage): string | null => 
   return null;
 };
 
-/**
- * @param block - a single content block from a CLI assistant message
- * @returns the block's text if it is a text block, empty string otherwise
- */
 const extractTextBlockContent = (block: unknown): string => {
   if (typeof block !== 'object' || block === null) return '';
   const record = block as Record<string, unknown>;
   return record.type === 'text' && typeof record.text === 'string' ? record.text : '';
 };
 
-/**
- * Extracts the last assistant turn's text from a CLI NDJSON message.
- * Only the last assistant turn is relevant — earlier turns may contain
- * JSON-like fragments from intermediate analysis.
- *
- * @param message - a parsed CLI NDJSON message
- * @returns concatenated text content or undefined if not an assistant message
- */
 const extractAssistantText = (message: ClaudeCliMessage): string | undefined => {
   if (message.type !== 'assistant') return undefined;
   const content = (message as Record<string, unknown>).message;
@@ -283,10 +263,6 @@ type GeneratePlanParams = {
   ticketKey?: string;
 };
 
-/**
- * @param params - plan generation parameters including discovery context
- * @returns discovery context block string (may be empty)
- */
 const buildPlanDiscoveryBlock = (params: GeneratePlanParams): string => {
   const repoName = params.affectedRepositories?.[0] ?? 'repo';
   const parts = [
@@ -330,10 +306,6 @@ type PlanPromptBodyOpts = {
   ticketKey?: string;
 };
 
-/**
- * @param opts - pre-computed prompt fragments
- * @returns the plan prompt preamble (action, issue, context, feedback, discovery)
- */
 const buildPlanPromptPreamble = (opts: PlanPromptBodyOpts): string => `
 Action: ${opts.action}
 Issue Content:
@@ -348,10 +320,6 @@ Create a detailed resolution plan with:
 ${planStepPrinciples}
 ${planFileListingInstructions}`;
 
-/**
- * @param opts - pre-computed prompt fragments
- * @returns the plan prompt JSON schema example block
- */
 const buildPlanJsonSchemaExample = (opts: PlanPromptBodyOpts): string => `
 Return ONLY a valid JSON object. Reference:
 {"action":"${opts.action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Rename AuthGuard to SharedAuthGuard in ${opts.repoExample}/src/auth/guard.ts","Update all import paths in ${opts.repoExample}/src/controllers/"],"estimatedComplexity":"medium","affectedFiles":[{"filePath":"${opts.repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${opts.repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${opts.repoExample}/package.json","status":"found"}],"affectedRepositories":["${opts.repoExample}"],"newRepositories":[],"risks":["Renaming may break downstream consumers"],"verification":{"targeted":[{"id":"manual-review","run":"yarn test:manual -- test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
@@ -360,10 +328,6 @@ When an optional field has no value, omit it from the JSON entirely. Do not use 
 
 ${JSON_OUTPUT_RULES}`;
 
-/**
- * @param opts - pre-computed prompt fragments
- * @returns the raw plan prompt body string
- */
 const buildPlanPromptBody = (opts: PlanPromptBodyOpts): string => [
   buildPlanPromptPreamble(opts),
   opts.testInfraSection,
@@ -376,20 +340,18 @@ const buildPlanPromptBody = (opts: PlanPromptBodyOpts): string => [
 
 const buildStageReviewPrompt = (
   diff: string, guidelines: string[], skillNames?: string[]
-): string => [
-  `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
-  `\nReview Guidelines:\n${guidelines.map((g, i) => `${i + 1}. ${g}`).join('\n')}`,
-  `\n${reviewInstructions}`,
-  ...(skillNames?.length ? [buildReviewSkillSection(skillNames)] : []),
-  reviewTraceGuidance,
-  `\n${reviewOutputSchema}`,
-].join('\n');
+): string => {
+  const numberedGuidelines = guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
+  return [
+    `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
+    `\nReview Guidelines:\n${numberedGuidelines}`,
+    `\n${reviewInstructions}`,
+    ...(skillNames?.length ? [buildReviewSkillSection(skillNames)] : []),
+    reviewTraceGuidance,
+    `\n${reviewOutputSchema}`,
+  ].join('\n');
+};
 
-/**
- * @param toolName - name of the tool being invoked
- * @param input - tool input parameters
- * @returns permission decision for the tool invocation
- */
 const anthropicReadOnlyToolGuard = async (
   toolName: string,
   input: Record<string, unknown>
@@ -402,19 +364,9 @@ const anthropicReadOnlyToolGuard = async (
   return { behavior: 'allow' };
 };
 
-/**
- * @param systemPrompt - base system prompt
- * @param allowInspection - whether file inspection is enabled
- * @returns system prompt, optionally appending a no-inspection note
- */
 const resolveEffectiveSystemPrompt = (systemPrompt: string, allowInspection: boolean): string =>
   allowInspection ? systemPrompt : `${systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
 
-/**
- * @param repoDir - repository root directory
- * @param allowInspection - whether file inspection tools are enabled
- * @returns sandbox configuration object for the Anthropic agent SDK
- */
 const buildAnthropicSandboxConfig = (repoDir: string, allowInspection: boolean) => ({
   allowUnsandboxedCommands: false,
   autoAllowBashIfSandboxed: true,
@@ -426,10 +378,6 @@ const buildAnthropicSandboxConfig = (repoDir: string, allowInspection: boolean) 
   },
 });
 
-/**
- * @param priorStageSummary - prior stage summary context
- * @returns formatted prior-stage preamble block
- */
 const buildPriorStagePreamble = (priorStageSummary?: string): string => {
   if (!priorStageSummary) return '';
   return `<prior-stage-context>\n${priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.`;
@@ -466,10 +414,6 @@ const buildAnthropicStageQueryOptions = (opts: AnthropicStageOpts) => {
   return { ...buildAnthropicBaseOptions(opts, systemAppend), ...resumeOption };
 };
 
-/**
- * @param opts - Anthropic stage options
- * @returns query input object for the Anthropic agent SDK
- */
 const buildAnthropicStageOptions = (opts: AnthropicStageOpts) => ({
   prompt: opts.prompt,
   options: buildAnthropicStageQueryOptions(opts),
@@ -562,10 +506,6 @@ const processCodexStageResult = async (
   return finalizeCodexStageResult(state, stage);
 };
 
-/**
- * @param message - a CLI result message
- * @returns extracted result content and source type
- */
 const extractCliResultContent = (
   message: ClaudeCliMessage
 ): { result: string; source: 'structured_output' | 'result' } | undefined => {
@@ -586,10 +526,6 @@ type CliPassAccumulator = {
   stopReason: string | undefined;
 };
 
-/**
- * @param acc - mutable accumulator for CLI pass state
- * @param message - a CLI NDJSON message
- */
 const applyCliResultToAcc = (acc: CliPassAccumulator, message: ClaudeCliMessage): void => {
   const extracted = extractCliResultContent(message);
   if (!extracted) return;
@@ -598,11 +534,6 @@ const applyCliResultToAcc = (acc: CliPassAccumulator, message: ClaudeCliMessage)
   acc.stopReason = message.stop_reason as string | undefined;
 };
 
-/**
- * @param acc - mutable accumulator for CLI pass state
- * @param message - a CLI NDJSON message
- * @param onProgress - optional progress callback
- */
 const accumulateCliMessage = (
   acc: CliPassAccumulator, message: ClaudeCliMessage, onProgress?: StageProgressCallback
 ): void => {
@@ -618,10 +549,6 @@ const accumulateCliMessage = (
   if (diagnostic) acc.diagnostics.push(diagnostic);
 };
 
-/**
- * @param acc - finalized CLI pass accumulator
- * @returns CLI pass result derived from the accumulator
- */
 const finalizeCliPass = (acc: CliPassAccumulator): CliPassResult => {
   const result = acc.result || (acc.lastAssistantText.trim() ? acc.lastAssistantText : '');
   const fallbackSource = acc.lastAssistantText.trim() ? 'assistant_text' as const : acc.source;
@@ -633,15 +560,6 @@ const finalizeCliPass = (acc: CliPassAccumulator): CliPassResult => {
   };
 };
 
-/**
- * @param args - CLI arguments
- * @param repoDir - repository directory
- * @param prompt - prompt text
- * @param wallClockTimeoutMs - wall-clock timeout in milliseconds
- * @param inactivityTimeoutMs - optional inactivity timeout in milliseconds; falls back to CLI_INACTIVITY_TIMEOUT_MS
- * @param onProgress - optional progress callback
- * @returns aggregated result from a single CLI pass
- */
 const processCliPassMessages = async (
   args: string[],
   repoDir: string,
@@ -659,10 +577,6 @@ const processCliPassMessages = async (
 
 type CliRetryState = { sessionId?: string; stalledPasses: number; passNumber: number; lastDiagnostics: string[] };
 
-/**
- * @param state - mutable retry loop state
- * @param passResult - result from the latest CLI pass
- */
 const advanceCliRetryState = (state: CliRetryState, passResult: CliPassResult): void => {
   const madeProgress = passResult.hadContent && passResult.source !== 'assistant_text';
   state.stalledPasses = madeProgress ? 0 : state.stalledPasses + 1;
@@ -673,14 +587,6 @@ const advanceCliRetryState = (state: CliRetryState, passResult: CliPassResult): 
   console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${state.passNumber}: no usable result${sourceHint} — resuming session`));
 };
 
-/**
- * Records why a pass produced no usable result. The console line is transient and the
- * stall error only survives if the loop gives up, so without this a pass that is
- * retried — or one whose error is swallowed by a downstream fallback — leaves no trace.
- *
- * @param state - Current retry loop state
- * @param passResult - Result from the latest CLI pass
- */
 const logCliPassOutcome = (state: CliRetryState, passResult: CliPassResult): void => {
   const fields = [
     `pass=${state.passNumber}`,
@@ -694,12 +600,6 @@ const logCliPassOutcome = (state: CliRetryState, passResult: CliPassResult): voi
   appendToLogFile('WARN', `cli.pass_unusable ${fields}${diagnostics}`, CLI_STAGE_LABEL);
 };
 
-/**
- * @param stalledPasses - number of consecutive stalled passes
- * @param passNumber - current pass number
- * @param lastDiagnostics - diagnostics from the most recent pass
- * @throws when stall threshold is reached
- */
 const checkCliStallCondition = (stalledPasses: number, passNumber: number, lastDiagnostics: string[]): void => {
   if (stalledPasses < CLI_STALL_THRESHOLD) return;
   const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
@@ -721,10 +621,6 @@ type AnthropicChatOpts = {
   systemPrompt: string;
 };
 
-/**
- * @param opts - Anthropic chat options
- * @returns the anthropic agent options sub-object for chat turns
- */
 const buildAnthropicChatQueryOptions = (opts: AnthropicChatOpts) => {
   const effectiveSystemPrompt = resolveEffectiveSystemPrompt(opts.systemPrompt, opts.allowInspection);
   const systemAppend = [opts.anthropicContext, effectiveSystemPrompt].filter(Boolean).join('\n\n');
@@ -732,21 +628,11 @@ const buildAnthropicChatQueryOptions = (opts: AnthropicChatOpts) => {
   return { ...buildAnthropicBaseOptions(opts, systemAppend), ...resumeOption };
 };
 
-/**
- * @param opts - options for building the Anthropic chat query
- * @returns query input object for the Anthropic agent SDK chat turn
- */
 const buildAnthropicChatOptions = (opts: AnthropicChatOpts) => ({
   prompt: opts.prompt,
   options: buildAnthropicChatQueryOptions(opts),
 });
 
-/**
- * @param systemPrompt - base system prompt
- * @param priorStageSummary - optional prior stage summary
- * @param allowInspection - whether file inspection is enabled
- * @returns combined OpenAI system prompt with preamble
- */
 const buildOpenAiSystemPrompt = (
   systemPrompt: string, priorStageSummary?: string, allowInspection?: boolean
 ): string => {
@@ -755,7 +641,6 @@ const buildOpenAiSystemPrompt = (
   return `${preambleWithNewline}${resolveEffectiveSystemPrompt(systemPrompt, Boolean(allowInspection))}`;
 };
 
-/** @returns OpenAI read_file tool */
 const createOpenAiReadFileTool = () => tool({
   name: 'read_file',
   description: 'Read a file from the current repository workspace.',
@@ -768,7 +653,6 @@ const createOpenAiReadFileTool = () => tool({
   },
 });
 
-/** @returns OpenAI list_files tool */
 const createOpenAiListFilesTool = () => tool({
   name: 'list_files',
   description: 'List files in the current repository workspace.',
@@ -782,7 +666,6 @@ const createOpenAiListFilesTool = () => tool({
   },
 });
 
-/** @returns OpenAI search_files tool */
 const createOpenAiSearchFilesTool = () => tool({
   name: 'search_files',
   description: 'Search repository files with ripgrep.',
@@ -795,7 +678,6 @@ const createOpenAiSearchFilesTool = () => tool({
   },
 });
 
-/** @returns OpenAI run_readonly_command tool */
 const createOpenAiRunCommandTool = () => tool({
   name: 'run_readonly_command',
   description: 'Run a read-only repository inspection command such as pwd, ls, rg, git diff, or git status.',
@@ -811,19 +693,10 @@ const createOpenAiRunCommandTool = () => tool({
   },
 });
 
-/**
- * @returns array of OpenAI agent tools for read-only repository inspection
- */
 const buildOpenAiStageTools = () => [
   createOpenAiReadFileTool(), createOpenAiListFilesTool(), createOpenAiSearchFilesTool(), createOpenAiRunCommandTool(),
 ];
 
-/**
- * @param session - Anthropic SDK session to drain
- * @param handler - processes each message, returns content if done
- * @param sessionLogPrefix - prefix for session ID log line
- * @returns content and session ID from the first successful result
- */
 type AnthropicSession = AsyncIterable<Record<string, unknown>> & { close: () => void };
 type AnthropicResultHandler = (msg: Record<string, unknown>) => { content: string } | undefined;
 
@@ -850,21 +723,11 @@ const STALE_RESUME_PATTERNS = [
   /(?:conversation|thread).*(?:not found|invalid|expired)/i,
 ];
 
-/**
- * @param error - The caught error value
- * @returns True when the error message matches known stale-resume signatures
- */
 const isStaleResumeError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
   return STALE_RESUME_PATTERNS.some(pattern => pattern.test(message));
 };
 
-/**
- * @param message - Anthropic SDK stream message
- * @param onProgress - optional progress callback
- * @returns result text if this is a successful result message, undefined otherwise
- * @throws when the result indicates an error
- */
 const extractAnthropicResultMessage = (
   message: Record<string, unknown>, onProgress?: StageProgressCallback
 ): string | undefined => {
@@ -924,11 +787,6 @@ export class StageAgentService {
     return this.parseStagePlanResponse(response, sessionId);
   }
 
-  /**
-   * @param response - raw AI response content
-   * @param sessionId - provider session identifier
-   * @returns parsed and enriched resolution plan with session metadata
-   */
   private parseStagePlanResponse(response: string, sessionId?: string): { plan: ResolutionPlan; sessionId?: string } {
     try {
       const plan = this.parseAndValidatePlan(response);
@@ -939,10 +797,6 @@ export class StageAgentService {
     }
   }
 
-  /**
-   * @param response - raw AI response content
-   * @returns parsed, normalized, and enriched resolution plan
-   */
   private parseAndValidatePlan(response: string): ResolutionPlan {
     return this.applyPlanMetadata(this.parsePlanContent(response));
   }
@@ -995,14 +849,6 @@ export class StageAgentService {
     return this.parseStageReviewResponse(response, sessionId, repoDir, reviewSystemPrompt, priorStageSummary);
   }
 
-  /**
-   * @param response - raw AI response content
-   * @param sessionId - provider session identifier
-   * @param repoDir - repository directory path
-   * @param systemPrompt - system prompt used for the review
-   * @param priorStageSummary - prior stage summary context
-   * @returns parsed code review with session metadata
-   */
   private async parseStageReviewResponse(
     response: string, sessionId: string | undefined, repoDir: string | undefined,
     systemPrompt: string, priorStageSummary: string | undefined
@@ -1018,11 +864,6 @@ export class StageAgentService {
     }
   }
 
-  /**
-   * @param response - raw AI response content
-   * @returns parsed and post-processed code review
-   * @throws AiProviderError when the response JSON is missing required fields (summary, issues, suggestions, approved)
-   */
   private parseAndProcessReview(response: string): CodeReview {
     const parsed = codeReviewSchema.parse(
       parseJsonResponse<CodeReview>(
@@ -1032,14 +873,6 @@ export class StageAgentService {
     return postProcessCodeReview(sanitizeCodeReviewTrace(parsed, response), response).review;
   }
 
-  /**
-   * @param backend - resolved backend mode for the review stage
-   * @param sessionId - provider session identifier
-   * @param repoDir - repository directory path
-   * @param systemPrompt - system prompt used for the review
-   * @param priorStageSummary - prior stage summary context
-   * @returns nothing; failures are logged and swallowed
-   */
   private async trySendReviewEpilogue(
     backend: WfBackendMode, sessionId: string | undefined, repoDir: string | undefined,
     systemPrompt: string, priorStageSummary: string | undefined
@@ -1168,10 +1001,6 @@ export class StageAgentService {
     return { content };
   }
 
-  /**
-   * @param params - stage prompt parameters
-   * @returns CLI stage result from the appropriate CLI backend
-   */
   private dispatchCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     const provider = this.resolveStageProvider(params.stage);
     return provider === 'openai' ? this.runCodexCliStagePrompt(params) : this.runCliStagePrompt(params);
@@ -1190,21 +1019,12 @@ export class StageAgentService {
     return this.processAnthropicStageResult(query(options), params.onProgress);
   }
 
-  /**
-   * @returns the Anthropic API key from config
-   * @throws when the key is not configured
-   */
   private requireAnthropicApiKey(): string {
     const apiKey = this.configService.get<string>('ai.anthropicApiKey');
     if (!apiKey) throw new ConfigurationError('Anthropic agent backend requires `ai.anthropicApiKey` to be configured.');
     return apiKey;
   }
 
-  /**
-   * @param session - an active Anthropic agent SDK query session
-   * @param onProgress - optional progress callback
-   * @returns content and session ID from the first successful result message
-   */
   private async processAnthropicStageResult(
     session: AsyncIterable<Record<string, unknown>> & { close: () => void }, onProgress?: StageProgressCallback
   ): Promise<{ content: string; sessionId?: string }> {
@@ -1227,20 +1047,12 @@ export class StageAgentService {
     return this.processOpenAiStageResult(agent, runner, context, params.prompt, 16, params.onProgress);
   }
 
-  /**
-   * @returns the OpenAI API key from config
-   * @throws when the key is not configured
-   */
   private requireOpenAiApiKey(): string {
     const apiKey = this.configService.get<string>('ai.openaiApiKey');
     if (!apiKey) throw new ConfigurationError('OpenAI agent backend requires `ai.openaiApiKey` to be configured.');
     return apiKey;
   }
 
-  /**
-   * @param opts - agent configuration parameters
-   * @returns built agent, runner, and context for OpenAI stage operations
-   */
   private async buildOpenAiStageAgent(opts: {
     stage: AgentStageName; systemPrompt: string; repoDir?: string; priorStageSummary?: string; apiKey: string;
   }): Promise<{ agent: Agent<OpenAiStageContext>; runner: Runner; context: OpenAiStageContext }> {
@@ -1257,15 +1069,6 @@ export class StageAgentService {
     return { agent, runner, context: { repoDir: opts.repoDir ?? process.cwd() } };
   }
 
-  /**
-   * @param agent - OpenAI agent instance
-   * @param runner - OpenAI runner instance
-   * @param context - stage context with repo directory
-   * @param input - prompt or run state input
-   * @param maxTurns - maximum number of agent turns
-   * @param onProgress - optional progress callback
-   * @returns trimmed final output string
-   */
   private async processOpenAiStageResult(
     agent: Agent<OpenAiStageContext>, runner: Runner, context: OpenAiStageContext,
     input: string, maxTurns: number, onProgress?: StageProgressCallback
@@ -1289,10 +1092,6 @@ export class StageAgentService {
     return this.validateAndReturnOpenAiChat(params);
   }
 
-  /**
-   * @param params - chat turn parameters
-   * @returns validated OpenAI chat result
-   */
   private async validateAndReturnOpenAiChat(
     params: ChatTurnParams
   ): Promise<{ content: string; session: AgentChatSession }> {
@@ -1316,11 +1115,6 @@ export class StageAgentService {
     return this.processAnthropicChatResult(query(options), params.session?.sessionId);
   }
 
-  /**
-   * @param session - active Anthropic agent SDK session
-   * @param existingSessionId - session ID from a prior turn
-   * @returns chat content and updated session metadata
-   */
   private async processAnthropicChatResult(
     session: AsyncIterable<Record<string, unknown>> & { close: () => void }, existingSessionId?: string
   ): Promise<{ content: string; session: AgentChatSession }> {
@@ -1341,11 +1135,6 @@ export class StageAgentService {
     return this.buildOpenAiChatResult(content, agent, runner);
   }
 
-  /**
-   * @param params - chat turn parameters
-   * @param apiKey - OpenAI API key
-   * @returns reused or freshly built agent, runner, and context
-   */
   private async resolveOpenAiChatAgent(
     params: Pick<ChatTurnParams, 'stage' | 'systemPrompt' | 'repoDir' | 'session'>, apiKey: string
   ): Promise<{ agent: Agent<OpenAiStageContext>; runner: Runner; context: OpenAiStageContext }> {
@@ -1359,12 +1148,6 @@ export class StageAgentService {
     });
   }
 
-  /**
-   * @param content - final output content from the agent
-   * @param agent - OpenAI agent instance to preserve for session reuse
-   * @param runner - OpenAI runner instance to preserve for session reuse
-   * @returns chat result with session metadata
-   */
   private buildOpenAiChatResult(
     content: string,
     agent: Agent<OpenAiStageContext>,
@@ -1388,12 +1171,6 @@ export class StageAgentService {
     return this.runCliRetryLoop(passOpts, params.stage, params.resumeProviderSessionId);
   }
 
-  /**
-   * @param stage - stage name for error context
-   * @param initialSessionId - session ID to start with
-   * @param runPass - function that executes a single CLI pass
-   * @returns content and session ID from the first successful pass
-   */
   private async runGenericCliRetryLoop(
     stage: AgentStageName, initialSessionId: string | undefined,
     runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>
@@ -1433,14 +1210,6 @@ export class StageAgentService {
     );
   }
 
-  /**
-   * @param passResult - result from a CLI pass
-   * @param stage - stage name for error context
-   * @param passNumber - current pass number
-   * @param sessionId - current session ID
-   * @returns finalized result if the pass produced a structured or result-typed answer;
-   *   undefined if the result is absent or sourced from raw assistant text
-   */
   private tryFinalizeCliPass(
     passResult: CliPassResult, stage: AgentStageName, passNumber: number, sessionId?: string
   ): { content: string; sessionId?: string } | undefined {
@@ -1451,14 +1220,6 @@ export class StageAgentService {
     return { content: passResult.result.trim(), sessionId };
   }
 
-  /**
-   * @param state - mutable retry-loop state; `sessionId` is cleared in place so the
-   *   next pass opens a fresh CLI session with the original prompt instead of the
-   *   JSON retry prompt (because `runCliStagePass` derives `isResume = false` when
-   *   `sessionId` is undefined). The stall counter (`stalledPasses`) is deliberately
-   *   preserved — this is a session reset, not a full retry budget reset.
-   * @param stage - only the `'review'` stage triggers fresh-start behaviour
-   */
   private handleReviewFreshStart(state: CliRetryState, stage: AgentStageName): void {
     if (stage === 'review') {
       state.sessionId = undefined;
@@ -1466,11 +1227,6 @@ export class StageAgentService {
     }
   }
 
-  /**
-   * @param stopReason - CLI stop reason string
-   * @param stage - stage name for error context
-   * @throws when the response was truncated due to max tokens
-   */
   private checkCliMaxTokens(stopReason: string | undefined, stage: AgentStageName): void {
     if (stopReason !== 'max_tokens') return;
     throw new AiProviderError(
@@ -1480,10 +1236,6 @@ export class StageAgentService {
     );
   }
 
-  /**
-   * @param opts - CLI pass configuration
-   * @returns extracted result, diagnostics, and metadata from a single CLI pass
-   */
   private async runCliStagePass(opts: CliStagePassOpts & { passNumber: number }): Promise<CliPassResult> {
     const isResume = (opts.passNumber > 1 && opts.sessionId) || (opts.passNumber === 1 && opts.resumeProviderSessionId);
     const retryPrompt = opts.jsonSchema ? cliRetryPrompt : cliChatRetryPrompt;
@@ -1504,7 +1256,7 @@ export class StageAgentService {
     const model = this.resolveStageModel(params.stage);
     const repoDir = params.repoDir ?? process.cwd();
     const preamble = buildPriorStagePreamble(params.priorStageSummary);
-    const fullPrompt = `${preamble ? `${preamble}\n\n` : ''}${params.systemPrompt}\n\n${params.prompt}`;
+    const fullPrompt = `${preamble ? preamble + '\n\n' : ''}${params.systemPrompt}\n\n${params.prompt}`;
     const args = buildCodexCliArgs({
       prompt: fullPrompt, model, cwd: repoDir, sessionId: params.resumeProviderSessionId,
     });
@@ -1515,13 +1267,6 @@ export class StageAgentService {
     });
   }
 
-  /**
-   * Send a best-effort follow-up turn that replaces the raw JSON session tail
-   * with a short readable summary for manual CLI resume flows.
-   *
-   * @param params - Resumed review session context
-   * @returns Nothing; failures are handled by the caller
-   */
   private async sendCliReviewEpilogue(params: {
     sessionId: string;
     repoDir: string;
@@ -1538,12 +1283,6 @@ export class StageAgentService {
     );
   }
 
-  /**
-   * @param sessionId - Codex session identifier
-   * @param repoDir - repository directory
-   * @param model - model identifier
-   * @returns nothing; drains the Codex epilogue stream
-   */
   private async sendCodexEpilogue(sessionId: string, repoDir: string, model: string): Promise<void> {
     const args = buildCodexCliArgs({ prompt: cliEpiloguePrompt, sessionId, model, cwd: repoDir });
     const stream = spawnCodex(args, repoDir, cliEpiloguePrompt, undefined, CLI_REVIEW_EPILOGUE_TIMEOUT_MS);
@@ -1551,14 +1290,6 @@ export class StageAgentService {
     for await (const _ of stream) { /* drain */ }
   }
 
-  /**
-   * @param sessionId - Claude CLI session identifier
-   * @param repoDir - repository directory
-   * @param model - model identifier
-   * @param systemPrompt - system prompt for the review stage
-   * @param priorStageSummary - optional prior stage context
-   * @returns nothing; drains the Claude CLI epilogue stream
-   */
   private async sendClaudeEpilogue(
     sessionId: string, repoDir: string, model: string, systemPrompt: string, priorStageSummary?: string
   ): Promise<void> {
@@ -1586,12 +1317,6 @@ export class StageAgentService {
     return { content: result.content, session: { provider: 'anthropic' as const, backend: 'cli', sessionId: result.sessionId } };
   }
 
-  /**
-   * @param passOpts - immutable chat pass options reused across iterations
-   * @param stage - stage name for error messages
-   * @param initialSessionId - session ID to start with
-   * @returns content and session ID from the first successful pass
-   */
   private async runCliChatRetryLoop(
     passOpts: CliChatPassOpts, stage: AgentStageName, initialSessionId?: string
   ): Promise<{ content: string; sessionId?: string }> {
@@ -1601,10 +1326,6 @@ export class StageAgentService {
     );
   }
 
-  /**
-   * @param opts - CLI chat pass configuration
-   * @returns result from a single CLI chat pass
-   */
   private async runCliChatPass(
     opts: CliChatPassOpts & { sessionId?: string; passNumber: number }
   ): Promise<CliPassResult> {

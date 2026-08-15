@@ -3,7 +3,6 @@ import { Command, CommandRunner, Option } from 'nest-commander';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { FormatConverterService } from '../common/converters/format-converter.service';
 import { ConfigService } from '@nestjs/config';
-import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ValidationError, FileSystemError, ExecutionError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
@@ -146,12 +145,6 @@ const buildTicketPreviewLines = (description: string): string[] => {
 
 const STDIN_TIMEOUT_IN_MS = 30_000;
 
-/**
- * Read all data from stdin until EOF.
- * Rejects after STDIN_TIMEOUT_IN_MS if no data arrives and stdin never closes.
- *
- * @returns The full stdin content as a UTF-8 string
- */
 const readStdin = (): Promise<string> =>
   new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -213,10 +206,6 @@ const ISSUE_CREATE_EXAMPLES: CliExample[] = [
   },
 ];
 
-/**
- * Command to create tickets on various trackers from standardized input
- * Supports multiple trackers and formats
- */
 @Injectable()
 @Command({
   name: 'issue:create',
@@ -230,7 +219,6 @@ export class IssueCreateCommand extends CommandRunner {
     private readonly jiraAdapter: JiraAdapter,
     private readonly formatConverterService: FormatConverterService,
     private readonly configService: ConfigService,
-    private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService
   ) {
     super();

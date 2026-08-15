@@ -29,13 +29,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     if (workspace) this.defaultWorkspace = workspace;
   }
 
-  /**
-   * Initialise the Bitbucket SDK client, warning when credentials are absent.
-   * @param email - Atlassian account e-mail
-   * @param apiToken - Bitbucket API token
-   * @param hasPartialConfig - Whether any Bitbucket config key is set
-   * @returns Configured Bitbucket client instance
-   */
   private initBitbucketClient(
     email: string | undefined,
     apiToken: string | undefined,
@@ -52,9 +45,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     return new Bitbucket({ auth: { username: email, password: apiToken } });
   }
 
-  /**
-   * Create an issue on BitBucket
-   */
   async createTicket(ticket: UniversalTicket): Promise<IssueTrackerTicketReference> {
     const { workspace, repo } = this.parseProjectOrDefault(ticket.project);
     const response = await this.bitbucket.issue.create({
@@ -71,18 +61,12 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     };
   }
 
-  /**
-   * Get an issue from BitBucket
-   */
   async getTicket(reference: string): Promise<UniversalTicket> {
     const { workspace, repo, issueId } = this.parseReference(reference);
     const response = await this.bitbucket.issue.get({ workspace, repo_slug: repo, issue_id: issueId });
     return this.mapBitbucketIssueToUniversal(response.data, workspace, repo);
   }
 
-  /**
-   * Update an issue on BitBucket
-   */
   async updateTicket(reference: string, updates: Partial<UniversalTicket>): Promise<void> {
     const { workspace, repo, issueId } = this.parseReference(reference);
     await this.bitbucket.issue.update({
@@ -93,9 +77,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     });
   }
 
-  /**
-   * Check if BitBucket supports a feature
-   */
   supports(feature: IssueTrackerFeature): boolean {
     const supportedFeatures = [
       IssueTrackerFeature.CREATE_TICKET,
@@ -110,18 +91,10 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     return supportedFeatures.includes(feature);
   }
 
-  /**
-   * Get platform name
-   */
   getTrackerName(): string {
     return 'bitbucket';
   }
 
-  /**
-   * Post a comment on a BitBucket PR or issue
-   * @param reference PR URL (https://bitbucket.org/…/pull-requests/123) or issue reference (workspace/repo#42 or 42)
-   * @param body Markdown comment body
-   */
   async createComment(reference: string, body: string): Promise<void> {
     if (reference.includes('bitbucket.org') && reference.includes('pull-requests')) {
       const { workspace, repo, prId } = this.parsePullRequestUrl(reference);
@@ -138,13 +111,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     });
   }
 
-  /**
-   * Post an inline (line-level) comment on a BitBucket PR diff.
-   * @param prUrl Full PR URL
-   * @param filePath Diff-relative file path (e.g. "src/foo/bar.ts")
-   * @param line Destination-side line number to anchor the comment to
-   * @param body Markdown comment body
-   */
   async createInlineComment(prUrl: string, filePath: string, line: number, body: string): Promise<void> {
     const { workspace, repo, prId } = this.parsePullRequestUrl(prUrl);
     await this.bitbucket.pullrequests.createComment({
@@ -158,24 +124,12 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     });
   }
 
-  /**
-   * Find an open pull request whose source branch name contains the ticket key
-   * @param ticketKey Ticket key to search for (e.g. "WBP-2955")
-   * @param repoOverride Optional repo in "workspace/repo" format; falls back to default
-   * @returns PR URL if found, null otherwise
-   */
   async findPullRequestByTicketKey(ticketKey: string, repoOverride?: string): Promise<string | null> {
     const matches = await this.findPullRequestsByTicketKey(ticketKey, repoOverride);
 
     return matches[0] ?? null;
   }
 
-  /**
-   * Find open pull requests whose source branch or title contains the ticket key.
-   * @param ticketKey Ticket key to search for (e.g. "WBP-2955")
-   * @param repoOverride Optional repo in "workspace/repo" format; falls back to default
-   * @returns Matching PR URLs sorted by pull request id
-   */
   async findPullRequestsByTicketKey(ticketKey: string, repoOverride?: string): Promise<string[]> {
     const { workspace, repo } = this.parseProjectOrDefault(repoOverride);
     const pullRequestUrls = new Set<string>();
@@ -194,9 +148,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     return [...pullRequestUrls].sort(sortById);
   }
 
-  /**
-   * Get pull request diff from BitBucket
-   */
   async getPullRequestDiff(url: string): Promise<string> {
     const { workspace, repo, prId } = this.parsePullRequestUrl(url);
 
@@ -209,11 +160,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     return response.data as unknown as string;
   }
 
-  /**
-   * Build the Bitbucket issue create request body from a universal ticket.
-   * @param ticket - Universal ticket to convert
-   * @returns Bitbucket create body object
-   */
   private buildBitbucketCreateBody(ticket: UniversalTicket): Record<string, unknown> {
     return {
       title: ticket.title,
@@ -223,13 +169,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     };
   }
 
-  /**
-   * Map a raw Bitbucket issue to a UniversalTicket.
-   * @param issue - Raw issue object from Bitbucket API
-   * @param workspace - Bitbucket workspace slug
-   * @param repo - Bitbucket repository slug
-   * @returns Populated UniversalTicket
-   */
   private mapBitbucketIssueToUniversal(issue: any, workspace: string, repo: string): UniversalTicket {
     const project = `${workspace}/${repo}`;
     return new UniversalTicket({
@@ -243,11 +182,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     });
   }
 
-  /**
-   * Build the Bitbucket issue update body from partial universal ticket fields.
-   * @param updates - Partial fields to apply
-   * @returns Bitbucket update body object
-   */
   private buildBitbucketUpdateBody(updates: Partial<UniversalTicket>): Record<string, unknown> {
     const body: Record<string, unknown> = {};
     if (updates.title) body.title = updates.title;
@@ -258,11 +192,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     return body;
   }
 
-  /**
-   * Collect PR URLs from a Bitbucket response page into the given Set.
-   * @param values - Array of pull request objects from the Bitbucket API
-   * @param into - Set to accumulate discovered URLs into
-   */
   private collectPullRequestUrls(values: any[] | undefined, into: Set<string>): void {
     for (const pullRequest of values ?? []) {
       const url = pullRequest.links?.html?.href;
@@ -275,9 +204,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     return match ? Number.parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
   }
 
-  /**
-   * Search issues on BitBucket
-   */
   async searchTickets(query: string): Promise<UniversalTicket[]> {
     const { workspace, repo } = this.parseProjectOrDefault();
     const response = await this.bitbucket.issue.list({ workspace, repo_slug: repo, q: query });
@@ -297,9 +223,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     );
   }
 
-  /**
-   * Parse issue reference (supports: "workspace/repo#123")
-   */
   private parseReference(reference: string): {
     workspace: string;
     repo: string;
@@ -315,9 +238,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     throw new ValidationError(`Invalid BitBucket issue reference: "${reference}". Expected format: workspace/repo#123`);
   }
 
-  /**
-   * Parse pull request URL
-   */
   private parsePullRequestUrl(url: string): {
     workspace: string;
     repo: string;
@@ -336,9 +256,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     };
   }
 
-  /**
-   * Map UniversalTicket type to BitBucket kind
-   */
   private mapTicketTypeToBitBucket(type?: TicketType): string {
     if (!type) return 'task';
 
@@ -354,9 +271,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     return typeMap[type] || 'task';
   }
 
-  /**
-   * Map BitBucket kind to UniversalTicket type
-   */
   private mapBitBucketTypeToUniversal(bitbucketKind: string): TicketType {
     const typeMap: Record<string, TicketType> = {
       task: TicketType.TASK,
@@ -368,10 +282,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     return typeMap[bitbucketKind] || TicketType.TASK;
   }
 
-  /**
-   * Map the normalized wf priority vocabulary to Bitbucket's fixed priority
-   * labels.
-   */
   private mapPriorityToBitBucket(priority?: TicketPriority): string {
     if (!priority) return 'major';
 
@@ -386,9 +296,6 @@ export class BitBucketAdapter implements IssueTrackerAdapter {
     return priorityMap[priority] || 'major';
   }
 
-  /**
-   * Map Bitbucket's priority labels back into the normalized wf vocabulary.
-   */
   private mapBitBucketPriorityToUniversal(bitbucketPriority: string): TicketPriority {
     const priorityMap: Record<string, TicketPriority> = {
       critical: TicketPriority.HIGHEST,

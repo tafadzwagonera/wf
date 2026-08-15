@@ -4,13 +4,6 @@ import inquirer from 'inquirer';
 import { getWfHomeDir, getWfLogDir, getWfStateDir } from './wf-paths';
 import { FileSystemError } from '../errors/app.error';
 
-/**
- * Ensure the wf home directory (~/.wf) and its subdirectories exist.
- *
- * When `~/.wf` is missing and a TTY is available, prompts the user
- * to create it interactively. Throws when the directory cannot be
- * created (no TTY or user declines).
- */
 const throwWfHomeMissing = (wfHome: string, verb: 'does not exist' | 'is required'): never => {
   throw new FileSystemError(`The wf home directory (${wfHome}) ${verb}. Create it manually:\n\n  mkdir -p ${wfHome}/logs ${wfHome}/state`);
 };

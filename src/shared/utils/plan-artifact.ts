@@ -12,13 +12,6 @@ import { ValidationError, WorkflowParseError } from '../errors/app.error';
 
 export type { PlanArtifactManifest, PlanArtifactReference };
 
-/**
- * Derive the review artifact path from a ticket artifact path.
- * Works for both real ticket paths (.md) and synthetic paths (.json, .yaml).
- *
- * @param ticketPath - Path to the ticket artifact
- * @returns Path for the review artifact
- */
 export const deriveReviewArtifactPath = (ticketPath: string): string => {
   const ext = path.extname(ticketPath);
   if (!ext) return ticketPath + '-review.md';
@@ -32,12 +25,6 @@ const PLAN_ARTIFACT_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
 export const CANONICAL_PLAN_STEM = /^(\d{4}-\d{2}-\d{2})-([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 const SHORT_HASHED_PLAN_STEM = /^([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 
-/**
- * Check whether a CLI positional argument is a canonical plan-token reference.
- *
- * @param value - Raw command argument
- * @returns True when the value matches the canonical plan artifact naming convention
- */
 export const isPlanToken = (value: string): boolean => CANONICAL_PLAN_STEM.test(value.replace(/\.[^.]+$/, ''));
 
 type PlanComplexity = (typeof VALID_COMPLEXITIES)[number];
@@ -66,12 +53,6 @@ export interface BuildPlanArtifactResolutionNoticeOptions {
   customArtifactName?: string;
 }
 
-/**
- * Describe a resolved plan artifact for user-facing warnings.
- *
- * @param reference - Resolved artifact reference
- * @returns Human-readable notice or null for legacy artifacts
- */
 export const buildPlanArtifactResolutionNotice = (
   reference: BuildPlanArtifactResolutionNoticeOptions
 ): string | null => {
@@ -86,74 +67,24 @@ export const buildPlanArtifactResolutionNotice = (
   return `Detected plan artifact ${path.basename(reference.artifactPath)} for ${sourceLabel}; using action ${reference.action}.`;
 };
 
-/**
- * Supported persisted plan artifact extensions.
- *
- * `yml` is accepted on read for resilience, even though current writers emit
- * `yaml`.
- */
 export const SUPPORTED_PLAN_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
 
-/**
- * Check whether an identifier looks like a ticket key.
- *
- * @param value - Raw command argument
- * @returns True when the value matches `ABC-123`
- */
 const looksLikeTicketKey = (value: string): boolean => /^[A-Z]+-\d+$/i.test(value);
 
-/**
- * Build the deterministic source hash used in plan filenames.
- *
- * @param sources - Ordered source tokens identifying the plan artifact
- * @returns Short lowercase SHA-256 token
- */
 export const hashPlanArtifactSources = (sources: string[]): string => hashGeneratedTicketSources(sources);
 
-/**
- * Build the filename for a hashed plan artifact.
- *
- * @param options - Filename components
- * @returns Hashed plan filename including extension
- */
 export const buildPlanArtifactFilename = (options: BuildPlanArtifactFilenameOptions): string =>
   `${resolveDatePrefix(options.createdAt)}-${options.hash
     .trim()
     .toLowerCase()}-${options.action}-plan.${normalizeFormat(options.format)}`;
 
-/**
- * Build the sidecar manifest filename for a hashed plan artifact.
- *
- * @param artifactFilename - Hashed plan artifact filename
- * @returns Manifest filename alongside the artifact
- */
 export const buildPlanArtifactManifestFilename = (artifactFilename: string): string => {
   const extensionlessArtifact = artifactFilename.replace(/\.[^.]+$/, '');
   return `${extensionlessArtifact}${PLAN_ARTIFACT_MANIFEST_EXTENSION}`;
 };
 
-/**
- * Build the sidecar manifest path for a hashed plan artifact.
- *
- * @param artifactPath - Absolute hashed plan artifact path
- * @returns Manifest path alongside the artifact
- */
 export const buildPlanArtifactManifestPath = (artifactPath: string): string =>
   path.join(path.dirname(artifactPath), buildPlanArtifactManifestFilename(path.basename(artifactPath)));
-
-/**
- * Build a manifest payload for a hashed plan artifact.
- *
- * @param artifactPath - Absolute artifact path
- * @param action - Resolution action embedded in the filename
- * @param format - Serialized artifact format
- * @param hash - Hash token used in the filename
- * @param sourceName - Original source token for reversible lookup
- * @param sourceKind - Whether the source came from a ticket or custom artifact
- * @param createdAt - Creation timestamp
- * @param trackerName - Optional platform namespace for traceability
- * @returns Manifest payload used for lookup and migration
- */
 
 /* eslint-disable max-params */
 // eslint-disable-next-line max-lines-per-function
@@ -180,24 +111,12 @@ export const buildPlanArtifactManifest = (
 });
 /* eslint-enable max-params */
 
-/**
- * Persist a plan artifact manifest alongside the artifact.
- *
- * @param manifest - Manifest payload to write
- * @returns Absolute manifest path
- */
 export const writePlanArtifactManifest = (manifest: PlanArtifactManifest): string => {
   const manifestPath = buildPlanArtifactManifestPath(manifest.artifactPath);
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
   return manifestPath;
 };
 
-/**
- * Load a plan artifact manifest from disk.
- *
- * @param manifestPath - Absolute manifest path
- * @returns Parsed manifest or null when the file is missing or invalid
- */
 // eslint-disable-next-line max-lines-per-function
 export const readPlanArtifactManifest = (manifestPath: string): PlanArtifactManifest | null => {
   if (!fs.existsSync(manifestPath)) {
@@ -406,13 +325,6 @@ const resolveManifestMatch = (
   };
 };
 
-/**
- * Resolve a plan artifact from a ticket key, hash token, or hashed filename stem.
- *
- * @param identifier - Raw CLI token, ticket key, or filename stem
- * @param options - Artifact directory and optional action hint
- * @returns Resolved plan artifact reference
- */
 // eslint-disable-next-line max-lines-per-function
 export const resolvePlanArtifactReference = (
   identifier: string,
@@ -451,13 +363,6 @@ const resolveDatePrefix = (createdAt?: Date | string): string => {
   return date.toISOString().slice(0, 10);
 };
 
-/**
- * Parse a persisted plan artifact into the canonical `ResolutionPlan` shape.
- *
- * @param content - Raw artifact content
- * @param filePath - Artifact path used for extension detection and errors
- * @returns Normalized resolution plan
- */
 export const parsePlanArtifact = (content: string, filePath: string): ResolutionPlan => {
   const extension = path.extname(filePath).slice(1).toLowerCase();
 
@@ -476,12 +381,6 @@ export const parsePlanArtifact = (content: string, filePath: string): Resolution
   throw new WorkflowParseError(`Unsupported plan file format: ${filePath}`);
 };
 
-/**
- * Build the artifact extension used when writing plans for a given CLI format.
- *
- * @param format - User-facing output format
- * @returns File extension without a leading dot
- */
 export const getPlanArtifactExtension = (format: PlanArtifactFormat): PlanArtifactFormat => format;
 
 // eslint-disable-next-line max-lines-per-function
@@ -619,16 +518,6 @@ const normalizeFileEntryList = (value: unknown): (string | FileEntry)[] | undefi
   });
 };
 
-/**
- * Resolve a CLI argument as a plan artifact by searching the tracker
- * directory (`~/.wf/<app>/<tracker>/`) then the custom artifact directory
- * (`~/.wf/<app>/`).
- *
- * @param argument - Raw CLI positional argument (ticket key or plan filename)
- * @param trackerDir - Tracker artifact directory
- * @param repoBaseDir - Repository base path used to derive the custom artifact directory
- * @returns Resolution result, or undefined when the argument is not a plan artifact
- */
 // eslint-disable-next-line max-lines-per-function
 export const resolvePlanToken = (
   argument: string,
@@ -674,14 +563,6 @@ export const resolvePlanToken = (
   return undefined;
 };
 
-/**
- * Build a synthetic ticket artifact from a custom plan so downstream
- * stages (implement, review, commit) have a uniform `TicketArtifact` shape.
- *
- * @param planPath - Absolute path to the custom plan file
- * @param plan - Parsed plan content
- * @returns A ticket artifact synthesized from the plan metadata
- */
 // eslint-disable-next-line max-lines-per-function
 export const buildSyntheticTicketArtifact = (planPath: string, plan: ResolutionPlan): TicketArtifact => {
   const artifactName = path.basename(planPath, path.extname(planPath));

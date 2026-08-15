@@ -61,42 +61,20 @@ type StreamContext = {
   inactivityTimeoutMs: number;
 };
 
-/**
- * Builds the prior-stage preamble string from the options.
- * @param options - Implementer options potentially containing a prior stage summary.
- * @returns The preamble string, or an empty string if none.
- */
 const buildPriorStagePreamble = (options: ImplementerOptions): string =>
   options.priorStageSummary
     ? `<prior-stage-context>\n${options.priorStageSummary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
     : '';
 
-/**
- * Calls buildSystemPrompt with fields extracted from GenerateAndVerifyParams.
- * @param params - Ticket, plan, repo, and context parameters.
- * @param repoDir - Absolute path to the repository root.
- * @returns The raw system prompt string.
- */
 const buildCodexRawSystemPrompt = (params: GenerateAndVerifyParams, repoDir: string): string =>
   buildSystemPrompt({ repoDir, conventionsSection: params.conventionsSection });
 
-/**
- * Assembles the full implement prompt for the Codex CLI agent.
- * @param params - Ticket, plan, repo, and context parameters.
- * @param repoDir - Absolute path to the repository root.
- * @returns The complete prompt string to pass to Codex CLI.
- */
 const buildCodexImplementPrompt = (params: GenerateAndVerifyParams, repoDir: string): string => {
   const systemPrompt = buildCodexRawSystemPrompt(params, repoDir);
   const preamble = buildPriorStagePreamble(params.options);
   return `${preamble}${systemPrompt}\n\nImplement the changes described above now. Read existing files, apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands.`;
 };
 
-/**
- * Logs a command_execution item.started event.
- * @param message - The Codex CLI message.
- * @returns True if the message was handled.
- */
 const logCommandStarted = (message: CodexCliMessage): boolean => {
   if (message.type !== 'item.started') return false;
   if (message.item?.type !== 'command_execution' || !message.item.command) return false;
@@ -106,11 +84,6 @@ const logCommandStarted = (message: CodexCliMessage): boolean => {
   return true;
 };
 
-/**
- * Logs a command_execution item.completed event.
- * @param message - The Codex CLI message.
- * @returns True if the message was handled.
- */
 const logCommandCompleted = (message: CodexCliMessage): boolean => {
   if (message.type !== 'item.completed') return false;
   if (message.item?.type !== 'command_execution') return false;
@@ -126,32 +99,15 @@ const logCommandCompleted = (message: CodexCliMessage): boolean => {
   return true;
 };
 
-/**
- * Logs a command_execution item.started or item.completed event.
- * @param message - The Codex CLI message.
- * @returns True if the message was handled (caller should continue).
- */
 const logCodexCommandEvent = (message: CodexCliMessage): boolean =>
   logCommandStarted(message) || logCommandCompleted(message);
 
-/**
- * Resolves the file path from a tool_use block input object.
- * @param input - The block input record.
- * @returns The file path string, or empty string if not found.
- */
 const resolveBlockFilePath = (input: Record<string, unknown>): string => {
   if (typeof input['file_path'] === 'string') return input['file_path'];
   if (typeof input['path'] === 'string') return input['path'];
   return '';
 };
 
-/**
- * Processes a single assistant tool_use block and records any touched file.
- * @param block - The assistant content block.
- * @param repoDir - Absolute path to the repository root.
- * @param touchedFiles - Set to accumulate relative paths of touched files.
- * @returns True if the block was a Write or Edit tool call.
- */
 const processAssistantBlock = (block: AssistantBlock, repoDir: string, touchedFiles: Set<string>): boolean => {
   if (block.type !== 'tool_use' || !block.name) return false;
   if (!['write', 'edit', 'Write', 'Edit'].includes(block.name)) return false;
@@ -163,13 +119,6 @@ const processAssistantBlock = (block: AssistantBlock, repoDir: string, touchedFi
   return true;
 };
 
-/**
- * Tracks file mutations from assistant tool_use blocks mid-session.
- * @param message - The Codex CLI message to inspect.
- * @param repoDir - Absolute path to the repository root.
- * @param touchedFiles - Set to accumulate relative paths of touched files.
- * @returns True if at least one Write or Edit block was processed.
- */
 const logCodexAssistantBlocks = (message: CodexCliMessage, repoDir: string, touchedFiles: Set<string>): boolean => {
   if (message.type !== 'assistant') return false;
   const innerMessage = message.message as { content?: AssistantBlock[] } | undefined;
@@ -180,10 +129,6 @@ const logCodexAssistantBlocks = (message: CodexCliMessage, repoDir: string, touc
   return wrote;
 };
 
-/**
- * Logs the agent summary message lines if present.
- * @param message - The Codex CLI message to inspect.
- */
 const logAgentSummary = (message: CodexCliMessage): void => {
   if (message.type !== 'item.completed' || message.item?.type !== 'agent_message') return;
   const summary = message.item.text?.trim();
@@ -194,13 +139,6 @@ const logAgentSummary = (message: CodexCliMessage): void => {
   }
 };
 
-/**
- * Handles file tracking from message.files list.
- * @param message - The Codex CLI message.
- * @param repoDir - Absolute path to the repository root.
- * @param touchedFiles - Set to accumulate relative paths of touched files.
- * @returns True if at least one file was tracked.
- */
 const trackMessageFiles = (message: CodexCliMessage, repoDir: string, touchedFiles: Set<string>): boolean => {
   if (!message.files || message.files.length === 0) return false;
   for (const { filename } of message.files) {
@@ -210,11 +148,6 @@ const trackMessageFiles = (message: CodexCliMessage, repoDir: string, touchedFil
   return true;
 };
 
-/**
- * Logs the agent_message item.completed text snippet.
- * @param message - The Codex CLI message to inspect.
- * @returns True if the message was handled (caller should continue).
- */
 const logAgentMessageText = (message: CodexCliMessage): boolean => {
   if (message.type !== 'item.completed' || message.item?.type !== 'agent_message') return false;
   if (!message.item.text) return false;
@@ -224,12 +157,6 @@ const logAgentMessageText = (message: CodexCliMessage): boolean => {
   return true;
 };
 
-/**
- * Tracks verification outcomes from command_execution items.
- * @param message - The Codex CLI message to inspect.
- * @param activityState - Mutable state tracking outcomes.
- * @param verificationScripts - Configured verification scripts.
- */
 const matchVerificationScript = (
   command: string, scripts: VerificationScript[],
 ): VerificationScript | undefined =>
@@ -249,12 +176,6 @@ const applyCodexVerificationOutcome = (
   activityState.verificationOutcomes.push({ id: script.id, command, policy: script.policy, status });
 };
 
-/**
- * Processes a single message from the Codex CLI stream.
- * @param message - The Codex CLI message to process.
- * @param ctx - Stream context containing repoDir and touchedFiles.
- * @returns The session ID and whether a write occurred.
- */
 const processCodexMessage = (
   message: CodexCliMessage, ctx: StreamContext,
 ): { sessionId?: string; wrote: boolean } => {
@@ -271,12 +192,6 @@ const processCodexMessage = (
   return { sessionId, wrote };
 };
 
-/**
- * Processes the Codex CLI stream, logging messages and collecting session/file state.
- * @param ctx - Stream context with CLI args, repoDir, prompt, and touchedFiles.
- * @param initialSessionId - Session ID to resume from, if any.
- * @returns The resolved session ID and whether any files were written.
- */
 const processCodexStream = async (
   ctx: StreamContext,
   initialSessionId: string | undefined,
@@ -293,13 +208,6 @@ const processCodexStream = async (
   return { sessionId, wrote };
 };
 
-/**
- * Calls resolveModelRouting with Codex-specific defaults.
- * @param options - Implementer options.
- * @param planArtifact - The plan artifact.
- * @param configService - The NestJS config service.
- * @returns The routing result object.
- */
 const resolveCodexModelRouting = (
   options: ImplementerOptions,
   planArtifact: PlanArtifact,
@@ -314,13 +222,6 @@ const resolveCodexModelRouting = (
     adapterLabel: CODEX_ADAPTER_LABEL,
   });
 
-/**
- * Resolves the model string and logs the routing decision.
- * @param options - Implementer options.
- * @param planArtifact - The plan artifact.
- * @param configService - The NestJS config service.
- * @returns The resolved model string.
- */
 const resolveCodexModel = (
   options: ImplementerOptions,
   planArtifact: PlanArtifact,
@@ -331,23 +232,12 @@ const resolveCodexModel = (
   return result.model;
 };
 
-/**
- * Logs the touched files summary to stdout.
- * @param touchedFiles - Set of relative file paths that were modified.
- */
 const logTouchedFiles = (touchedFiles: Set<string>): void => {
   if (touchedFiles.size === 0) return;
   console.log(chalk.bold(`\n  Files touched (${touchedFiles.size}):`));
   for (const f of touchedFiles) console.log(chalk.gray(`    ${f}`));
 };
 
-/**
- * Builds the CodexCliArgs and runs the stream, returning sessionId and touchedFiles.
- * @param params - GenerateAndVerify parameters.
- * @param repoDir - Absolute path to the repository root.
- * @param model - Resolved model identifier.
- * @returns The session ID and set of touched file paths.
- */
 type RunCodexStreamResult = { sessionId: string | undefined; touchedFiles: Set<string> };
 
 const buildStreamContext = (
@@ -375,10 +265,17 @@ const runCodexStream = async (
   return { sessionId, touchedFiles: ctx.touchedFiles };
 };
 
-/**
- * Codex CLI headless mode implementer backend.
- * Spawns the Codex CLI as a subprocess and streams progress messages.
- */
+interface VerificationFixState {
+  outcomes: VerificationOutcome[];
+  codeFailures: VerificationOutcome[];
+  sessionId: string | undefined;
+  prevFails: number;
+  stalled: number;
+  readOnly: number;
+  passNumber: number;
+  exhausted: boolean;
+}
+
 export class CodexCliAdapter implements ImplementerBackend {
   constructor(private readonly configService: ConfigService) {}
 
@@ -480,19 +377,56 @@ export class CodexCliAdapter implements ImplementerBackend {
     return fix;
   }
 
+  private initVerificationFixState(p: CodexVerificationLoopParams): VerificationFixState {
+    const passNumber = 1;
+    const { outcomes, codeFailures } = this.evaluateVerificationPass(
+      p.params.verificationScripts, p.repoDir, passNumber
+    );
+    return {
+      outcomes, codeFailures, sessionId: p.sessionId,
+      prevFails: Infinity, stalled: 0, readOnly: 0, passNumber, exhausted: false,
+    };
+  }
+
+  private shouldRunFixIteration(state: VerificationFixState): boolean {
+    return !state.exhausted
+      && state.codeFailures.length > 0
+      && state.sessionId !== undefined
+      && state.readOnly < DEFAULT_STALL_THRESHOLD;
+  }
+
+  private applySuccessfulFix(
+    scripts: VerificationScript[], repoDir: string, state: VerificationFixState
+  ): void {
+    state.readOnly = 0;
+    const next = this.evaluateVerificationPass(scripts, repoDir, ++state.passNumber);
+    state.outcomes = next.outcomes;
+    state.codeFailures = next.codeFailures;
+    state.stalled = checkVerificationStall(
+      state.codeFailures.length, state.prevFails, state.stalled, CODEX_ADAPTER_LABEL
+    );
+    if (state.stalled < 0) state.exhausted = true;
+    state.prevFails = state.codeFailures.length;
+  }
+
+  private async runVerificationFixIteration(
+    ctx: StreamContext, p: CodexVerificationLoopParams, state: VerificationFixState
+  ): Promise<void> {
+    state.readOnly++;
+    const { sessionId } = state;
+    if (!sessionId) return;
+    const fix = await this.attemptCodexFix(ctx, p, state.passNumber, sessionId, state.codeFailures);
+    state.sessionId = fix.sessionId;
+    if (!state.sessionId || !fix.wrote) return;
+    this.applySuccessfulFix(p.params.verificationScripts, p.repoDir, state);
+  }
+
   private async runProgrammaticVerificationLoop(p: CodexVerificationLoopParams): Promise<VerificationOutcome[]> {
-    let prevFails = Infinity, stalled = 0, readOnly = 0, passNumber = 0, { sessionId } = p;
     const ctx = this.buildBaseStreamContext(p.params, p.activityState, p.touchedFiles, p.repoDir);
-    const verify = () => this.evaluateVerificationPass(p.params.verificationScripts, p.repoDir, ++passNumber);
-    let { outcomes, codeFailures } = verify();
-    while (codeFailures.length > 0 && sessionId && readOnly++ < DEFAULT_STALL_THRESHOLD) {
-      const fix = await this.attemptCodexFix(ctx, p, passNumber, sessionId, codeFailures);
-      if (!(sessionId = fix.sessionId) || !fix.wrote) continue;
-      readOnly = 0;
-      ({ outcomes, codeFailures } = verify());
-      if ((stalled = checkVerificationStall(codeFailures.length, prevFails, stalled, CODEX_ADAPTER_LABEL)) < 0) break;
-      prevFails = codeFailures.length;
+    const state = this.initVerificationFixState(p);
+    while (this.shouldRunFixIteration(state)) {
+      await this.runVerificationFixIteration(ctx, p, state);
     }
-    return outcomes;
+    return state.outcomes;
   }
 }

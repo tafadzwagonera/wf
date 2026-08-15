@@ -118,13 +118,6 @@ type ToolBlockLogParams = {
   touchedFiles?: Set<string>;
 };
 
-/**
- * Builds the combined append-system-prompt string from prior stage context, Claude context, and the main system prompt.
- * @param priorStageSummary - Optional summary from a prior workflow stage.
- * @param claudeContext - Optional repo AI context loaded from disk.
- * @param systemPrompt - The main system prompt for the implementer.
- * @returns The joined append-system-prompt string.
- */
 const buildCliSystemPrompt = (
   priorStageSummary: string | undefined,
   claudeContext: string | null,
@@ -138,12 +131,6 @@ const buildCliSystemPrompt = (
     .join('\n\n');
 };
 
-/**
- * Collects touched files from a CLI message's file list.
- * @param message - The CLI message to inspect.
- * @param repoDir - Absolute path to the repository directory.
- * @param touchedFiles - Set of relative file paths to update.
- */
 const collectTouchedFiles = (message: ClaudeCliMessage, repoDir: string, touchedFiles: Set<string>): void => {
   if (!message.files) return;
   for (const { filename } of message.files) {
@@ -152,10 +139,6 @@ const collectTouchedFiles = (message: ClaudeCliMessage, repoDir: string, touched
   }
 };
 
-/**
- * Logs the summary lines from a CLI result message.
- * @param message - A result-type CLI message.
- */
 const logCliResultSummary = (message: ClaudeCliMessage): void => {
   const summary = message.result?.trim();
   if (!summary) return;
@@ -185,11 +168,6 @@ const describeCliFailure = (message: ClaudeCliMessage): string => {
   return parts.length ? parts.join(' | ') : 'unknown error';
 };
 
-/**
- * Logs the final result of the initial CLI run (summary, turns, cost, session).
- * @param message - A result-type CLI message.
- * @param sessionId - The resolved session ID to display.
- */
 const logCliResult = (message: ClaudeCliMessage, sessionId: string | undefined): void => {
   if (message.is_error) throw new AiProviderError(`Claude CLI failed: ${describeCliFailure(message)}`);
   logCliResultSummary(message);
@@ -204,14 +182,6 @@ const logCliResult = (message: ClaudeCliMessage, sessionId: string | undefined):
   }
 };
 
-/**
- * Processes a single CLI stream message: updates session ID, collects touched files, and handles result output.
- * @param message - The CLI message to process.
- * @param repoDir - Absolute path to the repository directory.
- * @param sessionId - Current session ID (may be updated).
- * @param touchedFiles - Set of relative file paths modified so far.
- * @returns Updated session ID after processing.
- */
 const processCliStream = (
   message: ClaudeCliMessage,
   repoDir: string,
@@ -237,11 +207,6 @@ const cliContinuationTail
     + 'Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. '
     + 'Do not output any text or plan before making your first tool call.';
 
-/**
- * Builds a self-sufficient continuation prompt with progress, task brief, unvisited files, and verification.
- * @param p - All fields needed to orient the model on remaining work.
- * @returns The continuation prompt string.
- */
 const buildContinuationPrompt = (p: CliContinuationPromptParams): string => {
   const completed = p.totalPlanned - p.currentUnvisited.length;
   const unvisitedLines = p.currentUnvisited.map(f => `- ${f}`).join('\n');
@@ -253,11 +218,6 @@ const buildContinuationPrompt = (p: CliContinuationPromptParams): string => {
   ].join('\n');
 };
 
-/**
- * Logs the result of a single continuation pass.
- * @param passNumber - 1-based pass index.
- * @param message - The CLI result message for this pass.
- */
 const logContinuationPassResult = (passNumber: number, message: ClaudeCliMessage): void => {
   if (message.type !== 'result') return;
   const outcome = message.is_error
@@ -269,14 +229,6 @@ const logContinuationPassResult = (passNumber: number, message: ClaudeCliMessage
   }
 };
 
-/**
- * Checks whether the continuation loop has stalled and logs a warning if so.
- * @param currentWorkload - Number of unvisited files in this pass.
- * @param previousWorkload - Number of unvisited files in the prior pass.
- * @param stalledPasses - Running count of non-decreasing passes.
- * @param currentUnvisited - List of unvisited file paths (for the warning message).
- * @returns Updated stalledPasses count, or -1 to signal the loop should break.
- */
 const checkStallCondition = (
   currentWorkload: number,
   previousWorkload: number,
@@ -291,13 +243,6 @@ const checkStallCondition = (
   return -1;
 };
 
-/**
- * Logs SDK-compatible progress or activity events for a CLI message.
- * @param message - The CLI message to evaluate.
- * @param repoDir - Absolute path to the repository directory.
- * @param activityState - Mutable state tracking the last verification command.
- * @returns True if the message was handled, false otherwise.
- */
 const logSdkProgressEvent = (message: ClaudeCliMessage, repoDir: string, activityState: ActivityState): boolean => {
   const progressLine = formatProgressMessage(message as never);
   if (!progressLine) return false;
@@ -312,13 +257,6 @@ const logSdkProgressEvent = (message: ClaudeCliMessage, repoDir: string, activit
   return true;
 };
 
-/**
- * Logs a CLI progress event (Skill task_progress, SDK progress line, or SDK activity lines).
- * @param message - The CLI message to evaluate.
- * @param repoDir - Absolute path to the repository directory.
- * @param activityState - Mutable state tracking the last verification command.
- * @returns True if the message was handled as a progress event, false otherwise.
- */
 const logCliProgressEvent = (message: ClaudeCliMessage, repoDir: string, activityState: ActivityState): boolean => {
   if (message.type === 'system' && message.subtype === 'task_progress' && message.last_tool_name === 'Skill') {
     const raw = message.summary ?? message.description;
@@ -334,9 +272,6 @@ const logCliProgressEvent = (message: ClaudeCliMessage, repoDir: string, activit
   return activityLines.length > 0;
 };
 
-/**
- * @returns True if the block contained a valid file path (i.e. a write occurred).
- */
 const logWriteEditEvent = (
   toolName: string,
   input: Record<string, unknown>,
@@ -352,11 +287,6 @@ const logWriteEditEvent = (
   return true;
 };
 
-/**
- * Logs a Bash tool invocation and records it as the last verification command.
- * @param input - The tool input block.
- * @param activityState - Mutable state tracking the last verification command.
- */
 const logBashEvent = (input: Record<string, unknown>, activityState: ActivityState): void => {
   const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
   if (!command) return;
@@ -364,22 +294,12 @@ const logBashEvent = (input: Record<string, unknown>, activityState: ActivitySta
   console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Verification running: ${command}`));
 };
 
-/**
- * Resolves the target string for a Read, Glob, or Grep tool input.
- * @param input - The tool input block.
- * @returns The resolved target string, or empty string if not found.
- */
 const resolveReadTarget = (input: Record<string, unknown>): string => {
   if (typeof input['file_path'] === 'string') return input['file_path'];
   if (typeof input['pattern'] === 'string') return input['pattern'];
   return '';
 };
 
-/**
- * Logs a Read, Glob, or Grep tool invocation.
- * @param toolName - One of 'Read', 'Glob', or 'Grep'.
- * @param input - The tool input block.
- */
 const logReadEvent = (toolName: string, input: Record<string, unknown>): void => {
   const target = resolveReadTarget(input);
   if (!target) return;
@@ -387,13 +307,6 @@ const logReadEvent = (toolName: string, input: Record<string, unknown>): void =>
   console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] ${toolName}: ${short}`));
 };
 
-/**
- * Logs verification pass/fail for observability during the AI session.
- * Does NOT record outcomes — programmatic verification after the session is authoritative.
- *
- * @param block - The result block to evaluate.
- * @param activityState - Mutable state tracking the last verification command.
- */
 const detectVerificationStatus = (content: string, isError: boolean | undefined): 'failed' | 'passed' | undefined => {
   if (isError || /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(content)) return 'failed';
   if (/(passed|success|succeeded|completed successfully|exit code 0)/i.test(content)) return 'passed';
@@ -414,21 +327,9 @@ const logToolResultVerification = (
   activityState.lastVerificationCommand = undefined;
 };
 
-/**
- * Computes the list of planned files not yet touched in the current pass.
- * @param repoFiles - All planned file entries for the repo.
- * @param repoName - Repository name prefix to strip.
- * @param touchedFiles - Set of relative paths already modified.
- * @returns Filtered list of unvisited non-glob file paths.
- */
 const computeUnvisitedFiles = (repoFiles: string[], repoName: string, touchedFiles: Set<string>): string[] =>
   repoFiles.map(f => stripRepoPrefix(f, repoName)).filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
 
-/**
- * Builds CLI args for the initial implement pass.
- * @param p - Session parameters including model, paths, and session state.
- * @returns CLI argument array for spawnCli.
- */
 const buildImplementCliArgs = (p: CliSessionParams) =>
   buildCliArgs({
     prompt: buildInitialUserPrompt(p.taskBriefParams),
@@ -475,12 +376,6 @@ const createCliSessionParams = (
   taskBriefParams: buildCliTaskBriefParams(params, repoDir),
 });
 
-/**
- * Builds CLI args for a single continuation pass.
- * @param p - Pass parameters including session ID, model, and paths.
- * @param continuationPrompt
- * @returns CLI argument array for spawnCli.
- */
 const buildPassCliArgs = (p: SinglePassParams, continuationPrompt: string) =>
   buildCliArgs({
     prompt: continuationPrompt,
@@ -492,6 +387,17 @@ const buildPassCliArgs = (p: SinglePassParams, continuationPrompt: string) =>
     permissionMode: 'acceptEdits',
     addDirs: p.additionalRepoDirs.length > 0 ? p.additionalRepoDirs : undefined,
   });
+
+interface VerificationFixState {
+  outcomes: VerificationOutcome[];
+  codeFailures: VerificationOutcome[];
+  sessionId: string | undefined;
+  prevFails: number;
+  stalled: number;
+  readOnly: number;
+  passNumber: number;
+  exhausted: boolean;
+}
 
 /**
  * Claude CLI headless mode (`claude -p`) implementer backend.
@@ -545,15 +451,6 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     };
   }
 
-  /**
-   * Discovers files changed outside the streamed tool events, then finalizes the session.
-   *
-   * @param p - Session parameters
-   * @param sessionId - Resolved provider session id
-   * @param touchedFiles - Files reported as touched during the stream
-   * @param activityState - Accumulated verification outcomes
-   * @returns The finalized session result
-   */
   private async completeCliSession(
     p: CliSessionParams,
     sessionId: string | undefined,
@@ -564,12 +461,6 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     return this.finalizeCliSession({ ...p, sessionId, touchedFiles, activityState });
   }
 
-  /**
-   * Opens the initial implement-stage CLI stream with the configured timeouts.
-   *
-   * @param p - Session parameters
-   * @returns Async stream of CLI messages
-   */
   private openImplementStream(p: CliSessionParams): AsyncGenerator<ClaudeCliMessage, void, undefined> {
     const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
     const prompt = buildInitialUserPrompt(p.taskBriefParams);
@@ -651,20 +542,57 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     return fix;
   }
 
+  private initVerificationFixState(
+    p: ContinuationLoopParams, sessionId: string | undefined
+  ): VerificationFixState {
+    const passNumber = 1;
+    const { outcomes, codeFailures } = this.evaluateVerificationPass(p.verificationScripts, p.repoDir, passNumber);
+    return {
+      outcomes, codeFailures, sessionId, prevFails: Infinity, stalled: 0, readOnly: 0, passNumber, exhausted: false,
+    };
+  }
+
+  private shouldRunFixIteration(state: VerificationFixState): boolean {
+    return !state.exhausted
+      && state.codeFailures.length > 0
+      && state.sessionId !== undefined
+      && state.readOnly < DEFAULT_STALL_THRESHOLD;
+  }
+
+  private applySuccessfulFix(
+    scripts: VerificationScript[], repoDir: string, state: VerificationFixState
+  ): void {
+    state.readOnly = 0;
+    const next = this.evaluateVerificationPass(scripts, repoDir, ++state.passNumber);
+    state.outcomes = next.outcomes;
+    state.codeFailures = next.codeFailures;
+    state.stalled = checkVerificationStall(
+      state.codeFailures.length, state.prevFails, state.stalled, CLI_ADAPTER_LABEL
+    );
+    if (state.stalled < 0) state.exhausted = true;
+    state.prevFails = state.codeFailures.length;
+  }
+
+  private async runVerificationFixIteration(
+    p: ContinuationLoopParams, state: VerificationFixState
+  ): Promise<void> {
+    state.readOnly++;
+    const { sessionId } = state;
+    if (!sessionId) return;
+    const fix = await this.attemptVerificationFix(p, state.passNumber, sessionId, state.codeFailures);
+    state.sessionId = fix.sessionId;
+    if (!state.sessionId || !fix.wrote) return;
+    this.applySuccessfulFix(p.verificationScripts, p.repoDir, state);
+  }
+
   private async runProgrammaticVerificationLoop(
-    p: ContinuationLoopParams, sessionId: string | undefined): Promise<VerificationOutcome[]> {
-    let prevFails = Infinity, stalled = 0, readOnly = 0, passNumber = 0;
-    const verify = () => this.evaluateVerificationPass(p.verificationScripts, p.repoDir, ++passNumber);
-    let { outcomes, codeFailures } = verify();
-    while (codeFailures.length > 0 && sessionId && readOnly++ < DEFAULT_STALL_THRESHOLD) {
-      const fix = await this.attemptVerificationFix(p, passNumber, sessionId, codeFailures);
-      if (!(sessionId = fix.sessionId) || !fix.wrote) continue;
-      readOnly = 0;
-      ({ outcomes, codeFailures } = verify());
-      if ((stalled = checkVerificationStall(codeFailures.length, prevFails, stalled, CLI_ADAPTER_LABEL)) === -1) break;
-      prevFails = codeFailures.length;
+    p: ContinuationLoopParams, sessionId: string | undefined
+  ): Promise<VerificationOutcome[]> {
+    const state = this.initVerificationFixState(p, sessionId);
+    while (this.shouldRunFixIteration(state)) {
+      await this.runVerificationFixIteration(p, state);
     }
-    return outcomes;
+    return state.outcomes;
   }
 
   private async runContinuationLoop(
