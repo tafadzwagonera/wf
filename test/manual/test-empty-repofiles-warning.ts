@@ -1,12 +1,12 @@
 /**
- * Manual smoke test: empty repoFiles warning and ⚠️ icon standardization
+ * Manual smoke test: empty repoFiles warning and ⚠ icon standardization
  *
  * Run: nr test:manual -- test-empty-repofiles-warning
  *
  * Verifies:
  *   1. buildPlanContext renders "(none listed)" for empty repoFiles.
  *   2. buildPlanContext renders "(none listed)" for empty trackedFilePaths.
- *   3. ⚠️ icon (U+26A0 U+FE0F) is used consistently — no bare ⚠ (U+26A0) remains.
+ *   3. ⚠ icon (U+26A0) is used consistently — no ⚠️ (U+26A0 U+FE0F) remains.
  */
 import chalk from 'chalk';
 import * as fs from 'fs';
@@ -53,7 +53,7 @@ const run = async (): Promise<void> => {
     ctx.includes('Tracked files:\n  (same as files to implement)')
   );
 
-  // 2. Icon standardization: scan source files for bare ⚠ (U+26A0 without U+FE0F)
+  // 2. Icon standardization: scan source files for emoji ⚠️ (U+26A0 U+FE0F)
   const srcDir = path.resolve(__dirname, '../../src');
   const tsFiles: string[] = [];
   const walk = (dir: string): void => {
@@ -65,25 +65,25 @@ const run = async (): Promise<void> => {
   };
   walk(srcDir);
 
-  const bareWarnings: string[] = [];
+  const emojiWarnings: string[] = [];
   for (const file of tsFiles) {
     const content = fs.readFileSync(file, 'utf-8');
     const lines = content.split('\n');
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      // Match ⚠ (U+26A0) NOT immediately followed by U+FE0F
+      // Match ⚠️ (U+26A0 immediately followed by U+FE0F)
       for (let j = 0; j < line.length; j++) {
-        if (line.charCodeAt(j) === 0x26a0 && (j + 1 >= line.length || line.charCodeAt(j + 1) !== 0xfe0f)) {
-          bareWarnings.push(`${path.relative(srcDir, file)}:${i + 1}`);
+        if (line.charCodeAt(j) === 0x26a0 && j + 1 < line.length && line.charCodeAt(j + 1) === 0xfe0f) {
+          emojiWarnings.push(`${path.relative(srcDir, file)}:${i + 1}`);
         }
       }
     }
   }
 
-  assert('No bare ⚠ (U+26A0 without U+FE0F) in src/', bareWarnings.length === 0);
-  if (bareWarnings.length > 0) {
-    for (const loc of bareWarnings) {
-      console.log(chalk.red(`    bare ⚠ at ${loc}`));
+  assert('No ⚠️ (U+26A0 U+FE0F) in src/', emojiWarnings.length === 0);
+  if (emojiWarnings.length > 0) {
+    for (const loc of emojiWarnings) {
+      console.log(chalk.red(`    ⚠️ at ${loc}`));
     }
   }
 

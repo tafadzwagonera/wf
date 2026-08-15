@@ -316,7 +316,7 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - Copy the generated token
 - Set `atlassian.bitbucket.apiToken` and `atlassian.bitbucket.workspace` in `wf.config.*`
 
-**⚠️ Note:** BitBucket app passwords were deprecated on September 9, 2025. Only API tokens are supported.
+**⚠ Note:** BitBucket app passwords were deprecated on September 9, 2025. Only API tokens are supported.
 
 ## Usage
 
