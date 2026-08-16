@@ -13,15 +13,17 @@ import {
   ResolutionAction,
   FindingsArtifact,
   ImplementerResult,
+  VerificationOutcome,
   VerificationScript,
 } from './interfaces';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { extractSummary, isRepoResolvable, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
-import { ConfigurationError, GitError, ValidationError } from '../shared/utils/errors';
+import { ConfigurationError, ExecutionError, GitError, ValidationError } from '../shared/utils/errors';
 import { resolveSkills } from '../skills';
 import { formatBackendSelection, writeImplementVerificationRunFile } from '../shared/utils/implement-verification';
 import { getWfStateDir } from '../shared/utils/wf-paths';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
+import { resolveCommitPolicy, formatCommitPolicyPromptSection, type CommitPolicy } from '../shared/utils/implement-commit-policy';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -148,10 +150,127 @@ export class ImplementerAgent {
     branchName: string | null,
     resolved: FileResolution
   ): Promise<ImplementerResult> {
-    const result = await this.executeBackendAdapter(ticket, planArtifact, options, resolved);
-    this.logCompletionStatus(planArtifact);
+    const policy = resolveCommitPolicy(planArtifact.plan.estimatedComplexity);
+    const baseline = await this.captureCommitBaseline(options.repoDir);
+    const { adapterResult, error } = await this.runAdapterCaptureError(ticket, planArtifact, options, resolved);
+    await this.enforceCommitPolicy(policy, baseline, options.repoDir);
+    if (error !== undefined) throw error instanceof Error ? error : new ExecutionError('adapter failed with non-Error value');
+    if (adapterResult === undefined) throw new ExecutionError('adapter returned no result');
     const hasChanges = (await this.gitService.getStatus(options.repoDir)).files.length > 0;
-    return { type: 'implementation', hasChanges, branchName, sessionId: result.sessionId, verificationOutcomes: result.verificationOutcomes, passCount: result.passCount };
+    const { sessionId, verificationOutcomes, passCount } = adapterResult;
+    return { type: 'implementation', hasChanges, branchName, sessionId, verificationOutcomes, passCount };
+  }
+
+  private async runAdapterCaptureError(
+    ticket: TicketArtifact, planArtifact: PlanArtifact,
+    options: ImplementerOptions, resolved: FileResolution
+  ): Promise<{
+    adapterResult?: { sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount?: number };
+    error?: unknown;
+  }> {
+    try {
+      const adapterResult = await this.executeBackendAdapter(ticket, planArtifact, options, resolved);
+      this.logCompletionStatus(planArtifact);
+      return { adapterResult };
+    } catch (error) {
+      return { error };
+    }
+  }
+
+  /**
+   * Captures the pre-run HEAD commit and branch so a self-committing agent's
+   * commits can be identified and unwound after the run, if the commit policy
+   * disallows them.
+   *
+   * @param repoDir - Repository directory
+   * @returns The baseline sha/branch, or null when there is no baseline (e.g. a repo with no commits)
+   */
+  private async captureCommitBaseline(repoDir?: string): Promise<{ sha: string; branch: string } | null> {
+    try {
+      const commits = await this.gitService.getRecentCommits(1, repoDir);
+      if (commits.length === 0) return null;
+      const branch = await this.gitService.getCurrentBranch(repoDir);
+      return { sha: commits[0].hash, branch };
+    } catch {
+      console.log(chalk.yellow('  Could not read HEAD baseline; commit policy enforcement skipped'));
+      return null;
+    }
+  }
+
+  /**
+   * Enforces the commit policy after the backend adapter has run: when
+   * commits are disallowed and the agent committed anyway, soft-resets back
+   * to the baseline so the work returns to the staged index instead of being
+   * silently invisible to the review stage.
+   *
+   * @param policy - Resolved commit policy
+   * @param baseline - Pre-run HEAD/branch, or null if unavailable
+   * @param repoDir - Repository directory
+   */
+  private async enforceCommitPolicy(
+    policy: CommitPolicy,
+    baseline: { sha: string; branch: string } | null,
+    repoDir?: string
+  ): Promise<void> {
+    if (policy.allowsCommit || baseline === null) return;
+    if (!(await this.hasNewCommitsSinceBaseline(baseline, repoDir))) return;
+
+    const skipReason = await this.resolveRewindSkipReason(baseline, repoDir);
+    if (skipReason) {
+      console.log(chalk.yellow(`  Commit policy: ${skipReason}`));
+      return;
+    }
+    await this.rewindDisallowedCommits(baseline, repoDir);
+  }
+
+  private async hasNewCommitsSinceBaseline(
+    baseline: { sha: string; branch: string },
+    repoDir?: string
+  ): Promise<boolean> {
+    const currentCommits = await this.gitService.getRecentCommits(1, repoDir);
+    return currentCommits.length > 0 && currentCommits[0].hash !== baseline.sha;
+  }
+
+  private async resolveRewindSkipReason(
+    baseline: { sha: string; branch: string },
+    repoDir?: string
+  ): Promise<string | null> {
+    try {
+      const currentBranch = await this.gitService.getCurrentBranch(repoDir);
+      if (currentBranch !== baseline.branch) return 'branch changed during implementation; leaving commits in place';
+
+      const mergeCommits = await this.gitService.listCommitsInRange(
+        { from: baseline.sha, to: 'HEAD', mergesOnly: true }, repoDir
+      );
+      if (mergeCommits.length > 0) return 'merge commits detected; leaving commits in place';
+
+      if (await this.hasCommitsAlreadyPushed(baseline, repoDir)) {
+        return 'commits already pushed; refusing to rewrite published history';
+      }
+      return null;
+    } catch {
+      return 'git safety check failed; leaving commits in place';
+    }
+  }
+
+  private async hasCommitsAlreadyPushed(baseline: { sha: string; branch: string }, repoDir?: string): Promise<boolean> {
+    const hasUpstream = await this.gitService.hasUpstream(baseline.branch, repoDir);
+    if (!hasUpstream) return false;
+
+    const [fromBaseline, fromUpstream] = await Promise.all([
+      this.gitService.listCommitsInRange({ from: baseline.sha, to: 'HEAD' }, repoDir),
+      this.gitService.listCommitsInRange({ from: `${baseline.branch}@{upstream}`, to: 'HEAD' }, repoDir),
+    ]);
+    return fromUpstream.length < fromBaseline.length;
+  }
+
+  private async rewindDisallowedCommits(baseline: { sha: string; branch: string }, repoDir?: string): Promise<void> {
+    const commitsToRevert = await this.gitService.listCommitsInRange({ from: baseline.sha, to: 'HEAD' }, repoDir);
+    await this.gitService.resetSoftToCommit(baseline.sha, repoDir);
+    console.log(chalk.yellow(
+      `  Commit policy: reverted ${commitsToRevert.length} commit(s) — work is staged and recoverable via \`git reflog\`:`
+    ));
+    for (const c of commitsToRevert) console.log(chalk.yellow(`      - ${c.subject}`));
   }
 
   private async executeBackendAdapter(
@@ -161,8 +280,7 @@ export class ImplementerAgent {
     const { repoName, contextFiles } = resolved;
     const verificationScripts = this.buildVerificationScripts(options.repoDir, planArtifact, options.isNewRepo);
     const tracked = await this.alignTrackedFiles(resolved.repoFiles, repoName, options.repoDir);
-    const conventions = detectRepoConventions(options.repoDir ?? process.cwd());
-    const conventionsSection = formatRepoConventionsPromptSection(conventions, repoName);
+    const conventionsSection = this.buildConventionsSection(options.repoDir, repoName, planArtifact);
     const backendSelection = this.resolveImplementBackendSelection();
     console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));
     this.writeRunArtifact(ticket, options, backendSelection, verificationScripts);
@@ -172,6 +290,18 @@ export class ImplementerAgent {
       conventionsSection,
       skillNames: await this.resolveImplementSkillNames(),
     });
+  }
+
+  private buildConventionsSection(repoDir: string | undefined, repoName: string, planArtifact: PlanArtifact): string {
+    const conventions = detectRepoConventions(repoDir ?? process.cwd());
+    const policy = resolveCommitPolicy(planArtifact.plan.estimatedComplexity);
+    console.log(chalk.cyan(
+      `  Commit policy: ${policy.complexity} -> ${policy.allowsCommit ? 'commits allowed' : 'commits blocked'}`
+    ));
+    return [
+      formatRepoConventionsPromptSection(conventions, repoName),
+      formatCommitPolicyPromptSection(policy),
+    ].filter(Boolean).join('\n\n');
   }
 
   private async alignTrackedFiles(

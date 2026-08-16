@@ -11,6 +11,7 @@ import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.ada
 import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, TicketArtifact } from './interfaces';
 import { KNOWN_SKILLS, registerSkill } from '../skills/skill-registry';
 import { isRepoResolvable } from './utils';
+import * as detectRepoConventionsModule from '../shared/utils/detect-repo-conventions';
 
 jest.mock('inquirer');
 
@@ -120,6 +121,11 @@ describe('ImplementerAgent', () => {
             stashChanges: jest.fn().mockResolvedValue(undefined),
             stashPop: jest.fn().mockResolvedValue(undefined),
             checkIgnored: jest.fn().mockResolvedValue([]),
+            getRecentCommits: jest.fn().mockResolvedValue([
+              { hash: 'baseline-sha', message: 'baseline commit', author: 'tester', date: new Date('2024-01-01') },
+            ]),
+            resetSoftToCommit: jest.fn().mockResolvedValue(undefined),
+            listCommitsInRange: jest.fn().mockResolvedValue([]),
           },
         },
         {
@@ -448,6 +454,11 @@ describe('ImplementerAgent', () => {
               stashChanges: jest.fn().mockResolvedValue(undefined),
               stashPop: jest.fn().mockResolvedValue(undefined),
               checkIgnored: jest.fn().mockResolvedValue([]),
+              getRecentCommits: jest.fn().mockResolvedValue([
+                { hash: 'baseline-sha', message: 'baseline commit', author: 'tester', date: new Date('2024-01-01') },
+              ]),
+              resetSoftToCommit: jest.fn().mockResolvedValue(undefined),
+              listCommitsInRange: jest.fn().mockResolvedValue([]),
             },
           },
           {
@@ -524,6 +535,11 @@ describe('ImplementerAgent', () => {
               stashChanges: jest.fn().mockResolvedValue(undefined),
               stashPop: jest.fn().mockResolvedValue(undefined),
               checkIgnored: jest.fn().mockResolvedValue([]),
+              getRecentCommits: jest.fn().mockResolvedValue([
+                { hash: 'baseline-sha', message: 'baseline commit', author: 'tester', date: new Date('2024-01-01') },
+              ]),
+              resetSoftToCommit: jest.fn().mockResolvedValue(undefined),
+              listCommitsInRange: jest.fn().mockResolvedValue([]),
             },
           },
           {
@@ -621,6 +637,277 @@ describe('ImplementerAgent', () => {
       if (result.type === 'implementation') {
         expect(result.hasChanges).toBe(false);
       }
+    });
+  });
+
+  describe('commit policy enforcement', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('includes both repo conventions and commit-policy text in conventionsSection', async () => {
+      jest.spyOn(detectRepoConventionsModule, 'formatRepoConventionsPromptSection')
+        .mockReturnValue('Repository conventions (repo-a):\n- Language: typescript');
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.conventionsSection).toContain('Repository conventions (repo-a):');
+      expect(call.conventionsSection).toContain('Commit policy:');
+    });
+
+    it('still injects the commit-policy text when repo conventions formatting is empty', async () => {
+      jest.spyOn(detectRepoConventionsModule, 'formatRepoConventionsPromptSection').mockReturnValue('');
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      const call = adapterSpy.mock.calls[0][0];
+      expect(call.conventionsSection).toContain('Commit policy:');
+    });
+
+    it('rewinds commits via resetSoftToCommit when medium complexity and HEAD moved', async () => {
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'baseline-sha', message: 'baseline', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'agent commit', author: 'a', date: new Date('2024-01-02') }]);
+      gitService.listCommitsInRange.mockImplementation(async (opts: { mergesOnly?: boolean }) =>
+        opts.mergesOnly ? [] : [{ hash: 'new-sha', subject: 'agent commit' }]);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'medium',
+      }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        noBranch: true,
+      });
+
+      expect(gitService.resetSoftToCommit).toHaveBeenCalledWith('baseline-sha', '/tmp/repo-a');
+    });
+
+    it('does not rewind when complexity is low even though HEAD moved', async () => {
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'baseline-sha', message: 'baseline', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'agent commit', author: 'a', date: new Date('2024-01-02') }]);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'low',
+      }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      expect(gitService.resetSoftToCommit).not.toHaveBeenCalled();
+    });
+
+    it('does not rewind when HEAD is unchanged', async () => {
+      gitService.getRecentCommits.mockResolvedValue([
+        { hash: 'baseline-sha', message: 'baseline', author: 'a', date: new Date('2024-01-01') },
+      ]);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'medium',
+      }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      expect(gitService.resetSoftToCommit).not.toHaveBeenCalled();
+    });
+
+    it('does not rewind and does not crash when baseline lookup throws', async () => {
+      gitService.getRecentCommits.mockRejectedValueOnce(new Error('no commits yet'));
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await expect(agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'medium',
+      }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      })).resolves.toBeDefined();
+
+      expect(gitService.resetSoftToCommit).not.toHaveBeenCalled();
+    });
+
+    it('does not rewind and warns when the branch changed during implementation', async () => {
+      let branchCallCount = 0;
+      gitService.getCurrentBranch.mockImplementation(async () => {
+        branchCallCount += 1;
+        // First call is the pre-run branch snapshot taken by the branch
+        // workflow itself, and the second is the commit-policy baseline —
+        // both happen before the agent runs, so both report 'main'. Any
+        // call after that is the post-run enforcement check, which should
+        // observe the branch switch.
+        return branchCallCount <= 2 ? 'main' : 'some-other-branch';
+      });
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'baseline-sha', message: 'baseline', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'agent commit', author: 'a', date: new Date('2024-01-02') }]);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'medium',
+      }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        noBranch: true,
+      });
+
+      expect(gitService.resetSoftToCommit).not.toHaveBeenCalled();
+      const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+      expect(logCalls.some(msg => msg.includes('branch changed'))).toBe(true);
+    });
+
+    it('does not rewind and warns when merge commits are present in the range', async () => {
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'baseline-sha', message: 'baseline', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'agent commit', author: 'a', date: new Date('2024-01-02') }]);
+      gitService.listCommitsInRange.mockResolvedValueOnce([{ hash: 'merge-sha', subject: 'Merge branch x' }]);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'medium',
+      }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      expect(gitService.resetSoftToCommit).not.toHaveBeenCalled();
+      const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+      expect(logCalls.some(msg => msg.includes('merge commits'))).toBe(true);
+    });
+
+    it('does not rewind and warns when commits are already pushed upstream', async () => {
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'baseline-sha', message: 'baseline', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'agent commit', author: 'a', date: new Date('2024-01-02') }]);
+      gitService.hasUpstream.mockResolvedValue(true);
+      gitService.listCommitsInRange.mockImplementation(async (opts: { from: string; mergesOnly?: boolean }) => {
+        if (opts.mergesOnly) return [];
+        if (opts.from === 'baseline-sha') return [{ hash: 'new-sha', subject: 'agent commit' }];
+        return [];
+      });
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'medium',
+      }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      expect(gitService.resetSoftToCommit).not.toHaveBeenCalled();
+      const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+      expect(logCalls.some(msg => msg.includes('already pushed'))).toBe(true);
+    });
+
+    it('reports hasChanges: true after a rewind, so review is not skipped', async () => {
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'baseline-sha', message: 'baseline', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'agent commit', author: 'a', date: new Date('2024-01-02') }]);
+      gitService.listCommitsInRange.mockImplementation(async (opts: { mergesOnly?: boolean }) =>
+        opts.mergesOnly ? [] : [{ hash: 'new-sha', subject: 'agent commit' }]);
+      gitService.getStatus.mockResolvedValue({
+        isClean: () => false,
+        modified: [],
+        staged: ['src/a.ts'],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: [],
+        files: [{ path: 'src/a.ts', index: 'M', working_dir: ' ' }],
+      } as any);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      const result = await agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'medium',
+      }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        noBranch: true,
+      });
+
+      expect(gitService.resetSoftToCommit).toHaveBeenCalledWith('baseline-sha', '/tmp/repo-a');
+      expect(result.type).toBe('implementation');
+      if (result.type === 'implementation') {
+        expect(result.hasChanges).toBe(true);
+      }
+    });
+
+    it('runs enforceCommitPolicy and then re-throws when the adapter throws', async () => {
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'baseline-sha', message: 'baseline', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'agent commit', author: 'a', date: new Date('2024-01-02') }]);
+      gitService.listCommitsInRange.mockImplementation(async (opts: { mergesOnly?: boolean }) =>
+        opts.mergesOnly ? [] : [{ hash: 'new-sha', subject: 'agent commit' }]);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockRejectedValue(new Error('API rate limit'));
+
+      await expect(agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'medium',
+      }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        noBranch: true,
+      })).rejects.toThrow('API rate limit');
+
+      expect(gitService.resetSoftToCommit).toHaveBeenCalledWith('baseline-sha', '/tmp/repo-a');
+    });
+
+    it('does not crash and skips rewind when a git safety check throws during enforcement', async () => {
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'baseline-sha', message: 'baseline', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'agent commit', author: 'a', date: new Date('2024-01-02') }]);
+      gitService.listCommitsInRange.mockRejectedValue(new Error('fatal: shallow repository'));
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await expect(agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'medium',
+      }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+        noBranch: true,
+      })).resolves.toBeDefined();
+
+      expect(gitService.resetSoftToCommit).not.toHaveBeenCalled();
+      const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+      expect(logCalls.some(msg => msg.includes('git safety check failed'))).toBe(true);
     });
   });
 

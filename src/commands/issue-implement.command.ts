@@ -69,6 +69,7 @@ interface IssueImplementOptions {
     + 'Unsupported providers (google, deepseek) fail fast with a clear error listing supported providers. backend: standard is rejected at runtime because the implement stage requires an agent-capable backend. '
     + 'Blank AI findings responses fail fast with provider-aware diagnostics instead of generic parse errors. '
     + 'Repo conventions are detected up front and threaded into every backend prompt, including continuation passes, so formatter and structural ESLint constraints survive context compaction. '
+    + 'A complexity-gated commit policy controls whether the backend may self-commit: low-complexity plans block commits so changes remain staged for issue:commit; medium and high plans permit a single commit but rewind any self-made commits via git reset --soft and re-stage the content so issue:commit handles the final message. Enforcement always runs even if the backend throws, and any git safety-check failure (shallow repo, detached HEAD, missing upstream) is logged and treated as a skip rather than an error. '
     + 'Run issue:fetch then issue:plan before calling this command for ticket-backed workflows. '
     + 'When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. '
     + 'Before implementation, the command runs an interactive branch creation workflow: prompts to create a new branch or stay on the current one, then only checks the working tree for uncommitted changes when a pull is needed. '
@@ -451,7 +452,7 @@ export class IssueImplementCommand extends CommandRunner {
           fs.existsSync(path.join(r.dir, `wf.config${ext}`))
         );
         if (dirExists && configExists) return null;
-        return `${r.name} (${!dirExists ? 'directory not found' : 'wf.config.* not found'}: ${r.dir})`;
+        return `${r.name} (${dirExists ? 'wf.config.* not found' : 'directory not found'}: ${r.dir})`;
       })
       .filter((entry): entry is string => entry !== null);
     if (missing.length === 0) return;

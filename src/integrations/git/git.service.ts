@@ -84,6 +84,23 @@ const resolveBaseBranch = (
 };
 
 /**
+ * Parses `git rev-list --pretty=format:%H%x00%s --no-commit-header` output
+ * into hash/subject pairs, one per commit.
+ *
+ * @param output - Raw rev-list output
+ * @returns Array of `{hash, subject}` pairs, ordered newest first
+ */
+const parseRevListOutput = (output: string): { hash: string; subject: string }[] =>
+  output
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const [hash, subject] = line.split('\0');
+      return { hash, subject };
+    });
+
+/**
  * Run `git check-ignore` on a single chunk of paths, returning the ignored subset.
  * exit code 1 from git means "none ignored" — that is not an error.
  *
@@ -293,6 +310,59 @@ export class GitService {
       return staged ? await git.diff(['--staged']) : await git.diff();
     } catch (error) {
       throw new GitError('Failed to get diff', error);
+    }
+  }
+
+  /**
+   * Lists commits in `from..to` (defaults `to` to `HEAD`), optionally
+   * restricted to merge commits only.
+   *
+   * @param options - Range and merge-only filter
+   * @param cwd - Optional repository working directory
+   * @returns Array of `{hash, subject}` pairs for commits in the range, ordered newest first
+   */
+  async listCommitsInRange(
+    options: { from: string; to?: string; mergesOnly?: boolean },
+    cwd?: string
+  ): Promise<{ hash: string; subject: string }[]> {
+    try {
+      const git = cwd ? createGit(cwd) : this.git;
+      const output = await git.raw(this.buildRevListArgs(options));
+      return parseRevListOutput(output);
+    } catch (error) {
+      throw new GitError('Failed to list commits in range', error);
+    }
+  }
+
+  private buildRevListArgs(options: { from: string; to?: string; mergesOnly?: boolean }): string[] {
+    const range = `${options.from}..${options.to ?? 'HEAD'}`;
+    return [
+      'rev-list',
+      ...(options.mergesOnly ? ['--merges'] : []),
+      '--pretty=format:%H%x00%s',
+      '--no-commit-header',
+      range,
+    ];
+  }
+
+  /**
+   * Soft-resets to `ref`, unwinding any commits made after it while leaving
+   * their content staged. Re-unstages wf tooling artifacts the reset may
+   * have re-staged (see {@link GitService.EXCLUDED_PATHS}) since neither
+   * `ReviewerAgent` nor `CommitterAgent` unstage anything themselves.
+   *
+   * @param ref - Commit to reset to
+   * @param cwd - Optional repository working directory
+   */
+  async resetSoftToCommit(ref: string, cwd?: string): Promise<void> {
+    try {
+      const git = cwd ? createGit(cwd) : this.git;
+      await git.reset(['--soft', ref]);
+      const status = await git.status();
+      const excluded = status.staged.filter(p => GitService.EXCLUDED_PATHS.test(p));
+      if (excluded.length > 0) await git.reset(['--', ...excluded]);
+    } catch (error) {
+      wrapGitError(error, `Failed to soft reset to ${ref}`);
     }
   }
 
