@@ -33,6 +33,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
 import { runSonarScanForReview } from '../review/sonar-scanner';
+import { resolveVerificationSummary } from '../shared/utils/implement-verification';
+import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
 
 type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 
@@ -554,7 +556,7 @@ export class IssueReviewCommand extends CommandRunner {
     const diff = await this.reviewRepoSet(repoDirs);
     return [{
       title: 'Local repository changes (' + this.formatRepoScope(repoDirs) + ')',
-      diff, context: ticketCtx + '\n\n' + this.buildRepoContext(repoDirs, 'repositories under review'),
+      diff, context: ticketCtx + '\n\n' + this.buildRepoContext(repoDirs, 'repositories under review', ticketKey),
       repoDir: repoDirs[0],
     }];
   }
@@ -949,9 +951,14 @@ export class IssueReviewCommand extends CommandRunner {
     return await adapter.getPullRequestDiff(url);
   }
 
-  private buildRepoContext(repoDirs: string[], label: string): string {
+  private buildRepoContext(repoDirs: string[], label: string, ticketKey?: string): string {
     const repoDescriptions = repoDirs.map(repoDir => `${path.basename(repoDir)} (${repoDir})`).join(', ');
-    return `${label}: ${repoDescriptions}`;
+    const baseContext = `${label}: ${repoDescriptions}`;
+    const primaryDir = repoDirs[0] ?? '';
+    const conventions = detectRepoConventions(primaryDir);
+    const conventionsSection = formatRepoConventionsPromptSection(conventions, path.basename(primaryDir));
+    const verificationSummary = ticketKey ? resolveVerificationSummary(primaryDir, ticketKey) : null;
+    return [baseContext, verificationSummary, conventionsSection].filter(Boolean).join('\n\n');
   }
 
   /**
