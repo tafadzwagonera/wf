@@ -1,10 +1,10 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as YAML from 'yaml';
 import type { GitHooksContext, RepoLanguage, RepoConventionsContext } from '../types/detection.types';
 import { buildSkipDirs, walkDir } from './walk-dir';
 
-export type { RepoLanguage, RepoConventionsContext };
+export type { RepoLanguage, RepoConventionsContext } from '../types/detection.types';
 
 export type PackageManager = 'bun' | 'pnpm' | 'yarn' | 'npm';
 
@@ -543,7 +543,7 @@ const detectTypescriptContext = (repoDir: string): RepoConventionsContext['types
   }
 };
 
-const PYTHON_SKIP_DIRS = ['node_modules', '__pycache__', '.git', 'venv', '.venv'];
+const PYTHON_SKIP_DIRS = new Set(['node_modules', '__pycache__', '.git', 'venv', '.venv']);
 
 /**
  * Check whether a directory entry is a Python package root.
@@ -555,7 +555,7 @@ const PYTHON_SKIP_DIRS = ['node_modules', '__pycache__', '.git', 'venv', '.venv'
 const isPythonPackageDir = (repoDir: string, entry: fs.Dirent): boolean =>
   entry.isDirectory()
   && !entry.name.startsWith('.')
-  && !PYTHON_SKIP_DIRS.includes(entry.name)
+  && !PYTHON_SKIP_DIRS.has(entry.name)
   && fs.existsSync(path.join(repoDir, entry.name, '__init__.py'));
 
 /**
@@ -938,6 +938,7 @@ const detectSimpleGitHooks = (repoDir: string, gitHooks: GitHooksContext[]): Git
  * Assemble the full RepoConventionsContext from pre-computed inputs.
  *
  * @param inputs - Pre-computed detection inputs
+ * @param langContexts
  * @returns A fully assembled conventions context
  */
 const assembleStructuralConventions = (
@@ -1004,22 +1005,35 @@ const hasMeaningfulConventionsData = (ctx: RepoConventionsContext): boolean =>
   || ctx.gitHooks.some(hookCtx => Object.keys(hookCtx.hooks).length > 0);
 
 /**
+ * Wrap a detail string in parentheses, or yield an empty string when there is nothing to show.
+ *
+ * @param details - Pre-formatted detail text
+ * @returns The parenthesised suffix, or an empty string
+ */
+const formatDetailSuffix = (details: string): string => (details ? ` (${details})` : '');
+
+/**
+ * Format rule entries into a comma-separated `key: value` string.
+ *
+ * @param entries - Rule name/value pairs
+ * @returns Comma-separated rule summary
+ */
+const formatRuleEntries = (entries: Array<[string, unknown]>): string =>
+  entries.map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join(', ');
+
+/**
  * Format linter context into a prompt line.
  *
  * @param linter - Linter context
  * @returns Formatted linter line
  */
 const formatLinterLine = (linter: NonNullable<RepoConventionsContext['linter']>): string => {
-  const styleRules = Object.entries(linter.keyRules)
-    .filter(([key]) => !ESLINT_STRUCTURAL_RULES.includes(key))
-    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-    .join(', ');
-  const structuralRules = Object.entries(linter.keyRules)
-    .filter(([key]) => ESLINT_STRUCTURAL_RULES.includes(key))
-    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-    .join(', ');
-  const details = [styleRules, structuralRules ? `constraints: ${structuralRules}` : ''].filter(Boolean).join('; ');
-  return `- Linter: ${linter.tool}${details ? ` (${details})` : ''}`;
+  const entries = Object.entries(linter.keyRules);
+  const styleRules = formatRuleEntries(entries.filter(([key]) => !ESLINT_STRUCTURAL_RULES.includes(key)));
+  const structuralRules = formatRuleEntries(entries.filter(([key]) => ESLINT_STRUCTURAL_RULES.includes(key)));
+  const constraints = structuralRules ? `constraints: ${structuralRules}` : '';
+  const details = [styleRules, constraints].filter(Boolean).join('; ');
+  return `- Linter: ${linter.tool}${formatDetailSuffix(details)}`;
 };
 
 /**
@@ -1029,10 +1043,8 @@ const formatLinterLine = (linter: NonNullable<RepoConventionsContext['linter']>)
  * @returns Formatted formatter line
  */
 const formatFormatterLine = (formatter: NonNullable<RepoConventionsContext['formatter']>): string => {
-  const ruleStr = Object.entries(formatter.keyRules)
-    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-    .join(', ');
-  return `- Formatter: ${formatter.tool}${ruleStr ? ` (${ruleStr})` : ''}`;
+  const rules = formatRuleEntries(Object.entries(formatter.keyRules));
+  return `- Formatter: ${formatter.tool}${formatDetailSuffix(rules)}`;
 };
 
 /**
@@ -1059,6 +1071,17 @@ const appendTerraformLines = (tf: NonNullable<RepoConventionsContext['terraform'
 };
 
 /**
+ * Format Python tooling context into a prompt line.
+ *
+ * @param python - Python context
+ * @returns Formatted Python tooling line
+ */
+const formatPythonLine = (python: NonNullable<RepoConventionsContext['python']>): string => {
+  const settings = Object.keys(python.keySettings).join(', ');
+  return `- Python tooling: ${python.tool}${formatDetailSuffix(settings)}`;
+};
+
+/**
  * Append language-specific and tooling lines to the prompt output.
  *
  * @param ctx - The conventions context
@@ -1069,10 +1092,7 @@ const appendToolingLines = (ctx: RepoConventionsContext, lines: string[]): void 
   if (ctx.formatter) lines.push(formatFormatterLine(ctx.formatter));
   if (ctx.typescript) lines.push(formatTypescriptLine(ctx.typescript));
   if (ctx.go) lines.push(`- Go module: ${ctx.go.modulePath}`);
-  if (ctx.python) {
-    const settingsStr = Object.keys(ctx.python.keySettings).join(', ');
-    lines.push(`- Python tooling: ${ctx.python.tool}${settingsStr ? ` (${settingsStr})` : ''}`);
-  }
+  if (ctx.python) lines.push(formatPythonLine(ctx.python));
   if (ctx.terraform) appendTerraformLines(ctx.terraform, lines);
 };
 
