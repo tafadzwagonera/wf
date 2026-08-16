@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { getWfHomeDir, getWfLogDir, getWfStateDir } from './wf-paths';

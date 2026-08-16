@@ -1,5 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { readDirEntries } from './read-dir-entries';
 
 export const DEFAULT_SKIP_DIRS = new Set([
   'node_modules',
@@ -18,6 +19,17 @@ export const DEFAULT_SKIP_DIRS = new Set([
   '.tsbuildinfo',
 ]);
 
+const parseGitignoreLine = (raw: string): string | null => {
+  const line = raw.trim();
+  if (!line || line.startsWith('#') || line.startsWith('!')) return null;
+  if (line.includes('*') || line.includes('?')) return null;
+  if (line.endsWith('/')) {
+    const name = line.slice(0, -1);
+    return name.includes('/') ? null : name;
+  }
+  return line.includes('/') ? null : line;
+};
+
 /**
  * Parse a `.gitignore` file and extract directory names to skip.
  *
@@ -29,34 +41,14 @@ export const DEFAULT_SKIP_DIRS = new Set([
  * @returns Set of directory names parsed from the file
  */
 export const parseGitignore = (gitignorePath: string): Set<string> => {
-  const dirs = new Set<string>();
-
-  let content: string | undefined;
+  let content: string;
   try {
-    content = fs.readFileSync(gitignorePath, 'utf-8');
+    content = fs.readFileSync(gitignorePath, 'utf-8') || '';
   } catch {
-    return dirs;
+    return new Set();
   }
-
-  if (!content) return dirs;
-
-  for (const raw of content.split('\n')) {
-    const line = raw.trim();
-    if (line === '' || line.startsWith('#') || line.startsWith('!')) continue;
-    // Skip patterns with wildcards or path separators — too complex for a name set
-    if (line.includes('*') || line.includes('?')) continue;
-    if (line.includes('/') && line !== line.replace(/\/$/, '')) {
-      // "dirname/" — trailing slash only, no embedded separators
-      const name = line.replace(/\/$/, '');
-      if (!name.includes('/')) dirs.add(name);
-      continue;
-    }
-    if (line.includes('/')) continue;
-    // Bare name without trailing slash — could be a file or directory; include it
-    dirs.add(line);
-  }
-
-  return dirs;
+  const names = content.split('\n').map(parseGitignoreLine).filter((n): n is string => n !== null);
+  return new Set(names);
 };
 
 /**
@@ -82,25 +74,9 @@ export const walkDir = (
   dir: string,
   predicate: (filePath: string) => boolean,
   skipDirs: Set<string> = DEFAULT_SKIP_DIRS
-): string[] => {
-  const results: string[] = [];
-
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return results;
-  }
-
-  for (const entry of entries) {
-    if (entry.isDirectory() && skipDirs.has(entry.name)) continue;
+): string[] =>
+  readDirEntries(dir).flatMap(entry => {
     const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...walkDir(fullPath, predicate, skipDirs));
-    } else if (predicate(fullPath)) {
-      results.push(fullPath);
-    }
-  }
-
-  return results;
-};
+    if (!entry.isDirectory()) return predicate(fullPath) ? [fullPath] : [];
+    return skipDirs.has(entry.name) ? [] : walkDir(fullPath, predicate, skipDirs);
+  });

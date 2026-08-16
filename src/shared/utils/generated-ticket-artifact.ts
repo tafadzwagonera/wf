@@ -1,8 +1,8 @@
-import { createHash } from 'crypto';
-import * as path from 'path';
+import { createHash } from 'node:crypto';
+import * as path from 'node:path';
 import type { GeneratedTicketSourceManifest } from '../types/plan-artifact.types';
 
-export type { GeneratedTicketSourceManifest };
+export type { GeneratedTicketSourceManifest } from '../types/plan-artifact.types';
 
 const GENERATED_TICKET_ARTIFACT_SUFFIX = 'ticket-description';
 const GENERATED_TICKET_MANIFEST_EXTENSION = '.sources.json';

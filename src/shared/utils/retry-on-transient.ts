@@ -1,3 +1,5 @@
+import { ExecutionError } from '../errors/app.error';
+
 const TRANSIENT_PATTERNS = [
   'Premature close',
   'ECONNRESET',
@@ -26,6 +28,24 @@ export interface RetryOnTransientOptions {
   onRetry?: (error: unknown, attempt: number) => void;
 }
 
+const sleep = (delayInMs: number): Promise<void> => new Promise(resolve => setTimeout(resolve, delayInMs));
+
+const runAttempt = async <T>(
+  fn: () => Promise<T>,
+  attempt: number,
+  opts: Required<RetryOnTransientOptions>,
+): Promise<T> => {
+  if (attempt > opts.maxAttempts) throw new ExecutionError(`retryOnTransient: exhausted ${opts.maxAttempts} attempt(s)`);
+  try {
+    return await fn();
+  } catch (error: unknown) {
+    if (!isTransientNetworkError(error) || attempt >= opts.maxAttempts) throw error;
+    opts.onRetry(error, attempt);
+    await sleep(opts.delayInMs);
+    return runAttempt(fn, attempt + 1, opts);
+  }
+};
+
 /**
  * Execute `fn` and retry once when a transient network error is thrown.
  * Non-transient errors propagate immediately without retry.
@@ -33,25 +53,9 @@ export interface RetryOnTransientOptions {
  * @param options - Retry behaviour overrides
  * @returns The resolved value of `fn`
  */
-export const retryOnTransient = async <T>(
-  fn: () => Promise<T>,
-  options?: RetryOnTransientOptions,
-): Promise<T> => {
-  const maxAttempts = options?.maxAttempts ?? 2;
-  const delayInMs = options?.delayInMs ?? 1000;
-
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (error: unknown) {
-      lastError = error;
-      if (!isTransientNetworkError(error) || attempt >= maxAttempts) {
-        throw error;
-      }
-      options?.onRetry?.(error, attempt);
-      await new Promise(resolve => setTimeout(resolve, delayInMs));
-    }
-  }
-  throw lastError;
-};
+export const retryOnTransient = <T>(fn: () => Promise<T>, options?: RetryOnTransientOptions): Promise<T> =>
+  runAttempt(fn, 1, {
+    maxAttempts: options?.maxAttempts ?? 2,
+    delayInMs: options?.delayInMs ?? 1000,
+    onRetry: options?.onRetry ?? (() => undefined),
+  });

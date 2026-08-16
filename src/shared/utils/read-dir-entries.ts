@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 
 // Returns [] instead of propagating to ErrorHandler.handle when the directory cannot be read.
 export const readDirEntries = (dir: string): fs.Dirent[] => {

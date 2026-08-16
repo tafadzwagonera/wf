@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 import { ValidationError } from '../errors/app.error';
 import { getWfStateDir } from './wf-paths';
 import type {
@@ -8,7 +8,7 @@ import type {
   ImplementRunArtifact,
   VerificationAttemptArtifact,
   VerificationFailureClassification,
-} from '../../agents/interfaces';
+} from '../types/agent.types';
 import type {
   ImplementVerificationRunFile,
   VerificationSignal,
@@ -26,7 +26,7 @@ export type {
   ImplementProgressVerificationSnapshot,
   ImplementProgressMutation,
   ImplementProgressStreamEvent,
-};
+} from '../types/implement-verification.types';
 
 const SYNTAX_ERROR_PATTERNS: Array<RegExp> = [
   /SyntaxError/i,
@@ -223,14 +223,14 @@ const compareSnapshots = (
 
 const computeProgressScore = (params: ProgressSignalParams): { score: number; reasons: string[] } => {
   const changedFileCount = params.changedFilesSinceLastVerification.length;
-  const filesReason = changedFileCount > 0 ? `recent file changes: ${params.changedFilesSinceLastVerification.join(', ')}` : undefined;
+  const filesReason = changedFileCount > 0 ? `recent file changes: ${params.changedFilesSinceLastVerification.join(', ')}` : '';
   const filesDelta = changedFileCount > 0 ? Math.min(5, 3 + changedFileCount) : 0;
 
   const snapshotResult = params.previousSnapshot
     ? compareSnapshots(params.currentSnapshot, params.previousSnapshot, changedFileCount)
     : { scoreDelta: 1, reasons: ['first failed verification snapshot'] };
 
-  const reasons = [filesReason, ...snapshotResult.reasons].filter((reason): reason is string => Boolean(reason));
+  const reasons = [filesReason, ...snapshotResult.reasons].filter(Boolean);
   return { score: Math.max(0, Math.min(10, filesDelta + snapshotResult.scoreDelta)), reasons };
 };
 
@@ -316,7 +316,8 @@ export const buildStreamProgressSignal = (event: ImplementProgressStreamEvent): 
 
 export const formatImplementProgressSignal = (signal: ImplementProgressSignal): string => {
   const reasons = signal.reasons.join('; ');
-  return `progress: ${signal.verdict} (score ${signal.score})${reasons ? ` · ${reasons}` : ''}`;
+  const suffix = reasons ? ` · ${reasons}` : '';
+  return `progress: ${signal.verdict} (score ${signal.score})${suffix}`;
 };
 
 const VERIFICATION_SIGNAL_RULES: Array<{
@@ -380,7 +381,7 @@ const findLatestCachedVerificationFile = (repoDir: string, ticketKey: string): s
   if (!fs.existsSync(dir)) return null;
 
   const files = fs.readdirSync(dir)
-    .filter((f): f is string => typeof f === 'string' && f.startsWith(`${ticketKey}-`) && f.endsWith('.json'))
+    .filter((f): f is string => f.startsWith(`${ticketKey}-`) && f.endsWith('.json'))
     .map(f => ({ filePath: path.join(dir, f), mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime);
 

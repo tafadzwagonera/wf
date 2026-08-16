@@ -1,4 +1,4 @@
-import type { ZodError, ZodIssue } from 'zod';
+import type { ZodError } from 'zod';
 
 /**
  * Format a list of field names into a human-readable string.
@@ -23,7 +23,7 @@ export const formatFieldNames = (fieldNames: string[]): string => {
 export const formatZodError = (zodError: ZodError): string =>
   zodError.issues
     .map(
-      (issue: ZodIssue) => `  [Field: '${issue.path.join('.')}', Code: '${issue.code}', Message: "${issue.message}"]`
+      issue => `  [Field: '${issue.path.join('.')}', Code: '${issue.code}', Message: "${issue.message}"]`
     )
     .join('\n');
 
