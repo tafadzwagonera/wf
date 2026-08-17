@@ -1184,6 +1184,9 @@ export class IssueReviewCommand extends CommandRunner {
       '', 'Suggestions:', this.formatChatSuggestionLines(review.suggestions),
       '', 'Answer questions about the review, explain why specific issues were raised, suggest concrete fixes,',
       'or help the developer decide which items to address first. Reference file paths and line numbers when relevant.',
+      '', 'Before flagging a naming, structural, or convention issue, check whether the pattern you\'re recommending',
+      'actually exists in the codebase by reading the relevant files listed in the repository conventions.',
+      'Do not assert that something diverges from an established pattern if you have only read the diff.',
     ].join('\n');
   }
 

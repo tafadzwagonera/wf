@@ -33,6 +33,7 @@ const DEFAULT_REVIEW_GUIDELINES = [
   'Scope: Reject unrelated refactors, unnecessary abstractions, and changes beyond the stated objective.',
   'Security: Check for exposed secrets, injection vectors, missing auth/authz guards, and unsafe deserialization.',
   'Testing: Require test coverage for new code paths, edge cases, and failure scenarios.',
+  'Pattern grounding: Before flagging a naming, structural, or convention issue, check whether the pattern you\'re recommending actually exists in the codebase by reading the relevant files listed in the repository conventions. Do not assert that something diverges from an established pattern if you have only read the diff.',
 ];
 
 interface ReviewDiffOptions {
@@ -92,6 +93,7 @@ export class ReviewStageService {
     return `Summarise the following diff for ${file} into concise bullet points. `
       + `Preserve technical precision — identifiers, types, and values matter as much as narrative. `
       + `Cover changed functions, import changes, signature modifications, and behavioural shifts. `
+      + `Before noting a naming or structural observation, check whether the pattern exists in the codebase by reading relevant files in the repository conventions — do not assert divergence from an established pattern if you have only read the diff. `
       + `Return ONLY a Markdown bullet list (- item).\n\n`
       + `\`\`\`diff\n${patch}\n\`\`\``;
   }
