@@ -51,15 +51,6 @@ jest.mock('../agents/utils', () => {
   };
 });
 
-jest.mock('../shared/utils/detect-repo-conventions', () => ({
-  detectRepoConventions: jest.fn(() => ({})),
-  formatRepoConventionsPromptSection: jest.fn(() => 'repo conventions: linter=eslint'),
-}));
-
-jest.mock('../shared/utils/implement-verification', () => ({
-  resolveVerificationSummary: jest.fn(() => 'verification: 12 passed'),
-}));
-
 jest.mock('../review/sonar-scanner', () => ({
   hasSonarProjectProperties: jest.fn(() => false),
   runSonarScan: jest.fn(),
@@ -1354,51 +1345,6 @@ describe('IssueReviewCommand', () => {
 
       const loggedLines = consoleLogSpy.mock.calls.map((c: unknown[]) => String(c[0]));
       expect(loggedLines.some((line: string) => line.includes('src/logger.ts') && !line.includes('src/logger.ts:'))).toBe(true);
-    });
-  });
-
-  describe('review context enrichment', () => {
-    it('passes repo conventions into reviewDiff context for local repo review', async () => {
-      const { command, reviewStageService } = await buildCommand();
-      jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('local diff');
-
-      await command.run([], { silent: true });
-
-      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
-        'local diff',
-        expect.objectContaining({
-          context: expect.stringContaining('repo conventions: linter=eslint'),
-        })
-      );
-    });
-
-    it('passes verification summary and repo conventions into reviewDiff context for ticket fallback-to-local review', async () => {
-      const { command, reviewStageService, adapters, promptMock } = await buildCommand();
-      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
-      jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined);
-      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
-      jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('local diff');
-      jest.spyOn(command as any, 'canResolveRepoLocally').mockReturnValue(true);
-
-      adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
-      adapters.githubAdapter.findPullRequestsByTicketKey.mockResolvedValue([]);
-      promptMock.mockResolvedValue({ decision: 'local' } as any);
-      setInteractiveSession();
-
-      await command.run([], { ticketKey: 'TAD-575', repos: ['service-tourv3'] });
-
-      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
-        'local diff',
-        expect.objectContaining({
-          context: expect.stringContaining('verification: 12 passed'),
-        })
-      );
-      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
-        'local diff',
-        expect.objectContaining({
-          context: expect.stringContaining('repo conventions: linter=eslint'),
-        })
-      );
     });
   });
 });

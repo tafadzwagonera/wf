@@ -33,10 +33,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
 import { runSonarScanForReview } from '../review/sonar-scanner';
-import { resolveVerificationSummary } from '../shared/utils/implement-verification';
-import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
-
-type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
+import { buildPreReviewContext } from '../shared/utils/build-pre-review-context';
+import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
 
 interface IssueReviewOptions {
   format?: OutputFormat;
@@ -154,7 +152,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 @Command({
   name: 'issue:review',
   description:
-    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. Use `--sonar` to force SonarScanner on, overriding `stages.review.sonar` config. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
+    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Each review is enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live after dependency install. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. Use `--sonar` to force SonarScanner on, overriding `stages.review.sonar` config. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
   arguments: '[pr-url]',
   options: { isDefault: false },
 })
@@ -556,7 +554,7 @@ export class IssueReviewCommand extends CommandRunner {
     const diff = await this.reviewRepoSet(repoDirs);
     return [{
       title: 'Local repository changes (' + this.formatRepoScope(repoDirs) + ')',
-      diff, context: ticketCtx + '\n\n' + this.buildRepoContext(repoDirs, 'repositories under review', ticketKey),
+      diff, context: ticketCtx + '\n\n' + this.buildRepoContext(repoDirs, 'repositories under review'),
       repoDir: repoDirs[0],
     }];
   }
@@ -581,14 +579,9 @@ export class IssueReviewCommand extends CommandRunner {
   private async executeReviews(targets: ReviewTarget[],
     extraCriteria: string[] | null, options?: IssueReviewOptions): Promise<ReviewedTarget[]> {
     const reviewed: ReviewedTarget[] = [];
-    const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
     for (const target of targets) {
       try {
-        await this.resolveSonarOutputForTarget(target, options, onProgress);
-        const { review } = await this.reviewStageService.reviewDiff(target.diff, {
-          context: target.context, extraCriteria: extraCriteria ?? undefined,
-          replaceCriteria: Boolean(options?.replaceCriteria),
-          repoDir: target.repoDir, resumeProviderSessionId: options?.sessionId, onProgress });
+        const review = await this.reviewSingleTarget(target, extraCriteria, options);
         reviewed.push({ ...target, review });
         if (!options?.silent) this.displayReview(review, target.title);
         if (options?.comment) await this.postReviewComment(target, review);
@@ -597,6 +590,19 @@ export class IssueReviewCommand extends CommandRunner {
       }
     }
     return reviewed;
+  }
+
+  private async reviewSingleTarget(
+    target: ReviewTarget, extraCriteria: string[] | null, options?: IssueReviewOptions
+  ): Promise<CodeReview> {
+    const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
+    await this.resolveSonarOutputForTarget(target, options, onProgress);
+    const context = await buildPreReviewContext(target, { ticketKey: options?.ticketKey, silent: options?.silent });
+    const { review } = await this.reviewStageService.reviewDiff(target.diff, {
+      context, extraCriteria: extraCriteria ?? undefined,
+      replaceCriteria: Boolean(options?.replaceCriteria),
+      repoDir: target.repoDir, resumeProviderSessionId: options?.sessionId, onProgress });
+    return review;
   }
 
   private async resolveSonarOutputForTarget(
@@ -763,17 +769,6 @@ export class IssueReviewCommand extends CommandRunner {
     return val;
   }
 
-  /**
-   * Build a rich review context string from a fetched ticket.
-   * @param ticket Universal ticket data
-   * @returns Context string for the AI review prompt
-   */
-  /**
-   * Resolve the ticket adapter from an optional tracker name.
-   * @returns The resolved adapter
-   * @param source
-   * @param options
-   */
   private validateReviewInputs(source: string | undefined, options?: IssueReviewOptions): void {
     if (source && options?.ticketKey) {
       throw new ValidationError('Provide either a PR URL or --ticket-key, not both');
@@ -951,14 +946,9 @@ export class IssueReviewCommand extends CommandRunner {
     return await adapter.getPullRequestDiff(url);
   }
 
-  private buildRepoContext(repoDirs: string[], label: string, ticketKey?: string): string {
+  private buildRepoContext(repoDirs: string[], label: string): string {
     const repoDescriptions = repoDirs.map(repoDir => `${path.basename(repoDir)} (${repoDir})`).join(', ');
-    const baseContext = `${label}: ${repoDescriptions}`;
-    const primaryDir = repoDirs[0] ?? '';
-    const conventions = detectRepoConventions(primaryDir);
-    const conventionsSection = formatRepoConventionsPromptSection(conventions, path.basename(primaryDir));
-    const verificationSummary = ticketKey ? resolveVerificationSummary(primaryDir, ticketKey) : null;
-    return [baseContext, verificationSummary, conventionsSection].filter(Boolean).join('\n\n');
+    return `${label}: ${repoDescriptions}`;
   }
 
   /**
