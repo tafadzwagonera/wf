@@ -28,8 +28,11 @@ export type {
 } from '../shared/types/agent.types';
 
 export type ImplementerResult
-  = | { type: 'implementation'; hasChanges: boolean; branchName: string | null; sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount?: number }
-    | { type: 'investigation'; artifact: FindingsArtifact };
+  = | {
+    type: 'implementation'; hasChanges: boolean; branchName: string | null; sessionId?: string;
+    verificationOutcomes: VerificationOutcome[]; passCount?: number; modelsUsed?: string[];
+  }
+  | { type: 'investigation'; artifact: FindingsArtifact };
 
 export interface FetcherOptions {
   trackerName: string;
@@ -79,5 +82,11 @@ export interface ImplementerBackend {
     trackedFilePaths: string[];
     conventionsSection?: string;
     skillNames?: string[];
-  }): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount?: number }>;
+  }): Promise<{
+    sessionId?: string;
+    verificationOutcomes: VerificationOutcome[];
+    passCount?: number;
+    /** Models the backend actually ran with; omitted by backends that do not route per run. */
+    modelsUsed?: string[];
+  }>;
 }

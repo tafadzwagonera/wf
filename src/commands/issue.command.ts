@@ -1480,6 +1480,9 @@ export class IssueCommand extends CommandRunner {
     if (sessionState && result?.type === 'implementation' && result.sessionId) {
       sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'implement', result.sessionId);
     }
+    if (sessionState && result?.type === 'implementation' && result.modelsUsed?.length) {
+      sessionState = await this.sessionService.recordStageModels(sessionState, 'implement', result.modelsUsed);
+    }
     sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'implement', null);
     return sessionState;
   }

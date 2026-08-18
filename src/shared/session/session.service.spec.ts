@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import * as logFileWriter from '../logger/log-file-writer';
 import { ConfigService } from '@nestjs/config';
 import { SessionService } from './session.service';
 import type { SessionState, StageConfigFingerprint } from '../types/session.types';
@@ -121,6 +122,54 @@ describe('SessionService', () => {
     expect(updated.stages['plan'].completedAt).toBeNull();
   });
 
+  it('recordStageModels records the models the stage actually ran with', async () => {
+    const session = createMockSessionState();
+    const started = await service.recordStageStart(session, 'implement', mockFingerprint, 'claude-sonnet-4-6');
+
+    const updated = await service.recordStageModels(started, 'implement', ['claude-haiku-4-5-20251001']);
+
+    expect(updated.stages['implement'].modelsUsed).toEqual(['claude-haiku-4-5-20251001']);
+    expect(updated.stages['implement'].model).toBe('claude-sonnet-4-6');
+  });
+
+  it('recordStageModels accumulates distinct models across auto-routed steps', async () => {
+    const session = createMockSessionState();
+    const started = await service.recordStageStart(session, 'implement', mockFingerprint, 'claude-sonnet-4-6');
+
+    const first = await service.recordStageModels(started, 'implement', ['claude-haiku-4-5-20251001']);
+    const second = await service.recordStageModels(first, 'implement', ['claude-haiku-4-5-20251001', 'claude-opus-5']);
+
+    expect(second.stages['implement'].modelsUsed).toEqual(['claude-haiku-4-5-20251001', 'claude-opus-5']);
+  });
+
+  it('recordStageModels ignores a stage that was never started', async () => {
+    const session = createMockSessionState();
+
+    const updated = await service.recordStageModels(session, 'implement', ['claude-opus-5']);
+
+    expect(updated.stages['implement']).toBeUndefined();
+  });
+
+  it('logs an INFO stage.start record so a run can be traced from the log', async () => {
+    const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+    const session = createMockSessionState();
+
+    await service.recordStageStart(session, 'implement', mockFingerprint, 'claude-sonnet-4-6');
+
+    expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('stage.start'), 'session');
+    expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('stage=implement'), 'session');
+  });
+
+  it('logs an INFO stage.complete record when a stage finishes', async () => {
+    const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+    const session = createMockSessionState();
+    const started = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-opus-5');
+
+    await service.recordStageComplete(started, 'plan', 'done');
+
+    expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('stage.complete'), 'session');
+  });
+
   it('recordProviderSessionId updates only the providerSessionId field', async () => {
     const session = createMockSessionState();
     const s1 = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-sonnet-4-20250514');
@@ -215,6 +264,7 @@ describe('SessionService', () => {
           fetch: {
             config: mockFingerprint,
             model: 'claude-sonnet-4-20250514',
+            modelsUsed: [],
             providerSessionId: null,
             summary: null,
             startedAt: completedAt,
@@ -232,6 +282,7 @@ describe('SessionService', () => {
           plan: {
             config: mockFingerprint,
             model: 'claude-sonnet-4-20250514',
+            modelsUsed: [],
             providerSessionId: null,
             summary: 'done',
             startedAt: new Date().toISOString(),
@@ -248,6 +299,7 @@ describe('SessionService', () => {
       const buildStage = () => ({
         config: mockFingerprint,
         model: 'claude-sonnet-4-20250514',
+        modelsUsed: [],
         providerSessionId: null,
         summary: 'done',
         startedAt: completedAt,
@@ -277,6 +329,7 @@ describe('SessionService', () => {
         plan: {
           config: mockFingerprint,
           model: 'claude-sonnet-4-20250514',
+          modelsUsed: [],
           providerSessionId: null,
           summary: null,
           startedAt: new Date().toISOString(),

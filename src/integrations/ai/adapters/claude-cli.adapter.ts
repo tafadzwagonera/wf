@@ -409,9 +409,15 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   async generateAndVerify(
     params: GenerateAndVerifyParams,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number }> {
+  ): Promise<{
+    sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number; modelsUsed: string[];
+  }> {
     assertClaudeCliAvailable();
-    return this.runCliSession(await this.buildCliSessionParams(params));
+    const sessionParams = await this.buildCliSessionParams(params);
+    const result = await this.runCliSession(sessionParams);
+    // Reported separately from the configured stage model: auto-routing may have selected the
+    // mechanical model, in which case the configured one never ran.
+    return { ...result, modelsUsed: [sessionParams.model] };
   }
 
   private async buildCliSessionParams(params: GenerateAndVerifyParams): Promise<CliSessionParams> {

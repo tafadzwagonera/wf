@@ -157,15 +157,17 @@ export class ImplementerAgent {
     if (error !== undefined) throw error instanceof Error ? error : new ExecutionError('adapter failed with non-Error value');
     if (adapterResult === undefined) throw new ExecutionError('adapter returned no result');
     const hasChanges = (await this.gitService.getStatus(options.repoDir)).files.length > 0;
-    const { sessionId, verificationOutcomes, passCount } = adapterResult;
-    return { type: 'implementation', hasChanges, branchName, sessionId, verificationOutcomes, passCount };
+    const { sessionId, verificationOutcomes, passCount, modelsUsed } = adapterResult;
+    return { type: 'implementation', hasChanges, branchName, sessionId, verificationOutcomes, passCount, modelsUsed };
   }
 
   private async runAdapterCaptureError(
     ticket: TicketArtifact, planArtifact: PlanArtifact,
     options: ImplementerOptions, resolved: FileResolution
   ): Promise<{
-    adapterResult?: { sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount?: number };
+    adapterResult?: {
+      sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount?: number; modelsUsed?: string[];
+    };
     error?: unknown;
   }> {
     try {

@@ -11,6 +11,7 @@ import type {
   SessionValidationResult,
 } from '../types/session.types';
 import { getWfSessionDir } from '../utils/wf-paths';
+import { appendToLogFile } from '../logger/log-file-writer';
 
 const STAGE_ORDER = ['plan', 'implement', 'review', 'commit'];
 const RESUME_STAGE_ORDER = ['fetch', ...STAGE_ORDER];
@@ -113,6 +114,20 @@ const buildPriorStageWarningContext = (
     () => params.pushNonResumablePriorStageWarning(params.nextStage, params.record.config, params.warnings)
   );
 
+/**
+ * Writes an INFO stage-lifecycle record.
+ *
+ * The log previously carried no stage transitions at all — only adapter-level DEBUG/WARN
+ * lines — so a run could not be traced back to which stage was active when it died.
+ *
+ * @param event - Lifecycle event name
+ * @param fields - Structured fields rendered as `key=value` pairs
+ */
+const logStageLifecycle = (event: string, fields: Record<string, string | number>): void => {
+  const rendered = Object.entries(fields).map(([key, value]) => `${key}=${value}`).join(' ');
+  appendToLogFile('INFO', `${event} ${rendered}`, 'session');
+};
+
 @Injectable()
 export class SessionService {
   constructor(private readonly configService: ConfigService) {}
@@ -154,7 +169,34 @@ export class SessionService {
     model: string
   ): Promise<SessionState> {
     if (this.canReuseStageRecord(session, stage, fingerprint)) return session;
+    logStageLifecycle('stage.start', {
+      stage, session: session.sessionId, model,
+      provider: fingerprint.provider, backend: fingerprint.backend,
+    });
     return this.persistSession(this.setStageRecord(session, stage, this.createStageRecord(fingerprint, model)));
+  }
+
+  /**
+   * Append the models a stage actually ran with.
+   *
+   * Kept separate from `model` — which is resolved before the stage starts — because the
+   * implement stage auto-routes per step, so the configured model and the model that ran
+   * can differ. Existing entries are preserved and duplicates collapsed, since a stage may
+   * report more than once across continuation and verification passes.
+   *
+   * @param session - Session being updated
+   * @param stage - Stage name whose record should be updated
+   * @param models - Models observed on this run
+   * @returns The persisted session, unchanged when the stage was never started
+   */
+  async recordStageModels(session: SessionState, stage: string, models: string[]): Promise<SessionState> {
+    if (!session.stages[stage] || models.length === 0) return session;
+    return this.persistSession(
+      this.updateStage(session, stage, record => ({
+        ...record,
+        modelsUsed: [...new Set([...record.modelsUsed, ...models])],
+      }))
+    );
   }
 
   async recordProviderSessionId(
@@ -170,6 +212,13 @@ export class SessionService {
 
   async recordStageComplete(session: SessionState, stage: string, summary: string | null): Promise<SessionState> {
     if (!session.stages[stage]) return session;
+    const record = session.stages[stage];
+    logStageLifecycle('stage.complete', {
+      stage,
+      session: session.sessionId,
+      elapsedMs: Date.now() - Date.parse(record.startedAt),
+      modelsUsed: record.modelsUsed.join(',') || record.model,
+    });
     return this.persistSession(
       this.updateStage(session, stage, record => ({ ...record, summary, completedAt: new Date().toISOString() }))
     );
@@ -296,6 +345,7 @@ export class SessionService {
     return {
       config: fingerprint,
       model,
+      modelsUsed: [],
       providerSessionId: null,
       summary: null,
       startedAt: new Date().toISOString(),
