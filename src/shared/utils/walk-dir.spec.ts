@@ -2,8 +2,9 @@ import { walkDir, DEFAULT_SKIP_DIRS, parseGitignore, buildSkipDirs } from './wal
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
-const createTempDir = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'wf-walkdir-'));
+const createTempDir = (): string => createManagedTempDir('walkdir');
 
 describe('walkDir', () => {
   describe('returns matching files', () => {

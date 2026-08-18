@@ -16,6 +16,7 @@ import { detectTestInfra } from '../../shared/utils/detect-test-infra';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { createTempDir as createManagedTempDir } from '../../shared/testing/temp-dir';
 
 jest.mock('inquirer', () => ({
   __esModule: true,
@@ -556,7 +557,7 @@ describe('PlanStageService', () => {
 
   it('persists a JSON plan artifact and returns cache metadata', async () => {
     const { service } = await buildService();
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-'));
+    const tempDir = createManagedTempDir('plan');
     const ticketPath = path.join(tempDir, 'WBP-123.md');
     const planPath = path.join(tempDir, `2026-04-16-${hashPlanArtifactSources(['WBP-123'])}-fix-plan.json`);
     fs.writeFileSync(ticketPath, '# WBP-123: Fix auth redirect');
@@ -587,7 +588,7 @@ describe('PlanStageService', () => {
 
   it('writes manifest with sourceKind custom when sourceKind option is custom', async () => {
     const { service } = await buildService();
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-'));
+    const tempDir = createManagedTempDir('plan');
     const ticketPath = path.join(tempDir, 'my-custom-plan.md');
     fs.writeFileSync(ticketPath, '# Custom plan content');
     jest.useFakeTimers().setSystemTime(new Date('2026-04-16T00:00:00.000Z'));
@@ -661,7 +662,7 @@ describe('PlanStageService', () => {
 
     it('calls enrichPlanWithDirectoryConfigs after generating plan', async () => {
       const { service, stageAgentService } = await buildService(true);
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-enrichment-'));
+      const tempDir = createManagedTempDir('enrichment');
       const ticketPath = path.join(tempDir, 'TEST-ENRICH.md');
       fs.writeFileSync(ticketPath, '# TEST-ENRICH: Test');
 
@@ -678,7 +679,7 @@ describe('PlanStageService', () => {
 
     it('createPlanArtifact returns cached plan without prompting when actions match', async () => {
       const { service } = await buildService();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const tempDir = createManagedTempDir('mismatch');
       const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
       fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
       // Filename='fix', content='fix' — no mismatch
@@ -696,7 +697,7 @@ describe('PlanStageService', () => {
 
     it('createPlanArtifact returns cached plan when user picks plan action on mismatch', async () => {
       const { service } = await buildService();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const tempDir = createManagedTempDir('mismatch');
       const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
       fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
       // Filename='fix', content='investigate' — mismatch when caller requests 'fix'
@@ -716,7 +717,7 @@ describe('PlanStageService', () => {
 
     it('createPlanArtifact falls through to regeneration when user picks requested action on mismatch', async () => {
       const { service } = await buildService();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const tempDir = createManagedTempDir('mismatch');
       const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
       fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
       buildCachedPlan(tempDir, 'fix', 'investigate');
@@ -734,7 +735,7 @@ describe('PlanStageService', () => {
 
     it('createPlanArtifact throws ValidationError non-interactively when actions mismatch', async () => {
       const { service } = await buildService();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const tempDir = createManagedTempDir('mismatch');
       const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
       fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
       buildCachedPlan(tempDir, 'fix', 'investigate');
@@ -756,7 +757,7 @@ describe('PlanStageService', () => {
 
     it('loadPlanArtifact prompts and returns cached plan when user picks plan action on mismatch', async () => {
       const { service } = await buildService();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const tempDir = createManagedTempDir('mismatch');
       const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
       fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
       buildCachedPlan(tempDir, 'fix', 'investigate');
@@ -771,7 +772,7 @@ describe('PlanStageService', () => {
 
     it('loadPlanArtifact throws ValidationError with --from plan guidance when user picks requested action', async () => {
       const { service } = await buildService();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const tempDir = createManagedTempDir('mismatch');
       const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
       fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
       buildCachedPlan(tempDir, 'fix', 'investigate');
@@ -784,7 +785,7 @@ describe('PlanStageService', () => {
 
     it('loadPlanArtifact throws ValidationError non-interactively when actions mismatch', async () => {
       const { service } = await buildService();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-mismatch-'));
+      const tempDir = createManagedTempDir('mismatch');
       const ticketPath = path.join(tempDir, 'WBP-MISMATCH.md');
       fs.writeFileSync(ticketPath, '# WBP-MISMATCH: Test');
       buildCachedPlan(tempDir, 'fix', 'investigate');
@@ -806,7 +807,7 @@ describe('PlanStageService', () => {
     });
 
     const createTempDir = () => {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-quality-'));
+      const dir = createManagedTempDir('quality');
       tempDirs.push(dir);
       return dir;
     };
@@ -1268,7 +1269,7 @@ describe('PlanStageService', () => {
   describe('tryReuseCachedPlan', () => {
     it('falls through to generation when no cached plan exists', async () => {
       const { service } = await buildService();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-notfound-'));
+      const tempDir = createManagedTempDir('notfound');
       const ticketPath = path.join(tempDir, 'WBP-NOTFOUND.md');
       fs.writeFileSync(ticketPath, '# WBP-NOTFOUND: Test');
 
@@ -1282,7 +1283,7 @@ describe('PlanStageService', () => {
 
     it('rethrows ValidationError when multiple cached plan artifacts are found', async () => {
       const { service } = await buildService();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-multi-'));
+      const tempDir = createManagedTempDir('multi');
       const ticketPath = path.join(tempDir, 'WBP-MULTI.md');
       fs.writeFileSync(ticketPath, '# WBP-MULTI: Test');
       const hash = hashPlanArtifactSources(['WBP-MULTI']);
@@ -1315,7 +1316,7 @@ describe('PlanStageService', () => {
 
     it('rethrows ValidationError for a non-canonical (short-hash) identifier', async () => {
       const { service } = await buildService();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-noncanon-'));
+      const tempDir = createManagedTempDir('noncanon');
       const ticketPath = path.join(tempDir, 'abcdef01-fix-plan.md');
       fs.writeFileSync(ticketPath, '# abcdef01-fix-plan: Test');
 

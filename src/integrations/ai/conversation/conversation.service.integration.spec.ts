@@ -8,6 +8,7 @@ import { StageAgentService } from '../stage-agent.service';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { createTempDir as createManagedTempDir } from '../../../shared/testing/temp-dir';
 
 describe('ConversationService Integration Tests', () => {
   let service: ConversationService;
@@ -16,8 +17,8 @@ describe('ConversationService Integration Tests', () => {
   let loggerService: jest.Mocked<LoggerService>;
   let originalHome: string | undefined;
   const testTicketKey = 'TEST-INTEGRATION-999';
-  const testHomeDir = path.join(os.tmpdir(), 'wf-conv-integration-home');
-  const testRepoDir = path.join(os.tmpdir(), 'wf-conv-integration-test-repo');
+  const testHomeDir = createManagedTempDir('conv-integration-home');
+  const testRepoDir = createManagedTempDir('conv-integration-test-repo');
   const testDir = path.join(testHomeDir, '.wf', path.basename(testRepoDir));
   const testFilePath = path.join(testDir, `${testTicketKey}-conversation.json`);
 

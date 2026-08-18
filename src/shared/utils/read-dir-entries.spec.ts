@@ -2,12 +2,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { readDirEntries } from './read-dir-entries';
+import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
 describe('readDirEntries', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-readdir-'));
+    tempDir = createManagedTempDir('readdir');
   });
 
   afterEach(() => {

@@ -10,6 +10,7 @@ import {
   deriveReviewArtifactPath,
 } from './plan-artifact';
 import { PlanArtifactNotFoundError } from '../errors/app.error';
+import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
 describe('parsePlanArtifact', () => {
   it('parses plan verification targeted checks and waivers from JSON artifacts', () => {
@@ -141,7 +142,7 @@ describe('plan artifact helpers', () => {
   });
 
   it('resolves plan metadata from a hashed manifest', () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-'));
+    const tempDir = createManagedTempDir('plan');
     const planPath = path.join(tempDir, '2026-04-16-1a2b3c4d-fix-plan.json');
     const manifestPath = buildPlanArtifactManifestPath(planPath);
 
@@ -192,7 +193,7 @@ describe('plan artifact helpers', () => {
   });
 
   it('throws PlanArtifactNotFoundError when no matching manifest exists', () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-notfound-'));
+    const tempDir = createManagedTempDir('notfound');
     expect(() =>
       resolvePlanArtifactReference('WBP-NOTFOUND', { artifactDir: tempDir })
     ).toThrow(PlanArtifactNotFoundError);

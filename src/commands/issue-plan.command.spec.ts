@@ -68,6 +68,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
+import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
 
 const mockCwd = '/tmp/consumer-app';
 
@@ -853,7 +854,7 @@ describe('IssuePlanCommand', () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
-    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-quality-'));
+    const repoDir = createManagedTempDir('plan-quality');
     const repoPath = path.join(repoDir, 'repo-a');
     fs.mkdirSync(path.join(repoPath, 'src'), { recursive: true });
     fs.writeFileSync(path.join(repoPath, 'package.json'), JSON.stringify({ scripts: { test: 'jest' } }));
@@ -1003,7 +1004,7 @@ describe('IssuePlanCommand', () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
-    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-infra-'));
+    const repoDir = createManagedTempDir('plan-infra');
     const repoPath = path.join(repoDir, 'repo-a');
     fs.mkdirSync(repoPath, { recursive: true });
     fs.writeFileSync(path.join(repoPath, 'package.json'), JSON.stringify({ scripts: { test: 'jest' } }));
@@ -1052,7 +1053,7 @@ describe('IssuePlanCommand', () => {
   it('allows enforced verification referencing an existing package.json script', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
 
-    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-infra-'));
+    const repoDir = createManagedTempDir('plan-infra');
     const repoPath = path.join(repoDir, 'repo-a');
     fs.mkdirSync(repoPath, { recursive: true });
     fs.writeFileSync(

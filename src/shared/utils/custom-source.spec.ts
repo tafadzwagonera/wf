@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { resolveCustomSourcePath } from './custom-source';
 import * as wfPaths from './wf-paths';
+import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
 describe('resolveCustomSourcePath', () => {
   let wfHomeDir: string;
@@ -10,9 +11,9 @@ describe('resolveCustomSourcePath', () => {
   let repoTwoDir: string;
 
   beforeEach(() => {
-    wfHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-home-'));
-    repoOneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-repo-one-'));
-    repoTwoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-repo-two-'));
+    wfHomeDir = createManagedTempDir('home');
+    repoOneDir = createManagedTempDir('repo-one');
+    repoTwoDir = createManagedTempDir('repo-two');
     jest.spyOn(wfPaths, 'getWfHomeDir').mockReturnValue(path.join(wfHomeDir, '.wf'));
   });
 

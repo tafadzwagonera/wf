@@ -10,6 +10,7 @@ jest.mock('./post-pull-install', () => ({
 import { execSync } from 'node:child_process';
 import { runPostPullDependencyInstall } from './post-pull-install';
 import { runPreReviewVerification } from './run-pre-review-verification';
+import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
 const mockInstall = runPostPullDependencyInstall as jest.MockedFunction<typeof runPostPullDependencyInstall>;
@@ -18,7 +19,7 @@ describe('runPreReviewVerification', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-pre-verify-'));
+    tmpDir = createManagedTempDir('pre-verify');
     mockInstall.mockResolvedValue(undefined);
     mockExecSync.mockReturnValue(Buffer.from(''));
   });

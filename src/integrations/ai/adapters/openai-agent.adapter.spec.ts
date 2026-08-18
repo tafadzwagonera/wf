@@ -14,6 +14,7 @@ import {
 import { detectMechanicalTask } from './shared-routing';
 import { loadAiContextConfig } from './load-ai-context-config';
 import type { VerificationScript } from '../../../agents/interfaces';
+import { createTempDir as createManagedTempDir } from '../../../shared/testing/temp-dir';
 
 jest.mock('@openai/agents-openai', () => ({
   OpenAIResponsesCompactionSession: jest.fn(),
@@ -631,7 +632,7 @@ describe('OpenAIAgentAdapter', () => {
 
   describe('model routing in generateAndVerify', () => {
     it('uses mechanical model when --model-routing=mechanical', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-routing-mech-'));
+      const repoDir = createManagedTempDir('openai-routing-mech');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -671,7 +672,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('uses default model when --model-routing=default', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-routing-default-'));
+      const repoDir = createManagedTempDir('openai-routing-default');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -698,7 +699,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('auto-detects mechanical task and selects cheaper model', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-routing-auto-'));
+      const repoDir = createManagedTempDir('openai-routing-auto');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -747,7 +748,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('reads mechanical model from stages.implement.models.mechanical config', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-routing-config-'));
+      const repoDir = createManagedTempDir('openai-routing-config');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -779,7 +780,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('throws when both model and models are configured', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-routing-warn-'));
+      const repoDir = createManagedTempDir('openai-routing-warn');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -798,7 +799,7 @@ describe('OpenAIAgentAdapter', () => {
 
   describe('generateAndVerify', () => {
     it('allows only whitelisted verification commands and prints a file summary', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-agent-'));
+      const repoDir = createManagedTempDir('openai-agent');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -932,7 +933,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('rejects a verification command that is not on the whitelist before execution', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-agent-denied-'));
+      const repoDir = createManagedTempDir('openai-agent-denied');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -978,7 +979,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('prints an explicit failed verification log when a command exits non-zero', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-agent-failed-'));
+      const repoDir = createManagedTempDir('openai-agent-failed');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1039,7 +1040,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('edit_file performs surgical replacement', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-edit-'));
+      const repoDir = createManagedTempDir('openai-edit');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'const x = 1;\nconst y = 2;\n');
 
@@ -1076,7 +1077,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('edit_file rejects ambiguous matches (2+ occurrences)', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-edit-ambig-'));
+      const repoDir = createManagedTempDir('openai-edit-ambig');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'hello\nhello\n');
 
@@ -1110,7 +1111,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('edit_file rejects missing old_string', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-edit-missing-'));
+      const repoDir = createManagedTempDir('openai-edit-missing');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1144,7 +1145,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('search_files returns matches within workspace', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-search-'));
+      const repoDir = createManagedTempDir('openai-search');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'const logger = new Logger();\n');
 
@@ -1196,7 +1197,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('search_files rejects paths outside readable roots', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-search-denied-'));
+      const repoDir = createManagedTempDir('openai-search-denied');
 
       const mockRunResult = makeStreamedRun([], 'Done.');
       mockRunner.mockImplementation(() => ({
@@ -1224,7 +1225,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('find_files returns matching paths', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-find-'));
+      const repoDir = createManagedTempDir('openai-find');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'bar.ts'), 'export {};\n');
 
@@ -1254,7 +1255,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('logs turn count and usage after successful run', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-completion-'));
+      const repoDir = createManagedTempDir('openai-completion');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1292,7 +1293,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('passes a compaction session to Runner.run()', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-compaction-session-'));
+      const repoDir = createManagedTempDir('openai-compaction-session');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1324,7 +1325,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('shouldTriggerCompaction fires on item count or observed input tokens', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-compaction-hook-'));
+      const repoDir = createManagedTempDir('openai-compaction-hook');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1359,7 +1360,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('logs cached token count when present', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-cached-log-'));
+      const repoDir = createManagedTempDir('openai-cached-log');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1404,7 +1405,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('logs compaction triggered message when compaction occurred', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-compaction-log-'));
+      const repoDir = createManagedTempDir('openai-compaction-log');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1440,7 +1441,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('uses a fixed maxTurns ceiling with progress-based stall detection', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-maxturns-ceiling-'));
+      const repoDir = createManagedTempDir('openai-maxturns-ceiling');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1475,7 +1476,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('includes plan steps in initial user message, not system prompt', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-steps-'));
+      const repoDir = createManagedTempDir('openai-prompt-steps');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1516,7 +1517,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('includes task brief in continuation prompts', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-continuation-'));
+      const repoDir = createManagedTempDir('openai-prompt-continuation');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1544,7 +1545,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('edit_file rejects edits that create duplicate constructors', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-edit-dup-ctor-'));
+      const repoDir = createManagedTempDir('openai-edit-dup-ctor');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       const originalContent = [
         'class Foo {',
@@ -1589,7 +1590,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('classifies MaxTurnsExceededError in catch block', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-maxturns-'));
+      const repoDir = createManagedTempDir('openai-maxturns');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1620,7 +1621,7 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     it('resets rate-limit retry counter when progress is made between errors', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-rate-reset-'));
+      const repoDir = createManagedTempDir('openai-rate-reset');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1665,7 +1666,7 @@ describe('OpenAIAgentAdapter', () => {
     }, 15_000);
 
     it('fails after consecutive rate limits without progress', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-rate-fail-'));
+      const repoDir = createManagedTempDir('openai-rate-fail');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1693,7 +1694,7 @@ describe('OpenAIAgentAdapter', () => {
 
     describe('adaptive compaction thresholds', () => {
       it('uses 20 items for plans with 8 steps', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-compact-mid-'));
+        const repoDir = createManagedTempDir('openai-compact-mid');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1742,7 +1743,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('uses 30 items for plans with 15 steps', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-compact-large-'));
+        const repoDir = createManagedTempDir('openai-compact-large');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1793,7 +1794,7 @@ describe('OpenAIAgentAdapter', () => {
 
     describe('incomplete-work loop stall detection', () => {
       it('skips loop when all planned files touched in initial run', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-stall-skip-'));
+        const repoDir = createManagedTempDir('openai-stall-skip');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
         fs.writeFileSync(path.join(repoDir, 'src', 'bar.ts'), 'original\n');
@@ -1830,7 +1831,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('breaks after 2 non-improving passes', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-stall-break-'));
+        const repoDir = createManagedTempDir('openai-stall-break');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -1858,7 +1859,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('continues when workload decreases and completes', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-stall-progress-'));
+        const repoDir = createManagedTempDir('openai-stall-progress');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
         fs.writeFileSync(path.join(repoDir, 'src', 'bar.ts'), 'original\n');
@@ -1902,7 +1903,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('counts validation failures in workload', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-stall-validation-'));
+        const repoDir = createManagedTempDir('openai-stall-validation');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(
           path.join(repoDir, 'src', 'foo.ts'),
@@ -1977,7 +1978,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('clears validation failures when a corrective edit lands', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-stall-clear-'));
+        const repoDir = createManagedTempDir('openai-stall-clear');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(
           path.join(repoDir, 'src', 'foo.ts'),
@@ -2044,7 +2045,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('does not count idle pass toward stall budget', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-idle-exempt-'));
+        const repoDir = createManagedTempDir('openai-idle-exempt');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -2071,7 +2072,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('stops after 3 consecutive idle passes', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-idle-cap-'));
+        const repoDir = createManagedTempDir('openai-idle-cap');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -2098,7 +2099,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('logs diagnostic when pass produces no tool calls', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-idle-diag-'));
+        const repoDir = createManagedTempDir('openai-idle-diag');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -2123,7 +2124,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('scales stall threshold with file count', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-threshold-'));
+        const repoDir = createManagedTempDir('openai-threshold');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         // 15 concrete files → threshold = Math.max(2, ceil(15/5)) = 3
         const repoFiles = Array.from({ length: 15 }, (_, i) => `primary/src/file${i}.ts`);
@@ -2147,7 +2148,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('includes progress summary in continuation prompt', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-progress-'));
+        const repoDir = createManagedTempDir('openai-prompt-progress');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -2166,7 +2167,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('includes plan summary in continuation prompt', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-summary-'));
+        const repoDir = createManagedTempDir('openai-prompt-summary');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
@@ -2184,7 +2185,7 @@ describe('OpenAIAgentAdapter', () => {
       });
 
       it('includes verification commands in continuation prompt', async () => {
-        const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-openai-prompt-verify-'));
+        const repoDir = createManagedTempDir('openai-prompt-verify');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 

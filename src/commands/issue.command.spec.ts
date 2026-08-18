@@ -74,6 +74,7 @@ import * as os from 'os';
 import * as path from 'path';
 import inquirer from 'inquirer';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
+import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
 
 const mockSessionService = {
   load: jest.fn().mockResolvedValue(null),
@@ -2298,7 +2299,7 @@ describe('IssueCommand', () => {
 
     it('returns artifact with plan action when user picks it on custom token mismatch', async () => {
       const command = await buildCommand();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-token-'));
+      const tempDir = createManagedTempDir('custom-token');
       const { planPath } = buildPlanFile(tempDir, 'investigate');
       setInteractiveSession();
       (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ selectedAction: 'investigate' });
@@ -2316,7 +2317,7 @@ describe('IssueCommand', () => {
 
     it('returns artifact with requested action when user picks it on custom token mismatch', async () => {
       const command = await buildCommand();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-token-'));
+      const tempDir = createManagedTempDir('custom-token');
       const { planPath } = buildPlanFile(tempDir, 'investigate');
       setInteractiveSession();
       (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ selectedAction: 'fix' });
@@ -2333,7 +2334,7 @@ describe('IssueCommand', () => {
 
     it('throws ValidationError non-interactively when custom token action mismatches', async () => {
       const command = await buildCommand();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-token-'));
+      const tempDir = createManagedTempDir('custom-token');
       const { planPath } = buildPlanFile(tempDir, 'investigate');
 
       await expect(
@@ -2353,7 +2354,7 @@ describe('IssueCommand', () => {
 
     it('skips validation when custom token action matches plan action', async () => {
       const command = await buildCommand();
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-token-'));
+      const tempDir = createManagedTempDir('custom-token');
       const { planPath } = buildPlanFile(tempDir, 'fix');
 
       const result = await (command as any).resolveCustomPlanToken(

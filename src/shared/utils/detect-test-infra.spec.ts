@@ -2,8 +2,9 @@ import { detectTestInfra, detectTestPatterns, formatTestInfraPromptSection } fro
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
-const createTempRepo = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'wf-infra-'));
+const createTempRepo = (): string => createManagedTempDir('infra');
 
 describe('detectTestInfra', () => {
   describe('Node.js ecosystem', () => {

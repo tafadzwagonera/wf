@@ -2,12 +2,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { collectWfArtifactFiles } from './collect-wf-artifact-files';
+import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
 describe('collectWfArtifactFiles', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-collect-'));
+    tempDir = createManagedTempDir('collect');
   });
 
   afterEach(() => {

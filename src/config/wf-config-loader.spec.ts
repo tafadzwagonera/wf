@@ -3,12 +3,13 @@ import * as os from 'os';
 import * as path from 'path';
 import { discoverWfConfigPath, loadTypeScriptConfig, loadWfConfig, normalizeWfConfig } from './wf-config-loader';
 import { ValidationError } from '../shared/utils/errors';
+import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
 
 describe('wf-config-loader', () => {
   const tempRoots: string[] = [];
 
   const createProjectRoot = (): string => {
-    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-config-'));
+    const projectRoot = createManagedTempDir('config');
     tempRoots.push(projectRoot);
     return projectRoot;
   };

@@ -6,6 +6,7 @@ import * as agentUtils from '../../agents/utils';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { createTempDir as createManagedTempDir } from '../../shared/testing/temp-dir';
 
 describe('FetchStageService', () => {
   let originalHome: string | undefined;
@@ -82,7 +83,7 @@ describe('FetchStageService', () => {
 
   it('persists a markdown ticket artifact under the requested base directory', async () => {
     const { service } = await buildService();
-    const tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-fetch-'));
+    const tempBaseDir = createManagedTempDir('fetch');
     mockResolveArtifactDir();
 
     const artifact = await service.fetchArtifact('WBP-123', {
@@ -96,7 +97,7 @@ describe('FetchStageService', () => {
 
   it('reuses the existing artifact when skipExisting is true', async () => {
     const { service, adapter } = await buildService();
-    const tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-fetch-'));
+    const tempBaseDir = createManagedTempDir('fetch');
     const baseDir = path.join(tempBaseDir, 'consumer-app');
     mockResolveArtifactDir();
     const artifactDir = path.join(testHomeDir, '.wf', 'consumer-app', 'jira');

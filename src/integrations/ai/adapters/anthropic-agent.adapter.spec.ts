@@ -13,6 +13,7 @@ import {
 import { detectMechanicalTask } from './shared-routing';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import type { VerificationScript } from '../../../agents/interfaces';
+import { createTempDir as createManagedTempDir } from '../../../shared/testing/temp-dir';
 
 jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
   __esModule: true,
@@ -749,8 +750,8 @@ describe('AnthropicAgentAdapter', () => {
     });
 
     it('includes global and repo CLAUDE.md content in the system prompt', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-claude-'));
-      const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-home-'));
+      const repoDir = createManagedTempDir('claude');
+      const homeDir = createManagedTempDir('home');
       fs.mkdirSync(path.join(homeDir, '.claude'), { recursive: true });
       fs.writeFileSync(path.join(homeDir, '.claude', 'CLAUDE.md'), 'global context line', 'utf-8');
       fs.writeFileSync(path.join(repoDir, 'CLAUDE.md'), 'repo context line', 'utf-8');
@@ -790,7 +791,7 @@ describe('AnthropicAgentAdapter', () => {
     });
 
     it('includes repo conventions in continuation prompts', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-claude-continuation-'));
+      const repoDir = createManagedTempDir('claude-continuation');
       const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
       mockLoadAnthropicAgentSdk.mockResolvedValue({
         query: mockQuery,
@@ -810,10 +811,10 @@ describe('AnthropicAgentAdapter', () => {
     });
 
     it('warns when the global CLAUDE.md is missing', async () => {
-      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-claude-'));
+      const repoDir = createManagedTempDir('claude');
       fs.writeFileSync(path.join(repoDir, 'CLAUDE.md'), 'repo context line', 'utf-8');
 
-      const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-home-'));
+      const homeDir = createManagedTempDir('home');
       mockHomedir.mockReturnValue(homeDir);
       const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
       const mockSession = makeSdkSession([makeResultSuccess()]);

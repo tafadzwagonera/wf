@@ -78,6 +78,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { SlackService } from '../integrations/slack/slack.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { hashGeneratedTicketSources } from '../shared/utils/generated-ticket-artifact';
+import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
 import inquirer from 'inquirer';
 import * as os from 'os';
 import * as path from 'path';
@@ -1054,8 +1055,9 @@ describe('IssueGenerateCommand', () => {
     it('expands contractions in single-source imported tickets before writing --output files', async () => {
       const { command } = await buildCommand();
       const formatConverterService = (command as any).formatConverterService as jest.Mocked<FormatConverterService>;
-      const outputPath = path.join(os.tmpdir(), 'wf-generated-output.md');
-      const tempSourcePath = path.join(os.tmpdir(), 'wf-imported-ticket-source.md');
+      const outputDir = createManagedTempDir('generated-output');
+      const outputPath = path.join(outputDir, 'wf-generated-output.md');
+      const tempSourcePath = path.join(outputDir, 'wf-imported-ticket-source.md');
       const importedTicket = {
         title: 'Imported ticket that don\'t comply',
         description: 'Imported description that can\'t be used and it\'s long enough to bypass synthesis. '.repeat(3),

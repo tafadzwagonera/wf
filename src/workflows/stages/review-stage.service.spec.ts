@@ -10,6 +10,7 @@ import * as path from 'path';
 import { AiProviderError } from '../../shared/utils/errors';
 import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
 import type { SkillDefinition } from '../../skills/skill.types';
+import { createTempDir as createManagedTempDir } from '../../shared/testing/temp-dir';
 
 describe('ReviewStageService', () => {
   const mockReview = {
@@ -239,7 +240,7 @@ describe('ReviewStageService', () => {
 
   it('writes a markdown review artifact for workflow review stage consumers', async () => {
     const { service } = await buildService();
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-'));
+    const tempDir = createManagedTempDir('review');
     const ticketPath = path.join(tempDir, 'WBP-123.md');
     fs.writeFileSync(ticketPath, '# WBP-123: Fix auth callback');
 
@@ -273,7 +274,7 @@ describe('ReviewStageService', () => {
 
   it('renders issue-local suggestions and leaves unmatched extras in a trailing section', async () => {
     const { service } = await buildService();
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-'));
+    const tempDir = createManagedTempDir('review');
     const ticketPath = path.join(tempDir, 'WBP-125.md');
     fs.writeFileSync(ticketPath, '# WBP-125: Review formatting');
 
@@ -324,7 +325,7 @@ describe('ReviewStageService', () => {
       repoDir: '/tmp/repo',
     });
 
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-agent-'));
+    const tempDir = createManagedTempDir('review-agent');
     const ticketPath = path.join(tempDir, 'WBP-124.md');
     fs.writeFileSync(ticketPath, '# WBP-124: Agent-backed review');
 
@@ -365,7 +366,7 @@ describe('ReviewStageService', () => {
       repoDir: '/tmp/repo',
     });
 
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-cli-'));
+    const tempDir = createManagedTempDir('review-cli');
     const ticketPath = path.join(tempDir, 'WBP-129.md');
     fs.writeFileSync(ticketPath, '# WBP-129: CLI-backed review');
 
@@ -405,7 +406,7 @@ describe('ReviewStageService', () => {
       repoDir: '/tmp/repo',
     });
 
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-agent-default-'));
+    const tempDir = createManagedTempDir('review-agent-default');
     const ticketPath = path.join(tempDir, 'WBP-127.md');
     fs.writeFileSync(ticketPath, '# WBP-127: Inferred agent review');
 

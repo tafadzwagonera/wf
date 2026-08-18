@@ -133,9 +133,11 @@
       "<rootDir>/../test/setup/isolate-wf-home.ts"
     ],
     "setupFilesAfterEnv": [
-      "<rootDir>/../test/setup/no-recursive-test-runs.ts"
+      "<rootDir>/../test/setup/no-real-repo-subprocesses.ts"
     ],
     "maxWorkers": 2,
-    "workerIdleMemoryLimit": "512MB"
+    "workerIdleMemoryLimit": "512MB",
+    "globalSetup": "<rootDir>/../test/setup/global-setup.ts",
+    "globalTeardown": "<rootDir>/../test/setup/global-teardown.ts"
   }
 }

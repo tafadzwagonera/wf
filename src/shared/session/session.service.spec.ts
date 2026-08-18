@@ -6,6 +6,7 @@ import type { SessionState, StageConfigFingerprint } from '../types/session.type
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
 const createMockSessionState = (overrides?: Partial<SessionState>): SessionState => ({
   sessionId: 'test-session-id',
@@ -31,7 +32,7 @@ describe('SessionService', () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-session-test-'));
+    tmpDir = createManagedTempDir('session-test');
 
     const moduleRef = await Test.createTestingModule({
       providers: [
