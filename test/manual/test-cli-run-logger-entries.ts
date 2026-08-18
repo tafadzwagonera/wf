@@ -17,6 +17,7 @@
  */
 import chalk from 'chalk';
 import * as logFileWriter from '../../src/shared/logger/log-file-writer';
+import { createBoundedStderr } from '../../src/shared/utils/bounded-stderr';
 import {
   logCliKill,
   logCliRunSummary,
@@ -24,6 +25,12 @@ import {
   logCliSpawnError,
   type CliRunIdentity,
 } from '../../src/integrations/ai/adapters/cli-run-logger';
+
+const buildStderr = (text: string) => {
+  const stderr = createBoundedStderr();
+  stderr.append(Buffer.from(text));
+  return stderr;
+};
 
 // ---- pass/fail counter -------------------------------------------------
 
@@ -186,7 +193,7 @@ function main(): void {
       messageCount: 10,
       elapsedMs: 5_000,
       killReason: undefined,
-      stderrChunks: [],
+      stderr: createBoundedStderr(),
     });
     assert(
       'logCliRunSummary uses DEBUG for clean run (killReason=undefined, no stderr)',
@@ -201,7 +208,7 @@ function main(): void {
       messageCount: 10,
       elapsedMs: 5_000,
       killReason: 'cleanup',
-      stderrChunks: [],
+      stderr: createBoundedStderr(),
     });
     assert(
       'logCliRunSummary uses DEBUG when killReason=cleanup (regression: was WARN before fix)',
@@ -216,7 +223,7 @@ function main(): void {
       messageCount: 10,
       elapsedMs: 120_210,
       killReason: 'inactivity',
-      stderrChunks: [],
+      stderr: createBoundedStderr(),
     });
     assert(
       'logCliRunSummary uses WARN when killReason=inactivity',
@@ -231,7 +238,7 @@ function main(): void {
       messageCount: 5,
       elapsedMs: 3_000,
       killReason: undefined,
-      stderrChunks: [Buffer.from('something went wrong')],
+      stderr: buildStderr('something went wrong'),
     });
     assert(
       'logCliRunSummary uses WARN when stderr is non-empty (killReason=undefined)',

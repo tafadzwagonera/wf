@@ -2,6 +2,7 @@ import { execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
+import { type BoundedStderr, createBoundedStderr } from '../../../shared/utils/bounded-stderr';
 import {
   buildRunId,
   extractArgValue,
@@ -72,7 +73,7 @@ const UPGRADE_CMD = 'brew upgrade --cask claude-code';
 interface ChildBundle {
   child: ReturnType<typeof spawn>;
   rl: ReturnType<typeof createInterface>;
-  stderrChunks: Buffer[];
+  stderr: BoundedStderr;
   exitRecord: CliExitRecord;
 }
 
@@ -320,9 +321,9 @@ const spawnChildProcess = (params: SpawnChildProcessParams): ChildBundle => {
   if (!child.stdout) throw new ExecutionError('claude child process stdout not available');
   if (!child.stderr) throw new ExecutionError('claude child process stderr not available');
   const rl = createInterface({ input: child.stdout });
-  const stderrChunks: Buffer[] = [];
-  child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
-  return { child, rl, stderrChunks, exitRecord };
+  const stderr = createBoundedStderr();
+  child.stderr.on('data', (chunk: Buffer) => stderr.append(chunk));
+  return { child, rl, stderr, exitRecord };
 };
 
 /**
@@ -430,7 +431,7 @@ interface CliSession {
   runId: string;
   startedAtMs: number;
   rl: ReturnType<typeof createInterface>;
-  stderrChunks: Buffer[];
+  stderr: BoundedStderr;
   exitRecord: CliExitRecord;
   killChild: (reason: CliKillReason) => void;
   state: TimeoutState;
@@ -465,14 +466,14 @@ const initCliSession = (params: InitCliSessionParams): CliSession => {
   const runId = buildRunId();
   const startedAtMs = Date.now();
   const { timeoutMs, inactivityTimeoutMs } = params;
-  const { child, rl, stderrChunks, exitRecord } = spawnChildProcess({ ...params, runId, startedAtMs });
+  const { child, rl, stderr, exitRecord } = spawnChildProcess({ ...params, runId, startedAtMs });
   logCliSpawn(buildRunIdentity(runId, params));
   const state: TimeoutState = {};
   const killChild = makeKillChild(child, { runId, state, startedAtMs, timeoutMs, inactivityTimeoutMs }, exitRecord);
   const tm = createTimeoutManager(killChild, timeoutMs, inactivityTimeoutMs);
   tm.resetInactivity();
   return {
-    runId, startedAtMs, rl, stderrChunks, exitRecord, killChild,
+    runId, startedAtMs, rl, stderr, exitRecord, killChild,
     state, tm, timeoutMs, inactivityTimeoutMs, messageCount: 0,
   };
 };
@@ -481,7 +482,7 @@ const assertCliProducedOutput = (session: CliSession): void => {
   if (session.messageCount > 0) return;
   const { spawnError } = session.exitRecord;
   if (spawnError) throw new ExecutionError(`Failed to spawn claude: ${spawnError.message}`);
-  const stderr = Buffer.concat(session.stderrChunks).toString('utf-8').trim();
+  const stderr = session.stderr.text().trim();
   if (stderr) throw new AiProviderError(`Claude CLI failed to produce output: ${stderr}`);
 };
 
@@ -532,7 +533,7 @@ const finalizeCliRun = (session: CliSession): void => {
     messageCount: session.messageCount,
     elapsedMs: Date.now() - session.startedAtMs,
     killReason: session.state.killReason,
-    stderrChunks: session.stderrChunks,
+    stderr: session.stderr,
   });
 };
 

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { appendToLogFile } from '../../../shared/logger/log-file-writer';
+import type { BoundedStderr } from '../../../shared/utils/bounded-stderr';
 
 export type CliKillReason = 'inactivity' | 'wall-clock' | 'sigint' | 'cleanup';
 
@@ -61,10 +62,8 @@ export const summarizeCliArgs = (args: string[]): string => {
   return rendered.join(' ');
 };
 
-export const formatStderrTail = (chunks: Buffer[], maxChars: number = DEFAULT_STDERR_TAIL_CHARS): string => {
-  const full = Buffer.concat(chunks).toString('utf-8');
-  return full.length > maxChars ? full.slice(full.length - maxChars) : full;
-};
+export const formatStderrTail = (full: string, maxChars: number = DEFAULT_STDERR_TAIL_CHARS): string =>
+  full.length > maxChars ? full.slice(full.length - maxChars) : full;
 
 const buildRecord = (fields: Record<string, string | number>): string =>
   Object.entries(fields).map(([key, value]) => `${key}=${value}`).join(' ');
@@ -134,7 +133,7 @@ interface CliRunSummaryOpts {
   messageCount: number;
   elapsedMs: number;
   killReason: CliKillReason | undefined;
-  stderrChunks: Buffer[];
+  stderr: BoundedStderr;
 }
 
 const buildRunSummaryLine = (opts: CliRunSummaryOpts, stderrTail: string): string =>
@@ -143,11 +142,11 @@ const buildRunSummaryLine = (opts: CliRunSummaryOpts, stderrTail: string): strin
     messages: opts.messageCount,
     elapsedMs: opts.elapsedMs,
     killReason: opts.killReason ?? 'none',
-    stderrChars: stderrTail.length,
+    stderrChars: opts.stderr.totalBytes(),
   })}${stderrTail ? ` stderr(tail)=${stderrTail}` : ''}`;
 
 export const logCliRunSummary = (opts: CliRunSummaryOpts): void => {
-  const stderrTail = formatStderrTail(opts.stderrChunks);
+  const stderrTail = formatStderrTail(opts.stderr.text());
   const level = (opts.killReason && opts.killReason !== 'cleanup') || Boolean(stderrTail) ? 'WARN' : 'DEBUG';
   appendToLogFile(level, buildRunSummaryLine(opts, stderrTail), 'claude-cli');
 };

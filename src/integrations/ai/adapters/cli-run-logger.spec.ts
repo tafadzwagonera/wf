@@ -1,4 +1,5 @@
 import * as logFileWriter from '../../../shared/logger/log-file-writer';
+import { createBoundedStderr } from '../../../shared/utils/bounded-stderr';
 import {
   extractArgValue,
   formatStderrTail,
@@ -10,6 +11,12 @@ import {
   logCliSpawnError,
   summarizeCliArgs,
 } from './cli-run-logger';
+
+const mockStderrWith = (text: string) => {
+  const stderr = createBoundedStderr();
+  stderr.append(Buffer.from(text));
+  return stderr;
+};
 
 describe('cli-run-logger', () => {
   afterEach(() => jest.restoreAllMocks());
@@ -63,14 +70,12 @@ describe('cli-run-logger', () => {
 
   describe('formatStderrTail', () => {
     it('returns the tail (not the head) once chunks exceed the cap', () => {
-      const chunks = [Buffer.from('a'.repeat(300)), Buffer.from('b'.repeat(300))];
-      const tail = formatStderrTail(chunks, 100);
+      const tail = formatStderrTail(`${'a'.repeat(300)}${'b'.repeat(300)}`, 100);
       expect(tail).toBe('b'.repeat(100));
     });
 
     it('returns the full content when under the cap', () => {
-      const chunks = [Buffer.from('short error')];
-      expect(formatStderrTail(chunks, 100)).toBe('short error');
+      expect(formatStderrTail('short error', 100)).toBe('short error');
     });
   });
 
@@ -146,7 +151,7 @@ describe('cli-run-logger', () => {
         messageCount: 37,
         elapsedMs: 120210,
         killReason: undefined,
-        stderrChunks: [],
+        stderr: createBoundedStderr(),
       });
       expect(spy).toHaveBeenCalledWith('DEBUG', expect.stringContaining('cli.done'), 'claude-cli');
     });
@@ -158,7 +163,7 @@ describe('cli-run-logger', () => {
         messageCount: 37,
         elapsedMs: 120210,
         killReason: 'inactivity',
-        stderrChunks: [],
+        stderr: createBoundedStderr(),
       });
       expect(spy).toHaveBeenCalledWith('WARN', expect.stringContaining('cli.done'), 'claude-cli');
     });
@@ -170,7 +175,7 @@ describe('cli-run-logger', () => {
         messageCount: 5,
         elapsedMs: 500,
         killReason: undefined,
-        stderrChunks: [Buffer.from('oops')],
+        stderr: mockStderrWith('oops'),
       });
       expect(spy).toHaveBeenCalledWith('WARN', expect.stringContaining('cli.done'), 'claude-cli');
     });

@@ -2,6 +2,7 @@ import { ChildProcess, execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
+import { type BoundedStderr, createBoundedStderr } from '../../../shared/utils/bounded-stderr';
 import { parseNdjsonLine } from './claude-cli-runner';
 
 export interface CodexCliMessage {
@@ -269,9 +270,9 @@ const buildKillController = (proc: ChildProcess, timeoutMs: number, inactivityTi
   };
 };
 
-const collectCodexResult = (yieldedAny: boolean, stderrChunks: Buffer[]): void => {
-  if (yieldedAny || stderrChunks.length === 0) return;
-  const stderr = Buffer.concat(stderrChunks).toString('utf-8').trim();
+const collectCodexResult = (yieldedAny: boolean, stderrCollector: BoundedStderr): void => {
+  if (yieldedAny || stderrCollector.isEmpty()) return;
+  const stderr = stderrCollector.text().trim();
   if (!stderr) return;
   throw new AiProviderError(`Codex CLI failed: ${extractCodexErrorMessages(stderr)}`);
 };
@@ -290,16 +291,16 @@ export const buildInactivityTimeoutMessage = (inactivityTimeoutMs: number): Code
   result: `Codex CLI timed out after ${Math.round(inactivityTimeoutMs / 1000)}s of inactivity.`,
 });
 
-const attachStderrCollector = (proc: ChildProcess): Buffer[] => {
-  const chunks: Buffer[] = [];
+const attachStderrCollector = (proc: ChildProcess): BoundedStderr => {
   if (!proc.stderr) throw new ExecutionError('codex child process stderr not available');
-  proc.stderr.on('data', (chunk: Buffer) => chunks.push(chunk));
-  return chunks;
+  const stderr = createBoundedStderr();
+  proc.stderr.on('data', (chunk: Buffer) => stderr.append(chunk));
+  return stderr;
 };
 
 interface CodexSession {
   rl: ReturnType<typeof createInterface>;
-  stderrChunks: Buffer[];
+  stderrCollector: BoundedStderr;
   ctrl: KillController;
   yieldedRef: [boolean];
 }
@@ -308,7 +309,7 @@ const buildCodexSession = (child: ChildProcess, timeoutMs: number, inactivityTim
   if (!child.stdout) throw new ExecutionError('codex child process stdout not available');
   return {
     rl: createInterface({ input: child.stdout }),
-    stderrChunks: attachStderrCollector(child),
+    stderrCollector: attachStderrCollector(child),
     ctrl: buildKillController(child, timeoutMs, inactivityTimeoutMs),
     yieldedRef: [false],
   };
@@ -377,5 +378,5 @@ export async function* spawnCodex(
     yield timeoutMsg;
     return;
   }
-  collectCodexResult(session.yieldedRef[0], session.stderrChunks);
+  collectCodexResult(session.yieldedRef[0], session.stderrCollector);
 }
