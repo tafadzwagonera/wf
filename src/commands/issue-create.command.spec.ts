@@ -52,6 +52,7 @@ import { JiraAdapter } from '../integrations/issue-trackers/jira/jira-adapter';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 jest.mock('fs', () => ({
   existsSync: jest.fn(),
@@ -219,7 +220,7 @@ describe('IssueCreateCommand', () => {
   it('resolves filename-only input under the cwd artifact namespace by default', async () => {
     const command = await buildCommand();
     const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
-    const artifactPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', '2026-04-01-46ac9014-ticket-description.md');
+    const artifactPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', '2026-04-01-46ac9014-ticket-description.md');
 
     mockExistsSync.mockImplementation(input => String(input) === artifactPath);
 
@@ -233,7 +234,7 @@ describe('IssueCreateCommand', () => {
 
   it('resolves filename-only input under the targeted repo namespace when --repos is provided', async () => {
     const command = await buildCommand();
-    const artifactPath = path.join(os.homedir(), '.wf', 'repo-a', 'jira', '2026-04-01-46ac9014-ticket-description.md');
+    const artifactPath = path.join(getWfHomeDir(), 'repo-a', 'jira', '2026-04-01-46ac9014-ticket-description.md');
 
     mockExistsSync.mockImplementation(input => String(input) === artifactPath);
 
@@ -260,8 +261,8 @@ describe('IssueCreateCommand', () => {
 
   it('does not fall back to the bare ~/.wf filename path', async () => {
     const command = await buildCommand();
-    const expectedMissingPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', '2026-04-01-46ac9014-ticket-description.md');
-    const bareWfPath = path.join(os.homedir(), '.wf', '2026-04-01-46ac9014-ticket-description.md');
+    const expectedMissingPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', '2026-04-01-46ac9014-ticket-description.md');
+    const bareWfPath = path.join(getWfHomeDir(), '2026-04-01-46ac9014-ticket-description.md');
 
     mockExistsSync.mockImplementation(input => String(input) === bareWfPath);
 
@@ -276,7 +277,7 @@ describe('IssueCreateCommand', () => {
   it('warns and uses only the first repo namespace when multiple repos are provided', async () => {
     const command = await buildCommand();
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-    const artifactPath = path.join(os.homedir(), '.wf', 'repo-a', 'jira', '2026-04-01-46ac9014-ticket-description.md');
+    const artifactPath = path.join(getWfHomeDir(), 'repo-a', 'jira', '2026-04-01-46ac9014-ticket-description.md');
 
     mockExistsSync.mockImplementation(input => String(input) === artifactPath);
 
@@ -297,7 +298,7 @@ describe('IssueCreateCommand', () => {
     const jiraAdapter = (command as any).jiraAdapter as {
       buildCreatePayload: jest.Mock;
     };
-    const artifactPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', '2026-04-01-46ac9014-ticket-description.md');
+    const artifactPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', '2026-04-01-46ac9014-ticket-description.md');
 
     mockExistsSync.mockImplementation(input => String(input) === artifactPath);
 
@@ -332,9 +333,7 @@ describe('IssueCreateCommand', () => {
     const command = await buildCommand();
     const issueTrackerService = (command as any).issueTrackerService as jest.Mocked<IssueTrackerService>;
     const artifactPath = path.join(
-      os.homedir(),
-      '.wf',
-      'service-document-v1',
+      getWfHomeDir(), 'service-document-v1',
       'jira',
       '2026-05-05-d22a1c03-ticket-description.md',
     );
@@ -390,9 +389,7 @@ describe('IssueCreateCommand', () => {
       buildCreatePayload: jest.Mock;
     };
     const artifactPath = path.join(
-      os.homedir(),
-      '.wf',
-      'terraform-aws',
+      getWfHomeDir(), 'terraform-aws',
       'jira',
       '2026-05-12-d38b5be9-ticket-description.md',
     );
@@ -469,7 +466,7 @@ describe('IssueCreateCommand', () => {
   it('strips removed sections from the ticket description before creating', async () => {
     const command = await buildCommand();
     const issueTrackerService = (command as any).issueTrackerService as jest.Mocked<IssueTrackerService>;
-    const artifactPath = path.join(os.homedir(), '.wf', 'service-document-v1', 'jira', '2026-06-19-strip-test.md');
+    const artifactPath = path.join(getWfHomeDir(), 'service-document-v1', 'jira', '2026-06-19-strip-test.md');
     const artifactContent = [
       '# Strip sections test',
       '',
@@ -528,7 +525,7 @@ describe('IssueCreateCommand', () => {
   it('passes normalized command priority and ticket project to the Jira adapter', async () => {
     const command = await buildCommand();
     const issueTrackerService = (command as any).issueTrackerService as jest.Mocked<IssueTrackerService>;
-    const artifactPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', '2026-04-01-46ac9014-ticket-description.md');
+    const artifactPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', '2026-04-01-46ac9014-ticket-description.md');
 
     mockExistsSync.mockImplementation(input => String(input) === artifactPath);
 

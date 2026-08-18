@@ -64,6 +64,7 @@ import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../shared/utils/plan-artifact';
 import * as os from 'os';
 import * as path from 'path';
+import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 async function buildCommand(): Promise<IssueImplementCommand> {
   const module = await Test.createTestingModule({
@@ -189,7 +190,7 @@ describe('IssueImplementCommand', () => {
 
       expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
         expect.objectContaining({
-          filePath: path.join(os.homedir(), '.wf', 'repo-a', 'dark-building-creek-fix.json'),
+          filePath: path.join(getWfHomeDir(), 'repo-a', 'dark-building-creek-fix.json'),
         }),
       );
     });
@@ -198,7 +199,7 @@ describe('IssueImplementCommand', () => {
       const command = await buildCommand();
       const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
       const hash = hashPlanArtifactSources(['WBP-0001']);
-      const artifactDir = path.join(os.homedir(), '.wf', 'repo-a', 'jira');
+      const artifactDir = path.join(getWfHomeDir(), 'repo-a', 'jira');
       const planPath = path.join(artifactDir, `2026-04-16-${hash}-fix-plan.json`);
       const manifestPath = buildPlanArtifactManifestPath(planPath);
       jest
@@ -248,7 +249,7 @@ describe('IssueImplementCommand', () => {
 
       expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
         expect.objectContaining({
-          filePath: path.join(os.homedir(), '.wf', 'repo-a', 'jira', `2026-04-16-${hash}-fix-plan.json`),
+          filePath: path.join(getWfHomeDir(), 'repo-a', 'jira', `2026-04-16-${hash}-fix-plan.json`),
         }),
       );
     });
@@ -282,7 +283,7 @@ describe('IssueImplementCommand', () => {
       const errorOutput = consoleErrorSpy.mock.calls.map(c => c.join(' ')).join('\n');
       expect(errorOutput).toContain('Ticket artifact not found');
       expect(errorOutput).toContain('issue:fetch');
-      expect(errorOutput).toContain(path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-0001.md'));
+      expect(errorOutput).toContain(path.join(getWfHomeDir(), 'repo-a', 'jira', 'WBP-0001.md'));
       expect(errorOutput).toContain('--repos repo-a');
       expect(errorOutput).not.toContain('--repos repo-a,');
     });
@@ -344,9 +345,7 @@ describe('IssueImplementCommand', () => {
     it('previews two file-reads and shows summary with zero counts when both artifacts exist (feature plan)', async () => {
       const hash = hashPlanArtifactSources(['WBP-0001']);
       const canonicalPlanPath = path.join(
-        os.homedir(),
-        '.wf',
-        'repo-a',
+        getWfHomeDir(), 'repo-a',
         'jira',
         `2026-04-16-${hash}-feature-plan.json`,
       );
@@ -391,9 +390,7 @@ describe('IssueImplementCommand', () => {
     it('shows apiCallCount: 1 and fileCreatedCount: 1 for investigate plan dry-run', async () => {
       const hash = hashPlanArtifactSources(['WBP-0001']);
       const canonicalPlanPath = path.join(
-        os.homedir(),
-        '.wf',
-        'repo-a',
+        getWfHomeDir(), 'repo-a',
         'jira',
         `2026-04-16-${hash}-investigate-plan.json`,
       );
@@ -451,7 +448,7 @@ describe('IssueImplementCommand', () => {
 
       expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
         expect.objectContaining({
-          filePath: path.join(os.homedir(), '.wf', 'repo-a', 'merry-tinkering-pine-feature.json'),
+          filePath: path.join(getWfHomeDir(), 'repo-a', 'merry-tinkering-pine-feature.json'),
         }),
       );
     });
@@ -483,12 +480,12 @@ describe('IssueImplementCommand', () => {
       expect(mockOrchestrator.implementer.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           ticketKey: 'dark-building-creek',
-          path: path.join(os.homedir(), '.wf', 'repo-a', 'dark-building-creek-fix.json'),
+          path: path.join(getWfHomeDir(), 'repo-a', 'dark-building-creek-fix.json'),
           content: expect.stringContaining('# dark-building-creek:'),
         }),
         expect.objectContaining({
           action: 'fix',
-          path: path.join(os.homedir(), '.wf', 'repo-a', 'dark-building-creek-fix.json'),
+          path: path.join(getWfHomeDir(), 'repo-a', 'dark-building-creek-fix.json'),
         }),
         expect.objectContaining({
           trackerName: 'jira',
@@ -550,7 +547,7 @@ describe('IssueImplementCommand', () => {
     it('loads a markdown standard plan artifact when json is absent', async () => {
       const hash = hashPlanArtifactSources(['WBP-0001']);
       const canonicalPlanName = `2026-04-16-${hash}-feature-plan.md`;
-      const canonicalPlanPath = path.join(os.homedir(), '.wf', 'repo-a', 'jira', canonicalPlanName);
+      const canonicalPlanPath = path.join(getWfHomeDir(), 'repo-a', 'jira', canonicalPlanName);
       const canonicalManifestPath = buildPlanArtifactManifestPath(canonicalPlanPath);
       const mockOrchestrator = {
         implementer: { execute: jest.fn().mockResolvedValue(undefined) },
@@ -669,9 +666,7 @@ describe('IssueImplementCommand', () => {
     it('reads ticket and plan from disk and calls implementer when both artifacts exist', async () => {
       const hash = hashPlanArtifactSources(['WBP-0001']);
       const canonicalPlanPath = path.join(
-        os.homedir(),
-        '.wf',
-        'repo-a',
+        getWfHomeDir(), 'repo-a',
         'jira',
         `2026-04-16-${hash}-feature-plan.json`,
       );
@@ -751,7 +746,7 @@ describe('IssueImplementCommand', () => {
       expect(mockOrchestrator.implementer.execute).toHaveBeenCalledTimes(1);
       const [ticketArg, planArg] = mockOrchestrator.implementer.execute.mock.calls[0];
       expect(ticketArg.ticketKey).toBe('WBP-0001');
-      expect(ticketArg.path).toBe(path.join(os.homedir(), '.wf', 'repo-a', 'jira', 'WBP-0001.md'));
+      expect(ticketArg.path).toBe(path.join(getWfHomeDir(), 'repo-a', 'jira', 'WBP-0001.md'));
       expect(planArg.action).toBe('feature');
       expect(planArg.path).toBe(canonicalPlanPath);
       expect(mockOrchestrator.implementer.execute).toHaveBeenCalledWith(
@@ -772,9 +767,7 @@ describe('IssueImplementCommand', () => {
       const command = await buildCommand();
       const hash = hashPlanArtifactSources(['WBP-0001']);
       const canonicalPlanPath = path.join(
-        os.homedir(),
-        '.wf',
-        'repo-a',
+        getWfHomeDir(), 'repo-a',
         'jira',
         `2026-04-16-${hash}-feature-plan.json`,
       );
@@ -960,7 +953,7 @@ describe('IssueImplementCommand', () => {
 
     expect(dryRunPreview.previewFileRead).toHaveBeenCalledWith(
       expect.objectContaining({
-        filePath: path.join(os.homedir(), '.wf', 'repo-a', 'dark-building-creek-fix.json'),
+        filePath: path.join(getWfHomeDir(), 'repo-a', 'dark-building-creek-fix.json'),
       }),
     );
   });

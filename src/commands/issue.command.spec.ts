@@ -73,6 +73,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import inquirer from 'inquirer';
+import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 const mockSessionService = {
   load: jest.fn().mockResolvedValue(null),
@@ -549,7 +550,7 @@ describe('IssueCommand', () => {
 
     const fetchPreview = dryRunPreview.previewFileWrite.mock.calls[0][0];
     const planPreview = dryRunPreview.previewFileWrite.mock.calls[1][0];
-    const expectedDir = path.join(os.homedir(), '.wf', 'consumer-app', 'jira');
+    const expectedDir = path.join(getWfHomeDir(), 'consumer-app', 'jira');
 
     expect(path.dirname(fetchPreview.filePath)).toBe(expectedDir);
     expect(path.dirname(planPreview.filePath)).toBe(expectedDir);
@@ -572,7 +573,7 @@ describe('IssueCommand', () => {
 
     const fetchPreview = dryRunPreview.previewFileWrite.mock.calls[0][0];
     const planPreview = dryRunPreview.previewFileWrite.mock.calls[1][0];
-    const expectedDir = path.join(os.homedir(), '.wf', 'repo-a', 'jira');
+    const expectedDir = path.join(getWfHomeDir(), 'repo-a', 'jira');
 
     expect(path.dirname(fetchPreview.filePath)).toBe(expectedDir);
     expect(path.dirname(planPreview.filePath)).toBe(expectedDir);
@@ -580,7 +581,7 @@ describe('IssueCommand', () => {
 
   it('resolves a hashed plan token when resuming from implement without --action', async () => {
     const hash = hashPlanArtifactSources(['WBP-1']);
-    const artifactDir = path.join(os.homedir(), '.wf', 'repo-a', 'jira');
+    const artifactDir = path.join(getWfHomeDir(), 'repo-a', 'jira');
     const ticketPath = path.join(artifactDir, 'WBP-1.md');
     const planPath = path.join(artifactDir, `2026-04-16-${hash}-fix-plan.json`);
     const manifestPath = buildPlanArtifactManifestPath(planPath);
@@ -729,7 +730,7 @@ describe('IssueCommand', () => {
 
   it('resolves a plan token via direct file-path fallback when manifest-based resolution fails (no --repos)', async () => {
     const hash = hashPlanArtifactSources(['WBP-2']);
-    const artifactDir = path.join(os.homedir(), '.wf', 'consumer-app', 'jira');
+    const artifactDir = path.join(getWfHomeDir(), 'consumer-app', 'jira');
     const planFilename = `2026-06-30-${hash}-fix-plan.json`;
     const planPath = path.join(artifactDir, planFilename);
     const manifestPath = buildPlanArtifactManifestPath(planPath);
@@ -856,7 +857,7 @@ describe('IssueCommand', () => {
 
   it('resolves a plan token via direct file-path fallback when --repos is provided', async () => {
     const hash = hashPlanArtifactSources(['WBP-3']);
-    const artifactDir = path.join(os.homedir(), '.wf', 'target-repo', 'jira');
+    const artifactDir = path.join(getWfHomeDir(), 'target-repo', 'jira');
     const planFilename = `2026-06-30-${hash}-fix-plan.json`;
     const planPath = path.join(artifactDir, planFilename);
     const manifestPath = buildPlanArtifactManifestPath(planPath);
@@ -990,7 +991,7 @@ describe('IssueCommand', () => {
 
   it('resolves a plan token from the custom artifact directory when tracker directory has no match', async () => {
     const hash = hashPlanArtifactSources(['WBP-4']);
-    const customDir = path.join(os.homedir(), '.wf', 'consumer-app');
+    const customDir = path.join(getWfHomeDir(), 'consumer-app');
     const trackerDir = path.join(customDir, 'jira');
     const planFilename = `2026-06-30-${hash}-fix-plan.json`;
     const planPath = path.join(customDir, planFilename);
@@ -1113,7 +1114,7 @@ describe('IssueCommand', () => {
 
   it('prompts for provider session ID when resolving custom plan token in interactive session', async () => {
     const hash = hashPlanArtifactSources(['WBP-5']);
-    const customDir = path.join(os.homedir(), '.wf', 'consumer-app');
+    const customDir = path.join(getWfHomeDir(), 'consumer-app');
     const planFilename = `2026-06-30-${hash}-fix-plan.json`;
     const planPath = path.join(customDir, planFilename);
     const manifestPath = buildPlanArtifactManifestPath(planPath);
@@ -1231,7 +1232,7 @@ describe('IssueCommand', () => {
 
   it('skips provider session ID prompt when not in interactive session', async () => {
     const hash = hashPlanArtifactSources(['WBP-6']);
-    const customDir = path.join(os.homedir(), '.wf', 'consumer-app');
+    const customDir = path.join(getWfHomeDir(), 'consumer-app');
     const planFilename = `2026-06-30-${hash}-fix-plan.json`;
     const planPath = path.join(customDir, planFilename);
     const manifestPath = buildPlanArtifactManifestPath(planPath);
@@ -1341,7 +1342,7 @@ describe('IssueCommand', () => {
 
   it('threads resumeProviderSessionId from validateForStage to implementer.execute', async () => {
     const hash = hashPlanArtifactSources(['WBP-7']);
-    const customDir = path.join(os.homedir(), '.wf', 'consumer-app');
+    const customDir = path.join(getWfHomeDir(), 'consumer-app');
     const planFilename = `2026-06-30-${hash}-fix-plan.json`;
     const planPath = path.join(customDir, planFilename);
     const manifestPath = buildPlanArtifactManifestPath(planPath);
@@ -1599,8 +1600,8 @@ describe('IssueCommand', () => {
   });
 
   it('prompts for provider session ID when plan is from cache', async () => {
-    const ticketPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-20.md');
-    const planPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-20-fix-plan.json');
+    const ticketPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-20.md');
+    const planPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-20-fix-plan.json');
 
     const mockOrchestrator = {
       fetcher: {
@@ -1695,8 +1696,8 @@ describe('IssueCommand', () => {
   });
 
   it('prompts for provider session ID when plan stage is skipped', async () => {
-    const ticketPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-21.md');
-    const planPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-21-fix-plan.json');
+    const ticketPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-21.md');
+    const planPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-21-fix-plan.json');
 
     const mockOrchestrator = {
       fetcher: {
@@ -1792,8 +1793,8 @@ describe('IssueCommand', () => {
   });
 
   it('records provider session ID into an existing wf session when plan is from cache', async () => {
-    const ticketPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-22.md');
-    const planPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-22-fix-plan.json');
+    const ticketPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-22.md');
+    const planPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-22-fix-plan.json');
     const existingSession = {
       sessionId: 'existing-uuid',
       ticketKey: 'WBP-22',
@@ -1897,8 +1898,8 @@ describe('IssueCommand', () => {
   });
 
   it('skips provider session ID prompt in non-interactive session when plan is from cache', async () => {
-    const ticketPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-23.md');
-    const planPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-23-fix-plan.json');
+    const ticketPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-23.md');
+    const planPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-23-fix-plan.json');
 
     const mockOrchestrator = {
       fetcher: {
@@ -1981,8 +1982,8 @@ describe('IssueCommand', () => {
   });
 
   it('skips provider session ID prompt in non-interactive session when plan stage is skipped', async () => {
-    const ticketPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-24.md');
-    const planPath = path.join(os.homedir(), '.wf', 'consumer-app', 'jira', 'WBP-24-fix-plan.json');
+    const ticketPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-24.md');
+    const planPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-24-fix-plan.json');
 
     const mockOrchestrator = {
       fetcher: {
@@ -2066,7 +2067,7 @@ describe('IssueCommand', () => {
   describe('review stage skip on empty implement', () => {
     const planHash = hashPlanArtifactSources(['WBP-SKIP']);
     const planFilename = `2026-07-22-${planHash}-fix-plan.json`;
-    const customDir = path.join(os.homedir(), '.wf', 'consumer-app');
+    const customDir = path.join(getWfHomeDir(), 'consumer-app');
     const planPath = path.join(customDir, planFilename);
     const manifestPath = buildPlanArtifactManifestPath(planPath);
 

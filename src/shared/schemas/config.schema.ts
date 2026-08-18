@@ -117,13 +117,20 @@ export const wfConfigSchema = z.object({
       protectedBranches: z.array(z.string()).optional(),
     })
     .optional(),
+  state: z
+    .object({
+      directory: z.string().optional(),
+    })
+    .optional(),
   log: z
     .object({
+      directory: z.string().optional(),
       level: logLevelSchema.optional(),
     })
     .optional(),
   logging: z
     .object({
+      directory: z.string().optional(),
       level: logLevelSchema.optional(),
     })
     .optional(),

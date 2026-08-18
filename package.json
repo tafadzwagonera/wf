@@ -129,6 +129,9 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/../test/setup/isolate-wf-home.ts"
+    ],
     "maxWorkers": 2,
     "workerIdleMemoryLimit": "512MB",
     "forceExit": true,

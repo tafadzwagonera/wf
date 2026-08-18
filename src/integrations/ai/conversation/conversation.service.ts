@@ -12,8 +12,8 @@ import {
 } from './interfaces';
 import { StageAgentService, AgentChatSession, AgentStageName } from '../stage-agent.service';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
+import { getWfHomeDir } from '../../../shared/utils/wf-paths';
 import { randomUUID } from 'node:crypto';
 
 const buildInitialState = (
@@ -285,7 +285,7 @@ export class ConversationService {
 
   private getConversationFilePath(ticketKey: string, repoDir?: string, trackerName?: string): string {
     const baseDir = repoDir ?? process.cwd();
-    const segments: string[] = [os.homedir(), '.wf', path.basename(path.resolve(baseDir))];
+    const segments: string[] = [getWfHomeDir(), path.basename(path.resolve(baseDir))];
     if (trackerName) {
       segments.push(trackerName);
     }

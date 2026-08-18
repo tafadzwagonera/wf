@@ -9,6 +9,7 @@ import { AiProviderError } from '../../../shared/utils/errors';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { getWfHomeDir } from '../../../shared/utils/wf-paths';
 
 // Mock fs module
 jest.mock('fs', () => {
@@ -434,7 +435,7 @@ describe('ConversationService', () => {
 
       await service.saveConversation(conversation);
 
-      const expectedPath = path.join(os.homedir(), '.wf', 'my-app', 'review-conversation.json');
+      const expectedPath = path.join(getWfHomeDir(), 'my-app', 'review-conversation.json');
       expect(fs.promises.rename).toHaveBeenCalledWith(`${expectedPath}.tmp`, expectedPath);
     });
 
@@ -453,7 +454,7 @@ describe('ConversationService', () => {
 
       await service.saveConversation(conversation);
 
-      const expectedPath = path.join(os.homedir(), '.wf', 'my-app', 'jira', 'TAD-575-conversation.json');
+      const expectedPath = path.join(getWfHomeDir(), 'my-app', 'jira', 'TAD-575-conversation.json');
       expect(fs.promises.rename).toHaveBeenCalledWith(`${expectedPath}.tmp`, expectedPath);
     });
 
@@ -471,7 +472,7 @@ describe('ConversationService', () => {
       await service.saveConversation(conversation);
 
       const cwdBaseName = path.basename(path.resolve(process.cwd()));
-      const expectedPath = path.join(os.homedir(), '.wf', cwdBaseName, 'WBP-100-conversation.json');
+      const expectedPath = path.join(getWfHomeDir(), cwdBaseName, 'WBP-100-conversation.json');
       expect(fs.promises.rename).toHaveBeenCalledWith(`${expectedPath}.tmp`, expectedPath);
     });
   });

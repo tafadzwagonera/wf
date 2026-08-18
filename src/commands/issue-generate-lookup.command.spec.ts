@@ -47,6 +47,7 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { IssueGenerateLookupCommand } from './issue-generate-lookup.command';
+import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 describe('IssueGenerateLookupCommand', () => {
   let cwdSpy: jest.SpyInstance;
@@ -103,7 +104,7 @@ describe('IssueGenerateLookupCommand', () => {
     }).compile();
 
     const command = module.get(IssueGenerateLookupCommand);
-    const artifactDir = path.join(os.homedir(), '.wf', 'consumer-app', 'jira');
+    const artifactDir = path.join(getWfHomeDir(), 'consumer-app', 'jira');
 
     (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReturnValue(true);
     (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockReturnValue([

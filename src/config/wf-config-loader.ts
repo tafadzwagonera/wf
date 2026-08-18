@@ -7,6 +7,7 @@ import { z } from 'zod';
 import YAML from 'yaml';
 import { ValidationError } from '../shared/utils/errors';
 import { formatFieldNames } from '../shared/utils/zod-error.util';
+import { setWfPathOverrides } from '../shared/utils/wf-paths';
 import type {
   WfVerificationConditionsConfig,
   NormalizedAiProviderConfig,
@@ -102,10 +103,15 @@ export interface NormalizedWfConfig {
       investigate: string;
     };
   };
+  state: {
+    directory?: string;
+  };
   logging: {
+    directory?: string;
     level: 'error' | 'warn' | 'info' | 'debug';
   };
   log: {
+    directory?: string;
     level: 'error' | 'warn' | 'info' | 'debug';
   };
   slack: {
@@ -862,10 +868,15 @@ export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig 
         investigate: validatedConfig.git?.branchPrefixMapping?.investigate ?? 'chore',
       },
     },
+    state: {
+      directory: validatedConfig.state?.directory,
+    },
     logging: {
+      directory: loggingSource.directory,
       level: loggingSource.level ?? 'info',
     },
     log: {
+      directory: loggingSource.directory,
       level: loggingSource.level ?? 'info',
     },
     slack: {
@@ -901,6 +912,7 @@ export const loadWfConfig = async (options: WfConfigLoadOptions = {}): Promise<N
  */
 export const initializeWfConfig = async (cwd: string = process.cwd()): Promise<NormalizedWfConfig> => {
   loadedConfig = await loadWfConfig({ cwd });
+  setWfPathOverrides({ logDir: loadedConfig.log.directory, stateDir: loadedConfig.state.directory });
   return loadedConfig;
 };
 

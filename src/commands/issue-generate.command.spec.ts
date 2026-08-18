@@ -82,6 +82,7 @@ import inquirer from 'inquirer';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
+import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 const mockCwd = '/tmp/consumer-app';
 
@@ -582,7 +583,7 @@ describe('IssueGenerateCommand', () => {
     await command.run(['ABC-123'], { save: true, dryRun: true });
 
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
-    expect(path.dirname(preview.filePath)).toBe(path.join(os.homedir(), '.wf', 'consumer-app', 'jira'));
+    expect(path.dirname(preview.filePath)).toBe(path.join(getWfHomeDir(), 'consumer-app', 'jira'));
     expect(path.basename(preview.filePath)).toMatch(/^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}-ticket-description\.md$/);
   });
 
@@ -597,7 +598,7 @@ describe('IssueGenerateCommand', () => {
     });
 
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
-    expect(path.dirname(preview.filePath)).toBe(path.join(os.homedir(), '.wf', 'repo-a', 'jira'));
+    expect(path.dirname(preview.filePath)).toBe(path.join(getWfHomeDir(), 'repo-a', 'jira'));
   });
 
   describe('repo-aware local source resolution', () => {
@@ -606,7 +607,7 @@ describe('IssueGenerateCommand', () => {
       const repoName = 'service-tourv3';
       const repoBasePath = path.join('/tmp/consumer-app', repoName);
       const sourceName = 'itinerary-pdf-generation.md';
-      const expectedSourcePath = path.join(os.homedir(), '.wf', repoName, sourceName);
+      const expectedSourcePath = path.join(getWfHomeDir(), repoName, sourceName);
 
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
@@ -696,7 +697,7 @@ describe('IssueGenerateCommand', () => {
       const { command } = await buildCommand();
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
-        return filePath === path.join(os.homedir(), '.wf', 'src/spec.md');
+        return filePath === path.join(getWfHomeDir(), 'src/spec.md');
       });
 
       await expect((command as any).fetchSource('src/spec.md')).rejects.toThrow('Unknown source type');
@@ -728,7 +729,7 @@ describe('IssueGenerateCommand', () => {
       const { command } = await buildCommand();
       const cwdBasename = path.basename(process.cwd());
       const source = 'plan.md';
-      const expectedPath = path.join(os.homedir(), '.wf', cwdBasename, source);
+      const expectedPath = path.join(getWfHomeDir(), cwdBasename, source);
 
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(
         input => String(input) === expectedPath,
@@ -754,7 +755,7 @@ describe('IssueGenerateCommand', () => {
       const repoName = 'service-tourv3';
       const repoBasePath = path.join('/tmp/consumer-app', repoName);
       const source = 'spec.md';
-      const repoArtifactPath = path.join(os.homedir(), '.wf', repoName, source);
+      const repoArtifactPath = path.join(getWfHomeDir(), repoName, source);
 
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(input => {
         const filePath = String(input);
@@ -780,7 +781,7 @@ describe('IssueGenerateCommand', () => {
       const { command } = await buildCommand();
       const cwdBasename = path.basename(process.cwd());
       const source = 'src/plan.md';
-      const expectedPath = path.join(os.homedir(), '.wf', cwdBasename, source);
+      const expectedPath = path.join(getWfHomeDir(), cwdBasename, source);
 
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(
         input => String(input) === expectedPath,
@@ -794,7 +795,7 @@ describe('IssueGenerateCommand', () => {
     it('normalizes ./ prefix and resolves the same as a bare filename', async () => {
       const { command } = await buildCommand();
       const cwdBasename = path.basename(process.cwd());
-      const expectedPath = path.join(os.homedir(), '.wf', cwdBasename, 'plan.md');
+      const expectedPath = path.join(getWfHomeDir(), cwdBasename, 'plan.md');
 
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(
         input => String(input) === expectedPath,
@@ -809,7 +810,7 @@ describe('IssueGenerateCommand', () => {
       const { command } = await buildCommand();
       const cwdBasename = path.basename(process.cwd());
       const source = 'path/to/some/deeply/nested/dir/spec.md';
-      const expectedPath = path.join(os.homedir(), '.wf', cwdBasename, source);
+      const expectedPath = path.join(getWfHomeDir(), cwdBasename, source);
 
       (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockImplementation(
         input => String(input) === expectedPath,
@@ -1172,7 +1173,7 @@ describe('IssueGenerateCommand', () => {
         }),
       );
       expect(writeFileSpy).toHaveBeenCalledWith(
-        path.join(os.homedir(), '.wf', 'consumer-app', 'slack', 'slack-thread-C0AP5MMCP53-1712345600-000001.md'),
+        path.join(getWfHomeDir(), 'consumer-app', 'slack', 'slack-thread-C0AP5MMCP53-1712345600-000001.md'),
         ['[1712345600.000001] U123: Initial MPDM context', '[1712345678.123456] U456: Latest follow-up'].join('\n'),
         'utf-8',
       );
@@ -1241,9 +1242,7 @@ describe('IssueGenerateCommand', () => {
       expect(dryRunPreview.previewFileWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           filePath: path.join(
-            os.homedir(),
-            '.wf',
-            'consumer-app',
+            getWfHomeDir(), 'consumer-app',
             'slack',
             'slack-thread-C0AP5MMCP53-<oldest-message-ts>.md',
           ),
@@ -1281,9 +1280,7 @@ describe('IssueGenerateCommand', () => {
       expect(dryRunPreview.previewFileWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           filePath: path.join(
-            os.homedir(),
-            '.wf',
-            'consumer-app',
+            getWfHomeDir(), 'consumer-app',
             'slack',
             'slack-thread-C0AP5MMCP53-1775650646-860809.md',
           ),

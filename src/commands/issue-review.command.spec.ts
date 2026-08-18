@@ -85,6 +85,7 @@ import { resolveRepoBasePath } from '../agents/utils';
 import { runSonarScanForReview } from '../review/sonar-scanner';
 import * as os from 'os';
 import * as path from 'path';
+import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 const mockTicket = {
   key: 'TAD-575',
@@ -428,7 +429,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
 }
 
 describe('IssueReviewCommand', () => {
-  const wfHome = path.join(os.homedir(), '.wf');
+  const wfHome = path.join(getWfHomeDir());
   const cwdBase = path.basename(path.resolve(process.cwd()));
   const reviewArtifactPath = path.join(wfHome, cwdBase, 'jira', 'TAD-575-review.md');
   const trackerDir = path.join(wfHome, cwdBase, 'jira');

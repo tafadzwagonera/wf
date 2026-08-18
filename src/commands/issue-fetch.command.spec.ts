@@ -53,6 +53,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import * as os from 'os';
 import * as path from 'path';
+import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 const mockCwd = '/tmp/consumer-app';
 
@@ -152,7 +153,7 @@ describe('IssueFetchCommand', () => {
     await command.run(['WBP-1'], { dryRun: true });
 
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
-    expect(path.dirname(preview.filePath)).toBe(path.join(os.homedir(), '.wf', 'consumer-app', 'jira'));
+    expect(path.dirname(preview.filePath)).toBe(path.join(getWfHomeDir(), 'consumer-app', 'jira'));
   });
 
   it('stores fetched artifacts under the targeted repo namespace when --repos is provided', async () => {
@@ -162,7 +163,7 @@ describe('IssueFetchCommand', () => {
     await command.run(['WBP-1'], { repos: ['repo-a'], dryRun: true });
 
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
-    expect(path.dirname(preview.filePath)).toBe(path.join(os.homedir(), '.wf', 'repo-a', 'jira'));
+    expect(path.dirname(preview.filePath)).toBe(path.join(getWfHomeDir(), 'repo-a', 'jira'));
   });
 
   it('stores fetched artifacts under the repo-name namespace for long-format repos', async () => {
@@ -175,7 +176,7 @@ describe('IssueFetchCommand', () => {
     });
 
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
-    expect(path.dirname(preview.filePath)).toBe(path.join(os.homedir(), '.wf', 'repo-a', 'jira'));
+    expect(path.dirname(preview.filePath)).toBe(path.join(getWfHomeDir(), 'repo-a', 'jira'));
   });
 
   it('delegates live ticket retrieval to FetchStageService', async () => {
