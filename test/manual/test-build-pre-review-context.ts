@@ -99,7 +99,7 @@ async function main(): Promise<void> {
     try {
       await buildPreReviewContext(
         { context: BASE, repoDir },
-        { silent: true }  // ticketKey intentionally absent
+        { silent: true }, // ticketKey intentionally absent
       );
     } catch {
       threw = true;

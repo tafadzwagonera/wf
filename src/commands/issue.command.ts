@@ -221,7 +221,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--force',
-    description: 'Force refetch and recreate all local artifacts, ignoring any cached files',
+    description: 'Force refetch and recreate all local artifacts, ignoring any cached files. Cannot be combined with --session-id.',
   })
   parseForce(): boolean {
     return true;
@@ -342,6 +342,13 @@ export class IssueCommand extends CommandRunner {
     const planToken = passedParams[0];
     if (planToken && options?.sessionId) {
       throw new ValidationError('Provide either --session-id or a plan token, not both');
+    }
+    if (options?.force && options?.sessionId) {
+      throw new ValidationError(
+        '--force and --session-id are mutually exclusive.\n'
+        + '  Sessions are immutable — use --force without --session-id to start fresh,\n'
+        + '  or use --session-id without --force to resume an existing session.'
+      );
     }
     const { options: mergedOptions, preloadedSession } = await this.loadAndMergeSessionDefaults(options);
     const validatedOptions = this.validateInputExclusions(planToken, mergedOptions);

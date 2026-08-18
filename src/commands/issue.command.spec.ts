@@ -288,6 +288,27 @@ describe('IssueCommand', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it('rejects --force together with --session-id', async () => {
+    const command = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run([], {
+      force: true,
+      sessionId: 'some-uuid',
+      from: 'implement',
+      action: 'fix',
+      silent: true,
+    } as any);
+
+    expect(mockSessionService.load).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--force');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
   it('rejects plan-token with --from fetch', async () => {
     const command = await buildCommand();
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);

@@ -515,7 +515,7 @@
       },
       {
         "flags": "--force",
-        "description": "Force refetch and recreate all local artifacts, ignoring any cached files"
+        "description": "Force refetch and recreate all local artifacts, ignoring any cached files. Cannot be combined with --session-id."
       },
       {
         "flags": "--from <stage>",
