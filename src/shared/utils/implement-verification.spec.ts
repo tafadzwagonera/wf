@@ -28,7 +28,15 @@ jest.mock('fs', () => ({
   readdirSync: jest.fn(),
   statSync: jest.fn(),
 }));
-jest.mock('child_process');
+jest.mock('child_process', () => ({
+  ...jest.requireActual('child_process'),
+  exec: jest.fn(),
+  execFile: jest.fn(),
+  execFileSync: jest.fn(),
+  execSync: jest.fn(),
+  spawn: jest.fn(),
+  spawnSync: jest.fn(),
+}));
 jest.mock('./wf-paths');
 
 const mockFs = fs as jest.Mocked<typeof fs>;

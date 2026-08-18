@@ -2,7 +2,15 @@ import { execSync } from 'child_process';
 import { installDependencies } from './install-dependencies';
 import { detectPackageManager } from './detect-repo-conventions';
 
-jest.mock('child_process');
+jest.mock('child_process', () => ({
+  ...jest.requireActual('child_process'),
+  exec: jest.fn(),
+  execFile: jest.fn(),
+  execFileSync: jest.fn(),
+  execSync: jest.fn(),
+  spawn: jest.fn(),
+  spawnSync: jest.fn(),
+}));
 jest.mock('./detect-repo-conventions');
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;

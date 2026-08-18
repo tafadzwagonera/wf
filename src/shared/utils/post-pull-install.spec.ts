@@ -2,7 +2,15 @@ import { execSync } from 'child_process';
 import { runPostPullDependencyInstall } from './post-pull-install';
 import { installDependencies } from './install-dependencies';
 
-jest.mock('child_process');
+jest.mock('child_process', () => ({
+  ...jest.requireActual('child_process'),
+  exec: jest.fn(),
+  execFile: jest.fn(),
+  execFileSync: jest.fn(),
+  execSync: jest.fn(),
+  spawn: jest.fn(),
+  spawnSync: jest.fn(),
+}));
 jest.mock('./install-dependencies');
 
 const mockExecSync = jest.mocked(execSync);

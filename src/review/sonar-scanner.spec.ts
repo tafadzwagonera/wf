@@ -10,7 +10,15 @@ import {
 import { ConfigurationError } from '../shared/utils/errors';
 
 jest.mock('node:fs');
-jest.mock('node:child_process');
+jest.mock('node:child_process', () => ({
+  ...jest.requireActual('node:child_process'),
+  exec: jest.fn(),
+  execFile: jest.fn(),
+  execFileSync: jest.fn(),
+  execSync: jest.fn(),
+  spawn: jest.fn(),
+  spawnSync: jest.fn(),
+}));
 
 const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
 const mockExec = childProcess.exec as jest.MockedFunction<typeof childProcess.exec>;

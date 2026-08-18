@@ -47,7 +47,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:handles": "jest --runInBand --detectOpenHandles --forceExit=false",
+    "test:handles": "jest --runInBand --detectOpenHandles --no-forceExit",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:manual": "ts-node -r tsconfig-paths/register run-manual-test.ts",
     "issue:create": "yarn start issue-create",
@@ -132,9 +132,10 @@
     "setupFiles": [
       "<rootDir>/../test/setup/isolate-wf-home.ts"
     ],
+    "setupFilesAfterEnv": [
+      "<rootDir>/../test/setup/no-recursive-test-runs.ts"
+    ],
     "maxWorkers": 2,
-    "workerIdleMemoryLimit": "512MB",
-    "forceExit": true,
-    "detectOpenHandles": false
+    "workerIdleMemoryLimit": "512MB"
   }
 }
