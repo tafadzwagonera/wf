@@ -57,6 +57,12 @@ jest.mock('../review/sonar-scanner', () => ({
   runSonarScanForReview: jest.fn().mockResolvedValue(undefined),
 }));
 
+// Unmocked, this runs the repo's real verify commands — including `yarn test`, which
+// re-enters this suite and forks recursively until the host runs out of memory.
+jest.mock('../shared/utils/run-pre-review-verification', () => ({
+  runPreReviewVerification: jest.fn().mockResolvedValue(''),
+}));
+
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import inquirer from 'inquirer';

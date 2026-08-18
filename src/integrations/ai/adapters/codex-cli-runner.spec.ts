@@ -1,16 +1,41 @@
+import { EventEmitter } from 'events';
+import { Readable, Writable } from 'stream';
 import {
   assertCodexCliAvailable, buildCodexCliArgs, buildInactivityTimeoutMessage, buildTimeoutMessage,
   extractCodexErrorMessages, getCodexCliVersion, parseCodexCliVersion,
-  resetCodexCliVersionCache,
+  resetCodexCliVersionCache, spawnCodex,
 } from './codex-cli-runner';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
   execSync: jest.fn(),
+  spawn: jest.fn(),
 }));
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
+const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
+
+const createMockCodexProcess = () => {
+  const stdout = new Readable({ read() {} });
+  const stderr = new Readable({ read() {} });
+  const stdin = new Writable({
+    write(_chunk, _enc, cb) {
+      cb();
+    },
+  });
+  return Object.assign(new EventEmitter(), {
+    stdout,
+    stderr,
+    stdin,
+    pid: 5678,
+    killed: false,
+    kill: jest.fn(function (this: { killed: boolean }) {
+      this.killed = true;
+      stdout.push(null);
+    }),
+  });
+};
 
 describe('codex-cli-runner', () => {
   afterEach(() => {
@@ -267,6 +292,51 @@ describe('codex-cli-runner', () => {
     it('rounds fractional seconds', () => {
       const msg = buildInactivityTimeoutMessage(90_500);
       expect(msg.result).toContain('91s');
+    });
+  });
+
+  describe('spawnCodex', () => {
+    // The runner signals the child's process group. The mock child's pid is fictional, so a
+    // real process.kill would signal an unrelated group on the host machine.
+    let mockProcessKill: jest.SpyInstance;
+
+    beforeEach(() => {
+      mockProcessKill = jest.spyOn(process, 'kill').mockImplementation(() => true);
+    });
+
+    afterEach(() => {
+      mockProcessKill.mockRestore();
+      mockSpawn.mockReset();
+    });
+
+    it('spawns the child detached so it leads its own process group', async () => {
+      const child = createMockCodexProcess();
+      mockSpawn.mockReturnValue(child as never);
+
+      const gen = spawnCodex(['exec'], '/repo', 'test');
+      child.stdout.push(null);
+      for await (const _msg of gen) {
+        // drain
+      }
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'codex',
+        expect.any(Array),
+        expect.objectContaining({ detached: true })
+      );
+    });
+
+    it('kills the whole process group so verification subprocesses cannot outlive the run', async () => {
+      const child = createMockCodexProcess();
+      mockSpawn.mockReturnValue(child as never);
+
+      const gen = spawnCodex(['exec'], '/repo', 'test', undefined, 100);
+      child.stdout.push('{"type":"item.completed"}\n');
+      for await (const _msg of gen) {
+        // drain until the wall-clock kill fires
+      }
+
+      expect(mockProcessKill).toHaveBeenCalledWith(-child.pid, 'SIGTERM');
     });
   });
 });

@@ -1,6 +1,7 @@
 import { execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
+import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
 import {
   buildRunId,
   extractArgValue,
@@ -102,6 +103,13 @@ interface SpawnChildParams {
 
 interface SpawnChildProcessParams extends SpawnChildParams {
   prompt: string | undefined;
+}
+
+interface ScheduleSigkillParams {
+  child: ReturnType<typeof spawn>;
+  exitRecord: CliExitRecord;
+  runId: string;
+  reason: CliKillReason;
 }
 
 interface TimeoutManager {
@@ -279,6 +287,7 @@ const spawnChild = (params: SpawnChildParams): { child: ReturnType<typeof spawn>
     cwd: params.cwd,
     env: params.env ? { ...process.env, ...params.env } : process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
+    detached: true,
   });
   attachExitListeners(child, exitRecord, params);
   return { child, exitRecord };
@@ -327,23 +336,37 @@ const spawnChildProcess = (params: SpawnChildProcessParams): ChildBundle => {
  * @param ctx - Run id, mutable kill state, and the timeouts reported on kill
  * @returns Idempotent kill function taking the reason for the kill
  */
-const makeKillChild = (child: ReturnType<typeof spawn>, ctx: KillContext): ((reason: CliKillReason) => void) => {
+const makeKillChild = (
+  child: ReturnType<typeof spawn>,
+  ctx: KillContext,
+  exitRecord: CliExitRecord
+): ((reason: CliKillReason) => void) => {
   let killed = false;
   return (reason: CliKillReason) => {
     ctx.state.killReason ??= reason;
     if (killed) return;
     killed = true;
     logCliKill({ ...ctx, reason, elapsedMs: Date.now() - ctx.startedAtMs });
-    child.kill('SIGTERM');
-    scheduleSigkill(child, ctx.runId, reason);
+    signalProcessTree(child, 'SIGTERM');
+    scheduleSigkill({ child, exitRecord, runId: ctx.runId, reason });
   };
 };
 
-const scheduleSigkill = (child: ReturnType<typeof spawn>, runId: string, reason: CliKillReason): void => {
+/**
+ * Escalates to SIGKILL on the process group when SIGTERM did not land within the grace period.
+ *
+ * Liveness comes from `exitRecord`, which the child's own `exit` listener populates. The
+ * previous guard read `child.killed`, which only reports that a signal was *sent* — it was
+ * always true here, so the escalation never ran.
+ *
+ * @param params - Child, its exit record, run id, and the reason recorded for the kill
+ */
+const scheduleSigkill = (params: ScheduleSigkillParams): void => {
+  const { child, exitRecord, runId, reason } = params;
   setTimeout(() => {
-    if (child.killed) return;
+    if (exitRecord.exited) return;
     logCliSigkillEscalation({ runId, reason });
-    child.kill('SIGKILL');
+    signalProcessTree(child, 'SIGKILL');
   }, SIGKILL_GRACE_MS).unref();
 };
 
@@ -445,7 +468,7 @@ const initCliSession = (params: InitCliSessionParams): CliSession => {
   const { child, rl, stderrChunks, exitRecord } = spawnChildProcess({ ...params, runId, startedAtMs });
   logCliSpawn(buildRunIdentity(runId, params));
   const state: TimeoutState = {};
-  const killChild = makeKillChild(child, { runId, state, startedAtMs, timeoutMs, inactivityTimeoutMs });
+  const killChild = makeKillChild(child, { runId, state, startedAtMs, timeoutMs, inactivityTimeoutMs }, exitRecord);
   const tm = createTimeoutManager(killChild, timeoutMs, inactivityTimeoutMs);
   tm.resetInactivity();
   return {

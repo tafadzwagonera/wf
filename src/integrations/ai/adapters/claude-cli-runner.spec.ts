@@ -361,6 +361,48 @@ describe('claude-cli-runner', () => {
   });
 
   describe('spawnCli', () => {
+    // The runner signals the child's process group. The mock child's pid is fictional, so a
+    // real process.kill would signal an unrelated group on the host machine.
+    let mockProcessKill: jest.SpyInstance;
+
+    beforeEach(() => {
+      mockProcessKill = jest.spyOn(process, 'kill').mockImplementation(() => true);
+    });
+
+    afterEach(() => {
+      mockProcessKill.mockRestore();
+    });
+
+    it('spawns the child detached so it leads its own process group', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 5000);
+      child.stdout.push(null);
+      for await (const _msg of gen) {
+        // drain
+      }
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'claude',
+        expect.any(Array),
+        expect.objectContaining({ detached: true })
+      );
+    });
+
+    it('kills the whole process group so verification subprocesses cannot outlive the run', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 100);
+      child.stdout.push('{"type":"system","subtype":"init"}\n');
+      for await (const _msg of gen) {
+        // drain until the wall-clock kill fires
+      }
+
+      expect(mockProcessKill).toHaveBeenCalledWith(-child.pid, 'SIGTERM');
+    });
+
     it('yields a timeout error message when the subprocess exceeds the timeout', async () => {
       const child = createMockChildProcess();
       mockSpawn.mockReturnValue(child as any);

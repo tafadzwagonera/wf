@@ -1,6 +1,7 @@
 import { ChildProcess, execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
+import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
 import { parseNdjsonLine } from './claude-cli-runner';
 
 export interface CodexCliMessage {
@@ -171,6 +172,7 @@ export const buildCodexCliArgs = (params: CodexCliRunnerParams): string[] => {
 
 interface KillState {
   killed: boolean;
+  exited: boolean;
   timedOut: boolean;
   inactivityTimedOut: boolean;
   inactivityHandle: ReturnType<typeof setTimeout> | undefined;
@@ -191,6 +193,7 @@ const spawnCodexProcess = (
     cwd,
     env: env ? { ...process.env, ...env } : process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
+    detached: true,
   });
   if (prompt) {
     child.stdin.write(prompt);
@@ -199,17 +202,31 @@ const spawnCodexProcess = (
   return child;
 };
 
-const escalateToSigkill = (proc: ChildProcess): void => {
-  if (!proc.killed) proc.kill('SIGKILL');
+/**
+ * Escalates to SIGKILL on the process group when SIGTERM did not land within the grace period.
+ *
+ * Liveness comes from `state.exited`, populated by the child's own `exit` listener. The
+ * previous guard read `proc.killed`, which only reports that a signal was *sent* — the
+ * preceding SIGTERM always set it, so the escalation never ran.
+ *
+ * @param proc - Spawned codex child process
+ * @param state - Mutable kill state carrying the observed exit
+ */
+const escalateToSigkill = (proc: ChildProcess, state: KillState): void => {
+  if (state.exited) return;
+  signalProcessTree(proc, 'SIGKILL');
 };
 
 const makeKillFn = (proc: ChildProcess, state: KillState): (() => void) => {
+  proc.once('exit', () => {
+    state.exited = true;
+  });
   return () => {
     if (state.killed) return;
     state.killed = true;
     if (state.inactivityHandle) clearTimeout(state.inactivityHandle);
-    proc.kill('SIGTERM');
-    setTimeout(() => escalateToSigkill(proc), SIGKILL_GRACE_MS);
+    signalProcessTree(proc, 'SIGTERM');
+    setTimeout(() => escalateToSigkill(proc, state), SIGKILL_GRACE_MS).unref();
   };
 };
 
@@ -240,7 +257,9 @@ const buildTimers = (
 };
 
 const buildKillController = (proc: ChildProcess, timeoutMs: number, inactivityTimeoutMs: number): KillController => {
-  const state: KillState = { killed: false, timedOut: false, inactivityTimedOut: false, inactivityHandle: undefined };
+  const state: KillState = {
+    killed: false, exited: false, timedOut: false, inactivityTimedOut: false, inactivityHandle: undefined,
+  };
   const kill = makeKillFn(proc, state);
   const { timeoutHandle, resetInactivity } = buildTimers(state, timeoutMs, inactivityTimeoutMs, kill);
   return {
@@ -312,7 +331,7 @@ async function* readCodexLines(
 
 const installCodexSigintHandler = (child: ChildProcess, rl: ReturnType<typeof createInterface>): () => void => {
   const onSigint = () => {
-    child.kill('SIGINT');
+    signalProcessTree(child, 'SIGINT');
     rl.close();
   };
   process.on('SIGINT', onSigint);
