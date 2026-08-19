@@ -10,6 +10,7 @@ import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveRepoBasePath } from '../agents/utils';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
+import { withRepoLock } from '../shared/utils/repo-lock';
 import chalk from 'chalk';
 
 interface IssueCommitOptions {
@@ -64,7 +65,7 @@ export class IssueCommitCommand extends CommandRunner {
 
       if (options?.dryRun) return this.previewDryRun(ticketKey, options);
 
-      await this.executeCommit(repoBaseDir, options?.ticketKey ?? null, options);
+      await withRepoLock(repoBaseDir, () => this.executeCommit(repoBaseDir, options?.ticketKey ?? null, options));
     } });
   }
 

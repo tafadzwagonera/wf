@@ -38,6 +38,13 @@ jest.mock('../agents/utils', () => {
   };
 });
 
+// withRepoLock is exercised for real in repo-lock.spec.ts; mocked here as a passthrough so
+// command specs don't take a real filesystem lock on the shared literal '/tmp/current-app'
+// path, which could collide across parallel Jest workers.
+jest.mock('../shared/utils/repo-lock', () => ({
+  withRepoLock: jest.fn((_repoDir: string, fn: () => Promise<unknown>) => fn()),
+}));
+
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssueCommitCommand } from './issue-commit.command';
@@ -129,6 +136,15 @@ describe('IssueCommitCommand', () => {
       message: 'WBP-123: ship it',
       cwd: '/tmp/current-app',
     });
+  });
+
+  it('runs the commit under a repo lock scoped to the resolved git base', async () => {
+    const { withRepoLock } = jest.requireMock('../shared/utils/repo-lock');
+    const { command } = await buildCommand();
+
+    await command.run([], { ticketKey: 'WBP-123', message: 'ship it' });
+
+    expect(withRepoLock).toHaveBeenCalledWith('/tmp/current-app', expect.any(Function));
   });
 
   it('uses only the first resolved repo and warns when multiple repos are provided', async () => {

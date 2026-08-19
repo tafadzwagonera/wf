@@ -44,6 +44,25 @@ const wrapGitError = (error: unknown, message: string): never => {
 };
 
 /**
+ * Detect the pathspec-not-found failure `git add` raises when a path it was
+ * asked to stage no longer exists in any form (working tree, index, or HEAD)
+ * — typically because another process already committed its deletion between
+ * this call's `git status()` read and its `git add()` write.
+ *
+ * @param error - The caught value from a failed `git.add()` call
+ * @returns True when the error is this specific vanished-pathspec failure
+ */
+const extractErrorText = (error: unknown): string => {
+  if (typeof error === 'string') return error;
+  const e = error as Record<string, unknown>;
+  if (typeof e?.message === 'string') return e.message;
+  if (typeof e?.git === 'string') return e.git;
+  return '';
+};
+
+const isMissingPathspecError = (error: unknown): boolean => /did not match any files/i.test(extractErrorText(error));
+
+/**
  * Assemble a {@link BranchInfo} value object from git status and branch data.
  *
  * @param status - Current git status
@@ -392,12 +411,40 @@ export class GitService {
   async stageAll(cwd?: string): Promise<void> {
     try {
       const git = cwd ? createGit(cwd) : this.git;
-      const status = await git.status();
-      const filesToAdd = this.filterStageable(status.files.map(f => f.path));
-      if (filesToAdd.length > 0) await git.add(filesToAdd);
+      await this.addStageableFiles(git);
     } catch (error) {
       wrapGitError(error, 'Failed to stage all changes');
     }
+  }
+
+  /**
+   * Stage every stageable path from the current git status. If `git add`
+   * fails because a path vanished between reading status and staging it
+   * (see {@link isMissingPathspecError} — e.g. another process deleted and
+   * committed it in that window), re-read status and retry once against the
+   * files that are still actually present, rather than failing the whole
+   * command over a race outside this call's control.
+   *
+   * @param git - SimpleGit instance to stage against
+   */
+  private async addStageableFiles(git: SimpleGit): Promise<void> {
+    const status = await git.status();
+    const filesToAdd = this.filterStageable(status.files.map(f => f.path));
+    if (filesToAdd.length === 0) return;
+
+    try {
+      await git.add(filesToAdd);
+    } catch (error) {
+      if (!isMissingPathspecError(error)) throw error;
+      this.logger.warn('A path vanished after git status but before staging (likely a concurrent process); retrying.');
+      await this.retryStageAfterVanishedPath(git);
+    }
+  }
+
+  private async retryStageAfterVanishedPath(git: SimpleGit): Promise<void> {
+    const status = await git.status();
+    const filesToAdd = this.filterStageable(status.files.map(f => f.path));
+    if (filesToAdd.length > 0) await git.add(filesToAdd);
   }
 
   /**

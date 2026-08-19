@@ -48,6 +48,13 @@ jest.mock('../agents/utils', () => {
   };
 });
 
+// withRepoLock is exercised for real in repo-lock.spec.ts; mocked here as a passthrough so
+// command specs don't take a real filesystem lock on the shared literal '/tmp/consumer-app'
+// path, which could collide across parallel Jest workers.
+jest.mock('../shared/utils/repo-lock', () => ({
+  withRepoLock: jest.fn((_repoDir: string, fn: () => Promise<unknown>) => fn()),
+}));
+
 jest.mock('inquirer', () => ({
   __esModule: true,
   default: {
@@ -1533,6 +1540,9 @@ describe('IssueCommand', () => {
     // save() must have been called once (at creation) before the fetch error
     expect(mockSessionService.save).toHaveBeenCalledTimes(1);
     expect(mockSessionService.save).toHaveBeenCalledWith(expect.objectContaining({ stages: {}, ticketKey: 'WBP-42' }));
+
+    const { withRepoLock } = jest.requireMock('../shared/utils/repo-lock');
+    expect(withRepoLock).toHaveBeenCalledWith('/tmp/consumer-app', expect.any(Function));
   });
 
   it('persists new session to disk even when no stages run successfully', async () => {

@@ -12,6 +12,7 @@ export const errorCodeSchema = z.enum([
   'APPROVAL_ERROR',
   'CONFIGURATION_ERROR',
   'FILE_SYSTEM_ERROR',
+  'REPO_LOCK_ERROR',
 ]);
 
 export const ERROR_CODE = {
@@ -26,6 +27,7 @@ export const ERROR_CODE = {
   APPROVAL_ERROR: 'APPROVAL_ERROR',
   CONFIGURATION_ERROR: 'CONFIGURATION_ERROR',
   FILE_SYSTEM_ERROR: 'FILE_SYSTEM_ERROR',
+  REPO_LOCK_ERROR: 'REPO_LOCK_ERROR',
 } as const;
 
 export const appErrorSchema = z.object({

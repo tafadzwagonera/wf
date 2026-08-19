@@ -30,6 +30,8 @@ const ERROR_CODE_SUGGESTIONS: Record<string, string | null> = {
   [ERROR_CODE.CONFIGURATION_ERROR]:
     'Check your wf.config.* file and ensure the required configuration values are present and valid.',
   [ERROR_CODE.FILE_SYSTEM_ERROR]: 'Check file permissions and ensure the path exists.',
+  [ERROR_CODE.REPO_LOCK_ERROR]:
+    'Wait for the other wf workflow to finish, or delete the lock file shown above if you are sure no other wf process is running against this repository.',
 };
 
 export class ErrorHandler {

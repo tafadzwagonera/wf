@@ -11,6 +11,7 @@ export enum ErrorCode {
   APPROVAL_ERROR = 'APPROVAL_ERROR',
   CONFIGURATION_ERROR = 'CONFIGURATION_ERROR',
   FILE_SYSTEM_ERROR = 'FILE_SYSTEM_ERROR',
+  REPO_LOCK_ERROR = 'REPO_LOCK_ERROR',
 }
 
 // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -34,5 +35,6 @@ export {
   ConfigurationError,
   FileSystemError,
   PlanArtifactNotFoundError,
+  RepoLockError,
   ERROR_CODE,
 } from '../errors/app.error';

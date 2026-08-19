@@ -22,6 +22,7 @@ import { ConfigService } from '@nestjs/config';
 import { AiService, REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../integrations/ai/ai.service';
 import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
+import { withRepoLock } from '../shared/utils/repo-lock';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import * as fs from 'node:fs';
@@ -306,7 +307,7 @@ export class IssueCommand extends CommandRunner {
       }
 
       this.printWorkflowHeader(ctx);
-      await this.executeWorkflow(ctx);
+      await withRepoLock(ctx.repoBaseDir, () => this.executeWorkflow(ctx));
     } });
   }
 

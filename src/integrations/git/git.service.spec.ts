@@ -8,6 +8,7 @@ const mockCwdGitInstance = {
   reset: jest.fn(),
   raw: jest.fn(),
   status: jest.fn(),
+  add: jest.fn(),
 };
 
 jest.mock('simple-git', () => jest.fn(() => mockCwdGitInstance));
@@ -15,6 +16,7 @@ jest.mock('simple-git', () => jest.fn(() => mockCwdGitInstance));
 describe('GitService', () => {
   let service: GitService;
   let configService: ConfigService;
+  let loggerService: LoggerService;
   let mockGit: any;
 
   beforeEach(async () => {
@@ -40,6 +42,7 @@ describe('GitService', () => {
 
     service = module.get<GitService>(GitService);
     configService = module.get<ConfigService>(ConfigService);
+    loggerService = module.get<LoggerService>(LoggerService);
 
     mockGit = {
       status: jest.fn(),
@@ -183,6 +186,81 @@ describe('GitService', () => {
       mockCwdGitInstance.reset.mockReset().mockRejectedValue(new Error('boom'));
 
       await expect(service.resetSoftToCommit('abc123', '/repo')).rejects.toThrow(GitError);
+    });
+  });
+
+  describe('stageAll()', () => {
+    beforeEach(() => {
+      mockCwdGitInstance.status.mockReset();
+      mockCwdGitInstance.add.mockReset();
+    });
+
+    it('stages every stageable path from status in a single call', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({
+        files: [{ path: 'src/app.ts' }, { path: 'README.md' }],
+      });
+      mockCwdGitInstance.add.mockResolvedValue(undefined);
+
+      await service.stageAll('/repo');
+
+      expect(mockCwdGitInstance.add).toHaveBeenCalledTimes(1);
+      expect(mockCwdGitInstance.add).toHaveBeenCalledWith(['src/app.ts', 'README.md']);
+    });
+
+    it('does not call add when there is nothing stageable', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({ files: [] });
+
+      await service.stageAll('/repo');
+
+      expect(mockCwdGitInstance.add).not.toHaveBeenCalled();
+    });
+
+    it('recovers from a vanished pathspec by retrying against a fresh status snapshot', async () => {
+      mockCwdGitInstance.status
+        .mockResolvedValueOnce({ files: [{ path: 'src/app.ts' }, { path: 'deleted-elsewhere.ts' }] })
+        .mockResolvedValueOnce({ files: [{ path: 'src/app.ts' }] });
+      mockCwdGitInstance.add
+        .mockRejectedValueOnce(new Error("fatal: pathspec 'deleted-elsewhere.ts' did not match any files"))
+        .mockResolvedValueOnce(undefined);
+
+      await expect(service.stageAll('/repo')).resolves.toBeUndefined();
+
+      expect(mockCwdGitInstance.add).toHaveBeenCalledTimes(2);
+      expect(mockCwdGitInstance.add).toHaveBeenNthCalledWith(1, ['src/app.ts', 'deleted-elsewhere.ts']);
+      expect(mockCwdGitInstance.add).toHaveBeenNthCalledWith(2, ['src/app.ts']);
+      expect(loggerService.warn).toHaveBeenCalledWith(expect.stringContaining('vanished after git status'));
+    });
+
+    it('resolves without a second add call when the retry status has nothing left to stage', async () => {
+      mockCwdGitInstance.status
+        .mockResolvedValueOnce({ files: [{ path: 'deleted-elsewhere.ts' }] })
+        .mockResolvedValueOnce({ files: [] });
+      mockCwdGitInstance.add.mockRejectedValueOnce(
+        new Error("fatal: pathspec 'deleted-elsewhere.ts' did not match any files")
+      );
+
+      await expect(service.stageAll('/repo')).resolves.toBeUndefined();
+
+      expect(mockCwdGitInstance.add).toHaveBeenCalledTimes(1);
+    });
+
+    it('wraps a non-pathspec add failure as GitError without retrying', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({ files: [{ path: 'src/app.ts' }] });
+      mockCwdGitInstance.add.mockRejectedValue(new Error('permission denied'));
+
+      await expect(service.stageAll('/repo')).rejects.toThrow(GitError);
+      expect(mockCwdGitInstance.status).toHaveBeenCalledTimes(1);
+      expect(mockCwdGitInstance.add).toHaveBeenCalledTimes(1);
+    });
+
+    it('wraps the error as GitError if the retry itself still fails', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({ files: [{ path: 'deleted-elsewhere.ts' }] });
+      mockCwdGitInstance.add.mockRejectedValue(
+        new Error("fatal: pathspec 'deleted-elsewhere.ts' did not match any files")
+      );
+
+      await expect(service.stageAll('/repo')).rejects.toThrow(GitError);
+      expect(mockCwdGitInstance.add).toHaveBeenCalledTimes(2);
     });
   });
 
