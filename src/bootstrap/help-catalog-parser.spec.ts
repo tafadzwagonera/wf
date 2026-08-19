@@ -1,9 +1,23 @@
-import * as path from 'path';
+import * as path from 'node:path';
 import { getCommandHelpCatalog } from './help-catalog-parser';
 
-const catalog = getCommandHelpCatalog(path.join(__dirname, '..', 'commands'));
+const commandsDir = path.join(__dirname, '..', 'commands');
+const catalog = getCommandHelpCatalog(commandsDir);
 
 describe('getCommandHelpCatalog', () => {
+  it('restores the issue:review --session-id {UUID} example that the brace-splitting scrape dropped', () => {
+    const examples = catalog['issue:review']?.examples ?? [];
+    expect(examples).toHaveLength(7);
+    const uuidExample = examples.find(e => e.command.includes('--session-id {UUID}'));
+    expect(uuidExample).toBeDefined();
+    expect(uuidExample?.command).toBe('wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3');
+  });
+
+  it('exposes all 9 issue:generate examples', () => {
+    const examples = catalog['issue:generate']?.examples ?? [];
+    expect(examples).toHaveLength(9);
+  });
+
   it('preserves option abbreviations from command decorators', () => {
     const entry = catalog['issue:generate'];
 

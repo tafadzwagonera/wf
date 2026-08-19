@@ -62,8 +62,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../shared/utils/plan-artifact';
-import * as os from 'os';
-import * as path from 'path';
+import * as path from 'node:path';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 async function buildCommand(): Promise<IssueImplementCommand> {
@@ -124,6 +123,22 @@ describe('IssueImplementCommand', () => {
 
   afterEach(() => {
     cwdSpy.mockRestore();
+    jest.restoreAllMocks();
+  });
+
+  it('prints the command header when --silent is not set', async () => {
+    const command = await buildCommand();
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+
+    await command.run([], { dryRun: true });
+
+    const allOutput = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+    expect(allOutput).toContain('Carry out an implementation plan from a ticket-backed, hashed, or custom plan artifact.');
+    expect(allOutput).toContain('Examples:');
+
+    consoleSpy.mockRestore();
+    exitSpy.mockRestore();
   });
 
   describe('parseRepos', () => {
@@ -764,7 +779,7 @@ describe('IssueImplementCommand', () => {
 
   describe('ticket mode with multiple repos', () => {
     const setupMultiRepoTest = async () => {
-      const command = await buildCommand();
+      await buildCommand();
       const hash = hashPlanArtifactSources(['WBP-0001']);
       const canonicalPlanPath = path.join(
         getWfHomeDir(), 'repo-a',

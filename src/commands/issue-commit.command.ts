@@ -6,7 +6,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { GitError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
-import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveRepoBasePath } from '../agents/utils';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
@@ -20,23 +20,8 @@ interface IssueCommitOptions {
   tracker?: string;
   repos?: string[];
   sessionId?: string;
+  silent?: boolean;
 }
-
-const ISSUE_COMMIT_EXAMPLES: CliExample[] = [
-  {
-    comment: 'AI-generated commit message',
-    command: 'wf issue:commit -k WBP-2971',
-  },
-  {
-    comment: 'Run from source with conventional commits enabled',
-    command: 'yarn start issue:commit -c',
-  },
-  {
-    comment: 'Force conventional format',
-    command: 'wf issue:commit -k WBP-2971 --conventional --tracker jira',
-  },
-];
-
 const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
@@ -50,7 +35,11 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
 @Command({
   name: 'issue:commit',
   description:
-    'Create git commit with AI-generated message (use -k for ticket key or auto-detects from branch; fails hard if .gitignore is staged; blank AI commit responses fail fast with provider-aware diagnostics; when running from source, use yarn start issue:commit -c)',
+    'Create a git commit with an AI-generated message. '
+    + 'Use -k for the ticket key, or the key is auto-detected from the branch name. '
+    + 'Fails hard if .gitignore is staged. '
+    + 'Blank AI commit responses fail fast with provider-aware diagnostics. '
+    + 'When running from source, use yarn start issue:commit -c.',
   options: { isDefault: false },
 })
 export class IssueCommitCommand extends CommandRunner {
@@ -66,7 +55,7 @@ export class IssueCommitCommand extends CommandRunner {
   }
 
   async run(_passedParams: string[], options?: IssueCommitOptions): Promise<void> {
-    printExamples(ISSUE_COMMIT_EXAMPLES);
+    if (!options?.silent) printCommandHeader('issue:commit');
 
     await executeAsyncWithCatch({ fn: async () => {
       const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
@@ -252,6 +241,14 @@ export class IssueCommitCommand extends CommandRunner {
   })
   parseTracker(val: string): string {
     return val;
+  }
+
+  @Option({
+    flags: '-s, --silent',
+    description: 'Suppress decorative output; emits no header',
+  })
+  parseSilent(): boolean {
+    return true;
   }
 
   /**

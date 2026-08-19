@@ -1,18 +1,19 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import type { CommandHelpEntry, CommandHelpOption, CommandHelpExample } from '../shared/types/bootstrap.types';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import type { CommandHelpEntry, CommandHelpOption } from '../shared/types/bootstrap.types';
+import { COMMAND_DOCS } from '../shared/docs/command-docs.registry';
 
-export type { CommandHelpEntry, CommandHelpOption, CommandHelpExample };
+export type { CommandHelpEntry, CommandHelpOption, CommandHelpExample } from '../shared/types/bootstrap.types';
 
 const STRING_LITERAL_PATTERN = /'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)"|`((?:\\.|[^`])*)`/g;
 
 const unquoteStringLiteral = (value: string): string =>
   value
-    .replaceAll(/^['"`]|['"`]$/g, '')
-    .replaceAll('\\\'', '\'')
-    .replaceAll('\\"', '"')
+    .replaceAll(/(?:^['"`])|(?:['"`]$)/g, '')
+    .replaceAll(String.raw`\'`, '\'')
+    .replaceAll(String.raw`\"`, '"')
     .replaceAll('\\`', '`')
-    .replaceAll('\\n', '\n');
+    .replaceAll(String.raw`\n`, '\n');
 
 const evaluateStringExpression = (expression?: string): string | undefined => {
   if (!expression) return undefined;
@@ -120,26 +121,6 @@ const parseObjectProperties = (block: string): Map<string, string> => {
 
   return properties;
 };
-
-function parseExampleEntry(properties: Map<string, string>): CommandHelpExample | undefined {
-  const command = evaluateStringExpression(properties.get('command'));
-  if (!command) return undefined;
-  const comment = evaluateStringExpression(properties.get('comment'));
-  return comment ? { comment, command } : { command };
-}
-
-function extractExamples(source: string): CommandHelpExample[] {
-  const examplesArrayMatch = /const\s+\w+_EXAMPLES\s*:\s*CliExample\[\]\s*=\s*\[(.*?)\];/s.exec(source);
-  if (!examplesArrayMatch) {
-    return [];
-  }
-
-  return Array.from(examplesArrayMatch[1].matchAll(/\{([\s\S]*?)\}/g))
-    .map(match => parseObjectProperties(match[1]))
-    .map(properties => parseExampleEntry(properties))
-    .filter((example): example is CommandHelpExample => example !== undefined);
-}
-
 const formatFlagForHelp = (flagsExpression?: string): string | undefined => {
   const flags = evaluateStringExpression(flagsExpression);
   if (!flags) return undefined;
@@ -189,7 +170,7 @@ function parseOptions(source: string): CommandHelpOption[] {
 function buildCommandEntry(source: string, name: string, description: string, argsExpr?: string): CommandHelpEntry {
   const subcommandNames = parseSubcommandNames(source);
   const options = parseOptions(source);
-  const examples = extractExamples(source);
+  const examples = COMMAND_DOCS[name as keyof typeof COMMAND_DOCS]?.examples ?? [];
   const argumentsValue = evaluateStringExpression(argsExpr);
   const usage = buildUsage({ commandName: name, argumentsValue, hasOptions: options.length > 0, subcommandNames });
   const optionalOptions = options.length > 0 ? options : undefined;

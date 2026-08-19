@@ -16,8 +16,3 @@ export const commandHelpEntrySchema = z.object({
   options: z.array(commandHelpOptionSchema).optional(),
   examples: z.array(commandHelpExampleSchema).optional(),
 });
-
-export const cliExampleSchema = z.object({
-  comment: z.string(),
-  command: z.string(),
-});

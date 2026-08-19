@@ -19,7 +19,7 @@ import { getPlanArtifactExtension,
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { resolveCustomSourcePath } from '../shared/utils/custom-source';
 import { parseReposOption } from './utils/repos-option';
-import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { printCommandHeader } from '../shared/utils/command-header.helper';
 import type { ResolutionAction } from '../agents/interfaces';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
@@ -30,35 +30,11 @@ import { validatePlanQuality } from '../shared/utils/plan-quality';
 import { detectRepoConventions } from '../shared/utils/detect-repo-conventions';
 import { detectPriorPlans, correlatePlans } from '../shared/utils/detect-prior-plans';
 import { detectCrossRepoPatterns } from '../shared/utils/detect-cross-repo-patterns';
+import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
 import chalk from 'chalk';
-
-const ISSUE_PLAN_EXAMPLES: CliExample[] = [
-  {
-    comment: 'Create a custom feature plan from a markdown artifact',
-    command: 'wf issue:plan --action feature --custom-plan bar.md',
-  },
-  {
-    comment: 'Prefer the repo-scoped custom artifact when a repo is supplied',
-    command: 'wf issue:plan --action feature --custom-plan bar.md --repos repo-a',
-  },
-  {
-    comment: 'Plan a fix for a ticket',
-    command: 'wf issue:plan -k WBP-2971 --action fix',
-  },
-  {
-    comment: 'Plan against a repo so prior plan artifacts feed plan correlation',
-    command: 'wf issue:plan -k WBP-2971 --action fix --repos repo-a',
-  },
-  {
-    comment: 'Force re-fetch before planning',
-    command: 'wf issue:plan -k WBP-2971 --action fix --force --tracker jira',
-  },
-];
-
-type OutputFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 interface IssuePlanOptions {
   action: ResolutionAction;
@@ -304,7 +280,7 @@ export class IssuePlanCommand extends CommandRunner {
 
   async run(_: string[], options?: IssuePlanOptions): Promise<void> {
     if (!options?.silent) {
-      printExamples(ISSUE_PLAN_EXAMPLES);
+      printCommandHeader('issue:plan');
     }
 
     await executeAsyncWithCatch({ fn: async () => {

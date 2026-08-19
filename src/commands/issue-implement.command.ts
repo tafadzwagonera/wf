@@ -8,6 +8,7 @@ import {
   requireAiResponseContent,
 } from '../integrations/ai/ai.service';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
+import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { isAiProviderErrorLike, ValidationError, ExecutionError, FileSystemError } from '../shared/utils/errors';
@@ -77,11 +78,7 @@ interface IssueImplementOptions {
     + 'After each pull, if package.json changed, the detected package manager (bun, pnpm, yarn, or npm) runs an install automatically; failures are surfaced as warnings and never abort the command. '
     + 'Generated branch names exceeding 100 characters are automatically truncated at the nearest word boundary. '
     + 'Use --silent to auto-stash without prompting; branch selection and naming still prompt when a TTY is available. Use --no-branch to skip branch creation and work directly on the current branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. '
-    + 'When running against multiple repos, repos absent from the plan\'s affectedRepositories and newRepositories are skipped with a log message. When a plan declares newRepositories, those repos are scaffolded as sibling directories and prepended to the execution order so they run before existing repos. '
-    + 'Examples: wf issue:implement -k PROJ-123 | wf issue:implement 2026-05-04-1a2b3c4d-fix-plan.json | '
-    + 'wf issue:implement -k PROJ-123 --repos my-repo | '
-    + 'wf issue:implement -k PROJ-123 --silent | wf issue:implement -k PROJ-123 --no-branch | '
-    + 'wf issue:implement -k PROJ-123 --dry-run',
+    + 'When running against multiple repos, repos absent from the plan\'s affectedRepositories and newRepositories are skipped with a log message. When a plan declares newRepositories, those repos are scaffolded as sibling directories and prepended to the execution order so they run before existing repos.',
   arguments: '[plan-token]',
 })
 export class IssueImplementCommand extends CommandRunner {
@@ -180,6 +177,7 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   async run([identifier]: string[], options?: IssueImplementOptions): Promise<void> {
+    if (!options?.silent) printCommandHeader('issue:implement');
     await executeAsyncWithCatch({ fn: async () => {
       await ensureWfHome();
       if (options?.branch === false) options.noBranch = true;

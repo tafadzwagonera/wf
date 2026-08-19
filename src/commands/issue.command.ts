@@ -21,7 +21,7 @@ import { parseReposOption } from './utils/repos-option';
 import { ConfigService } from '@nestjs/config';
 import { AiService, REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../integrations/ai/ai.service';
 import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
-import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { printCommandHeader } from '../shared/utils/command-header.helper';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import * as fs from 'node:fs';
@@ -54,30 +54,6 @@ type ReviewLoopContext = {
 };
 
 const VALID_MODEL_ROUTING: ModelRouting[] = ['auto', 'default', 'mechanical'];
-
-const ISSUE_EXAMPLES: CliExample[] = [
-  {
-    comment: 'Run full workflow from fetch',
-    command: 'wf issue -k WBP-2971 --from fetch --action fix',
-  },
-  {
-    comment: 'Resume from implement stage',
-    command: 'wf issue -k WBP-2971 --from implement --action fix --tracker jira',
-  },
-  {
-    comment: 'Run the workflow from a custom markdown plan source (--from defaults to plan)',
-    command: 'wf issue -c bar.md --action fix',
-  },
-  {
-    comment: 'Resume from a hashed plan artifact without --action (--from defaults to implement)',
-    command: 'wf issue 2026-05-04-1a2b3c4d-fix-plan.json --to review',
-  },
-  {
-    comment: 'Resume a saved workflow session without restating source flags',
-    command: 'wf issue --session-id 550e8400-e29b-41d4-a716-446655440000',
-  },
-];
-
 enum WorkflowStage {
   FETCH = 'fetch',
   PLAN = 'plan',
@@ -337,7 +313,7 @@ export class IssueCommand extends CommandRunner {
   private async validateAndResolveInputs(
     passedParams: string[], options?: IssueOptions
   ): Promise<ResolvedWorkflowContext> {
-    if (!options?.silent) printExamples(ISSUE_EXAMPLES);
+    if (!options?.silent) printCommandHeader('issue');
 
     const planToken = passedParams[0];
     if (planToken && options?.sessionId) {

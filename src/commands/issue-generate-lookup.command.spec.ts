@@ -124,4 +124,63 @@ describe('IssueGenerateLookupCommand', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('https://example.com/spec'));
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('./notes.md'));
   });
+
+  it('suppresses the header when --silent is passed', async () => {
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueGenerateLookupCommand,
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+      ],
+    }).compile();
+
+    const command = module.get(IssueGenerateLookupCommand);
+    const artifactDir = path.join(getWfHomeDir(), 'consumer-app', 'jira');
+
+    (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReturnValue(true);
+    (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockReturnValue([
+      '2026-04-16-1a2b3c4d-ticket-description.sources.json',
+    ] as any);
+    (fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>).mockReturnValue(
+      JSON.stringify({
+        artifactPath: path.join(artifactDir, '2026-04-16-1a2b3c4d-ticket-description.md'),
+        createdAt: '2026-04-16T00:00:00.000Z',
+        hash: '1a2b3c4d',
+        sources: ['https://example.com/spec'],
+      }),
+    );
+
+    consoleLogSpy.mockRestore();
+    const silentSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await command.run(['1a2b3c4d'], { silent: true });
+
+    const allOutput = silentSpy.mock.calls.map(call => String(call[0])).join('\n');
+    expect(allOutput).not.toContain('Lookup the original source list for a generated ticket artifact hash.');
+    expect(allOutput).not.toContain('Examples:');
+
+    silentSpy.mockRestore();
+  });
 });

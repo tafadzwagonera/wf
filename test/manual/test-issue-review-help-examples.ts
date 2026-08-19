@@ -6,14 +6,20 @@
  * Verifies:
  *   1. No example command uses `yarn start` — all must use `wf`
  *   2. No duplicate example commands exist in the examples array
- *   3. The generated help catalog matches the source examples
+ *   3. No catalog example references `yarn start`
+ *
+ * A prior "help catalog matches registry examples" check was removed from
+ * this file: command-docs.registry.spec.ts's "COMMAND_DOCS registry<->catalog
+ * equality" describe block already asserts exact equality (not just
+ * missing/extra diffing) for every registry key, including issue:review, on
+ * every `yarn test` run.
  */
 
-import * as fs from 'fs';
 import * as path from 'path';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { getCommandHelpCatalog } from '../../src/bootstrap/help-catalog-parser';
+import { COMMAND_DOCS } from '../../src/shared/docs/command-docs.registry';
 
 async function run(): Promise<void> {
   console.log('Testing issue:review help examples\n');
@@ -34,10 +40,8 @@ async function run(): Promise<void> {
     failed++;
   };
 
-  // --- Test 1: Source examples never reference `yarn start` ---
   console.log('Test 1: No example uses yarn start');
-  const sourceFile = fs.readFileSync(path.join(__dirname, '../../src/commands/issue-review.command.ts'), 'utf-8');
-  const exampleCommandMatches = Array.from(sourceFile.matchAll(/command:\s*'([^']+)'/g)).map(m => m[1]);
+  const exampleCommandMatches = COMMAND_DOCS['issue:review'].examples.map(e => e.command);
 
   const yarnStartExamples = exampleCommandMatches.filter(cmd => cmd.includes('yarn start'));
   if (yarnStartExamples.length === 0) {
@@ -46,7 +50,6 @@ async function run(): Promise<void> {
     fail(`Found yarn start in examples: ${yarnStartExamples.join('; ')}`);
   }
 
-  // --- Test 2: No duplicate example commands ---
   console.log('Test 2: No duplicate example commands');
   const seen = new Set<string>();
   const duplicates: string[] = [];
@@ -62,32 +65,12 @@ async function run(): Promise<void> {
     fail(`Duplicate examples: ${duplicates.join('; ')}`);
   }
 
-  // --- Test 3: Help catalog reflects source examples ---
-  console.log('Test 3: Help catalog matches source examples');
+  console.log('Test 3: Catalog examples never reference yarn start');
   const catalog = getCommandHelpCatalog(path.join(__dirname, '../../src/commands'));
   const reviewEntry = catalog['issue:review'];
   if (!reviewEntry) {
     fail('issue:review not found in help catalog');
   } else {
-    const catalogCommands = (reviewEntry.examples ?? []).map(e => e.command);
-    const missingFromCatalog = exampleCommandMatches.filter(cmd => !catalogCommands.includes(cmd));
-    const extraInCatalog = catalogCommands.filter(cmd => !exampleCommandMatches.includes(cmd));
-
-    if (missingFromCatalog.length === 0 && extraInCatalog.length === 0) {
-      pass('Catalog examples match source examples exactly');
-    } else {
-      if (missingFromCatalog.length > 0) {
-        fail(`Missing from catalog: ${missingFromCatalog.join('; ')}`);
-      }
-      if (extraInCatalog.length > 0) {
-        fail(`Extra in catalog: ${extraInCatalog.join('; ')}`);
-      }
-    }
-  }
-
-  // --- Test 4: Catalog examples never reference `yarn start` ---
-  console.log('Test 4: Catalog examples never reference yarn start');
-  if (reviewEntry) {
     const catalogYarnStart = (reviewEntry.examples ?? []).filter(e => e.command.includes('yarn start'));
     if (catalogYarnStart.length === 0) {
       pass('Catalog examples all use wf');
@@ -96,7 +79,6 @@ async function run(): Promise<void> {
     }
   }
 
-  // --- Summary ---
   console.log(`\nResults: ${passed} passed, ${failed} failed`);
   if (failed > 0) {
     await app.close();

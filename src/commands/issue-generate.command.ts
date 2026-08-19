@@ -10,7 +10,7 @@ import { SlackService } from '../integrations/slack/slack.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
-import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { printCommandHeader } from '../shared/utils/command-header.helper';
 import {
   buildGeneratedTicketArtifactFilename,
   buildGeneratedTicketManifestFilename,
@@ -122,47 +122,6 @@ const SYNTHESIS_PROMPT_TEMPLATE = [
   '- Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.',
   '- The line "## Description" MUST appear exactly once.\n',
 ].join('\n');
-
-const ISSUE_GENERATE_EXAMPLES: CliExample[] = [
-  {
-    comment: 'Generate ticket from a URL',
-    command: 'wf issue:generate https://example.com/spec',
-  },
-  {
-    comment: 'Generate from a tracker browse URL (fetches via REST API, not HTML)',
-    command: 'wf issue:generate https://touraxis.atlassian.net/browse/WBP-3371 --type bug -r service-document-v1',
-  },
-  {
-    comment: 'Generate from a Slack thread permalink with query params',
-    command:
-      'wf issue:generate "https://workspace.slack.com/archives/C0AP5MMCP53/p1775650646860809?thread_ts=1775650646.860809&cid=C0AP5MMCP53"',
-  },
-  {
-    comment: 'Generate from a repo-scoped artifact (requires -r, --repos)',
-    command: 'wf issue:generate itinerary-pdf-generation.md -r service-tourv3',
-  },
-  {
-    comment: 'Generate with repo context so prior plan artifacts inform plan correlation',
-    command: 'wf issue:generate ./requirements.md -r service-tourv3 --save',
-  },
-  {
-    comment: 'Generate with multiple repos so repo conventions, formatter rules, and git hooks are compared across checkouts',
-    command: 'wf issue:generate ./requirements.md -r primary-repo secondary-repo --save',
-  },
-  {
-    comment: 'Save with overridden title',
-    command: 'wf issue:generate ./requirements.md --title "Add OAuth2" --save',
-  },
-  {
-    comment: 'Silent mode: pipe generated ticket directly into issue:create',
-    command: 'wf issue:generate ./spec.md -s | wf issue:create',
-  },
-  {
-    comment: 'Silent mode: pipe saved artifact path to issue:create',
-    command: 'wf issue:generate ./spec.md --save --silent | xargs wf issue:create',
-  },
-];
-
 interface IssueGenerateOptions {
   format?: OutputFormat;
   output?: string;
@@ -229,7 +188,7 @@ class UnresolvedSourceError extends Error {}
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs. Tracker browse URLs (e.g., https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. When multiple repos are supplied, the synthesis prompt also compares repo conventions, including linter and formatter rules, and git-hook tools across checkouts. AI synthesis always runs on every source to enrich and standardize the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or ticket keys. Tracker browse URLs (e.g., https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. When multiple repos are supplied, the synthesis prompt also compares repo conventions, including linter and formatter rules, and git-hook tools across checkouts. AI synthesis always runs on every source to enrich and standardize the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -248,7 +207,7 @@ export class IssueGenerateCommand extends CommandRunner {
 
   async run(passedParams: string[], options?: IssueGenerateOptions): Promise<void> {
     if (!options?.silent) {
-      printExamples(ISSUE_GENERATE_EXAMPLES);
+      printCommandHeader('issue:generate');
     }
     await ensureWfHome();
 

@@ -22,7 +22,7 @@ import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
-import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { ConversationContext } from '../shared/types/conversation.types';
@@ -81,39 +81,6 @@ interface PullRequestDiscoveryResult {
   attemptedLookupCount: number;
   missingRepoScopeErrors: string[];
 }
-
-const ISSUE_REVIEW_EXAMPLES: CliExample[] = [
-  {
-    comment: 'Review current repo changes',
-    command: 'wf issue:review',
-  },
-  {
-    comment: 'Review a ticket and associated pull requests from credentialed adapters using a remote repo hint',
-    command: 'wf issue:review --ticket-key WBP-3057 -r service-bookingv3',
-  },
-  {
-    comment: 'Review a ticket and its associated pull requests across credentialed repos',
-    command: 'wf issue:review --ticket-key WBP-2971 --tracker jira --repos service-tourv3',
-  },
-  {
-    comment: 'Force re-review a ticket, ignoring cached artifacts',
-    command: 'wf issue:review --ticket-key WBP-2971 --force --tracker jira -r service-bookingv3',
-  },
-  {
-    comment: 'Review a pull request and post review comments with diff-aligned inline anchors',
-    command: 'wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment',
-  },
-  {
-    comment: 'Review ticket changes and run SonarScanner regardless of config',
-    command: 'wf issue:review --ticket-key WBP-2971 --sonar',
-  },
-  {
-    comment:
-      'Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail',
-    command: 'wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3',
-  },
-];
-
 /**
  * Parse a markdown criteria file into an array of guideline strings.
  * Strips leading bullet/number markers and blank lines.
@@ -152,7 +119,13 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
 @Command({
   name: 'issue:review',
   description:
-    'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Each review is enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live after dependency install. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. Use `--sonar` to force SonarScanner on, overriding `stages.review.sonar` config. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
+    'AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. '
+    + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. '
+    + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live after dependency install. '
+    + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. '
+    + 'SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. '
+    + 'Use `--sonar` to force SonarScanner on, overriding `stages.review.sonar` config. '
+    + 'CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
   arguments: '[pr-url]',
   options: { isDefault: false },
 })
@@ -174,7 +147,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   async run(passedParams: string[], options?: IssueReviewOptions): Promise<void> {
     if (!options?.silent) {
-      printExamples(ISSUE_REVIEW_EXAMPLES);
+      printCommandHeader('issue:review');
     }
 
     const source = passedParams[0];

@@ -6,7 +6,7 @@ import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerFeature } from '../integrations/issue-trackers/issue-tracker-adapter.interface';
 import { ValidationError, FileSystemError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
-import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
 import chalk from 'chalk';
@@ -22,18 +22,6 @@ interface IssuePrOptions {
   silent?: boolean;
   title?: string;
 }
-
-const ISSUE_PR_EXAMPLES: CliExample[] = [
-  {
-    comment: 'Create a PR from a fix plan',
-    command: 'wf issue:pr WBP-2971 --action fix',
-  },
-  {
-    comment: 'Dry-run to preview PR title and body',
-    command: 'wf issue:pr WBP-2971 --dry-run',
-  },
-];
-
 const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
@@ -50,7 +38,7 @@ const VALID_ACTIONS = ['feature', 'fix', 'investigate'] as const;
  */
 @Command({
   name: 'issue:pr',
-  description: 'Create a pull request from a plan artifact (auto-detects ticket from branch)',
+  description: 'Create a pull request from a plan artifact (auto-detects ticket from branch).',
   arguments: '[ticket-key]',
   options: { isDefault: false },
 })
@@ -66,7 +54,7 @@ export class IssuePrCommand extends CommandRunner {
 
   async run(passedParams: string[], options?: IssuePrOptions): Promise<void> {
     if (!options?.silent) {
-      printExamples(ISSUE_PR_EXAMPLES);
+      printCommandHeader('issue:pr');
       warnOnIgnoredRepos(options?.repos);
     }
 

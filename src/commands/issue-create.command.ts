@@ -7,7 +7,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { ValidationError, FileSystemError, ExecutionError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { TicketPriority, TicketType } from '../common/dto/universal-ticket.dto';
-import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { JiraAdapter } from '../integrations/issue-trackers/jira/jira-adapter';
@@ -179,37 +179,10 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
     );
   }
 };
-
-const ISSUE_CREATE_EXAMPLES: CliExample[] = [
-  {
-    comment: 'Create ticket from JSON on primary tracker',
-    command: 'wf issue:create ticket.json',
-  },
-  {
-    comment: 'Create on a specific tracker and override the Jira project',
-    command: 'wf issue:create ticket.md --tracker jira --ticket-project WBP --type story',
-  },
-  {
-    comment: 'Create Jira ticket with project-specific priority resolution',
-    command: 'wf issue:create ticket.md --tracker jira --ticket-project WBP --priority medium',
-  },
-  {
-    comment: 'Dry-run a repo-scoped generated Jira artifact before creation',
-    command:
-      'wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run',
-  },
-  {
-    comment:
-      'Live smoke-test a Jira description update using a generated artifact; --live requires --confirm-live-update and shows a y/N prompt before the PUT',
-    command:
-      'yarn test:manual test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update',
-  },
-];
-
 @Injectable()
 @Command({
   name: 'issue:create',
-  description: 'Create tickets on various trackers from standardized input (file or stdin)',
+  description: 'Create tickets on various trackers from standardized input (file or stdin).',
   arguments: '[input]',
   options: { isDefault: false },
 })
@@ -226,7 +199,7 @@ export class IssueCreateCommand extends CommandRunner {
 
   async run(passedParams: string[], options?: IssueCreateOptions): Promise<void> {
     if (!options?.silent) {
-      printExamples(ISSUE_CREATE_EXAMPLES);
+      printCommandHeader('issue:create');
       warnOnIgnoredRepos(options?.repos);
     }
 

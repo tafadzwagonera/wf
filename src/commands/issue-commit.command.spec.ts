@@ -167,4 +167,20 @@ describe('IssueCommitCommand', () => {
       cwd: '/tmp/current-app',
     });
   });
+
+  it('suppresses the header when --silent is passed', async () => {
+    const { command } = await buildCommand();
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit');
+    });
+
+    await command.run([], { ticketKey: 'WBP-123', message: 'ship it', silent: true });
+
+    const allOutput = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+    expect(allOutput).not.toContain('Create a git commit with an AI-generated message.');
+    expect(allOutput).not.toContain('Examples:');
+
+    consoleSpy.mockRestore();
+  });
 });

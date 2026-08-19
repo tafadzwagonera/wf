@@ -24,6 +24,7 @@ const renderExamples = (entry: CommandHelpEntry): string => {
   const lines = ['```bash'];
 
   for (const example of entry.examples) {
+    if (example.comment) lines.push(`# ${example.comment}`);
     lines.push(example.command, '');
   }
 
@@ -59,6 +60,34 @@ export const renderGeneratedCommandDocs = (commandName: string, entry: CommandHe
 
 const getHeadingLine = (entry: CommandHelpEntry): string => `#### \`${entry.usage.replace(/ \[options\]$/, '')}\``;
 
+const insertGeneratedBlockAfterHeading = (
+  readmeContent: string,
+  entry: CommandHelpEntry,
+  generatedBlock: string
+): string => {
+  const heading = getHeadingLine(entry);
+  const headingIndex = readmeContent.indexOf(heading);
+  if (headingIndex === -1) return readmeContent;
+
+  const insertIndex = headingIndex + heading.length;
+  return `${readmeContent.slice(0, insertIndex)}\n\n${generatedBlock}${readmeContent.slice(insertIndex)}`;
+};
+
+const applyGeneratedBlockForCommand = (
+  readmeContent: string,
+  commandName: string,
+  entry: CommandHelpEntry
+): string => {
+  const generatedBlock = renderGeneratedCommandDocs(commandName, entry);
+  const blockPattern = new RegExp(
+    `${escapeRegExp(GENERATED_BLOCK_START(commandName))}[\\s\\S]*?${escapeRegExp(GENERATED_BLOCK_END(commandName))}`
+  );
+
+  return blockPattern.test(readmeContent)
+    ? readmeContent.replace(blockPattern, generatedBlock)
+    : insertGeneratedBlockAfterHeading(readmeContent, entry, generatedBlock);
+};
+
 export const synchronizeReadmeCommandDocs = (
   readmeContent: string,
   catalog: Record<string, CommandHelpEntry>
@@ -67,28 +96,8 @@ export const synchronizeReadmeCommandDocs = (
 
   for (const commandName of ISSUE_COMMAND_DOC_NAMES) {
     const entry = catalog[commandName];
-    if (!entry) {
-      continue;
-    }
-
-    const generatedBlock = renderGeneratedCommandDocs(commandName, entry);
-    const blockPattern = new RegExp(
-      `${escapeRegExp(GENERATED_BLOCK_START(commandName))}[\\s\\S]*?${escapeRegExp(GENERATED_BLOCK_END(commandName))}`
-    );
-
-    if (blockPattern.test(updatedReadme)) {
-      updatedReadme = updatedReadme.replace(blockPattern, generatedBlock);
-      continue;
-    }
-
-    const heading = getHeadingLine(entry);
-    const headingIndex = updatedReadme.indexOf(heading);
-    if (headingIndex === -1) {
-      continue;
-    }
-
-    const insertIndex = headingIndex + heading.length;
-    updatedReadme = `${updatedReadme.slice(0, insertIndex)}\n\n${generatedBlock}${updatedReadme.slice(insertIndex)}`;
+    if (!entry) continue;
+    updatedReadme = applyGeneratedBlockForCommand(updatedReadme, commandName, entry);
   }
 
   return updatedReadme;

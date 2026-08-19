@@ -8,7 +8,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { ValidationError, FileSystemError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { parseReposOption } from './utils/repos-option';
-import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import {
   matchesGeneratedTicketToken,
@@ -18,21 +18,14 @@ import {
 interface IssueGenerateLookupOptions {
   tracker?: string;
   repos?: string[];
+  silent?: boolean;
 }
-
-const ISSUE_GENERATE_LOOKUP_EXAMPLES: CliExample[] = [
-  {
-    comment: 'Look up the sources for a generated artifact hash',
-    command: 'wf issue:generate:lookup 1a2b3c4d',
-  },
-];
-
 /**
  * Command to inspect reversible source manifests for generated ticket artifacts.
  */
 @Command({
   name: 'issue:generate:lookup',
-  description: 'Lookup the original source list for a generated ticket artifact hash',
+  description: 'Lookup the original source list for a generated ticket artifact hash.',
   arguments: '<token>',
   options: { isDefault: false },
 })
@@ -46,7 +39,7 @@ export class IssueGenerateLookupCommand extends CommandRunner {
   }
 
   async run(passedParams: string[], options?: IssueGenerateLookupOptions): Promise<void> {
-    printExamples(ISSUE_GENERATE_LOOKUP_EXAMPLES);
+    if (!options?.silent) printCommandHeader('issue:generate:lookup');
 
     await executeAsyncWithCatch({ fn: async () => {
       const { token, artifactDir } = this.resolveInputs(passedParams, options);
@@ -96,6 +89,14 @@ export class IssueGenerateLookupCommand extends CommandRunner {
   })
   parseTracker(val: string): string {
     return val;
+  }
+
+  @Option({
+    flags: '-s, --silent',
+    description: 'Suppress decorative output; emits no header',
+  })
+  parseSilent(): boolean {
+    return true;
   }
 
   private findMatchingManifests(artifactDir: string, token: string): GeneratedTicketSourceManifest[] {

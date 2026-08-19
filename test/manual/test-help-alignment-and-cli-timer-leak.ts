@@ -1,22 +1,24 @@
 /**
- * Manual smoke test: help text alignment and CLI timer leak fix
+ * Manual smoke test: CLI timer leak fix
  *
  * Run: nr test:manual -- test-help-alignment-and-cli-timer-leak
  *
  * Verifies:
- *   1. Help catalog --repos description matches the current command source
- *   2. Help output for issue:generate contains repo-scoped artifact correlation text
- *   3. Help output for issue:generate contains provider-aware diagnostics text
- *   4. spawnCli SIGKILL grace timer calls .unref() (no open handle leak)
- *   5. Full test suite exits cleanly without --forceExit
+ *   1. spawnCli SIGKILL grace timer calls .unref() (no open handle leak)
+ *   2. Full test suite exits cleanly without --forceExit
+ *
+ * The three help-catalog content checks this file previously carried (the
+ * --repos description text, the repo-scoped generation text, and the
+ * provider-aware diagnostics text) were removed: they were static,
+ * in-process string assertions with no live side effect, and were already
+ * duplicated verbatim by help-catalog-parser.spec.ts:33 and
+ * help-output.spec.ts:48,120, which run on every `yarn test`.
  */
 
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
-import { getCommandHelpCatalog } from '../../src/bootstrap/help-catalog-parser';
-import { getHelpText } from '../../src/bootstrap/help-output';
 
 const repoRoot = path.join(__dirname, '..', '..');
 
@@ -67,48 +69,10 @@ const run = (command: string, args: string[]): Promise<{ stdout: string; stderr:
   });
 
 async function main(): Promise<void> {
-  console.log(chalk.bold('\nHelp text alignment & CLI timer leak smoke test\n'));
-
-  const catalog = getCommandHelpCatalog(path.join(repoRoot, 'src', 'commands'));
+  console.log(chalk.bold('\nCLI timer leak smoke test\n'));
 
   {
-    console.log(chalk.bold('Test 1: help catalog --repos description'));
-    const entry = catalog['issue:generate'];
-    const reposOption = entry?.options?.find(o => o.flags.includes('--repos'));
-
-    assert(
-      '--repos description mentions artifact storage and read context',
-      reposOption?.description?.includes('the first repo anchors artifact storage and read context') === true,
-      `Got: ${reposOption?.description}`
-    );
-  }
-
-  {
-    console.log(chalk.bold('Test 2: help output contains repo-scoped generation text'));
-    const helpText = getHelpText(['issue:generate', '--help'], catalog);
-    const plainText = helpText.replaceAll(/\n\s*/g, ' ');
-
-    assert(
-      'Help text mentions repo-scoped artifact correlation',
-      plainText.includes('Repo-scoped generation inspects prior plan artifacts'),
-      'Missing repo-scoped generation text'
-    );
-  }
-
-  {
-    console.log(chalk.bold('Test 3: help output contains provider-aware diagnostics text'));
-    const helpText = getHelpText(['issue:generate', '--help'], catalog);
-    const plainText = helpText.replaceAll(/\n\s*/g, ' ');
-
-    assert(
-      'Help text mentions provider-aware diagnostics',
-      plainText.includes('Blank AI generate-stage responses fail fast with provider-aware diagnostics'),
-      'Missing provider-aware diagnostics text'
-    );
-  }
-
-  {
-    console.log(chalk.bold('Test 4: SIGKILL grace timer calls .unref()'));
+    console.log(chalk.bold('Test 1: SIGKILL grace timer calls .unref()'));
     const source = fs.readFileSync(
       path.join(repoRoot, 'src', 'integrations', 'ai', 'adapters', 'claude-cli-runner.ts'),
       'utf-8'
@@ -123,7 +87,7 @@ async function main(): Promise<void> {
   }
 
   {
-    console.log(chalk.bold('Test 5: test suite exits cleanly (no open handle warning)'));
+    console.log(chalk.bold('Test 2: test suite exits cleanly (no open handle warning)'));
     const result = await run('npx', [
       'jest',
       '--detectOpenHandles',

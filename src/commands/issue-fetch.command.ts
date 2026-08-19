@@ -8,25 +8,13 @@ import { ValidationError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parseReposOption } from './utils/repos-option';
-import { printExamples, CliExample } from '../shared/utils/cli-examples.helper';
+import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
-
-const ISSUE_FETCH_EXAMPLES: CliExample[] = [
-  {
-    comment: 'Fetch ticket from primary tracker',
-    command: 'wf issue:fetch WBP-2971',
-  },
-  {
-    comment: 'Specify tracker and format',
-    command: 'wf issue:fetch WBP-2971 --tracker jira --format md',
-  },
-];
-
 const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
@@ -114,7 +102,7 @@ export class IssueFetchCommand extends CommandRunner {
 
   async run([ticketKey]: [string], options?: IssueFetchOptions): Promise<void> {
     if (!options?.silent) {
-      printExamples(ISSUE_FETCH_EXAMPLES);
+      printCommandHeader('issue:fetch');
     }
 
     await executeAsyncWithCatch({ fn: async () => {

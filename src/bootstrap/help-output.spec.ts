@@ -42,7 +42,7 @@ describe('getHelpText', () => {
 
     expect(helpText).toContain('<bold-cyan>Usage:</bold-cyan> <cyan>wf</cyan> issue:generate <sources...> [options]');
     expect(plainHelpText).toContain(
-      'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, ticket keys, or tracker browse URLs'
+      'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or ticket keys.'
     );
     expect(plainHelpText).toContain(
       'Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/*'
@@ -124,7 +124,7 @@ describe('getHelpText', () => {
     expect(reviewHelpText).toContain('--criteria <path>');
     expect(reviewHelpText).toContain('--replace-criteria <path>');
     expect(plainReviewHelpText).toContain(
-      'AI-powered code review of local repository changes, ticket-associated pull requests, or pull request diffs with nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors'
+      'AI-powered code review of local changes, ticket-associated pull requests, or PR diffs.'
     );
     expect(plainReviewHelpText).toContain(
       'Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker'
@@ -139,6 +139,8 @@ describe('getHelpText', () => {
       'Repo conventions are detected up front and threaded into every backend prompt, including continuation passes, so formatter and structural ESLint constraints survive context compaction'
     );
     expect(plainImplementHelpText).not.toContain('the OpenAI backend emits heuristic progress signals');
+    expect(implementHelpText).toContain('<bold-cyan>Examples:</bold-cyan>');
+    expect(plainImplementHelpText).not.toContain('Examples: wf issue:implement -k PROJ-123 |');
   });
 
   it('loads the catalog from dist/bootstrap when no catalog argument is supplied', () => {

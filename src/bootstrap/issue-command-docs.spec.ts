@@ -54,6 +54,19 @@ describe('synchronizeReadmeCommandDocs', () => {
     expect(updated).not.toContain('stale generated content');
   });
 
+  it('renders each example\'s authored comment as a bash comment above its command', () => {
+    const updated = synchronizeReadmeCommandDocs(
+      [
+        '<!-- BEGIN GENERATED COMMAND DOCS: issue:generate -->',
+        '<!-- END GENERATED COMMAND DOCS: issue:generate -->',
+      ].join('\n'),
+      { 'issue:generate': issueGenerateEntry }
+    );
+
+    expect(updated).toContain('# Generate ticket from a URL\nwf issue:generate https://example.com/spec');
+    expect(updated).toContain('# Save with overridden title\nwf issue:generate ./requirements.md --title "Add OAuth2" --save');
+  });
+
   it('detects README drift when generated blocks are stale', () => {
     const staleReadme = [
       '#### `wf issue:generate <sources...>`',
