@@ -4,7 +4,7 @@ import { AiService } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { GitError } from '../shared/utils/errors';
+import { GitError, ValidationError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { parseReposOption } from './utils/repos-option';
@@ -12,6 +12,7 @@ import { resolveRepoBasePath } from '../agents/utils';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
 import { withRepoLock } from '../shared/utils/repo-lock';
 import chalk from 'chalk';
+import inquirer from 'inquirer';
 
 interface IssueCommitOptions {
   message?: string;
@@ -38,6 +39,8 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
   description:
     'Create a git commit with an AI-generated message. '
     + 'Use -k for the ticket key, or the key is auto-detected from the branch name. '
+    + 'When -k differs from the branch-embedded ticket key, warns and prompts to pick a value interactively, '
+    + 'or fails hard with both keys shown when non-interactive; --dry-run only warns. '
     + 'Fails hard if .gitignore is staged. '
     + 'Blank AI commit responses fail fast with provider-aware diagnostics. '
     + 'When running from source, use yarn start issue:commit -c.',
@@ -61,12 +64,22 @@ export class IssueCommitCommand extends CommandRunner {
     await executeAsyncWithCatch({ fn: async () => {
       const repoBaseDir = resolveRepoBasePath(options?.repos?.[0]);
       warnOnIgnoredRepos(options?.repos);
-      const ticketKey = options?.ticketKey ?? await this.detectTicketFromBranch(repoBaseDir);
 
-      if (options?.dryRun) return this.previewDryRun(ticketKey, options);
+      if (options?.dryRun) return this.previewDryRun(await this.resolveDryRunTicketKey(options, repoBaseDir), options);
 
       await withRepoLock(repoBaseDir, () => this.executeCommit(repoBaseDir, options?.ticketKey ?? null, options));
     } });
+  }
+
+  private async resolveDryRunTicketKey(options: IssueCommitOptions, repoBaseDir: string): Promise<string | null> {
+    const branchTicketKey = await this.detectTicketFromBranch(repoBaseDir);
+    if (options?.ticketKey && branchTicketKey && branchTicketKey.toUpperCase() !== options.ticketKey.toUpperCase()) {
+      console.log(chalk.yellow(
+        `  ⚠  --ticket-key '${options.ticketKey}' does not match branch ticket key '${branchTicketKey}' `
+        + '(dry-run — no changes made).'
+      ));
+    }
+    return options?.ticketKey ?? branchTicketKey;
   }
 
   private previewDryRun(ticketKey: string | null, options: IssueCommitOptions): void {
@@ -129,9 +142,46 @@ export class IssueCommitCommand extends CommandRunner {
   private async resolveTicketKey(
     detectedTicketKey: string | null, repoBaseDir: string
   ): Promise<{ ticketKey: string | null; autoDetected: boolean }> {
-    if (detectedTicketKey) return { ticketKey: detectedTicketKey, autoDetected: false };
-    const ticketKey = await this.detectTicketFromBranch(repoBaseDir);
-    return { ticketKey, autoDetected: Boolean(ticketKey) };
+    const branchTicketKey = await this.detectTicketFromBranch(repoBaseDir);
+    if (!detectedTicketKey) return { ticketKey: branchTicketKey, autoDetected: Boolean(branchTicketKey) };
+
+    if (branchTicketKey && branchTicketKey.toUpperCase() !== detectedTicketKey.toUpperCase()) {
+      const resolved = await this.resolveTicketKeyMismatch(detectedTicketKey, branchTicketKey);
+      return { ticketKey: resolved, autoDetected: false };
+    }
+    return { ticketKey: detectedTicketKey, autoDetected: false };
+  }
+
+  /**
+   * Warn about a --ticket-key / branch-name ticket key mismatch and let the
+   * user pick which value to use.
+   *
+   * @param explicitKey - The value passed via --ticket-key
+   * @param branchKey - The ticket key detected from the current branch name
+   * @returns The ticket key the user selected
+   * @throws ValidationError when the session is non-interactive
+   */
+  private async resolveTicketKeyMismatch(explicitKey: string, branchKey: string): Promise<string> {
+    console.log(chalk.yellow(
+      `  ⚠  --ticket-key '${explicitKey}' does not match the branch's ticket key '${branchKey}'.`
+    ));
+    if (!this.isInteractiveSession()) {
+      throw new ValidationError(
+        `Ticket key mismatch: --ticket-key '${explicitKey}' does not match branch ticket key `
+        + `'${branchKey}'. Pass the correct --ticket-key or re-run interactively to choose.`
+      );
+    }
+    const { selectedKey } = await inquirer.prompt<{ selectedKey: string }>([{
+      type: 'list', name: 'selectedKey', message: 'Which ticket key should be used?', prefix: ' ', choices: [
+        { name: `Use '${explicitKey}' (from --ticket-key)`, value: explicitKey },
+        { name: `Use '${branchKey}' (from branch name)`, value: branchKey },
+      ], default: explicitKey,
+    }]);
+    return selectedKey;
+  }
+
+  private isInteractiveSession(): boolean {
+    return Boolean(process.stdin.isTTY && process.stdout.isTTY);
   }
 
   private async buildFinalMessage(
@@ -230,7 +280,7 @@ export class IssueCommitCommand extends CommandRunner {
 
   @Option({
     flags: '-k, --ticket-key <key>',
-    description: 'Ticket key for the commit (e.g. WBP-2971)',
+    description: 'Ticket key for the commit (e.g. WBP-2971); validated against the branch-embedded ticket key',
   })
   parseTicketKey(val: string): string {
     return val;
@@ -252,10 +302,6 @@ export class IssueCommitCommand extends CommandRunner {
     return true;
   }
 
-  /**
-   * Detect ticket key from current branch name
-   * Supports formats like: feature/WBP-2971-description, WBP-2971, etc.
-   */
   private async detectTicketFromBranch(repoBaseDir?: string): Promise<string | null> {
     const branchInfo = await this.gitService.getBranchInfo(repoBaseDir).catch(() => null);
     if (!branchInfo) return null;
@@ -264,18 +310,12 @@ export class IssueCommitCommand extends CommandRunner {
     return match ? match[1].toUpperCase() : null;
   }
 
-  /**
-   * Count changed files in diff
-   */
   private countChangedFiles(diff: string): number {
     const lines = diff.split('\n');
     const fileLines = lines.filter(line => line.startsWith('diff --git'));
     return fileLines.length;
   }
 
-  /**
-   * Indent message for display
-   */
   private indentMessage(message: string): string {
     return message
       .split('\n')

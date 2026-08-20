@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ConfigurationError } from '../shared/errors/app.error';
 
-const REPO_FLAGS = new Set(['-r', ' --repos']);
+const REPO_FLAGS = new Set(['-r', '--repos']);
 
 const resolvePath = (candidate: string): string | null => {
   if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {

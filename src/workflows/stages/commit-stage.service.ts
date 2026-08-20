@@ -1,5 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { AiService, requireAiResponseContent } from '../../integrations/ai/ai.service';
+import {
+  parseDiffFileStats,
+  formatDiffStatSummary,
+  buildPrioritizedDiffExcerpt,
+  isDocsOnlyChangeset,
+  declaresDocsOnlyType,
+  extractConventionalType,
+} from '../../shared/utils/commit-diff-stat';
+
+const STANDALONE_DIFF_EXCERPT_MAX_CHARS = 3000;
 
 interface GenerateCommitMessageOptions {
   diff: string;
@@ -24,18 +34,24 @@ export class CommitStageService {
       return this.normalizeCommitMessage(rawMessage, options.ticketKey);
     }
 
-    const prompt = this.buildCommitPrompt(options.diff, options.ticketKey, options.conventional);
-    const response = await this.aiService.execute({
-      prompt,
-      maxTokens: 500,
-      temperature: 0.7,
-      stage: 'commit',
-    });
-    return this.normalizeCommitMessage(
-      requireAiResponseContent(response, 'AI provider returned an empty commit message response'),
-      options.ticketKey,
-      false
-    );
+    const message = await this.generateStandaloneMessage(options.diff, options.ticketKey, options.conventional);
+    return this.normalizeCommitMessage(message, options.ticketKey, false);
+  }
+
+  private async generateStandaloneMessage(diff: string, ticketKey?: string, conventional?: boolean): Promise<string> {
+    const stats = parseDiffFileStats(diff);
+    const first = await this.executeStandalonePrompt(diff, ticketKey, conventional);
+    if (isDocsOnlyChangeset(stats) || !declaresDocsOnlyType(first)) return first;
+
+    return this.executeStandalonePrompt(diff, ticketKey, conventional, buildStandaloneDocsCorrection(first));
+  }
+
+  private async executeStandalonePrompt(
+    diff: string, ticketKey?: string, conventional?: boolean, correction?: string
+  ): Promise<string> {
+    const prompt = this.buildCommitPrompt(diff, ticketKey, conventional, correction);
+    const response = await this.aiService.execute({ prompt, maxTokens: 500, temperature: 0.7, stage: 'commit' });
+    return requireAiResponseContent(response, 'AI provider returned an empty commit message response');
   }
 
   private normalizeCommitMessage(
@@ -43,24 +59,14 @@ export class CommitStageService {
     ticketKey?: string,
     stripConventionalPrefix: boolean = true
   ): string {
-    let message = rawMessage.trim();
-    message = message
-      .replaceAll(/```[a-z]*\n?/g, '')
-      .replaceAll('```', '')
-      .trim();
-
+    let message = stripCodeFences(rawMessage);
     if (stripConventionalPrefix) {
       message = message.replace(/^[a-z]+(\([^)]+\))?:\s*/, '').replace(/^[A-Z][A-Z0-9]+-\d+:\s*/, '');
     }
-
-    if (ticketKey && !message.includes(ticketKey)) {
-      return `${ticketKey}: ${message}`;
-    }
-
-    return message;
+    return ticketKey && !message.includes(ticketKey) ? `${ticketKey}: ${message}` : message;
   }
 
-  private buildCommitPrompt(diff: string, ticketKey?: string, conventional?: boolean): string {
+  private buildCommitPrompt(diff: string, ticketKey?: string, conventional?: boolean, correction?: string): string {
     let prompt = 'Generate a concise, informative git commit message for the following changes.\n\n';
 
     if (conventional) {
@@ -72,16 +78,52 @@ export class CommitStageService {
       prompt += `Related ticket: ${ticketKey}\n\n`;
     }
 
-    prompt += 'Guidelines:\n';
-    prompt += '- First line: concise summary (50 chars or less)\n';
-    prompt += '- Focus on WHY and WHAT, not HOW\n';
-    prompt += '- Use imperative mood ("Add feature" not "Added feature")\n';
-    prompt += '- Be specific and clear\n';
-    prompt += '- Do not include the ticket key (will be added automatically)\n\n';
-    prompt += 'Git diff:\n';
-    prompt += `\`\`\`diff\n${diff.substring(0, 3000)}\n\`\`\`\n\n`;
-    prompt += 'Return only the commit message, no explanations.';
-
+    prompt += this.buildStandaloneGuidelines(diff, conventional, correction);
     return prompt;
   }
+
+  private buildStandaloneGuidelines(diff: string, conventional?: boolean, correction?: string): string {
+    const stats = parseDiffFileStats(diff);
+    const statSummary = stats.length > 0 ? `${formatDiffStatSummary(stats)}\n\n` : '';
+    const diffExcerpt = buildPrioritizedDiffExcerpt(diff, stats, STANDALONE_DIFF_EXCERPT_MAX_CHARS);
+    const bullets = buildGuidelineBullets(conventional, correction);
+    return `${bullets}\n\n${statSummary}Git diff:\n\`\`\`diff\n${diffExcerpt}\n\`\`\`\n\n`
+      + 'Return only the commit message, no explanations.';
+  }
 }
+
+const stripCodeFences = (message: string): string =>
+  message.trim().replaceAll(/```[a-z]*\n?/g, '').replaceAll('```', '').trim();
+
+const buildConciseExampleBullet = (conventional?: boolean): string =>
+  conventional
+    ? 'Be concise and to the point regardless of type — e.g. "feat(auth): JWT token validation", '
+    + '"fix(auth): token refresh race condition", "style(warnings): consistent symbols", '
+    + '"docs(review): skip-verification flag"'
+    : 'Be concise and to the point — e.g. "JWT token validation", "Token refresh race condition", '
+      + '"Consistent symbols" — just the unscoped description, no type prefix';
+
+const buildGuidelineBullets = (conventional?: boolean, correction?: string): string => {
+  const bullets = [
+    'First line: concise summary (50 chars or less)',
+    'Focus on WHY and WHAT, not HOW',
+    buildConciseExampleBullet(conventional),
+    'Be specific and clear',
+    'Do not include the ticket key (will be added automatically)',
+    ...(conventional ? ['The type/scope must reflect the full file list below, not just the first files in the diff'] : []),
+  ];
+  const correctionLine = correction ? `\n${correction}` : '';
+  return `Guidelines:\n${bullets.map(b => `- ${b}`).join('\n')}${correctionLine}`;
+};
+
+/**
+ * Build a corrective instruction for a standalone-prompt retry after the
+ * model declared a docs/style/chore type on a changeset that isn't docs-only.
+ * @param previousMessage The mismatched commit message from the first attempt
+ * @returns Corrective instruction text to append to the retry prompt
+ */
+const buildStandaloneDocsCorrection = (previousMessage: string): string => {
+  const type = extractConventionalType(previousMessage) ?? 'docs';
+  return `Correction: your previous type ("${type}") implied a docs-only change, but the file list below includes `
+    + 'substantive source changes outside docs/tests. Re-classify the type (e.g. feat, fix, refactor).';
+};

@@ -7,6 +7,14 @@ import { LoggerService } from '../../shared/logger/logger.service';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
 import { formatTestInfraPromptSection, type TestInfraContext } from '../../shared/utils/detect-test-infra';
+import {
+  parseDiffFileStats,
+  formatDiffStatSummary,
+  buildPrioritizedDiffExcerpt,
+  isDocsOnlyChangeset,
+  declaresDocsOnlyType,
+  extractConventionalType,
+} from '../../shared/utils/commit-diff-stat';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 import { resolveSkills } from '../../skills';
 import {
@@ -852,13 +860,20 @@ Types: feat, fix, docs, style, refactor, test, chore
 Example: "feat(auth): add JWT token validation"`
     : 'Write a clear, concise commit message describing the changes';
 
+const COMMIT_DIFF_EXCERPT_MAX_CHARS = 3000;
+
 /**
- * Build the commit message generation prompt.
- * @param diff Git diff text (truncated to 3000 chars)
+ * Build the commit message generation prompt. Leads with a full, untruncated
+ * file-change summary (sorted by lines changed) so the model always sees the
+ * true scope of the change, then fills the remaining budget with the diff
+ * content for the most-changed files first — the highest-signal files are
+ * never the ones silently dropped by truncation.
+ * @param diff Git diff text
  * @param commitHistory Recent commit messages
  * @param formatInstructions Format-specific instructions
  * @param detectedFormat Resolved commit format
  * @param ticketContext Optional ticket context string
+ * @param correction Optional corrective note appended when retrying after a type/scope mismatch
  * @returns Prompt string for commit message generation
  */
 const buildCommitPrompt = (
@@ -866,12 +881,56 @@ const buildCommitPrompt = (
   commitHistory: string[],
   formatInstructions: string,
   detectedFormat: 'conventional' | 'freeform',
-  ticketContext?: string
+  ticketContext?: string,
+  correction?: string
 ): string => {
   const ticketContextSection = ticketContext ? `Ticket context: ${ticketContext}\n\n` : '';
-  const diffSection = `${diff.substring(0, 3000)} ${diff.length > 3000 ? '...(truncated)' : ''}`;
-  const styleRule = detectedFormat === 'conventional' ? 'Follows conventional commits format' : 'Follows the existing commit message style';
-  return `\n${ticketContextSection}Git Diff:\n\`\`\`\n${diffSection}\n\`\`\`\n\nRecent Commit History:\n${commitHistory.slice(0, 5).join('\n')}\n\n${formatInstructions}\n\nCommit message principles:\n- Capture the ticket's intent, not just the mechanical code change\n- Match the repository's existing commit style and ${styleRule.toLowerCase()}\n- Be concise but informative — a reader should understand the "why" without opening the diff\n- Omit ticket IDs or project codes (e.g. WBP-1234) — the prefix is added automatically\n\nReturn ONLY the commit message description, nothing else.`;
+  const { statSummary, diffExcerpt } = buildDiffContextSections(diff);
+  const principles = buildCommitPromptPrinciples(detectedFormat, correction);
+  return `\n${ticketContextSection}${statSummary}Git Diff:\n\`\`\`\n${diffExcerpt}\n\`\`\`\n\nRecent Commit History:\n`
+    + `${commitHistory.slice(0, 5).join('\n')}\n\n${formatInstructions}\n\n${principles}`
+    + '\n\nReturn ONLY the commit message description, nothing else.';
+};
+
+const buildDiffContextSections = (diff: string): { statSummary: string; diffExcerpt: string } => {
+  const stats = parseDiffFileStats(diff);
+  const statSummary = stats.length > 0 ? `${formatDiffStatSummary(stats)}\n\n` : '';
+  const diffExcerpt = buildPrioritizedDiffExcerpt(diff, stats, COMMIT_DIFF_EXCERPT_MAX_CHARS);
+  return { statSummary, diffExcerpt };
+};
+
+const buildCommitPromptPrinciples = (detectedFormat: 'conventional' | 'freeform', correction?: string): string => {
+  const styleRule = detectedFormat === 'conventional' ? 'follows conventional commits format' : 'follows the existing commit message style';
+  const bullets = [
+    "Capture the ticket's intent, not just the mechanical code change",
+    `Match the repository's existing commit style and ${styleRule}`,
+    'Be concise but informative — a reader should understand the "why" without opening the diff',
+    'Omit ticket IDs or project codes (e.g. WBP-1234) — the prefix is added automatically',
+    'The type/scope must reflect the full file list above, not just the first files in the diff',
+  ];
+  const correctionLine = correction ? `\n\n${correction}` : '';
+  return `Commit message principles:\n${bullets.map(b => `- ${b}`).join('\n')}${correctionLine}`;
+};
+
+interface CommitPromptParams {
+  diff: string;
+  commitHistory: string[];
+  formatInstructions: string;
+  detectedFormat: 'conventional' | 'freeform';
+  ticketContext?: string;
+  correction?: string;
+}
+
+/**
+ * Build a corrective instruction for a retry after the model declared a
+ * docs/style/chore type on a changeset that isn't docs-only.
+ * @param previousMessage The mismatched commit message from the first attempt
+ * @returns Corrective instruction text to append to the retry prompt
+ */
+const buildDocsTypeCorrection = (previousMessage: string): string => {
+  const type = extractConventionalType(previousMessage) ?? 'docs';
+  return `Correction: your previous type ("${type}") implied a docs-only change, but the file list above includes `
+    + 'substantive source changes outside docs/tests. Re-classify the type (e.g. feat, fix, refactor).';
 };
 
 /**
@@ -952,6 +1011,15 @@ export class AiService {
     return this.parseFindingsResponse(response);
   }
 
+  private async runCommitPrompt(params: CommitPromptParams): Promise<string> {
+    const { diff, commitHistory, formatInstructions, detectedFormat, ticketContext, correction } = params;
+    const prompt = buildCommitPrompt(
+      diff, commitHistory, formatInstructions, detectedFormat, ticketContext, correction
+    );
+    const response = await this.execute({ prompt, systemPrompt: commitSystemPrompt, temperature: 0.3, maxTokens: 200, stage: 'commit' });
+    return requireAiResponseContent(response, 'AI provider returned an empty commit message response');
+  }
+
   async generateCommitMessage(
     diff: string,
     commitHistory: string[],
@@ -960,9 +1028,13 @@ export class AiService {
   ): Promise<string> {
     const detectedFormat = this.resolveCommitFormat(format, commitHistory);
     const formatInstructions = resolveCommitFormatInstructions(detectedFormat);
-    const prompt = buildCommitPrompt(diff, commitHistory, formatInstructions, detectedFormat, ticketContext);
-    const response = await this.execute({ prompt, systemPrompt: commitSystemPrompt, temperature: 0.3, maxTokens: 200, stage: 'commit' });
-    return requireAiResponseContent(response, 'AI provider returned an empty commit message response');
+    const base = { diff, commitHistory, formatInstructions, detectedFormat, ticketContext };
+    const firstAttempt = await this.runCommitPrompt(base);
+
+    const stats = parseDiffFileStats(diff);
+    if (isDocsOnlyChangeset(stats) || !declaresDocsOnlyType(firstAttempt)) return firstAttempt;
+
+    return this.runCommitPrompt({ ...base, correction: buildDocsTypeCorrection(firstAttempt) });
   }
 
   async reviewCode(

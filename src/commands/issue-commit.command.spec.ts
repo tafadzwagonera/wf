@@ -45,6 +45,11 @@ jest.mock('../shared/utils/repo-lock', () => ({
   withRepoLock: jest.fn((_repoDir: string, fn: () => Promise<unknown>) => fn()),
 }));
 
+jest.mock('inquirer', () => ({
+  __esModule: true,
+  default: { prompt: jest.fn() },
+}));
+
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssueCommitCommand } from './issue-commit.command';
@@ -53,6 +58,12 @@ import { AiService } from '../integrations/ai/ai.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
+import inquirer from 'inquirer';
+
+const setInteractiveSession = (isTTY: boolean): void => {
+  Object.defineProperty(process.stdin, 'isTTY', { value: isTTY, configurable: true });
+  Object.defineProperty(process.stdout, 'isTTY', { value: isTTY, configurable: true });
+};
 
 const mockGitService = {
   isGitRepository: jest.fn().mockResolvedValue(true),
@@ -119,10 +130,114 @@ describe('IssueCommitCommand', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.spyOn(process, 'cwd').mockReturnValue('/tmp/current-app');
+    (inquirer.prompt as unknown as jest.Mock).mockReset();
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  describe('ticket key mismatch against branch name', () => {
+    const originalStdinIsTTY = process.stdin.isTTY;
+    const originalStdoutIsTTY = process.stdout.isTTY;
+
+    afterEach(() => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutIsTTY, configurable: true });
+    });
+
+    it('does not warn or prompt when --ticket-key matches the branch ticket key', async () => {
+      const { command } = await buildCommand();
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await command.run([], { ticketKey: 'WBP-123', message: 'ship it' });
+
+      expect(inquirer.prompt).not.toHaveBeenCalled();
+      const allOutput = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+      expect(allOutput).not.toContain('does not match');
+      expect(mockGitService.commit).toHaveBeenCalledWith({ message: 'WBP-123: ship it', cwd: '/tmp/current-app' });
+
+      consoleSpy.mockRestore();
+    });
+
+    it('throws a ValidationError on mismatch when the session is non-interactive', async () => {
+      setInteractiveSession(false);
+      const { command } = await buildCommand();
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit');
+      });
+
+      await expect(
+        command.run([], { ticketKey: 'WBP-999', message: 'ship it' })
+      ).rejects.toThrow('process.exit');
+
+      const allOutput = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+      expect(allOutput).toContain("'WBP-999'");
+      expect(allOutput).toContain("'WBP-123'");
+      expect(mockGitService.commit).not.toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
+    });
+
+    it('prompts and uses the branch ticket key when the user selects it interactively', async () => {
+      setInteractiveSession(true);
+      (inquirer.prompt as unknown as jest.Mock).mockResolvedValueOnce({ selectedKey: 'WBP-123' });
+      const { command } = await buildCommand();
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await command.run([], { ticketKey: 'WBP-999', message: 'ship it' });
+
+      expect(inquirer.prompt).toHaveBeenCalled();
+      expect(mockGitService.commit).toHaveBeenCalledWith({ message: 'WBP-123: ship it', cwd: '/tmp/current-app' });
+
+      consoleSpy.mockRestore();
+    });
+
+    it('prompts and keeps the explicit --ticket-key when the user selects it interactively', async () => {
+      setInteractiveSession(true);
+      (inquirer.prompt as unknown as jest.Mock).mockResolvedValueOnce({ selectedKey: 'WBP-999' });
+      const { command } = await buildCommand();
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await command.run([], { ticketKey: 'WBP-999', message: 'ship it' });
+
+      expect(inquirer.prompt).toHaveBeenCalled();
+      expect(mockGitService.commit).toHaveBeenCalledWith({ message: 'WBP-999: ship it', cwd: '/tmp/current-app' });
+
+      consoleSpy.mockRestore();
+    });
+
+    it('does not compare or warn when the branch has no parseable ticket key', async () => {
+      mockGitService.getBranchInfo.mockResolvedValueOnce({ current: 'master' });
+      const { command } = await buildCommand();
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await command.run([], { ticketKey: 'WBP-999', message: 'ship it' });
+
+      expect(inquirer.prompt).not.toHaveBeenCalled();
+      const allOutput = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+      expect(allOutput).not.toContain('does not match');
+      expect(mockGitService.commit).toHaveBeenCalledWith({ message: 'WBP-999: ship it', cwd: '/tmp/current-app' });
+
+      consoleSpy.mockRestore();
+    });
+
+    it('warns without prompting or throwing during --dry-run on mismatch', async () => {
+      setInteractiveSession(false);
+      const { command } = await buildCommand();
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await command.run([], { ticketKey: 'WBP-999', dryRun: true });
+
+      expect(inquirer.prompt).not.toHaveBeenCalled();
+      const allOutput = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+      expect(allOutput).toContain("'WBP-999'");
+      expect(allOutput).toContain("'WBP-123'");
+      expect(allOutput).toContain('dry-run');
+
+      consoleSpy.mockRestore();
+    });
   });
 
   it('uses process.cwd() as the git base when --repos is absent', async () => {

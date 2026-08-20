@@ -8,8 +8,11 @@
  *   2. `--repos=nonexistent-repo` inline form produces the same error
  *   3. stderr includes both searched paths (CWD-relative and sibling)
  *   4. stderr includes the actionable guidance line
- *   5. `--repos existing-sibling` resolves successfully (regression guard)
- *   6. No `-r` flag falls back to CWD silently (no throw)
+ *
+ * Successful-resolution cases (bare --repos/-r form, no-flag fallback) are
+ * covered more rigorously by test-repos-bare-form-resolves-target-config,
+ * which asserts the actual config that gets loaded rather than just the
+ * absence of a thrown error.
  */
 
 import { execSync } from 'child_process';
@@ -112,37 +115,6 @@ try {
       pass('Case B: --repos= inline form stderr contains "not found" message');
     } else {
       fail('Case B: --repos= inline form missing error', result.stderr.slice(0, 300));
-    }
-  }
-
-  // Case C: --repos existing-sibling resolves successfully
-  {
-    const siblingDir = path.join(tempRoot, 'sibling-repo');
-    fs.mkdirSync(siblingDir, { recursive: true });
-    fs.writeFileSync(path.join(siblingDir, 'wf.config.js'), 'module.exports = {};', 'utf-8');
-
-    const innerDir = path.join(tempRoot, 'inner-project');
-    fs.mkdirSync(innerDir, { recursive: true });
-
-    const result = runCli('issue:plan FAKE-123 --repos sibling-repo', innerDir);
-
-    const hitConfigError = result.stderr.includes("Repository 'sibling-repo' not found");
-    if (!hitConfigError) {
-      pass('Case C: sibling repo resolved (no ConfigurationError thrown)');
-    } else {
-      fail('Case C: sibling repo should have resolved but threw ConfigurationError', result.stderr.slice(0, 300));
-    }
-  }
-
-  // Case D: no -r flag falls back to CWD silently
-  {
-    const result = runCli('issue:plan FAKE-123', tempRoot);
-
-    const hitRepoNotFound = result.stderr.includes('not found. Searched:');
-    if (!hitRepoNotFound) {
-      pass('Case D: no -r flag does not trigger ConfigurationError');
-    } else {
-      fail('Case D: no -r flag should not throw ConfigurationError', result.stderr.slice(0, 300));
     }
   }
 } finally {

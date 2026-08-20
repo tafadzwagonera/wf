@@ -1,0 +1,113 @@
+/**
+ * Manual smoke test: bare --repos <value> form actually resolves config to
+ * the target repo, not just a silent cwd fallback
+ *
+ * Run: nr test:manual -- test-repos-bare-form-resolves-target-config
+ */
+
+import { execSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
+
+let passed = 0;
+let failed = 0;
+
+const pass = (msg: string): void => {
+  console.log(`  pass: ${msg}`);
+  passed++;
+};
+const fail = (msg: string, detail?: string): void => {
+  console.error(`  FAIL: ${msg}${detail ? `\n    -> ${detail}` : ''}`);
+  failed++;
+};
+
+interface CliResult {
+  stdout: string;
+  stderr: string;
+}
+
+const runCli = (args: string, cwd: string): CliResult => {
+  try {
+    const stdout = execSync(`node ${DIST_MAIN} ${args}`, {
+      encoding: 'utf-8',
+      cwd,
+      timeout: 15_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return { stdout, stderr: '' };
+  } catch (err: any) {
+    return { stdout: err.stdout ?? '', stderr: err.stderr ?? '' };
+  }
+};
+
+const writeProviderConfig = (dir: string, provider: string): void => {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'wf.config.js'),
+    `module.exports = { ai: [{ provider: '${provider}', model: 'x', apiKey: 'k' }] };\n`
+  );
+};
+
+console.log('\nManual smoke test: bare --repos <value> resolves the target repo config\n');
+
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-repos-bare-form-'));
+const callerDir = path.join(tempRoot, 'caller');
+const siblingDir = path.join(tempRoot, 'sibling-repo');
+
+const CALLER_MARKER = 'Google Gemini';
+const SIBLING_MARKER = 'Anthropic Claude';
+
+try {
+  writeProviderConfig(callerDir, 'google');
+  writeProviderConfig(siblingDir, 'anthropic');
+
+  // Case A: bare --repos <value> two-token form must resolve to the sibling's config
+  {
+    const result = runCli('issue:commit --dry-run --repos sibling-repo', callerDir);
+    const output = result.stdout + result.stderr;
+    if (output.includes(SIBLING_MARKER)) {
+      pass('bare --repos sibling-repo picks up the sibling config (provider marker: Anthropic Claude)');
+    } else {
+      fail('bare --repos sibling-repo did not pick up the sibling config', output.slice(0, 800));
+    }
+    if (!output.includes(CALLER_MARKER)) {
+      pass('bare --repos sibling-repo does NOT fall back to the caller\'s own config marker');
+    } else {
+      fail('bare --repos sibling-repo incorrectly used the caller\'s own config', output.slice(0, 800));
+    }
+  }
+
+  // Case B: -r short flag must produce identical resolved-repo behaviour (regression guard)
+  {
+    const result = runCli('issue:commit --dry-run -r sibling-repo', callerDir);
+    const output = result.stdout + result.stderr;
+    if (output.includes(SIBLING_MARKER)) {
+      pass('-r sibling-repo picks up the sibling config (short-flag regression guard)');
+    } else {
+      fail('-r sibling-repo did not pick up the sibling config', output.slice(0, 800));
+    }
+  }
+
+  // Case C: no --repos/-r flag falls back to the caller's own config
+  {
+    const result = runCli('issue:commit --dry-run', callerDir);
+    const output = result.stdout + result.stderr;
+    if (output.includes(CALLER_MARKER)) {
+      pass('no --repos/-r flag resolves to the caller\'s own config (provider marker: Google Gemini)');
+    } else {
+      fail('no --repos/-r flag did not resolve to the caller\'s own config', output.slice(0, 800));
+    }
+  }
+} finally {
+  fs.rmSync(tempRoot, { recursive: true, force: true });
+}
+
+console.log('\n' + '='.repeat(60));
+console.log(`Results: ${passed} passed   ${failed} failed`);
+if (failed === 0) console.log('All tests passed!');
+console.log('='.repeat(60));
+
+if (failed > 0) process.exit(1);

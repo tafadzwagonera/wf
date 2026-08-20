@@ -614,7 +614,7 @@ In interactive mode (TTY, no `--silent`), the command performs a pre-synthesis c
 #### `wf issue:commit [options]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:commit -->
-Create a git commit with an AI-generated message. Use -k for the ticket key, or the key is auto-detected from the branch name. Fails hard if .gitignore is staged. Blank AI commit responses fail fast with provider-aware diagnostics. When running from source, use yarn start issue:commit -c.
+Create a git commit with an AI-generated message. Use -k for the ticket key, or the key is auto-detected from the branch name. When -k differs from the branch-embedded ticket key, warns and prompts to pick a value interactively, or fails hard with both keys shown when non-interactive; --dry-run only warns. Fails hard if .gitignore is staged. Blank AI commit responses fail fast with provider-aware diagnostics. When running from source, use yarn start issue:commit -c.
 
 ```bash
 # AI-generated commit message
@@ -637,7 +637,7 @@ wf issue:commit -k WBP-2971 --conventional --tracker jira
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
 | `--session-id <id>` | Resume a wf session by UUID (persisted to ~/.wf/state/sessions/) |
 | `-s, --silent` | Suppress decorative output; emits no header |
-| `-k, --ticket-key <key>` | Ticket key for the commit (e.g. WBP-2971) |
+| `-k, --ticket-key <key>` | Ticket key for the commit (e.g. WBP-2971); validated against the branch-embedded ticket key |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
 <!-- END GENERATED COMMAND DOCS: issue:commit -->
 

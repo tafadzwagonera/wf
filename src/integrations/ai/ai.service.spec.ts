@@ -744,6 +744,47 @@ describe('AiService', () => {
     });
   });
 
+  describe('generateCommitMessage type-vs-scope guard', () => {
+    const nonDocsDiff = 'diff --git a/src/app.ts b/src/app.ts\n+++ b/src/app.ts\n+const x = 1;\n'
+      + 'diff --git a/README.md b/README.md\n+++ b/README.md\n+docs line\n';
+    const docsOnlyDiff = 'diff --git a/README.md b/README.md\n+++ b/README.md\n+docs line\n';
+
+    it('retries once when the type implies docs-only but source files changed', async () => {
+      const adapter = createAdapter();
+      adapter.execute
+        .mockResolvedValueOnce({ content: 'docs(review): document the thing' })
+        .mockResolvedValueOnce({ content: 'fix(review): isolate verification in a worktree' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const message = await service.generateCommitMessage(nonDocsDiff, []);
+
+      expect(adapter.execute).toHaveBeenCalledTimes(2);
+      const secondPrompt = adapter.execute.mock.calls[1][0].prompt;
+      expect(secondPrompt).toContain('Correction:');
+      expect(message).toBe('fix(review): isolate verification in a worktree');
+    });
+
+    it('does not retry when the changeset really is docs-only', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({ content: 'docs(review): document the thing' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generateCommitMessage(docsOnlyDiff, []);
+
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry when the type is not docs/style/chore', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({ content: 'fix(review): isolate verification in a worktree' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generateCommitMessage(nonDocsDiff, []);
+
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('reviewCode trace validation', () => {
     afterEach(() => {
       jest.restoreAllMocks();
