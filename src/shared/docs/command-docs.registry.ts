@@ -124,6 +124,10 @@ export const COMMAND_DOCS = {
         command: 'wf issue:review --ticket-key WBP-2971 --sonar',
       },
       {
+        comment: 'Skip pre-review verification (lint, typecheck, test) in the target repository',
+        command: 'wf issue:review --ticket-key WBP-2971 --skip-verification',
+      },
+      {
         comment:
           'Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail',
         command: 'wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3',

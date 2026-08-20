@@ -428,7 +428,7 @@ When `--repos` points at a local checkout, `issue:plan` inspects `~/.wf/<repo>/*
 #### `wf issue:review [pr-url]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:review -->
-AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live after dependency install. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. Use `--sonar` to force SonarScanner on, overriding `stages.review.sonar` config. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
+AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. Use `--sonar` to force SonarScanner on, overriding `stages.review.sonar` config. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
 
 ```bash
 # Review current repo changes
@@ -449,6 +449,9 @@ wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 # Review ticket changes and run SonarScanner regardless of config
 wf issue:review --ticket-key WBP-2971 --sonar
 
+# Skip pre-review verification (lint, typecheck, test) in the target repository
+wf issue:review --ticket-key WBP-2971 --skip-verification
+
 # Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail
 wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3
 ```
@@ -467,6 +470,7 @@ wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3
 | `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
 | `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
+| `--skip-verification` | Skip pre-review verification (lint, typecheck, test) in the target repository |
 | `--sonar` | Enable SonarScanner static analysis, overriding stages.review.sonar config |
 | `-k, --ticket-key <key>` | Ticket key to review (e.g. WBP-2971) |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker |

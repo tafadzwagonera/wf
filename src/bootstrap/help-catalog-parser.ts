@@ -182,7 +182,7 @@ function listCommandFiles(commandsDir: string): string[] {
   return fs
     .readdirSync(commandsDir)
     .filter(fileName => fileName.endsWith('.ts') && !fileName.endsWith('.spec.ts'))
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
 }
 
 export function getCommandHelpCatalog(commandsDir: string): Record<string, CommandHelpEntry> {

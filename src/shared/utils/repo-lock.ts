@@ -20,7 +20,7 @@ const getLockPath = (repoDir: string): string => {
   return path.join(getLockDir(), `${key}.lock`);
 };
 
-const isProcessAlive = (pid: number): boolean => {
+export const isProcessAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
     return true;
@@ -38,7 +38,7 @@ const readLockPayload = (lockPath: string): RepoLockPayload | undefined => {
 };
 
 const isLockStale = (payload: RepoLockPayload | undefined): boolean => {
-  if (!payload || typeof payload.pid !== 'number') return true;
+  if (!payload) return true;
   if (!isProcessAlive(payload.pid)) return true;
   return Date.now() - Date.parse(payload.startedAt) > REPO_LOCK_STALE_AFTER_MS;
 };

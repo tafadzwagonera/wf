@@ -50,6 +50,7 @@ interface IssueReviewOptions {
   silent?: boolean;
   sessionId?: string;
   sonar?: boolean;
+  skipVerification?: boolean;
   estimatedComplexity?: string;
   passCount?: number;
   resumeSessionId?: string;
@@ -121,7 +122,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
   description:
     'AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. '
     + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. '
-    + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live after dependency install. '
+    + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. '
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. '
     + 'SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. '
     + 'Use `--sonar` to force SonarScanner on, overriding `stages.review.sonar` config. '
@@ -570,7 +571,11 @@ export class IssueReviewCommand extends CommandRunner {
   ): Promise<CodeReview> {
     const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
     await this.resolveSonarOutputForTarget(target, options, onProgress);
-    const context = await buildPreReviewContext(target, { ticketKey: options?.ticketKey, silent: options?.silent });
+    const context = await buildPreReviewContext(target, {
+      ticketKey: options?.ticketKey,
+      silent: options?.silent,
+      skipVerification: options?.skipVerification,
+    });
     const { review } = await this.reviewStageService.reviewDiff(target.diff, {
       context, extraCriteria: extraCriteria ?? undefined,
       replaceCriteria: Boolean(options?.replaceCriteria),
@@ -714,6 +719,14 @@ export class IssueReviewCommand extends CommandRunner {
     description: 'Suppress decorative output and interactive prompts. Emits only the review artifact path for piping',
   })
   parseSilent(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--skip-verification',
+    description: 'Skip pre-review verification (lint, typecheck, test) in the target repository',
+  })
+  parseSkipVerification(): boolean {
     return true;
   }
 

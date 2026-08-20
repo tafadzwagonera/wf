@@ -9,17 +9,27 @@ export interface PreReviewContextTarget {
   commentRef?: string;
 }
 
+interface PreReviewContextOptions {
+  ticketKey?: string;
+  silent?: boolean;
+  skipVerification?: boolean;
+}
+
+const resolveVerifySummary = async (
+  repoDir: string, target: PreReviewContextTarget, options: PreReviewContextOptions
+): Promise<string> => {
+  const prSummary = target.commentRef
+    ? await runPreReviewVerification(repoDir, { silent: options.silent, skipVerification: options.skipVerification })
+    : '';
+  return prSummary || resolveVerificationSummary(repoDir, options.ticketKey ?? '');
+};
+
 export const buildPreReviewContext = async (
-  target: PreReviewContextTarget,
-  options: { ticketKey?: string; silent?: boolean } = {}
+  target: PreReviewContextTarget, options: PreReviewContextOptions = {}
 ): Promise<string> => {
   const { repoDir, context } = target;
   if (!repoDir) return context;
-  const prVerifySummary = target.commentRef
-    ? await runPreReviewVerification(repoDir, { silent: options.silent })
-    : '';
-  const cachedSummary = resolveVerificationSummary(repoDir, options.ticketKey ?? '');
-  const verifySummary = prVerifySummary || cachedSummary;
+  const verifySummary = await resolveVerifySummary(repoDir, target, options);
   const conventions = detectRepoConventions(repoDir);
   const conventionsSection = formatRepoConventionsPromptSection(conventions, path.basename(repoDir));
   const extra = [verifySummary, conventionsSection].filter(Boolean).join('\n\n');
