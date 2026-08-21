@@ -21,7 +21,7 @@ export class CommitterAgent {
    *
    * @param ticketKey - The ticket identifier prepended to the commit message (e.g. WBP-1234)
    * @param repoDir - Optional path to the repository directory
-   * @param ticketContext - Optional plan summary or ticket description used to improve commit message accuracy
+   * @param ticketContext - Optional review/plan summary or ticket description to improve accuracy
    * @param suppressHeader
    * @param silent
    * @returns A promise that resolves when the commit has been created

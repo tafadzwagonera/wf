@@ -4,7 +4,7 @@
     "usage": "wf config <get|set|list> [args]"
   },
   "issue:commit": {
-    "description": "Create a git commit with an AI-generated message. Use -k for the ticket key, or the key is auto-detected from the branch name. When -k differs from the branch-embedded ticket key, warns and prompts to pick a value interactively, or fails hard with both keys shown when non-interactive; --dry-run only warns. Fails hard if .gitignore is staged. Blank AI commit responses fail fast with provider-aware diagnostics. When running from source, use yarn start issue:commit -c.",
+    "description": "Create a git commit with an AI-generated message. Use -k for the ticket key, or the key is auto-detected from the branch name. When -k differs from the branch-embedded ticket key, warns and prompts to pick a value interactively, or fails hard with both keys shown when non-interactive; --dry-run only warns. Fails hard if .gitignore is staged. Blank AI commit responses fail fast with provider-aware diagnostics. When a code review or plan artifact already exists for the ticket, its summary is used to scope the commit message automatically. When running from source, use yarn start issue:commit -c.",
     "usage": "wf issue:commit [options]",
     "options": [
       {

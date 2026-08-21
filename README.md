@@ -614,7 +614,7 @@ In interactive mode (TTY, no `--silent`), the command performs a pre-synthesis c
 #### `wf issue:commit [options]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:commit -->
-Create a git commit with an AI-generated message. Use -k for the ticket key, or the key is auto-detected from the branch name. When -k differs from the branch-embedded ticket key, warns and prompts to pick a value interactively, or fails hard with both keys shown when non-interactive; --dry-run only warns. Fails hard if .gitignore is staged. Blank AI commit responses fail fast with provider-aware diagnostics. When running from source, use yarn start issue:commit -c.
+Create a git commit with an AI-generated message. Use -k for the ticket key, or the key is auto-detected from the branch name. When -k differs from the branch-embedded ticket key, warns and prompts to pick a value interactively, or fails hard with both keys shown when non-interactive; --dry-run only warns. Fails hard if .gitignore is staged. Blank AI commit responses fail fast with provider-aware diagnostics. When a code review or plan artifact already exists for the ticket, its summary is used to scope the commit message automatically. When running from source, use yarn start issue:commit -c.
 
 ```bash
 # AI-generated commit message
@@ -644,6 +644,8 @@ wf issue:commit -k WBP-2971 --conventional --tracker jira
 **Branch detection:** ticket keys are extracted from the branch name using the pattern `[A-Z]+-\d+` (e.g., `feature/WBP-2971__add-oauth` → `WBP-2971`).
 
 **Staged file exclusions:** when no files are pre-staged, `issue:commit` stages all local changes while automatically excluding wf tooling artifacts: `.wf/**` runtime directories, `wf.config.{js,mjs,ts,mts,yaml,yml}` files, and `dist/` build output. If `.gitignore` is already staged or explicitly included, `issue:commit` fails hard instead of creating a commit. These are tooling inputs created by wf inside target repos and should never appear in ticket commits.
+
+**Commit scope summary:** with a ticket key resolved, `issue:commit` looks for an existing `issue:review` artifact for that ticket and uses its summary to scope the commit message; if none exists, it falls back to a matching prior `issue:plan` artifact on disk. Within the full `issue` workflow, the plan already resolved for that run takes priority over any other on-disk plan for the same ticket. When a summary is found this way, `issue:commit` prints "Using scope summary from prior review/plan".
 
 ---
 

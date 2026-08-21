@@ -52,7 +52,7 @@ describe('formatDiffStatSummary', () => {
 });
 
 describe('buildPrioritizedDiffExcerpt', () => {
-  it('includes the most-changed file even when it appears last in the diff', () => {
+  it('includes the most-changed file via its own snippet at realistic budget', () => {
     const diff = buildDiff([
       { path: 'docs/readme-note.md', addedLines: 1 },
       { path: 'src/core-logic.ts', addedLines: 40 },
@@ -61,7 +61,7 @@ describe('buildPrioritizedDiffExcerpt', () => {
 
     const excerpt = buildPrioritizedDiffExcerpt(diff, stats, 200);
 
-    expect(excerpt).toContain('src/core-logic.ts');
+    expect(excerpt).toContain('diff --git a/src/core-logic.ts b/src/core-logic.ts');
   });
 
   it('notes which files were omitted when the budget is exceeded', () => {
@@ -75,6 +75,59 @@ describe('buildPrioritizedDiffExcerpt', () => {
 
     expect(excerpt).toContain('omitted');
     expect(excerpt).toContain('src/small-one.ts');
+  });
+
+  it('includes real diff content for small file alongside oversized file at 3000-char budget', () => {
+    const bigFileLines = Array.from({ length: 200 }, (_, i) => `+big line ${i}`).join('\n');
+    const smallDiff = `diff --git a/small.ts b/small.ts\n--- a/small.ts\n+++ b/small.ts\n@@ -0,0 +1,2 @@\n+One extra line\n+Another line`;
+    const bigDiff = `diff --git a/big.ts b/big.ts\n--- a/big.ts\n+++ b/big.ts\n@@ -0,0 +1,200 @@\n${bigFileLines}`;
+    const diff = `${smallDiff}\n${bigDiff}`;
+
+    const stats = parseDiffFileStats(diff);
+    const excerpt = buildPrioritizedDiffExcerpt(diff, stats, 3000);
+
+    expect(excerpt).toContain('+One extra line');
+    expect(excerpt).not.toContain('omitted');
+  });
+
+  it('omits files from footer when file count exceeds budget', () => {
+    const files = Array.from({ length: 40 }, (_, i) => ({
+      path: `file${i}.ts`,
+      addedLines: 10,
+    }));
+    const diff = buildDiff(files);
+    const stats = parseDiffFileStats(diff);
+
+    const excerpt = buildPrioritizedDiffExcerpt(diff, stats, 200);
+
+    expect(excerpt).toContain('omitted');
+  });
+
+  it('does not exceed maxChars budget when one file is vastly larger than another', () => {
+    const tinyDiff = 'diff --git a/tiny.ts b/tiny.ts\n--- a/tiny.ts\n+++ b/tiny.ts\n@@ -0,0 +1,1 @@\n+tiny line';
+    const bigLines = Array.from({ length: 5000 }, (_, i) => `+big line number ${i} with some extra padding text`).join('\n');
+    const bigDiff = `diff --git a/big.ts b/big.ts\n--- a/big.ts\n+++ b/big.ts\n@@ -0,0 +1,5000 @@\n${bigLines}`;
+    const diff = `${tinyDiff}\n${bigDiff}`;
+    const stats = parseDiffFileStats(diff);
+    const maxChars = 1000;
+
+    const excerpt = buildPrioritizedDiffExcerpt(diff, stats, maxChars);
+
+    expect(excerpt.length).toBeLessThanOrEqual(maxChars + 200);
+  });
+
+  it('does not exceed maxChars budget including omission footer', () => {
+    const files = Array.from({ length: 20 }, (_, i) => ({
+      path: `file${i}.ts`,
+      addedLines: 50,
+    }));
+    const diff = buildDiff(files);
+    const stats = parseDiffFileStats(diff);
+    const maxChars = 500;
+
+    const excerpt = buildPrioritizedDiffExcerpt(diff, stats, maxChars);
+
+    expect(excerpt.length).toBeLessThanOrEqual(maxChars + 200);
   });
 
   it('falls back to a plain substring when no file headers are found', () => {

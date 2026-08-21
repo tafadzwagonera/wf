@@ -50,6 +50,10 @@ jest.mock('inquirer', () => ({
   default: { prompt: jest.fn() },
 }));
 
+jest.mock('../shared/utils/resolve-commit-scope-summary', () => ({
+  resolveCommitScopeSummary: jest.fn().mockReturnValue(null),
+}));
+
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssueCommitCommand } from './issue-commit.command';

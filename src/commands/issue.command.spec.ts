@@ -2722,6 +2722,7 @@ describe('IssueCommand', () => {
         options: { silent: true },
         repos: ['repoA'],
         ticketKey: 'WBP-PROP',
+        trackerName: 'jira',
       };
       const planArtifact: any = {
         action: 'fix',
@@ -2731,7 +2732,7 @@ describe('IssueCommand', () => {
       await (command as any).runWorkflowStages(ctx, { ticketArtifact: {} as any, planArtifact }, undefined);
 
       expect(commitSpy).toHaveBeenCalledWith(
-        expect.anything(), expect.anything(), ['repoA', 'newRepo'], expect.anything()
+        expect.anything(), expect.anything(), ['repoA', 'newRepo'], expect.anything(), expect.anything()
       );
     });
   });

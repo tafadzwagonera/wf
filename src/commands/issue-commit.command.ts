@@ -2,13 +2,13 @@ import { Command, CommandRunner, Option } from 'nest-commander';
 import { GitService } from '../integrations/git/git.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
-import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { GitError, ValidationError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveRepoBasePath } from '../agents/utils';
+import { resolveCommitScopeSummary } from '../shared/utils/resolve-commit-scope-summary';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
 import { withRepoLock } from '../shared/utils/repo-lock';
 import chalk from 'chalk';
@@ -43,6 +43,8 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
     + 'or fails hard with both keys shown when non-interactive; --dry-run only warns. '
     + 'Fails hard if .gitignore is staged. '
     + 'Blank AI commit responses fail fast with provider-aware diagnostics. '
+    + 'When a code review or plan artifact already exists for the ticket, its summary is used to scope '
+    + 'the commit message automatically. '
     + 'When running from source, use yarn start issue:commit -c.',
   options: { isDefault: false },
 })
@@ -51,7 +53,6 @@ export class IssueCommitCommand extends CommandRunner {
     private readonly gitService: GitService,
     private readonly aiService: AiService,
     private readonly configService: ConfigService,
-    private readonly logger: LoggerService,
     private readonly dryRunPreview: DryRunPreviewService,
     private readonly commitStageService: CommitStageService
   ) {
@@ -128,7 +129,7 @@ export class IssueCommitCommand extends CommandRunner {
     this.printCommitHeader(ticketKey, autoDetected, options);
 
     const diff = await this.getStagedDiff(repoBaseDir);
-    const commitMessage = await this.buildFinalMessage(diff, ticketKey, options);
+    const commitMessage = await this.buildFinalMessage(diff, ticketKey, repoBaseDir, options);
     await this.createAndPrintCommit(commitMessage, repoBaseDir);
   }
 
@@ -185,9 +186,9 @@ export class IssueCommitCommand extends CommandRunner {
   }
 
   private async buildFinalMessage(
-    diff: string, ticketKey: string | null, options?: IssueCommitOptions
+    diff: string, ticketKey: string | null, repoBaseDir: string, options?: IssueCommitOptions
   ): Promise<string> {
-    let msg = await this.resolveCommitMessage(diff, ticketKey, options);
+    let msg = await this.resolveCommitMessage(diff, ticketKey, repoBaseDir, options);
     if (ticketKey && !msg.includes(ticketKey)) msg = `${ticketKey}: ${msg}`;
     return msg;
   }
@@ -221,20 +222,34 @@ export class IssueCommitCommand extends CommandRunner {
   }
 
   private async resolveCommitMessage(
-    diff: string, ticketKey: string | null, options?: IssueCommitOptions
+    diff: string, ticketKey: string | null, repoBaseDir: string, options?: IssueCommitOptions
   ): Promise<string> {
     if (options?.message) {
       console.log(chalk.gray('  Using provided commit message\n'));
       return options.message;
     }
     console.log(chalk.cyan('🤖 Generating commit message with AI...\n'));
+
+    const scopeSummary = this.resolveScopeSummary(ticketKey, repoBaseDir, options);
     const msg = await this.commitStageService.generateCommitMessage({
-      diff, ticketKey: ticketKey || undefined, conventional: options?.conventional,
+      diff, ticketKey: ticketKey || undefined, conventional: options?.conventional, scopeSummary,
     });
     console.log(chalk.green('✔ Generated commit message:\n'));
     console.log(chalk.bold.cyan(this.indentMessage(msg)));
     console.log();
     return msg;
+  }
+
+  private resolveScopeSummary(
+    ticketKey: string | null, repoBaseDir: string, options?: IssueCommitOptions
+  ): string | undefined {
+    if (!ticketKey) return undefined;
+    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    const scopeSummary = resolveCommitScopeSummary(repoBaseDir, trackerName, ticketKey) ?? undefined;
+    if (scopeSummary && !options?.silent) {
+      console.log(chalk.gray('  Using scope summary from prior review/plan'));
+    }
+    return scopeSummary;
   }
 
   @Option({

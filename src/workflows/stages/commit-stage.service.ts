@@ -17,6 +17,7 @@ interface GenerateCommitMessageOptions {
   conventional?: boolean;
   commitHistory?: string[];
   ticketContext?: string;
+  scopeSummary?: string; // Consumed only by standalone prompt path; enriched path uses ticketContext
 }
 
 @Injectable()
@@ -33,23 +34,31 @@ export class CommitStageService {
       );
       return this.normalizeCommitMessage(rawMessage, options.ticketKey);
     }
-
-    const message = await this.generateStandaloneMessage(options.diff, options.ticketKey, options.conventional);
+    const message = await this.generateStandaloneMessage(options);
     return this.normalizeCommitMessage(message, options.ticketKey, false);
   }
 
-  private async generateStandaloneMessage(diff: string, ticketKey?: string, conventional?: boolean): Promise<string> {
-    const stats = parseDiffFileStats(diff);
-    const first = await this.executeStandalonePrompt(diff, ticketKey, conventional);
+  private async generateStandaloneMessage(options: {
+    diff: string;
+    ticketKey?: string;
+    conventional?: boolean;
+    scopeSummary?: string;
+  }): Promise<string> {
+    const first = await this.executeStandalonePrompt(options);
+    const stats = parseDiffFileStats(options.diff);
     if (isDocsOnlyChangeset(stats) || !declaresDocsOnlyType(first)) return first;
-
-    return this.executeStandalonePrompt(diff, ticketKey, conventional, buildStandaloneDocsCorrection(first));
+    const correction = buildStandaloneDocsCorrection(first);
+    return this.executeStandalonePrompt({ ...options, correction });
   }
 
-  private async executeStandalonePrompt(
-    diff: string, ticketKey?: string, conventional?: boolean, correction?: string
-  ): Promise<string> {
-    const prompt = this.buildCommitPrompt(diff, ticketKey, conventional, correction);
+  private async executeStandalonePrompt(options: {
+    diff: string;
+    ticketKey?: string;
+    conventional?: boolean;
+    scopeSummary?: string;
+    correction?: string;
+  }): Promise<string> {
+    const prompt = this.buildCommitPrompt(options);
     const response = await this.aiService.execute({ prompt, maxTokens: 500, temperature: 0.7, stage: 'commit' });
     return requireAiResponseContent(response, 'AI provider returned an empty commit message response');
   }
@@ -66,20 +75,18 @@ export class CommitStageService {
     return ticketKey && !message.includes(ticketKey) ? `${ticketKey}: ${message}` : message;
   }
 
-  private buildCommitPrompt(diff: string, ticketKey?: string, conventional?: boolean, correction?: string): string {
+  private buildCommitPrompt(options: {
+    diff: string;
+    ticketKey?: string;
+    conventional?: boolean;
+    scopeSummary?: string;
+    correction?: string;
+  }): string {
     let prompt = 'Generate a concise, informative git commit message for the following changes.\n\n';
-
-    if (conventional) {
-      prompt += 'Use conventional commits format: <type>(<scope>): <description>\n';
-      prompt += 'Types: feat, fix, docs, style, refactor, test, chore\n\n';
-    }
-
-    if (ticketKey) {
-      prompt += `Related ticket: ${ticketKey}\n\n`;
-    }
-
-    prompt += this.buildStandaloneGuidelines(diff, conventional, correction);
-    return prompt;
+    if (options.conventional) prompt += 'Use conventional commits format: <type>(<scope>): <description>\nTypes: feat, fix, docs, style, refactor, test, chore\n\n';
+    if (options.ticketKey) prompt += `Related ticket: ${options.ticketKey}\n\n`;
+    if (options.scopeSummary) prompt += `Known scope of this change (from prior review/plan): ${options.scopeSummary}\n\n`;
+    return prompt + this.buildStandaloneGuidelines(options.diff, options.conventional, options.correction);
   }
 
   private buildStandaloneGuidelines(diff: string, conventional?: boolean, correction?: string): string {

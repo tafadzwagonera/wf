@@ -17,6 +17,7 @@ import {
   resolvePlanToken,
 } from '../shared/utils/plan-artifact';
 import { resolveCustomSourcePath } from '../shared/utils/custom-source';
+import { resolveCommitScopeSummary } from '../shared/utils/resolve-commit-scope-summary';
 import { parseReposOption } from './utils/repos-option';
 import { ConfigService } from '@nestjs/config';
 import { AiService, REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../integrations/ai/ai.service';
@@ -676,7 +677,7 @@ export class IssueCommand extends CommandRunner {
     }
 
     if (stagesToRun.includes(WorkflowStage.COMMIT) && planArtifact?.action !== 'investigate') {
-      await this.executeCommitStage(ctx.ticketKey, planArtifact, ctx.repos, options);
+      await this.executeCommitStage(ctx.ticketKey, planArtifact, ctx.repos, options, ctx.trackerName);
     }
 
     return { sessionState, earlyReturn: false };
@@ -1621,14 +1622,21 @@ export class IssueCommand extends CommandRunner {
 
   private async executeCommitStage(
     ticketKey: string, planArtifact: PlanArtifact | undefined,
-    repos: (string | undefined)[], options: IssueOptions
+    repos: (string | undefined)[], options: IssueOptions, trackerName: string
   ): Promise<void> {
     const isMultiRepo = repos.length > 1;
     this.printStageHeader(isMultiRepo, options?.silent, '💾 STAGE 5: Commit Changes');
     for (const repo of repos) {
       this.printRepoHeader(isMultiRepo, repo, options);
+      const repoDir = resolveRepoBasePath(repo);
+      const scopeSummary = resolveCommitScopeSummary(
+        repoDir, trackerName, ticketKey, planArtifact?.plan?.summary
+      ) ?? undefined;
+      if (scopeSummary && scopeSummary !== planArtifact?.plan?.summary && !options?.silent) {
+        console.log(chalk.gray('  Using scope summary from prior review/plan'));
+      }
       await this.agents.committer.execute(
-        ticketKey, resolveRepoBasePath(repo), planArtifact?.plan?.summary, isMultiRepo, options?.silent
+        ticketKey, repoDir, scopeSummary, isMultiRepo, options?.silent
       );
     }
   }
