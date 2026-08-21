@@ -302,6 +302,10 @@ export class GitService {
       await git.add(files);
       return;
     }
+    // This guard keeps the auto-add branch below safe: stageAll() is always called before
+    // commit() at real call sites, so status.staged.length is non-zero and this returns
+    // early. Removing the guard without adding selectStageablePaths would expose the same
+    // already-staged-path failure that selectStageablePaths fixes in addStageableFiles.
     if (status.staged.length || !status.files.length) return;
     const filesToAdd = this.filterStageable(status.files.map(f => f.path));
     if (filesToAdd.length > 0) await git.add(filesToAdd);
@@ -395,16 +399,22 @@ export class GitService {
    * - `dist/` — compiled build output that should not be committed to tickets
    * - `.gitignore` — managed by the repo owner; wf must not alter ignore rules
    *
-   * Exclusions are applied by filtering the paths returned by `git.status()`
-   * against {@link GitService.EXCLUDED_PATHS} and passing the filtered list
-   * directly to `git.add()`. This avoids pathspec exclude magic (`:!` prefix)
-   * which has known portability issues on macOS and with certain git versions.
+   * Paths are first narrowed to those with a pending working-tree change
+   * (`working_dir !== ' '`) — a space means the working tree already matches
+   * the index for that path (e.g. a deletion left fully staged by
+   * {@link GitService.resetSoftToCommit}) and passing it to `git add` would
+   * fail with "did not match any files". The remaining paths are then filtered
+   * against {@link GitService.EXCLUDED_PATHS} before being passed to `git.add()`.
+   * This avoids pathspec exclude magic (`:!` prefix) which has known portability
+   * issues on macOS and with certain git versions.
    *
    * See `src/config/wf-config-loader.ts` for the canonical list of recognized
    * config file names. Any new extension added there must also be added here,
    * and the {@link GitService.EXCLUDED_PATHS} regex must be updated to match.
    *
-   * Safe to call when nothing is staged yet; idempotent if run again.
+   * Safe to call when nothing is staged yet. Paths already fully reflected in
+   * the index (such as deletions left staged by a soft reset) are skipped rather
+   * than re-added, which is what makes this call genuinely idempotent.
    *
    * @param cwd - Optional repository directory; defaults to process.cwd()
    */
@@ -418,9 +428,10 @@ export class GitService {
   }
 
   /**
-   * Stage every stageable path from the current git status. If `git add`
-   * fails because a path vanished between reading status and staging it
-   * (see {@link isMissingPathspecError} — e.g. another process deleted and
+   * Stage every path from the current git status that has a pending
+   * working-tree change and is not excluded. If `git add` fails because a
+   * path vanished between reading status and staging it (see
+   * {@link isMissingPathspecError} — e.g. another process deleted and
    * committed it in that window), re-read status and retry once against the
    * files that are still actually present, rather than failing the whole
    * command over a race outside this call's control.
@@ -429,7 +440,7 @@ export class GitService {
    */
   private async addStageableFiles(git: SimpleGit): Promise<void> {
     const status = await git.status();
-    const filesToAdd = this.filterStageable(status.files.map(f => f.path));
+    const filesToAdd = this.selectStageablePaths(status);
     if (filesToAdd.length === 0) return;
 
     try {
@@ -443,7 +454,7 @@ export class GitService {
 
   private async retryStageAfterVanishedPath(git: SimpleGit): Promise<void> {
     const status = await git.status();
-    const filesToAdd = this.filterStageable(status.files.map(f => f.path));
+    const filesToAdd = this.selectStageablePaths(status);
     if (filesToAdd.length > 0) await git.add(filesToAdd);
   }
 
@@ -459,6 +470,22 @@ export class GitService {
    */
   private static readonly EXCLUDED_PATHS
     = /^\.wf[/\\]|^wf\.config\.(js|mjs|ts|mts|yaml|yml)$|^verification\.policy\.json$|^dist[/\\]|^\.gitignore$/;
+
+  /**
+   * Select paths from `status` that have a pending working-tree change and are
+   * safe to stage. A `working_dir` of `' '` means the working tree already
+   * matches the index for that path — e.g. a deletion left fully staged by
+   * {@link GitService.resetSoftToCommit} — so passing such a path to `git add`
+   * fails with "did not match any files". {@link filterStageable} is applied
+   * afterwards to enforce the EXCLUDED_PATHS exclusion list.
+   *
+   * @param status - Current git status snapshot
+   * @returns Paths with a pending working-tree change that are safe to stage
+   */
+  private selectStageablePaths(status: StatusResult): string[] {
+    const pending = status.files.filter(f => f.working_dir !== ' ').map(f => f.path);
+    return this.filterStageable(pending);
+  }
 
   /**
    * Filter a list of file paths, removing any that match {@link EXCLUDED_PATHS}.

@@ -7,6 +7,14 @@ import { getHelpText } from './bootstrap/help-output';
 
 const moduleRequire = createRequire(__filename);
 
+function registerSigintHandler(): void {
+  let received = false;
+  process.on('SIGINT', () => {
+    if (received) process.exit(130);
+    received = true;
+  });
+}
+
 /**
  * Start the CLI, loading config only for non-help invocations.
  *
@@ -25,13 +33,7 @@ export async function bootstrap(): Promise<void> {
   await initializeWfConfig(resolveConfigCwd(argv));
 
   const { AppModule } = moduleRequire('./app.module');
-
-  let sigintReceived = false;
-  process.on('SIGINT', () => {
-    if (sigintReceived) process.exit(130);
-    sigintReceived = true;
-  });
-
+  registerSigintHandler();
   await CommandFactory.run(AppModule, ['warn', 'error']);
   process.exit(0);
 }

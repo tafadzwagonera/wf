@@ -1,6 +1,27 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+const readDirEntries = (dir: string): fs.Dirent[] => {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true });
+  } catch { return []; }
+};
+
+function visitDirectory(
+  currentDir: string,
+  includeFile: (filePath: string, fileName: string) => boolean,
+  collected: string[]
+): void {
+  for (const entry of readDirEntries(currentDir)) {
+    const entryPath = path.join(currentDir, entry.name);
+    if (entry.isDirectory()) {
+      visitDirectory(entryPath, includeFile, collected);
+    } else if (entry.isFile() && includeFile(entryPath, entry.name)) {
+      collected.push(entryPath);
+    }
+  }
+}
+
 /**
  * Recursively collect artifact file paths from a repo-scoped wf directory.
  * Unreadable directories are skipped so higher-level discovery can stay non-throwing.
@@ -13,38 +34,7 @@ export const collectWfArtifactFiles = (
   rootDir: string,
   includeFile: (filePath: string, fileName: string) => boolean
 ): string[] => {
-  const collectedFilePaths: string[] = [];
-
-  const visitDirectory = (currentDir: string): void => {
-    let entries: fs.Dirent[];
-
-    try {
-      entries = fs.readdirSync(currentDir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      const entryPath = path.join(currentDir, entry.name);
-
-      if (entry.isDirectory()) {
-        visitDirectory(entryPath);
-        continue;
-      }
-
-      if (!entry.isFile()) {
-        continue;
-      }
-
-      if (!includeFile(entryPath, entry.name)) {
-        continue;
-      }
-
-      collectedFilePaths.push(entryPath);
-    }
-  };
-
-  visitDirectory(rootDir);
-
-  return collectedFilePaths;
+  const collected: string[] = [];
+  visitDirectory(rootDir, includeFile, collected);
+  return collected;
 };

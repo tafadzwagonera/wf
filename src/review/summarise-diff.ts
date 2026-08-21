@@ -31,6 +31,48 @@ export const splitDiffByFile = (diff: string): DiffSegment[] => {
   return segments;
 };
 
+const summariseSegment = async (
+  segment: DiffSegment & { index: number },
+  summariseFn: (patch: string, file: string) => Promise<string>
+): Promise<string> => {
+  try {
+    const summary = await summariseFn(segment.patch, segment.file);
+    return `diff --git a/${segment.file} b/${segment.file} (summarised)\n${summary}`;
+  } catch {
+    return segment.patch;
+  }
+};
+
+const indexedSegments = (segments: DiffSegment[]) =>
+  [...segments.map((s, i) => ({ ...s, index: i }))].sort((a, b) => b.patch.length - a.patch.length);
+
+const processSegment = async (
+  segment: DiffSegment & { index: number }, threshold: number,
+  results: string[], currentLength: number,
+  summariseFn: (patch: string, file: string) => Promise<string>
+): Promise<number> => {
+  if (currentLength <= threshold) {
+    results[segment.index] = segment.patch;
+    return currentLength;
+  }
+  const processed = await summariseSegment(segment, summariseFn);
+  results[segment.index] = processed;
+  return currentLength - segment.patch.length + processed.length;
+};
+
+const summariseSegments = async (
+  segments: DiffSegment[], threshold: number,
+  summariseFn: (patch: string, file: string) => Promise<string>
+): Promise<string[]> => {
+  const sorted = indexedSegments(segments);
+  const results: string[] = new Array(segments.length);
+  let currentLength = segments.reduce((sum, s) => sum + s.patch.length, 0);
+  for (const segment of sorted) {
+    currentLength = await processSegment(segment, threshold, results, currentLength, summariseFn);
+  }
+  return results;
+};
+
 /**
  * Summarise oversized per-file patches so the total diff fits within
  * `threshold` characters. Segments that already fit are kept verbatim.
@@ -46,43 +88,6 @@ export const summariseDiff = async (
   summarise: (patch: string, file: string) => Promise<string>
 ): Promise<string> => {
   const totalLength = segments.reduce((sum, s) => sum + s.patch.length, 0);
-
-  if (totalLength <= threshold) {
-    return segments.map(s => s.patch).join('\n');
-  }
-
-  // Work on a mutable copy sorted largest-first by patch size
-  const indexed = segments.map((s, i) => ({ ...s, index: i }));
-  const sortedBySize = [...indexed].sort((a, b) => b.patch.length - a.patch.length);
-
-  const results: string[] = new Array(segments.length);
-  let currentLength = totalLength;
-
-  for (const segment of sortedBySize) {
-    if (currentLength <= threshold) {
-      results[segment.index] = segment.patch;
-      continue;
-    }
-
-    let summary: string;
-    try {
-      summary = await summarise(segment.patch, segment.file);
-    } catch {
-      // Keep the raw patch when summarisation fails for a single segment
-      results[segment.index] = segment.patch;
-      continue;
-    }
-    const summarisedPatch = `diff --git a/${segment.file} b/${segment.file} (summarised)\n${summary}`;
-
-    currentLength -= segment.patch.length;
-    currentLength += summarisedPatch.length;
-    results[segment.index] = summarisedPatch;
-  }
-
-  // Fill any remaining unsummarised segments
-  for (let i = 0; i < segments.length; i++) {
-    results[i] ||= segments[i].patch;
-  }
-
-  return results.join('\n');
+  if (totalLength <= threshold) return segments.map(s => s.patch).join('\n');
+  return (await summariseSegments(segments, threshold, summarise)).join('\n');
 };

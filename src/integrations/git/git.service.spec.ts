@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import type { StatusResult } from 'simple-git';
 import { GitService } from './git.service';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { GitError } from '../../shared/errors/app.error';
@@ -197,7 +198,10 @@ describe('GitService', () => {
 
     it('stages every stageable path from status in a single call', async () => {
       mockCwdGitInstance.status.mockResolvedValue({
-        files: [{ path: 'src/app.ts' }, { path: 'README.md' }],
+        files: [
+          { path: 'src/app.ts', index: ' ', working_dir: 'M' },
+          { path: 'README.md', index: ' ', working_dir: '?' },
+        ],
       });
       mockCwdGitInstance.add.mockResolvedValue(undefined);
 
@@ -217,8 +221,13 @@ describe('GitService', () => {
 
     it('recovers from a vanished pathspec by retrying against a fresh status snapshot', async () => {
       mockCwdGitInstance.status
-        .mockResolvedValueOnce({ files: [{ path: 'src/app.ts' }, { path: 'deleted-elsewhere.ts' }] })
-        .mockResolvedValueOnce({ files: [{ path: 'src/app.ts' }] });
+        .mockResolvedValueOnce({
+          files: [
+            { path: 'src/app.ts', index: ' ', working_dir: 'M' },
+            { path: 'deleted-elsewhere.ts', index: ' ', working_dir: 'M' },
+          ],
+        })
+        .mockResolvedValueOnce({ files: [{ path: 'src/app.ts', index: ' ', working_dir: 'M' }] });
       mockCwdGitInstance.add
         .mockRejectedValueOnce(new Error("fatal: pathspec 'deleted-elsewhere.ts' did not match any files"))
         .mockResolvedValueOnce(undefined);
@@ -233,7 +242,7 @@ describe('GitService', () => {
 
     it('resolves without a second add call when the retry status has nothing left to stage', async () => {
       mockCwdGitInstance.status
-        .mockResolvedValueOnce({ files: [{ path: 'deleted-elsewhere.ts' }] })
+        .mockResolvedValueOnce({ files: [{ path: 'deleted-elsewhere.ts', index: ' ', working_dir: 'M' }] })
         .mockResolvedValueOnce({ files: [] });
       mockCwdGitInstance.add.mockRejectedValueOnce(
         new Error("fatal: pathspec 'deleted-elsewhere.ts' did not match any files")
@@ -245,7 +254,7 @@ describe('GitService', () => {
     });
 
     it('wraps a non-pathspec add failure as GitError without retrying', async () => {
-      mockCwdGitInstance.status.mockResolvedValue({ files: [{ path: 'src/app.ts' }] });
+      mockCwdGitInstance.status.mockResolvedValue({ files: [{ path: 'src/app.ts', index: ' ', working_dir: 'M' }] });
       mockCwdGitInstance.add.mockRejectedValue(new Error('permission denied'));
 
       await expect(service.stageAll('/repo')).rejects.toThrow(GitError);
@@ -254,13 +263,94 @@ describe('GitService', () => {
     });
 
     it('wraps the error as GitError if the retry itself still fails', async () => {
-      mockCwdGitInstance.status.mockResolvedValue({ files: [{ path: 'deleted-elsewhere.ts' }] });
+      mockCwdGitInstance.status.mockResolvedValue({ files: [{ path: 'deleted-elsewhere.ts', index: ' ', working_dir: 'D' }] });
       mockCwdGitInstance.add.mockRejectedValue(
         new Error("fatal: pathspec 'deleted-elsewhere.ts' did not match any files")
       );
 
       await expect(service.stageAll('/repo')).rejects.toThrow(GitError);
       expect(mockCwdGitInstance.add).toHaveBeenCalledTimes(2);
+    });
+
+    it('skips a deletion already fully reflected in the index after a soft reset', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({
+        files: [
+          { path: 'src/app.ts', index: ' ', working_dir: 'M' },
+          { path: 'sonar-project.properties', index: 'D', working_dir: ' ' },
+        ],
+      });
+      mockCwdGitInstance.add.mockResolvedValue(undefined);
+
+      await expect(service.stageAll('/repo')).resolves.toBeUndefined();
+
+      expect(mockCwdGitInstance.add).toHaveBeenCalledTimes(1);
+      expect(mockCwdGitInstance.add).toHaveBeenCalledWith(['src/app.ts']);
+      expect(mockCwdGitInstance.add).not.toHaveBeenCalledWith(
+        expect.arrayContaining(['sonar-project.properties'])
+      );
+      expect(mockCwdGitInstance.status).toHaveBeenCalledTimes(1);
+      expect(loggerService.warn).not.toHaveBeenCalled();
+    });
+
+    it('does not call add when every status entry is already fully staged', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({
+        files: [{ path: 'sonar-project.properties', index: 'D', working_dir: ' ' }],
+      });
+
+      await expect(service.stageAll('/repo')).resolves.toBeUndefined();
+
+      expect(mockCwdGitInstance.add).not.toHaveBeenCalled();
+    });
+
+    it('excludes a rename already fully reflected in the index', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({
+        files: [{ from: 'old.ts', path: 'new.ts', index: 'R', working_dir: ' ' }],
+      });
+
+      await expect(service.stageAll('/repo')).resolves.toBeUndefined();
+
+      expect(mockCwdGitInstance.add).not.toHaveBeenCalled();
+    });
+
+    it('stages the rename target path when the rename has a pending working-tree change', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({
+        files: [{ from: 'old.ts', path: 'new.ts', index: 'R', working_dir: 'M' }],
+      });
+      mockCwdGitInstance.add.mockResolvedValue(undefined);
+
+      await expect(service.stageAll('/repo')).resolves.toBeUndefined();
+
+      expect(mockCwdGitInstance.add).toHaveBeenCalledWith(['new.ts']);
+    });
+
+    it('stages a conflicted file without retrying', async () => {
+      // For conflicts, index/working_dir encode the two conflict sides rather than
+      // index-vs-worktree, so working_dir !== ' ' correctly keeps conflicted paths included.
+      mockCwdGitInstance.status.mockResolvedValue({
+        files: [{ path: 'src/conflict.ts', index: 'U', working_dir: 'U' }],
+      });
+      mockCwdGitInstance.add.mockResolvedValue(undefined);
+
+      await expect(service.stageAll('/repo')).resolves.toBeUndefined();
+
+      expect(mockCwdGitInstance.add).toHaveBeenCalledTimes(1);
+      expect(mockCwdGitInstance.add).toHaveBeenCalledWith(['src/conflict.ts']);
+    });
+
+    it('selectStageablePaths filters to pending working-tree changes only', () => {
+      const status = {
+        files: [
+          { path: 'src/app.ts', index: ' ', working_dir: 'M' },
+          { path: 'sonar-project.properties', index: 'D', working_dir: ' ' },
+          { from: 'old.ts', path: 'new.ts', index: 'R', working_dir: ' ' },
+          { path: '.wf/state/foo.json', index: '?', working_dir: '?' },
+        ],
+      } as unknown as StatusResult;
+
+      const result = (service as unknown as { selectStageablePaths(s: StatusResult): string[] })
+        .selectStageablePaths(status);
+
+      expect(result).toEqual(['src/app.ts']);
     });
   });
 

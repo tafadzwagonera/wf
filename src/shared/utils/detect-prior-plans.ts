@@ -38,6 +38,24 @@ export interface CorrelateOptions {
   maxTotalChars?: number;
 }
 
+type LoadPlanOpts = {
+  maxFiles: number;
+  maxLinesPerFile: number;
+  maxTotalChars: number;
+  currentTotalChars: number;
+};
+
+type PlanDetailsResult = {
+  affectedFiles?: string[];
+  affectedFilesContext?: string[];
+  risks?: string[];
+  verification?: PlanCorrelationMatch['verification'];
+  sourceSnippets: SourceSnippet[];
+  totalChars: number;
+};
+
+type CorrelationScored = { plan: PriorPlanSummary; overlapScore: number; sharedKeywords: string[] };
+
 const isFileEntry = (value: string | FileEntry): value is FileEntry =>
   typeof value === 'object' && value !== null && 'filePath' in value && typeof value.filePath === 'string';
 
@@ -77,6 +95,43 @@ export const extractPlanKeywords = (plan: ResolutionPlan): string[] => {
   return [...new Set([...affectedFilePaths, ...filePaths, ...componentNames, ...errorPatterns])];
 };
 
+const collectPlanFilesWithStats = (planPaths: string[]): Array<{ filePath: string; mtime: number }> => {
+  const files: Array<{ filePath: string; mtime: number }> = [];
+  for (const filePath of planPaths) {
+    try {
+      files.push({ filePath, mtime: fs.statSync(filePath).mtimeMs });
+    } catch {
+      /* empty */
+    }
+  }
+  return files;
+};
+
+const parsePlanFile = (filePath: string): PriorPlanSummary | null => {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const plan = parsePlanArtifact(raw, filePath);
+    const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(filePath));
+    return {
+      title: plan.summary, summary: plan.summary, filename: path.basename(filePath),
+      artifactPath: filePath, keywords: extractPlanKeywords(plan), steps: plan.steps,
+      action: plan.action, estimatedComplexity: plan.estimatedComplexity,
+      ticketKey: manifest?.ticketKey ?? null,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const buildPlanSummaries = (
+  planFiles: Array<{ filePath: string; mtime: number }>,
+  limit: number
+): PriorPlanSummary[] =>
+  planFiles.slice(0, limit).flatMap(({ filePath }) => {
+    const summary = parsePlanFile(filePath);
+    return summary ? [summary] : [];
+  });
+
 /**
  * Detect prior plan artifacts from anywhere under `~/.wf/<repoName>/`.
  *
@@ -89,53 +144,25 @@ export const detectPriorPlans = (repoName: string, opts?: { limit?: number }): P
   const limit = opts?.limit ?? DEFAULT_LIMIT;
   const repoDir = path.join(getWfHomeDir(), repoName);
 
-  if (!fs.existsSync(repoDir)) {
-    return { plans: [], repoName };
-  }
+  if (!fs.existsSync(repoDir)) return { plans: [], repoName };
 
   const planPaths = collectWfArtifactFiles(repoDir, (_filePath, fileName) => {
     const stem = fileName.replace(/\.[^.]+$/, '');
     return CANONICAL_PLAN_STEM.test(stem);
   });
-  const planFiles: Array<{ filePath: string; mtime: number }> = [];
-
-  for (const filePath of planPaths) {
-    try {
-      const stat = fs.statSync(filePath);
-      planFiles.push({ filePath, mtime: stat.mtimeMs });
-    } catch {
-      // skip unreadable stat
-    }
-  }
-
+  const planFiles = collectPlanFilesWithStats(planPaths);
   planFiles.sort((a, b) => b.mtime - a.mtime);
+  return { plans: buildPlanSummaries(planFiles, limit), repoName };
+};
 
-  const plans: PriorPlanSummary[] = [];
-
-  for (const { filePath } of planFiles.slice(0, limit)) {
-    try {
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      const plan = parsePlanArtifact(raw, filePath);
-      const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(filePath));
-      const keywords = extractPlanKeywords(plan);
-
-      plans.push({
-        title: plan.summary,
-        summary: plan.summary,
-        filename: path.basename(filePath),
-        artifactPath: filePath,
-        keywords,
-        steps: plan.steps,
-        action: plan.action,
-        estimatedComplexity: plan.estimatedComplexity,
-        ticketKey: manifest?.ticketKey ?? null,
-      });
-    } catch {
-      // skip unreadable or invalid plan artifact
-    }
-  }
-
-  return { plans, repoName };
+const formatPlanEntry = (plan: PriorPlanSummary): string[] => {
+  const metadata: string[] = [];
+  if (plan.estimatedComplexity) metadata.push(`complexity: ${plan.estimatedComplexity}`);
+  if (plan.keywords.length > 0) metadata.push(`keywords: ${plan.keywords.join(', ')}`);
+  const suffix = metadata.length > 0 ? ` (${metadata.join(', ')})` : '';
+  const entry = [`- [${plan.action}] ${plan.summary}${suffix}`];
+  if (plan.steps?.length) entry.push(`  Steps: ${plan.steps.map((s, i) => `${i + 1}. ${s}`).join('; ')}`);
+  return entry;
 };
 
 /**
@@ -145,86 +172,101 @@ export const detectPriorPlans = (repoName: string, opts?: { limit?: number }): P
  * @returns Prompt section or an empty string when no plans were found
  */
 export const formatPriorPlansPromptSection = (ctx: PriorPlanContext): string => {
-  if (ctx.plans.length === 0) {
-    return '';
-  }
-
-  const lines: string[] = [`Related prior plans (${ctx.repoName}):`];
-
-  for (const plan of ctx.plans.slice(0, FORMAT_MAX_PLANS)) {
-    const metadata: string[] = [];
-    if (plan.estimatedComplexity) {
-      metadata.push(`complexity: ${plan.estimatedComplexity}`);
-    }
-    if (plan.keywords.length > 0) {
-      metadata.push(`keywords: ${plan.keywords.join(', ')}`);
-    }
-
-    const suffix = metadata.length > 0 ? ` (${metadata.join(', ')})` : '';
-    lines.push(`- [${plan.action}] ${plan.summary}${suffix}`);
-
-    if (plan.steps?.length) {
-      lines.push(`  Steps: ${plan.steps.map((step, index) => `${index + 1}. ${step}`).join('; ')}`);
-    }
-  }
-
+  if (ctx.plans.length === 0) return '';
+  const lines: string[] = [`Related prior plans (${ctx.repoName}):`,
+    ...ctx.plans.slice(0, FORMAT_MAX_PLANS).flatMap(formatPlanEntry)];
   return lines.join('\n').slice(0, FORMAT_MAX_CHARS);
+};
+
+const readSourceFile = (filePath: string, repoDir: string, opts: LoadPlanOpts): SourceSnippet | null => {
+  const resolved = path.resolve(repoDir, filePath);
+  if (!resolved.startsWith(path.resolve(repoDir))) return null;
+  try {
+    if (!fs.existsSync(resolved)) return null;
+    const raw = fs.readFileSync(resolved, 'utf-8');
+    if (raw.slice(0, 512).includes('\0')) return null;
+    const lines = raw.split('\n').slice(0, opts.maxLinesPerFile).join('\n');
+    const capped = lines.slice(0, opts.maxTotalChars - opts.currentTotalChars);
+    return { filePath, content: capped };
+  } catch { return null; }
+};
+
+const readSourceSnippets = (
+  affectedFiles: string[], repoDir: string, opts: LoadPlanOpts
+): { snippets: SourceSnippet[]; totalChars: number } => {
+  const snippets: SourceSnippet[] = [];
+  let totalChars = opts.currentTotalChars;
+  for (const filePath of affectedFiles.slice(0, opts.maxFiles)) {
+    if (totalChars >= opts.maxTotalChars) break;
+    const snippet = readSourceFile(filePath, repoDir, { ...opts, currentTotalChars: totalChars });
+    if (snippet) {
+      snippets.push(snippet);
+      totalChars += snippet.content.length;
+    }
+  }
+  return { snippets, totalChars };
 };
 
 /**
  * Load detail from a plan artifact for a matched prior plan.
  */
-const loadPlanDetails = (
-  plan: PriorPlanSummary,
-  repoDir: string,
-  opts: { maxFiles: number; maxLinesPerFile: number; maxTotalChars: number; currentTotalChars: number }
-): {
-  affectedFiles?: string[];
-  affectedFilesContext?: string[];
-  risks?: string[];
-  verification?: PlanCorrelationMatch['verification'];
-  sourceSnippets: SourceSnippet[];
-  totalChars: number;
-} => {
-  const snippets: SourceSnippet[] = [];
-  let totalChars = opts.currentTotalChars;
-
+const loadPlanDetails = (plan: PriorPlanSummary, repoDir: string, opts: LoadPlanOpts): PlanDetailsResult => {
   try {
     const raw = fs.readFileSync(plan.artifactPath, 'utf-8');
     const parsed = parsePlanArtifact(raw, plan.artifactPath);
     const affectedFiles = extractAffectedFilePaths(parsed.affectedFiles);
-    const affectedFilesContext = parsed.affectedFilesContext as string[] | undefined;
-    const risks = parsed.risks;
-    const verification = parsed.verification;
-
-    for (const filePath of affectedFiles.slice(0, opts.maxFiles)) {
-      if (totalChars >= opts.maxTotalChars) break;
-
-      const resolved = path.resolve(repoDir, filePath);
-      if (!resolved.startsWith(path.resolve(repoDir))) continue;
-
-      try {
-        if (!fs.existsSync(resolved)) continue;
-
-        const content = fs.readFileSync(resolved, 'utf-8');
-
-        // Skip binary files (null byte in first 512 chars)
-        if (content.slice(0, 512).includes('\0')) continue;
-
-        const lines = content.split('\n').slice(0, opts.maxLinesPerFile).join('\n');
-        const remaining = opts.maxTotalChars - totalChars;
-        const capped = lines.slice(0, remaining);
-        snippets.push({ filePath, content: capped });
-        totalChars += capped.length;
-      } catch {
-        // skip unreadable source file
-      }
-    }
-
-    return { affectedFiles, affectedFilesContext, risks, verification, sourceSnippets: snippets, totalChars };
+    const { snippets, totalChars } = readSourceSnippets(affectedFiles, repoDir, opts);
+    return {
+      affectedFiles, affectedFilesContext: parsed.affectedFilesContext as string[] | undefined,
+      risks: parsed.risks, verification: parsed.verification, sourceSnippets: snippets, totalChars,
+    };
   } catch {
-    return { sourceSnippets: snippets, totalChars };
+    return { sourceSnippets: [], totalChars: opts.currentTotalChars };
   }
+};
+
+const resolveCorrelateOpts = (opts?: CorrelateOptions) => ({
+  jaccardThreshold: opts?.jaccardThreshold ?? 0.2,
+  maxMatches: opts?.maxMatches ?? 3,
+  maxFiles: opts?.maxFiles ?? 5,
+  maxLinesPerFile: opts?.maxLinesPerFile ?? 500,
+  maxTotalChars: opts?.maxTotalChars ?? 8000,
+});
+
+const scoreCorrelations = (
+  plans: PriorPlanSummary[], currentSet: Set<string>, threshold: number
+): CorrelationScored[] => {
+  const scored: CorrelationScored[] = [];
+  for (const plan of plans) {
+    const priorSet = new Set(plan.keywords);
+    const intersection = [...currentSet].filter(k => priorSet.has(k));
+    const union = new Set([...currentSet, ...priorSet]);
+    const overlapScore = union.size === 0 ? 0 : intersection.length / union.size;
+    if (overlapScore >= threshold) scored.push({ plan, overlapScore, sharedKeywords: intersection });
+  }
+  return scored.sort((a, b) => b.overlapScore - a.overlapScore);
+};
+
+const buildCorrelationMatch = (
+  { plan, overlapScore, sharedKeywords }: CorrelationScored, details: PlanDetailsResult
+): PlanCorrelationMatch => ({
+  summary: plan.summary, filename: plan.filename, action: plan.action,
+  estimatedComplexity: plan.estimatedComplexity, overlapScore, sharedKeywords, matchSource: 'keyword',
+  affectedFiles: details.affectedFiles, affectedFilesContext: details.affectedFilesContext,
+  risks: details.risks, verification: details.verification, sourceSnippets: details.sourceSnippets,
+});
+
+const gatherCorrelationMatches = (
+  scored: CorrelationScored[], repoDir: string, opts: LoadPlanOpts & { maxMatches: number }
+): PlanCorrelationMatch[] => {
+  const matches: PlanCorrelationMatch[] = [];
+  let cumulativeChars = 0;
+  for (const entry of scored.slice(0, opts.maxMatches)) {
+    const details = loadPlanDetails(entry.plan, repoDir, { ...opts, currentTotalChars: cumulativeChars });
+    cumulativeChars = details.totalChars;
+    matches.push(buildCorrelationMatch(entry, details));
+  }
+  return matches;
 };
 
 /**
@@ -238,64 +280,26 @@ const loadPlanDetails = (
  * @returns Correlation result with matches; never throws
  */
 export const correlatePlans = (
-  currentContent: string,
-  priorPlans: PriorPlanContext,
-  repoDir: string,
-  opts?: CorrelateOptions
+  currentContent: string, priorPlans: PriorPlanContext, repoDir: string, opts?: CorrelateOptions
 ): PlanCorrelationResult => {
-  const jaccardThreshold = opts?.jaccardThreshold ?? 0.2;
-  const maxMatches = opts?.maxMatches ?? 3;
-  const maxFiles = opts?.maxFiles ?? 5;
-  const maxLinesPerFile = opts?.maxLinesPerFile ?? 500;
-  const maxTotalChars = opts?.maxTotalChars ?? 8000;
-
-  const currentKeywords = extractContentKeywords(currentContent);
-  const currentSet = new Set(currentKeywords);
-
-  const scored: Array<{ plan: PriorPlanSummary; overlapScore: number; sharedKeywords: string[] }> = [];
-
-  for (const plan of priorPlans.plans) {
-    const priorSet = new Set(plan.keywords);
-    const intersection = [...currentSet].filter(k => priorSet.has(k));
-    const union = new Set([...currentSet, ...priorSet]);
-    const overlapScore = union.size === 0 ? 0 : intersection.length / union.size;
-
-    if (overlapScore >= jaccardThreshold) {
-      scored.push({ plan, overlapScore, sharedKeywords: intersection });
-    }
-  }
-
-  scored.sort((a, b) => b.overlapScore - a.overlapScore);
-
-  const matches: PlanCorrelationMatch[] = [];
-  let cumulativeChars = 0;
-
-  for (const { plan, overlapScore, sharedKeywords } of scored.slice(0, maxMatches)) {
-    const details = loadPlanDetails(plan, repoDir, {
-      maxFiles,
-      maxLinesPerFile,
-      maxTotalChars,
-      currentTotalChars: cumulativeChars,
-    });
-    cumulativeChars = details.totalChars;
-
-    matches.push({
-      summary: plan.summary,
-      filename: plan.filename,
-      action: plan.action,
-      estimatedComplexity: plan.estimatedComplexity,
-      overlapScore,
-      sharedKeywords,
-      matchSource: 'keyword',
-      affectedFiles: details.affectedFiles,
-      affectedFilesContext: details.affectedFilesContext,
-      risks: details.risks,
-      verification: details.verification,
-      sourceSnippets: details.sourceSnippets,
-    });
-  }
-
+  const resolved = resolveCorrelateOpts(opts);
+  const currentSet = new Set(extractContentKeywords(currentContent));
+  const scored = scoreCorrelations(priorPlans.plans, currentSet, resolved.jaccardThreshold);
+  const matches = gatherCorrelationMatches(scored, repoDir, { ...resolved, currentTotalChars: 0 });
   return { matches, repoName: priorPlans.repoName };
+};
+
+const appendSnippetLines = (snippet: SourceSnippet, lines: string[]): void => {
+  const ext = path.extname(snippet.filePath).slice(1) || 'text';
+  lines.push(`  Source (${snippet.filePath}):`, `  \`\`\`${ext}`, `  ${snippet.content}`, '  ```');
+};
+
+const appendMatchLines = (match: PlanCorrelationMatch, lines: string[]): void => {
+  const info = `(overlap: ${match.overlapScore.toFixed(2)}, shared: ${match.sharedKeywords.join(', ')})`;
+  lines.push(`- [${match.action}] ${match.summary} ${info}`);
+  if (match.affectedFiles?.length) lines.push(`  Affected: ${match.affectedFiles.join(', ')}`);
+  if (match.risks?.length) lines.push(`  Risks: ${match.risks.join('; ')}`);
+  for (const snippet of match.sourceSnippets) appendSnippetLines(snippet, lines);
 };
 
 /**
@@ -306,34 +310,14 @@ export const correlatePlans = (
  */
 export const formatPlanCorrelationPromptSection = (result: PlanCorrelationResult): string => {
   if (result.matches.length === 0) return '';
-
-  const lines: string[] = [`Prior plan correlation (${result.repoName}):`];
-  let totalChars = lines[0].length;
-
+  const header = `Prior plan correlation (${result.repoName}):`;
+  const lines: string[] = [header];
+  let totalChars = header.length;
   for (const match of result.matches.slice(0, FORMAT_CORRELATION_MAX_MATCHES)) {
     if (totalChars >= FORMAT_CORRELATION_MAX_CHARS) break;
-
-    const matchInfo = `(overlap: ${match.overlapScore.toFixed(2)}, shared: ${match.sharedKeywords.join(', ')})`;
-    lines.push(`- [${match.action}] ${match.summary} ${matchInfo}`);
-
-    if (match.affectedFiles?.length) {
-      lines.push(`  Affected: ${match.affectedFiles.join(', ')}`);
-    }
-
-    if (match.risks?.length) {
-      lines.push(`  Risks: ${match.risks.join('; ')}`);
-    }
-
-    for (const snippet of match.sourceSnippets) {
-      const ext = path.extname(snippet.filePath).slice(1) || 'text';
-      lines.push(`  Source (${snippet.filePath}):`);
-      lines.push(`  \`\`\`${ext}`);
-      lines.push(`  ${snippet.content}`);
-      lines.push(`  \`\`\``);
-    }
-
-    totalChars = lines.join('\n').length;
+    const before = lines.length;
+    appendMatchLines(match, lines);
+    totalChars += lines.slice(before).reduce((sum, line) => sum + line.length + 1, 0);
   }
-
   return lines.join('\n').slice(0, FORMAT_CORRELATION_MAX_CHARS);
 };

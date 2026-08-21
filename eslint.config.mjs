@@ -76,7 +76,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['**/*.spec.ts', 'test/manual/**/*.ts'],
+    files: ['**/*.spec.ts', 'test/manual/**/*.ts', 'src/test/manual/**/*.ts'],
     rules: {
       '@typescript-eslint/no-base-to-string': 'off',
       '@typescript-eslint/no-floating-promises': 'off',
