@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import { withRepoLock } from './repo-lock';
+import { withRepoLock, releaseHeldRepoLocksSync } from './repo-lock';
 import { RepoLockError } from './errors';
 import { setWfPathOverrides, resetWfPathOverrides } from './wf-paths';
 
@@ -82,6 +82,23 @@ describe('withRepoLock', () => {
     });
 
     await expect(withRepoLock(repoDir, async () => 'recovered')).resolves.toBe('recovered');
+  });
+
+  it('releases any held locks synchronously when the process is about to exit (forced-exit safety net)', async () => {
+    const holdLock = withRepoLock(repoDir, () => new Promise(resolve => setTimeout(resolve, 50)));
+    const lockFileName = findLockFile(stateDir);
+    if (!lockFileName) throw new Error('expected a lock file to exist while the lock is held');
+    const lockPath = path.join(stateDir, 'locks', lockFileName);
+    expect(fs.existsSync(lockPath)).toBe(true);
+
+    process.emit('exit', 0);
+
+    expect(fs.existsSync(lockPath)).toBe(false);
+    await holdLock;
+  });
+
+  it('exposes releaseHeldRepoLocksSync as a no-op when no lock is held', () => {
+    expect(() => releaseHeldRepoLocksSync()).not.toThrow();
   });
 
   it('treats a corrupted lock file as stale and proceeds', async () => {

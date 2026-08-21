@@ -12,6 +12,25 @@ interface RepoLockPayload {
 
 const REPO_LOCK_STALE_AFTER_MS = 4 * 60 * 60 * 1000;
 
+const heldLockPaths = new Set<string>();
+
+/**
+ * Synchronously release every lock this process currently holds. Registered
+ * against the `exit` event so a forced exit (e.g. a second Ctrl+C, or an
+ * error handler calling `process.exit()`) still releases the lock — normal
+ * completion already releases it via the `finally` in {@link withRepoLock},
+ * but that `finally` never runs when the process exits mid-flight instead of
+ * returning normally.
+ */
+export const releaseHeldRepoLocksSync = (): void => {
+  for (const lockPath of heldLockPaths) {
+    fs.rmSync(lockPath, { force: true });
+  }
+  heldLockPaths.clear();
+};
+
+process.on('exit', releaseHeldRepoLocksSync);
+
 const getLockDir = (): string => path.join(getWfStateDir(), 'locks');
 
 const getLockPath = (repoDir: string): string => {
@@ -105,10 +124,12 @@ export async function withRepoLock<T>(repoDir: string, fn: () => Promise<T>): Pr
   const lockPath = getLockPath(repoDir);
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   writeLockOrThrow(lockPath, repoDir);
+  heldLockPaths.add(lockPath);
 
   try {
     return await fn();
   } finally {
     fs.rmSync(lockPath, { force: true });
+    heldLockPaths.delete(lockPath);
   }
 }

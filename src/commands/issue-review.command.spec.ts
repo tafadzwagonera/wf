@@ -52,9 +52,7 @@ jest.mock('../agents/utils', () => {
 });
 
 jest.mock('../review/sonar-scanner', () => ({
-  hasSonarProjectProperties: jest.fn(() => false),
-  runSonarScan: jest.fn(),
-  runSonarScanForReview: jest.fn().mockResolvedValue(undefined),
+  runSonarScan: jest.fn().mockResolvedValue({ status: 'clean', steps: [] }),
 }));
 
 // Unmocked, this runs the repo's real verify commands — including `yarn test`, which
@@ -82,7 +80,7 @@ import { ConversationService } from '../integrations/ai/conversation/conversatio
 import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveRepoBasePath } from '../agents/utils';
-import { runSonarScanForReview } from '../review/sonar-scanner';
+import { runSonarScan } from '../review/sonar-scanner';
 import * as os from 'os';
 import * as path from 'path';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
@@ -339,6 +337,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
         useValue: {
           getDiff: jest.fn().mockResolvedValue(''),
           isGitRepository: jest.fn().mockResolvedValue(true),
+          getStatus: jest.fn().mockResolvedValue({ staged: ['src/auth.ts'] }),
         },
       },
       {
@@ -603,9 +602,9 @@ describe('IssueReviewCommand', () => {
       expect(consoleLogSpy).not.toHaveBeenCalledWith('    [claude-cli] Analyzing...');
     });
 
-    it('skips SonarScanner when review sonar config is undefined', async () => {
+    it('skips the SonarQube CLI scan when review sonar config is undefined', async () => {
       const { command } = await buildCommand();
-      const mockRunSonar = runSonarScanForReview as jest.MockedFunction<typeof runSonarScanForReview>;
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
       mockRunSonar.mockClear();
       const target = { repoDir: '/tmp/repo' } as any;
 
@@ -614,15 +613,31 @@ describe('IssueReviewCommand', () => {
       expect(mockRunSonar).not.toHaveBeenCalled();
     });
 
-    it('runs SonarScanner when the --sonar flag is set and config is undefined', async () => {
+    it('runs the SonarQube CLI scan when the --sonar flag is set and config is undefined', async () => {
       const { command } = await buildCommand();
-      const mockRunSonar = runSonarScanForReview as jest.MockedFunction<typeof runSonarScanForReview>;
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
       mockRunSonar.mockClear();
       const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
 
       await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
 
-      expect(mockRunSonar).toHaveBeenCalledWith({ repoDir: '/tmp/repo', onProgress: undefined });
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo', scope: { kind: 'staged' }, secretPaths: ['src/auth.ts'], onProgress: undefined,
+      });
+    });
+
+    it('skips the SonarQube CLI scan without calling it when nothing is staged', async () => {
+      const { command } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+      const onProgress = jest.fn();
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, onProgress);
+
+      expect(mockRunSonar).not.toHaveBeenCalled();
+      expect(onProgress).toHaveBeenCalledWith('SonarQube CLI skipped: nothing staged');
     });
 
     it('uses the current repo name as a discovery hint when --repos is omitted', async () => {

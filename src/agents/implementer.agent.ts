@@ -298,7 +298,7 @@ export class ImplementerAgent {
     const conventions = detectRepoConventions(repoDir ?? process.cwd());
     const policy = resolveCommitPolicy(planArtifact.plan.estimatedComplexity);
     console.log(chalk.cyan(
-      `  Commit policy: ${policy.complexity} -> ${policy.allowsCommit ? 'commits allowed' : 'commits blocked'}`
+      `  Commit policy: ${policy.allowsCommit ? 'allowed' : 'blocked'}`
     ));
     return [
       formatRepoConventionsPromptSection(conventions, repoName),

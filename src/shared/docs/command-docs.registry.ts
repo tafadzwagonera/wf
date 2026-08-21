@@ -120,7 +120,7 @@ export const COMMAND_DOCS = {
         command: 'wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment',
       },
       {
-        comment: 'Review ticket changes and run SonarScanner regardless of config',
+        comment: 'Review ticket changes and run the SonarQube CLI regardless of config',
         command: 'wf issue:review --ticket-key WBP-2971 --sonar',
       },
       {

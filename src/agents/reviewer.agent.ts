@@ -9,7 +9,7 @@ import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
-import { runSonarScanForReview } from '../review/sonar-scanner';
+import { runSonarScan } from '../review/sonar-scanner';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import { resolveVerificationSummary } from '../shared/utils/implement-verification';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
@@ -95,7 +95,8 @@ export class ReviewerAgent {
     const repoDir = options.repoDir ?? process.cwd();
     await this.gitService.stageAll(repoDir);
     if (this.configService.get<boolean>('stages.review.sonar') === true) {
-      await runSonarScanForReview({ repoDir, onProgress });
+      const { staged } = await this.gitService.getStatus(repoDir);
+      await runSonarScan({ repoDir, scope: { kind: 'staged' }, secretPaths: staged, onProgress });
     }
     const diff = await this.gitService.getDiff(true, repoDir);
 

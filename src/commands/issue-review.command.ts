@@ -32,7 +32,7 @@ import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
-import { runSonarScanForReview } from '../review/sonar-scanner';
+import { runSonarScan } from '../review/sonar-scanner';
 import { buildPreReviewContext } from '../shared/utils/build-pre-review-context';
 import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
 
@@ -124,8 +124,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
     + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. '
     + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. '
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. '
-    + 'SonarScanner only runs when `stages.review.sonar` is `true` and `sonar-project.properties` exists; missing repo directory surfaces as a terminal error, while scanner execution failures are logged and review continues. '
-    + 'Use `--sonar` to force SonarScanner on, overriding `stages.review.sonar` config. '
+    + 'Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze --staged`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Findings are reported and review continues; a missing CLI or auth/project misconfiguration aborts the stage. '
     + 'CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
   arguments: '[pr-url]',
   options: { isDefault: false },
@@ -588,7 +587,13 @@ export class IssueReviewCommand extends CommandRunner {
   ): Promise<void> {
     const configEnabled = this.configService.get<boolean>('stages.review.sonar') === true;
     if (!options?.sonar && !configEnabled) return;
-    await runSonarScanForReview({ repoDir: target.repoDir, onProgress });
+    const repoDir = target.repoDir ?? process.cwd();
+    const { staged } = await this.gitService.getStatus(repoDir);
+    if (!staged.length) {
+      onProgress?.('SonarQube CLI skipped: nothing staged');
+      return;
+    }
+    await runSonarScan({ repoDir, scope: { kind: 'staged' }, secretPaths: staged, onProgress });
   }
 
   private handleReviewParseError(error: unknown, options?: IssueReviewOptions): void {
@@ -732,7 +737,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   @Option({
     flags: '--sonar',
-    description: 'Enable SonarScanner static analysis, overriding stages.review.sonar config',
+    description: 'Enable the SonarQube CLI scan, overriding stages.review.sonar config',
   })
   parseSonar(): boolean {
     return true;

@@ -50,7 +50,7 @@ describe('ReviewerAgent', () => {
         {
           provide: GitService,
           useValue: {
-            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
             stageAll: jest.fn().mockResolvedValue(undefined),
             getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
           },
@@ -226,7 +226,7 @@ describe('ReviewerAgent', () => {
         {
           provide: GitService,
           useValue: {
-            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
             stageAll: jest.fn().mockResolvedValue(undefined),
             getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
           },
@@ -286,7 +286,7 @@ describe('ReviewerAgent', () => {
         {
           provide: GitService,
           useValue: {
-            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
             stageAll: jest.fn().mockResolvedValue(undefined),
             getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
           },
@@ -321,13 +321,14 @@ describe('ReviewerAgent', () => {
     expect(presenter.progress).not.toHaveBeenCalledWith('Synthesizing review...');
   });
 
-  it('calls runSonarScanForReview before reviewDiff', async () => {
-    type SonarFn = typeof sonarScanner.runSonarScanForReview;
-    const mockRunSonar = sonarScanner.runSonarScanForReview as jest.MockedFunction<SonarFn>;
+  it('calls runSonarScan before reviewDiff', async () => {
+    type SonarFn = typeof sonarScanner.runSonarScan;
+    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
 
     const callOrder: string[] = [];
     mockRunSonar.mockImplementation(async () => {
       callOrder.push('sonar');
+      return { status: 'clean', steps: [] };
     });
     const mockReviewDiff = jest.fn().mockImplementation(async () => {
       callOrder.push('review');
@@ -341,7 +342,7 @@ describe('ReviewerAgent', () => {
         {
           provide: GitService,
           useValue: {
-            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
             stageAll: jest.fn().mockResolvedValue(undefined),
             getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
           },
@@ -367,14 +368,16 @@ describe('ReviewerAgent', () => {
       { repoDir: '/tmp/repo' }
     );
 
-    expect(mockRunSonar).toHaveBeenCalledWith(expect.objectContaining({ repoDir: '/tmp/repo' }));
+    expect(mockRunSonar).toHaveBeenCalledWith(
+      expect.objectContaining({ repoDir: '/tmp/repo', scope: { kind: 'staged' }, secretPaths: ['src/auth.ts'] })
+    );
     expect(callOrder).toEqual(['sonar', 'review']);
   });
 
-  it('passes fork context to runSonarScanForReview', async () => {
-    type SonarFn = typeof sonarScanner.runSonarScanForReview;
-    const mockRunSonar = sonarScanner.runSonarScanForReview as jest.MockedFunction<SonarFn>;
-    mockRunSonar.mockResolvedValue(undefined);
+  it('passes fork context to runSonarScan', async () => {
+    type SonarFn = typeof sonarScanner.runSonarScan;
+    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
+    mockRunSonar.mockResolvedValue({ status: 'clean', steps: [] });
 
     const module = await Test.createTestingModule({
       providers: [
@@ -383,7 +386,7 @@ describe('ReviewerAgent', () => {
         {
           provide: GitService,
           useValue: {
-            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
             stageAll: jest.fn().mockResolvedValue(undefined),
             getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
           },
@@ -418,14 +421,14 @@ describe('ReviewerAgent', () => {
     );
 
     expect(mockRunSonar).toHaveBeenCalledWith(
-      expect.objectContaining({ repoDir: '/tmp/repo' })
+      expect.objectContaining({ repoDir: '/tmp/repo', scope: { kind: 'staged' }, secretPaths: ['src/auth.ts'] })
     );
   });
 
   it('falls back to the current working directory when review repoDir is undefined', async () => {
-    type SonarFn = typeof sonarScanner.runSonarScanForReview;
-    const mockRunSonar = sonarScanner.runSonarScanForReview as jest.MockedFunction<SonarFn>;
-    mockRunSonar.mockResolvedValue(undefined);
+    type SonarFn = typeof sonarScanner.runSonarScan;
+    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
+    mockRunSonar.mockResolvedValue({ status: 'clean', steps: [] });
     const cwd = process.cwd();
 
     const module = await Test.createTestingModule({
@@ -435,7 +438,7 @@ describe('ReviewerAgent', () => {
         {
           provide: GitService,
           useValue: {
-            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
             stageAll: jest.fn().mockResolvedValue(undefined),
             getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
           },
@@ -463,14 +466,16 @@ describe('ReviewerAgent', () => {
       {}
     );
 
-    expect(mockRunSonar).toHaveBeenCalledWith(expect.objectContaining({ repoDir: cwd }));
+    expect(mockRunSonar).toHaveBeenCalledWith(
+      expect.objectContaining({ repoDir: cwd, scope: { kind: 'staged' }, secretPaths: ['src/auth.ts'] })
+    );
   });
 
-  it('skips SonarScanner when review sonar config is undefined', async () => {
-    type SonarFn = typeof sonarScanner.runSonarScanForReview;
-    const mockRunSonar = sonarScanner.runSonarScanForReview as jest.MockedFunction<SonarFn>;
+  it('skips the SonarQube CLI scan when review sonar config is undefined', async () => {
+    type SonarFn = typeof sonarScanner.runSonarScan;
+    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
     mockRunSonar.mockClear();
-    mockRunSonar.mockResolvedValue(undefined);
+    mockRunSonar.mockResolvedValue({ status: 'clean', steps: [] });
 
     const module = await Test.createTestingModule({
       providers: [
@@ -479,7 +484,7 @@ describe('ReviewerAgent', () => {
         {
           provide: GitService,
           useValue: {
-            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
             stageAll: jest.fn().mockResolvedValue(undefined),
             getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
           },
@@ -535,7 +540,7 @@ describe('ReviewerAgent', () => {
         {
           provide: GitService,
           useValue: {
-            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
             stageAll: jest.fn().mockResolvedValue(undefined),
             getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
           },
@@ -588,7 +593,7 @@ describe('ReviewerAgent', () => {
           {
             provide: GitService,
             useValue: {
-              getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'] }),
+              getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
               stageAll: jest.fn().mockResolvedValue(undefined),
               getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
             },
