@@ -445,7 +445,7 @@ const buildContinuationPrompt = (p: ContinuationPromptParams): string => {
     buildTaskBrief(p.taskBriefParams),
     p.conventionsSection ? `\n${p.conventionsSection}` : '',
     `\nContinue implementing the remaining plan steps. The following planned files are still unmodified (listed in recommended implementation order):\n\n${unvisitedLines}`,
-    `\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. After addressing all listed files, run each verification command above exactly as written. Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before making your first tool call.`,
+    `\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. After addressing all listed files, run each verification command above exactly as written. Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. Begin by taking action: read the first listed file and apply its edit. Save narration for after you've made the changes.`,
   ].join('\n');
 };
 

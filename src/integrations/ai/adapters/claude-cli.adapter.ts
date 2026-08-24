@@ -205,7 +205,7 @@ const cliContinuationTail
   = '\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. '
     + 'After addressing all listed files, run each verification command above exactly as written. '
     + 'Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. '
-    + 'Do not output any text or plan before making your first tool call.';
+    + 'Begin by taking action: read the first listed file and apply its edit. Save narration for after you\'ve made the changes.';
 
 const buildContinuationPrompt = (p: CliContinuationPromptParams): string => {
   const completed = p.totalPlanned - p.currentUnvisited.length;
