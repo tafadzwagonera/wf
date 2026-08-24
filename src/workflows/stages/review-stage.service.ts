@@ -26,6 +26,7 @@ const DEFAULT_REVIEW_GUIDELINES = [
   'Clarity: Verify every changed line is immediately understandable without author context.',
   'Contracts: Flag changes to function signatures, return types, event payloads, or public APIs that break existing callers or tests.',
   'Conventions: Confirm naming, formatting, import order, and file placement match established codebase patterns.',
+  'Scope fit: Flag a file/component name that describes a narrower scope than its actual call sites (e.g. a page-scoped name reused on an unrelated page). This is a name-to-scope mismatch, not a style deviation — raise it even with no existing pattern to compare against; the "Pattern grounding" guideline below does not gate this one.',
   'Documentation: Ensure changed public APIs, config options, and behaviour have matching doc, JSDoc, or comment updates.',
   'Failure handling: Identify how each new code path fails and whether the failure is surfaced, retried, or silently swallowed.',
   'Necessity: Flag added code, parameters, or abstractions that are unused, speculative, or unreachable.',
