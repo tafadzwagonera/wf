@@ -10,6 +10,7 @@ import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
 import { runSonarScan } from '../review/sonar-scanner';
+import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import { resolveVerificationSummary } from '../shared/utils/implement-verification';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
@@ -51,7 +52,11 @@ export class ReviewerAgent {
     const onProgress = options.onProgress
       ?? (options.silent ? undefined : (line: string) => this.presenter.progress(line));
 
-    const { review, sessionId } = await this.stageAndReview(ticket, options, onProgress);
+    const repoDir = options.repoDir ?? process.cwd();
+    await this.gitService.stageAll(repoDir);
+    if (await this.sonarStageAborted(repoDir, options, onProgress)) return null;
+
+    const { review, sessionId } = await this.stageAndReview(ticket, repoDir, options, onProgress);
 
     return this.reviewStageService.buildReviewArtifact(ticket, review, sessionId);
   }
@@ -90,14 +95,8 @@ export class ReviewerAgent {
   }
 
   private async stageAndReview(
-    ticket: TicketArtifact, options: ReviewerOptions, onProgress?: (line: string) => void
+    ticket: TicketArtifact, repoDir: string, options: ReviewerOptions, onProgress?: (line: string) => void
   ): Promise<{ review: CodeReview; sessionId?: string }> {
-    const repoDir = options.repoDir ?? process.cwd();
-    await this.gitService.stageAll(repoDir);
-    if (this.configService.get<boolean>('stages.review.sonar') === true) {
-      const { staged } = await this.gitService.getStatus(repoDir);
-      await runSonarScan({ repoDir, scope: { kind: 'staged' }, secretPaths: staged, onProgress });
-    }
     const diff = await this.gitService.getDiff(true, repoDir);
 
     return this.reviewStageService.reviewDiff(diff, {
@@ -108,6 +107,28 @@ export class ReviewerAgent {
       forkSession: options.forkSession,
       onProgress,
     });
+  }
+
+  /**
+   * Runs the SonarQube CLI scan for the REVIEW stage, containing failures to this
+   * repository's review rather than letting them escape to the caller's workflow.
+   * @returns true when the scan failed (CLI missing/misconfigured or execution error)
+   * and the REVIEW stage for this repo should be skipped
+   */
+  private async sonarStageAborted(
+    repoDir: string, options: ReviewerOptions, onProgress?: (line: string) => void
+  ): Promise<boolean> {
+    if (this.configService.get<boolean>('stages.review.sonar') !== true) return false;
+    try {
+      const { staged } = await this.gitService.getStatus(repoDir);
+      await runSonarScan({ repoDir, scope: { kind: 'staged' }, secretPaths: staged, onProgress });
+      return false;
+    } catch (error) {
+      if (!(error instanceof ConfigurationError) && !(error instanceof ExecutionError)) throw error;
+      const message = `SonarQube CLI error — skipping review for ${path.basename(repoDir)}: ${error.message}`;
+      if (!options.silent) this.presenter.outcome('warning', message);
+      return true;
+    }
   }
 
   private buildReviewContext(ticketKey: string, repoDir: string): string {

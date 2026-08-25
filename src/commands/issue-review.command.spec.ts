@@ -80,6 +80,7 @@ import { ConversationService } from '../integrations/ai/conversation/conversatio
 import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveRepoBasePath } from '../agents/utils';
+import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runSonarScan } from '../review/sonar-scanner';
 import * as os from 'os';
 import * as path from 'path';
@@ -639,6 +640,60 @@ describe('IssueReviewCommand', () => {
       expect(mockRunSonar).not.toHaveBeenCalled();
       expect(onProgress).toHaveBeenCalledWith('SonarQube CLI skipped: nothing staged');
     });
+
+    it.each([
+      ['ConfigurationError', new ConfigurationError('SonarQube CLI not found.')],
+      ['ExecutionError', new ExecutionError('SonarQube analyze exited with code 2.')],
+    ])('contains a %s from the SonarQube CLI to one target instead of aborting the batch', async (_name, sonarError) => {
+      const { command, reviewStageService } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockRejectedValueOnce(sonarError).mockResolvedValueOnce({ status: 'clean', steps: [] });
+      const loggerWarnSpy = jest.spyOn((command as any).logger, 'warn');
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      (reviewStageService as any).reviewDiff = jest.fn().mockResolvedValue({ review: mockReview });
+
+      const targets = [
+        { title: 'PR #1', diff: 'diff-1', context: 'ctx-1', repoDir: '/tmp/repo' },
+        { title: 'PR #2', diff: 'diff-2', context: 'ctx-2', repoDir: '/tmp/repo' },
+      ];
+
+      const reviewed = await (command as any).executeReviews(targets, null, { sonar: true });
+
+      expect(reviewed).toHaveLength(1);
+      expect(reviewed[0].title).toBe('PR #2');
+      expect(loggerWarnSpy).toHaveBeenCalledWith(expect.stringContaining('SonarQube CLI error for PR #1'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('SonarQube CLI error'));
+    });
+
+    it('does not contain non-sonar errors raised while resolving sonar output', async () => {
+      const { command } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      const unrelatedError = new Error('unexpected failure');
+      mockRunSonar.mockRejectedValue(unrelatedError);
+
+      const targets = [{ title: 'PR #1', diff: 'diff-1', context: 'ctx-1', repoDir: '/tmp/repo' }];
+
+      await expect((command as any).executeReviews(targets, null, { sonar: true })).rejects.toThrow(unrelatedError);
+    });
+
+    it.each([
+      ['ConfigurationError', new ConfigurationError('Missing API key for provider anthropic.')],
+      ['ExecutionError', new ExecutionError('AI provider request failed.')],
+    ])(
+      'does not mislabel a %s thrown by reviewDiff (not sonar) as a SonarQube CLI error',
+      async (_name, aiProviderError) => {
+        const { command, reviewStageService } = await buildCommand();
+        const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+        mockRunSonar.mockResolvedValue({ status: 'clean', steps: [] });
+        (reviewStageService as any).reviewDiff = jest.fn().mockRejectedValue(aiProviderError);
+
+        const targets = [{ title: 'PR #1', diff: 'diff-1', context: 'ctx-1', repoDir: '/tmp/repo' }];
+
+        await expect(
+          (command as any).executeReviews(targets, null, { sonar: true })
+        ).rejects.toThrow(aiProviderError);
+      }
+    );
 
     it('uses the current repo name as a discovery hint when --repos is omitted', async () => {
       const { command, adapters } = await buildCommand();

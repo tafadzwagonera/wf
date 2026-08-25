@@ -10,7 +10,7 @@
  *   1. IssueReviewCommand.resolveSonarOutputForTarget does not stage anything —
  *      secretPaths must equal exactly the already-staged files, excluding any
  *      untracked file.
- *   2. ReviewerAgent.stageAndReview stages everything first — secretPaths must
+ *   2. ReviewerAgent.execute stages everything first — secretPaths must
  *      equal the full staged list *after* that stage-all, including files that
  *      started out untracked.
  *
@@ -102,7 +102,7 @@ async function testIssueReviewCommandDoesNotStageUntracked(
 async function testReviewerAgentStagesEverythingFirst(
   agent: ReviewerAgent, configService: ConfigService
 ): Promise<void> {
-  console.log(chalk.bold.cyan('\nTest 2: ReviewerAgent.stageAndReview forwards the post-stage-all staged list'));
+  console.log(chalk.bold.cyan('\nTest 2: ReviewerAgent.execute forwards the post-stage-all staged list to sonar'));
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-secrets-agent-'));
   initGit(tempDir);
@@ -127,13 +127,10 @@ async function testReviewerAgentStagesEverythingFirst(
   });
 
   try {
-    const stageAndReview = (agent as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)['stageAndReview'];
     const ticket = { ticketKey: 'TEST-1', content: '# TEST-1', path: path.join(tempDir, 'TEST-1.md') };
-    await stageAndReview.call(agent, ticket, { repoDir: tempDir }, () => {});
+    await agent.execute(ticket, { repoDir: tempDir, silent: true });
 
-    if (calls.length !== 1) {
-      fail(`Expected exactly 1 runSonarScan call, got ${calls.length}`);
-    } else {
+    if (calls.length === 1) {
       const secretPaths = [...(calls[0].secretPaths ?? [])].sort();
       const expected = ['auth.ts', 'new-secret.ts'];
       if (JSON.stringify(secretPaths) === JSON.stringify(expected)) {
@@ -141,6 +138,8 @@ async function testReviewerAgentStagesEverythingFirst(
       } else {
         fail(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(secretPaths)}`);
       }
+    } else {
+      fail(`Expected exactly 1 runSonarScan call, got ${calls.length}`);
     }
   } finally {
     (sonarScannerModule as unknown as Record<string, unknown>)['runSonarScan'] = originalRunSonarScan;

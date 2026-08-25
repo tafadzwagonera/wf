@@ -17,7 +17,9 @@ import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { ValidationError, ExecutionError, FileSystemError, GitError, isAiProviderErrorLike } from '../shared/utils/errors';
+import {
+  ValidationError, ConfigurationError, ExecutionError, FileSystemError, GitError, isAiProviderErrorLike,
+} from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
@@ -124,7 +126,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
     + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. '
     + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. '
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. '
-    + 'Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze --staged`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Findings are reported and review continues; a missing CLI or auth/project misconfiguration aborts the stage. '
+    + 'Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze --staged`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Findings are reported and review continues; a missing CLI or auth/project misconfiguration skips review for that target with a warning, leaving other targets in the same run unaffected. '
     + 'CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
   arguments: '[pr-url]',
   options: { isDefault: false },
@@ -555,6 +557,7 @@ export class IssueReviewCommand extends CommandRunner {
     for (const target of targets) {
       try {
         const review = await this.reviewSingleTarget(target, extraCriteria, options);
+        if (!review) continue;
         reviewed.push({ ...target, review });
         if (!options?.silent) this.displayReview(review, target.title);
         if (options?.comment) await this.postReviewComment(target, review);
@@ -567,9 +570,9 @@ export class IssueReviewCommand extends CommandRunner {
 
   private async reviewSingleTarget(
     target: ReviewTarget, extraCriteria: string[] | null, options?: IssueReviewOptions
-  ): Promise<CodeReview> {
+  ): Promise<CodeReview | null> {
     const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
-    await this.resolveSonarOutputForTarget(target, options, onProgress);
+    if (await this.sonarStageAborted(target, options, onProgress)) return null;
     const context = await buildPreReviewContext(target, {
       ticketKey: options?.ticketKey,
       silent: options?.silent,
@@ -594,6 +597,28 @@ export class IssueReviewCommand extends CommandRunner {
       return;
     }
     await runSonarScan({ repoDir, scope: { kind: 'staged' }, secretPaths: staged, onProgress });
+  }
+
+  /**
+   * Runs the SonarQube CLI scan for one review target, containing failures to this
+   * target's review rather than letting them escape into the AI review that follows.
+   * @returns true when the scan failed (CLI missing/misconfigured or execution error)
+   * and this target's review should be skipped
+   */
+  private async sonarStageAborted(
+    target: ReviewTarget, options?: IssueReviewOptions, onProgress?: (line: string) => void
+  ): Promise<boolean> {
+    try {
+      await this.resolveSonarOutputForTarget(target, options, onProgress);
+      return false;
+    } catch (error) {
+      if (!(error instanceof ConfigurationError) && !(error instanceof ExecutionError)) throw error;
+      this.logger.warn(`Review target skipped — SonarQube CLI error for ${target.title}: ${error.message}`);
+      if (!options?.silent) {
+        console.log(chalk.yellow(`\n⚠ SonarQube CLI error — skipping review for ${target.title}: ${error.message}\n`));
+      }
+      return true;
+    }
   }
 
   private handleReviewParseError(error: unknown, options?: IssueReviewOptions): void {
