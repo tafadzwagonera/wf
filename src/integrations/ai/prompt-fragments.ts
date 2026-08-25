@@ -10,8 +10,9 @@ import { JSON_OUTPUT_RULES } from './json-output-rules';
 export const planStepPrinciples = `   Plan step principles — apply judgment, not rote checklists:
    - Be explicit about before and after: renames, moves, type changes, and helper placements
      should state both the current and target names/paths/types so the implementer does not guess.
-   - When a step reuses an existing file or component outside the context it was originally named
-     for (e.g. a page-scoped component pulled onto an unrelated page), state whether its name still
+   - When a step reuses an existing file, component, class, method, or utility function outside the
+     context it was originally named for (e.g. a page-scoped component pulled onto an unrelated page,
+     or a single-purpose helper generalized to a second call site), state whether its name still
      describes its general behavior. If not, the rename is part of this step, not a follow-up.
    - Trace impact across the codebase: when touching shared functions, nullable fields, CLI options,
      or documentation, follow every call site, consumer, and user-facing surface to decide whether
