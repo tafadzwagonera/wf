@@ -35,6 +35,7 @@ export {
   ConfigurationError,
   FileSystemError,
   PlanArtifactNotFoundError,
+  AmbiguousPlanArtifactError,
   RepoLockError,
   ERROR_CODE,
 } from '../errors/app.error';

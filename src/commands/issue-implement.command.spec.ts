@@ -62,6 +62,7 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../shared/utils/plan-artifact';
+import { AmbiguousPlanArtifactError } from '../shared/utils/errors';
 import * as path from 'node:path';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 
@@ -267,6 +268,151 @@ describe('IssueImplementCommand', () => {
           filePath: path.join(getWfHomeDir(), 'repo-a', 'jira', `2026-04-16-${hash}-fix-plan.json`),
         }),
       );
+    });
+  });
+
+  describe('AmbiguousPlanArtifactError propagation', () => {
+    it('safePlanResolve returns null when no artifact matches', async () => {
+      const command = await buildCommand();
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+
+      const artifactDir = path.join(getWfHomeDir(), 'repo-a', 'jira');
+      const result = (command as any).safePlanResolve('WBP-NOTFOUND', artifactDir);
+
+      expect(result).toBeNull();
+    });
+
+    it('safePlanResolve rethrows AmbiguousPlanArtifactError instead of swallowing it into a guessed action', async () => {
+      const command = await buildCommand();
+      const trackerDir = path.join(getWfHomeDir(), 'repo-a', 'jira');
+      const hash1 = hashPlanArtifactSources(['WBP-0001-a']);
+      const hash2 = hashPlanArtifactSources(['WBP-0001-b']);
+      const planPath1 = path.join(trackerDir, `2026-04-16-${hash1}-fix-plan.json`);
+      const planPath2 = path.join(trackerDir, `2026-04-17-${hash2}-fix-plan.json`);
+      const manifestPath1 = buildPlanArtifactManifestPath(planPath1);
+      const manifestPath2 = buildPlanArtifactManifestPath(planPath2);
+
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((input: string) =>
+          [trackerDir, planPath1, planPath2, manifestPath1, manifestPath2].includes(String(input)),
+        );
+      jest.spyOn(require('fs'), 'readdirSync').mockImplementation((input: any) =>
+        String(input) === trackerDir
+          ? [path.basename(manifestPath1), path.basename(manifestPath2)]
+          : [],
+      );
+      jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
+        const filePath = String(input);
+        if (filePath === manifestPath1) {
+          return JSON.stringify({
+            artifactPath: planPath1,
+            action: 'fix',
+            createdAt: new Date('2026-04-16T00:00:00.000Z').toISOString(),
+            format: 'json',
+            hash: hash1,
+            sourceKind: 'ticket',
+            sourceName: 'WBP-0001',
+            ticketKey: 'WBP-0001',
+            trackerName: 'jira',
+          });
+        }
+        return JSON.stringify({
+          artifactPath: planPath2,
+          action: 'fix',
+          createdAt: new Date('2026-04-17T00:00:00.000Z').toISOString(),
+          format: 'json',
+          hash: hash2,
+          sourceKind: 'ticket',
+          sourceName: 'WBP-0001',
+          ticketKey: 'WBP-0001',
+          trackerName: 'jira',
+        });
+      });
+
+      expect(() => (command as any).safePlanResolve('WBP-0001', trackerDir)).toThrow(AmbiguousPlanArtifactError);
+    });
+
+    it('resolvePlanArtifactReferenceAcrossDirs stops at the first ambiguous directory without checking the next one', async () => {
+      const command = await buildCommand();
+      const trackerDir = path.join(getWfHomeDir(), 'repo-a', 'jira');
+      const customArtifactDir = path.join(getWfHomeDir(), 'repo-a');
+      const hash1 = hashPlanArtifactSources(['range-rename-a']);
+      const hash2 = hashPlanArtifactSources(['range-rename-b']);
+      const planPath1 = path.join(trackerDir, `2026-08-24-${hash1}-fix-plan.json`);
+      const planPath2 = path.join(trackerDir, `2026-08-25-${hash2}-fix-plan.json`);
+      const manifestPath1 = buildPlanArtifactManifestPath(planPath1);
+      const manifestPath2 = buildPlanArtifactManifestPath(planPath2);
+      const customHash = hashPlanArtifactSources(['range-rename']);
+      const customPlanPath = path.join(customArtifactDir, `2026-08-25-${customHash}-fix-plan.json`);
+      const customManifestPath = buildPlanArtifactManifestPath(customPlanPath);
+
+      const readdirSyncSpy = jest
+        .spyOn(require('fs'), 'readdirSync')
+        .mockImplementation((input: any) => {
+          if (String(input) === trackerDir) return [path.basename(manifestPath1), path.basename(manifestPath2)];
+          if (String(input) === customArtifactDir) return [path.basename(customManifestPath)];
+          return [];
+        });
+      jest
+        .spyOn(require('fs'), 'existsSync')
+        .mockImplementation((input: string) =>
+          [
+            trackerDir,
+            customArtifactDir,
+            planPath1,
+            planPath2,
+            manifestPath1,
+            manifestPath2,
+            customPlanPath,
+            customManifestPath,
+          ].includes(String(input)),
+        );
+      jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
+        const filePath = String(input);
+        if (filePath === manifestPath1) {
+          return JSON.stringify({
+            artifactPath: planPath1,
+            action: 'fix',
+            createdAt: new Date('2026-08-24T00:00:00.000Z').toISOString(),
+            format: 'json',
+            hash: hash1,
+            sourceKind: 'custom',
+            sourceName: 'range-rename',
+            customArtifactName: 'range-rename',
+          });
+        }
+        if (filePath === manifestPath2) {
+          return JSON.stringify({
+            artifactPath: planPath2,
+            action: 'fix',
+            createdAt: new Date('2026-08-25T00:00:00.000Z').toISOString(),
+            format: 'json',
+            hash: hash2,
+            sourceKind: 'custom',
+            sourceName: 'range-rename',
+            customArtifactName: 'range-rename',
+          });
+        }
+        return JSON.stringify({
+          artifactPath: customPlanPath,
+          action: 'fix',
+          createdAt: new Date('2026-08-25T00:00:00.000Z').toISOString(),
+          format: 'json',
+          hash: customHash,
+          sourceKind: 'custom',
+          sourceName: 'range-rename',
+          customArtifactName: 'range-rename',
+        });
+      });
+
+      expect(() =>
+        (command as any).resolvePlanArtifactReferenceAcrossDirs('range-rename', trackerDir, customArtifactDir, '/tmp/consumer-app/repo-a'),
+      ).toThrow(AmbiguousPlanArtifactError);
+
+      const checkedDirs = readdirSyncSpy.mock.calls.map(call => String(call[0]));
+      expect(checkedDirs).toContain(trackerDir);
+      expect(checkedDirs).not.toContain(customArtifactDir);
     });
   });
 

@@ -132,6 +132,13 @@ export class PlanArtifactNotFoundError extends ValidationError {
   }
 }
 
+export class AmbiguousPlanArtifactError extends ValidationError {
+  constructor(message: string, details?: any) {
+    super(message, details);
+    this.name = 'AmbiguousPlanArtifactError';
+  }
+}
+
 export class RepoLockError extends AppError {
   constructor(message: string, details?: any) {
     super(ERROR_CODE.REPO_LOCK_ERROR, message, details, true);

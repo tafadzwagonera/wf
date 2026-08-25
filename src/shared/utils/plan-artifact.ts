@@ -6,9 +6,9 @@ import { planPhaseSchema } from '../schemas/ai.schema';
 import type { ResolutionAction, TicketArtifact } from '../../agents/interfaces';
 import { resolveCustomArtifactDir } from '../../agents/utils';
 import type { PlanArtifactManifest, PlanArtifactReference, PlanTokenResolution } from '../types/plan-artifact.types';
-import { hashGeneratedTicketSources, matchesGeneratedTicketToken } from './generated-ticket-artifact';
+import { hashGeneratedTicketSources } from './generated-ticket-artifact';
 import { normalizePlanVerification } from './verification-manifest';
-import { PlanArtifactNotFoundError, ValidationError, WorkflowParseError } from '../errors/app.error';
+import { PlanArtifactNotFoundError, AmbiguousPlanArtifactError, ValidationError, WorkflowParseError } from '../errors/app.error';
 
 export type { PlanArtifactManifest, PlanArtifactReference };
 
@@ -253,17 +253,7 @@ const matchesManifestIdentifier = (
     artifactStem,
   ].filter((token): token is string => typeof token === 'string' && token.length > 0);
 
-  if (
-    sourceTokens.some(token => {
-      const candidate = token.trim().toLowerCase();
-      return (
-        candidate === normalizedIdentifier
-        || candidate === identifierStem.toLowerCase()
-        || matchesGeneratedTicketToken(normalizedIdentifier, candidate)
-        || matchesGeneratedTicketToken(identifierStem, candidate)
-      );
-    })
-  ) {
+  if (sourceTokens.some(token => token.trim().toLowerCase() === normalizedIdentifier)) {
     return true;
   }
 
@@ -303,10 +293,10 @@ const resolveManifestMatch = (
   }
 
   if (candidates.length > 1) {
-    throw new ValidationError(
+    throw new AmbiguousPlanArtifactError(
       `Multiple plan artifacts found for '${identifierStem}': ${candidates
         .map(candidate => path.basename(candidate.artifactPath))
-        .join(', ')}. Use the explicit hashed filename or remove stale artifacts.`
+        .join(', ')}. Remove or regenerate the stale artifact.`
     );
   }
 
@@ -518,6 +508,14 @@ const normalizeFileEntryList = (value: unknown): (string | FileEntry)[] | undefi
   });
 };
 
+/**
+ * Resolve a plan token against the tracker and custom artifact directories.
+ *
+ * An ambiguous match in one directory intentionally aborts before the next
+ * directory is checked, rather than falling through to a possibly-unrelated
+ * match — genuine ambiguity must surface as an error, not be silently
+ * resolved by trying elsewhere.
+ */
 // eslint-disable-next-line max-lines-per-function
 export const resolvePlanToken = (
   argument: string,
@@ -540,7 +538,8 @@ export const resolvePlanToken = (
           sourceName: resolved.sourceName,
         };
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof AmbiguousPlanArtifactError) throw error;
       // fall through
     }
 

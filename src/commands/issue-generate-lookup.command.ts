@@ -10,10 +10,7 @@ import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { parseReposOption } from './utils/repos-option';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
-import {
-  matchesGeneratedTicketToken,
-  type GeneratedTicketSourceManifest,
-} from '../shared/utils/generated-ticket-artifact';
+import { type GeneratedTicketSourceManifest } from '../shared/utils/generated-ticket-artifact';
 
 interface IssueGenerateLookupOptions {
   tracker?: string;
@@ -110,11 +107,9 @@ export class IssueGenerateLookupCommand extends CommandRunner {
       const manifest = this.safeReadManifest(manifestPath);
       if (!manifest) continue;
 
-      const matchesByHash = matchesGeneratedTicketToken(token, manifest.hash);
-      const artifactStem = path.basename(manifest.artifactPath, path.extname(manifest.artifactPath));
-      const matchesByStem = artifactStem.includes(token.trim().toLowerCase());
+      const matchesByHash = typeof manifest.hash === 'string' && manifest.hash.trim().toLowerCase() === token.trim().toLowerCase();
 
-      if (matchesByHash || matchesByStem) {
+      if (matchesByHash) {
         results.push(manifest);
       }
     }

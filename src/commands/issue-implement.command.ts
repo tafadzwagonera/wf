@@ -11,7 +11,7 @@ import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { isAiProviderErrorLike, ValidationError, ExecutionError, FileSystemError } from '../shared/utils/errors';
+import { isAiProviderErrorLike, ValidationError, ExecutionError, FileSystemError, AmbiguousPlanArtifactError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import {
   buildSyntheticTicketArtifact,
@@ -714,6 +714,10 @@ export class IssueImplementCommand extends CommandRunner {
   /**
    * Resolve a plan artifact from the standard and custom artifact namespaces.
    *
+   * An ambiguous match in trackerDir intentionally aborts before customArtifactDir
+   * is checked, rather than falling through to a possibly-unrelated match — genuine
+   * ambiguity must surface as an error, not be silently resolved by trying elsewhere.
+   *
    * @param identifier - Raw CLI positional argument
    * @param trackerDir - Standard platform artifact directory
    * @param customArtifactDir - Custom artifact directory
@@ -774,7 +778,8 @@ export class IssueImplementCommand extends CommandRunner {
   ): ReturnType<typeof resolvePlanArtifactReferenceInDir> | null {
     try {
       return resolvePlanArtifactReferenceInDir(identifier, { artifactDir });
-    } catch {
+    } catch (error) {
+      if (error instanceof AmbiguousPlanArtifactError) throw error;
       return null;
     }
   }

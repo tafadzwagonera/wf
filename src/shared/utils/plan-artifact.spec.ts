@@ -8,8 +8,12 @@ import {
   resolvePlanArtifactReference,
   parsePlanArtifact,
   deriveReviewArtifactPath,
+  buildPlanArtifactManifest,
+  writePlanArtifactManifest,
+  hashPlanArtifactSources,
+  resolvePlanToken,
 } from './plan-artifact';
-import { PlanArtifactNotFoundError } from '../errors/app.error';
+import { PlanArtifactNotFoundError, AmbiguousPlanArtifactError } from '../errors/app.error';
 import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
 describe('parsePlanArtifact', () => {
@@ -267,5 +271,354 @@ describe('backward-compatible migration', () => {
 
     expect(plan.affectedFiles).toEqual([{ filePath: 'repo-a/src/new.ts', status: 'found' }]);
     expect(plan.affectedFilesContext).toEqual([{ filePath: 'repo-a/new-pkg.json', status: 'found' }]);
+  });
+});
+
+describe('resolvePlanArtifactReference identifier matching', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = createManagedTempDir('artifact-matching');
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('resolves by exact sourceName when two names are prefix/suffix pairs', () => {
+    const hash1 = hashPlanArtifactSources(['2026-08-25-range-rename']);
+    const hash2 = hashPlanArtifactSources(['2026-08-25-range-rename-implementation-plan']);
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+
+    const planPath1 = path.join(tempDir, buildPlanArtifactFilename({
+      createdAt,
+      hash: hash1,
+      action: 'fix',
+      format: 'json',
+    }));
+    const planPath2 = path.join(tempDir, buildPlanArtifactFilename({
+      createdAt,
+      hash: hash2,
+      action: 'fix',
+      format: 'json',
+    }));
+
+    fs.writeFileSync(planPath1, JSON.stringify({ action: 'fix', summary: 'Plan 1' }));
+    fs.writeFileSync(planPath2, JSON.stringify({ action: 'fix', summary: 'Plan 2' }));
+
+    const manifest1 = buildPlanArtifactManifest(planPath1, 'fix', 'json', hash1, '2026-08-25-range-rename', 'custom', createdAt);
+    const manifest2 = buildPlanArtifactManifest(planPath2, 'fix', 'json', hash2, '2026-08-25-range-rename-implementation-plan', 'custom', createdAt);
+
+    writePlanArtifactManifest(manifest1);
+    writePlanArtifactManifest(manifest2);
+
+    const result = resolvePlanArtifactReference('2026-08-25-range-rename', { artifactDir: tempDir, action: 'fix' });
+    expect(result.artifactPath).toBe(planPath1);
+    expect(result.hash).toBe(hash1);
+  });
+
+  it('resolves by exact ticketKey when sibling keys are numeric prefixes', () => {
+    const hash1 = hashPlanArtifactSources(['WBP-123']);
+    const hash2 = hashPlanArtifactSources(['WBP-1234']);
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+
+    const planPath1 = path.join(tempDir, buildPlanArtifactFilename({
+      createdAt,
+      hash: hash1,
+      action: 'fix',
+      format: 'json',
+    }));
+    const planPath2 = path.join(tempDir, buildPlanArtifactFilename({
+      createdAt,
+      hash: hash2,
+      action: 'fix',
+      format: 'json',
+    }));
+
+    fs.writeFileSync(planPath1, JSON.stringify({ action: 'fix', summary: 'WBP-123 plan' }));
+    fs.writeFileSync(planPath2, JSON.stringify({ action: 'fix', summary: 'WBP-1234 plan' }));
+
+    const manifest1 = buildPlanArtifactManifest(planPath1, 'fix', 'json', hash1, 'WBP-123', 'ticket', createdAt);
+    const manifest2 = buildPlanArtifactManifest(planPath2, 'fix', 'json', hash2, 'WBP-1234', 'ticket', createdAt);
+
+    writePlanArtifactManifest(manifest1);
+    writePlanArtifactManifest(manifest2);
+
+    const result = resolvePlanArtifactReference('WBP-123', { artifactDir: tempDir });
+    expect(result.artifactPath).toBe(planPath1);
+    expect(result.hash).toBe(hash1);
+  });
+
+  it('rejects empty identifier', () => {
+    expect(() =>
+      resolvePlanArtifactReference('', { artifactDir: tempDir })
+    ).toThrow(PlanArtifactNotFoundError);
+  });
+
+  it('rejects truncated hash', () => {
+    const hash = hashPlanArtifactSources(['test']);
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    const planPath = path.join(tempDir, buildPlanArtifactFilename({
+      createdAt,
+      hash,
+      action: 'fix',
+      format: 'json',
+    }));
+
+    fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
+    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'test', 'custom', createdAt);
+    writePlanArtifactManifest(manifest);
+
+    const truncatedHash = hash.slice(0, 4);
+    expect(() =>
+      resolvePlanArtifactReference(truncatedHash, { artifactDir: tempDir })
+    ).toThrow(PlanArtifactNotFoundError);
+  });
+
+  it('rejects partial ticket key', () => {
+    const hash = hashPlanArtifactSources(['WBP-123']);
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    const planPath = path.join(tempDir, buildPlanArtifactFilename({
+      createdAt,
+      hash,
+      action: 'fix',
+      format: 'json',
+    }));
+
+    fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'WBP-123 plan' }));
+    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'WBP-123', 'ticket', createdAt);
+    writePlanArtifactManifest(manifest);
+
+    expect(() =>
+      resolvePlanArtifactReference('WBP-1', { artifactDir: tempDir })
+    ).toThrow(PlanArtifactNotFoundError);
+  });
+
+  it('rejects partial date stem', () => {
+    const hash = hashPlanArtifactSources(['2026-08-25-range-rename']);
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    const planPath = path.join(tempDir, buildPlanArtifactFilename({
+      createdAt,
+      hash,
+      action: 'fix',
+      format: 'json',
+    }));
+
+    fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
+    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, '2026-08-25-range-rename', 'custom', createdAt);
+    writePlanArtifactManifest(manifest);
+
+    expect(() =>
+      resolvePlanArtifactReference('2026-08-25', { artifactDir: tempDir })
+    ).toThrow(PlanArtifactNotFoundError);
+  });
+
+  it('resolves by full hash', () => {
+    const hash = hashPlanArtifactSources(['test']);
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    const planPath = path.join(tempDir, buildPlanArtifactFilename({
+      createdAt,
+      hash,
+      action: 'fix',
+      format: 'json',
+    }));
+
+    fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
+    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'test', 'custom', createdAt);
+    writePlanArtifactManifest(manifest);
+
+    const result = resolvePlanArtifactReference(hash, { artifactDir: tempDir });
+    expect(result.artifactPath).toBe(planPath);
+  });
+
+  it('resolves by canonical filename via artifactStem', () => {
+    const hash = hashPlanArtifactSources(['test']);
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    const filename = buildPlanArtifactFilename({
+      createdAt,
+      hash,
+      action: 'fix',
+      format: 'json',
+    });
+    const planPath = path.join(tempDir, filename);
+
+    fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
+    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'test', 'custom', createdAt);
+    writePlanArtifactManifest(manifest);
+
+    const result = resolvePlanArtifactReference(filename, { artifactDir: tempDir });
+    expect(result.artifactPath).toBe(planPath);
+  });
+
+  it('resolves by exact customArtifactName', () => {
+    const hash = hashPlanArtifactSources(['my-custom-plan']);
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    const planPath = path.join(tempDir, buildPlanArtifactFilename({
+      createdAt,
+      hash,
+      action: 'fix',
+      format: 'json',
+    }));
+
+    fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Custom plan' }));
+    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'my-custom-plan', 'custom', createdAt);
+    writePlanArtifactManifest(manifest);
+
+    const result = resolvePlanArtifactReference('my-custom-plan', { artifactDir: tempDir });
+    expect(result.artifactPath).toBe(planPath);
+  });
+
+  it('resolves by canonical stem with different date prefix via parseCanonicalStem fallback', () => {
+    const hash = hashPlanArtifactSources(['test']);
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+
+    const filename = buildPlanArtifactFilename({
+      createdAt,
+      hash,
+      action: 'fix',
+      format: 'json',
+    });
+    const planPath = path.join(tempDir, filename);
+
+    fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
+    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'test', 'custom', createdAt);
+    writePlanArtifactManifest(manifest);
+
+    const result = resolvePlanArtifactReference(`2026-08-24-${hash}-fix-plan.json`, { artifactDir: tempDir });
+    expect(result.artifactPath).toBe(planPath);
+  });
+
+  it('normalizes case and whitespace in identifier', () => {
+    const hash = hashPlanArtifactSources(['WBP-123']);
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    const planPath = path.join(tempDir, buildPlanArtifactFilename({
+      createdAt,
+      hash,
+      action: 'fix',
+      format: 'json',
+    }));
+
+    fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'WBP-123 plan' }));
+    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'WBP-123', 'ticket', createdAt);
+    writePlanArtifactManifest(manifest);
+
+    const result = resolvePlanArtifactReference('  WBP-123  ', { artifactDir: tempDir });
+    expect(result.artifactPath).toBe(planPath);
+  });
+
+  it('resolves migrated artifact with non-8-char hash by exact stored hash', () => {
+    const hash = hashPlanArtifactSources(['migrated']);
+    const nonStandardHash = 'abc123';
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    const planPath = path.join(tempDir, `2026-08-25-${nonStandardHash}-fix-plan.json`);
+
+    fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Migrated plan' }));
+    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', nonStandardHash, 'migrated', 'custom', createdAt);
+    writePlanArtifactManifest(manifest);
+
+    const result = resolvePlanArtifactReference(nonStandardHash, { artifactDir: tempDir });
+    expect(result.artifactPath).toBe(planPath);
+  });
+
+  it('throws AmbiguousPlanArtifactError when artifacts have identical hash and sourceName but different dates', () => {
+    const hash = hashPlanArtifactSources(['test']);
+    const createdAt1 = new Date('2026-08-24T00:00:00.000Z');
+    const createdAt2 = new Date('2026-08-25T00:00:00.000Z');
+
+    const filename1 = buildPlanArtifactFilename({
+      createdAt: createdAt1,
+      hash,
+      action: 'fix',
+      format: 'json',
+    });
+    const planPath1 = path.join(tempDir, filename1);
+
+    fs.writeFileSync(planPath1, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
+    const manifest1 = buildPlanArtifactManifest(planPath1, 'fix', 'json', hash, 'test', 'custom', createdAt1);
+    writePlanArtifactManifest(manifest1);
+
+    const filename2 = buildPlanArtifactFilename({
+      createdAt: createdAt2,
+      hash,
+      action: 'fix',
+      format: 'json',
+    });
+    const planPath2 = path.join(tempDir, filename2);
+
+    fs.writeFileSync(planPath2, JSON.stringify({ action: 'fix', summary: 'Test plan 2' }));
+    const manifest2 = buildPlanArtifactManifest(planPath2, 'fix', 'json', hash, 'test', 'custom', createdAt2);
+    writePlanArtifactManifest(manifest2);
+
+    expect(() =>
+      resolvePlanArtifactReference('test', { artifactDir: tempDir })
+    ).toThrow(AmbiguousPlanArtifactError);
+  });
+});
+
+describe('resolvePlanToken cross-directory resolution', () => {
+  let wfHomeDir: string;
+  let repoBaseDir: string;
+  let trackerDir: string;
+  let customDir: string;
+  let originalWfHome: string | undefined;
+
+  beforeEach(() => {
+    wfHomeDir = createManagedTempDir('wf-home');
+    originalWfHome = process.env.WF_HOME;
+    process.env.WF_HOME = wfHomeDir;
+
+    repoBaseDir = createManagedTempDir('repo-base');
+    trackerDir = path.join(wfHomeDir, 'tracker');
+    fs.mkdirSync(trackerDir, { recursive: true });
+    customDir = path.join(wfHomeDir, path.basename(path.resolve(repoBaseDir)));
+    fs.mkdirSync(customDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (originalWfHome === undefined) delete process.env.WF_HOME;
+    else process.env.WF_HOME = originalWfHome;
+    jest.restoreAllMocks();
+  });
+
+  it('throws AmbiguousPlanArtifactError from trackerDir without falling through to a resolvable customDir match', () => {
+    const hash1 = hashPlanArtifactSources(['range-rename-a']);
+    const hash2 = hashPlanArtifactSources(['range-rename-b']);
+    const createdAt1 = new Date('2026-08-24T00:00:00.000Z');
+    const createdAt2 = new Date('2026-08-25T00:00:00.000Z');
+
+    const trackerPlanPath1 = path.join(trackerDir, buildPlanArtifactFilename({
+      createdAt: createdAt1,
+      hash: hash1,
+      action: 'fix',
+      format: 'json',
+    }));
+    const trackerPlanPath2 = path.join(trackerDir, buildPlanArtifactFilename({
+      createdAt: createdAt2,
+      hash: hash2,
+      action: 'fix',
+      format: 'json',
+    }));
+    fs.writeFileSync(trackerPlanPath1, JSON.stringify({ action: 'fix', summary: 'Plan 1' }));
+    fs.writeFileSync(trackerPlanPath2, JSON.stringify({ action: 'fix', summary: 'Plan 2' }));
+    writePlanArtifactManifest(
+      buildPlanArtifactManifest(trackerPlanPath1, 'fix', 'json', hash1, 'range-rename', 'custom', createdAt1)
+    );
+    writePlanArtifactManifest(
+      buildPlanArtifactManifest(trackerPlanPath2, 'fix', 'json', hash2, 'range-rename', 'custom', createdAt2)
+    );
+
+    const customHash = hashPlanArtifactSources(['range-rename-custom']);
+    const customPlanPath = path.join(customDir, buildPlanArtifactFilename({
+      createdAt: createdAt2,
+      hash: customHash,
+      action: 'fix',
+      format: 'json',
+    }));
+    fs.writeFileSync(customPlanPath, JSON.stringify({ action: 'fix', summary: 'Custom plan' }));
+    writePlanArtifactManifest(
+      buildPlanArtifactManifest(customPlanPath, 'fix', 'json', customHash, 'range-rename', 'custom', createdAt2)
+    );
+
+    expect(() => resolvePlanToken('range-rename', trackerDir, repoBaseDir)).toThrow(AmbiguousPlanArtifactError);
   });
 });

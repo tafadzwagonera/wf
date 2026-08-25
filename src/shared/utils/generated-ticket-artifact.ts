@@ -86,20 +86,6 @@ export const buildGeneratedTicketSourceManifest = (
 });
 
 /**
- * Determine whether a lookup token matches a stored generated ticket hash.
- *
- * @param token - Token or partial hash entered by the user
- * @param hash - Stored hash from a manifest
- * @returns True when the token identifies the hash
- */
-export const matchesGeneratedTicketToken = (token: string, hash: string): boolean => {
-  const normalizedToken = token.trim().toLowerCase();
-  const normalizedHash = hash.trim().toLowerCase();
-
-  return normalizedHash === normalizedToken || normalizedHash.startsWith(normalizedToken);
-};
-
-/**
  * Compute the default sidecar manifest path for a generated ticket artifact.
  *
  * @param artifactPath - Absolute artifact path
