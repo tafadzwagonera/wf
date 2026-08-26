@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import { getCommandHelpCatalog } from '../../bootstrap/help-catalog-parser';
 import { getHelpText } from '../../bootstrap/help-output';
 import { printCommandHeader } from './command-header.helper';
+import { stripStyleMarkers } from './cli-help-render';
 
 const catalog = getCommandHelpCatalog(path.join(__dirname, '..', '..', 'commands'));
 
@@ -48,7 +49,10 @@ describe('printCommandHeader', () => {
     const examplesSectionStart = allOutput.indexOf('Examples:');
     expect(examplesSectionStart).toBeGreaterThan(-1);
     const afterExamples = allOutput.slice(examplesSectionStart);
-    const commandLines = afterExamples.split('\n').filter(l => l.trimStart().startsWith('wf ') || l.trimStart().startsWith('yarn '));
+    const commandLines = afterExamples
+      .split('\n')
+      .map(l => stripStyleMarkers(l).trimStart())
+      .filter(l => l.startsWith('wf ') || l.startsWith('yarn '));
     expect(commandLines).toHaveLength(5);
   });
 

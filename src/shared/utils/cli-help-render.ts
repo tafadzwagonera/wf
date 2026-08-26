@@ -8,8 +8,18 @@ const ANSI_ESCAPE = String.fromCodePoint(27);
 const ANSI_PATTERN = new RegExp(`${ANSI_ESCAPE}\\[[0-9;]*m`, 'g');
 const MOCK_STYLE_TAG_PATTERN = /<\/?(?:cyan|yellow|green|gray|bold-cyan)>/g;
 
-export const getVisibleLength = (value: string): number =>
-  value.replace(ANSI_PATTERN, '').replace(MOCK_STYLE_TAG_PATTERN, '').length;
+/**
+ * Strip styling from rendered help text, leaving only the characters a reader sees.
+ * Removes real chalk ANSI escapes and the `<cyan>`-style tags emitted by the chalk
+ * mock the help specs install, so callers match on text regardless of colour support.
+ *
+ * @param value - Rendered line, possibly styled
+ * @returns The same line with all style markers removed
+ */
+export const stripStyleMarkers = (value: string): string =>
+  value.replace(ANSI_PATTERN, '').replace(MOCK_STYLE_TAG_PATTERN, '');
+
+export const getVisibleLength = (value: string): number => stripStyleMarkers(value).length;
 
 function findPreferredSplitIndex(candidate: string, maxTokenWidth: number): number {
   const splitMatches = Array.from(candidate.matchAll(/[/?&=_-]/g));
