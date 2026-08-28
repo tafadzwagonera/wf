@@ -1,6 +1,5 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   buildPlanArtifactFilename,
   buildPlanArtifactManifestFilename,
@@ -10,6 +9,9 @@ import {
   deriveReviewArtifactPath,
   buildPlanArtifactManifest,
   writePlanArtifactManifest,
+  readPlanArtifactManifest,
+  updatePlanArtifactManifestSourceBranch,
+  findPlanArtifactManifestByBranchName,
   hashPlanArtifactSources,
   resolvePlanToken,
 } from './plan-artifact';
@@ -204,6 +206,125 @@ describe('plan artifact helpers', () => {
   });
 });
 
+describe('updatePlanArtifactManifestSourceBranch', () => {
+  it('records the source branch onto an existing manifest', () => {
+    const tempDir = createManagedTempDir('source-branch');
+    const planPath = path.join(tempDir, '2026-08-25-abc123-feature-plan.json');
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    writePlanArtifactManifest(
+      buildPlanArtifactManifest({ artifactPath: planPath, action: 'feature', format: 'json', hash: 'abc123', sourceName: 'WBP-1', sourceKind: 'ticket', createdAt: createdAt })
+    );
+
+    updatePlanArtifactManifestSourceBranch(planPath, 'develop');
+
+    const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(planPath));
+    expect(manifest?.sourceBranch).toBe('develop');
+    expect(manifest?.ticketKey).toBe('WBP-1');
+  });
+
+  it('does nothing when no manifest exists for the artifact', () => {
+    const tempDir = createManagedTempDir('source-branch-missing');
+    const planPath = path.join(tempDir, '2026-08-25-abc123-feature-plan.json');
+
+    expect(() => updatePlanArtifactManifestSourceBranch(planPath, 'develop')).not.toThrow();
+    expect(readPlanArtifactManifest(buildPlanArtifactManifestPath(planPath))).toBeNull();
+  });
+
+  it('does not overwrite an already-recorded source branch', () => {
+    const tempDir = createManagedTempDir('source-branch-write-once');
+    const planPath = path.join(tempDir, '2026-08-25-abc123-feature-plan.json');
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    writePlanArtifactManifest(
+      buildPlanArtifactManifest({ artifactPath: planPath, action: 'feature', format: 'json', hash: 'abc123', sourceName: 'WBP-1', sourceKind: 'ticket', createdAt: createdAt })
+    );
+    updatePlanArtifactManifestSourceBranch(planPath, 'release/2026');
+
+    updatePlanArtifactManifestSourceBranch(planPath, 'develop');
+
+    const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(planPath));
+    expect(manifest?.sourceBranch).toBe('release/2026');
+  });
+
+  it('also records the branch name, independent of sourceBranch write-once', () => {
+    const tempDir = createManagedTempDir('source-branch-and-name');
+    const planPath = path.join(tempDir, '2026-08-25-abc123-feature-plan.json');
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    writePlanArtifactManifest(
+      buildPlanArtifactManifest({
+        artifactPath: planPath, action: 'feature', format: 'json', hash: 'abc123', sourceName: 'WBP-1',
+        sourceKind: 'ticket', createdAt,
+      })
+    );
+
+    updatePlanArtifactManifestSourceBranch(planPath, 'develop', 'feature/WBP-1-thing');
+
+    const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(planPath));
+    expect(manifest?.sourceBranch).toBe('develop');
+    expect(manifest?.branchName).toBe('feature/WBP-1-thing');
+  });
+
+  it('backfills a missing branch name even when sourceBranch is already recorded (write-once independently)', () => {
+    const tempDir = createManagedTempDir('backfill-branch-name');
+    const planPath = path.join(tempDir, '2026-08-25-abc123-feature-plan.json');
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    writePlanArtifactManifest({
+      ...buildPlanArtifactManifest({
+        artifactPath: planPath, action: 'feature', format: 'json', hash: 'abc123', sourceName: 'WBP-1',
+        sourceKind: 'ticket', createdAt,
+      }),
+      sourceBranch: 'develop',
+    });
+
+    updatePlanArtifactManifestSourceBranch(planPath, 'release/2026', 'feature/WBP-1-thing');
+
+    const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(planPath));
+    expect(manifest?.sourceBranch).toBe('develop');
+    expect(manifest?.branchName).toBe('feature/WBP-1-thing');
+  });
+});
+
+describe('findPlanArtifactManifestByBranchName', () => {
+  it('finds a custom-plan manifest by its recorded branch name', () => {
+    const tempDir = createManagedTempDir('find-by-branch-custom');
+    const planPath = path.join(tempDir, '2026-08-25-abc123-fix-plan.json');
+    const createdAt = new Date('2026-08-25T00:00:00.000Z');
+    writePlanArtifactManifest(
+      buildPlanArtifactManifest({
+        artifactPath: planPath, action: 'fix', format: 'json', hash: 'abc123', sourceName: 'my-custom-plan',
+        sourceKind: 'custom', createdAt,
+      })
+    );
+    updatePlanArtifactManifestSourceBranch(planPath, 'develop', 'fix/my-custom-plan');
+
+    const manifest = findPlanArtifactManifestByBranchName('fix/my-custom-plan', [tempDir]);
+
+    expect(manifest?.sourceBranch).toBe('develop');
+    expect(manifest?.sourceKind).toBe('custom');
+  });
+
+  it('searches across multiple directories', () => {
+    const trackerDir = createManagedTempDir('find-by-branch-tracker-dir');
+    const customDir = createManagedTempDir('find-by-branch-custom-dir');
+    const planPath = path.join(customDir, '2026-08-25-def456-fix-plan.json');
+    writePlanArtifactManifest(
+      buildPlanArtifactManifest({
+        artifactPath: planPath, action: 'fix', format: 'json', hash: 'def456', sourceName: 'other-plan',
+        sourceKind: 'custom', createdAt: new Date('2026-08-25T00:00:00.000Z'),
+      })
+    );
+    updatePlanArtifactManifestSourceBranch(planPath, 'master', 'fix/other-plan');
+
+    const manifest = findPlanArtifactManifestByBranchName('fix/other-plan', [trackerDir, customDir]);
+
+    expect(manifest?.sourceName).toBe('other-plan');
+  });
+
+  it('returns undefined when no manifest matches the branch name', () => {
+    const tempDir = createManagedTempDir('find-by-branch-missing');
+    expect(findPlanArtifactManifestByBranchName('feature/nonexistent', [tempDir])).toBeUndefined();
+  });
+});
+
 describe('deriveReviewArtifactPath', () => {
   it('strips .md and appends -review.md', () => {
     expect(deriveReviewArtifactPath('WBP-123.md')).toBe('WBP-123-review.md');
@@ -306,8 +427,8 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     fs.writeFileSync(planPath1, JSON.stringify({ action: 'fix', summary: 'Plan 1' }));
     fs.writeFileSync(planPath2, JSON.stringify({ action: 'fix', summary: 'Plan 2' }));
 
-    const manifest1 = buildPlanArtifactManifest(planPath1, 'fix', 'json', hash1, '2026-08-25-range-rename', 'custom', createdAt);
-    const manifest2 = buildPlanArtifactManifest(planPath2, 'fix', 'json', hash2, '2026-08-25-range-rename-implementation-plan', 'custom', createdAt);
+    const manifest1 = buildPlanArtifactManifest({ artifactPath: planPath1, action: 'fix', format: 'json', hash: hash1, sourceName: '2026-08-25-range-rename', sourceKind: 'custom', createdAt: createdAt });
+    const manifest2 = buildPlanArtifactManifest({ artifactPath: planPath2, action: 'fix', format: 'json', hash: hash2, sourceName: '2026-08-25-range-rename-implementation-plan', sourceKind: 'custom', createdAt: createdAt });
 
     writePlanArtifactManifest(manifest1);
     writePlanArtifactManifest(manifest2);
@@ -338,8 +459,8 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     fs.writeFileSync(planPath1, JSON.stringify({ action: 'fix', summary: 'WBP-123 plan' }));
     fs.writeFileSync(planPath2, JSON.stringify({ action: 'fix', summary: 'WBP-1234 plan' }));
 
-    const manifest1 = buildPlanArtifactManifest(planPath1, 'fix', 'json', hash1, 'WBP-123', 'ticket', createdAt);
-    const manifest2 = buildPlanArtifactManifest(planPath2, 'fix', 'json', hash2, 'WBP-1234', 'ticket', createdAt);
+    const manifest1 = buildPlanArtifactManifest({ artifactPath: planPath1, action: 'fix', format: 'json', hash: hash1, sourceName: 'WBP-123', sourceKind: 'ticket', createdAt: createdAt });
+    const manifest2 = buildPlanArtifactManifest({ artifactPath: planPath2, action: 'fix', format: 'json', hash: hash2, sourceName: 'WBP-1234', sourceKind: 'ticket', createdAt: createdAt });
 
     writePlanArtifactManifest(manifest1);
     writePlanArtifactManifest(manifest2);
@@ -366,7 +487,7 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     }));
 
     fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
-    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'test', 'custom', createdAt);
+    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'test', sourceKind: 'custom', createdAt: createdAt });
     writePlanArtifactManifest(manifest);
 
     const truncatedHash = hash.slice(0, 4);
@@ -386,7 +507,7 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     }));
 
     fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'WBP-123 plan' }));
-    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'WBP-123', 'ticket', createdAt);
+    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-123', sourceKind: 'ticket', createdAt: createdAt });
     writePlanArtifactManifest(manifest);
 
     expect(() =>
@@ -405,7 +526,7 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     }));
 
     fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
-    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, '2026-08-25-range-rename', 'custom', createdAt);
+    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: '2026-08-25-range-rename', sourceKind: 'custom', createdAt: createdAt });
     writePlanArtifactManifest(manifest);
 
     expect(() =>
@@ -424,7 +545,7 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     }));
 
     fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
-    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'test', 'custom', createdAt);
+    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'test', sourceKind: 'custom', createdAt: createdAt });
     writePlanArtifactManifest(manifest);
 
     const result = resolvePlanArtifactReference(hash, { artifactDir: tempDir });
@@ -443,7 +564,7 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     const planPath = path.join(tempDir, filename);
 
     fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
-    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'test', 'custom', createdAt);
+    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'test', sourceKind: 'custom', createdAt: createdAt });
     writePlanArtifactManifest(manifest);
 
     const result = resolvePlanArtifactReference(filename, { artifactDir: tempDir });
@@ -461,7 +582,7 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     }));
 
     fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Custom plan' }));
-    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'my-custom-plan', 'custom', createdAt);
+    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'my-custom-plan', sourceKind: 'custom', createdAt: createdAt });
     writePlanArtifactManifest(manifest);
 
     const result = resolvePlanArtifactReference('my-custom-plan', { artifactDir: tempDir });
@@ -481,7 +602,7 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     const planPath = path.join(tempDir, filename);
 
     fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
-    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'test', 'custom', createdAt);
+    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'test', sourceKind: 'custom', createdAt: createdAt });
     writePlanArtifactManifest(manifest);
 
     const result = resolvePlanArtifactReference(`2026-08-24-${hash}-fix-plan.json`, { artifactDir: tempDir });
@@ -499,7 +620,7 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     }));
 
     fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'WBP-123 plan' }));
-    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', hash, 'WBP-123', 'ticket', createdAt);
+    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-123', sourceKind: 'ticket', createdAt: createdAt });
     writePlanArtifactManifest(manifest);
 
     const result = resolvePlanArtifactReference('  WBP-123  ', { artifactDir: tempDir });
@@ -513,7 +634,7 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     const planPath = path.join(tempDir, `2026-08-25-${nonStandardHash}-fix-plan.json`);
 
     fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Migrated plan' }));
-    const manifest = buildPlanArtifactManifest(planPath, 'fix', 'json', nonStandardHash, 'migrated', 'custom', createdAt);
+    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: nonStandardHash, sourceName: 'migrated', sourceKind: 'custom', createdAt: createdAt });
     writePlanArtifactManifest(manifest);
 
     const result = resolvePlanArtifactReference(nonStandardHash, { artifactDir: tempDir });
@@ -534,7 +655,7 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     const planPath1 = path.join(tempDir, filename1);
 
     fs.writeFileSync(planPath1, JSON.stringify({ action: 'fix', summary: 'Test plan' }));
-    const manifest1 = buildPlanArtifactManifest(planPath1, 'fix', 'json', hash, 'test', 'custom', createdAt1);
+    const manifest1 = buildPlanArtifactManifest({ artifactPath: planPath1, action: 'fix', format: 'json', hash: hash, sourceName: 'test', sourceKind: 'custom', createdAt: createdAt1 });
     writePlanArtifactManifest(manifest1);
 
     const filename2 = buildPlanArtifactFilename({
@@ -546,7 +667,7 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     const planPath2 = path.join(tempDir, filename2);
 
     fs.writeFileSync(planPath2, JSON.stringify({ action: 'fix', summary: 'Test plan 2' }));
-    const manifest2 = buildPlanArtifactManifest(planPath2, 'fix', 'json', hash, 'test', 'custom', createdAt2);
+    const manifest2 = buildPlanArtifactManifest({ artifactPath: planPath2, action: 'fix', format: 'json', hash: hash, sourceName: 'test', sourceKind: 'custom', createdAt: createdAt2 });
     writePlanArtifactManifest(manifest2);
 
     expect(() =>
@@ -601,10 +722,10 @@ describe('resolvePlanToken cross-directory resolution', () => {
     fs.writeFileSync(trackerPlanPath1, JSON.stringify({ action: 'fix', summary: 'Plan 1' }));
     fs.writeFileSync(trackerPlanPath2, JSON.stringify({ action: 'fix', summary: 'Plan 2' }));
     writePlanArtifactManifest(
-      buildPlanArtifactManifest(trackerPlanPath1, 'fix', 'json', hash1, 'range-rename', 'custom', createdAt1)
+      buildPlanArtifactManifest({ artifactPath: trackerPlanPath1, action: 'fix', format: 'json', hash: hash1, sourceName: 'range-rename', sourceKind: 'custom', createdAt: createdAt1 })
     );
     writePlanArtifactManifest(
-      buildPlanArtifactManifest(trackerPlanPath2, 'fix', 'json', hash2, 'range-rename', 'custom', createdAt2)
+      buildPlanArtifactManifest({ artifactPath: trackerPlanPath2, action: 'fix', format: 'json', hash: hash2, sourceName: 'range-rename', sourceKind: 'custom', createdAt: createdAt2 })
     );
 
     const customHash = hashPlanArtifactSources(['range-rename-custom']);
@@ -616,7 +737,7 @@ describe('resolvePlanToken cross-directory resolution', () => {
     }));
     fs.writeFileSync(customPlanPath, JSON.stringify({ action: 'fix', summary: 'Custom plan' }));
     writePlanArtifactManifest(
-      buildPlanArtifactManifest(customPlanPath, 'fix', 'json', customHash, 'range-rename', 'custom', createdAt2)
+      buildPlanArtifactManifest({ artifactPath: customPlanPath, action: 'fix', format: 'json', hash: customHash, sourceName: 'range-rename', sourceKind: 'custom', createdAt: createdAt2 })
     );
 
     expect(() => resolvePlanToken('range-rename', trackerDir, repoBaseDir)).toThrow(AmbiguousPlanArtifactError);

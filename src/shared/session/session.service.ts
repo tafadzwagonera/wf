@@ -162,6 +162,26 @@ export class SessionService {
     return this.findActiveSession(this.listSessionFiles(dir).filter(file => file.startsWith(`${ticketKey}-`)));
   }
 
+  /**
+   * Finds the most recent session whose given stage was recorded with this provider
+   * session ID — the anchor for `wf issue:review --session-id <providerSessionId>`,
+   * where the caller supplies an AI-provider conversation ID rather than wf's own
+   * state-file `sessionId`.
+   *
+   * @param providerSessionId - AI provider session ID recorded on the given stage
+   * @param stage - Stage whose `providerSessionId` should be matched
+   * @returns The most recently created matching session, or null if none match
+   */
+  async findByProviderSessionId(providerSessionId: string, stage: string): Promise<SessionState | null> {
+    const dir = this.getSessionDir();
+    if (!fs.existsSync(dir)) return null;
+
+    const matches = this.readSessionStates(dir)
+      .filter(state => state.stages[stage]?.providerSessionId === providerSessionId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return matches[0] ?? null;
+  }
+
   async recordStageStart(
     session: SessionState,
     stage: string,
@@ -222,6 +242,21 @@ export class SessionService {
     return this.persistSession(
       this.updateStage(session, stage, record => ({ ...record, summary, completedAt: new Date().toISOString() }))
     );
+  }
+
+  /**
+   * Records the branch this session's implementation forked from, so a later `issue:review`
+   * run — possibly a separate process/machine — can recover it via {@link findByTicketKey}
+   * instead of re-guessing from branch-name heuristics.
+   *
+   * @param session - Session to update
+   * @param sourceBranch - The branch the session's feature branch was created from
+   * @returns The persisted, updated session
+   */
+  async recordSourceBranch(session: SessionState, sourceBranch: string): Promise<SessionState> {
+    const updated: SessionState = { ...session, sourceBranch, updatedAt: new Date().toISOString() };
+    await this.save(updated);
+    return updated;
   }
 
   async markComplete(session: SessionState): Promise<SessionState> {

@@ -154,7 +154,7 @@ export class PlanStageService {
     const filename = buildPlanArtifactFilename({ createdAt, hash: planHash, action, format: 'json' });
     const planPath = path.join(artifactDir, filename);
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
-    const manifest = buildPlanArtifactManifest(planPath, action, 'json', planHash, sourceName, sourceKind ?? 'ticket', createdAt);
+    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: action, format: 'json', hash: planHash, sourceName: sourceName, sourceKind: sourceKind ?? 'ticket', createdAt: createdAt });
     writePlanArtifactManifest(manifest);
     this.deleteStalePlanArtifacts(artifactDir, planHash, action, planPath);
     return { plan, action, path: planPath, fromCache: false };

@@ -131,7 +131,7 @@ const writePlanToDisk = (
   const planPath = path.join(tempDir, planFilename);
   fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
   writePlanArtifactManifest(
-    buildPlanArtifactManifest(planPath, 'fix', 'json', hash, ticketKey, 'ticket', createdAt),
+    buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: ticketKey, sourceKind: 'ticket', createdAt: createdAt }),
   );
 
   return { ticketPath, planPath };

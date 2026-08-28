@@ -89,7 +89,7 @@ async function main(): Promise<void> {
     const stalePlanPath = path.join(artifactDir, '2020-01-01-aaa111-fix-plan.json');
     fs.writeFileSync(stalePlanPath, JSON.stringify({ action: 'fix', summary: 'STALE PLAN SUMMARY' }));
     writePlanArtifactManifest(
-      buildPlanArtifactManifest(stalePlanPath, 'fix', 'json', 'aaa111', ticketKey, 'ticket', new Date('2020-01-01'), trackerName)
+      buildPlanArtifactManifest({ artifactPath: stalePlanPath, action: 'fix', format: 'json', hash: 'aaa111', sourceName: ticketKey, sourceKind: 'ticket', createdAt: new Date('2020-01-01'), trackerName: trackerName })
     );
 
     const diskOnly = resolveCommitScopeSummary(tmpRepo, trackerName, ticketKey);

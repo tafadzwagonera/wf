@@ -653,9 +653,7 @@ describe('PlanStageService', () => {
       const plan = { ...mockPlan, action: contentAction };
       fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
       // Manifest records the filenameAction (what the resolution lookup will match)
-      const manifest = buildPlanArtifactManifest(
-        planPath, filenameAction as any, 'json', hash, sourceName, 'ticket', createdAt
-      );
+      const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: filenameAction as any, format: 'json', hash: hash, sourceName: sourceName, sourceKind: 'ticket', createdAt: createdAt });
       writePlanArtifactManifest(manifest);
       return { planPath, plan, hash };
     };
@@ -834,15 +832,7 @@ describe('PlanStageService', () => {
         affectedRepositories: ['repo-a'],
       };
       fs.writeFileSync(planPath, JSON.stringify(invalidPlan, null, 2));
-      const manifest = buildPlanArtifactManifest(
-        planPath,
-        'fix',
-        'json',
-        hash,
-        'WBP-QUALITY',
-        'ticket',
-        createdAt
-      );
+      const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-QUALITY', sourceKind: 'ticket', createdAt: createdAt });
       writePlanArtifactManifest(manifest);
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
@@ -885,15 +875,7 @@ describe('PlanStageService', () => {
         affectedRepositories: ['repo-a'],
       };
       fs.writeFileSync(planPath, JSON.stringify(invalidPlan, null, 2));
-      const manifest = buildPlanArtifactManifest(
-        planPath,
-        'fix',
-        'json',
-        hash,
-        'WBP-QUALITY-2',
-        'ticket',
-        createdAt
-      );
+      const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-QUALITY-2', sourceKind: 'ticket', createdAt: createdAt });
       writePlanArtifactManifest(manifest);
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
@@ -928,15 +910,7 @@ describe('PlanStageService', () => {
         affectedRepositories: ['repo-a'],
       };
       fs.writeFileSync(planPath, JSON.stringify(invalidPlan, null, 2));
-      const manifest = buildPlanArtifactManifest(
-        planPath,
-        'fix',
-        'json',
-        hash,
-        'WBP-QUALITY-3',
-        'ticket',
-        createdAt
-      );
+      const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-QUALITY-3', sourceKind: 'ticket', createdAt: createdAt });
       writePlanArtifactManifest(manifest);
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
@@ -976,15 +950,7 @@ describe('PlanStageService', () => {
         affectedRepositories: ['repo-a'],
       };
       fs.writeFileSync(planPath, JSON.stringify(invalidPlan, null, 2));
-      const manifest = buildPlanArtifactManifest(
-        planPath,
-        'fix',
-        'json',
-        hash,
-        'WBP-QUALITY-4',
-        'ticket',
-        createdAt
-      );
+      const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-QUALITY-4', sourceKind: 'ticket', createdAt: createdAt });
       writePlanArtifactManifest(manifest);
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
@@ -1025,15 +991,7 @@ describe('PlanStageService', () => {
         affectedRepositories: ['repo-a'],
       };
       fs.writeFileSync(planPath, JSON.stringify(validPlan, null, 2));
-      const manifest = buildPlanArtifactManifest(
-        planPath,
-        'fix',
-        'json',
-        hash,
-        'WBP-QUALITY-5',
-        'ticket',
-        createdAt
-      );
+      const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-QUALITY-5', sourceKind: 'ticket', createdAt: createdAt });
       writePlanArtifactManifest(manifest);
 
       const artifact = await service.createPlanArtifact(
@@ -1076,15 +1034,7 @@ describe('PlanStageService', () => {
         affectedRepositories: ['repo-a'],
       };
       fs.writeFileSync(planPath, JSON.stringify(validPlan, null, 2));
-      const manifest = buildPlanArtifactManifest(
-        planPath,
-        'fix',
-        'json',
-        hash,
-        'WBP-QUALITY-6',
-        'ticket',
-        createdAt
-      );
+      const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-QUALITY-6', sourceKind: 'ticket', createdAt: createdAt });
       writePlanArtifactManifest(manifest);
 
       const artifact = await service.loadPlanArtifact(ticketPath);
@@ -1107,9 +1057,7 @@ describe('PlanStageService', () => {
       });
       const planPath = path.join(tempDir, planFilename);
       fs.writeFileSync(planPath, JSON.stringify({ ...mockPlan, action: 'fix' }, null, 2));
-      const manifest = buildPlanArtifactManifest(
-        planPath, 'fix', 'json', hash, 'WBP-QUALITY-CWD', 'ticket', createdAt
-      );
+      const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-QUALITY-CWD', sourceKind: 'ticket', createdAt: createdAt });
       writePlanArtifactManifest(manifest);
 
       jest.spyOn(console, 'log').mockImplementation();
@@ -1131,9 +1079,7 @@ describe('PlanStageService', () => {
       });
       const planPath = path.join(tempDir, planFilename);
       fs.writeFileSync(planPath, JSON.stringify({ ...mockPlan, action: 'fix' }, null, 2));
-      const manifest = buildPlanArtifactManifest(
-        planPath, 'fix', 'json', hash, 'WBP-QUALITY-FALLBACK', 'ticket', createdAt
-      );
+      const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-QUALITY-FALLBACK', sourceKind: 'ticket', createdAt: createdAt });
       writePlanArtifactManifest(manifest);
 
       jest.spyOn(console, 'log').mockImplementation();
@@ -1155,9 +1101,7 @@ describe('PlanStageService', () => {
       });
       const planPath = path.join(tempDir, planFilename);
       fs.writeFileSync(planPath, JSON.stringify({ ...mockPlan, action: 'fix' }, null, 2));
-      const manifest = buildPlanArtifactManifest(
-        planPath, 'fix', 'json', hash, 'WBP-QUALITY-BAD', 'ticket', createdAt
-      );
+      const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-QUALITY-BAD', sourceKind: 'ticket', createdAt: createdAt });
       writePlanArtifactManifest(manifest);
 
       const bogusDir = path.join(os.tmpdir(), 'wf-nonexistent-' + Date.now());
@@ -1293,9 +1237,7 @@ describe('PlanStageService', () => {
         });
         const planPath = path.join(tempDir, planFilename);
         fs.writeFileSync(planPath, JSON.stringify({ ...mockPlan }));
-        const manifest = buildPlanArtifactManifest(
-          planPath, 'fix', 'json', hash, 'WBP-MULTI', 'ticket', new Date(`${date}T00:00:00.000Z`)
-        );
+        const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: 'fix', format: 'json', hash: hash, sourceName: 'WBP-MULTI', sourceKind: 'ticket', createdAt: new Date(`${date}T00:00:00.000Z`) });
         writePlanArtifactManifest(manifest);
       }
 

@@ -12,8 +12,14 @@ import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, Tic
 import { KNOWN_SKILLS, registerSkill } from '../skills/skill-registry';
 import { isRepoResolvable } from './utils';
 import * as detectRepoConventionsModule from '../shared/utils/detect-repo-conventions';
+import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-artifact';
 
 jest.mock('inquirer');
+
+jest.mock('../shared/utils/plan-artifact', () => {
+  const actual = jest.requireActual('../shared/utils/plan-artifact');
+  return { ...actual, updatePlanArtifactManifestSourceBranch: jest.fn() };
+});
 
 jest.mock('./utils', () => {
   const actual = jest.requireActual('./utils');
@@ -33,6 +39,7 @@ describe('ImplementerAgent', () => {
   let agent: ImplementerAgent;
   let gitService: jest.Mocked<GitService>;
   let aiService: jest.Mocked<AiService>;
+  let presenter: ReturnType<typeof createMockPresenter>;
   let configService: ConfigService;
   let mockIsRepoResolvable: jest.MockedFunction<typeof isRepoResolvable>;
 
@@ -138,6 +145,7 @@ describe('ImplementerAgent', () => {
     }).compile();
 
     agent = module.get(ImplementerAgent);
+    presenter = module.get(CliPresenter);
     gitService = module.get(GitService);
     aiService = module.get(AiService);
     configService = module.get(ConfigService);
@@ -347,6 +355,39 @@ describe('ImplementerAgent', () => {
       });
 
       expect(gitService.createBranch).toHaveBeenCalledWith('feature/dark-building-creek', 'develop', '/tmp/repo-a');
+    });
+
+    it('records the resolved source branch onto the plan manifest', async () => {
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+      const plan = buildPlan({ affectedFiles: [] });
+
+      await agent.execute(ticketArtifact, plan, {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        customBranchSlug: 'dark-building-creek',
+      });
+
+      expect(updatePlanArtifactManifestSourceBranch).toHaveBeenCalledWith(
+        plan.path, 'develop', 'feature/dark-building-creek'
+      );
+    });
+
+    it('also records the source branch when reusing an already-checked-out branch', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+      gitService.getCurrentBranch.mockResolvedValue('feature/dark-building-creek');
+      const plan = buildPlan({ affectedFiles: [] });
+
+      await agent.execute(ticketArtifact, plan, {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        customBranchSlug: 'dark-building-creek',
+      });
+
+      expect(gitService.createBranch).not.toHaveBeenCalled();
+      expect(updatePlanArtifactManifestSourceBranch).toHaveBeenCalledWith(
+        plan.path, 'develop', 'feature/dark-building-creek'
+      );
     });
   });
 
@@ -1028,6 +1069,19 @@ describe('ImplementerAgent', () => {
 
       expect(gitService.stashChanges).not.toHaveBeenCalled();
       expect(gitService.stashPop).not.toHaveBeenCalled();
+    });
+
+    it('displays the resolved source branch via the CLI presenter', async () => {
+      gitService.detectDevelopmentBranches.mockReturnValue(['develop']);
+      gitService.hasUpstream.mockResolvedValue(true);
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira',
+        repoDir: '/tmp/repo-a',
+        silent: true,
+      });
+
+      expect(presenter.detail).toHaveBeenCalledWith('Source branch', 'develop (has upstream)');
     });
 
     it('auto-selects dev branch in silent mode', async () => {

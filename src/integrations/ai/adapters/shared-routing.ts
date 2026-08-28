@@ -226,21 +226,33 @@ export type ImplementerToolNames = {
   verify: string;
 };
 
-export const buildImplementerRulesSection = (t: ImplementerToolNames): string => `Rules:
-- Respond exclusively with tool calls — text without a tool call terminates the run. The only exception is the final summary (template below), output after all work and verification passes.
-- Use ${t.edit} for existing files and ${t.write} only for new files — writing a full file wastes context on unchanged lines.
-- Use ${t.search} to find relevant line numbers, then ${t.read} with offset/limit to read only the section you need. Avoid reading entire large files.
-- For mechanical migrations (e.g. replacing Logger with PinoLogger across many files): use ${t.search} to find all call sites, then apply ${t.edit} to each file without re-reading the full file — the search results show enough context.
-- Use ${t.glob} to discover file paths instead of guessing.
-- ${t.verify} is the only way to execute a shell command and rejects anything outside the verification whitelist.
-- Modify existing functions in place rather than duplicating them — this applies to constructors, methods, and standalone functions.
-- Fix lint violations in every file you touch rather than suppressing them with eslint-disable comments — suppression masks real problems.
-- If you need to create a file not listed in "Files to implement", first check whether any verification command contains an inline allowlist of file paths. If it does, the new file must not cause that check to fail. Creating an unplanned file that is caught by a verification grep or assertion will block you — the verification whitelist is frozen and cannot be changed during this session.
-- Implement all plan steps — do not stop after core infrastructure when remaining steps exist.
-- The returned progress signal reflects a single verification command, not overall plan completion — treat it as a heuristic.
-- Use verification commands as intermediate checkpoints to catch regressions. After each passing verification, check whether ALL plan steps are done. If any migration or refactoring work remains, continue working.
-- After verification passes, run ${t.search} to count remaining migration patterns. If any matches remain, keep editing — do not output a summary until the search returns zero matches.
-- Stop only when migration search confirms zero remaining instances and all verification commands pass (exit 0), or when no file changes are required. Then output the following summary filled in with actual results.`;
+const buildImplementerEditingRuleLines = (t: ImplementerToolNames): string[] => [
+  'Respond exclusively with tool calls — text without a tool call terminates the run. The only exception is the final summary (template below), output after all work and verification passes.',
+  `Use ${t.edit} for existing files and ${t.write} only for new files — writing a full file wastes context on unchanged lines.`,
+  `Use ${t.search} to find relevant line numbers, then ${t.read} with offset/limit to read only the section you need. Avoid reading entire large files.`,
+  `For mechanical migrations (e.g. replacing Logger with PinoLogger across many files): use ${t.search} to find all call sites, then apply ${t.edit} to each file without re-reading the full file — the search results show enough context.`,
+  `For a rename or terminology migration, search with a broad case-insensitive substring search (e.g. /oldterm/i), not a word-boundary-only pattern (e.g. /\\boldterm\\b/) — the latter misses kebab-case identifiers (old-term-thing), capitalized prose (OldTerm), and other non-word-boundary forms that are still real occurrences of the term being migrated. Run this search across the whole repository, including docs/specs directories, not only the source directories the plan happened to list.`,
+  `Use ${t.glob} to discover file paths instead of guessing.`,
+  `${t.verify} is the only way to execute a shell command and rejects anything outside the verification whitelist.`,
+  'Modify existing functions in place rather than duplicating them — this applies to constructors, methods, and standalone functions.',
+  'Fix lint violations in every file you touch rather than suppressing them with eslint-disable comments — suppression masks real problems.',
+  'If you need to create a file not listed in "Files to implement", first check whether any verification command contains an inline allowlist of file paths. If it does, the new file must not cause that check to fail. Creating an unplanned file that is caught by a verification grep or assertion will block you — the verification whitelist is frozen and cannot be changed during this session.',
+];
+
+const buildImplementerCompletionRuleLines = (t: ImplementerToolNames): string[] => [
+  'Implement all plan steps — do not stop after core infrastructure when remaining steps exist.',
+  `For any file you edit or delete content from as part of a rename, removal, or refactor, use ${t.search} to check whether it still has any remaining importers/callers once your edits land. If it has zero remaining references anywhere in the repo, delete it rather than leaving an orphaned module behind — do not just note it as dead code for a future ticket.`,
+  'The returned progress signal reflects a single verification command, not overall plan completion — treat it as a heuristic.',
+  'Use verification commands as intermediate checkpoints to catch regressions. After each passing verification, check whether ALL plan steps are done. If any migration or refactoring work remains, continue working.',
+  `After verification passes, run ${t.search} to count remaining migration patterns. If any matches remain, keep editing — do not output a summary until the search returns zero matches.`,
+  'Stop only when migration search confirms zero remaining instances and all verification commands pass (exit 0), or when no file changes are required. Then output the following summary filled in with actual results.',
+];
+
+export const buildImplementerRulesSection = (t: ImplementerToolNames): string =>
+  [
+    'Rules:',
+    ...[...buildImplementerEditingRuleLines(t), ...buildImplementerCompletionRuleLines(t)].map(line => `- ${line}`),
+  ].join('\n');
 
 const formatPhaseEntry = (phase: PlanPhase, index: number, planSteps: string[]): string => {
   const stepRange = phase.stepIndices.map(idx => idx + 1).join(', ');

@@ -12,9 +12,9 @@
  */
 
 import { runMigration } from '../../scripts/migrate-custom-plan-source-kind';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 let passed = 0;
 let failed = 0;
@@ -25,7 +25,8 @@ const pass = (message: string) => {
 };
 
 const fail = (message: string, detail?: string) => {
-  console.error(`  \u2717 ${message}${detail ? `\n    \u2192 ${detail}` : ''}`);
+  const suffix = detail ? `\n    \u2192 ${detail}` : '';
+  console.error(`  \u2717 ${message}${suffix}`);
   failed++;
 };
 

@@ -444,7 +444,7 @@
     ]
   },
   "issue:review": {
-    "description": "AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze --staged`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Findings are reported and review continues; a missing CLI or auth/project misconfiguration skips review for that target with a warning, leaving other targets in the same run unaffected. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.",
+    "description": "AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session is treated as a remotely-implemented change and runs an unscoped `sonar analyze` instead, as does any run where no base branch can be resolved. Findings are reported and review continues; a missing CLI or auth/project misconfiguration skips review for that target with a warning, leaving other targets in the same run unaffected. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.",
     "usage": "wf issue:review [pr-url] [options]",
     "options": [
       {
@@ -481,7 +481,7 @@
       },
       {
         "flags": "--session-id <id>",
-        "description": "Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID)"
+        "description": "Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID). For --sonar, also looked up as the originating wf session to recover its recorded source branch, ahead of the --ticket-key/plan-manifest/reflog/prompt chain."
       },
       {
         "flags": "-s, --silent",
@@ -528,6 +528,10 @@
       {
         "comment": "Review ticket changes and run the SonarQube CLI regardless of config",
         "command": "wf issue:review --ticket-key WBP-2971 --sonar"
+      },
+      {
+        "comment": "Sonar-review a chained implement→review run, recovering the source branch from that session",
+        "command": "wf issue:review --ticket-key WBP-2971 --session-id {providerSessionId} --sonar"
       },
       {
         "comment": "Skip pre-review verification (lint, typecheck, test) in the target repository",

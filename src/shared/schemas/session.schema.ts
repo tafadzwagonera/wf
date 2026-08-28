@@ -31,6 +31,7 @@ export const sessionStateSchema = z.object({
   action: z.string().nullable().default(null),
   sourceType: z.enum(['ticket', 'custom']).nullable().default(null),
   customPlanRef: z.string().nullable().default(null),
+  sourceBranch: z.string().nullable().default(null),
   createdAt: z.string(),
   updatedAt: z.string(),
   completedAt: z.string().nullable(),

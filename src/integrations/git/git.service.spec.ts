@@ -396,4 +396,125 @@ describe('GitService', () => {
       await expect(service.listCommitsInRange({ from: 'base', to: 'HEAD' }, '/repo')).rejects.toThrow(GitError);
     });
   });
+
+  describe('getMergeBase()', () => {
+    beforeEach(() => {
+      mockCwdGitInstance.raw.mockReset();
+    });
+
+    it('returns the trimmed common-ancestor sha', async () => {
+      mockCwdGitInstance.raw.mockResolvedValue('44ad52b2cba1142af84c8162d236bc0dd2791132\n');
+
+      const sha = await service.getMergeBase('develop', 'feature/x', '/repo');
+
+      expect(sha).toBe('44ad52b2cba1142af84c8162d236bc0dd2791132');
+      expect(mockCwdGitInstance.raw).toHaveBeenCalledWith(['merge-base', 'develop', 'feature/x']);
+    });
+
+    it('returns null when the refs share no common ancestor', async () => {
+      mockCwdGitInstance.raw.mockRejectedValue(new Error('fatal: no merge base'));
+
+      const sha = await service.getMergeBase('develop', 'feature/x', '/repo');
+
+      expect(sha).toBeNull();
+    });
+  });
+
+  describe('getUpstreamRef()', () => {
+    beforeEach(() => {
+      mockCwdGitInstance.raw.mockReset();
+    });
+
+    it('returns the trimmed upstream tracking ref', async () => {
+      mockCwdGitInstance.raw.mockResolvedValue('origin/develop\n');
+
+      const ref = await service.getUpstreamRef('develop', '/repo');
+
+      expect(ref).toBe('origin/develop');
+      expect(mockCwdGitInstance.raw).toHaveBeenCalledWith(['rev-parse', '--abbrev-ref', 'develop@{upstream}']);
+    });
+
+    it('returns null when the branch has no upstream configured', async () => {
+      mockCwdGitInstance.raw.mockRejectedValue(new Error('fatal: no upstream configured'));
+
+      const ref = await service.getUpstreamRef('develop', '/repo');
+
+      expect(ref).toBeNull();
+    });
+  });
+
+  describe('getBranchCreationSource()', () => {
+    beforeEach(() => {
+      mockCwdGitInstance.raw.mockReset();
+    });
+
+    it('parses the source branch from a checkout -b reflog entry', async () => {
+      mockCwdGitInstance.raw.mockResolvedValue(
+        '0e3e24c feature/x@{0}: commit: work\n'
+        + '3769e25 feature/x@{1}: branch: Created from develop\n'
+      );
+
+      const source = await service.getBranchCreationSource('feature/x', '/repo');
+
+      expect(source).toBe('develop');
+      expect(mockCwdGitInstance.raw).toHaveBeenCalledWith(['reflog', 'show', 'feature/x']);
+    });
+
+    it('returns null when the reflog entry is the generic "Created from HEAD"', async () => {
+      mockCwdGitInstance.raw.mockResolvedValue('3769e25 feature/x@{0}: branch: Created from HEAD\n');
+
+      const source = await service.getBranchCreationSource('feature/x', '/repo');
+
+      expect(source).toBeNull();
+    });
+
+    it('returns null when the reflog has no creation entry (e.g. expired or never local)', async () => {
+      mockCwdGitInstance.raw.mockResolvedValue('1a2b3c4 feature/x@{0}: clone: from origin\n');
+
+      const source = await service.getBranchCreationSource('feature/x', '/repo');
+
+      expect(source).toBeNull();
+    });
+
+    it('returns null when the reflog command fails', async () => {
+      mockCwdGitInstance.raw.mockRejectedValue(new Error('fatal: no reflog for feature/x'));
+
+      const source = await service.getBranchCreationSource('feature/x', '/repo');
+
+      expect(source).toBeNull();
+    });
+  });
+
+  describe('getChangedFilesSince()', () => {
+    beforeEach(() => {
+      mockCwdGitInstance.raw.mockReset();
+    });
+
+    it('lists files changed since the given ref, including uncommitted changes', async () => {
+      mockCwdGitInstance.raw.mockResolvedValue('src/a.ts\nsrc/b.ts\n');
+
+      const files = await service.getChangedFilesSince('44ad52b2cba1142af84c8162d236bc0dd2791132', '/repo');
+
+      expect(files).toEqual(['src/a.ts', 'src/b.ts']);
+      expect(mockCwdGitInstance.raw).toHaveBeenCalledWith([
+        'diff', '--name-only', '44ad52b2cba1142af84c8162d236bc0dd2791132',
+      ]);
+    });
+
+    it('returns an empty list when there is nothing to diff', async () => {
+      mockCwdGitInstance.raw.mockResolvedValue('');
+
+      const files = await service.getChangedFilesSince('develop', '/repo');
+
+      expect(files).toEqual([]);
+    });
+
+    it('returns an empty list when the diff command fails', async () => {
+      mockCwdGitInstance.raw.mockRejectedValue(new Error('fatal: bad revision'));
+
+      const files = await service.getChangedFilesSince('develop', '/repo');
+
+      expect(files).toEqual([]);
+    });
+  });
 });

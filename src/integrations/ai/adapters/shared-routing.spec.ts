@@ -117,6 +117,23 @@ describe('buildPlanContext', () => {
     expect(rules).toContain('verification whitelist is frozen');
   });
 
+  it('tells the implementer to search broadly, not with word-boundary-only patterns', () => {
+    const rules = buildImplementerRulesSection({
+      read: 'Read', write: 'Write', edit: 'Edit', search: 'Grep', glob: 'Glob', verify: 'Bash',
+    });
+    expect(rules).toContain('case-insensitive substring search');
+    expect(rules).toContain('kebab-case');
+    expect(rules).toContain('not a word-boundary-only pattern');
+  });
+
+  it('tells the implementer to delete files it edited that are no longer referenced', () => {
+    const rules = buildImplementerRulesSection({
+      read: 'Read', write: 'Write', edit: 'Edit', search: 'Grep', glob: 'Glob', verify: 'Bash',
+    });
+    expect(rules).toContain('zero remaining references');
+    expect(rules).toContain('delete it');
+  });
+
   it('includes skill invocation hints when skillNames are provided', () => {
     const result = buildPlanContext({
       ...baseParams,

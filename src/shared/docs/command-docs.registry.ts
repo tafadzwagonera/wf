@@ -124,6 +124,10 @@ export const COMMAND_DOCS = {
         command: 'wf issue:review --ticket-key WBP-2971 --sonar',
       },
       {
+        comment: 'Sonar-review a chained implement→review run, recovering the source branch from that session',
+        command: 'wf issue:review --ticket-key WBP-2971 --session-id {providerSessionId} --sonar',
+      },
+      {
         comment: 'Skip pre-review verification (lint, typecheck, test) in the target repository',
         command: 'wf issue:review --ticket-key WBP-2971 --skip-verification',
       },

@@ -8,7 +8,8 @@ const SONAR_MAX_BUFFER = 4 * 1024 * 1024;
 export type SonarScanScope
   = { kind: 'staged' }
     | { kind: 'base'; ref: string }
-    | { kind: 'files'; paths: string[] };
+    | { kind: 'files'; paths: string[] }
+    | { kind: 'branch' };
 
 export type SonarStepOutcome = {
   step: 'secrets' | 'analyze';
@@ -46,6 +47,9 @@ const buildScopeArgs = (scope: SonarScanScope): string[] => {
   }
   if (scope.kind === 'base') {
     return ['--base', scope.ref];
+  }
+  if (scope.kind === 'branch') {
+    return [];
   }
   return scope.paths.flatMap(p => ['--file', p]);
 };

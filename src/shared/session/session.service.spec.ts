@@ -15,6 +15,7 @@ const createMockSessionState = (overrides?: Partial<SessionState>): SessionState
   action: null,
   sourceType: 'ticket',
   customPlanRef: null,
+  sourceBranch: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   completedAt: null,
@@ -86,6 +87,60 @@ describe('SessionService', () => {
 
     expect(found).not.toBeNull();
     expect(found?.sessionId).toBe('active-session');
+  });
+
+  it('findByProviderSessionId returns the most recent session matching the stage providerSessionId', async () => {
+    const older = createMockSessionState({
+      sessionId: 'older-session',
+      createdAt: new Date('2026-01-01T00:00:00.000Z').toISOString(),
+      stages: {
+        plan: {
+          config: mockFingerprint, model: 'claude', modelsUsed: [], providerSessionId: 'provider-abc',
+          summary: null, startedAt: new Date().toISOString(), completedAt: null,
+        },
+      },
+    });
+    const newer = createMockSessionState({
+      sessionId: 'newer-session',
+      createdAt: new Date('2026-02-01T00:00:00.000Z').toISOString(),
+      stages: {
+        plan: {
+          config: mockFingerprint, model: 'claude', modelsUsed: [], providerSessionId: 'provider-abc',
+          summary: null, startedAt: new Date().toISOString(), completedAt: null,
+        },
+      },
+    });
+    await service.save(older);
+    await service.save(newer);
+
+    const found = await service.findByProviderSessionId('provider-abc', 'plan');
+
+    expect(found?.sessionId).toBe('newer-session');
+  });
+
+  it('findByProviderSessionId returns null when no session matches', async () => {
+    const session = createMockSessionState({
+      stages: {
+        plan: {
+          config: mockFingerprint, model: 'claude', modelsUsed: [], providerSessionId: 'provider-abc',
+          summary: null, startedAt: new Date().toISOString(), completedAt: null,
+        },
+      },
+    });
+    await service.save(session);
+
+    const found = await service.findByProviderSessionId('provider-xyz', 'plan');
+
+    expect(found).toBeNull();
+  });
+
+  it('findByProviderSessionId ignores sessions where the stage was never recorded', async () => {
+    const session = createMockSessionState({ stages: {} });
+    await service.save(session);
+
+    const found = await service.findByProviderSessionId('provider-abc', 'plan');
+
+    expect(found).toBeNull();
   });
 
   it('recordStageStart creates a stage record with provider/backend/model', async () => {
@@ -196,6 +251,17 @@ describe('SessionService', () => {
     const updated = await service.markComplete(session);
 
     expect(updated.completedAt).not.toBeNull();
+  });
+
+  it('recordSourceBranch persists sourceBranch and saves the session', async () => {
+    const session = createMockSessionState();
+    await service.save(session);
+
+    const updated = await service.recordSourceBranch(session, 'develop');
+
+    expect(updated.sourceBranch).toBe('develop');
+    const reloaded = await service.load(session.sessionId);
+    expect(reloaded?.sourceBranch).toBe('develop');
   });
 
   it('isExpired returns true for a session older than TTL', () => {

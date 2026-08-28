@@ -47,6 +47,7 @@ async function main() {
     action: null,
     sourceType: 'ticket' as const,
     customPlanRef: null,
+    sourceBranch: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     completedAt: null,

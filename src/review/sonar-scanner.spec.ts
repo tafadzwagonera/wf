@@ -227,6 +227,24 @@ describe('runSonarScan', () => {
       expect(analyzeCall[1]).toContain('b.ts');
     });
 
+    it('runs a bare analyze with no scope flag for branch scope', async () => {
+      mockExecSync.mockReturnValue('');
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const fn = callback as ExecFileCallback;
+        fn(null, '', '');
+        return {} as any;
+      });
+
+      await runSonarScan({ ...defaultOptions, scope: { kind: 'branch' } });
+
+      // Only one execFile call (analyze) since secretPaths is omitted
+      const analyzeCall = mockExecFile.mock.calls[0];
+      expect(analyzeCall[1]).not.toContain('--staged');
+      expect(analyzeCall[1]).not.toContain('--base');
+      expect(analyzeCall[1]).not.toContain('--file');
+      expect(analyzeCall[1]).toEqual(['analyze', '--force', '--format', 'text', '--depth', 'STANDARD']);
+    });
+
     it('skips analyze when files scope has empty paths', async () => {
       mockExecSync.mockReturnValue('');
       mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {

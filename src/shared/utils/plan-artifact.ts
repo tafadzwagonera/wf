@@ -1,16 +1,16 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as YAML from 'yaml';
 import { type ResolutionPlan, type FileEntry, normalizeFileEntries } from '../../integrations/ai/ai.service';
 import { planPhaseSchema } from '../schemas/ai.schema';
-import type { ResolutionAction, TicketArtifact } from '../../agents/interfaces';
+import type { ResolutionAction, TicketArtifact } from '../types/agent.types';
 import { resolveCustomArtifactDir } from '../../agents/utils';
 import type { PlanArtifactManifest, PlanArtifactReference, PlanTokenResolution } from '../types/plan-artifact.types';
 import { hashGeneratedTicketSources } from './generated-ticket-artifact';
 import { normalizePlanVerification } from './verification-manifest';
 import { PlanArtifactNotFoundError, AmbiguousPlanArtifactError, ValidationError, WorkflowParseError } from '../errors/app.error';
 
-export type { PlanArtifactManifest, PlanArtifactReference };
+export type { PlanArtifactManifest, PlanArtifactReference } from '../types/plan-artifact.types';
 
 export const deriveReviewArtifactPath = (ticketPath: string): string => {
   const ext = path.extname(ticketPath);
@@ -18,7 +18,7 @@ export const deriveReviewArtifactPath = (ticketPath: string): string => {
   return ticketPath.slice(0, -ext.length) + '-review.md';
 };
 
-const VALID_ACTIONS: ResolutionAction[] = ['feature', 'fix', 'investigate'];
+const VALID_ACTIONS: Set<string> = new Set(['feature', 'fix', 'investigate']);
 const VALID_COMPLEXITIES = ['low', 'medium', 'high'] as const;
 const PLAN_ARTIFACT_MANIFEST_EXTENSION = '.sources.json';
 const PLAN_ARTIFACT_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
@@ -30,7 +30,18 @@ export const isPlanToken = (value: string): boolean => CANONICAL_PLAN_STEM.test(
 type PlanComplexity = (typeof VALID_COMPLEXITIES)[number];
 type PlanArtifactFormat = 'json' | 'md' | 'yaml' | 'yml';
 
-type PlanArtifactSourceKind = 'ticket' | 'custom';
+export type PlanArtifactSourceKind = 'ticket' | 'custom';
+
+export interface BuildPlanArtifactManifestOptions {
+  artifactPath: string;
+  action: ResolutionAction;
+  format: PlanArtifactFormat;
+  hash: string;
+  sourceName: string;
+  sourceKind: PlanArtifactSourceKind;
+  createdAt: Date;
+  trackerName?: string;
+}
 
 export interface ResolvePlanArtifactOptions {
   artifactDir: string;
@@ -86,30 +97,18 @@ export const buildPlanArtifactManifestFilename = (artifactFilename: string): str
 export const buildPlanArtifactManifestPath = (artifactPath: string): string =>
   path.join(path.dirname(artifactPath), buildPlanArtifactManifestFilename(path.basename(artifactPath)));
 
-/* eslint-disable max-params */
-// eslint-disable-next-line max-lines-per-function
-export const buildPlanArtifactManifest = (
-  artifactPath: string,
-  action: ResolutionAction,
-  format: PlanArtifactFormat,
-  hash: string,
-  sourceName: string,
-  sourceKind: PlanArtifactSourceKind,
-  createdAt: Date,
-  trackerName?: string
-): PlanArtifactManifest => ({
-  artifactPath,
-  action,
-  createdAt: createdAt.toISOString(),
-  format: normalizeFormat(format) as PlanArtifactFormat,
-  hash: hash.trim().toLowerCase(),
-  sourceKind,
-  sourceName,
-  ticketKey: sourceKind === 'ticket' ? sourceName : undefined,
-  customArtifactName: sourceKind === 'custom' ? sourceName : undefined,
-  trackerName,
+export const buildPlanArtifactManifest = (options: BuildPlanArtifactManifestOptions): PlanArtifactManifest => ({
+  artifactPath: options.artifactPath,
+  action: options.action,
+  createdAt: options.createdAt.toISOString(),
+  format: normalizeFormat(options.format) as PlanArtifactFormat,
+  hash: options.hash.trim().toLowerCase(),
+  sourceKind: options.sourceKind,
+  sourceName: options.sourceName,
+  ticketKey: options.sourceKind === 'ticket' ? options.sourceName : undefined,
+  customArtifactName: options.sourceKind === 'custom' ? options.sourceName : undefined,
+  trackerName: options.trackerName,
 });
-/* eslint-enable max-params */
 
 export const writePlanArtifactManifest = (manifest: PlanArtifactManifest): string => {
   const manifestPath = buildPlanArtifactManifestPath(manifest.artifactPath);
@@ -117,56 +116,103 @@ export const writePlanArtifactManifest = (manifest: PlanArtifactManifest): strin
   return manifestPath;
 };
 
-// eslint-disable-next-line max-lines-per-function
-export const readPlanArtifactManifest = (manifestPath: string): PlanArtifactManifest | null => {
-  if (!fs.existsSync(manifestPath)) {
-    return null;
-  }
+const hasRequiredManifestStrings = (value: Partial<PlanArtifactManifest>): boolean =>
+  typeof value.artifactPath === 'string'
+  && typeof value.action === 'string'
+  && typeof value.createdAt === 'string'
+  && typeof value.format === 'string'
+  && typeof value.hash === 'string'
+  && typeof value.sourceKind === 'string'
+  && typeof value.sourceName === 'string';
 
+const buildOptionalManifestFields = (value: Partial<PlanArtifactManifest>) => ({
+  ticketKey: typeof value.ticketKey === 'string' ? value.ticketKey : undefined,
+  customArtifactName: typeof value.customArtifactName === 'string' ? value.customArtifactName : undefined,
+  trackerName: typeof value.trackerName === 'string' ? value.trackerName : undefined,
+  sourceBranch: typeof value.sourceBranch === 'string' ? value.sourceBranch : undefined,
+  branchName: typeof value.branchName === 'string' ? value.branchName : undefined,
+});
+
+const buildValidatedManifest = (
+  value: Partial<PlanArtifactManifest>, format: PlanArtifactFormat
+): PlanArtifactManifest => ({
+  artifactPath: value.artifactPath as string,
+  action: value.action as ResolutionAction,
+  createdAt: value.createdAt as string,
+  format,
+  hash: value.hash as string,
+  sourceKind: value.sourceKind as PlanArtifactSourceKind,
+  sourceName: value.sourceName as string,
+  ...buildOptionalManifestFields(value),
+});
+
+const parseManifestFields = (value: Partial<PlanArtifactManifest>): PlanArtifactManifest | null => {
+  if (!hasRequiredManifestStrings(value)) return null;
+  if (!VALID_ACTIONS.has(value.action as string)) return null;
+  if (value.sourceKind !== 'ticket' && value.sourceKind !== 'custom') return null;
+  const format = normalizeFormat(value.format as string) as PlanArtifactFormat;
+  if (format !== 'json' && format !== 'md' && format !== 'yaml' && format !== 'yml') return null;
+  return buildValidatedManifest(value, format);
+};
+
+export const readPlanArtifactManifest = (manifestPath: string): PlanArtifactManifest | null => {
+  if (!fs.existsSync(manifestPath)) return null;
   try {
     const value = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as Partial<PlanArtifactManifest>;
-    if (
-      typeof value.artifactPath !== 'string'
-      || typeof value.action !== 'string'
-      || typeof value.createdAt !== 'string'
-      || typeof value.format !== 'string'
-      || typeof value.hash !== 'string'
-      || typeof value.sourceKind !== 'string'
-      || typeof value.sourceName !== 'string'
-    ) {
-      return null;
-    }
-
-    const action = value.action;
-    if (!VALID_ACTIONS.includes(action)) {
-      return null;
-    }
-
-    const sourceKind = value.sourceKind;
-    if (sourceKind !== 'ticket' && sourceKind !== 'custom') {
-      return null;
-    }
-
-    const format = normalizeFormat(value.format) as PlanArtifactFormat;
-    if (format !== 'json' && format !== 'md' && format !== 'yaml' && format !== 'yml') {
-      return null;
-    }
-
-    return {
-      artifactPath: value.artifactPath,
-      action,
-      createdAt: value.createdAt,
-      format,
-      hash: value.hash,
-      sourceKind,
-      sourceName: value.sourceName,
-      ticketKey: typeof value.ticketKey === 'string' ? value.ticketKey : undefined,
-      customArtifactName: typeof value.customArtifactName === 'string' ? value.customArtifactName : undefined,
-      trackerName: typeof value.trackerName === 'string' ? value.trackerName : undefined,
-    };
+    return parseManifestFields(value);
   } catch {
     return null;
   }
+};
+
+/**
+ * Records the branch a feature branch was actually created from — and the feature branch's
+ * own name — onto its plan's manifest, so later stages (e.g. the SonarQube review fallback)
+ * can diff against the real base instead of re-guessing it from branch-name heuristics, and
+ * can find this manifest by branch name when no ticket key identifies it (custom plans).
+ * Each field is write-once independently: an already-recorded value is left untouched, but a
+ * manifest missing just one of the two (e.g. an older manifest with `sourceBranch` recorded
+ * before `branchName` tracking existed) still gets the other backfilled.
+ *
+ * @param artifactPath - Path to the plan artifact whose manifest should be updated
+ * @param sourceBranch - The branch the feature branch was created from
+ * @param branchName - The feature branch's own name
+ */
+export const updatePlanArtifactManifestSourceBranch = (
+  artifactPath: string, sourceBranch: string, branchName?: string
+): void => {
+  const manifestPath = buildPlanArtifactManifestPath(artifactPath);
+  const existing = readPlanArtifactManifest(manifestPath);
+  if (!existing) return;
+  const nextSourceBranch = existing.sourceBranch ?? sourceBranch;
+  const nextBranchName = existing.branchName ?? branchName;
+  if (nextSourceBranch === existing.sourceBranch && nextBranchName === existing.branchName) return;
+  writePlanArtifactManifest({ ...existing, sourceBranch: nextSourceBranch, branchName: nextBranchName });
+};
+
+const pickMostRecentManifest = (matches: PlanArtifactManifest[]): PlanArtifactManifest | undefined => {
+  if (matches.length === 0) return undefined;
+  return matches.reduce(
+    (latest, candidate) => (candidate.createdAt > latest.createdAt ? candidate : latest),
+    matches[0]
+  );
+};
+
+/**
+ * Finds the most recently created plan manifest recorded for `branchName`, across one or more
+ * artifact directories. This is the only way to recover a custom plan's manifest during
+ * review — custom plans have no ticket key to look them up by, unlike ticket-driven plans.
+ *
+ * @param branchName - Feature branch name to search for
+ * @param artifactDirs - Directories to search (e.g. both the tracker dir and the custom dir)
+ * @returns The matching manifest, or undefined if none is recorded
+ */
+export const findPlanArtifactManifestByBranchName = (
+  branchName: string,
+  artifactDirs: string[]
+): PlanArtifactManifest | undefined => {
+  const candidates = artifactDirs.flatMap(dir => readManifestCandidates(dir));
+  return pickMostRecentManifest(candidates.filter(manifest => manifest.branchName === branchName));
 };
 
 const normalizeFormat = (format: string): string =>
@@ -181,7 +227,7 @@ const parseCanonicalStem = (stem: string): { datePrefix: string; hash: string; a
   }
 
   const [, datePrefix, hash, action] = match;
-  if (!hash || !action || !VALID_ACTIONS.includes(action as ResolutionAction)) {
+  if (!hash || !action || !VALID_ACTIONS.has(action as ResolutionAction)) {
     return null;
   }
 
@@ -199,7 +245,7 @@ const parseShortHashedStem = (stem: string): { hash: string; action: ResolutionA
   }
 
   const [, hash, action] = match;
-  if (!hash || !action || !VALID_ACTIONS.includes(action as ResolutionAction)) {
+  if (!hash || !action || !VALID_ACTIONS.has(action as ResolutionAction)) {
     return null;
   }
 
@@ -233,36 +279,25 @@ const readManifestCandidates = (artifactDir: string): PlanArtifactManifest[] =>
     .map(manifestPath => readPlanArtifactManifest(manifestPath))
     .filter((manifest): manifest is PlanArtifactManifest => manifest !== null);
 
-// eslint-disable-next-line max-lines-per-function
+const collectManifestIdentifierTokens = (manifest: PlanArtifactManifest): string[] => {
+  const artifactStem = stripArtifactExtension(path.basename(manifest.artifactPath));
+  return [manifest.hash, manifest.ticketKey, manifest.customArtifactName, manifest.sourceName, artifactStem]
+    .filter((token): token is string => typeof token === 'string' && token.length > 0);
+};
+
 const matchesManifestIdentifier = (
   manifest: PlanArtifactManifest,
   identifierStem: string,
   normalizedIdentifier: string,
   requestedAction?: ResolutionAction
 ): boolean => {
-  if (requestedAction && manifest.action !== requestedAction) {
-    return false;
-  }
+  if (requestedAction && manifest.action !== requestedAction) return false;
 
-  const artifactStem = stripArtifactExtension(path.basename(manifest.artifactPath));
-  const sourceTokens = [
-    manifest.hash,
-    manifest.ticketKey,
-    manifest.customArtifactName,
-    manifest.sourceName,
-    artifactStem,
-  ].filter((token): token is string => typeof token === 'string' && token.length > 0);
-
-  if (sourceTokens.some(token => token.trim().toLowerCase() === normalizedIdentifier)) {
-    return true;
-  }
+  const sourceTokens = collectManifestIdentifierTokens(manifest);
+  if (sourceTokens.some(token => token.trim().toLowerCase() === normalizedIdentifier)) return true;
 
   const parsedStem = parseCanonicalStem(identifierStem);
-  if (parsedStem) {
-    return manifest.hash.toLowerCase() === parsedStem.hash;
-  }
-
-  return false;
+  return parsedStem ? manifest.hash.toLowerCase() === parsedStem.hash : false;
 };
 
 const isCanonicalArtifactPath = (artifactPath: string): boolean => {
@@ -275,7 +310,28 @@ const isCanonicalArtifactPath = (artifactPath: string): boolean => {
   return parseCanonicalStem(artifactStem) !== null;
 };
 
-// eslint-disable-next-line max-lines-per-function
+const buildManifestReference = (selected: PlanArtifactManifest): PlanArtifactReference => ({
+  action: selected.action,
+  artifactPath: selected.artifactPath,
+  format: selected.format,
+  hash: selected.hash,
+  manifestPath: buildPlanArtifactManifestPath(selected.artifactPath),
+  sourceKind: selected.sourceKind,
+  sourceName: selected.sourceName,
+  ticketKey: selected.ticketKey,
+  customArtifactName: selected.customArtifactName,
+  isLegacy: false,
+});
+
+const assertUnambiguousCandidates = (candidates: PlanArtifactManifest[], identifierStem: string): void => {
+  if (candidates.length <= 1) return;
+  throw new AmbiguousPlanArtifactError(
+    `Multiple plan artifacts found for '${identifierStem}': ${candidates
+      .map(candidate => path.basename(candidate.artifactPath))
+      .join(', ')}. Remove or regenerate the stale artifact.`
+  );
+};
+
 const resolveManifestMatch = (
   artifactDir: string,
   identifierStem: string,
@@ -287,59 +343,35 @@ const resolveManifestMatch = (
       isCanonicalArtifactPath(manifest.artifactPath)
       && matchesManifestIdentifier(manifest, identifierStem, normalizedIdentifier, requestedAction)
   );
-
-  if (candidates.length === 0) {
-    return null;
-  }
-
-  if (candidates.length > 1) {
-    throw new AmbiguousPlanArtifactError(
-      `Multiple plan artifacts found for '${identifierStem}': ${candidates
-        .map(candidate => path.basename(candidate.artifactPath))
-        .join(', ')}. Remove or regenerate the stale artifact.`
-    );
-  }
-
-  const selected = candidates[0];
-  return {
-    action: selected.action,
-    artifactPath: selected.artifactPath,
-    format: selected.format,
-    hash: selected.hash,
-    manifestPath: buildPlanArtifactManifestPath(selected.artifactPath),
-    sourceKind: selected.sourceKind,
-    sourceName: selected.sourceName,
-    ticketKey: selected.ticketKey,
-    customArtifactName: selected.customArtifactName,
-    isLegacy: false,
-  };
+  if (candidates.length === 0) return null;
+  assertUnambiguousCandidates(candidates, identifierStem);
+  return buildManifestReference(candidates[0]);
 };
 
-// eslint-disable-next-line max-lines-per-function
+const buildNotFoundCandidateList = (identifierStem: string, requestedAction?: ResolutionAction): string[] =>
+  requestedAction && looksLikeTicketKey(identifierStem)
+    ? PLAN_ARTIFACT_EXTENSIONS.map(
+        extension => `YYYY-MM-DD-${hashPlanArtifactSources([identifierStem])}-${requestedAction}-plan.${extension}`
+      )
+    : ['YYYY-MM-DD-<hash>-<action>-plan.<ext>'];
+
+const assertCanonicalIdentifier = (identifier: string, identifierStem: string): void => {
+  if (!parseShortHashedStem(identifierStem)) return;
+  throw new ValidationError(`Non-canonical plan identifier '${identifier}'. Use YYYY-MM-DD-<hash>-<action>-plan.<ext>.`);
+};
+
 export const resolvePlanArtifactReference = (
   identifier: string,
   options: ResolvePlanArtifactOptions
 ): PlanArtifactReference => {
-  const artifactDir = options.artifactDir;
   const identifierStem = stripArtifactExtension(path.basename(identifier.trim()));
+  assertCanonicalIdentifier(identifier, identifierStem);
   const requestedAction = resolveActionFromIdentifier(identifierStem, options.action);
-  if (parseShortHashedStem(identifierStem)) {
-    throw new ValidationError(`Non-canonical plan identifier '${identifier}'. Use YYYY-MM-DD-<hash>-<action>-plan.<ext>.`);
-  }
-
-  const manifestMatch = resolveManifestMatch(artifactDir, identifierStem, requestedAction);
-  if (manifestMatch) {
-    return manifestMatch;
-  }
-
-  const candidateList
-    = requestedAction && looksLikeTicketKey(identifierStem)
-      ? PLAN_ARTIFACT_EXTENSIONS.map(
-          extension => `YYYY-MM-DD-${hashPlanArtifactSources([identifierStem])}-${requestedAction}-plan.${extension}`
-        )
-      : ['YYYY-MM-DD-<hash>-<action>-plan.<ext>'];
+  const manifestMatch = resolveManifestMatch(options.artifactDir, identifierStem, requestedAction);
+  if (manifestMatch) return manifestMatch;
+  const candidateList = buildNotFoundCandidateList(identifierStem, requestedAction);
   throw new PlanArtifactNotFoundError(
-    `Plan artifact not found for '${identifier}' in ${artifactDir}. Checked: ${candidateList.join(', ')}`
+    `Plan artifact not found for '${identifier}' in ${options.artifactDir}. Checked: ${candidateList.join(', ')}`
   );
 };
 
@@ -373,81 +405,88 @@ export const parsePlanArtifact = (content: string, filePath: string): Resolution
 
 export const getPlanArtifactExtension = (format: PlanArtifactFormat): PlanArtifactFormat => format;
 
-// eslint-disable-next-line max-lines-per-function
+const normalizePlanPhases = (rawPlan: Record<string, unknown>): ResolutionPlan['phases'] => {
+  if (!Array.isArray(rawPlan.phases)) return undefined;
+  return rawPlan.phases.flatMap((entry: unknown) => {
+    const parsed = planPhaseSchema.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
+};
+
+const normalizeCorePlanFields = (rawPlan: Record<string, unknown>, filePath: string) => ({
+  action: normalizeAction(rawPlan.action, filePath),
+  summary: typeof rawPlan.summary === 'string' ? rawPlan.summary : '',
+  steps: normalizeStringList(rawPlan.steps),
+  estimatedComplexity: normalizeComplexity(rawPlan.estimatedComplexity, filePath),
+  affectedFiles: normalizeFileEntryList(rawPlan.affectedFiles ?? rawPlan.filesAffected),
+  affectedFilesContext: normalizeFileEntryList(rawPlan.affectedFilesContext ?? rawPlan.filesContext),
+});
+
+const normalizeExtraPlanFields = (rawPlan: Record<string, unknown>, filePath: string) => ({
+  affectedRepositories: normalizeOptionalStringList(rawPlan.affectedRepositories ?? rawPlan.repositoriesAffected),
+  newRepositories: normalizeOptionalStringList(rawPlan.newRepositories),
+  risks: normalizeOptionalStringList(rawPlan.risks),
+  verification: normalizePlanVerification(rawPlan.verification, filePath),
+  provider: typeof rawPlan.provider === 'string' ? rawPlan.provider : undefined,
+  source: typeof rawPlan.source === 'string' ? rawPlan.source : undefined,
+  timestamp: typeof rawPlan.timestamp === 'string' ? rawPlan.timestamp : undefined,
+  phases: normalizePlanPhases(rawPlan),
+});
+
 const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
   if (!value || typeof value !== 'object') {
     throw new WorkflowParseError(`Plan file is not valid: ${filePath}`);
   }
-
   const rawPlan = value as Record<string, unknown>;
-  const action = normalizeAction(rawPlan.action, filePath);
-  const estimatedComplexity = normalizeComplexity(rawPlan.estimatedComplexity, filePath);
-
-  return {
-    action,
-    summary: typeof rawPlan.summary === 'string' ? rawPlan.summary : '',
-    steps: normalizeStringList(rawPlan.steps),
-    estimatedComplexity,
-    affectedFiles: normalizeFileEntryList(rawPlan.affectedFiles ?? rawPlan.filesAffected),
-    affectedFilesContext: normalizeFileEntryList(rawPlan.affectedFilesContext ?? rawPlan.filesContext),
-    affectedRepositories: normalizeOptionalStringList(rawPlan.affectedRepositories ?? rawPlan.repositoriesAffected),
-    newRepositories: normalizeOptionalStringList(rawPlan.newRepositories),
-    risks: normalizeOptionalStringList(rawPlan.risks),
-    verification: normalizePlanVerification(rawPlan.verification, filePath),
-    provider: typeof rawPlan.provider === 'string' ? rawPlan.provider : undefined,
-    source: typeof rawPlan.source === 'string' ? rawPlan.source : undefined,
-    timestamp: typeof rawPlan.timestamp === 'string' ? rawPlan.timestamp : undefined,
-    phases: Array.isArray(rawPlan.phases)
-      ? rawPlan.phases.flatMap((entry: unknown) => {
-          const parsed = planPhaseSchema.safeParse(entry);
-          return parsed.success ? [parsed.data] : [];
-        })
-      : undefined,
-  };
+  return { ...normalizeCorePlanFields(rawPlan, filePath), ...normalizeExtraPlanFields(rawPlan, filePath) };
 };
 
-// eslint-disable-next-line max-lines-per-function
-const parseMarkdownPlan = (content: string, filePath: string): ResolutionPlan => {
-  const sections = new Map<string, string[]>();
-  let activeSection = '';
-  const metadata = new Map<string, string>();
+interface ParsedMarkdownPlan {
+  sections: Map<string, string[]>;
+  metadata: Map<string, string>;
+}
 
-  for (const line of content.split('\n')) {
-    const metadataMatch = /^\*\*([^:]+):\*\*\s*(.+)$/.exec(line);
-    if (metadataMatch) {
-      metadata.set(metadataMatch[1].trim().toLowerCase(), metadataMatch[2].trim());
-      continue;
-    }
-
-    const headingMatch = /^##\s+(.+)$/.exec(line);
-    if (headingMatch) {
-      activeSection = headingMatch[1].trim().toLowerCase();
-      sections.set(activeSection, []);
-      continue;
-    }
-
-    if (!activeSection) {
-      continue;
-    }
-
-    sections.get(activeSection)?.push(line);
+const consumeMarkdownPlanLine = (line: string, parsed: ParsedMarkdownPlan, activeSection: string): string => {
+  const metadataMatch = /^\*\*([^:]+):\*\*\s*(.+)$/.exec(line);
+  if (metadataMatch) {
+    parsed.metadata.set(metadataMatch[1].trim().toLowerCase(), metadataMatch[2].trim());
+    return activeSection;
   }
+  const headingMatch = /^##\s+(.+)$/.exec(line);
+  if (headingMatch) {
+    const nextSection = headingMatch[1].trim().toLowerCase();
+    parsed.sections.set(nextSection, []);
+    return nextSection;
+  }
+  if (activeSection) parsed.sections.get(activeSection)?.push(line);
+  return activeSection;
+};
 
-  return normalizePlan(
-    {
-      action: metadata.get('action'),
-      estimatedComplexity: metadata.get('complexity'),
-      summary: collapseSection(sections.get('summary')),
-      steps: extractNumberedList(sections.get('steps')),
-      affectedFiles: extractBulletedList(sections.get('files affected')),
-      affectedRepositories: extractBulletedList(
-        sections.get('affected repositories') ?? sections.get('repositories affected')
-      ),
-      newRepositories: extractBulletedList(sections.get('new repositories')),
-      risks: extractBulletedList(sections.get('risks')),
-    },
-    filePath
-  );
+const parseMarkdownSections = (content: string): ParsedMarkdownPlan => {
+  const parsed: ParsedMarkdownPlan = { sections: new Map(), metadata: new Map() };
+  let activeSection = '';
+  for (const line of content.split('\n')) {
+    activeSection = consumeMarkdownPlanLine(line, parsed, activeSection);
+  }
+  return parsed;
+};
+
+const buildMarkdownPlanFields = (sections: Map<string, string[]>, metadata: Map<string, string>) => ({
+  action: metadata.get('action'),
+  estimatedComplexity: metadata.get('complexity'),
+  summary: collapseSection(sections.get('summary')),
+  steps: extractNumberedList(sections.get('steps')),
+  affectedFiles: extractBulletedList(sections.get('files affected')),
+  affectedRepositories: extractBulletedList(
+    sections.get('affected repositories') ?? sections.get('repositories affected')
+  ),
+  newRepositories: extractBulletedList(sections.get('new repositories')),
+  risks: extractBulletedList(sections.get('risks')),
+});
+
+const parseMarkdownPlan = (content: string, filePath: string): ResolutionPlan => {
+  const { sections, metadata } = parseMarkdownSections(content);
+  return normalizePlan(buildMarkdownPlanFields(sections, metadata), filePath);
 };
 
 const collapseSection = (lines?: string[]): string => (lines ?? []).join('\n').trim();
@@ -459,7 +498,7 @@ const extractBulletedList = (lines?: string[]): string[] =>
   (lines ?? []).map(line => (/^-\s+(.+)$/.exec(line))?.[1]?.trim() ?? '').filter(Boolean);
 
 const normalizeAction = (value: unknown, filePath: string): ResolutionAction => {
-  if (typeof value === 'string' && VALID_ACTIONS.includes(value as ResolutionAction)) {
+  if (typeof value === 'string' && VALID_ACTIONS.has(value as ResolutionAction)) {
     return value as ResolutionAction;
   }
 
@@ -483,7 +522,7 @@ const normalizeStringList = (value: unknown): string[] => {
     return [];
   }
 
-  return value.map(item => String(item));
+  return value.map(String);
 };
 
 const normalizeOptionalStringList = (value: unknown): string[] | undefined => {
@@ -491,11 +530,11 @@ const normalizeOptionalStringList = (value: unknown): string[] | undefined => {
     return undefined;
   }
 
-  return value.map(item => String(item));
+  return value.map(String);
 };
 
 const isFileEntry = (item: unknown): item is FileEntry =>
-  typeof item === 'object' && item !== null && 'filePath' in item && typeof (item as FileEntry).filePath === 'string';
+  typeof item === 'object' && item !== null && 'filePath' in item;
 
 const normalizeFileEntryList = (value: unknown): (string | FileEntry)[] | undefined => {
   if (!Array.isArray(value)) {
@@ -516,76 +555,69 @@ const normalizeFileEntryList = (value: unknown): (string | FileEntry)[] | undefi
  * match — genuine ambiguity must surface as an error, not be silently
  * resolved by trying elsewhere.
  */
-// eslint-disable-next-line max-lines-per-function
+const planTokenFromReference = (resolved: PlanArtifactReference): PlanTokenResolution | undefined => {
+  if (resolved.ticketKey) return { kind: 'ticket', ticketKey: resolved.ticketKey };
+  if (resolved.sourceKind === 'custom') {
+    return {
+      kind: 'custom', artifactPath: resolved.artifactPath, action: resolved.action, sourceName: resolved.sourceName,
+    };
+  }
+  return undefined;
+};
+
+const planTokenFromDirectManifest = (dir: string, basename: string): PlanTokenResolution | undefined => {
+  const directPath = path.join(dir, basename);
+  if (!fs.existsSync(directPath)) return undefined;
+  const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(directPath));
+  if (manifest?.ticketKey) return { kind: 'ticket', ticketKey: manifest.ticketKey };
+  if (manifest?.sourceKind === 'custom') {
+    return { kind: 'custom', artifactPath: directPath, action: manifest.action, sourceName: manifest.sourceName };
+  }
+  return undefined;
+};
+
+const resolvePlanTokenInDir = (argument: string, dir: string, basename: string): PlanTokenResolution | undefined => {
+  try {
+    const fromReference = planTokenFromReference(resolvePlanArtifactReference(argument, { artifactDir: dir }));
+    if (fromReference) return fromReference;
+  } catch (error) {
+    if (error instanceof AmbiguousPlanArtifactError) throw error;
+    // fall through to the direct-manifest lookup below
+  }
+  return planTokenFromDirectManifest(dir, basename);
+};
+
 export const resolvePlanToken = (
   argument: string,
   trackerDir: string,
   repoBaseDir: string
 ): PlanTokenResolution | undefined => {
   const basename = path.basename(argument);
-  const customDir = resolveCustomArtifactDir(repoBaseDir);
-  const candidateDirs = [trackerDir, customDir];
-
+  const candidateDirs = [trackerDir, resolveCustomArtifactDir(repoBaseDir)];
   for (const dir of candidateDirs) {
-    try {
-      const resolved = resolvePlanArtifactReference(argument, { artifactDir: dir });
-      if (resolved.ticketKey) return { kind: 'ticket', ticketKey: resolved.ticketKey };
-      if (resolved.sourceKind === 'custom') {
-        return {
-          kind: 'custom',
-          artifactPath: resolved.artifactPath,
-          action: resolved.action,
-          sourceName: resolved.sourceName,
-        };
-      }
-    } catch (error) {
-      if (error instanceof AmbiguousPlanArtifactError) throw error;
-      // fall through
-    }
-
-    const directPath = path.join(dir, basename);
-    if (!fs.existsSync(directPath)) continue;
-
-    const manifestPath = buildPlanArtifactManifestPath(directPath);
-    const manifest = readPlanArtifactManifest(manifestPath);
-    if (manifest?.ticketKey) return { kind: 'ticket', ticketKey: manifest.ticketKey };
-    if (manifest?.sourceKind === 'custom') {
-      return {
-        kind: 'custom',
-        artifactPath: directPath,
-        action: manifest.action,
-        sourceName: manifest.sourceName,
-      };
-    }
+    const found = resolvePlanTokenInDir(argument, dir, basename);
+    if (found) return found;
   }
-
   return undefined;
 };
 
-// eslint-disable-next-line max-lines-per-function
-export const buildSyntheticTicketArtifact = (planPath: string, plan: ResolutionPlan): TicketArtifact => {
+const deriveSyntheticTicketKey = (planPath: string, action: ResolutionAction): string => {
   const artifactName = path.basename(planPath, path.extname(planPath));
-  const ticketKey = artifactName.replace(new RegExp(`-${plan.action}$`), '') || artifactName;
+  return artifactName.replace(new RegExp(`-${action}$`), '') || artifactName;
+};
 
+const buildSyntheticStepsSection = (plan: ResolutionPlan): string[] => [
+  '## Steps',
+  '',
+  ...(plan.steps.length > 0
+    ? plan.steps.map((step, index) => `${index + 1}. ${step}`)
+    : ['1. Follow the custom implementation plan']),
+];
+
+const buildSyntheticFilesSection = (plan: ResolutionPlan): string[] => {
   const affected = normalizeFileEntries(plan.affectedFiles ?? []);
   const context = normalizeFileEntries(plan.affectedFilesContext ?? []);
-
-  const content = [
-    `# ${ticketKey}: ${plan.summary || 'Custom implementation'}`,
-    '',
-    `**Plan Artifact:** ${path.basename(planPath)}`,
-    `**Action:** ${plan.action}`,
-    '',
-    '## Summary',
-    '',
-    plan.summary || 'Custom plan execution context synthesized from artifact.',
-    '',
-    '## Steps',
-    '',
-    ...(plan.steps.length > 0
-      ? plan.steps.map((step, index) => `${index + 1}. ${step}`)
-      : ['1. Follow the custom implementation plan']),
-    '',
+  return [
     '## Files Affected',
     '',
     ...(affected.length > 0 ? affected.map(e => `- ${e.filePath} (${e.status})`) : ['- (none listed)']),
@@ -593,11 +625,37 @@ export const buildSyntheticTicketArtifact = (planPath: string, plan: ResolutionP
     ...(context.length > 0
       ? ['## Files for Context (Read-Only)', '', ...context.map(e => `- ${e.filePath} (${e.status})`), '']
       : []),
-    '## Risks',
+  ];
+};
+
+const buildSyntheticRisksSection = (plan: ResolutionPlan): string[] => [
+  '## Risks',
+  '',
+  ...((plan.risks ?? []).length > 0
+    ? (plan.risks ?? []).map(risk => `- ${risk}`)
+    : ['- Synthetic execution context derived from custom plan artifact']),
+];
+
+const buildSyntheticHeaderSection = (ticketKey: string, planPath: string, plan: ResolutionPlan): string[] => [
+  `# ${ticketKey}: ${plan.summary || 'Custom implementation'}`,
+  '',
+  `**Plan Artifact:** ${path.basename(planPath)}`,
+  `**Action:** ${plan.action}`,
+  '',
+  '## Summary',
+  '',
+  plan.summary || 'Custom plan execution context synthesized from artifact.',
+];
+
+export const buildSyntheticTicketArtifact = (planPath: string, plan: ResolutionPlan): TicketArtifact => {
+  const ticketKey = deriveSyntheticTicketKey(planPath, plan.action);
+  const content = [
+    ...buildSyntheticHeaderSection(ticketKey, planPath, plan),
     '',
-    ...((plan.risks ?? []).length > 0
-      ? (plan.risks ?? []).map(risk => `- ${risk}`)
-      : ['- Synthetic execution context derived from custom plan artifact']),
+    ...buildSyntheticStepsSection(plan),
+    '',
+    ...buildSyntheticFilesSection(plan),
+    ...buildSyntheticRisksSection(plan),
   ].join('\n');
 
   return { ticketKey, content, path: planPath };

@@ -468,10 +468,10 @@ export class IssuePlanCommand extends CommandRunner {
     const { plan, planPath, format, action, hash, sourceName, sourceKind, artifactDir, options, trackerName } = opts;
     await fs.promises.writeFile(planPath, this.serializePlan(plan, format as OutputFormat), 'utf-8');
     writePlanArtifactManifest(
-      buildPlanArtifactManifest(
-        planPath, action, format as OutputFormat, hash,
-        sourceName, sourceKind, new Date(), trackerName,
-      )
+      buildPlanArtifactManifest({
+        artifactPath: planPath, action, format: format as OutputFormat, hash, sourceName, sourceKind,
+        createdAt: new Date(), trackerName,
+      })
     );
     this.deleteSiblingPlanArtifacts(artifactDir, sourceName, sourceKind, action, planPath);
     this.printPlanSummary(planPath, plan, options?.silent);

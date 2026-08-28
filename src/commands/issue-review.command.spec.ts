@@ -55,6 +55,15 @@ jest.mock('../review/sonar-scanner', () => ({
   runSonarScan: jest.fn().mockResolvedValue({ status: 'clean', steps: [] }),
 }));
 
+jest.mock('../shared/utils/plan-artifact', () => {
+  const actual = jest.requireActual('../shared/utils/plan-artifact');
+  return {
+    ...actual,
+    findPlanArtifactManifestByBranchName: jest.fn().mockReturnValue(undefined),
+    updatePlanArtifactManifestSourceBranch: jest.fn(),
+  };
+});
+
 // Unmocked, this runs the repo's real verify commands — including `yarn test`, which
 // re-enters this suite and forks recursively until the host runs out of memory.
 jest.mock('../shared/utils/run-pre-review-verification', () => ({
@@ -78,12 +87,15 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
+import { SessionService } from '../shared/session/session.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveRepoBasePath } from '../agents/utils';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runSonarScan } from '../review/sonar-scanner';
-import * as os from 'os';
-import * as path from 'path';
+import {
+  findPlanArtifactManifestByBranchName, updatePlanArtifactManifestSourceBranch,
+} from '../shared/utils/plan-artifact';
+import * as path from 'node:path';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 
 const mockTicket = {
@@ -283,6 +295,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
   adapters: Record<string, any>;
   promptMock: jest.MockedFunction<typeof inquirer.prompt>;
   conversationService: typeof mockConversationService;
+  sessionService: { findByTicketKey: jest.Mock; findByProviderSessionId: jest.Mock };
   dryRunPreview: {
     showHeader: jest.Mock;
     showSkipped: jest.Mock;
@@ -330,7 +343,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
       {
         provide: ConfigService,
         useValue: {
-          get: jest.fn((key: string, defaultValue?: string) => defaultValue),
+          get: jest.fn((_key: string, defaultValue?: string) => defaultValue),
         },
       },
       {
@@ -339,6 +352,15 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
           getDiff: jest.fn().mockResolvedValue(''),
           isGitRepository: jest.fn().mockResolvedValue(true),
           getStatus: jest.fn().mockResolvedValue({ staged: ['src/auth.ts'] }),
+          getBranchInfo: jest.fn().mockResolvedValue({
+            current: 'feature/x', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+          }),
+          getMergeBase: jest.fn().mockResolvedValue('mock-merge-base-sha'),
+          getUpstreamRef: jest.fn().mockResolvedValue(null),
+          detectDevelopmentBranches: jest.fn().mockReturnValue([]),
+          detectMainBranch: jest.fn().mockReturnValue(undefined),
+          getBranchCreationSource: jest.fn().mockResolvedValue(null),
+          getChangedFilesSince: jest.fn().mockResolvedValue([]),
         },
       },
       {
@@ -401,6 +423,13 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
         provide: ReviewPresenter,
         useValue: new ReviewPresenter(),
       },
+      {
+        provide: SessionService,
+        useValue: {
+          findByTicketKey: jest.fn().mockResolvedValue(null),
+          findByProviderSessionId: jest.fn().mockResolvedValue(null),
+        },
+      },
     ],
   }).compile();
 
@@ -425,6 +454,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
     promptMock,
     conversationService: mockConversationService,
     dryRunPreview,
+    sessionService: module.get(SessionService),
   };
 }
 
@@ -476,11 +506,7 @@ describe('IssueReviewCommand', () => {
     it('skips AI review when cached review artifact exists for ticket key', async () => {
       const { command, reviewStageService, adapters } = await buildCommand();
       const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
-        if (targetPath === reviewArtifactPath) {
-          return true;
-        }
-
-        return false;
+        return targetPath === reviewArtifactPath;
       });
       const readFileSyncSpy = jest
         .spyOn(require('fs'), 'readFileSync')
@@ -507,11 +533,7 @@ describe('IssueReviewCommand', () => {
       const { command, reviewStageService, adapters } = await buildCommand();
 
       jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
-        if (targetPath === reviewArtifactPath) {
-          return true;
-        }
-
-        return false;
+        return targetPath === reviewArtifactPath;
       });
       jest.spyOn(require('fs'), 'readFileSync').mockReturnValue('# Cached review\n\nAlready reviewed.');
       adapters.jiraAdapter.getTicket.mockRejectedValue(new Error('ticket lookup should be skipped'));
@@ -528,11 +550,7 @@ describe('IssueReviewCommand', () => {
       const { command, reviewStageService, adapters } = await buildCommand();
 
       jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
-        if (targetPath === reviewArtifactPath) {
-          return true;
-        }
-
-        return false;
+        return targetPath === reviewArtifactPath;
       });
       const loggerInfoSpy = jest.spyOn((command as any).logger, 'info');
       adapters.bitbucketAdapter.findPullRequestsByTicketKey.mockResolvedValue([
@@ -627,18 +645,710 @@ describe('IssueReviewCommand', () => {
       });
     });
 
-    it('skips the SonarQube CLI scan without calling it when nothing is staged', async () => {
+    it('falls back to a merge-base diff scope when nothing is staged but the branch has diverged', async () => {
       const { command } = await buildCommand();
       const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
       mockRunSonar.mockClear();
       (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'feature/WBP-1-thing', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('44ad52b2cba1142af84c8162d236bc0dd2791132');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith(
+        'develop', 'feature/WBP-1-thing', '/tmp/repo'
+      );
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: '44ad52b2cba1142af84c8162d236bc0dd2791132' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('scopes the secrets scan to the files changed since the merge-base, in the merge-base fallback path', async () => {
+      const { command } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'feature/WBP-1-thing', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('44ad52b2cba1142af84c8162d236bc0dd2791132');
+      (command as any).gitService.getChangedFilesSince = jest.fn().mockResolvedValue(['src/auth.ts', 'src/secrets.ts']);
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect((command as any).gitService.getChangedFilesSince).toHaveBeenCalledWith(
+        '44ad52b2cba1142af84c8162d236bc0dd2791132', '/tmp/repo'
+      );
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: '44ad52b2cba1142af84c8162d236bc0dd2791132' },
+        secretPaths: ['src/auth.ts', 'src/secrets.ts'],
+        onProgress: undefined,
+      });
+    });
+
+    it('runs a bare analyze when nothing is staged, on a trunk branch, with no upstream', async () => {
+      const { command } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'develop', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getUpstreamRef = jest.fn().mockResolvedValue(null);
       const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
       const onProgress = jest.fn();
 
       await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, onProgress);
 
-      expect(mockRunSonar).not.toHaveBeenCalled();
-      expect(onProgress).toHaveBeenCalledWith('SonarQube CLI skipped: nothing staged');
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo', scope: { kind: 'branch' }, secretPaths: [], onProgress,
+      });
+      expect(onProgress).toHaveBeenCalledWith(
+        'SonarQube CLI: no base branch to diff against — running a bare analyze instead'
+      );
+    });
+
+    it('falls back to a merge-base-against-upstream diff scope when working directly on a trunk branch', async () => {
+      const { command } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'develop', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getUpstreamRef = jest.fn().mockResolvedValue('origin/develop');
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('44ad52b2cba1142af84c8162d236bc0dd2791132');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect((command as any).gitService.getUpstreamRef).toHaveBeenCalledWith('develop', '/tmp/repo');
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith(
+        'origin/develop', 'develop', '/tmp/repo'
+      );
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: '44ad52b2cba1142af84c8162d236bc0dd2791132' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('Tier B: uses the session recorded for a bare ticket key, bypassing manifest/reflog/prompt', async () => {
+      const { command, sessionService, promptMock } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      sessionService.findByTicketKey.mockResolvedValue({ sourceBranch: 'release/2026' });
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'master', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true, ticketKey: 'WBP-1' }, undefined);
+
+      expect(sessionService.findByTicketKey).toHaveBeenCalledWith('WBP-1');
+      expect(findPlanArtifactManifestByBranchName).not.toHaveBeenCalled();
+      expect((command as any).gitService.getBranchCreationSource).not.toHaveBeenCalled();
+      expect(promptMock).not.toHaveBeenCalled();
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith('release/2026', 'master', '/tmp/repo');
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: 'deadbeef' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('Tier B: runs a bare analyze immediately when the ticket key has no matching session', async () => {
+      const { command, sessionService, promptMock } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      sessionService.findByTicketKey.mockResolvedValue(null);
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'master', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true, ticketKey: 'WBP-1' }, undefined);
+
+      expect(sessionService.findByTicketKey).toHaveBeenCalledWith('WBP-1');
+      expect(findPlanArtifactManifestByBranchName).not.toHaveBeenCalled();
+      expect((command as any).gitService.getBranchCreationSource).not.toHaveBeenCalled();
+      expect((command as any).gitService.getMergeBase).not.toHaveBeenCalled();
+      expect(promptMock).not.toHaveBeenCalled();
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo', scope: { kind: 'branch' }, secretPaths: [], onProgress: undefined,
+      });
+    });
+
+    it('Tier A: uses the session found via --session-id (provider session ID), bypassing ticketKey/manifest', async () => {
+      const { command, sessionService } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      sessionService.findByProviderSessionId.mockResolvedValue({ sourceBranch: 'release/2026' });
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'master', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(
+        target, { sonar: true, ticketKey: 'WBP-1', sessionId: 'provider-abc' }, undefined
+      );
+
+      expect(sessionService.findByProviderSessionId).toHaveBeenCalledWith('provider-abc', 'plan');
+      expect(sessionService.findByTicketKey).not.toHaveBeenCalled();
+      expect(findPlanArtifactManifestByBranchName).not.toHaveBeenCalled();
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith('release/2026', 'master', '/tmp/repo');
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: 'deadbeef' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('Tier A: falls through to the full Tier C chain when --session-id matches no session', async () => {
+      const { command, sessionService } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      sessionService.findByProviderSessionId.mockResolvedValue(null);
+      const mockFindByBranchName = findPlanArtifactManifestByBranchName as jest.MockedFunction<
+        typeof findPlanArtifactManifestByBranchName
+      >;
+      mockFindByBranchName.mockReturnValueOnce(undefined);
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'feature/WBP-1-thing', development: 'develop', all: ['master', 'develop', 'feature/WBP-1-thing'],
+        isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getBranchCreationSource = jest.fn().mockResolvedValue('release/2026');
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true, sessionId: 'provider-abc' }, undefined);
+
+      expect(sessionService.findByProviderSessionId).toHaveBeenCalledWith('provider-abc', 'plan');
+      expect(mockFindByBranchName).toHaveBeenCalledWith('feature/WBP-1-thing', expect.any(Array));
+      expect((command as any).gitService.getBranchCreationSource).toHaveBeenCalledWith(
+        'feature/WBP-1-thing', '/tmp/repo'
+      );
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith(
+        'release/2026', 'feature/WBP-1-thing', '/tmp/repo'
+      );
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: 'deadbeef' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('Tier C: prefers the session recorded for the manifest\'s own identifier over the manifest\'s sourceBranch field', async () => {
+      const { command, sessionService } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      const mockFindByBranchName = findPlanArtifactManifestByBranchName as jest.MockedFunction<
+        typeof findPlanArtifactManifestByBranchName
+      >;
+      mockFindByBranchName.mockReturnValueOnce({
+        artifactPath: '/tmp/repo/.wf/jira/2026-08-25-abc123-feature-plan.json',
+        action: 'feature',
+        createdAt: '2026-08-25T00:00:00.000Z',
+        format: 'json',
+        hash: 'abc123',
+        sourceKind: 'ticket',
+        sourceName: 'WBP-1',
+        ticketKey: 'WBP-1',
+        sourceBranch: 'develop',
+        branchName: 'feature/WBP-1-thing',
+      });
+      sessionService.findByTicketKey.mockResolvedValue({ sourceBranch: 'release/2026' });
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'feature/WBP-1-thing', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      // No ticketKey/sessionId at all — this exercises the manifest-derived-identifier lookup
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect(sessionService.findByTicketKey).toHaveBeenCalledWith('WBP-1');
+      expect((command as any).gitService.getBranchCreationSource).not.toHaveBeenCalled();
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith(
+        'release/2026', 'feature/WBP-1-thing', '/tmp/repo'
+      );
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: 'deadbeef' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('Tier C: falls back to the manifest\'s own sourceBranch when its identifier has no session', async () => {
+      const { command, sessionService } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      const mockFindByBranchName = findPlanArtifactManifestByBranchName as jest.MockedFunction<
+        typeof findPlanArtifactManifestByBranchName
+      >;
+      mockFindByBranchName.mockReturnValueOnce({
+        artifactPath: '/tmp/repo/.wf/jira/2026-08-25-abc123-feature-plan.json',
+        action: 'feature',
+        createdAt: '2026-08-25T00:00:00.000Z',
+        format: 'json',
+        hash: 'abc123',
+        sourceKind: 'ticket',
+        sourceName: 'WBP-1',
+        ticketKey: 'WBP-1',
+        sourceBranch: 'release/2026',
+        branchName: 'feature/WBP-1-thing',
+      });
+      sessionService.findByTicketKey.mockResolvedValue(null);
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'feature/WBP-1-thing', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect(sessionService.findByTicketKey).toHaveBeenCalledWith('WBP-1');
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith(
+        'release/2026', 'feature/WBP-1-thing', '/tmp/repo'
+      );
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: 'deadbeef' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('Tier C: looks up the session for a custom plan by its sourceName, since it has no ticketKey/customArtifactName', async () => {
+      const { command, sessionService } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      const mockFindByBranchName = findPlanArtifactManifestByBranchName as jest.MockedFunction<
+        typeof findPlanArtifactManifestByBranchName
+      >;
+      mockFindByBranchName.mockReturnValueOnce({
+        artifactPath: '/tmp/repo/.wf/custom/2026-08-25-abc123-fix-plan.json',
+        action: 'fix',
+        createdAt: '2026-08-25T00:00:00.000Z',
+        format: 'json',
+        hash: 'abc123',
+        sourceKind: 'custom',
+        sourceName: 'my-custom-plan',
+        // Deliberately no sourceBranch field — forces the resolution to depend on the
+        // session lookup succeeding, rather than merely falling back to this field.
+        branchName: 'fix/my-custom-plan',
+      });
+      sessionService.findByTicketKey.mockResolvedValue({ sourceBranch: 'release/2026' });
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'fix/my-custom-plan', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect(sessionService.findByTicketKey).toHaveBeenCalledWith('my-custom-plan');
+      expect((command as any).gitService.getBranchCreationSource).not.toHaveBeenCalled();
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith(
+        'release/2026', 'fix/my-custom-plan', '/tmp/repo'
+      );
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: 'deadbeef' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('Tier C: recovers a legacy manifest\'s source branch from git reflog before prompting', async () => {
+      setInteractiveSession();
+      const { command, promptMock } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      const mockFindByBranchName = findPlanArtifactManifestByBranchName as jest.MockedFunction<
+        typeof findPlanArtifactManifestByBranchName
+      >;
+      const mockUpdateSourceBranch = updatePlanArtifactManifestSourceBranch as jest.MockedFunction<
+        typeof updatePlanArtifactManifestSourceBranch
+      >;
+      mockFindByBranchName.mockReturnValueOnce({
+        artifactPath: '/tmp/repo/.wf/jira/2026-08-25-abc123-feature-plan.json',
+        action: 'feature',
+        createdAt: '2026-08-25T00:00:00.000Z',
+        format: 'json',
+        hash: 'abc123',
+        sourceKind: 'ticket',
+        sourceName: 'WBP-1',
+        ticketKey: 'WBP-1',
+        branchName: 'feature/WBP-1-thing',
+      });
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'feature/WBP-1-thing', development: 'develop', all: ['master', 'develop', 'feature/WBP-1-thing'],
+        isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getBranchCreationSource = jest.fn().mockResolvedValue('release/2026');
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      // No ticketKey at all — this exercises the branch-name manifest lookup (Tier B bypasses it)
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect((command as any).gitService.getBranchCreationSource).toHaveBeenCalledWith(
+        'feature/WBP-1-thing', '/tmp/repo'
+      );
+      expect(promptMock).not.toHaveBeenCalled();
+      expect(mockUpdateSourceBranch).toHaveBeenCalledWith(
+        '/tmp/repo/.wf/jira/2026-08-25-abc123-feature-plan.json', 'release/2026', 'feature/WBP-1-thing'
+      );
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith(
+        'release/2026', 'feature/WBP-1-thing', '/tmp/repo'
+      );
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: 'deadbeef' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('finds a custom plan\'s manifest by branch name, since it has no ticket key to search by', async () => {
+      const { command } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      const mockFindByBranchName = findPlanArtifactManifestByBranchName as jest.MockedFunction<
+        typeof findPlanArtifactManifestByBranchName
+      >;
+      mockFindByBranchName.mockReturnValueOnce({
+        artifactPath: '/tmp/repo/.wf/custom/2026-08-25-abc123-fix-plan.json',
+        action: 'fix',
+        createdAt: '2026-08-25T00:00:00.000Z',
+        format: 'json',
+        hash: 'abc123',
+        sourceKind: 'custom',
+        sourceName: 'my-custom-plan',
+        sourceBranch: 'release/2026',
+        branchName: 'fix/my-custom-plan',
+      });
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'fix/my-custom-plan', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      // No ticketKey at all — custom plans have nothing to pass as --ticket-key
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect(mockFindByBranchName).toHaveBeenCalledWith('fix/my-custom-plan', expect.any(Array));
+      expect(mockFindByBranchName.mock.calls[0][1].length).toBeGreaterThanOrEqual(1);
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith(
+        'release/2026', 'fix/my-custom-plan', '/tmp/repo'
+      );
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: 'deadbeef' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('prompts to disambiguate the source branch when interactive, even with no ticket key or manifest', async () => {
+      setInteractiveSession();
+      const { command, promptMock } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      const mockUpdateSourceBranch = updatePlanArtifactManifestSourceBranch as jest.MockedFunction<
+        typeof updatePlanArtifactManifestSourceBranch
+      >;
+      promptMock.mockResolvedValue({ selected: 'release/2026' } as any);
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'master', development: 'develop', all: ['master', 'develop', 'release/2026'],
+        isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.detectDevelopmentBranches = jest.fn().mockReturnValue(['develop', 'release/2026']);
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      // No ticketKey at all — a plain PR review with no --ticket-key
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect(promptMock).toHaveBeenCalled();
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith('release/2026', 'master', '/tmp/repo');
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: 'deadbeef' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+      // Nothing to persist to without a ticket/manifest — must not throw or fabricate a manifest.
+      expect(mockUpdateSourceBranch).not.toHaveBeenCalled();
+    });
+
+    it('recovers the source branch from reflog when interactive is not required, even with no ticket key', async () => {
+      const { command, promptMock } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      const mockUpdateSourceBranch = updatePlanArtifactManifestSourceBranch as jest.MockedFunction<
+        typeof updatePlanArtifactManifestSourceBranch
+      >;
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'feature/WBP-1-thing', development: 'develop', all: ['master', 'develop', 'release/2026'],
+        isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getBranchCreationSource = jest.fn().mockResolvedValue('release/2026');
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect((command as any).gitService.getBranchCreationSource).toHaveBeenCalledWith(
+        'feature/WBP-1-thing', '/tmp/repo'
+      );
+      expect(promptMock).not.toHaveBeenCalled();
+      expect(mockUpdateSourceBranch).not.toHaveBeenCalled();
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith(
+        'release/2026', 'feature/WBP-1-thing', '/tmp/repo'
+      );
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: 'deadbeef' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('backfills a legacy manifest missing sourceBranch by prompting when interactive', async () => {
+      setInteractiveSession();
+      const { command, promptMock } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      const mockFindByBranchName = findPlanArtifactManifestByBranchName as jest.MockedFunction<
+        typeof findPlanArtifactManifestByBranchName
+      >;
+      const mockUpdateSourceBranch = updatePlanArtifactManifestSourceBranch as jest.MockedFunction<
+        typeof updatePlanArtifactManifestSourceBranch
+      >;
+      mockFindByBranchName.mockReturnValueOnce({
+        artifactPath: '/tmp/repo/.wf/jira/2026-08-25-abc123-feature-plan.json',
+        action: 'feature',
+        createdAt: '2026-08-25T00:00:00.000Z',
+        format: 'json',
+        hash: 'abc123',
+        sourceKind: 'ticket',
+        sourceName: 'WBP-1',
+        ticketKey: 'WBP-1',
+        branchName: 'master',
+      });
+      promptMock.mockResolvedValue({ selected: 'release/2026' } as any);
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'master', development: 'develop', all: ['master', 'develop', 'release/2026'],
+        isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.detectDevelopmentBranches = jest.fn().mockReturnValue(['develop', 'release/2026']);
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      // No ticketKey at all — this exercises the branch-name manifest lookup (Tier B bypasses it)
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect(mockUpdateSourceBranch).toHaveBeenCalledWith(
+        '/tmp/repo/.wf/jira/2026-08-25-abc123-feature-plan.json', 'release/2026', 'master'
+      );
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith('release/2026', 'master', '/tmp/repo');
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'base', ref: 'deadbeef' },
+        secretPaths: [],
+        onProgress: undefined,
+      });
+    });
+
+    it('still prompts to backfill a legacy manifest when --silent is set, as long as a TTY is available', async () => {
+      setInteractiveSession();
+      const { command, promptMock } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      const mockFindByBranchName = findPlanArtifactManifestByBranchName as jest.MockedFunction<
+        typeof findPlanArtifactManifestByBranchName
+      >;
+      const mockUpdateSourceBranch = updatePlanArtifactManifestSourceBranch as jest.MockedFunction<
+        typeof updatePlanArtifactManifestSourceBranch
+      >;
+      mockFindByBranchName.mockReturnValueOnce({
+        artifactPath: '/tmp/repo/.wf/jira/2026-08-25-abc123-feature-plan.json',
+        action: 'feature',
+        createdAt: '2026-08-25T00:00:00.000Z',
+        format: 'json',
+        hash: 'abc123',
+        sourceKind: 'ticket',
+        sourceName: 'WBP-1',
+        ticketKey: 'WBP-1',
+        branchName: 'master',
+      });
+      promptMock.mockResolvedValue({ selected: 'release/2026' } as any);
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'master', development: 'develop', all: ['master', 'develop', 'release/2026'],
+        isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.detectDevelopmentBranches = jest.fn().mockReturnValue(['develop', 'release/2026']);
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true, silent: true }, undefined);
+
+      expect(promptMock).toHaveBeenCalled();
+      expect(mockUpdateSourceBranch).toHaveBeenCalledWith(
+        '/tmp/repo/.wf/jira/2026-08-25-abc123-feature-plan.json', 'release/2026', 'master'
+      );
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith('release/2026', 'master', '/tmp/repo');
+    });
+
+    it('recovers a legacy manifest\'s source branch from git reflog even in a non-interactive session', async () => {
+      setNonInteractiveSession();
+      const { command, promptMock } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      const mockFindByBranchName = findPlanArtifactManifestByBranchName as jest.MockedFunction<
+        typeof findPlanArtifactManifestByBranchName
+      >;
+      const mockUpdateSourceBranch = updatePlanArtifactManifestSourceBranch as jest.MockedFunction<
+        typeof updatePlanArtifactManifestSourceBranch
+      >;
+      mockFindByBranchName.mockReturnValueOnce({
+        artifactPath: '/tmp/repo/.wf/jira/2026-08-25-abc123-feature-plan.json',
+        action: 'feature',
+        createdAt: '2026-08-25T00:00:00.000Z',
+        format: 'json',
+        hash: 'abc123',
+        sourceKind: 'ticket',
+        sourceName: 'WBP-1',
+        ticketKey: 'WBP-1',
+        branchName: 'feature/WBP-1-thing',
+      });
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'feature/WBP-1-thing', development: 'develop', all: ['master', 'develop', 'feature/WBP-1-thing'],
+        isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getBranchCreationSource = jest.fn().mockResolvedValue('release/2026');
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect(promptMock).not.toHaveBeenCalled();
+      expect(mockUpdateSourceBranch).toHaveBeenCalledWith(
+        '/tmp/repo/.wf/jira/2026-08-25-abc123-feature-plan.json', 'release/2026', 'feature/WBP-1-thing'
+      );
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith(
+        'release/2026', 'feature/WBP-1-thing', '/tmp/repo'
+      );
+    });
+
+    it('does not prompt to backfill a legacy manifest in a non-interactive session', async () => {
+      setNonInteractiveSession();
+      const { command, promptMock } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      const mockFindByBranchName = findPlanArtifactManifestByBranchName as jest.MockedFunction<
+        typeof findPlanArtifactManifestByBranchName
+      >;
+      const mockUpdateSourceBranch = updatePlanArtifactManifestSourceBranch as jest.MockedFunction<
+        typeof updatePlanArtifactManifestSourceBranch
+      >;
+      mockFindByBranchName.mockReturnValueOnce({
+        artifactPath: '/tmp/repo/.wf/jira/2026-08-25-abc123-feature-plan.json',
+        action: 'feature',
+        createdAt: '2026-08-25T00:00:00.000Z',
+        format: 'json',
+        hash: 'abc123',
+        sourceKind: 'ticket',
+        sourceName: 'WBP-1',
+        ticketKey: 'WBP-1',
+        branchName: 'master',
+      });
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'master', development: 'develop', all: ['master', 'develop', 'release/2026'],
+        isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.detectDevelopmentBranches = jest.fn().mockReturnValue(['develop', 'release/2026']);
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue('deadbeef');
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect(promptMock).not.toHaveBeenCalled();
+      expect(mockUpdateSourceBranch).not.toHaveBeenCalled();
+      expect((command as any).gitService.getMergeBase).toHaveBeenCalledWith('develop', 'master', '/tmp/repo');
+    });
+
+    it('runs a bare analyze when the branch and its base share no merge-base', async () => {
+      const { command } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'feature/WBP-1-thing', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue(null);
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+      const onProgress = jest.fn();
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, onProgress);
+
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo', scope: { kind: 'branch' }, secretPaths: [], onProgress,
+      });
+      expect(onProgress).toHaveBeenCalledWith(
+        'SonarQube CLI: no base branch to diff against — running a bare analyze instead'
+      );
+    });
+
+    it('logs a WARN via LoggerService when the source branch cannot be recovered', async () => {
+      const { command } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      (command as any).gitService.getStatus = jest.fn().mockResolvedValue({ staged: [] });
+      (command as any).gitService.getBranchInfo = jest.fn().mockResolvedValue({
+        current: 'feature/WBP-1-thing', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      (command as any).gitService.getMergeBase = jest.fn().mockResolvedValue(null);
+      const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
+
+      await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
+
+      expect((command as any).logger.warn).toHaveBeenCalledWith(
+        'SonarQube CLI: no base branch to diff against — running a bare analyze instead',
+        expect.any(String)
+      );
     });
 
     it.each([
@@ -974,11 +1684,7 @@ describe('IssueReviewCommand', () => {
       const { command, dryRunPreview } = await buildCommand();
 
       jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
-        if (targetPath === reviewArtifactPath) {
-          return true;
-        }
-
-        return false;
+        return targetPath === reviewArtifactPath;
       });
       jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 2048 } as any);
 
@@ -1000,11 +1706,7 @@ describe('IssueReviewCommand', () => {
       const { command, adapters } = await buildCommand();
 
       jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
-        if (targetPath === reviewArtifactPath) {
-          return true;
-        }
-
-        return false;
+        return targetPath === reviewArtifactPath;
       });
       jest.spyOn(require('fs'), 'readFileSync').mockReturnValue('# Cached review\n\nAlready reviewed.');
       jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);

@@ -77,10 +77,10 @@ async function main() {
     fs.writeFileSync(planPath2, JSON.stringify({ action: 'fix', summary: 'Dup plan 2', steps: ['x'], estimatedComplexity: 'low' }));
 
     writePlanArtifactManifest(
-      buildPlanArtifactManifest(planPath1, 'fix', 'json', hash, 'test-dup', 'custom', createdAt1)
+      buildPlanArtifactManifest({ artifactPath: planPath1, action: 'fix', format: 'json', hash: hash, sourceName: 'test-dup', sourceKind: 'custom', createdAt: createdAt1 })
     );
     writePlanArtifactManifest(
-      buildPlanArtifactManifest(planPath2, 'fix', 'json', hash, 'test-dup', 'custom', createdAt2)
+      buildPlanArtifactManifest({ artifactPath: planPath2, action: 'fix', format: 'json', hash: hash, sourceName: 'test-dup', sourceKind: 'custom', createdAt: createdAt2 })
     );
 
     const { output, exitCode } = runCli(['issue:implement', 'test-dup', '--dry-run'], repoDir, wfHomeDir);

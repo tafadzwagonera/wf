@@ -191,12 +191,68 @@ export class GitService {
   }
 
   async hasUpstream(branchName: string, cwd?: string): Promise<boolean> {
+    return (await this.getUpstreamRef(branchName, cwd)) !== null;
+  }
+
+  /**
+   * Resolves the remote-tracking ref configured for `branchName`, so a caller can diff
+   * against it when there is no separate feature/base branch to compare against (e.g.
+   * trunk-based development, or working directly on `main`/`develop`).
+   *
+   * @param branchName - Local branch to look up the upstream for
+   * @param cwd - Optional repository working directory
+   * @returns The trimmed upstream ref (e.g. `origin/develop`), or null if none is configured
+   */
+  async getUpstreamRef(branchName: string, cwd?: string): Promise<string | null> {
     const git = cwd ? createGit(cwd) : this.git;
     try {
-      await git.raw(['rev-parse', '--abbrev-ref', `${branchName}@{upstream}`]);
-      return true;
+      const ref = await git.raw(['rev-parse', '--abbrev-ref', `${branchName}@{upstream}`]);
+      return ref.trim() || null;
     } catch {
-      return false;
+      return null;
+    }
+  }
+
+  /**
+   * Recovers the branch `branchName` was created from by parsing its reflog for the
+   * `branch: Created from <ref>` entry git writes at `checkout -b`/`switch -c` time. Local-only
+   * (reflog is never pushed or fetched) and time-limited (subject to git's reflog expiry,
+   * 90 days by default) — a best-effort recovery signal, not a substitute for persisted state.
+   *
+   * @param branchName - Branch whose creation source to recover
+   * @param cwd - Optional repository working directory
+   * @returns The recorded source branch, or null when there's no such entry (expired,
+   *   never existed locally) or it's the non-specific `Created from HEAD` — not a real branch name
+   */
+  async getBranchCreationSource(branchName: string, cwd?: string): Promise<string | null> {
+    const git = cwd ? createGit(cwd) : this.git;
+    try {
+      const output = await git.raw(['reflog', 'show', branchName]);
+      const match = /branch: Created from (\S+)/.exec(output);
+      if (!match || match[1] === 'HEAD') return null;
+      return match[1];
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Lists files that differ between `ref` and the current working tree, including staged and
+   * unstaged changes — the same scope `sonar analyze --base <ref>` covers, so a caller can
+   * point a secrets scan at exactly the files being analyzed. Best-effort: returns an empty
+   * list on failure rather than throwing, since this only scopes an optional secrets step.
+   *
+   * @param ref - Ref to diff the working tree against (e.g. a merge-base sha)
+   * @param cwd - Optional repository working directory
+   * @returns The changed file paths, or [] on failure
+   */
+  async getChangedFilesSince(ref: string, cwd?: string): Promise<string[]> {
+    const git = cwd ? createGit(cwd) : this.git;
+    try {
+      const output = await git.raw(['diff', '--name-only', ref]);
+      return output.split('\n').map(line => line.trim()).filter(Boolean);
+    } catch {
+      return [];
     }
   }
 
@@ -544,6 +600,25 @@ export class GitService {
       return status.current || 'HEAD';
     } catch (error) {
       throw new GitError('Failed to get current branch', error);
+    }
+  }
+
+  /**
+   * Resolves the common-ancestor commit of two refs, so a caller can diff against exactly
+   * what a branch changed even after its base has since moved on.
+   *
+   * @param refA - First ref (e.g. the base branch)
+   * @param refB - Second ref (e.g. the branch under review)
+   * @param cwd - Optional repository working directory
+   * @returns The trimmed merge-base sha, or null when the refs share no common ancestor
+   */
+  async getMergeBase(refA: string, refB: string, cwd?: string): Promise<string | null> {
+    const git = cwd ? createGit(cwd) : this.git;
+    try {
+      const sha = await git.raw(['merge-base', refA, refB]);
+      return sha.trim() || null;
+    } catch {
+      return null;
     }
   }
 

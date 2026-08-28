@@ -90,6 +90,8 @@ const mockSessionService = {
   recordStageStart: jest.fn().mockImplementation(session => Promise.resolve(session)),
   recordProviderSessionId: jest.fn().mockImplementation(session => Promise.resolve(session)),
   recordStageComplete: jest.fn().mockImplementation(session => Promise.resolve(session)),
+  recordSourceBranch: jest.fn().mockImplementation((session, sourceBranch) =>
+    Promise.resolve({ ...session, sourceBranch })),
   markComplete: jest.fn().mockImplementation(session => Promise.resolve(session)),
   inferNextStage: jest.fn().mockReturnValue('fetch'),
   validateForStage: jest
@@ -1475,6 +1477,117 @@ describe('IssueCommand', () => {
       expect.any(String),
     );
     expect(mockSessionService.recordStageComplete).toHaveBeenCalledWith(expect.any(Object), 'implement', null);
+  });
+
+  it('copies the plan manifest\'s recorded sourceBranch onto the session after the implement stage', async () => {
+    const hash = hashPlanArtifactSources(['WBP-7']);
+    const customDir = path.join(getWfHomeDir(), 'consumer-app');
+    const planFilename = `2026-06-30-${hash}-fix-plan.json`;
+    const planPath = path.join(customDir, planFilename);
+    const manifestPath = buildPlanArtifactManifestPath(planPath);
+
+    const mockImplementerExecute = jest.fn().mockResolvedValue({
+      type: 'implementation', hasChanges: true, branchName: 'feature/WBP-7', verificationOutcomes: [],
+    });
+    const mockOrchestrator = {
+      fetcher: {
+        loadFromDisk: jest.fn().mockReturnValue({
+          ticketKey: 'WBP-7',
+          content: '# WBP-7\n\nTest',
+          path: path.join('/tmp/consumer-app', 'jira', 'WBP-7.md'),
+        }),
+      },
+      implementer: { execute: mockImplementerExecute },
+    };
+
+    const module = await Test.createTestingModule({
+      providers: [
+        IssueCommand,
+        { provide: ConversationService, useValue: {} },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'ai.provider') return 'openai';
+              return defaultValue;
+            }),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(),
+            showStageHeader: jest.fn(),
+            showSummary: jest.fn(),
+            showValidationResult: jest.fn(),
+            showSkipped: jest.fn(),
+            showNoSideEffects: jest.fn(),
+            previewApiCall: jest.fn(),
+            previewFileRead: jest.fn(),
+            previewFileWrite: jest.fn(),
+          },
+        },
+        { provide: AgentOrchestrator, useValue: mockOrchestrator },
+        {
+          provide: AiService,
+          useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
+        },
+        { provide: SessionService, useValue: mockSessionService },
+        { provide: SummaryService, useValue: mockSummaryService },
+        {
+          provide: ReviewPresenter,
+          useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+        },
+      ],
+    }).compile();
+    const command = module.get(IssueCommand);
+
+    jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+    jest
+      .spyOn(require('fs'), 'existsSync')
+      .mockImplementation((input: string) => String(input) === planPath || String(input) === manifestPath);
+    jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
+      const filePath = String(input);
+      if (filePath === manifestPath) {
+        return JSON.stringify({
+          artifactPath: planPath,
+          action: 'fix',
+          createdAt: new Date('2026-06-30T00:00:00.000Z').toISOString(),
+          format: 'json',
+          hash,
+          sourceKind: 'custom',
+          sourceName: 'WBP-7',
+          sourceBranch: 'release/2026',
+        });
+      }
+      if (filePath === planPath) {
+        return JSON.stringify({
+          action: 'fix',
+          summary: 'Test plan',
+          estimatedComplexity: 'low',
+          steps: ['Step 1'],
+          affectedFiles: ['src/test.ts'],
+          affectedRepositories: [],
+        });
+      }
+      return '';
+    });
+
+    mockSessionService.validateForStage.mockReturnValue({
+      canResume: true,
+      resumableProviderSessionId: 'sess-plan-123',
+      priorSummary: 'Plan summary from prior stage',
+      warnings: [],
+    });
+
+    await command.run([planFilename], { from: 'implement', to: 'implement' });
+
+    expect(mockSessionService.recordSourceBranch).toHaveBeenCalledWith(expect.any(Object), 'release/2026');
   });
 
   it('persists new session to disk before executing stages', async () => {

@@ -25,6 +25,8 @@ import { getWfStateDir } from '../shared/utils/wf-paths';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
 import { resolveCommitPolicy, formatCommitPolicyPromptSection, type CommitPolicy } from '../shared/utils/implement-commit-policy';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
+import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-artifact';
+import { isRemoteBranch, promptForSourceBranch } from '../shared/utils/source-branch-prompt';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
@@ -919,11 +921,28 @@ export class ImplementerAgent {
     const currentBranch = await this.gitService.getCurrentBranch(cwd).catch(() => '');
     if (currentBranch === branchName) {
       console.log(chalk.green(`  Already on branch: ${branchName}`));
-      return branchName;
+    } else {
+      await this.gitService.createBranch(branchName, sourceBranch, cwd);
+      console.log(chalk.green(`  Created branch: ${branchName} from ${sourceBranch}`));
     }
-    await this.gitService.createBranch(branchName, sourceBranch, cwd);
-    console.log(chalk.green(`  Created branch: ${branchName} from ${sourceBranch}`));
+    this.recordFeatureBranchSource(planArtifact, sourceBranch, branchName);
     return branchName;
+  }
+
+  /**
+   * Records the branch a feature branch was created from — and the feature branch's own name
+   * — onto its plan's manifest, so the review stage's SonarQube fallback can later diff
+   * against the real base instead of re-guessing it from branch-name heuristics, and can find
+   * this manifest by branch name when reviewing a custom plan (which has no ticket key to look
+   * it up by). Best-effort: a write failure here shouldn't abort branch creation, since this
+   * is a diagnostic hint, not load-bearing state.
+   */
+  private recordFeatureBranchSource(planArtifact: PlanArtifact, sourceBranch: string, branchName: string): void {
+    try {
+      updatePlanArtifactManifestSourceBranch(planArtifact.path, sourceBranch, branchName);
+    } catch (error) {
+      console.log(chalk.yellow(`  Could not record source branch on plan manifest: ${error}`));
+    }
   }
 
   private async ensureCleanWorkingTree(
@@ -1010,7 +1029,7 @@ export class ImplementerAgent {
 
     if (devBranches.length === 1) return this.logSourceBranch(devBranches[0], cwd);
     if (devBranches.length > 1 && interactive) {
-      const selected = await this.promptSourceBranch(devBranches, mainBranch);
+      const selected = await promptForSourceBranch(devBranches, mainBranch);
       return this.logSourceBranch(selected, cwd);
     }
     if (devBranches.length > 1) return this.logSourceBranch(devBranches[0], cwd);
@@ -1020,28 +1039,9 @@ export class ImplementerAgent {
     return branchInfo.current;
   }
 
-  private async promptSourceBranch(devBranches: string[], mainBranch: string | undefined): Promise<string> {
-    const formatChoice = (b: string) => {
-      const isRemote = b.startsWith('remotes/') || b.startsWith('origin/');
-      return { name: isRemote ? chalk.gray(b) : chalk.cyan(b), value: b };
-    };
-    const choices = [...devBranches.map(formatChoice), ...(mainBranch ? [formatChoice(mainBranch)] : [])];
-    const { selected } = await inquirer.prompt<{ selected: string }>([{
-      type: 'list',
-      name: 'selected',
-      message: 'Multiple dev branches found. Select source branch:',
-      prefix: ' ',
-      choices,
-      default: devBranches[0],
-    }]);
-    return selected;
-  }
-
   private async logSourceBranch(branch: string, cwd: string | undefined): Promise<string> {
-    const isRemote = branch.startsWith('remotes/') || branch.startsWith('origin/');
-    const branchColor = isRemote ? chalk.gray : chalk.cyan;
-    const hasUpstream = isRemote ? true : await this.gitService.hasUpstream(branch, cwd);
-    console.log(chalk.cyan(`  Source branch: ${branchColor(branch)}${hasUpstream ? ' (has upstream)' : ''}`));
+    const hasUpstream = isRemoteBranch(branch) ? true : await this.gitService.hasUpstream(branch, cwd);
+    this.presenter.detail('Source branch', hasUpstream ? `${branch} (has upstream)` : branch);
     return branch;
   }
 

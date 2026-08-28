@@ -428,7 +428,7 @@ When `--repos` points at a local checkout, `issue:plan` inspects `~/.wf/<repo>/*
 #### `wf issue:review [pr-url]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:review -->
-AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze --staged`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Findings are reported and review continues; a missing CLI or auth/project misconfiguration skips review for that target with a warning, leaving other targets in the same run unaffected. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
+AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session is treated as a remotely-implemented change and runs an unscoped `sonar analyze` instead, as does any run where no base branch can be resolved. Findings are reported and review continues; a missing CLI or auth/project misconfiguration skips review for that target with a warning, leaving other targets in the same run unaffected. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
 
 ```bash
 # Review current repo changes
@@ -449,6 +449,9 @@ wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 # Review ticket changes and run the SonarQube CLI regardless of config
 wf issue:review --ticket-key WBP-2971 --sonar
 
+# Sonar-review a chained implement→review run, recovering the source branch from that session
+wf issue:review --ticket-key WBP-2971 --session-id {providerSessionId} --sonar
+
 # Skip pre-review verification (lint, typecheck, test) in the target repository
 wf issue:review --ticket-key WBP-2971 --skip-verification
 
@@ -468,7 +471,7 @@ wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3
 | `-o, --output <path>` | Save review to file |
 | `--replace-criteria <path>` | Path to a markdown file whose criteria replace the default review guidelines entirely |
 | `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
-| `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
+| `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID). For --sonar, also looked up as the originating wf session to recover its recorded source branch, ahead of the --ticket-key/plan-manifest/reflog/prompt chain. |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
 | `--skip-verification` | Skip pre-review verification (lint, typecheck, test) in the target repository |
 | `--sonar` | Enable the SonarQube CLI scan, overriding stages.review.sonar config |
@@ -497,7 +500,7 @@ If no `--repos` value is supplied and adapters cannot determine a remote reposit
 
 If `--repos` is supplied for ticket review but a listed repository is not available as a local path or sibling directory, remote PR review can still succeed. However, if no PR is found, the command now exits with an actionable error instead of falling back to reviewing the current directory.
 
-The SonarQube CLI (`sonar analyze secrets` then `sonar analyze --staged`) runs when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Findings are reported and review continues; a missing CLI or auth/project misconfiguration skips review for that target with a warning — when a ticket has multiple associated pull requests, the remaining targets are still reviewed.
+The SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) runs when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. The scan scopes to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order; a bare `--ticket-key` with no matching local session — or any run where no base branch can be resolved at all — falls back to an unscoped `sonar analyze`. Findings are reported and review continues; a missing CLI or auth/project misconfiguration skips review for that target with a warning — when a ticket has multiple associated pull requests, the remaining targets are still reviewed.
 
 The current review output keeps `Call Stack` and `State Transition` in the same order before any trailing unmatched `Suggestions`, with `Approval Status` after `Suggestions`. Paired model suggestions now render directly under their corresponding issues in terminal output, exported text, workflow artifacts, and PR summary comments. Each trace section includes explicit provenance text so the output says whether the trace is evidence-based from an agent or CLI backend, best-effort from the standard completion path, or unavailable. The `Call Stack` section renders as a nested tree of concrete frames, and `State Transition` shows the variable changes observed at each frame.
 

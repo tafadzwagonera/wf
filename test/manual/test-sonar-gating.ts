@@ -5,8 +5,11 @@
  *   1. --sonar flag with config undefined and staged changes → scan runs
  *   2. stages.review.sonar: false config → immediate return, no progress
  *   2b. stages.review.sonar: undefined (default) → immediate return, no progress
- *   3. Nothing staged (with sonar: true) → no-op with skip message, runSonarScan never called
- *   4. Preflight: sonar not on PATH → ConfigurationError from runSonarScan directly
+ *   3. Preflight: sonar not on PATH → ConfigurationError from runSonarScan directly
+ *
+ * The nothing-staged/no-base-branch bare-analyze fallback is covered by
+ * test-sonar-unrecovered-branch-warn-log.ts, which asserts the exact scope and the
+ * real on-disk WARN log line instead of just catching whatever error surfaces here.
  *
  * Run: nr test:manual -- test-sonar-gating
  */
@@ -37,12 +40,6 @@ function initGitRepoWithStagedFile(dir: string): void {
   execSync('git add file.txt', { cwd: dir });
 }
 
-function initEmptyGitRepo(dir: string): void {
-  execSync('git init -q', { cwd: dir });
-  execSync('git config user.email "test@example.com"', { cwd: dir });
-  execSync('git config user.name "Test"', { cwd: dir });
-}
-
 async function run(): Promise<void> {
   console.log('Manual smoke: SonarQube CLI gating\n');
 
@@ -69,9 +66,6 @@ async function run(): Promise<void> {
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-gate-'));
   initGitRepoWithStagedFile(tempDir);
-
-  const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-empty-'));
-  initEmptyGitRepo(emptyDir);
 
   console.log(chalk.bold.cyan('\nTest 1: --sonar flag forces scan when config is undefined and changes are staged'));
 
@@ -128,19 +122,7 @@ async function run(): Promise<void> {
   if (msgs2b.length === 0) pass('No progress emitted when config sonar is undefined');
   else fail(`Expected no messages, got: ${JSON.stringify(msgs2b)}`);
 
-  console.log(chalk.bold.cyan('\nTest 3: nothing staged → no-op with skip message, runSonarScan never called'));
-
-  const msgs3: string[] = [];
-  await resolve(
-    { repoDir: emptyDir, diff: '', title: '', context: '' },
-    { sonar: true },
-    (m: string) => msgs3.push(m)
-  );
-
-  if (msgs3.some(m => m.includes('skipped'))) pass('Progress says "SonarQube CLI skipped: nothing staged"');
-  else fail(`Expected a skip message, got: ${JSON.stringify(msgs3)}`);
-
-  console.log(chalk.bold.cyan('\nTest 4: preflight check when sonar CLI not available'));
+  console.log(chalk.bold.cyan('\nTest 3: preflight check when sonar CLI not available'));
 
   const originalPath = process.env.PATH;
   process.env.PATH = '';
@@ -158,7 +140,6 @@ async function run(): Promise<void> {
   }
 
   fs.rmSync(tempDir, { recursive: true, force: true });
-  fs.rmSync(emptyDir, { recursive: true, force: true });
 
   console.log(`\n${passed} passed, ${failed} failed`);
   await app.close();

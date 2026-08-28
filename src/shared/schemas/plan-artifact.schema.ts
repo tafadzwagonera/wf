@@ -15,6 +15,8 @@ export const planArtifactManifestSchema = z.object({
   ticketKey: z.string().optional(),
   customArtifactName: z.string().optional(),
   trackerName: z.string().optional(),
+  sourceBranch: z.string().optional(),
+  branchName: z.string().optional(),
 });
 
 export const planArtifactReferenceSchema = z.object({

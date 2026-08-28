@@ -9,10 +9,12 @@ import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { isRepoResolvable, resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath, scaffoldNewRepo } from '../agents/utils';
 import {
   buildPlanArtifactFilename,
+  buildPlanArtifactManifestPath,
   buildSyntheticTicketArtifact,
   hashPlanArtifactSources,
   isPlanToken,
   parsePlanArtifact,
+  readPlanArtifactManifest,
   resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
   resolvePlanToken,
 } from '../shared/utils/plan-artifact';
@@ -1036,6 +1038,7 @@ export class IssueCommand extends CommandRunner {
       action: ctx.action ?? null,
       sourceType,
       customPlanRef: ctx.options.customPlan ?? null,
+      sourceBranch: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       completedAt: null,
@@ -1248,7 +1251,7 @@ export class IssueCommand extends CommandRunner {
     const expandedRepos = await this.prepareImplementRepos(repos, planArtifact, options);
     const result = await this.runImplementLoop(ticketArtifact, planArtifact, expandedRepos, options, sessionContext);
     if (result.earlyReturn) return { ...result, expandedRepos, sessionState };
-    sessionState = await this.finalizeImplementSession(sessionState, result.implementerResult);
+    sessionState = await this.finalizeImplementSession(sessionState, result.implementerResult, planArtifact);
     return { implementerResult: result.implementerResult, sessionState, earlyReturn: false, expandedRepos };
   }
 
@@ -1453,7 +1456,7 @@ export class IssueCommand extends CommandRunner {
   }
 
   private async finalizeImplementSession(
-    sessionState: SessionState | undefined, result: ImplementerResult | undefined
+    sessionState: SessionState | undefined, result: ImplementerResult | undefined, planArtifact: PlanArtifact
   ): Promise<SessionState | undefined> {
     if (sessionState && result?.type === 'implementation' && result.sessionId) {
       sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'implement', result.sessionId);
@@ -1461,8 +1464,25 @@ export class IssueCommand extends CommandRunner {
     if (sessionState && result?.type === 'implementation' && result.modelsUsed?.length) {
       sessionState = await this.sessionService.recordStageModels(sessionState, 'implement', result.modelsUsed);
     }
+    if (sessionState && result?.type === 'implementation') {
+      sessionState = await this.recordSessionSourceBranch(sessionState, planArtifact);
+    }
     sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'implement', null);
     return sessionState;
+  }
+
+  /**
+   * Copies the source branch ImplementerAgent already recorded onto the plan's manifest
+   * (best-effort, at branch-creation time) onto the session too — so a later, possibly
+   * separate-process `issue:review` run can recover it via `SessionService.findByTicketKey`,
+   * a reliable anchor regardless of invocation path, unlike re-deriving it from git state.
+   */
+  private async recordSessionSourceBranch(
+    sessionState: SessionState, planArtifact: PlanArtifact
+  ): Promise<SessionState> {
+    const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(planArtifact.path));
+    if (!manifest?.sourceBranch) return sessionState;
+    return this.sessionService.recordSourceBranch(sessionState, manifest.sourceBranch);
   }
 
   private async executeReviewStage(

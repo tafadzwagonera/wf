@@ -78,10 +78,10 @@ async function main() {
     fs.writeFileSync(planPathLong, JSON.stringify({ action: 'fix', summary: 'Long plan', steps: ['x'], estimatedComplexity: 'low' }));
 
     writePlanArtifactManifest(
-      buildPlanArtifactManifest(planPathShort, 'fix', 'json', hashShort, 'range-rename', 'custom', createdAt)
+      buildPlanArtifactManifest({ artifactPath: planPathShort, action: 'fix', format: 'json', hash: hashShort, sourceName: 'range-rename', sourceKind: 'custom', createdAt: createdAt })
     );
     writePlanArtifactManifest(
-      buildPlanArtifactManifest(planPathLong, 'fix', 'json', hashLong, 'range-rename-implementation-plan', 'custom', createdAt)
+      buildPlanArtifactManifest({ artifactPath: planPathLong, action: 'fix', format: 'json', hash: hashLong, sourceName: 'range-rename-implementation-plan', sourceKind: 'custom', createdAt: createdAt })
     );
 
     const shortOutput = runCli(['issue:implement', 'range-rename', '--dry-run'], repoDir, wfHomeDir);
