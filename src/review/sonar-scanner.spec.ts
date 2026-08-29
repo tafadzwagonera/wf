@@ -6,6 +6,7 @@ import {
   type SonarScanResult,
 } from './sonar-scanner';
 import { ConfigurationError, ExecutionError } from '../shared/errors/app.error';
+import * as logFileWriter from '../shared/logger/log-file-writer';
 
 type ExecFileCallback = (err: Error | null, stdout: string, stderr: string) => void;
 
@@ -264,6 +265,53 @@ describe('runSonarScan', () => {
         expect.objectContaining({ step: 'analyze', status: 'skipped', exitCode: null })
       );
     });
+
+    it('carries secrets findings through even when analyze is skipped via an empty files scope', async () => {
+      mockExecSync.mockReturnValue('');
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const fn = callback as ExecFileCallback;
+        const err = Object.assign(new Error(), { code: 51 });
+        fn(err, '', '');
+        return {} as any;
+      });
+
+      const result = await runSonarScan({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'files', paths: [] },
+        secretPaths: ['secret.env'],
+      });
+
+      expect(result.status).toBe('findings');
+    });
+
+    it('carries secrets findings through even when analyze actually runs and comes back clean', async () => {
+      mockExecSync.mockReturnValue('');
+      mockExecFile
+        .mockImplementationOnce((_cmd, _args, _opts, callback) => {
+          const fn = callback as ExecFileCallback;
+          const err = Object.assign(new Error(), { code: 51 });
+          fn(err, '', '');
+          return {} as any;
+        })
+        .mockImplementationOnce((_cmd, _args, _opts, callback) => {
+          const fn = callback as ExecFileCallback;
+          fn(null, '', '');
+          return {} as any;
+        });
+
+      const result = await runSonarScan({
+        repoDir: '/tmp/repo',
+        scope: { kind: 'staged' },
+        secretPaths: ['secret.env'],
+      });
+
+      expect(mockExecFile).toHaveBeenCalledTimes(2);
+      expect(result.status).toBe('findings');
+      expect(result.steps).toEqual([
+        expect.objectContaining({ step: 'secrets', status: 'findings' }),
+        expect.objectContaining({ step: 'analyze', status: 'clean' }),
+      ]);
+    });
   });
 
   describe('exit code classification', () => {
@@ -283,6 +331,69 @@ describe('runSonarScan', () => {
           expect.objectContaining({ status: 'clean' }),
         ])
       );
+    });
+
+    it('logs a structured INFO record for a clean scan', async () => {
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      mockExecSync.mockReturnValue('');
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const fn = callback as ExecFileCallback;
+        fn(null, '', '');
+        return {} as any;
+      });
+
+      await runSonarScan(defaultOptions);
+
+      expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('sonar.scan.clean'), 'sonar-scanner');
+      expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('repoDir=/tmp/repo'), 'sonar-scanner');
+      expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('scope=staged'), 'sonar-scanner');
+    });
+
+    it('logs a structured INFO record for a findings scan too, not just clean', async () => {
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      mockExecSync.mockReturnValue('');
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const fn = callback as ExecFileCallback;
+        const err = Object.assign(new Error(), { code: 51 });
+        fn(err, '', '');
+        return {} as any;
+      });
+
+      await runSonarScan(defaultOptions);
+
+      expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('sonar.scan.findings'), 'sonar-scanner');
+      expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('repoDir=/tmp/repo'), 'sonar-scanner');
+      expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('scope=staged'), 'sonar-scanner');
+      expect(appendSpy).not.toHaveBeenCalledWith('INFO', expect.stringContaining('sonar.scan.clean'), 'sonar-scanner');
+    });
+
+    it('calls onProgress with a clean-scan message including the scope, so a clean run is visible without --verbose logs', async () => {
+      const mockOnProgress = jest.fn();
+      mockExecSync.mockReturnValue('');
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const fn = callback as ExecFileCallback;
+        fn(null, '', '');
+        return {} as any;
+      });
+
+      await runSonarScan({ ...defaultOptions, onProgress: mockOnProgress });
+
+      expect(mockOnProgress).toHaveBeenCalledWith('SonarQube scan: clean — no issues found (scope=staged)');
+    });
+
+    it('does not call onProgress with the clean-scan message when findings are detected', async () => {
+      const mockOnProgress = jest.fn();
+      mockExecSync.mockReturnValue('');
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const fn = callback as ExecFileCallback;
+        const err = Object.assign(new Error(), { code: 51 });
+        fn(err, '', '');
+        return {} as any;
+      });
+
+      await runSonarScan({ ...defaultOptions, onProgress: mockOnProgress });
+
+      expect(mockOnProgress).not.toHaveBeenCalledWith('SonarQube scan: clean — no issues found (scope=staged)');
     });
 
     it('returns status findings for exit code 51 and calls onProgress', async () => {

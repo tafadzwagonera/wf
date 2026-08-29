@@ -1,5 +1,6 @@
 import { execFile, execSync } from 'node:child_process';
 import { ConfigurationError, ExecutionError } from '../shared/errors/app.error';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
 import type { StageProgressCallback } from '../shared/types/agent.types';
 
 const SONAR_TIMEOUT_MS = 120_000;
@@ -30,6 +31,23 @@ interface SonarScanOptions {
   timeoutMs?: number;
   onProgress?: StageProgressCallback;
 }
+
+/**
+ * Structured record for a scan's overall outcome, persisted regardless of status. `onProgress`
+ * only reports the overall result on the clean path (see the call in `runSonarScan`) — a findings
+ * result is otherwise only ever announced per individual step — so without this record a findings
+ * scan's overall outcome, and a clean scan's outcome entirely, would leave no trace in the log.
+ */
+const logScanOutcome = (
+  status: 'clean' | 'findings', repoDir: string, scope: SonarScanScope, steps: SonarStepOutcome[]
+): void => {
+  const rendered = [
+    `repoDir=${repoDir}`,
+    `scope=${scope.kind}`,
+    `steps=${steps.map(s => `${s.step}:${s.status}`).join(',')}`,
+  ].join(' ');
+  appendToLogFile('INFO', `sonar.scan.${status} ${rendered}`, 'sonar-scanner');
+};
 
 const ensureSonarCliAvailable = (): void => {
   try {
@@ -139,7 +157,7 @@ const runAnalyzeStep = async (
   onProgress?: StageProgressCallback
 ): Promise<{ steps: SonarStepOutcome[]; hasFindings: boolean }> => {
   if (scope.kind === 'files' && scope.paths.length === 0) {
-    return { steps: [{ step: 'analyze', status: 'skipped', exitCode: null }], hasFindings: false };
+    return { steps: [{ step: 'analyze', status: 'skipped', exitCode: null }], hasFindings: secretsHasFindings };
   }
   const result = await runSonarStep('analyze', buildAnalyzeArgs(scope, depth), repoDir, timeoutMs, onProgress);
   return { steps: [result], hasFindings: result.status === 'findings' || secretsHasFindings };
@@ -161,8 +179,11 @@ export async function runSonarScan(options: SonarScanOptions): Promise<SonarScan
   const analyzeResult = await runAnalyzeStep(
     options.repoDir, options.scope, options.depth, timeoutMs, secretsResult.hasFindings, options.onProgress
   );
-  return {
-    status: analyzeResult.hasFindings ? 'findings' : 'clean',
-    steps: [...secretsResult.steps, ...analyzeResult.steps],
-  };
+  const steps = [...secretsResult.steps, ...analyzeResult.steps];
+  const status = analyzeResult.hasFindings ? 'findings' : 'clean';
+  logScanOutcome(status, options.repoDir, options.scope, steps);
+  if (status === 'clean') {
+    options.onProgress?.(`SonarQube scan: clean — no issues found (scope=${options.scope.kind})`);
+  }
+  return { status, steps };
 }
